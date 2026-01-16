@@ -5,7 +5,8 @@
 //! propagated.
 
 use bitcoin::Transaction;
-use strata_bridge_primitives::types::BitcoinBlockHeight;
+use musig2::{PartialSignature, PubNonce};
+use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 
 use crate::signals::GraphToDeposit;
 
@@ -22,10 +23,20 @@ pub enum DepositEvent {
     },
     /// TODO: (@MdTeach)
     GraphMessage(GraphToDeposit),
-    /// TODO: (@MdTeach)
-    NonceReceived,
-    /// TODO: (@MdTeach)
-    PartialReceived,
+    /// Nonce received from an operator for the deposit transaction signing
+    NonceReceived {
+        /// The public nonce provided by the operator
+        nonce: PubNonce,
+        /// The index of the operator who provided the nonce
+        operator_idx: OperatorIdx,
+    },
+    /// Partial signature received from an operator for the deposit transaction signing
+    PartialReceived {
+        /// The partial signature provided by the operator
+        partial_sig: PartialSignature,
+        /// The index of the operator who provided the partial signature
+        operator_idx: OperatorIdx,
+    },
     /// TODO: (@mukeshdroid)
     DepositConfirmed,
     /// TODO: (@mukeshdroid)
@@ -63,8 +74,12 @@ impl std::fmt::Display for DepositEvent {
                     return write!(f, "GraphAvailable for operator_idx: {}", operator_idx);
                 }
             },
-            DepositEvent::NonceReceived => "NonceReceived",
-            DepositEvent::PartialReceived => "PartialReceived",
+            DepositEvent::NonceReceived { operator_idx, .. } => {
+                return write!(f, "NonceReceived from operator_idx: {}", operator_idx);
+            }
+            DepositEvent::PartialReceived { operator_idx, .. } => {
+                return write!(f, "PartialReceived from operator_idx: {}", operator_idx);
+            }
             DepositEvent::DepositConfirmed => "DepositConfirmed",
             DepositEvent::Assignment => "Assignment",
             DepositEvent::FulfillmentConfirmed => "FulfillmentConfirmed",

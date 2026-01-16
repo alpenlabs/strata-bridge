@@ -11,6 +11,8 @@ workspace = true
 strata-bridge-primitives.workspace = true
 
 bitcoin.workspace = true
+musig2.workspace = true
+strata-bridge-tx-graph2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
@@ -19,4 +21,5 @@ musig2.workspace = true
 
 proptest.workspace = true
 secp256k1.workspace = true
+strata-l1-txfmt.workspace = true
 strata-p2p-types.workspace = true

@@ -4,13 +4,23 @@
 //! with respect to the multisig. Each state represents a specific point in the process
 //! of handling a deposit, from the initial request to the final spend.
 
-use std::fmt::Display;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+};
 
 use bitcoin::{OutPoint, Transaction};
+use musig2::{
+    AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures, secp256k1::schnorr,
+    verify_partial,
+};
 use strata_bridge_primitives::{
+    key_agg::create_agg_ctx,
     operator_table::OperatorTable,
+    scripts::taproot::TaprootWitness,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
+use strata_bridge_tx_graph2::transactions::{PresignedTx, deposit::DepositTx};
 
 use crate::{
     deposit::{
@@ -18,7 +28,7 @@ use crate::{
         errors::{DSMError, DSMResult},
         events::DepositEvent,
     },
-    signals::{DepositSignal, DepositToGraph},
+    signals::{DepositSignal, DepositToGraph, GraphToDeposit},
     state_machine::{SMOutput, StateMachine},
 };
 
@@ -49,36 +59,108 @@ pub struct DepositCfg {
     pub(super) operator_table: OperatorTable,
 }
 
+impl DepositCfg {
+    /// Returns the deposit index.
+    pub const fn deposit_idx(&self) -> DepositIdx {
+        self.deposit_idx
+    }
+
+    /// Returns the deposit request outpoint.
+    pub const fn deposit_outpoint(&self) -> OutPoint {
+        self.deposit_outpoint
+    }
+
+    /// Returns the operator table.
+    pub const fn operator_table(&self) -> &OperatorTable {
+        &self.operator_table
+    }
+}
+
 /// The state of a Deposit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositState {
-    /// TODO: (@MdTeach)
+    /// This state represents the initial phase after deposit request confirmation.
+    ///
+    /// This happens from the confirmation of the deposit request transaction until all operators
+    /// have generated and linked their graphs for this deposit.
     Created {
-        /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
-        deposit_request_outpoint: OutPoint,
-        /// The height of the latest block that this state machine is aware of.
-        block_height: u64,
+        /// The unsigned deposit transaction derived from the deposit request.
+        deposit_transaction: DepositTx,
+
+        /// Block height where the deposit request transaction was confirmed.
+        drt_block_height: BitcoinBlockHeight,
+
+        /// Index of the deposit output in the deposit transaction.
+        output_index: u32,
+
+        /// Latest Bitcoin block height observed by the state machine.
+        block_height: BitcoinBlockHeight,
+
+        /// Operators whose spending graphs have been generated for this deposit.
+        linked_graphs: BTreeSet<OperatorIdx>,
     },
-    /// TODO: (@MdTeach)
+    /// This state represents the phase where all operator graphs have been generated.
+    ///
+    /// This happens from the point where all operator graphs are generated until all public nonces
+    /// required to sign the deposit transaction are collected.
     GraphGenerated {
-        /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
-        deposit_request_outpoint: OutPoint,
-        /// The height of the latest block that this state machine is aware of.
-        block_height: u64,
+        /// The unsigned deposit transaction to be signed.
+        deposit_transaction: DepositTx,
+
+        /// Block height where the deposit request transaction was confirmed.
+        drt_block_height: BitcoinBlockHeight,
+
+        /// Index of the deposit output in the deposit transaction.
+        output_index: u32,
+
+        /// Latest Bitcoin block height observed by the state machine.
+        block_height: BitcoinBlockHeight,
+
+        /// Public nonces provided by each operator for signing.
+        pubnonces: BTreeMap<OperatorIdx, PubNonce>,
     },
-    /// TODO: (@MdTeach)
+    /// This state represents the phase where all deposit public nonces have been collected.
+    ///
+    /// This happens from the collection of all deposit public nonces until all partial signatures
+    /// have been received.
     DepositNoncesCollected {
-        /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
-        deposit_request_outpoint: OutPoint,
-        /// The height of the latest block that this state machine is aware of.
-        block_height: u64,
+        /// The deposit transaction being signed.
+        deposit_transaction: DepositTx,
+
+        /// Block height where the deposit request transaction was confirmed.
+        drt_block_height: BitcoinBlockHeight,
+
+        /// Index of the deposit output in the deposit transaction.
+        output_index: u32,
+
+        /// Latest Bitcoin block height observed by the state machine.
+        block_height: BitcoinBlockHeight,
+
+        /// Aggregated nonce used to validate partial signatures.
+        agg_nonce: AggNonce,
+
+        /// Public nonces provided by each operator for signing.
+        pubnonces: BTreeMap<OperatorIdx, PubNonce>,
+
+        /// Partial signatures from operators for the deposit transaction.
+        partial_signatures: BTreeMap<OperatorIdx, PartialSignature>,
     },
-    /// TODO: (@MdTeach)
+    /// This state represents the phase where all partial signatures have been collected.
+    ///
+    /// This happens from the collection of all partial signatures until the deposit transaction
+    /// is broadcast and confirmed.
     DepositPartialsCollected {
-        /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
-        deposit_request_outpoint: OutPoint,
-        /// The height of the latest block that this state machine is aware of.
-        block_height: u64,
+        /// Index of the deposit output in the deposit transaction.
+        output_index: u32,
+
+        /// Latest Bitcoin block height observed by the state machine.
+        block_height: BitcoinBlockHeight,
+
+        /// Block height where the deposit request transaction was confirmed.
+        drt_block_height: BitcoinBlockHeight,
+
+        /// The fully signed deposit transaction.
+        deposit_transaction: Transaction,
     },
     /// TODO: (@mukeshdroid)
     Deposited {
@@ -129,37 +211,38 @@ pub enum DepositState {
 
 impl Display for DepositState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let state_str = match self {
-            DepositState::Created { .. } => "Created",
-            DepositState::GraphGenerated { .. } => "GraphGenerated",
-            DepositState::DepositNoncesCollected { .. } => "DepositNoncesCollected",
-            DepositState::DepositPartialsCollected { .. } => "DepositPartialsCollected",
-            DepositState::Deposited { .. } => "Deposited",
-            DepositState::Assigned { .. } => "Assigned",
-            DepositState::Fulfilled { .. } => "Fulfilled",
-            DepositState::PayoutNoncesCollected { .. } => "PayoutNoncesColletced",
-            DepositState::PayoutPartialsCollected { .. } => "PayoutPartialsCollected",
-            DepositState::CooperativePathFailed { .. } => "CooperativePathFailed",
-            DepositState::Spent => "Spent",
-            DepositState::Aborted => "Aborted",
+        let display_str = match self {
+            DepositState::Created { .. } => "Created".to_string(),
+            DepositState::GraphGenerated { .. } => "GraphGenerated".to_string(),
+            DepositState::DepositNoncesCollected { .. } => "DepositNoncesCollected".to_string(),
+            DepositState::DepositPartialsCollected { .. } => "DepositPartialsCollected".to_string(),
+            DepositState::Deposited { .. } => "Deposited".to_string(),
+            DepositState::Assigned { .. } => "Assigned".to_string(),
+            DepositState::Fulfilled { .. } => "Fulfilled".to_string(),
+            DepositState::PayoutNoncesCollected { .. } => "PayoutNoncesCollected".to_string(),
+            DepositState::PayoutPartialsCollected { .. } => "PayoutPartialsCollected".to_string(),
+            DepositState::CooperativePathFailed { .. } => "CooperativePathFailed".to_string(),
+            DepositState::Spent => "Spent".to_string(),
+            DepositState::Aborted => "Aborted".to_string(),
         };
-        write!(f, "{}", state_str)
-    }
-}
-
-impl Default for DepositState {
-    fn default() -> Self {
-        // TODO: (@MdTeach) Remove this impl once `new` starts taking arguments.
-        DepositState::new()
+        write!(f, "{}", display_str)
     }
 }
 
 impl DepositState {
     /// Creates a new Deposit State in the `Created` state.
-    pub fn new() -> Self {
+    pub const fn new(
+        deposit_transaction: DepositTx,
+        drt_block_height: BitcoinBlockHeight,
+        output_index: u32,
+        block_height: BitcoinBlockHeight,
+    ) -> Self {
         DepositState::Created {
-            deposit_request_outpoint: OutPoint::default(),
-            block_height: 0,
+            deposit_transaction,
+            drt_block_height,
+            output_index,
+            block_height,
+            linked_graphs: BTreeSet::new(),
         }
     }
 
@@ -193,7 +276,7 @@ impl DepositState {
 /// of cooperative payout process)
 ///
 /// This includes some static configuration along with the actual state of the deposit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepositSM {
     /// The static configuration for this Deposit State Machine.
     pub(super) cfg: DepositCfg,
@@ -214,9 +297,15 @@ impl StateMachine for DepositSM {
         match event {
             DepositEvent::DepositRequest => self.process_deposit_request(),
             DepositEvent::UserTakeBack { tx } => self.process_drt_takeback(tx),
-            DepositEvent::GraphMessage(_graph_msg) => self.process_graph_available(),
-            DepositEvent::NonceReceived => self.process_nonce_received(),
-            DepositEvent::PartialReceived => self.process_partial_received(),
+            DepositEvent::GraphMessage(graph_msg) => self.process_graph_available(graph_msg),
+            DepositEvent::NonceReceived {
+                nonce,
+                operator_idx,
+            } => self.process_nonce_received(nonce, operator_idx),
+            DepositEvent::PartialReceived {
+                partial_sig,
+                operator_idx,
+            } => self.process_partial_received(partial_sig, operator_idx),
             DepositEvent::DepositConfirmed => self.process_deposit_confirmed(),
             DepositEvent::Assignment => self.process_assignment(),
             DepositEvent::FulfillmentConfirmed => self.process_fulfillment(),
@@ -237,10 +326,21 @@ pub type DSMOutput = SMOutput<DepositDuty, DepositSignal>;
 
 impl DepositSM {
     /// Creates a new Deposit State Machine with the given configuration.
-    pub fn new(cfg: DepositCfg) -> Self {
+    pub const fn new(
+        cfg: DepositCfg,
+        deposit_transaction: DepositTx,
+        drt_block_height: BitcoinBlockHeight,
+        output_index: u32,
+        block_height: BitcoinBlockHeight,
+    ) -> Self {
         DepositSM {
             cfg,
-            state: DepositState::new(),
+            state: DepositState::new(
+                deposit_transaction,
+                drt_block_height,
+                output_index,
+                block_height,
+            ),
         }
     }
 
@@ -275,8 +375,23 @@ impl DepositSM {
     // NOTE: all of the following functions are placeholders for the actual state transition logic.
     // they each receive the appropriate data required for the state transitions.
 
+    /// Processes the deposit request event.
+    ///
+    /// This handles the initial deposit request and instructs the operator to publish
+    /// their nonce for the deposit transaction signing process.
     fn process_deposit_request(&self) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        todo!("@MdTeach")
+        match self.state() {
+            DepositState::Created { .. } => Ok(DSMOutput::with_duties(vec![
+                DepositDuty::PublishDepositNonce {
+                    deposit_out_point: self.cfg().deposit_outpoint(),
+                },
+            ])),
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state().to_string(),
+                event: DepositEvent::DepositRequest.to_string(),
+                reason: None,
+            }),
+        }
     }
 
     /// Processes the event where the user takes back the deposit request output.
@@ -287,23 +402,12 @@ impl DepositSM {
         &mut self,
         tx: Transaction,
     ) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
+        let deposit_request_outpoint = &self.cfg().deposit_outpoint;
         match self.state() {
-            DepositState::Created {
-                deposit_request_outpoint,
-                ..
-            }
-            | DepositState::GraphGenerated {
-                deposit_request_outpoint,
-                ..
-            }
-            | DepositState::DepositNoncesCollected {
-                deposit_request_outpoint,
-                ..
-            }
-            | DepositState::DepositPartialsCollected {
-                deposit_request_outpoint,
-                ..
-            } => {
+            DepositState::Created { .. }
+            | DepositState::GraphGenerated { .. }
+            | DepositState::DepositNoncesCollected { .. }
+            | DepositState::DepositPartialsCollected { .. } => {
                 // FIXME: (@Rajil1213) Check if `txid` is not that of a Deposit Transaction instead
                 if tx
                     .input
@@ -327,7 +431,7 @@ impl DepositSM {
                     })
                 } else {
                     Err(DSMError::Rejected {
-                        state: self.state().clone(),
+                        state: Box::new(self.state().clone()),
                         reason: format!(
                             "Transaction {} is not a take back transaction for the deposit request outpoint {}",
                             tx.compute_txid(),
@@ -338,7 +442,7 @@ impl DepositSM {
                 }
             }
             DepositState::Aborted => Err(DSMError::Duplicate {
-                state: self.state().clone(),
+                state: Box::new(self.state().clone()),
                 event: DepositEvent::UserTakeBack { tx }.into(),
             }),
             _ => Err(DSMError::InvalidEvent {
@@ -349,16 +453,281 @@ impl DepositSM {
         }
     }
 
-    fn process_graph_available(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@MdTeach")
+    /// Processes the event where an operator's graph becomes available.
+    ///
+    /// This tracks operators that have successfully generated and linked their spending graphs
+    /// for this deposit. When all operators have linked their graphs, transitions to the
+    /// [`DepositState::GraphGenerated`] state.
+    fn process_graph_available(&mut self, graph_msg: GraphToDeposit) -> DSMResult<DSMOutput> {
+        let operator_table_cardinality = self.cfg().operator_table.cardinality();
+
+        match self.state_mut() {
+            DepositState::Created {
+                deposit_transaction,
+                drt_block_height,
+                output_index,
+                block_height,
+                linked_graphs,
+            } => match graph_msg {
+                GraphToDeposit::GraphAvailable { operator_idx } => {
+                    // Check for duplicate graph submission
+                    if linked_graphs.contains(&operator_idx) {
+                        return Err(DSMError::Duplicate {
+                            state: Box::new(self.state().clone()),
+                            event: Box::new(DepositEvent::GraphMessage(
+                                GraphToDeposit::GraphAvailable { operator_idx },
+                            )),
+                        });
+                    }
+
+                    linked_graphs.insert(operator_idx);
+
+                    if linked_graphs.len() == operator_table_cardinality {
+                        // All operators have linked their graphs, transition to GraphGenerated
+                        // state
+                        let new_state = DepositState::GraphGenerated {
+                            deposit_transaction: deposit_transaction.clone(),
+                            drt_block_height: *drt_block_height,
+                            output_index: *output_index,
+                            block_height: *block_height,
+                            pubnonces: BTreeMap::new(),
+                        };
+                        self.state = new_state;
+                    }
+
+                    Ok(DSMOutput::new())
+                }
+            },
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state().to_string(),
+                event: DepositEvent::GraphMessage(graph_msg).to_string(),
+                reason: None,
+            }),
+        }
     }
 
-    fn process_nonce_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@MdTeach")
+    /// Processes the event where an operator's nonce is received for the deposit transaction.
+    ///
+    /// This collects public nonces from operators required for the multisig signing process.
+    /// When all operators have provided their nonces, transitions to the
+    /// [`DepositState::DepositNoncesCollected`] state and emits a
+    /// [`DepositDuty::PublishDepositPartial`] duty.
+    fn process_nonce_received(
+        &mut self,
+        nonce: PubNonce,
+        operator_idx: OperatorIdx,
+    ) -> DSMResult<DSMOutput> {
+        let operator_table_cardinality = self.cfg().operator_table.cardinality();
+
+        match self.state_mut() {
+            DepositState::GraphGenerated {
+                deposit_transaction,
+                drt_block_height,
+                output_index,
+                block_height,
+                pubnonces,
+            } => {
+                // Check for duplicate nonce submission
+                if pubnonces.contains_key(&operator_idx) {
+                    return Err(DSMError::Duplicate {
+                        state: Box::new(self.state().clone()),
+                        event: Box::new(DepositEvent::NonceReceived {
+                            nonce,
+                            operator_idx,
+                        }),
+                    });
+                }
+
+                // Insert the new nonce into the map
+                pubnonces.insert(operator_idx, nonce);
+
+                // Check if we have collected all nonces
+                if pubnonces.len() == operator_table_cardinality {
+                    // All nonces collected, compute the aggregated nonce
+                    let agg_nonce = AggNonce::sum(pubnonces.values().cloned());
+
+                    // Derive the sighash message for the deposit transaction
+                    let deposit_sighash = deposit_transaction
+                        .signing_info()
+                        .first()
+                        .expect("deposit transaction must have signing info")
+                        .sighash;
+
+                    // Transition to DepositNoncesCollected state
+                    let new_state = DepositState::DepositNoncesCollected {
+                        deposit_transaction: deposit_transaction.clone(),
+                        drt_block_height: *drt_block_height,
+                        output_index: *output_index,
+                        block_height: *block_height,
+                        agg_nonce: agg_nonce.clone(),
+                        pubnonces: pubnonces.clone(),
+                        partial_signatures: BTreeMap::new(),
+                    };
+                    self.state = new_state;
+
+                    // Create the duty to publish deposit partials
+                    let duty = DepositDuty::PublishDepositPartial {
+                        deposit_out_point: self.cfg().deposit_outpoint(),
+                        deposit_sighash,
+                        deposit_agg_nonce: agg_nonce,
+                    };
+
+                    Ok(DSMOutput::with_duties(vec![duty]))
+                } else {
+                    // Not all nonces collected yet, stay in current state
+                    Ok(DSMOutput::new())
+                }
+            }
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state().to_string(),
+                event: DepositEvent::NonceReceived {
+                    nonce,
+                    operator_idx,
+                }
+                .to_string(),
+                reason: None,
+            }),
+        }
     }
 
-    fn process_partial_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@MdTeach")
+    /// Processes the event where an operator's partial signature is received for the deposit
+    /// transaction.
+    ///
+    /// This collects partial signatures from operators required for the multisig signing process.
+    /// When all operators have provided their partial signatures, transitions to the
+    /// [`DepositState::DepositPartialsCollected`] state and emits a [`DepositDuty::PublishDeposit`]
+    /// duty.
+    fn process_partial_received(
+        &mut self,
+        partial_sig: PartialSignature,
+        operator_idx: OperatorIdx,
+    ) -> DSMResult<DSMOutput> {
+        let operator_table_cardinality = self.cfg().operator_table.cardinality();
+        let btc_keys: Vec<_> = self.cfg().operator_table.btc_keys().into_iter().collect();
+        let operator_pubkey = self
+            .cfg()
+            .operator_table
+            .idx_to_btc_key(&operator_idx)
+            .expect("operator must be in table");
+
+        match self.state_mut() {
+            DepositState::DepositNoncesCollected {
+                deposit_transaction,
+                drt_block_height,
+                output_index,
+                block_height,
+                agg_nonce,
+                pubnonces,
+                partial_signatures,
+            } => {
+                // Extract Copy types immediately using dereference pattern to bypass borrow checker
+                let drt_height = *drt_block_height;
+                let out_idx = *output_index;
+                let blk_height = *block_height;
+
+                let operator_pubnonce = pubnonces
+                    .get(&operator_idx)
+                    .expect("operator must have submitted nonce")
+                    .clone();
+
+                // Extract signing info once - used for both verification and aggregation
+                let signing_info = deposit_transaction.signing_info();
+                let info = signing_info
+                    .first()
+                    .expect("deposit transaction must have signing info");
+                let sighash = info.sighash;
+                let tweak = info
+                    .tweak
+                    .expect("DRT->DT key-path spend must include a taproot tweak")
+                    .expect("tweak must be present for deposit transaction");
+
+                let tap_witness = TaprootWitness::Tweaked { tweak };
+
+                // Create key aggregation context once - reused for verification and aggregation
+                let key_agg_ctx = create_agg_ctx(btc_keys, &tap_witness)
+                    .expect("must be able to create key aggregation context");
+
+                // Verify the partial signature
+                if verify_partial(
+                    &key_agg_ctx,
+                    partial_sig,
+                    agg_nonce,
+                    operator_pubkey,
+                    &operator_pubnonce,
+                    sighash.as_ref(),
+                )
+                .is_err()
+                {
+                    return Err(DSMError::Rejected {
+                        state: Box::new(self.state().clone()),
+                        reason: "Invalid partial signature".to_string(),
+                        event: Box::new(DepositEvent::PartialReceived {
+                            partial_sig,
+                            operator_idx,
+                        }),
+                    });
+                }
+
+                // Check for duplicate partial signature submission
+                if partial_signatures.contains_key(&operator_idx) {
+                    return Err(DSMError::Duplicate {
+                        state: Box::new(self.state().clone()),
+                        event: Box::new(DepositEvent::PartialReceived {
+                            partial_sig,
+                            operator_idx,
+                        }),
+                    });
+                }
+
+                // Insert the new partial signature into the map
+                partial_signatures.insert(operator_idx, partial_sig);
+
+                // Check if we have collected all partial signatures
+                if partial_signatures.len() == operator_table_cardinality {
+                    // Clone deposit transaction for state transition
+                    let deposit_tx = deposit_transaction.clone();
+
+                    // Aggregate all partial signatures using the same key_agg_ctx
+                    let agg_signature: schnorr::Signature = aggregate_partial_signatures(
+                        &key_agg_ctx,
+                        agg_nonce,
+                        partial_signatures.values().cloned(),
+                        sighash.as_ref(),
+                    )
+                    .expect("partial signatures must be valid");
+
+                    // Build deposit transaction with sigs
+                    let deposit_transaction = deposit_tx.finalize(agg_signature);
+
+                    // Transition to DepositPartialsCollected state
+                    self.state = DepositState::DepositPartialsCollected {
+                        deposit_transaction: deposit_transaction.clone(),
+                        drt_block_height: drt_height,
+                        output_index: out_idx,
+                        block_height: blk_height,
+                    };
+
+                    // Create the duty to publish the deposit transaction
+                    let duty = DepositDuty::PublishDeposit {
+                        deposit_transaction,
+                        agg_signature,
+                    };
+
+                    Ok(DSMOutput::with_duties(vec![duty]))
+                } else {
+                    Ok(DSMOutput::new())
+                }
+            }
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state().to_string(),
+                event: DepositEvent::PartialReceived {
+                    partial_sig,
+                    operator_idx,
+                }
+                .to_string(),
+                reason: None,
+            }),
+        }
     }
 
     fn process_deposit_confirmed(&mut self) -> DSMResult<DSMOutput> {
@@ -432,7 +801,7 @@ impl DepositSM {
                 })
             }
             DepositState::Spent => Err(DSMError::Duplicate {
-                state: self.state().clone(),
+                state: Box::new(self.state().clone()),
                 event: DepositEvent::PayoutConfirmed { tx: tx.clone() }.into()
             }),
             _ => Err(DSMError::InvalidEvent {
@@ -447,7 +816,7 @@ impl DepositSM {
         let last_processed_block_height = self.state().last_processed_block_height();
         if last_processed_block_height.is_some_and(|height| *height >= new_block_height) {
             return Err(DSMError::Duplicate {
-                state: self.state().clone(),
+                state: Box::new(self.state().clone()),
                 event: DepositEvent::NewBlock {
                     block_height: new_block_height,
                 }
@@ -518,7 +887,7 @@ impl DepositSM {
             }
 
             DepositState::Spent | DepositState::Aborted => Err(DSMError::Rejected {
-                state: self.state().clone(),
+                state: Box::new(self.state().clone()),
                 reason: "New blocks irrelevant in terminal state".to_string(),
                 event: DepositEvent::NewBlock {
                     block_height: new_block_height,
@@ -534,6 +903,7 @@ mod tests {
 
     use std::str::FromStr;
 
+    use bitcoin::{Amount, OutPoint, relative};
     use proptest::prelude::*;
     use strata_bridge_test_utils::prelude::generate_spending_tx;
 
@@ -546,12 +916,25 @@ mod tests {
 
     // ===== Unit Tests for process_drt_takeback =====
 
+    fn default_deposit_tx() -> DepositTx {
+        let operator_table = test_operator_table();
+
+        let amount = Amount::from_btc(10.0).expect("valid amount");
+        let timelock = relative::LockTime::from_height(144);
+        let n_of_n_pubkey = operator_table.aggregated_btc_key().x_only_public_key().0;
+        let depositor_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
+        generate_test_deposit_txn(amount, timelock, n_of_n_pubkey, depositor_pubkey)
+    }
+
     #[test]
     fn test_drt_takeback_from_created() {
         let outpoint = OutPoint::default();
         let state = DepositState::Created {
-            deposit_request_outpoint: outpoint,
+            deposit_transaction: default_deposit_tx(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
             block_height: INITIAL_BLOCK_HEIGHT,
+            linked_graphs: Default::default(),
+            output_index: Default::default(),
         };
 
         let tx = test_takeback_tx(outpoint);
@@ -573,7 +956,10 @@ mod tests {
     fn test_drt_takeback_from_graph_generated() {
         let outpoint = OutPoint::default();
         let state = DepositState::GraphGenerated {
-            deposit_request_outpoint: outpoint,
+            deposit_transaction: default_deposit_tx(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: Default::default(),
+            pubnonces: Default::default(),
             block_height: INITIAL_BLOCK_HEIGHT,
         };
 
@@ -624,7 +1010,10 @@ mod tests {
     fn test_wrong_drt_takeback_tx_rejection() {
         let drt_outpoint = OutPoint::default();
         let initial_state = DepositState::Created {
-            deposit_request_outpoint: drt_outpoint,
+            deposit_transaction: default_deposit_tx(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: Default::default(),
+            linked_graphs: Default::default(),
             block_height: INITIAL_BLOCK_HEIGHT,
         };
 
@@ -752,6 +1141,388 @@ mod tests {
         );
     }
 
+    // ===== Process Graph Available Tests =====
+
+    #[test]
+    fn test_process_graph_available_sequence() {
+        let deposit_tx = default_deposit_tx();
+        let operator_table = test_operator_table();
+        let operator_count = operator_table.cardinality() as u32;
+
+        let initial_state = DepositState::Created {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            linked_graphs: BTreeSet::new(),
+        };
+
+        let sm = create_sm(initial_state);
+        let mut seq = EventSequence::new(sm, get_state);
+
+        for operator_idx in 0..operator_count {
+            seq.process(DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
+                operator_idx,
+            }));
+        }
+
+        seq.assert_no_errors();
+
+        // Should transition to GraphGenerated
+        assert!(matches!(seq.state(), DepositState::GraphGenerated { .. }));
+
+        // No duties should be emitted
+        assert!(
+            seq.all_duties().is_empty(),
+            "No duties should be emitted on graph completion"
+        );
+    }
+
+    #[test]
+    fn test_duplicate_process_graph_available_sequence() {
+        let deposit_tx = default_deposit_tx();
+        let operator_table = test_operator_table();
+        let operator_count = operator_table.cardinality() as u32;
+
+        let initial_state = DepositState::Created {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            linked_graphs: BTreeSet::new(),
+        };
+
+        let sm = create_sm(initial_state.clone());
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // Process GraphAvailable messages, all operators except the last one
+        for operator_idx in 0..(operator_count - 1) {
+            let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx });
+            seq.process(event.clone());
+
+            // Process the same event again to simulate duplicate
+            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+                create_sm,
+                InvalidTransition {
+                    from_state: seq.state().clone(),
+                    event,
+                    expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+                },
+            );
+        }
+    }
+
+    // ===== Process Nonce Received Tests =====
+
+    #[test]
+    fn test_process_nonce_sequence() {
+        let deposit_tx = default_deposit_tx();
+        let operator_signers = test_operator_signers();
+        let operator_signers_nonce_counter = 0u64;
+
+        // Extract signing info
+        let (key_agg_ctx, _sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
+
+        // Generate nonces using the tweaked aggregated pubkey
+        let pubnonces: BTreeMap<u32, PubNonce> = operator_signers
+            .iter()
+            .enumerate()
+            .map(|(operatoridx, s)| {
+                (
+                    operatoridx as u32,
+                    s.pubnonce(tweaked_agg_pubkey, operator_signers_nonce_counter),
+                )
+            })
+            .collect();
+
+        let initial_state = DepositState::GraphGenerated {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            pubnonces: BTreeMap::new(),
+        };
+
+        let sm = create_sm(initial_state);
+        let mut seq = EventSequence::new(sm, get_state);
+
+        for (operator_idx, nonce) in &pubnonces {
+            seq.process(DepositEvent::NonceReceived {
+                nonce: nonce.clone(),
+                operator_idx: *operator_idx,
+            });
+        }
+
+        seq.assert_no_errors();
+
+        // Should transition to DepositNoncesCollected
+        assert!(matches!(
+            seq.state(),
+            DepositState::DepositNoncesCollected { .. }
+        ));
+
+        // Check that a PublishDepositPartial duty was emitted
+        assert!(
+            matches!(
+                seq.all_duties().as_slice(),
+                [DepositDuty::PublishDepositPartial { .. }]
+            ),
+            "Expected exactly 1 PublishDepositPartial duty to be emitted"
+        );
+    }
+
+    #[test]
+    fn test_duplicate_process_nonce_sequence() {
+        let deposit_tx = default_deposit_tx();
+        let operator_signers = test_operator_signers();
+        let operator_signers_nonce_counter = 0u64;
+
+        // Extract signing info
+        let (key_agg_ctx, _sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
+
+        let initial_state = DepositState::GraphGenerated {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            pubnonces: BTreeMap::new(),
+        };
+
+        let sm = create_sm(initial_state.clone());
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // Process nonces, all operators except the last one
+        for signer in operator_signers
+            .iter()
+            .take(operator_signers.len().saturating_sub(1))
+        {
+            let nonce = signer.pubnonce(tweaked_agg_pubkey, operator_signers_nonce_counter);
+            let event = DepositEvent::NonceReceived {
+                nonce,
+                operator_idx: signer.operator_idx(),
+            };
+            seq.process(event.clone());
+
+            // Process the same event again to simulate duplicate
+            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+                create_sm,
+                InvalidTransition {
+                    from_state: seq.state().clone(),
+                    event,
+                    expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+                },
+            );
+        }
+    }
+
+    // ===== Process Partial Received Tests =====
+    #[test]
+    fn test_process_partial_sequence() {
+        let deposit_tx = default_deposit_tx();
+        let operator_signers = test_operator_signers();
+        let operator_signers_nonce_counter = 0u64;
+
+        // Extract signing info
+        let (key_agg_ctx, sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
+
+        // Generate nonces using the tweaked aggregated pubkey
+        let pubnonces: BTreeMap<u32, PubNonce> = operator_signers
+            .iter()
+            .enumerate()
+            .map(|(operatoridx, s)| {
+                (
+                    operatoridx as u32,
+                    s.pubnonce(tweaked_agg_pubkey, operator_signers_nonce_counter),
+                )
+            })
+            .collect();
+        let agg_nonce = AggNonce::sum(pubnonces.values().cloned());
+
+        let initial_state = DepositState::DepositNoncesCollected {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            pubnonces,
+            agg_nonce: agg_nonce.clone(),
+            partial_signatures: BTreeMap::new(),
+        };
+
+        let sm = create_sm(initial_state);
+        let mut seq = EventSequence::new(sm, get_state);
+
+        for signer in &operator_signers {
+            let partial_sig = signer.sign(
+                &key_agg_ctx,
+                operator_signers_nonce_counter,
+                &agg_nonce,
+                sighash,
+            );
+            seq.process(DepositEvent::PartialReceived {
+                partial_sig,
+                operator_idx: signer.operator_idx(),
+            });
+        }
+
+        seq.assert_no_errors();
+
+        // Should transition to DepositPartialsCollected
+        assert!(matches!(
+            seq.state(),
+            DepositState::DepositPartialsCollected { .. }
+        ));
+
+        // Check that a PublishDeposit duty was emitted
+        assert!(
+            matches!(
+                seq.all_duties().as_slice(),
+                [DepositDuty::PublishDeposit { .. }]
+            ),
+            "Expected exactly 1 PublishDeposit duty to be emitted"
+        );
+    }
+
+    #[test]
+    fn test_invalid_process_partial_sequence() {
+        let deposit_tx = default_deposit_tx();
+        let operator_signers = test_operator_signers();
+        let mut operator_signers_nonce_counter = 0u64;
+
+        // Extract signing info
+        let (key_agg_ctx, sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
+
+        // Generate nonces using the tweaked aggregated pubkey
+        let pubnonces: BTreeMap<u32, PubNonce> = operator_signers
+            .iter()
+            .enumerate()
+            .map(|(operatoridx, s)| {
+                (
+                    operatoridx as u32,
+                    s.pubnonce(tweaked_agg_pubkey, operator_signers_nonce_counter),
+                )
+            })
+            .collect();
+        let agg_nonce = AggNonce::sum(pubnonces.values().cloned());
+
+        let initial_state = DepositState::DepositNoncesCollected {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            pubnonces,
+            agg_nonce: agg_nonce.clone(),
+            partial_signatures: BTreeMap::new(),
+        };
+
+        let sm = create_sm(initial_state.clone());
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // Update the nonce counter to simulate invalid signature
+        operator_signers_nonce_counter += 1;
+
+        for signer in &operator_signers {
+            let partial_sig = signer.sign(
+                &key_agg_ctx,
+                operator_signers_nonce_counter,
+                &agg_nonce,
+                sighash,
+            );
+            seq.process(DepositEvent::PartialReceived {
+                partial_sig,
+                operator_idx: signer.operator_idx(),
+            });
+        }
+
+        // Shoudon't have transitioned state
+        seq.assert_final_state(&initial_state);
+
+        // Should have errors due to invalid partial signatures
+        let errors = seq.all_errors();
+        assert_eq!(
+            errors.len(),
+            operator_signers.len(),
+            "Expected {} errors for invalid partial signatures, got {}",
+            operator_signers.len(),
+            errors.len()
+        );
+        errors.iter().for_each(|err| {
+            assert!(
+                matches!(err, DSMError::Rejected { .. }),
+                "Expected Rejected error, got {:?}",
+                err
+            );
+        });
+    }
+
+    #[test]
+    fn test_duplicate_process_partial_sequence() {
+        let deposit_tx = default_deposit_tx();
+        let operator_signers = test_operator_signers();
+        let operator_signers_nonce_counter = 0u64;
+
+        // Extract signing info
+        let (key_agg_ctx, sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
+
+        // Generate nonces using the tweaked aggregated pubkey
+        let pubnonces: BTreeMap<u32, PubNonce> = operator_signers
+            .iter()
+            .enumerate()
+            .map(|(operatoridx, s)| {
+                (
+                    operatoridx as u32,
+                    s.pubnonce(tweaked_agg_pubkey, operator_signers_nonce_counter),
+                )
+            })
+            .collect();
+        let agg_nonce = AggNonce::sum(pubnonces.values().cloned());
+
+        let initial_state = DepositState::DepositNoncesCollected {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            pubnonces,
+            agg_nonce: agg_nonce.clone(),
+            partial_signatures: BTreeMap::new(),
+        };
+
+        let sm = create_sm(initial_state.clone());
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // Process partial signatures, all operators except the last one
+        for signer in operator_signers
+            .iter()
+            .take(operator_signers.len().saturating_sub(1))
+        {
+            let partial_sig = signer.sign(
+                &key_agg_ctx,
+                operator_signers_nonce_counter,
+                &agg_nonce,
+                sighash,
+            );
+            let event = DepositEvent::PartialReceived {
+                partial_sig,
+                operator_idx: signer.operator_idx(),
+            };
+            seq.process(event.clone());
+
+            // Process the same event again to simulate duplicate
+            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+                create_sm,
+                InvalidTransition {
+                    from_state: seq.state().clone(),
+                    event,
+                    expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+                },
+            );
+        }
+    }
+
     // ===== Property-Based Tests =====
 
     // Property: State machine is deterministic for the implemented states and events space
@@ -760,8 +1531,7 @@ mod tests {
         create_sm,
         get_state,
         any::<DepositState>(),
-        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
-                              * STFs are implemented */
+        any::<DepositEvent>()
     );
 
     // Property: No silent acceptance
@@ -770,8 +1540,7 @@ mod tests {
         create_sm,
         get_state,
         any::<DepositState>(),
-        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
-                              * STFs are implemented */
+        any::<DepositEvent>()
     );
 
     // Property: Terminal states reject all events
@@ -779,8 +1548,7 @@ mod tests {
         DepositSM,
         create_sm,
         arb_terminal_state(),
-        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
-                              * STFs are implemented */
+        any::<DepositEvent>()
     );
 
     // ===== Integration Tests (sequence of events) =====

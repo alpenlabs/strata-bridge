@@ -83,6 +83,7 @@ strata-bridge-sm = { path = "crates/bridge-sm" }
 strata-bridge-stake-chain = { path = "crates/stake-chain" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
+strata-bridge-tx-graph2 = { path = "crates/tx-graph2" }
 
 # Dependencies from alpenlabs/alpen pinned to commit ac811aa4 (main @ 2026-01-12)
 strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "a97d9d322d032e0129fc52418082ecc096ea2378" }
