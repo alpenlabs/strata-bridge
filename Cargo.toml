@@ -74,8 +74,8 @@ prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
 secret-service-proto = { path = "crates/secret-service-proto" }
 secret-service-server = { path = "crates/secret-service-server" }
+strata-asm-rpc = { path = "crates/asm-rpc" }
 strata-bridge-asm-events = { path = "crates/asm-events" }
-strata-bridge-asm-rpc = { path = "crates/asm-rpc" }
 strata-bridge-common = { path = "crates/common" }
 strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-connectors2 = { path = "crates/connectors2" }
