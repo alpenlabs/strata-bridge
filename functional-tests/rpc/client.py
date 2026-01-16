@@ -32,7 +32,7 @@ def _handle_response(resp_str: str):
     return resp["result"]
 
 
-def _send_single_ws_request(url: str, request: str, max_size: int | None = None) -> str:
+def _send_single_ws_request(url: str, request: str, max_size: int | None = None) -> str | bytes:
     with wsconnect(url, max_size=max_size) as w:
         w.send(request)
         return w.recv()
@@ -44,7 +44,7 @@ def _send_http_request(url: str, request: str) -> str:
     return res.text
 
 
-def _dispatch_request(url: str, request: str, max_size: int | None = None) -> str:
+def _dispatch_request(url: str, request: str, max_size: int | None = None) -> str | bytes:
     if url.startswith("http"):
         return _send_http_request(url, request)
     elif url.startswith("ws"):
@@ -75,7 +75,7 @@ class JsonrpcClient:
         req = _make_request(method, self.req_idx, args)
         self.req_idx += 1
         resp = _dispatch_request(self.url, req, max_size=max_size)
-        return _handle_response(resp)
+        return _handle_response(str(resp))
 
     def __getattr__(self, name: str):
         def __call(*args, **kwargs):
