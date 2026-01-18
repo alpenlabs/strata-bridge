@@ -24,7 +24,7 @@ pub enum DSMError {
     #[error("Received a duplicate event {event} in state {state}")]
     Duplicate {
         /// The state in which the duplicate event was received.
-        state: DepositState,
+        state: Box<DepositState>,
         /// The duplicate event that was received.
         event: Box<DepositEvent>,
     },
@@ -37,7 +37,7 @@ pub enum DSMError {
         /// The state in which the event was rejected.
         // NOTE: (@Rajil1213) Since errors are supposed to be rare, owning the DepositState here is
         // acceptable.
-        state: DepositState,
+        state: Box<DepositState>,
         /// The reason for the rejection.
         reason: String, // rejection reason is a must
         /// The rejected event.

@@ -9811,11 +9811,13 @@ name = "strata-bridge-sm"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "bitcoin-bosd",
  "musig2",
  "proptest",
  "secp256k1 0.29.1",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
+ "strata-bridge-tx-graph2",
  "strata-p2p-types",
  "thiserror 2.0.17",
 ]

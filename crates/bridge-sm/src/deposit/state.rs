@@ -4,12 +4,23 @@
 //! with respect to the multisig. Each state represents a specific point in the process
 //! of handling a deposit, from the initial request to the final spend.
 
-use std::fmt::Display;
+use std::{collections::BTreeMap, fmt::Display};
 
-use bitcoin::{OutPoint, Transaction};
+use bitcoin::{Amount, Network, OutPoint, Transaction, Txid, hashes::Hash};
+use bitcoin_bosd::Descriptor;
+use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature, verify_partial};
 use strata_bridge_primitives::{
+    key_agg::create_agg_ctx,
     operator_table::OperatorTable,
+    scripts::prelude::{TaprootWitness, get_aggregated_pubkey},
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
+};
+use strata_bridge_tx_graph2::{
+    connectors::prelude::NOfNConnector,
+    transactions::{
+        PresignedTx,
+        prelude::{CooperativePayoutData, CooperativePayoutTx},
+    },
 };
 
 use crate::{
@@ -47,10 +58,14 @@ pub struct DepositCfg {
     pub(super) deposit_outpoint: OutPoint,
     /// The operators involved in the signing of this deposit.
     pub(super) operator_table: OperatorTable,
+    /// The network (mainnet, testnet, regtest, etc.) for the deposit.
+    pub(super) network: Network,
+    /// The amount of the deposit.
+    pub(super) deposit_amount: Amount,
 }
 
 /// The state of a Deposit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositState {
     /// TODO: (@MdTeach)
     Created {
@@ -68,50 +83,108 @@ pub enum DepositState {
     },
     /// TODO: (@MdTeach)
     DepositNoncesCollected {
-        /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
-        deposit_request_outpoint: OutPoint,
-        /// The height of the latest block that this state machine is aware of.
+        /// Placeholder docstring as this will be added by @MdTeach
         block_height: u64,
+        /// Placeholder docstring as this will be added by @MdTeach
+        output_index: u32,
+        /// Placeholder docstring as this will be added by @MdTeach
+        deposit_request_outpoint: OutPoint,
+        /// Placeholder docstring as this will be added by @MdTeach
+        deposit_transaction: Transaction,
+        /// Placeholder docstring as this will be added by @MdTeach
+        pubnonces: BTreeMap<OperatorIdx, PubNonce>,
+        /// Placeholder docstring as this will be added by @MdTeach
+        agg_nonce: AggNonce,
+        /// Placeholder docstring as this will be added by @MdTeach
+        partial_signatures: BTreeMap<OperatorIdx, PartialSignature>,
     },
     /// TODO: (@MdTeach)
     DepositPartialsCollected {
-        /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
+        /// Placeholder docstring as this will be added by @MdTeach
+        block_height: u64,
+        /// Placeholder docstring as this will be added by @MdTeach
+        output_index: u32,
+        /// Placeholder docstring as this will be added by @MdTeach
         deposit_request_outpoint: OutPoint,
-        /// The height of the latest block that this state machine is aware of.
-        block_height: u64,
+        /// Placeholder docstring as this will be added by @MdTeach
+        deposit_transaction: Transaction,
+        /// Placeholder docstring as this will be added by @MdTeach
+        aggregated_signature: Signature,
     },
-    /// TODO: (@mukeshdroid)
+    /// This state indicates that the deposit transaction has been confirmed on-chain.
     Deposited {
-        /// The height of the latest block that this state machine is aware of.
+        /// The last block height observed by this state machine.
         block_height: u64,
     },
-    /// TODO: (@mukeshdroid)
+    /// This state indicates that a withdrawal has been assigned for this deposit.
     Assigned {
-        /// The height of the latest block that this state machine is aware of.
+        /// The last block height observed by this state machine.
         block_height: u64,
+        /// The index of the operator assigned to front the user.
+        assignee: OperatorIdx,
+        /// The block height by which the operator must fulfill the withdrawal.
+        deadline: BitcoinBlockHeight,
+        /// The user's descriptor where funds are to be sent by the operator.
+        recipient_desc: Descriptor,
     },
-    /// TODO: (@mukeshdroid)
+    /// This state indicates that the operator has fronted the user.
     Fulfilled {
-        /// The height of the latest block that this state machine is aware of.
+        /// The last block height observed by this state machine.
         block_height: u64,
-        /// The index of the operator assigned to the deposit.
+        /// The index of the operator assigned to front the user.
         assignee: OperatorIdx,
-        /// The height of the block where the withdrawal fulfillment was confirmed.
-        fulfillment_height: u64,
+        /// The txid of the fulfillment transaction in which the user was fronted.
+        fulfillment_txid: Txid,
+        /// The block height where the fulfillment transaction was confirmed.
+        fulfillment_height: BitcoinBlockHeight,
+        /// The block height by which the cooperative payout must be completed.
+        cooperative_payment_deadline: BitcoinBlockHeight,
     },
-    /// TODO: (@mukeshdroid)
+    /// This state indicates that the descriptor of the operator for the cooperative payout has been
+    /// received.
+    PayoutDescriptorReceived {
+        /// The last block height observed by this state machine.
+        block_height: u64,
+        /// The index of the operator assigned to front the user.
+        assignee: OperatorIdx,
+        /// The block height by which the cooperative payout must be completed.
+        cooperative_payment_deadline: BitcoinBlockHeight,
+        /// The operator's descriptor where they want the funds in the cooperative path.
+        /// This can only be set once and needs to be provided by the operator.
+        operator_desc: Descriptor,
+        /// The pubnonces, indexed by operator, required to sign the cooperative payout
+        /// transaction.
+        payout_nonces: BTreeMap<OperatorIdx, PubNonce>,
+    },
+    /// This state indicates that all pubnonces required for the cooperative payout has been
+    /// collected.
     PayoutNoncesCollected {
-        /// The height of the latest block that this state machine is aware of.
+        /// The last block height observed by this state machine.
         block_height: u64,
-        /// The index of the operator assigned to the deposit.
+        /// The index of the operator assigned to front the user.
         assignee: OperatorIdx,
-        /// The height of the block where the withdrawal fulfillment was confirmed.
-        fulfillment_height: u64,
+        /// The operator's descriptor where they want the funds in the cooperative path.
+        operator_desc: Descriptor,
+        /// The block height by which the cooperative payout must be completed.
+        cooperative_payment_deadline: BitcoinBlockHeight,
+        /// The pubnonces, indexed by operator, required to sign the cooperative payout
+        /// transaction.
+        payout_nonces: BTreeMap<OperatorIdx, PubNonce>,
+        /// The aggregated nonce for signing the cooperative payout transaction.
+        payout_aggregated_nonce: AggNonce,
+        /// The partial signatures, indexed by operator, for signing the cooperative payout
+        /// transaction.
+        payout_partial_signatures: BTreeMap<OperatorIdx, PartialSignature>,
     },
-    /// TODO: (@mukeshdroid)
+    /// This State indicates that all the partial signatures have been collected for cooperative
+    /// payout.
     PayoutPartialsCollected {
-        /// The height of the latest block that this state machine is aware of.
+        /// The last block height observed by this state machine.
         block_height: u64,
+        /// The txid of the the cooperative payout transaction.
+        payout_txid: Txid,
+        /// The aggregated signature for the cooperative payout transaction.
+        payout_aggregated_signature: Signature,
     },
     /// This state represents the scenario where the cooperative payout path has failed,
     ///
@@ -137,7 +210,8 @@ impl Display for DepositState {
             DepositState::Deposited { .. } => "Deposited",
             DepositState::Assigned { .. } => "Assigned",
             DepositState::Fulfilled { .. } => "Fulfilled",
-            DepositState::PayoutNoncesCollected { .. } => "PayoutNoncesColletced",
+            DepositState::PayoutDescriptorReceived { .. } => "PayoutDescriptorReceived",
+            DepositState::PayoutNoncesCollected { .. } => "PayoutNoncesCollected",
             DepositState::PayoutPartialsCollected { .. } => "PayoutPartialsCollected",
             DepositState::CooperativePathFailed { .. } => "CooperativePathFailed",
             DepositState::Spent => "Spent",
@@ -173,6 +247,7 @@ impl DepositState {
             | DepositState::Deposited { block_height, .. }
             | DepositState::Assigned { block_height, .. }
             | DepositState::Fulfilled { block_height, .. }
+            | DepositState::PayoutDescriptorReceived { block_height, .. }
             | DepositState::PayoutNoncesCollected { block_height, .. }
             | DepositState::PayoutPartialsCollected { block_height, .. }
             | DepositState::CooperativePathFailed { block_height, .. } => Some(block_height),
@@ -193,7 +268,7 @@ impl DepositState {
 /// of cooperative payout process)
 ///
 /// This includes some static configuration along with the actual state of the deposit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepositSM {
     /// The static configuration for this Deposit State Machine.
     pub(super) cfg: DepositCfg,
@@ -211,17 +286,45 @@ impl StateMachine for DepositSM {
         &mut self,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
+        let event_description: String = event.to_string();
         match event {
             DepositEvent::DepositRequest => self.process_deposit_request(),
             DepositEvent::UserTakeBack { tx } => self.process_drt_takeback(tx),
             DepositEvent::GraphMessage(_graph_msg) => self.process_graph_available(),
             DepositEvent::NonceReceived => self.process_nonce_received(),
             DepositEvent::PartialReceived => self.process_partial_received(),
-            DepositEvent::DepositConfirmed => self.process_deposit_confirmed(),
-            DepositEvent::Assignment => self.process_assignment(),
-            DepositEvent::FulfillmentConfirmed => self.process_fulfillment(),
-            DepositEvent::PayoutNonceReceived => self.process_payout_nonce_received(),
-            DepositEvent::PayoutPartialReceived => self.process_payout_partial_received(),
+            DepositEvent::DepositConfirmed {
+                deposit_transaction,
+            } => self.process_deposit_confirmed(event_description, deposit_transaction),
+            DepositEvent::Assignment {
+                assignee,
+                deadline,
+                recipient_desc,
+            } => self.process_assignment(event_description, assignee, deadline, recipient_desc),
+            DepositEvent::FulfillmentConfirmed {
+                fulfillment_transaction,
+                fulfillment_height,
+            } => self.process_fulfillment(
+                event_description,
+                fulfillment_transaction,
+                fulfillment_height,
+                COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+            ),
+            DepositEvent::PayoutDescriptorReceived { operator_desc } => {
+                self.process_payout_descriptor_received(event_description, operator_desc)
+            }
+            DepositEvent::PayoutNonceReceived {
+                payout_nonce,
+                operator_idx,
+            } => self.process_payout_nonce_received(event_description, payout_nonce, operator_idx),
+            DepositEvent::PayoutPartialReceived {
+                partial_signature,
+                operator_idx,
+            } => self.process_payout_partial_received(
+                event_description,
+                partial_signature,
+                operator_idx,
+            ),
             DepositEvent::PayoutConfirmed { tx } => self.process_payout_confirmed(&tx),
             DepositEvent::NewBlock { block_height } => self.process_new_block(block_height),
         }
@@ -327,7 +430,7 @@ impl DepositSM {
                     })
                 } else {
                     Err(DSMError::Rejected {
-                        state: self.state().clone(),
+                        state: self.state().clone().into(),
                         reason: format!(
                             "Transaction {} is not a take back transaction for the deposit request outpoint {}",
                             tx.compute_txid(),
@@ -338,7 +441,7 @@ impl DepositSM {
                 }
             }
             DepositState::Aborted => Err(DSMError::Duplicate {
-                state: self.state().clone(),
+                state: self.state().clone().into(),
                 event: DepositEvent::UserTakeBack { tx }.into(),
             }),
             _ => Err(DSMError::InvalidEvent {
@@ -361,24 +464,432 @@ impl DepositSM {
         todo!("@MdTeach")
     }
 
-    fn process_deposit_confirmed(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@mukeshdroid")
+    fn process_deposit_confirmed(
+        &mut self,
+        event_description: String,
+        confirmed_deposit_transaction: Transaction,
+    ) -> DSMResult<DSMOutput> {
+        match self.state_mut() {
+            DepositState::DepositPartialsCollected {
+                block_height,
+                deposit_transaction,
+                ..
+            }
+             // This can happen if one of the operators withholds their own partial signature
+             // while aggregating it with the rest of the collected partials and broadcasts it unilaterally
+            | DepositState::DepositNoncesCollected {
+                block_height,
+                deposit_transaction,
+                ..
+            } => {
+                let block_height = *block_height;
+                let deposit_transaction = deposit_transaction.clone();
+                // Ensure that the deposit transaction confirmed on-chain is the one we were
+                // expecting.
+                if confirmed_deposit_transaction.compute_txid() != deposit_transaction.compute_txid(){
+                    return Err(DSMError::Rejected {
+                        state: self.state().clone().into(),
+                        event: DepositEvent::DepositConfirmed { deposit_transaction }.into(),
+                        reason: "Transaction confirmed on chain does not match expected deposit transaction".to_string()
+                    });
+                }
+                // Transition to the Deposited State
+                self.state = DepositState::Deposited {
+                    block_height,
+                };
+                // No duties or signals required
+                Ok(DSMOutput::new())
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+                reason: None,
+            }),
+        }
     }
 
-    fn process_assignment(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@mukeshdroid")
+    fn process_assignment(
+        &mut self,
+        event_description: String,
+        assignee: OperatorIdx,
+        deadline: BitcoinBlockHeight,
+        recipient_desc: Descriptor,
+    ) -> DSMResult<DSMOutput> {
+        match self.state_mut() {
+            DepositState::Deposited { block_height } => {
+                // Transition to the Assigned State
+                self.state = DepositState::Assigned {
+                    block_height: *block_height,
+                    assignee,
+                    deadline,
+                    recipient_desc: recipient_desc.clone(),
+                };
+                // Dispatch the duty to fulfill the assignment if the assignee is the pov operator,
+                // otherwise no duties or signals need to be dispatched.
+                if self.cfg.operator_table.pov_idx() == assignee {
+                    Ok(DSMOutput::with_duties(vec![
+                        DepositDuty::FulfillWithdrawal {
+                            deposit_idx: self.cfg.deposit_idx,
+                            deadline,
+                            recipient_desc,
+                        },
+                    ]))
+                } else {
+                    Ok(DSMOutput::new())
+                }
+            }
+
+            // Update the state with the details from new assignment event.
+            DepositState::Assigned { block_height, .. } => {
+                self.state = DepositState::Assigned {
+                    block_height: *block_height,
+                    assignee,
+                    deadline,
+                    recipient_desc: recipient_desc.clone(),
+                };
+                // Dispatch the duty to fulfill the assignment if the assignee is the pov operator,
+                // otherwise no duties or signals need to be dispatched.
+                if self.cfg.operator_table.pov_idx() == assignee {
+                    Ok(DSMOutput::with_duties(vec![
+                        DepositDuty::FulfillWithdrawal {
+                            deposit_idx: self.cfg.deposit_idx,
+                            deadline,
+                            recipient_desc,
+                        },
+                    ]))
+                } else {
+                    Ok(DSMOutput::new())
+                }
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+                reason: None,
+            }),
+        }
     }
 
-    fn process_fulfillment(&self) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        todo!("@mukeshdroid")
+    fn process_fulfillment(
+        &mut self,
+        event_description: String,
+        fulfillment_transaction: Transaction,
+        fulfillment_height: BitcoinBlockHeight,
+        cooperative_payout_timelock: u64,
+    ) -> DSMResult<DSMOutput> {
+        match self.state_mut() {
+            DepositState::Assigned {
+                block_height,
+                assignee,
+                ..
+            } => {
+                let block_height = *block_height;
+                let assignee = *assignee;
+
+                // Compute the txid of the fulfillemnt Transaction
+                let fulfillment_txid: Txid = fulfillment_transaction.compute_txid();
+
+                // Compute the cooperative payout deadline.
+                let cooperative_payment_deadline = fulfillment_height + cooperative_payout_timelock;
+
+                // Transition to the Fulfilled State
+                self.state = DepositState::Fulfilled {
+                    block_height,
+                    assignee,
+                    fulfillment_txid,
+                    fulfillment_height,
+                    cooperative_payment_deadline,
+                };
+                // Dispatch the duty to request the payout nonces if the assignee is the pov
+                // operator, otherwise no duties or signals need to be dispatched.
+                if self.cfg.operator_table.pov_idx() == assignee {
+                    Ok(DSMOutput::with_duties(vec![
+                        DepositDuty::RequestPayoutNonces {
+                            deposit_idx: self.cfg.deposit_idx,
+                        },
+                    ]))
+                } else {
+                    Ok(DSMOutput::new())
+                }
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+                reason: None,
+            }),
+        }
     }
 
-    fn process_payout_nonce_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@mukeshdroid")
+    fn process_payout_descriptor_received(
+        &mut self,
+        event_description: String,
+        operator_desc: Descriptor,
+    ) -> DSMResult<DSMOutput> {
+        match self.state_mut() {
+            DepositState::Fulfilled {
+                block_height,
+                assignee,
+                cooperative_payment_deadline,
+                ..
+            } => {
+                let block_height = *block_height;
+                let assignee = *assignee;
+                let cooperative_payment_deadline = *cooperative_payment_deadline;
+
+                // Transition to the PayoutDescriptorReceived State
+                self.state = DepositState::PayoutDescriptorReceived {
+                    block_height,
+                    assignee,
+                    cooperative_payment_deadline,
+                    operator_desc: operator_desc.clone(),
+                    payout_nonces: BTreeMap::new(),
+                };
+                // Dispatch the duty to publish the payout nonce
+                Ok(DSMOutput::with_duties(vec![
+                    DepositDuty::PublishPayoutNonce {
+                        deposit_outpoint: self.cfg.deposit_outpoint,
+                        operator_idx: assignee,
+                        operator_desc,
+                    },
+                ]))
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+                reason: None,
+            }),
+        }
     }
 
-    fn process_payout_partial_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@mukeshdroid")
+    fn process_payout_nonce_received(
+        &mut self,
+        event_description: String,
+        payout_nonce: PubNonce,
+        operator_idx: OperatorIdx,
+    ) -> DSMResult<DSMOutput> {
+        match self.state_mut() {
+            DepositState::PayoutDescriptorReceived {
+                block_height,
+                assignee,
+                cooperative_payment_deadline,
+                operator_desc,
+                payout_nonces,
+            } => {
+                let block_height = *block_height;
+                let assignee = *assignee;
+                let cooperative_payment_deadline = *cooperative_payment_deadline;
+                let operator_desc = operator_desc.clone();
+                let payout_nonces = payout_nonces.clone();
+
+                // Check for duplicate nonce submission. If an entry from the same operator exists,
+                // return with an error.
+                if payout_nonces.contains_key(&operator_idx) {
+                    return Err(DSMError::Duplicate {
+                        state: self.state().clone().into(),
+                        event: DepositEvent::PayoutNonceReceived {
+                            payout_nonce,
+                            operator_idx,
+                        }
+                        .into(),
+                    });
+                }
+                // Update the payout nonces with the new nonce just received.
+                let mut updated_nonces = payout_nonces.clone();
+                updated_nonces.insert(operator_idx, payout_nonce);
+
+                // Transition to the PayoutNoncesCollected State if *all* the nonces have been
+                // received and dispatch duty to request for the cooperative payout partials.
+                if self.cfg.operator_table.cardinality() == updated_nonces.len() {
+                    // Compute the aggregated nonce from the collected nonces.
+                    let agg_nonce = AggNonce::sum(updated_nonces.values().cloned());
+
+                    // Transition to the PayoutNoncesCollected State.
+                    self.state = DepositState::PayoutNoncesCollected {
+                        block_height,
+                        assignee,
+                        operator_desc,
+                        cooperative_payment_deadline,
+                        payout_nonces: updated_nonces,
+                        payout_aggregated_nonce: agg_nonce.clone(),
+                        payout_partial_signatures: BTreeMap::new(),
+                    };
+                    Ok(DSMOutput::with_duties(vec![
+                        DepositDuty::PublishPayoutPartial {
+                            deposit_outpoint: self.cfg.deposit_outpoint,
+                            deposit_idx: self.cfg.deposit_idx,
+                            agg_nonce,
+                        },
+                    ]))
+                }
+                // If all nonces are not yet collected, update the payout nonces with received
+                // nonce and stay in the PayoutDescriptorReceived State and dispatch no duties or
+                // signals.
+                else {
+                    // Stay in the PayoutDescriptorReceived State but with updated nonce map.
+                    self.state = DepositState::PayoutDescriptorReceived {
+                        block_height,
+                        assignee,
+                        cooperative_payment_deadline,
+                        operator_desc,
+                        payout_nonces: updated_nonces,
+                    };
+                    Ok(DSMOutput::new())
+                }
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+                reason: None,
+            }),
+        }
+    }
+
+    fn process_payout_partial_received(
+        &mut self,
+        event_description: String,
+        partial_signature: PartialSignature,
+        operator_idx: OperatorIdx,
+    ) -> DSMResult<DSMOutput> {
+        match self.state_mut() {
+            DepositState::PayoutNoncesCollected {
+                block_height,
+                assignee,
+                cooperative_payment_deadline,
+                operator_desc,
+                payout_nonces,
+                payout_aggregated_nonce,
+                payout_partial_signatures,
+            } => {
+                let block_height = *block_height;
+                let assignee = *assignee;
+                let cooperative_payment_deadline = *cooperative_payment_deadline;
+                let operator_desc = operator_desc.clone();
+                let payout_nonces = payout_nonces.clone();
+                let payout_aggregated_nonce = payout_aggregated_nonce.clone();
+                let payout_partial_signatures = payout_partial_signatures.clone();
+
+                // Check for duplicate Partial Signature submission. If an entry from the same
+                // operator exists, return with an error.
+                if payout_partial_signatures.contains_key(&operator_idx) {
+                    return Err(DSMError::Duplicate {
+                        state: self.state().clone().into(),
+                        event: DepositEvent::PayoutPartialReceived {
+                            partial_signature,
+                            operator_idx,
+                        }
+                        .into(),
+                    });
+                }
+
+                // Construct the N-of-N aggregated pubkey from the operator table
+                let n_of_n_pubkey = get_aggregated_pubkey(self.cfg.operator_table.btc_keys());
+
+                // Construct the deposit connector for the cooperative payout transaction
+                let deposit_connector =
+                    NOfNConnector::new(self.cfg.network, n_of_n_pubkey, self.cfg.deposit_amount);
+
+                // Construct the cooperative payout transaction
+                let coop_payout_data = CooperativePayoutData {
+                    deposit_outpoint: self.cfg.deposit_outpoint,
+                };
+                let coop_payout_tx = CooperativePayoutTx::new(
+                    coop_payout_data,
+                    deposit_connector,
+                    operator_desc.clone(),
+                );
+
+                // Get the sighash for signature verification
+                let signing_info = coop_payout_tx.signing_info();
+                let message = signing_info[0].sighash;
+
+                // Generate the key_agg_ctx using the operator table.
+                // NOfNConnector uses key-path spend with no script tree, so we use
+                // TaprootWitness::Key which applies with_unspendable_taproot_tweak()
+                let key_agg_ctx =
+                    create_agg_ctx(self.cfg.operator_table.btc_keys(), &TaprootWitness::Key)
+                        .expect("must be able to create key aggregation context");
+
+                // Get the operator's public key and pubnonce for verification.
+                let operator_pubkey = self
+                    .cfg
+                    .operator_table
+                    .idx_to_btc_key(&operator_idx)
+                    .expect("operator must be in table");
+                let operator_pubnonce = payout_nonces
+                    .get(&operator_idx)
+                    .expect("operator must have submitted nonce");
+
+                // Verify the partial signature.
+                if verify_partial(
+                    &key_agg_ctx,
+                    partial_signature,
+                    &payout_aggregated_nonce,
+                    operator_pubkey,
+                    operator_pubnonce,
+                    message.as_ref(),
+                )
+                .is_err()
+                {
+                    return Err(DSMError::Rejected {
+                        state: self.state().clone().into(),
+                        reason: "Partial Signature Verification Failed".to_string(),
+                        event: DepositEvent::PayoutPartialReceived {
+                            partial_signature,
+                            operator_idx,
+                        }
+                        .into(),
+                    });
+                }
+
+                // Update the partial signatures map with the new partial signature just received.
+                let mut updated_payout_partials = payout_partial_signatures.clone();
+                updated_payout_partials.insert(operator_idx, partial_signature);
+
+                // Transition to the PayoutPartialsCollected State if *all* the partial signatures
+                // for the coooperative payout have been received.
+                if self.cfg.operator_table.cardinality() == updated_payout_partials.len() {
+                    // Transition to the PayoutPartialsCollected State with dummy payout_txid and
+                    // dummy payout aggregate signature.
+                    self.state = DepositState::PayoutPartialsCollected {
+                        block_height,
+                        payout_txid: Txid::all_zeros(),
+                        payout_aggregated_signature: Signature::from_slice(&[0u8; 64])
+                            .expect("Unable to create dummy signature."),
+                    };
+
+                    // Dispatch the duty to publish the Cooperative payout transaction.
+                    Ok(DSMOutput::with_duties(vec![DepositDuty::PublishPayout {
+                        payout_tx: coop_payout_tx.as_ref().clone(),
+                    }]))
+                }
+                // If all partial signatures are not yet collected, update the payout partial
+                // signatures map with received nonce and stay in the PayoutNoncesCollected State.
+                else {
+                    // Stay in the PayoutNoncesCollected State but with updated nonce map.
+                    self.state = DepositState::PayoutNoncesCollected {
+                        block_height,
+                        assignee,
+                        operator_desc,
+                        cooperative_payment_deadline,
+                        payout_nonces,
+                        payout_aggregated_nonce,
+                        payout_partial_signatures: updated_payout_partials,
+                    };
+                    // No duties or signals need to be dispatched until all partials are collected.
+                    Ok(DSMOutput::new())
+                }
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+                reason: None,
+            }),
+        }
     }
 
     /// Processes the confirmation of a transaction that spends the deposit outpoint being tracked
@@ -432,7 +943,7 @@ impl DepositSM {
                 })
             }
             DepositState::Spent => Err(DSMError::Duplicate {
-                state: self.state().clone(),
+                state: self.state().clone().into(),
                 event: DepositEvent::PayoutConfirmed { tx: tx.clone() }.into()
             }),
             _ => Err(DSMError::InvalidEvent {
@@ -447,7 +958,7 @@ impl DepositSM {
         let last_processed_block_height = self.state().last_processed_block_height();
         if last_processed_block_height.is_some_and(|height| *height >= new_block_height) {
             return Err(DSMError::Duplicate {
-                state: self.state().clone(),
+                state: self.state().clone().into(),
                 event: DepositEvent::NewBlock {
                     block_height: new_block_height,
                 }
@@ -475,12 +986,19 @@ impl DepositSM {
             DepositState::Fulfilled {
                 block_height,
                 assignee,
-                fulfillment_height,
+                cooperative_payment_deadline,
+                ..
+            }
+            | DepositState::PayoutDescriptorReceived {
+                block_height,
+                assignee,
+                cooperative_payment_deadline,
+                ..
             }
             | DepositState::PayoutNoncesCollected {
                 block_height,
                 assignee,
-                fulfillment_height,
+                cooperative_payment_deadline,
                 ..
             } => {
                 let assignee = *assignee; // reassign to get past the borrow-checker
@@ -489,7 +1007,7 @@ impl DepositSM {
                 // setting this param to zero. This will come into effect after a 1-block delay
                 // (when the next block is observed).
                 let has_cooperative_payout_timed_out =
-                    new_block_height >= *fulfillment_height + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
+                    new_block_height >= *cooperative_payment_deadline;
 
                 if has_cooperative_payout_timed_out {
                     // Transition to CooperativePathFailed state
@@ -518,7 +1036,7 @@ impl DepositSM {
             }
 
             DepositState::Spent | DepositState::Aborted => Err(DSMError::Rejected {
-                state: self.state().clone(),
+                state: self.state().clone().into(),
                 reason: "New blocks irrelevant in terminal state".to_string(),
                 event: DepositEvent::NewBlock {
                     block_height: new_block_height,
@@ -532,10 +1050,14 @@ impl DepositSM {
 #[cfg(test)]
 mod tests {
 
-    use std::str::FromStr;
+    use std::{collections::BTreeMap, str::FromStr};
 
+    use bitcoin_bosd::Descriptor;
     use proptest::prelude::*;
-    use strata_bridge_test_utils::prelude::generate_spending_tx;
+    use strata_bridge_test_utils::{
+        bitcoin::{generate_signature, generate_spending_tx, generate_xonly_pubkey},
+        musig2::generate_agg_nonce,
+    };
 
     use super::*;
     use crate::{
@@ -695,12 +1217,12 @@ mod tests {
         let state = DepositState::Fulfilled {
             block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
+            fulfillment_txid: Txid::all_zeros(),
             fulfillment_height: FULFILLMENT_HEIGHT,
+            cooperative_payment_deadline: FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
         };
 
-        // Block that exceeds timeout (COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS)
-        let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
-        let block_height = timeout_height;
+        let block_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
 
         let mut sm = create_sm(state);
         let result = sm.process_new_block(block_height);
@@ -708,9 +1230,7 @@ mod tests {
         assert!(result.is_ok(), "Expected Ok result, got {:?}", result);
         assert_eq!(
             sm.state(),
-            &DepositState::CooperativePathFailed {
-                block_height: timeout_height
-            }
+            &DepositState::CooperativePathFailed { block_height }
         );
 
         // Check signal was emitted
@@ -752,6 +1272,633 @@ mod tests {
         );
     }
 
+    // ===== Unit Tests for process_deposit_confirmed =====
+
+    #[test]
+    // tests correct transition from the DepositPartialsCollected to DepositConfirmed state when
+    // the DepositConfirmed event is received.
+    fn test_deposit_confirmed_from_partials_collected() {
+        let outpoint = OutPoint::default();
+        let deposit_tx = generate_spending_tx(outpoint, &[]);
+
+        let state = DepositState::DepositPartialsCollected {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            deposit_request_outpoint: outpoint,
+            deposit_transaction: deposit_tx.clone(),
+            aggregated_signature: generate_signature(),
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::DepositConfirmed {
+                    deposit_transaction: deposit_tx,
+                },
+                expected_state: DepositState::Deposited {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                },
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests correct transition from DepositNoncesCollected state to the DepositConfirmed state when
+    // the DepositConfirmed event is received.
+    fn test_deposit_confirmed_from_nonces_collected() {
+        let outpoint = OutPoint::default();
+        let deposit_tx = generate_spending_tx(outpoint, &[]);
+
+        let state = DepositState::DepositNoncesCollected {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            deposit_request_outpoint: outpoint,
+            deposit_transaction: deposit_tx.clone(),
+            pubnonces: BTreeMap::new(),
+            agg_nonce: generate_agg_nonce(),
+            partial_signatures: BTreeMap::new(),
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::DepositConfirmed {
+                    deposit_transaction: deposit_tx,
+                },
+                expected_state: DepositState::Deposited {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                },
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests that all from states apart from the DepositNoncesCollected and DepositPartialsCollected
+    // should NOT accept the DepositConfirmed event
+    fn test_deposit_confirmed_invalid_from_other_states() {
+        let outpoint = OutPoint::default();
+        let tx = generate_spending_tx(outpoint, &[]);
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        let invalid_states = [
+            DepositState::Created {
+                deposit_request_outpoint: outpoint,
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::GraphGenerated {
+                deposit_request_outpoint: outpoint,
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Deposited {
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Assigned {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: desc.clone(),
+            },
+            DepositState::Fulfilled {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid: Txid::all_zeros(),
+                fulfillment_height: INITIAL_BLOCK_HEIGHT,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+            },
+            DepositState::PayoutDescriptorReceived {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                operator_desc: desc.clone(),
+                payout_nonces: BTreeMap::new(),
+            },
+            DepositState::PayoutNoncesCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                operator_desc: desc.clone(),
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: BTreeMap::new(),
+                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_partial_signatures: BTreeMap::new(),
+            },
+            DepositState::PayoutPartialsCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                payout_txid: Txid::all_zeros(),
+                payout_aggregated_signature: generate_signature(),
+            },
+            DepositState::CooperativePathFailed {
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Spent,
+            DepositState::Aborted,
+        ];
+
+        for state in invalid_states {
+            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+                create_sm,
+                InvalidTransition {
+                    from_state: state,
+                    event: DepositEvent::DepositConfirmed {
+                        deposit_transaction: tx.clone(),
+                    },
+                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+                },
+            );
+        }
+    }
+
+    #[test]
+    // tests that an DepositConfirmed event with a deposit tx that doesn't spend the DRT outpoint
+    // is rejected from the DepositPartialsCollected state.
+    fn test_deposit_confirmed_wrong_tx_rejection_from_deposit_partials_collected() {
+        let outpoint = OutPoint::default();
+        let expected_deposit_tx = generate_spending_tx(outpoint, &[]);
+
+        // Create a different transaction (different outpoint)
+        let wrong_outpoint = OutPoint::from_str(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff:0",
+        )
+        .unwrap();
+        let wrong_tx = generate_spending_tx(wrong_outpoint, &[]);
+
+        let state = DepositState::DepositPartialsCollected {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            deposit_request_outpoint: outpoint,
+            deposit_transaction: expected_deposit_tx,
+            aggregated_signature: generate_signature(),
+        };
+
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: state,
+                event: DepositEvent::DepositConfirmed {
+                    deposit_transaction: wrong_tx,
+                },
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            },
+        );
+    }
+
+    #[test]
+    // tests that an DepositConfirmed event with a deposit tx that doesn't spend the DRT outpoint
+    // is rejected from the DepositNoncesCollected state.
+    fn test_deposit_confirmed_wrong_tx_rejection_from_deposit_nonces_collected() {
+        let outpoint = OutPoint::default();
+        let expected_deposit_tx = generate_spending_tx(outpoint, &[]);
+
+        // Create a different transaction (different outpoint)
+        let wrong_outpoint = OutPoint::from_str(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff:0",
+        )
+        .unwrap();
+        let wrong_tx = generate_spending_tx(wrong_outpoint, &[]);
+
+        let state = DepositState::DepositNoncesCollected {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            deposit_request_outpoint: outpoint,
+            deposit_transaction: expected_deposit_tx,
+            pubnonces: BTreeMap::new(),
+            agg_nonce: generate_agg_nonce(),
+            partial_signatures: BTreeMap::new(),
+        };
+
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: state,
+                event: DepositEvent::DepositConfirmed {
+                    deposit_transaction: wrong_tx,
+                },
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            },
+        );
+    }
+
+    // ===== Unit Tests for process_fulfillment =====
+
+    #[test]
+    // tests correct transition from Assigned to Fulfilled state when FulfillmentConfirmed event
+    // is received and POV operator is the assignee (should emit RequestPayoutNonces duty)
+    fn test_fulfillment_confirmed_from_assigned_pov_is_assignee() {
+        let fulfillment_tx = generate_spending_tx(OutPoint::default(), &[]);
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        let state = DepositState::Assigned {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_ASSIGNEE, // POV operator is 0, assignee is also 0
+            deadline: LATER_BLOCK_HEIGHT,
+            recipient_desc: desc,
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::FulfillmentConfirmed {
+                    fulfillment_transaction: fulfillment_tx.clone(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                },
+                expected_state: DepositState::Fulfilled {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                    assignee: TEST_ASSIGNEE,
+                    fulfillment_txid: fulfillment_tx.compute_txid(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT
+                        + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+                },
+                expected_duties: vec![DepositDuty::RequestPayoutNonces { deposit_idx: 0 }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests correct transition from Assigned to Fulfilled state when FulfillmentConfirmed event
+    // is received and POV operator is NOT the assignee (should NOT emit any duty)
+    fn test_fulfillment_confirmed_from_assigned_pov_is_not_assignee() {
+        let fulfillment_tx = generate_spending_tx(OutPoint::default(), &[]);
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        const OTHER_OPERATOR: OperatorIdx = 1; // Different from POV operator (0)
+
+        let state = DepositState::Assigned {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: OTHER_OPERATOR, // POV operator is 0, assignee is 1
+            deadline: LATER_BLOCK_HEIGHT,
+            recipient_desc: desc,
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::FulfillmentConfirmed {
+                    fulfillment_transaction: fulfillment_tx.clone(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                },
+                expected_state: DepositState::Fulfilled {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                    assignee: OTHER_OPERATOR,
+                    fulfillment_txid: fulfillment_tx.compute_txid(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT
+                        + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+                },
+                expected_duties: vec![], // No duty since POV is not the assignee
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests that all states apart from Assigned should NOT accept the FulfillmentConfirmed event
+    fn test_fulfillment_confirmed_invalid_from_other_states() {
+        let outpoint = OutPoint::default();
+        let tx = generate_spending_tx(outpoint, &[]);
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        let invalid_states = [
+            DepositState::Created {
+                deposit_request_outpoint: outpoint,
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::GraphGenerated {
+                deposit_request_outpoint: outpoint,
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::DepositNoncesCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                output_index: 0,
+                deposit_request_outpoint: outpoint,
+                deposit_transaction: tx.clone(),
+                pubnonces: BTreeMap::new(),
+                agg_nonce: generate_agg_nonce(),
+                partial_signatures: BTreeMap::new(),
+            },
+            DepositState::DepositPartialsCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                output_index: 0,
+                deposit_request_outpoint: outpoint,
+                deposit_transaction: tx.clone(),
+                aggregated_signature: generate_signature(),
+            },
+            DepositState::Deposited {
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Fulfilled {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid: Txid::all_zeros(),
+                fulfillment_height: INITIAL_BLOCK_HEIGHT,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+            },
+            DepositState::PayoutDescriptorReceived {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                operator_desc: desc.clone(),
+                payout_nonces: BTreeMap::new(),
+            },
+            DepositState::PayoutNoncesCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                operator_desc: desc.clone(),
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: BTreeMap::new(),
+                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_partial_signatures: BTreeMap::new(),
+            },
+            DepositState::PayoutPartialsCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                payout_txid: Txid::all_zeros(),
+                payout_aggregated_signature: generate_signature(),
+            },
+            DepositState::CooperativePathFailed {
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Spent,
+            DepositState::Aborted,
+        ];
+
+        for state in invalid_states {
+            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+                create_sm,
+                InvalidTransition {
+                    from_state: state,
+                    event: DepositEvent::FulfillmentConfirmed {
+                        fulfillment_transaction: tx.clone(),
+                        fulfillment_height: LATER_BLOCK_HEIGHT,
+                    },
+                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+                },
+            );
+        }
+    }
+
+    // ===== Unit Tests for process_assignment =====
+
+    #[test]
+    // tests correct transition from Deposited to Assigned state when Assignment event
+    // is received and POV operator is the assignee (should emit FulfillWithdrawal duty)
+    fn test_assignment_from_deposited_pov_is_assignee() {
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        let state = DepositState::Deposited {
+            block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::Assignment {
+                    assignee: TEST_ASSIGNEE, // POV operator is 0, assignee is also 0
+                    deadline: LATER_BLOCK_HEIGHT,
+                    recipient_desc: desc.clone(),
+                },
+                expected_state: DepositState::Assigned {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                    assignee: TEST_ASSIGNEE,
+                    deadline: LATER_BLOCK_HEIGHT,
+                    recipient_desc: desc.clone(),
+                },
+                expected_duties: vec![DepositDuty::FulfillWithdrawal {
+                    deposit_idx: 0,
+                    deadline: LATER_BLOCK_HEIGHT,
+                    recipient_desc: desc,
+                }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests correct transition from Deposited to Assigned state when Assignment event
+    // is received and POV operator is NOT the assignee (should NOT emit any duty)
+    fn test_assignment_from_deposited_pov_is_not_assignee() {
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        const OTHER_OPERATOR: OperatorIdx = 1; // Different from POV operator (0)
+
+        let state = DepositState::Deposited {
+            block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::Assignment {
+                    assignee: OTHER_OPERATOR, // POV operator is 0, assignee is 1
+                    deadline: LATER_BLOCK_HEIGHT,
+                    recipient_desc: desc.clone(),
+                },
+                expected_state: DepositState::Assigned {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                    assignee: OTHER_OPERATOR,
+                    deadline: LATER_BLOCK_HEIGHT,
+                    recipient_desc: desc,
+                },
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests correct re-assignment from Assigned state when Assignment event is received
+    // and POV operator is the new assignee (should emit FulfillWithdrawal duty)
+    fn test_assignment_from_assigned_pov_is_assignee() {
+        let old_desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+        let new_desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        const OTHER_OPERATOR: OperatorIdx = 1;
+        const NEW_DEADLINE: u64 = LATER_BLOCK_HEIGHT + 50;
+
+        // Start in Assigned state with a different operator
+        let state = DepositState::Assigned {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: OTHER_OPERATOR, // Currently assigned to operator 1
+            deadline: LATER_BLOCK_HEIGHT,
+            recipient_desc: old_desc,
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::Assignment {
+                    assignee: TEST_ASSIGNEE, // Re-assign to POV operator (0)
+                    deadline: NEW_DEADLINE,
+                    recipient_desc: new_desc.clone(),
+                },
+                expected_state: DepositState::Assigned {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                    assignee: TEST_ASSIGNEE,
+                    deadline: NEW_DEADLINE,
+                    recipient_desc: new_desc.clone(),
+                },
+                expected_duties: vec![DepositDuty::FulfillWithdrawal {
+                    deposit_idx: 0,
+                    deadline: NEW_DEADLINE,
+                    recipient_desc: new_desc,
+                }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests correct re-assignment from Assigned state when Assignment event is received
+    // and POV operator is NOT the new assignee (should NOT emit any duty)
+    fn test_assignment_from_assigned_pov_is_not_assignee() {
+        let old_desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+        let new_desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        const OTHER_OPERATOR: OperatorIdx = 1;
+        const NEW_DEADLINE: u64 = LATER_BLOCK_HEIGHT + 50;
+
+        // Start in Assigned state with POV operator
+        let state = DepositState::Assigned {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_ASSIGNEE,
+            deadline: LATER_BLOCK_HEIGHT,
+            recipient_desc: old_desc,
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::Assignment {
+                    assignee: OTHER_OPERATOR,
+                    deadline: NEW_DEADLINE,
+                    recipient_desc: new_desc.clone(),
+                },
+                expected_state: DepositState::Assigned {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                    assignee: OTHER_OPERATOR,
+                    deadline: NEW_DEADLINE,
+                    recipient_desc: new_desc,
+                },
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests that all states apart from Deposited and Assigned should NOT accept the Assignment
+    // event
+    fn test_assignment_invalid_from_other_states() {
+        let outpoint = OutPoint::default();
+        let tx = generate_spending_tx(outpoint, &[]);
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        let invalid_states = [
+            DepositState::Created {
+                deposit_request_outpoint: outpoint,
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::GraphGenerated {
+                deposit_request_outpoint: outpoint,
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::DepositNoncesCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                output_index: 0,
+                deposit_request_outpoint: outpoint,
+                deposit_transaction: tx.clone(),
+                pubnonces: BTreeMap::new(),
+                agg_nonce: generate_agg_nonce(),
+                partial_signatures: BTreeMap::new(),
+            },
+            DepositState::DepositPartialsCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                output_index: 0,
+                deposit_request_outpoint: outpoint,
+                deposit_transaction: tx.clone(),
+                aggregated_signature: generate_signature(),
+            },
+            DepositState::Fulfilled {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid: Txid::all_zeros(),
+                fulfillment_height: INITIAL_BLOCK_HEIGHT,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+            },
+            DepositState::PayoutDescriptorReceived {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                operator_desc: desc.clone(),
+                payout_nonces: BTreeMap::new(),
+            },
+            DepositState::PayoutNoncesCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                operator_desc: desc.clone(),
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: BTreeMap::new(),
+                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_partial_signatures: BTreeMap::new(),
+            },
+            DepositState::PayoutPartialsCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                payout_txid: Txid::all_zeros(),
+                payout_aggregated_signature: generate_signature(),
+            },
+            DepositState::CooperativePathFailed {
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Spent,
+            DepositState::Aborted,
+        ];
+
+        for state in invalid_states {
+            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+                create_sm,
+                InvalidTransition {
+                    from_state: state,
+                    event: DepositEvent::Assignment {
+                        assignee: TEST_ASSIGNEE,
+                        deadline: LATER_BLOCK_HEIGHT,
+                        recipient_desc: desc.clone(),
+                    },
+                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+                },
+            );
+        }
+    }
+
     // ===== Property-Based Tests =====
 
     // Property: State machine is deterministic for the implemented states and events space
@@ -791,7 +1938,9 @@ mod tests {
         let initial_state = DepositState::Fulfilled {
             block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
+            fulfillment_txid: Txid::all_zeros(),
             fulfillment_height: FULFILLMENT_HEIGHT,
+            cooperative_payment_deadline: FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
         };
 
         let sm = create_sm(initial_state);
