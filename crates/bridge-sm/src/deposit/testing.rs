@@ -272,5 +272,9 @@ pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
         Just(DepositEvent::DepositConfirmed {
             deposit_transaction: generate_spending_tx(outpoint, &[])
         }),
+        Just(DepositEvent::FulfillmentConfirmed {
+            fulfillment_transaction: generate_spending_tx(outpoint, &[]),
+            fulfillment_height: LATER_BLOCK_HEIGHT,
+        }),
     ]
 }

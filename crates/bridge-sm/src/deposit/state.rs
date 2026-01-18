@@ -1486,6 +1486,172 @@ mod tests {
         );
     }
 
+    // ===== Unit Tests for process_fulfillment =====
+
+    #[test]
+    // tests correct transition from Assigned to Fulfilled state when FulfillmentConfirmed event
+    // is received and POV operator is the assignee (should emit RequestPayoutNonces duty)
+    fn test_fulfillment_confirmed_from_assigned_pov_is_assignee() {
+        let fulfillment_tx = generate_spending_tx(OutPoint::default(), &[]);
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        let state = DepositState::Assigned {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_ASSIGNEE, // POV operator is 0, assignee is also 0
+            deadline: LATER_BLOCK_HEIGHT,
+            recipient_desc: desc,
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::FulfillmentConfirmed {
+                    fulfillment_transaction: fulfillment_tx.clone(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                },
+                expected_state: DepositState::Fulfilled {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                    assignee: TEST_ASSIGNEE,
+                    fulfillment_txid: fulfillment_tx.compute_txid(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT
+                        + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+                },
+                expected_duties: vec![DepositDuty::RequestPayoutNonces { deposit_idx: 0 }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests correct transition from Assigned to Fulfilled state when FulfillmentConfirmed event
+    // is received and POV operator is NOT the assignee (should NOT emit any duty)
+    fn test_fulfillment_confirmed_from_assigned_pov_is_not_assignee() {
+        let fulfillment_tx = generate_spending_tx(OutPoint::default(), &[]);
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        const OTHER_OPERATOR: OperatorIdx = 1; // Different from POV operator (0)
+
+        let state = DepositState::Assigned {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: OTHER_OPERATOR, // POV operator is 0, assignee is 1
+            deadline: LATER_BLOCK_HEIGHT,
+            recipient_desc: desc,
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::FulfillmentConfirmed {
+                    fulfillment_transaction: fulfillment_tx.clone(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                },
+                expected_state: DepositState::Fulfilled {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                    assignee: OTHER_OPERATOR,
+                    fulfillment_txid: fulfillment_tx.compute_txid(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT
+                        + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+                },
+                expected_duties: vec![], // No duty since POV is not the assignee
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests that all states apart from Assigned should NOT accept the FulfillmentConfirmed event
+    fn test_fulfillment_confirmed_invalid_from_other_states() {
+        let outpoint = OutPoint::default();
+        let tx = generate_spending_tx(outpoint, &[]);
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        let invalid_states = [
+            DepositState::Created {
+                deposit_request_outpoint: outpoint,
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::GraphGenerated {
+                deposit_request_outpoint: outpoint,
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::DepositNoncesCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                output_index: 0,
+                deposit_request_outpoint: outpoint,
+                deposit_transaction: tx.clone(),
+                pubnonces: BTreeMap::new(),
+                agg_nonce: generate_agg_nonce(),
+                partial_signatures: BTreeMap::new(),
+            },
+            DepositState::DepositPartialsCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                output_index: 0,
+                deposit_request_outpoint: outpoint,
+                deposit_transaction: tx.clone(),
+                aggregated_signature: generate_signature(),
+            },
+            DepositState::Deposited {
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Fulfilled {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid: Txid::all_zeros(),
+                fulfillment_height: INITIAL_BLOCK_HEIGHT,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+            },
+            DepositState::PayoutDescriptorReceived {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                operator_desc: desc.clone(),
+                payout_nonces: BTreeMap::new(),
+            },
+            DepositState::PayoutNoncesCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                operator_desc: desc.clone(),
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: BTreeMap::new(),
+                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_partial_signatures: BTreeMap::new(),
+            },
+            DepositState::PayoutPartialsCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                payout_txid: Txid::all_zeros(),
+                payout_aggregated_signature: generate_signature(),
+            },
+            DepositState::CooperativePathFailed {
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Spent,
+            DepositState::Aborted,
+        ];
+
+        for state in invalid_states {
+            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+                create_sm,
+                InvalidTransition {
+                    from_state: state,
+                    event: DepositEvent::FulfillmentConfirmed {
+                        fulfillment_transaction: tx.clone(),
+                        fulfillment_height: LATER_BLOCK_HEIGHT,
+                    },
+                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+                },
+            );
+        }
+    }
+
     // ===== Property-Based Tests =====
 
     // Property: State machine is deterministic for the implemented states and events space
