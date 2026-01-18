@@ -1050,10 +1050,14 @@ impl DepositSM {
 #[cfg(test)]
 mod tests {
 
-    use std::str::FromStr;
+    use std::{collections::BTreeMap, str::FromStr};
 
+    use bitcoin_bosd::Descriptor;
     use proptest::prelude::*;
-    use strata_bridge_test_utils::prelude::generate_spending_tx;
+    use strata_bridge_test_utils::{
+        bitcoin::{generate_signature, generate_spending_tx, generate_xonly_pubkey},
+        musig2::generate_agg_nonce,
+    };
 
     use super::*;
     use crate::{
@@ -1264,6 +1268,220 @@ mod tests {
                 from_state: DepositState::Spent,
                 event: DepositEvent::PayoutConfirmed { tx },
                 expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+            },
+        );
+    }
+
+    // ===== Unit Tests for process_deposit_confirmed =====
+
+    #[test]
+    // tests correct transition from the DepositPartialsCollected to DepositConfirmed state when
+    // the DepositConfirmed event is received.
+    fn test_deposit_confirmed_from_partials_collected() {
+        let outpoint = OutPoint::default();
+        let deposit_tx = generate_spending_tx(outpoint, &[]);
+
+        let state = DepositState::DepositPartialsCollected {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            deposit_request_outpoint: outpoint,
+            deposit_transaction: deposit_tx.clone(),
+            aggregated_signature: generate_signature(),
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::DepositConfirmed {
+                    deposit_transaction: deposit_tx,
+                },
+                expected_state: DepositState::Deposited {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                },
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests correct transition from DepositNoncesCollected state to the DepositConfirmed state when
+    // the DepositConfirmed event is received.
+    fn test_deposit_confirmed_from_nonces_collected() {
+        let outpoint = OutPoint::default();
+        let deposit_tx = generate_spending_tx(outpoint, &[]);
+
+        let state = DepositState::DepositNoncesCollected {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            deposit_request_outpoint: outpoint,
+            deposit_transaction: deposit_tx.clone(),
+            pubnonces: BTreeMap::new(),
+            agg_nonce: generate_agg_nonce(),
+            partial_signatures: BTreeMap::new(),
+        };
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::DepositConfirmed {
+                    deposit_transaction: deposit_tx,
+                },
+                expected_state: DepositState::Deposited {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                },
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    // tests that all from states apart from the DepositNoncesCollected and DepositPartialsCollected
+    // should NOT accept the DepositConfirmed event
+    fn test_deposit_confirmed_invalid_from_other_states() {
+        let outpoint = OutPoint::default();
+        let tx = generate_spending_tx(outpoint, &[]);
+        let desc = Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+            .expect("Failed to generate descriptor");
+
+        let invalid_states = [
+            DepositState::Created {
+                deposit_request_outpoint: outpoint,
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::GraphGenerated {
+                deposit_request_outpoint: outpoint,
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Deposited {
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Assigned {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: desc.clone(),
+            },
+            DepositState::Fulfilled {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid: Txid::all_zeros(),
+                fulfillment_height: INITIAL_BLOCK_HEIGHT,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+            },
+            DepositState::PayoutDescriptorReceived {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                operator_desc: desc.clone(),
+                payout_nonces: BTreeMap::new(),
+            },
+            DepositState::PayoutNoncesCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                operator_desc: desc.clone(),
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: BTreeMap::new(),
+                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_partial_signatures: BTreeMap::new(),
+            },
+            DepositState::PayoutPartialsCollected {
+                block_height: INITIAL_BLOCK_HEIGHT,
+                payout_txid: Txid::all_zeros(),
+                payout_aggregated_signature: generate_signature(),
+            },
+            DepositState::CooperativePathFailed {
+                block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Spent,
+            DepositState::Aborted,
+        ];
+
+        for state in invalid_states {
+            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+                create_sm,
+                InvalidTransition {
+                    from_state: state,
+                    event: DepositEvent::DepositConfirmed {
+                        deposit_transaction: tx.clone(),
+                    },
+                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+                },
+            );
+        }
+    }
+
+    #[test]
+    // tests that an DepositConfirmed event with a deposit tx that doesn't spend the DRT outpoint
+    // is rejected from the DepositPartialsCollected state.
+    fn test_deposit_confirmed_wrong_tx_rejection_from_deposit_partials_collected() {
+        let outpoint = OutPoint::default();
+        let expected_deposit_tx = generate_spending_tx(outpoint, &[]);
+
+        // Create a different transaction (different outpoint)
+        let wrong_outpoint = OutPoint::from_str(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff:0",
+        )
+        .unwrap();
+        let wrong_tx = generate_spending_tx(wrong_outpoint, &[]);
+
+        let state = DepositState::DepositPartialsCollected {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            deposit_request_outpoint: outpoint,
+            deposit_transaction: expected_deposit_tx,
+            aggregated_signature: generate_signature(),
+        };
+
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: state,
+                event: DepositEvent::DepositConfirmed {
+                    deposit_transaction: wrong_tx,
+                },
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            },
+        );
+    }
+
+    #[test]
+    // tests that an DepositConfirmed event with a deposit tx that doesn't spend the DRT outpoint
+    // is rejected from the DepositNoncesCollected state.
+    fn test_deposit_confirmed_wrong_tx_rejection_from_deposit_nonces_collected() {
+        let outpoint = OutPoint::default();
+        let expected_deposit_tx = generate_spending_tx(outpoint, &[]);
+
+        // Create a different transaction (different outpoint)
+        let wrong_outpoint = OutPoint::from_str(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff:0",
+        )
+        .unwrap();
+        let wrong_tx = generate_spending_tx(wrong_outpoint, &[]);
+
+        let state = DepositState::DepositNoncesCollected {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            deposit_request_outpoint: outpoint,
+            deposit_transaction: expected_deposit_tx,
+            pubnonces: BTreeMap::new(),
+            agg_nonce: generate_agg_nonce(),
+            partial_signatures: BTreeMap::new(),
+        };
+
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: state,
+                event: DepositEvent::DepositConfirmed {
+                    deposit_transaction: wrong_tx,
+                },
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
             },
         );
     }

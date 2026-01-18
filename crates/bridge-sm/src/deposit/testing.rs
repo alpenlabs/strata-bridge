@@ -269,5 +269,8 @@ pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
         (BIP34_MIN_BLOCK_HEIGHT..1000u64).prop_map(|height| DepositEvent::NewBlock {
             block_height: height
         }),
+        Just(DepositEvent::DepositConfirmed {
+            deposit_transaction: generate_spending_tx(outpoint, &[])
+        }),
     ]
 }
