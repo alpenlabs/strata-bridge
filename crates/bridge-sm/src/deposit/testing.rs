@@ -276,5 +276,11 @@ pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
             fulfillment_transaction: generate_spending_tx(outpoint, &[]),
             fulfillment_height: LATER_BLOCK_HEIGHT,
         }),
+        Just(DepositEvent::Assignment {
+            assignee: TEST_ASSIGNEE,
+            deadline: LATER_BLOCK_HEIGHT,
+            recipient_desc: Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+                .expect("Failed to generate descriptor"),
+        }),
     ]
 }
