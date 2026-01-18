@@ -51,6 +51,7 @@
 
 pub mod fixtures;
 pub mod proptest;
+pub mod signer;
 pub mod transition;
 
 // Re-export commonly used items for convenience
