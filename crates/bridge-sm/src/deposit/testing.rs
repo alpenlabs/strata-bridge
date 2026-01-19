@@ -247,7 +247,6 @@ impl Arbitrary for DepositEvent {
         let operator_idx = 0u32..3u32;
 
         prop_oneof![
-            Just(DepositEvent::DepositRequest),
             Just(DepositEvent::UserTakeBack {
                 tx: test_takeback_tx(OutPoint::default())
             }),
@@ -288,7 +287,6 @@ pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
     let operator_idx = 0u32..3u32;
 
     prop_oneof![
-        Just(DepositEvent::DepositRequest),
         Just(DepositEvent::UserTakeBack {
             tx: test_takeback_tx(outpoint)
         }),
