@@ -17,6 +17,7 @@ arbitrary.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
 bitcoin-script.workspace = true
 bitvm.workspace = true
+futures = { workspace = true, optional = true }
 miniscript.workspace = true
 musig2 = { workspace = true, features = ["serde"] }
 proptest.workspace = true
@@ -28,6 +29,10 @@ sha2.workspace = true
 strata-bridge-types.workspace = true
 strata-p2p-types.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
+
+[features]
+async = ["dep:tokio", "dep:futures"]

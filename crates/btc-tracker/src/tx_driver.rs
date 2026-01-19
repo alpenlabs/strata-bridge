@@ -13,6 +13,7 @@ use bitcoind_async_client::{
     Client as BitcoinClient,
 };
 use futures::{channel::oneshot, stream::SelectAll, FutureExt, StreamExt};
+use strata_bridge_primitives::subscription::Subscription;
 use thiserror::Error;
 use tokio::{
     select,
@@ -25,7 +26,6 @@ use tracing::{debug, error, info};
 use crate::{
     client::{BtcNotifyClient, Connected},
     event::{TxEvent, TxStatus},
-    subscription::Subscription,
 };
 
 /// Error type for the TxDriver.

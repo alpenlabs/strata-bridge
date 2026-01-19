@@ -17,14 +17,12 @@ use std::{marker::PhantomData, sync::Arc};
 
 use algebra::retry::{Strategy, retry_with};
 use bitcoin::BlockHash;
-use btc_tracker::{
-    event::{BlockEvent, BlockStatus},
-    subscription::Subscription,
-};
+use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use strata_asm_proto_bridge_v1::AssignmentEntry;
 use strata_asm_rpc::traits::AssignmentsApiClient;
+use strata_bridge_primitives::subscription::Subscription;
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, mpsc, watch},
@@ -83,6 +81,9 @@ impl AsmEventFeed<Detached> {
         self,
         block_sub: Subscription<BlockEvent>,
     ) -> AsmEventFeed<Attached> {
+        // Using watch channel (latest-value semantics) is intentional: if the fetcher is slow,
+        // we want to skip to the most recent block rather than queue all intermediate blocks.
+        // Assignment state is idempotent and queryable by block hash.
         let (request_sender, request_receiver) = watch::channel(None);
         let subscribers_worker = self.subscribers.clone();
         let cfg = self.cfg.clone();

@@ -18,5 +18,7 @@ pub mod key_agg;
 pub mod operator_table;
 pub mod scripts;
 pub mod secp;
+#[cfg(feature = "async")]
+pub mod subscription;
 pub mod types;
 pub mod wots;

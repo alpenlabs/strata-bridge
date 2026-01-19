@@ -11,6 +11,7 @@ algebra.workspace = true
 btc-tracker.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-rpc = { workspace = true, features = ["client"] }
+strata-bridge-primitives = { workspace = true, features = ["async"] }
 
 bitcoin.workspace = true
 futures.workspace = true
