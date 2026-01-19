@@ -74,7 +74,12 @@ class BridgeOperatorFactory(flexitest.Factory):
             "general_wallet_address": current_operator_key.GENERAL_WALLET,
         }
 
-        svc = flexitest.service.ProcService(props, cmd, stdout=logfile_path)
+        svc = flexitest.service.ProcService(
+            props,
+            cmd,
+            stdout=logfile_path,
+        )
+        svc.stop_timeout = 300
         svc.start()
         inject_service_create_rpc(svc, rpc_url, bridge_operator_name)
         return svc
