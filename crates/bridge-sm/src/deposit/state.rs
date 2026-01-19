@@ -903,7 +903,7 @@ mod tests {
 
     use std::str::FromStr;
 
-    use bitcoin::{Amount, OutPoint, relative};
+    use bitcoin::OutPoint;
     use proptest::prelude::*;
     use strata_bridge_test_utils::prelude::generate_spending_tx;
 
@@ -916,21 +916,11 @@ mod tests {
 
     // ===== Unit Tests for process_drt_takeback =====
 
-    fn default_deposit_tx() -> DepositTx {
-        let operator_table = test_operator_table();
-
-        let amount = Amount::from_btc(10.0).expect("valid amount");
-        let timelock = relative::LockTime::from_height(144);
-        let n_of_n_pubkey = operator_table.aggregated_btc_key().x_only_public_key().0;
-        let depositor_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
-        generate_test_deposit_txn(amount, timelock, n_of_n_pubkey, depositor_pubkey)
-    }
-
     #[test]
     fn test_drt_takeback_from_created() {
         let outpoint = OutPoint::default();
         let state = DepositState::Created {
-            deposit_transaction: default_deposit_tx(),
+            deposit_transaction: test_deposit_txn(),
             drt_block_height: INITIAL_BLOCK_HEIGHT,
             block_height: INITIAL_BLOCK_HEIGHT,
             linked_graphs: Default::default(),
@@ -956,7 +946,7 @@ mod tests {
     fn test_drt_takeback_from_graph_generated() {
         let outpoint = OutPoint::default();
         let state = DepositState::GraphGenerated {
-            deposit_transaction: default_deposit_tx(),
+            deposit_transaction: test_deposit_txn(),
             drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: Default::default(),
             pubnonces: Default::default(),
@@ -1010,7 +1000,7 @@ mod tests {
     fn test_wrong_drt_takeback_tx_rejection() {
         let drt_outpoint = OutPoint::default();
         let initial_state = DepositState::Created {
-            deposit_transaction: default_deposit_tx(),
+            deposit_transaction: test_deposit_txn(),
             drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: Default::default(),
             linked_graphs: Default::default(),
@@ -1145,7 +1135,7 @@ mod tests {
 
     #[test]
     fn test_process_graph_available_sequence() {
-        let deposit_tx = default_deposit_tx();
+        let deposit_tx = test_deposit_txn();
         let operator_table = test_operator_table();
         let operator_count = operator_table.cardinality() as u32;
 
@@ -1180,7 +1170,7 @@ mod tests {
 
     #[test]
     fn test_duplicate_process_graph_available_sequence() {
-        let deposit_tx = default_deposit_tx();
+        let deposit_tx = test_deposit_txn();
         let operator_table = test_operator_table();
         let operator_count = operator_table.cardinality() as u32;
 
@@ -1216,7 +1206,7 @@ mod tests {
 
     #[test]
     fn test_process_nonce_sequence() {
-        let deposit_tx = default_deposit_tx();
+        let deposit_tx = test_deposit_txn();
         let operator_signers = test_operator_signers();
         let operator_signers_nonce_counter = 0u64;
 
@@ -1274,7 +1264,7 @@ mod tests {
 
     #[test]
     fn test_duplicate_process_nonce_sequence() {
-        let deposit_tx = default_deposit_tx();
+        let deposit_tx = test_deposit_txn();
         let operator_signers = test_operator_signers();
         let operator_signers_nonce_counter = 0u64;
 
@@ -1320,7 +1310,7 @@ mod tests {
     // ===== Process Partial Received Tests =====
     #[test]
     fn test_process_partial_sequence() {
-        let deposit_tx = default_deposit_tx();
+        let deposit_tx = test_deposit_txn();
         let operator_signers = test_operator_signers();
         let operator_signers_nonce_counter = 0u64;
 
@@ -1387,7 +1377,7 @@ mod tests {
 
     #[test]
     fn test_invalid_process_partial_sequence() {
-        let deposit_tx = default_deposit_tx();
+        let deposit_tx = test_deposit_txn();
         let operator_signers = test_operator_signers();
         let mut operator_signers_nonce_counter = 0u64;
 
@@ -1460,7 +1450,7 @@ mod tests {
 
     #[test]
     fn test_duplicate_process_partial_sequence() {
-        let deposit_tx = default_deposit_tx();
+        let deposit_tx = test_deposit_txn();
         let operator_signers = test_operator_signers();
         let operator_signers_nonce_counter = 0u64;
 
@@ -1531,7 +1521,8 @@ mod tests {
         create_sm,
         get_state,
         any::<DepositState>(),
-        any::<DepositEvent>()
+        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
+                              * STFs are implemented */
     );
 
     // Property: No silent acceptance
@@ -1540,7 +1531,8 @@ mod tests {
         create_sm,
         get_state,
         any::<DepositState>(),
-        any::<DepositEvent>()
+        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
+                              * STFs are implemented */
     );
 
     // Property: Terminal states reject all events
@@ -1548,7 +1540,8 @@ mod tests {
         DepositSM,
         create_sm,
         arb_terminal_state(),
-        any::<DepositEvent>()
+        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
+                              * STFs are implemented */
     );
 
     // ===== Integration Tests (sequence of events) =====

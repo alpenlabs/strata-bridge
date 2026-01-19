@@ -3,7 +3,7 @@
 //! This module provides helpers and `Arbitrary` implementations for testing
 //! the DepositSM across multiple state transition functions.
 
-use bitcoin::OutPoint;
+use bitcoin::{Amount, OutPoint, Transaction, absolute, relative, transaction::Version};
 use musig2::KeyAggContext;
 use proptest::prelude::*;
 use secp256k1::{Message, SECP256K1, SecretKey};
@@ -12,15 +12,19 @@ use strata_bridge_primitives::{
     key_agg::create_agg_ctx, operator_table::OperatorTable, scripts::taproot::TaprootWitness,
     secp::EvenSecretKey, types::OperatorIdx,
 };
+use strata_bridge_test_utils::musig2::{generate_agg_nonce, generate_pubnonce};
 use strata_bridge_tx_graph2::transactions::{PresignedTx, prelude::DepositTx};
 
 use super::{
     events::DepositEvent,
     state::{DepositCfg, DepositSM, DepositState},
 };
-use crate::testing::{
-    fixtures::{test_payout_tx, test_takeback_tx},
-    signer::TestMusigSigner,
+use crate::{
+    signals::GraphToDeposit,
+    testing::{
+        fixtures::{generate_test_deposit_txn, test_payout_tx, test_takeback_tx},
+        signer::TestMusigSigner,
+    },
 };
 
 // ===== Test Constants =====
@@ -116,6 +120,17 @@ pub(super) fn get_signing_info(
     (key_agg_ctx, sighash)
 }
 
+/// Generates a test deposit transaction.
+pub(super) fn test_deposit_txn() -> DepositTx {
+    let operator_table = test_operator_table();
+
+    let amount = Amount::from_btc(10.0).expect("valid amount");
+    let timelock = relative::LockTime::from_height(144);
+    let n_of_n_pubkey = operator_table.aggregated_btc_key().x_only_public_key().0;
+    let depositor_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
+    generate_test_deposit_txn(amount, timelock, n_of_n_pubkey, depositor_pubkey)
+}
+
 // ===== State Machine Helpers =====
 
 /// Creates a DepositSM from a given state.
@@ -142,6 +157,48 @@ impl Arbitrary for DepositState {
         let operator_idx = 0u32..3u32;
 
         prop_oneof![
+            (block_height.clone()).prop_map(|height| {
+                DepositState::Created {
+                    block_height: height,
+                    deposit_transaction: test_deposit_txn(),
+                    drt_block_height: height,
+                    output_index: Default::default(),
+                    linked_graphs: Default::default(),
+                }
+            }),
+            (block_height.clone()).prop_map(|height| {
+                DepositState::GraphGenerated {
+                    block_height: height,
+                    deposit_transaction: test_deposit_txn(),
+                    drt_block_height: height,
+                    output_index: Default::default(),
+                    pubnonces: Default::default(),
+                }
+            }),
+            (block_height.clone()).prop_map(|height| {
+                DepositState::DepositNoncesCollected {
+                    block_height: height,
+                    deposit_transaction: test_deposit_txn(),
+                    drt_block_height: height,
+                    output_index: Default::default(),
+                    agg_nonce: generate_agg_nonce(),
+                    partial_signatures: Default::default(),
+                    pubnonces: Default::default(),
+                }
+            }),
+            (block_height.clone()).prop_map(|height| {
+                DepositState::DepositPartialsCollected {
+                    block_height: height,
+                    deposit_transaction: Transaction {
+                        input: vec![],
+                        output: vec![],
+                        version: Version(2),
+                        lock_time: absolute::LockTime::ZERO,
+                    },
+                    drt_block_height: height,
+                    output_index: Default::default(),
+                }
+            }),
             block_height
                 .clone()
                 .prop_map(|height| DepositState::Deposited {
@@ -186,11 +243,22 @@ impl Arbitrary for DepositEvent {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        // TODO: (@Rajil1213) Can be removed once t
+        let block_height = BIP34_MIN_BLOCK_HEIGHT..1000u64;
+        let operator_idx = 0u32..3u32;
+
         prop_oneof![
             Just(DepositEvent::DepositRequest),
             Just(DepositEvent::UserTakeBack {
                 tx: test_takeback_tx(OutPoint::default())
+            }),
+            operator_idx.clone().prop_map(|idx| {
+                DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx: idx })
+            }),
+            operator_idx.clone().prop_map(|idx| {
+                DepositEvent::NonceReceived {
+                    nonce: generate_pubnonce(),
+                    operator_idx: idx,
+                }
             }),
             Just(DepositEvent::DepositConfirmed),
             Just(DepositEvent::Assignment),
@@ -200,7 +268,7 @@ impl Arbitrary for DepositEvent {
             Just(DepositEvent::PayoutConfirmed {
                 tx: test_payout_tx(OutPoint::default())
             }),
-            (BIP34_MIN_BLOCK_HEIGHT..1000u64).prop_map(|height| DepositEvent::NewBlock {
+            block_height.prop_map(|height| DepositEvent::NewBlock {
                 block_height: height
             }),
         ]
@@ -217,10 +285,21 @@ pub(super) fn arb_terminal_state() -> impl Strategy<Value = DepositState> {
 // TODO: (@Rajil1213) remove this after all STFs have been implemented.
 pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
     let outpoint = OutPoint::default();
+    let operator_idx = 0u32..3u32;
 
     prop_oneof![
+        Just(DepositEvent::DepositRequest),
         Just(DepositEvent::UserTakeBack {
             tx: test_takeback_tx(outpoint)
+        }),
+        operator_idx.clone().prop_map(|idx| {
+            DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx: idx })
+        }),
+        operator_idx.clone().prop_map(|idx| {
+            DepositEvent::NonceReceived {
+                nonce: generate_pubnonce(),
+                operator_idx: idx,
+            }
         }),
         Just(DepositEvent::PayoutConfirmed {
             tx: test_payout_tx(outpoint)
