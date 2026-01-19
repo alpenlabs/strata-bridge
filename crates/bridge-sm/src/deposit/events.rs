@@ -13,15 +13,13 @@ use crate::signals::GraphToDeposit;
 /// The external events that affect the Deposit State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositEvent {
-    /// TODO: (@MdTeach)
-    DepositRequest,
     /// Event signifying that the output of the deposit request was spent by the user instead of the
     /// bridge covenant.
     UserTakeBack {
         /// The transaction that spends the deposit request.
         tx: Transaction,
     },
-    /// TODO: (@MdTeach)
+    /// Message received from the Graph State Machine.
     GraphMessage(GraphToDeposit),
     /// Nonce received from an operator for the deposit transaction signing
     NonceReceived {
@@ -65,7 +63,6 @@ pub enum DepositEvent {
 impl std::fmt::Display for DepositEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let event_str = match self {
-            DepositEvent::DepositRequest => "DepositRequest",
             DepositEvent::UserTakeBack { tx } => {
                 return write!(f, "UserTakeBack via {}", tx.compute_txid());
             }

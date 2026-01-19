@@ -295,7 +295,6 @@ impl StateMachine for DepositSM {
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
-            DepositEvent::DepositRequest => self.process_deposit_request(),
             DepositEvent::UserTakeBack { tx } => self.process_drt_takeback(tx),
             DepositEvent::GraphMessage(graph_msg) => self.process_graph_available(graph_msg),
             DepositEvent::NonceReceived {
@@ -374,25 +373,6 @@ impl DepositSM {
 
     // NOTE: all of the following functions are placeholders for the actual state transition logic.
     // they each receive the appropriate data required for the state transitions.
-
-    /// Processes the deposit request event.
-    ///
-    /// This handles the initial deposit request and instructs the operator to publish
-    /// their nonce for the deposit transaction signing process.
-    fn process_deposit_request(&self) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        match self.state() {
-            DepositState::Created { .. } => Ok(DSMOutput::with_duties(vec![
-                DepositDuty::PublishDepositNonce {
-                    deposit_out_point: self.cfg().deposit_outpoint(),
-                },
-            ])),
-            _ => Err(DSMError::InvalidEvent {
-                state: self.state().to_string(),
-                event: DepositEvent::DepositRequest.to_string(),
-                reason: None,
-            }),
-        }
-    }
 
     /// Processes the event where the user takes back the deposit request output.
     ///
