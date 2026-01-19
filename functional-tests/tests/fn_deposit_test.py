@@ -5,6 +5,7 @@ from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
 from utils.dev_cli import DevCli
+from utils.network import wait_until_p2p_connected
 from utils.utils import read_operator_key, wait_until_bridge_ready
 
 
@@ -53,6 +54,10 @@ class BridgeDepositTest(StrataTestBase):
             self.logger.info(f"Restarting operator node {i}")
             bridge_nodes[i].start()
             wait_until_bridge_ready(bridge_rpcs[i])
+
+        # Verify operator connectivity again
+        self.logger.info("Verifying P2P connectivity among bridge nodes")
+        wait_until_p2p_connected(bridge_rpcs)
 
         self.logger.info("Waiting for deposit to complete after operator nodes restart")
         wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
