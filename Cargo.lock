@@ -2246,6 +2246,7 @@ dependencies = [
  "serde",
  "serial_test",
  "strata-bridge-common",
+ "strata-bridge-primitives",
  "strata-bridge-test-utils",
  "thiserror 2.0.17",
  "tokio",
@@ -9659,6 +9660,7 @@ dependencies = [
  "serde",
  "strata-asm-proto-bridge-v1",
  "strata-asm-rpc",
+ "strata-bridge-primitives",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -9768,6 +9770,7 @@ dependencies = [
  "bitcoin",
  "bitcoin-script",
  "bitvm",
+ "futures",
  "miniscript",
  "musig2",
  "proptest",
@@ -9782,6 +9785,7 @@ dependencies = [
  "strata-p2p-types",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
  "thiserror 2.0.17",
+ "tokio",
 ]
 
 [[package]]
