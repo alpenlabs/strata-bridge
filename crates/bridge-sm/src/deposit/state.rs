@@ -358,6 +358,14 @@ impl DepositSM {
         &mut self.state
     }
 
+    /// Returns `true` if the operator index exists in the operator table.
+    fn validate_operator_idx(&self, operator_idx: OperatorIdx) -> bool {
+        self.cfg()
+            .operator_table
+            .idx_to_btc_key(&operator_idx)
+            .is_some()
+    }
+
     // **DESIGN PRINCIPLE**
     //
     // author: @ProofOfKeags
@@ -441,48 +449,59 @@ impl DepositSM {
     fn process_graph_available(&mut self, graph_msg: GraphToDeposit) -> DSMResult<DSMOutput> {
         let operator_table_cardinality = self.cfg().operator_table.cardinality();
 
-        match self.state_mut() {
-            DepositState::Created {
-                deposit_transaction,
-                drt_block_height,
-                output_index,
-                block_height,
-                linked_graphs,
-            } => match graph_msg {
-                GraphToDeposit::GraphAvailable { operator_idx } => {
-                    // Check for duplicate graph submission
-                    if linked_graphs.contains(&operator_idx) {
-                        return Err(DSMError::Duplicate {
-                            state: Box::new(self.state().clone()),
-                            event: Box::new(DepositEvent::GraphMessage(
-                                GraphToDeposit::GraphAvailable { operator_idx },
-                            )),
-                        });
-                    }
-
-                    linked_graphs.insert(operator_idx);
-
-                    if linked_graphs.len() == operator_table_cardinality {
-                        // All operators have linked their graphs, transition to GraphGenerated
-                        // state
-                        let new_state = DepositState::GraphGenerated {
-                            deposit_transaction: deposit_transaction.clone(),
-                            drt_block_height: *drt_block_height,
-                            output_index: *output_index,
-                            block_height: *block_height,
-                            pubnonces: BTreeMap::new(),
-                        };
-                        self.state = new_state;
-                    }
-
-                    Ok(DSMOutput::new())
+        match graph_msg {
+            GraphToDeposit::GraphAvailable { operator_idx } => {
+                // Validate operator_idx is in the operator table
+                if !self.validate_operator_idx(operator_idx) {
+                    return Err(DSMError::Rejected {
+                        state: Box::new(self.state().clone()),
+                        reason: format!("Operator index {} not in operator table", operator_idx),
+                        event: Box::new(DepositEvent::GraphMessage(graph_msg)),
+                    });
                 }
-            },
-            _ => Err(DSMError::InvalidEvent {
-                state: self.state().to_string(),
-                event: DepositEvent::GraphMessage(graph_msg).to_string(),
-                reason: None,
-            }),
+
+                match self.state_mut() {
+                    DepositState::Created {
+                        deposit_transaction,
+                        drt_block_height,
+                        output_index,
+                        block_height,
+                        linked_graphs,
+                    } => {
+                        // Check for duplicate graph submission
+                        if linked_graphs.contains(&operator_idx) {
+                            return Err(DSMError::Duplicate {
+                                state: Box::new(self.state().clone()),
+                                event: Box::new(DepositEvent::GraphMessage(
+                                    GraphToDeposit::GraphAvailable { operator_idx },
+                                )),
+                            });
+                        }
+
+                        linked_graphs.insert(operator_idx);
+
+                        if linked_graphs.len() == operator_table_cardinality {
+                            // All operators have linked their graphs, transition to GraphGenerated
+                            // state
+                            let new_state = DepositState::GraphGenerated {
+                                deposit_transaction: deposit_transaction.clone(),
+                                drt_block_height: *drt_block_height,
+                                output_index: *output_index,
+                                block_height: *block_height,
+                                pubnonces: BTreeMap::new(),
+                            };
+                            self.state = new_state;
+                        }
+
+                        Ok(DSMOutput::new())
+                    }
+                    _ => Err(DSMError::InvalidEvent {
+                        state: self.state().to_string(),
+                        event: DepositEvent::GraphMessage(graph_msg).to_string(),
+                        reason: None,
+                    }),
+                }
+            }
         }
     }
 
@@ -498,6 +517,18 @@ impl DepositSM {
         operator_idx: OperatorIdx,
     ) -> DSMResult<DSMOutput> {
         let operator_table_cardinality = self.cfg().operator_table.cardinality();
+
+        // Validate operator_idx is in the operator table
+        if !self.validate_operator_idx(operator_idx) {
+            return Err(DSMError::Rejected {
+                state: Box::new(self.state().clone()),
+                reason: format!("Operator index {} not in operator table", operator_idx),
+                event: Box::new(DepositEvent::NonceReceived {
+                    nonce,
+                    operator_idx,
+                }),
+            });
+        }
 
         match self.state_mut() {
             DepositState::GraphGenerated {
@@ -584,11 +615,25 @@ impl DepositSM {
     ) -> DSMResult<DSMOutput> {
         let operator_table_cardinality = self.cfg().operator_table.cardinality();
         let btc_keys: Vec<_> = self.cfg().operator_table.btc_keys().into_iter().collect();
+
+        // Validate operator_idx is in the operator table
+        if !self.validate_operator_idx(operator_idx) {
+            return Err(DSMError::Rejected {
+                state: Box::new(self.state().clone()),
+                reason: format!("Operator index {} not in operator table", operator_idx),
+                event: Box::new(DepositEvent::PartialReceived {
+                    partial_sig,
+                    operator_idx,
+                }),
+            });
+        }
+
+        // Get the operator pubkey (safe after validation)
         let operator_pubkey = self
             .cfg()
             .operator_table
             .idx_to_btc_key(&operator_idx)
-            .expect("operator must be in table");
+            .expect("validated above");
 
         match self.state_mut() {
             DepositState::DepositNoncesCollected {
@@ -1182,6 +1227,38 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_invalid_operator_idx_in_process_graph_available() {
+        let deposit_tx = test_deposit_txn();
+
+        let initial_state = DepositState::Created {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            linked_graphs: BTreeSet::new(),
+        };
+
+        let sm = create_sm(initial_state.clone());
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // Process GraphAvailable messages with invalid operator idx
+        let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
+            operator_idx: u32::MAX,
+        });
+        seq.process(event.clone());
+
+        // Process the same event again to simulate duplicate
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: seq.state().clone(),
+                event,
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            },
+        );
+    }
+
     // ===== Process Nonce Received Tests =====
 
     #[test]
@@ -1287,6 +1364,41 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_invalid_operator_idx_in_process_nonce() {
+        let deposit_tx = test_deposit_txn();
+        let operator_signers = test_operator_signers();
+        let operator_signers_nonce_counter = 0u64;
+
+        // Extract signing info
+        let (key_agg_ctx, _sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
+
+        let initial_state = DepositState::GraphGenerated {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            pubnonces: BTreeMap::new(),
+        };
+
+        // Process nonces, with invalid operator idex
+        let signer = operator_signers.first().expect("singer set empty");
+        let nonce = signer.pubnonce(tweaked_agg_pubkey, operator_signers_nonce_counter);
+        let event = DepositEvent::NonceReceived {
+            nonce,
+            operator_idx: u32::MAX,
+        };
+
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: initial_state,
+                event,
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            },
+        );
+    }
     // ===== Process Partial Received Tests =====
     #[test]
     fn test_process_partial_sequence() {
@@ -1491,6 +1603,62 @@ mod tests {
                 },
             );
         }
+    }
+
+    #[test]
+    fn test_invalid_operator_idx_in_process_partial() {
+        let deposit_tx = test_deposit_txn();
+        let operator_signers = test_operator_signers();
+        let operator_signers_nonce_counter = 0u64;
+
+        // Extract signing info
+        let (key_agg_ctx, sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
+
+        // Generate nonces using the tweaked aggregated pubkey
+        let pubnonces: BTreeMap<u32, PubNonce> = operator_signers
+            .iter()
+            .enumerate()
+            .map(|(operatoridx, s)| {
+                (
+                    operatoridx as u32,
+                    s.pubnonce(tweaked_agg_pubkey, operator_signers_nonce_counter),
+                )
+            })
+            .collect();
+        let agg_nonce = AggNonce::sum(pubnonces.values().cloned());
+
+        let initial_state = DepositState::DepositNoncesCollected {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            pubnonces,
+            agg_nonce: agg_nonce.clone(),
+            partial_signatures: BTreeMap::new(),
+        };
+
+        // Process partial signatures, with invalid operator idx
+        let signer = operator_signers.first().expect("singer set empty");
+        let partial_sig = signer.sign(
+            &key_agg_ctx,
+            operator_signers_nonce_counter,
+            &agg_nonce,
+            sighash,
+        );
+        let event = DepositEvent::PartialReceived {
+            partial_sig,
+            operator_idx: u32::MAX,
+        };
+
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: initial_state,
+                event,
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            },
+        );
     }
 
     // ===== Property-Based Tests =====
