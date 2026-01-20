@@ -180,19 +180,19 @@ impl BitcoinNode {
     }
 
     /// Accesses the bitcoin client.
-    pub fn client(&self) -> &Client {
+    pub const fn client(&self) -> &Client {
         &self.node.client
     }
 
     /// Returns the coinbase amount for blocks of the first halving epoch.
     pub const fn coinbase_amount(&self) -> Amount {
-        Amount::from_sat(50 * 100_000_000)
+        Amount::from_int_btc(50)
     }
 
     /// Accesses the wallet address.
     ///
     /// The node can automatically sign inputs that spend from this address.
-    pub fn wallet_address(&self) -> &Address {
+    pub const fn wallet_address(&self) -> &Address {
         &self.wallet_address
     }
 
