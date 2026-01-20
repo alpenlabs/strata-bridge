@@ -106,6 +106,13 @@ impl SlashTx {
         }));
         output.push(cpfp_connector.tx_out());
 
+        let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
+        let value_out: Amount = output.iter().map(|x| x.value).sum();
+        debug_assert!(
+            value_in == value_out,
+            "tx should pay zero fees (value in = {value_in}, value out = {value_out})"
+        );
+
         let tx = Transaction {
             version: Version(3),
             lock_time: absolute::LockTime::ZERO,
