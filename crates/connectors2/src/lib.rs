@@ -353,7 +353,7 @@ impl SigningInfo {
 }
 
 // NOTE: (@uncomputable) The trait lives here because crate::test_utils uses it.
-// If the trait lived in tx-graph, then there would be a cyclic depenency between
+// If the trait lived in tx-graph, then there would be a cyclic dependency between
 // connectors and tx-graph.
 /// Bitcoin transaction that is the parent in a CPFP fee-bumping scheme.
 pub trait ParentTx {
