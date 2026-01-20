@@ -7,18 +7,16 @@ use bitcoin::{
     Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
-
-use crate::{
-    connectors::{
-        prelude::{
-            ClaimContestConnector, ClaimContestSpendPath, ClaimContestWitness,
-            ContestCounterproofOutput, ContestPayoutConnector, ContestProofConnector,
-            ContestSlashConnector, CpfpConnector,
-        },
-        Connector, SigningInfo,
+use strata_bridge_connectors2::{
+    prelude::{
+        ClaimContestConnector, ClaimContestSpendPath, ClaimContestWitness,
+        ContestCounterproofOutput, ContestPayoutConnector, ContestProofConnector,
+        ContestSlashConnector, CpfpConnector,
     },
-    transactions::{prelude::ClaimTx, ParentTx},
+    Connector, ParentTx, SigningInfo,
 };
+
+use crate::transactions::prelude::ClaimTx;
 
 /// Data that is needed to construct a [`ContestTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

@@ -7,17 +7,15 @@ use bitcoin::{
     OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
-
-use crate::{
-    connectors::{
-        prelude::{
-            ContestPayoutConnector, ContestProofConnector, CpfpConnector, TimelockedSpendPath,
-            TimelockedWitness,
-        },
-        Connector, SigningInfo,
+use strata_bridge_connectors2::{
+    prelude::{
+        ContestPayoutConnector, ContestProofConnector, CpfpConnector, TimelockedSpendPath,
+        TimelockedWitness,
     },
-    transactions::{prelude::ContestTx, ParentTx, PresignedTx},
+    Connector, ParentTx, SigningInfo,
 };
+
+use crate::transactions::{prelude::ContestTx, PresignedTx};
 
 /// Data that is needed to construct a [`BridgeProofTimeoutTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

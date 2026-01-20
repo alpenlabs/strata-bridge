@@ -7,19 +7,17 @@ use bitcoin::{
     OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
+use strata_bridge_connectors2::{
+    prelude::{
+        ContestPayoutConnector, CounterproofConnector, CpfpConnector, TimelockedSpendPath,
+        TimelockedWitness,
+    },
+    Connector, ParentTx, SigningInfo,
+};
 
-use crate::{
-    connectors::{
-        prelude::{
-            ContestPayoutConnector, CounterproofConnector, CpfpConnector, TimelockedSpendPath,
-            TimelockedWitness,
-        },
-        Connector, SigningInfo,
-    },
-    transactions::{
-        prelude::{ContestTx, CounterproofTx},
-        ParentTx, PresignedTx,
-    },
+use crate::transactions::{
+    prelude::{ContestTx, CounterproofTx},
+    PresignedTx,
 };
 
 /// Data that is needed to construct a [`CounterproofAckTx`].

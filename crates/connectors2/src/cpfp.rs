@@ -55,7 +55,7 @@ mod tests {
     use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
     use super::*;
-    use crate::connectors::test_utils::BitcoinNode;
+    use crate::test_utils::BitcoinNode;
 
     #[test]
     fn p2a_spend() {

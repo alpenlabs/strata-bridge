@@ -6,7 +6,7 @@ use bitcoin::{
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::{Connector, TaprootWitness};
 
 /// Connector output between `Claim` and:
 /// 1. `Bridge Proof Timeout`
@@ -144,7 +144,7 @@ mod tests {
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::connectors::{test_utils::Signer, SigningInfo};
+    use crate::{test_utils::Signer, SigningInfo};
 
     struct ClaimPayoutSigner {
         n_of_n_keypair: Keypair,
