@@ -8,8 +8,8 @@ workspace = true
 
 [dependencies]
 strata-asm-txs-bridge-v1.workspace = true
+strata-bridge-connectors2.workspace = true
 strata-bridge-primitives.workspace = true
-strata-crypto.workspace = true
 strata-l1-txfmt.workspace = true
 strata-primitives.workspace = true
 
@@ -21,9 +21,6 @@ serde.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
-strata-bridge-common.workspace = true
+strata-bridge-connectors2 = { workspace = true, features = ["test_utils"] }
 
 tokio = { workspace = true, features = ["rt", "macros"] }
-tracing.workspace = true
-bitcoind-async-client.workspace = true
-corepc-node.workspace = true

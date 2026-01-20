@@ -7,21 +7,18 @@ use bitcoin::{
     OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
+use strata_bridge_connectors2::{
+    prelude::{
+        ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness, ContestPayoutConnector,
+        ContestSlashConnector, NOfNConnector, NOfNSpend, TimelockedSpendPath, TimelockedWitness,
+    },
+    Connector, ParentTx, SigningInfo,
+};
 use strata_primitives::bitcoin_bosd::Descriptor;
 
-use crate::{
-    connectors::{
-        prelude::{
-            ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness, ContestPayoutConnector,
-            ContestSlashConnector, NOfNConnector, NOfNSpend, TimelockedSpendPath,
-            TimelockedWitness,
-        },
-        Connector,
-    },
-    transactions::{
-        prelude::{ClaimTx, ContestTx},
-        ParentTx, PresignedTx, SigningInfo,
-    },
+use crate::transactions::{
+    prelude::{ClaimTx, ContestTx},
+    PresignedTx,
 };
 
 /// Data that is needed to construct a [`ContestedPayoutTx`].

@@ -1,4 +1,4 @@
-//! This module contains connectors for the Glock transaction graph.
+//! This crate contains connectors for the Glock transaction graph.
 
 pub mod claim_contest;
 pub mod claim_payout;
@@ -8,8 +8,8 @@ pub mod n_of_n;
 pub mod prelude;
 pub mod timelocked;
 
-#[cfg(test)]
-pub(crate) mod test_utils;
+#[cfg(any(test, feature = "test_utils"))]
+pub mod test_utils;
 
 use bitcoin::{
     hashes::Hash,
@@ -19,7 +19,8 @@ use bitcoin::{
     script,
     sighash::{Prevouts, SighashCache},
     taproot::{LeafVersion, TapLeafHash, TaprootSpendInfo},
-    Address, Amount, Network, ScriptBuf, Sequence, TapNodeHash, TapSighashType, Transaction, TxOut,
+    Address, Amount, Network, OutPoint, ScriptBuf, Sequence, TapNodeHash, TapSighashType,
+    Transaction, TxOut,
 };
 use secp256k1::{schnorr, Keypair, Message, XOnlyPublicKey, SECP256K1};
 use strata_bridge_primitives::scripts::prelude::{
@@ -349,4 +350,16 @@ impl SigningInfo {
             None => keypair.sign_schnorr(self.sighash),
         }
     }
+}
+
+// NOTE: (@uncomputable) The trait lives here because crate::test_utils uses it.
+// If the trait lived in tx-graph, then there would be a cyclic depenency between
+// connectors and tx-graph.
+/// Bitcoin transaction that is the parent in a CPFP fee-bumping scheme.
+pub trait ParentTx {
+    /// Returns the output that is spent by the CPFP child.
+    fn cpfp_tx_out(&self) -> TxOut;
+
+    /// Returns the outpoint that is spent by the CPFP child.
+    fn cpfp_outpoint(&self) -> OutPoint;
 }

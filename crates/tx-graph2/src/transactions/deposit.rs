@@ -8,15 +8,13 @@ use bitcoin::{
 };
 use secp256k1::schnorr;
 use strata_asm_txs_bridge_v1::deposit::DepositTxHeaderAux;
+use strata_bridge_connectors2::{
+    prelude::{DepositRequestConnector, NOfNConnector, TimelockedSpendPath, TimelockedWitness},
+    Connector, SigningInfo,
+};
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 
-use crate::{
-    connectors::{
-        prelude::{DepositRequestConnector, NOfNConnector, TimelockedSpendPath, TimelockedWitness},
-        Connector,
-    },
-    transactions::{PresignedTx, SigningInfo},
-};
+use crate::transactions::PresignedTx;
 
 /// Data that is needed to construct a [`DepositTx`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
