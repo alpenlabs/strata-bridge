@@ -41,7 +41,7 @@ class BridgeDepositTest(StrataTestBase):
         drt_txid = dev_cli.send_deposit_request()
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
-        wait_until_drt_recognized(bridge_rpc, drt_txid)
+        new_deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
 
         self.logger.info("Crashing all operator nodes")
         for i in range(num_operators):
@@ -55,6 +55,6 @@ class BridgeDepositTest(StrataTestBase):
             wait_until_bridge_ready(bridge_rpcs[i])
 
         self.logger.info("Waiting for deposit to complete after operator nodes restart")
-        wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
+        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusComplete)
 
         return True
