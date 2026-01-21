@@ -69,6 +69,13 @@ jobs:
 
       - name: Download and build OpenSSL 3.5.0
         run: |
+          # check current version of openssl
+          version=$(openssl version | awk '{print $2}' | cut -d. -f1,2)
+          echo "Current OpenSSL version: $version"
+          if [ "$version" = "3.5" ]; then
+            echo "OpenSSL 3.5 is already installed"
+            exit 0
+          fi
           wget https://www.openssl.org/source/openssl-3.5.0.tar.gz
           tar -xzf openssl-3.5.0.tar.gz
           cd openssl-3.5.0
