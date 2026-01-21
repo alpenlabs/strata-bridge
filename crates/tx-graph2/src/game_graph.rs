@@ -242,7 +242,7 @@ impl GameGraph {
             connectors.deposit,
             connectors.claim_contest.clone(),
             connectors.claim_payout,
-            keys.payout_operator_descriptor.clone(),
+            &keys.payout_operator_descriptor,
         );
 
         let contest_data = ContestData {
@@ -311,7 +311,7 @@ impl GameGraph {
             connectors.claim_payout,
             connectors.contest_payout,
             connectors.contest_slash,
-            keys.payout_operator_descriptor.clone(),
+            &keys.payout_operator_descriptor,
         );
 
         let slash_data = SlashData {
