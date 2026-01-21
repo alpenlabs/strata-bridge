@@ -46,11 +46,9 @@ def main(argv):
     bofac = BridgeOperatorFactory([12500 + i for i in range(100)])
     factories = {"bitcoin": bfac, "s2": s2fac, "bofac": bofac}
 
-    p2p_gen = generate_p2p_ports()
-
     # Register envs
-    basic_env = BasicEnv(p2p_port_generator=p2p_gen)
-    network_env = BridgeNetworkEnv(p2p_port_generator=p2p_gen)
+    basic_env = BasicEnv()
+    network_env = BridgeNetworkEnv()
     env_configs = {"basic": basic_env, "network": network_env}
 
     # Set up the runtime and prepare tests.
@@ -71,14 +69,6 @@ def main(argv):
 def extract_test_name(test_path):
     """Extract test module name from file path, removing extension."""
     return os.path.splitext(os.path.basename(test_path))[0]
-
-
-def generate_p2p_ports(start_port=12600):
-    """P2P port generator to avoid port conflicts."""
-    port = start_port
-    while True:
-        yield f"/ip4/127.0.0.1/tcp/{port}"
-        port += 1
 
 
 def generate_mtls_credentials(gen_script_path: str, datadir_root: str, operator_index: int) -> None:
