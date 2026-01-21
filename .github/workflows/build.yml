@@ -4,7 +4,7 @@ on:
   pull_request:
   merge_group:
   push:
-    branches: [main]
+    branches: [madan/selfHostedGitRunner]
   workflow_dispatch:
 
 env:
@@ -15,7 +15,7 @@ permissions: {}
 jobs:
   extract-rust-version:
     name: Extract toolchain version
-    runs-on: ubuntu-latest
+    runs-on: [Linux, x64, self-hosted]
     outputs:
       nightly-version: ${{ steps.extract-version.outputs.nightly-version }}
     steps:
@@ -30,7 +30,7 @@ jobs:
 
   crate-checks:
     name: Check that crates compile on their own
-    runs-on: ubuntu-latest
+        runs-on: [Linux, x64, self-hosted]
     needs: extract-rust-version
     timeout-minutes: 90 # cold run takes a lot of time as each crate is compiled separately
     steps:
