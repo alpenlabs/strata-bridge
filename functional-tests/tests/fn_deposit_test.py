@@ -1,8 +1,8 @@
 import flexitest
 
+from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
-from envs.bridge_network_env import BridgeNetworkEnv
-from rpc.types import RpcDepositStatusComplete
+from rpc.types import RpcDepositStatusComplete, RpcDepositStatusInProgress
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
 from utils.dev_cli import DevCli
@@ -42,7 +42,7 @@ class BridgeDepositTest(StrataTestBase):
         drt_txid = dev_cli.send_deposit_request()
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
-        wait_until_drt_recognized(bridge_rpc, drt_txid)
+        new_deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
 
         self.logger.info("Crashing all operator nodes")
         for i in range(num_operators):
@@ -59,8 +59,10 @@ class BridgeDepositTest(StrataTestBase):
         # TODO: @MdTeach investigate why this fails in CI but passes locally
         # self.logger.info("Verifying P2P connectivity among bridge nodes")
         # wait_until_p2p_connected(bridge_rpcs)
+        self.logger.info("Making sure deposit is still in progress after restarting nodes")
+        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusInProgress)
 
         self.logger.info("Waiting for deposit to complete after operator nodes restart")
-        wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
+        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusComplete)
 
         return True
