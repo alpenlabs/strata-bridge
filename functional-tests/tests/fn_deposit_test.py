@@ -1,10 +1,13 @@
 import flexitest
 
-from constants import BRIDGE_NETWORK_SIZE
+from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
+from rpc.types import RpcDepositStatusComplete, RpcDepositStatusInProgress
+from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
 from utils.dev_cli import DevCli
 from utils.network import wait_until_p2p_connected
-from utils.utils import read_operator_key, wait_until, wait_until_bridge_ready
+from utils.utils import read_operator_key, wait_until_bridge_ready
 
 
 @flexitest.register
@@ -14,38 +17,33 @@ class BridgeDepositTest(StrataTestBase):
     """
 
     def __init__(self, ctx: flexitest.InitContext):
-        ctx.set_env("network")
+        ctx.set_env(BridgeNetworkEnv())
 
     def main(self, ctx: flexitest.RunContext):
-        num_operators = BRIDGE_NETWORK_SIZE
-        bridge_nodes = [ctx.get_service(f"bridge_node_{idx}") for idx in range(num_operators)]
-        bridge_rpcs = [bridge_node.create_rpc() for bridge_node in bridge_nodes]
-
-        # Verify operator connectivity
-        wait_until_p2p_connected(bridge_rpcs)
+        bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
 
         # Test deposit
         bitcoind_service = ctx.get_service("bitcoin")
         bitcoind_props = bitcoind_service.props
 
+        num_operators = len(bridge_nodes)
         musig2_keys = [read_operator_key(i).MUSIG2_KEY for i in range(num_operators)]
 
         dev_cli = DevCli(bitcoind_props, musig2_keys)
-        result = dev_cli.send_deposit_request()
-        self.logger.debug(f"Deposit request result: {result}")
+        drt_txid = dev_cli.send_deposit_request()
+        self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
         bridge_rpc = bridge_rpcs[0]
-        id = self.wait_until_first_drt_recognized(bridge_rpc)
+        deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
 
-        self.wait_until_deposit_complete(bridge_rpc, id)
+        wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
 
-        # again
-        print("doing 2nd depsit")
-        result = dev_cli.send_deposit_request()
-        self.logger.debug(f"Deposit request result: {result}")
+        # Reuse environment to check if deposit goes through even if the operator nodes crash midway
+        self.logger.info("Sending another DRT to test resilience against operator crashes")
+        drt_txid = dev_cli.send_deposit_request()
+        self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
-        bridge_rpc = bridge_rpcs[0]
-        id = self.wait_until_first_drt_recognized_2(bridge_rpc)
+        new_deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
 
         self.logger.info("Crashing all operator nodes")
         for i in range(num_operators):
@@ -58,69 +56,15 @@ class BridgeDepositTest(StrataTestBase):
             bridge_nodes[i].start()
             wait_until_bridge_ready(bridge_rpcs[i])
 
-        self.wait_until_deposit_complete(bridge_rpc, id)
+        self.logger.info("Making sure deposit is still in progress after restarting nodes")
+        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusInProgress)
 
-        # Verify operator connectivity
-        print("p2p restart")
+        self.logger.info("Waiting for deposit to complete after operator nodes restart")
+        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusComplete)
+
+        # Verify operator connectivity again
+        # TODO: @MdTeach investigate why this fails in CI but passes locally
+        self.logger.info("Verifying P2P connectivity among bridge nodes")
         wait_until_p2p_connected(bridge_rpcs)
-        self.logger.info("Connected with all peers")
-        print("Connected with all peers")
 
         return True
-
-    def wait_until_first_drt_recognized(self, bridge_rpc, timeout=300):
-        result = {"deposit_id": None}
-
-        def check_drt_recognized():
-            depositRequests = bridge_rpc.stratabridge_depositRequests()
-            self.logger.info(f"Current deposit requests: {depositRequests}")
-            if len(depositRequests) >= 1:
-                result["deposit_id"] = depositRequests[0]
-                return True
-            return False
-
-        wait_until(
-            check_drt_recognized,
-            timeout=timeout,
-            step=10,
-            error_msg=f"Timeout after {timeout} seconds waiting for DRT to be recognized",
-        )
-
-        return result["deposit_id"]
-
-    def wait_until_first_drt_recognized_2(self, bridge_rpc, timeout=300):
-        result = {"deposit_id": None}
-
-        def check_drt_recognized():
-            depositRequests = bridge_rpc.stratabridge_depositRequests()
-            self.logger.info(f"Current deposit requests: {depositRequests}")
-            if len(depositRequests) >= 2:
-                result["deposit_id"] = depositRequests[1]
-                return True
-            return False
-
-        wait_until(
-            check_drt_recognized,
-            timeout=timeout,
-            step=10,
-            error_msg=f"Timeout after {timeout} seconds waiting for DRT to be recognized",
-        )
-
-        return result["deposit_id"]
-
-    def wait_until_deposit_complete(self, bridge_rpc, deposit_id, timeout=300):
-        result = {"deposit_info": None}
-
-        def check_deposit_complete():
-            result["deposit_info"] = bridge_rpc.stratabridge_depositInfo(deposit_id)
-            self.logger.info(f"Deposit info for {deposit_id}: {result['deposit_info']}")
-            return result["deposit_info"].get("status", {}).get("status") == "complete"
-
-        wait_until(
-            check_deposit_complete,
-            timeout=timeout,
-            step=10,
-            error_msg=f"Timeout after {timeout} seconds waiting for deposit to complete",
-        )
-
-        return result["deposit_info"]

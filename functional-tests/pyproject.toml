@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["ruff==0.14.5"]
+dev = ["ruff==0.14.5", "ty>=0.0.12"]
 
 
 [tool.uv]
@@ -55,3 +55,6 @@ ignore = [
 
 [tool.ruff.lint.pycodestyle]
 max-line-length = 100
+
+[tool.ty.rules]
+unresolved-attribute = "ignore"

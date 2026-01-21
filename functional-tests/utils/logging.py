@@ -1,7 +1,11 @@
 import logging
 import os
+import sys
 
 from constants import DEFAULT_LOG_LEVEL
+
+# Common formatter
+FORMATTER = logging.Formatter("%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s")
 
 
 def setup_root_logger():
@@ -10,9 +14,14 @@ def setup_root_logger():
     """
     log_level = os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL).upper()
     log_level = getattr(logging, log_level, logging.NOTSET)
-    # Configure the root logger
+
+    # Configure the root logger with a handler
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(FORMATTER)
+
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
+    root_logger.addHandler(stream_handler)
 
 
 def setup_test_logger(datadir_root: str, test_name: str) -> logging.Logger:
@@ -32,11 +41,6 @@ def setup_test_logger(datadir_root: str, test_name: str) -> logging.Logger:
     log_dir = os.path.join(datadir_root, "logs")
     os.makedirs(log_dir, exist_ok=True)
 
-    # Common formatter
-    formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
-    )
-
     # Set up individual loggers for each test
     logger = logging.getLogger(f"root.{test_name}")
     logger.propagate = False
@@ -44,11 +48,11 @@ def setup_test_logger(datadir_root: str, test_name: str) -> logging.Logger:
     # File handler
     log_path = os.path.join(log_dir, f"{test_name}.log")
     file_handler = logging.FileHandler(log_path)
-    file_handler.setFormatter(formatter)
+    file_handler.setFormatter(FORMATTER)
 
-    # Stream handler
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
+    # Stream handler (use stdout for consistent output with print)
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(FORMATTER)
 
     # Add handlers to the logger
     logger.addHandler(file_handler)
