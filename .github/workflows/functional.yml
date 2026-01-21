@@ -127,7 +127,9 @@ jobs:
           tool: just
 
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --locked
+        run: |
+          sudo apt install libssl-dev # required in self-hosted runner
+          cargo install sqlx-cli --locked
 
       - name: Run db migrations
         run: just migrate
