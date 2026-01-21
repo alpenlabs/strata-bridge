@@ -76,6 +76,7 @@ jobs:
             echo "OpenSSL 3.5 is already installed"
             exit 0
           fi
+          sudo apt install -y build-essential
           wget https://www.openssl.org/source/openssl-3.5.0.tar.gz
           tar -xzf openssl-3.5.0.tar.gz
           cd openssl-3.5.0
