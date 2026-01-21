@@ -5,6 +5,9 @@ use secp256k1::{schnorr, XOnlyPublicKey};
 
 use crate::{Connector, TaprootWitness};
 
+/// Index of the counterproof output of watchtower 0 in the contest transaction.
+const CONTEST_WATCHTOWER_0_VOUT: u32 = 3;
+
 /// Connector output between `Claim` and:
 /// 1. `Contest`
 /// 2. `Uncontested Payout`.
@@ -90,7 +93,7 @@ impl Connector for ClaimContestConnector {
         let minimal_non_dust = self.script_pubkey().minimal_non_dust();
         // NOTE: (@uncomputable) correctness is asserted in tx-graph2 crate:
         // presigned transactions pay zero fees
-        minimal_non_dust * u64::from(3 + self.n_watchtowers())
+        minimal_non_dust * u64::from(CONTEST_WATCHTOWER_0_VOUT + self.n_watchtowers())
     }
 
     fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
