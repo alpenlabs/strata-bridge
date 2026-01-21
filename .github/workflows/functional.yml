@@ -57,7 +57,7 @@ jobs:
 
   run:
     name: Run functional tests and generate report
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: extract-rust-version
     timeout-minutes: 60
 
