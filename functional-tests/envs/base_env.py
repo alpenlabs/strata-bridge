@@ -5,7 +5,7 @@ from utils import (
     generate_blocks,
     wait_until_bitcoind_ready,
 )
-from utils.utils import read_operator_key
+from utils.utils import generate_p2p_ports, read_operator_key
 
 
 class BaseEnv(flexitest.EnvConfig):
@@ -14,7 +14,6 @@ class BaseEnv(flexitest.EnvConfig):
     def __init__(
         self,
         num_operators,
-        p2p_port_generator,
         funding_amount=5.01,
         initial_blocks=101,
         finalization_blocks=10,
@@ -26,7 +25,8 @@ class BaseEnv(flexitest.EnvConfig):
         self.finalization_blocks = finalization_blocks
 
         # Generate P2P ports for this environment
-        self.p2p_ports = [next(p2p_port_generator) for _ in range(num_operators)]
+        p2p_port_gen = generate_p2p_ports()
+        self.p2p_ports = [next(p2p_port_gen) for _ in range(num_operators)]
 
         # Load all operator keys
         self.operator_key_infos = [read_operator_key(i) for i in range(num_operators)]

@@ -11,14 +11,12 @@ class BridgeNetworkEnv(BaseEnv):
 
     def __init__(
         self,
-        p2p_port_generator,
         funding_amount=5.01,
         initial_blocks=101,
         finalization_blocks=10,
     ):
         super().__init__(
             BRIDGE_NETWORK_SIZE,
-            p2p_port_generator,
             funding_amount,
             initial_blocks,
             finalization_blocks,
