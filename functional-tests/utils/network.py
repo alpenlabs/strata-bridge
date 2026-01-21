@@ -13,7 +13,7 @@ def wait_until_p2p_connected(bridge_rpcs, timeout=300):
             for operator in other_operators:
                 status = rpc.stratabridge_operatorStatus(operator)
                 if status != "online":
-                    logging.debug(
+                    logging.info(
                         f"Bridge {bridge_index}: Operator {operator} is {status} waiting..."
                     )
                     return False
