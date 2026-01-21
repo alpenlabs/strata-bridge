@@ -130,3 +130,11 @@ def wait_until_bitcoind_ready(rpc_client, timeout: int = 120, step: int = 1):
         step=step,
         error_msg="Bitcoind did not start within timeout",
     )
+
+
+def generate_p2p_ports(start_port=12600):
+    """P2P port generator to avoid port conflicts."""
+    port = start_port
+    while True:
+        yield f"/ip4/127.0.0.1/tcp/{port}"
+        port += 1
