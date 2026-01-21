@@ -75,6 +75,7 @@ class BridgeOperatorFactory(flexitest.Factory):
         }
 
         svc = flexitest.service.ProcService(props, cmd, stdout=logfile_path)
+        svc.stop_timeout = 300
         svc.start()
         inject_service_create_rpc(svc, rpc_url, bridge_operator_name)
         return svc
