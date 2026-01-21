@@ -57,9 +57,7 @@ jobs:
 
   run:
     name: Run functional tests and generate report
-    runs-on: self-hosted
-    container:
-      image: alpine/openssl:3.5.4
+    runs-on: ubuntu-latest
     needs: extract-rust-version
     timeout-minutes: 60
 
