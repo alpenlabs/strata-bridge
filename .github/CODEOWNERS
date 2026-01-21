@@ -37,8 +37,10 @@
 
 # Transaction graph components
 /crates/tx-graph/ @Rajil1213
+/crates/tx-graph2/ @uncomputable
 /crates/stake-chain/ @Rajil1213
 /crates/connectors/ @Rajil1213
+/crates/connectors2/ @uncomputable
 
 # Main binary
 /bin/alpen-bridge/ @Rajil1213
