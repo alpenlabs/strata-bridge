@@ -657,7 +657,9 @@ mod tests {
         );
         let claim_funds_amount = claim_contest_connector.value() + claim_payout_connector.value();
 
-        // Create a transaction that funds the claim, deposit and stake.
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │                       Funding Transaction                         │
+        // └───────────────────────────────────────────────────────────────────┘
         //
         // inputs         | outputs
         // ---------------+------------------------------------
