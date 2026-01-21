@@ -75,9 +75,7 @@ def generate_config_toml(
             # Use permissive scoring for test networks (disables penalties for localhost testing)
             gossipsub_scoring_preset="permissive",
         ),
-        rpc=RpcConfig(
-            rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=10, nanos=0)
-        ),
+        rpc=RpcConfig(rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=5, nanos=0)),
         btc_zmq=BtcZmqConfig(
             bury_depth=2,
             hashblock_connection_string=zmq_connection_string(bitcoind_props["zmq_hashblock"]),
