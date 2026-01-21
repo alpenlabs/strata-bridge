@@ -422,7 +422,11 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 operator_pk,
             ));
         };
-        if self.command_handle.is_connected(&conversion, Option::from(Duration::from_secs(10))).await {
+        if self
+            .command_handle
+            .is_connected(&conversion, Option::from(Duration::from_secs(10)))
+            .await
+        {
             Ok(RpcOperatorStatus::Online)
         } else {
             Ok(RpcOperatorStatus::Offline)
