@@ -5,6 +5,7 @@ from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
 from utils.dev_cli import DevCli
+from utils.network import wait_until_p2p_connected
 from utils.utils import read_operator_key, wait_until_bridge_ready
 
 
