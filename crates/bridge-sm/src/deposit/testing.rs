@@ -161,7 +161,6 @@ impl Arbitrary for DepositState {
                 DepositState::Created {
                     block_height: height,
                     deposit_transaction: test_deposit_txn(),
-                    drt_block_height: height,
                     output_index: Default::default(),
                     linked_graphs: Default::default(),
                 }
@@ -170,7 +169,6 @@ impl Arbitrary for DepositState {
                 DepositState::GraphGenerated {
                     block_height: height,
                     deposit_transaction: test_deposit_txn(),
-                    drt_block_height: height,
                     output_index: Default::default(),
                     pubnonces: Default::default(),
                 }
@@ -179,7 +177,6 @@ impl Arbitrary for DepositState {
                 DepositState::DepositNoncesCollected {
                     block_height: height,
                     deposit_transaction: test_deposit_txn(),
-                    drt_block_height: height,
                     output_index: Default::default(),
                     agg_nonce: generate_agg_nonce(),
                     partial_signatures: Default::default(),
@@ -195,7 +192,6 @@ impl Arbitrary for DepositState {
                         version: Version(2),
                         lock_time: absolute::LockTime::ZERO,
                     },
-                    drt_block_height: height,
                     output_index: Default::default(),
                 }
             }),
