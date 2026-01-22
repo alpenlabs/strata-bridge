@@ -428,6 +428,7 @@ impl DepositSM {
     /// [`DepositState::GraphGenerated`] state.
     fn process_graph_available(&mut self, graph_msg: GraphToDeposit) -> DSMResult<DSMOutput> {
         let operator_table_cardinality = self.cfg().operator_table.cardinality();
+        let deposit_outpoint = self.cfg().deposit_outpoint();
 
         match graph_msg {
             GraphToDeposit::GraphAvailable { operator_idx } => {
@@ -469,6 +470,11 @@ impl DepositSM {
                                 pubnonces: BTreeMap::new(),
                             };
                             self.state = new_state;
+
+                            // Create the duty to publish deposit nonce
+                            let duty = DepositDuty::PublishDepositNonce { deposit_outpoint };
+
+                            return Ok(DSMOutput::with_duties(vec![duty]));
                         }
 
                         Ok(DSMOutput::new())
@@ -1155,10 +1161,13 @@ mod tests {
         // Should transition to GraphGenerated
         assert!(matches!(seq.state(), DepositState::GraphGenerated { .. }));
 
-        // No duties should be emitted
+        // Check that a PublishDepositNonce duty was emitted
         assert!(
-            seq.all_duties().is_empty(),
-            "No duties should be emitted on graph completion"
+            matches!(
+                seq.all_duties().as_slice(),
+                [DepositDuty::PublishDepositNonce { .. }]
+            ),
+            "Expected exactly 1 PublishDepositNonce duty to be emitted"
         );
     }
 
