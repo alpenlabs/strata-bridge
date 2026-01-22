@@ -13,12 +13,12 @@ pub enum DepositDuty {
     /// Publish this operator's nonce for spending the DRT
     PublishDepositNonce {
         /// DRT outpoint to ID the signing session
-        deposit_out_point: OutPoint,
+        deposit_outpoint: OutPoint,
     },
     /// Publish this operator's partial signature for spending the DRT
     PublishDepositPartial {
         /// DRT outpoint to resume the earlier signing session
-        deposit_out_point: OutPoint,
+        deposit_outpoint: OutPoint,
         /// sighash to be signed for the deposit transaction
         deposit_sighash: Message,
         /// aggregated nonce from all operators for this signing session
@@ -48,12 +48,12 @@ pub enum DepositDuty {
 impl std::fmt::Display for DepositDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display_str = match self {
-            DepositDuty::PublishDepositNonce { deposit_out_point } => {
-                format!("PublishDepositNonce (outpoint: {})", deposit_out_point)
+            DepositDuty::PublishDepositNonce { deposit_outpoint } => {
+                format!("PublishDepositNonce (outpoint: {})", deposit_outpoint)
             }
             DepositDuty::PublishDepositPartial {
-                deposit_out_point, ..
-            } => format!("PublishDepositPartial (outpoint: {})", deposit_out_point),
+                deposit_outpoint, ..
+            } => format!("PublishDepositPartial (outpoint: {})", deposit_outpoint),
             DepositDuty::PublishDeposit {
                 deposit_transaction,
                 ..

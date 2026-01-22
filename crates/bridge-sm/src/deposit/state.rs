@@ -578,7 +578,7 @@ impl DepositSM {
 
                     // Create the duty to publish deposit partials
                     let duty = DepositDuty::PublishDepositPartial {
-                        deposit_out_point: self.cfg().deposit_outpoint(),
+                        deposit_outpoint: self.cfg().deposit_outpoint(),
                         deposit_sighash,
                         deposit_agg_nonce: agg_nonce,
                     };
