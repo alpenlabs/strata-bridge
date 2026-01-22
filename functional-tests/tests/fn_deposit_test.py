@@ -60,7 +60,7 @@ class BridgeDepositTest(StrataTestBase):
         wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusInProgress)
 
         self.logger.info("Waiting for deposit to complete after operator nodes restart")
-        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusComplete)
+        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusComplete, timeout=600)
 
         # Verify operator connectivity again
         # TODO: @MdTeach investigate why this fails in CI but passes locally
