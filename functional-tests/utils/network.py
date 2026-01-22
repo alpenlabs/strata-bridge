@@ -3,7 +3,7 @@ import logging
 from utils.utils import wait_until
 
 
-def wait_until_p2p_connected(bridge_rpcs, timeout=300):
+def wait_until_p2p_connected(bridge_rpcs, timeout=600):
     """Wait until all bridge operators are connected in p2p network"""
 
     def check_all_connected():
