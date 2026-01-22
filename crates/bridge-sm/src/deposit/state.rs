@@ -65,7 +65,7 @@ impl DepositCfg {
         self.deposit_idx
     }
 
-    /// Returns the deposit request outpoint.
+    /// Returns the outpoint of the deposit request UTXO.
     pub const fn deposit_outpoint(&self) -> OutPoint {
         self.deposit_outpoint
     }
@@ -96,7 +96,7 @@ pub enum DepositState {
         /// Latest Bitcoin block height observed by the state machine.
         block_height: BitcoinBlockHeight,
 
-        /// Operators whose spending graphs have been generated for this deposit.
+        /// Operators whose spending graphs have been generated for this deposit request.
         linked_graphs: BTreeSet<OperatorIdx>,
     },
     /// This state represents the phase where all operator graphs have been generated.
@@ -122,7 +122,7 @@ pub enum DepositState {
     /// This state represents the phase where all deposit public nonces have been collected.
     ///
     /// This happens from the collection of all deposit public nonces until all partial signatures
-    /// have been received.
+    /// have been received or, possibly, when the deposit transaction appears on chain.
     DepositNoncesCollected {
         /// The deposit transaction being signed.
         deposit_transaction: DepositTx,
