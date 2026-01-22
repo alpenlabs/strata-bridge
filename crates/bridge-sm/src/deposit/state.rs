@@ -87,16 +87,13 @@ pub enum DepositState {
         /// The unsigned deposit transaction derived from the deposit request.
         deposit_transaction: DepositTx,
 
-        /// Block height where the deposit request transaction was confirmed.
-        drt_block_height: BitcoinBlockHeight,
-
         /// Index of the deposit output in the deposit transaction.
         output_index: u32,
 
         /// Latest Bitcoin block height observed by the state machine.
         block_height: BitcoinBlockHeight,
 
-        /// Operators whose spending graphs have been generated for this deposit request.
+        /// Operators whose pegout graphs have been generated for this deposit request.
         linked_graphs: BTreeSet<OperatorIdx>,
     },
     /// This state represents the phase where all operator graphs have been generated.
@@ -106,9 +103,6 @@ pub enum DepositState {
     GraphGenerated {
         /// The unsigned deposit transaction to be signed.
         deposit_transaction: DepositTx,
-
-        /// Block height where the deposit request transaction was confirmed.
-        drt_block_height: BitcoinBlockHeight,
 
         /// Index of the deposit output in the deposit transaction.
         output_index: u32,
@@ -126,9 +120,6 @@ pub enum DepositState {
     DepositNoncesCollected {
         /// The deposit transaction being signed.
         deposit_transaction: DepositTx,
-
-        /// Block height where the deposit request transaction was confirmed.
-        drt_block_height: BitcoinBlockHeight,
 
         /// Index of the deposit output in the deposit transaction.
         output_index: u32,
@@ -155,9 +146,6 @@ pub enum DepositState {
 
         /// Latest Bitcoin block height observed by the state machine.
         block_height: BitcoinBlockHeight,
-
-        /// Block height where the deposit request transaction was confirmed.
-        drt_block_height: BitcoinBlockHeight,
 
         /// The fully signed deposit transaction.
         deposit_transaction: Transaction,
@@ -233,13 +221,11 @@ impl DepositState {
     /// Creates a new Deposit State in the `Created` state.
     pub const fn new(
         deposit_transaction: DepositTx,
-        drt_block_height: BitcoinBlockHeight,
         output_index: u32,
         block_height: BitcoinBlockHeight,
     ) -> Self {
         DepositState::Created {
             deposit_transaction,
-            drt_block_height,
             output_index,
             block_height,
             linked_graphs: BTreeSet::new(),
@@ -328,18 +314,12 @@ impl DepositSM {
     pub const fn new(
         cfg: DepositCfg,
         deposit_transaction: DepositTx,
-        drt_block_height: BitcoinBlockHeight,
         output_index: u32,
         block_height: BitcoinBlockHeight,
     ) -> Self {
         DepositSM {
             cfg,
-            state: DepositState::new(
-                deposit_transaction,
-                drt_block_height,
-                output_index,
-                block_height,
-            ),
+            state: DepositState::new(deposit_transaction, output_index, block_height),
         }
     }
 
@@ -463,7 +443,6 @@ impl DepositSM {
                 match self.state_mut() {
                     DepositState::Created {
                         deposit_transaction,
-                        drt_block_height,
                         output_index,
                         block_height,
                         linked_graphs,
@@ -485,7 +464,6 @@ impl DepositSM {
                             // state
                             let new_state = DepositState::GraphGenerated {
                                 deposit_transaction: deposit_transaction.clone(),
-                                drt_block_height: *drt_block_height,
                                 output_index: *output_index,
                                 block_height: *block_height,
                                 pubnonces: BTreeMap::new(),
@@ -533,7 +511,6 @@ impl DepositSM {
         match self.state_mut() {
             DepositState::GraphGenerated {
                 deposit_transaction,
-                drt_block_height,
                 output_index,
                 block_height,
                 pubnonces,
@@ -567,7 +544,6 @@ impl DepositSM {
                     // Transition to DepositNoncesCollected state
                     let new_state = DepositState::DepositNoncesCollected {
                         deposit_transaction: deposit_transaction.clone(),
-                        drt_block_height: *drt_block_height,
                         output_index: *output_index,
                         block_height: *block_height,
                         agg_nonce: agg_nonce.clone(),
@@ -638,7 +614,6 @@ impl DepositSM {
         match self.state_mut() {
             DepositState::DepositNoncesCollected {
                 deposit_transaction,
-                drt_block_height,
                 output_index,
                 block_height,
                 agg_nonce,
@@ -646,7 +621,6 @@ impl DepositSM {
                 partial_signatures,
             } => {
                 // Extract Copy types immediately using dereference pattern to bypass borrow checker
-                let drt_height = *drt_block_height;
                 let out_idx = *output_index;
                 let blk_height = *block_height;
 
@@ -727,7 +701,6 @@ impl DepositSM {
                     // Transition to DepositPartialsCollected state
                     self.state = DepositState::DepositPartialsCollected {
                         deposit_transaction: deposit_transaction.clone(),
-                        drt_block_height: drt_height,
                         output_index: out_idx,
                         block_height: blk_height,
                     };
@@ -946,7 +919,6 @@ mod tests {
         let outpoint = OutPoint::default();
         let state = DepositState::Created {
             deposit_transaction: test_deposit_txn(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             block_height: INITIAL_BLOCK_HEIGHT,
             linked_graphs: Default::default(),
             output_index: Default::default(),
@@ -972,7 +944,6 @@ mod tests {
         let outpoint = OutPoint::default();
         let state = DepositState::GraphGenerated {
             deposit_transaction: test_deposit_txn(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: Default::default(),
             pubnonces: Default::default(),
             block_height: INITIAL_BLOCK_HEIGHT,
@@ -1026,7 +997,6 @@ mod tests {
         let drt_outpoint = OutPoint::default();
         let initial_state = DepositState::Created {
             deposit_transaction: test_deposit_txn(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: Default::default(),
             linked_graphs: Default::default(),
             block_height: INITIAL_BLOCK_HEIGHT,
@@ -1166,7 +1136,6 @@ mod tests {
 
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: 0,
             block_height: INITIAL_BLOCK_HEIGHT,
             linked_graphs: BTreeSet::new(),
@@ -1201,7 +1170,6 @@ mod tests {
 
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: 0,
             block_height: INITIAL_BLOCK_HEIGHT,
             linked_graphs: BTreeSet::new(),
@@ -1233,7 +1201,6 @@ mod tests {
 
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: 0,
             block_height: INITIAL_BLOCK_HEIGHT,
             linked_graphs: BTreeSet::new(),
@@ -1285,7 +1252,6 @@ mod tests {
 
         let initial_state = DepositState::GraphGenerated {
             deposit_transaction: deposit_tx.clone(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: 0,
             block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces: BTreeMap::new(),
@@ -1331,7 +1297,6 @@ mod tests {
 
         let initial_state = DepositState::GraphGenerated {
             deposit_transaction: deposit_tx.clone(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: 0,
             block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces: BTreeMap::new(),
@@ -1376,7 +1341,6 @@ mod tests {
 
         let initial_state = DepositState::GraphGenerated {
             deposit_transaction: deposit_tx.clone(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: 0,
             block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces: BTreeMap::new(),
@@ -1425,7 +1389,6 @@ mod tests {
 
         let initial_state = DepositState::DepositNoncesCollected {
             deposit_transaction: deposit_tx.clone(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: 0,
             block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
@@ -1492,7 +1455,6 @@ mod tests {
 
         let initial_state = DepositState::DepositNoncesCollected {
             deposit_transaction: deposit_tx.clone(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: 0,
             block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
@@ -1565,7 +1527,6 @@ mod tests {
 
         let initial_state = DepositState::DepositNoncesCollected {
             deposit_transaction: deposit_tx.clone(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: 0,
             block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
@@ -1630,7 +1591,6 @@ mod tests {
 
         let initial_state = DepositState::DepositNoncesCollected {
             deposit_transaction: deposit_tx.clone(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: 0,
             block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
