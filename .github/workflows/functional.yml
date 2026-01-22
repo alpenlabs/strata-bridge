@@ -117,7 +117,7 @@ jobs:
         env:
           NO_COLOR: "1"
           LOG_LEVEL: "info"
-          LLVM_PROFILE_FILE: "${{ github.workspace }}/target/llvm-cov-target/strata-%p-%m.profraw"
+          PYTHON_VERSION: "3.12" # NOTE: (@Rajil1213) build fails with 3.13 since bitcoinlib (>=0.7.5,<0.8) uses an old version of numpy
         shell: bash
         run: |
           NEWPATH="${{ github.workspace }}/target/llvm-cov-target/debug"
