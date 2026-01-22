@@ -42,6 +42,7 @@ jobs:
           activate-environment: true
           enable-cache: true
           cache-suffix: "functional-tests"
+          python-version: "3.12"
 
       - name: Check formatting
         working-directory: functional-tests
@@ -59,7 +60,8 @@ jobs:
     name: Run functional tests and generate report
     runs-on: self-hosted
     container:
-      image: alpine/openssl:3.5.4
+      # NOTE: (@Rajil1213) this image has: `bitcoind 30.2`, `bitcoin-cli`, `rustup`, `sqlx-cli`, `openssl 3.5.4` (based on ubuntu:26.04)
+      image: public.ecr.aws/r1l9t0r6/tn1/ci:latest # zizmor: ignore[unpinned-images] -- this is built by us and trusted
     needs: extract-rust-version
     timeout-minutes: 60
 
@@ -68,36 +70,6 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
-
-      - name: Download and build OpenSSL 3.5.0
-        run: |
-          wget https://www.openssl.org/source/openssl-3.5.0.tar.gz
-          tar -xzf openssl-3.5.0.tar.gz
-          cd openssl-3.5.0
-          ./config --prefix=/usr/local/openssl-3.5 --openssldir=/usr/local/openssl-3.5
-          make -j"$(nproc)"
-          sudo make install
-          echo "/usr/local/openssl-3.5/lib64" | sudo tee /etc/ld.so.conf.d/openssl-3.5.conf
-          sudo ldconfig
-          echo "OPENSSL_ROOT_DIR=/usr/local/openssl-3.5" >> "$GITHUB_ENV"
-          echo "PKG_CONFIG_PATH=/usr/local/openssl-3.5/lib64/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
-          echo "/usr/local/openssl-3.5/bin" >> "$GITHUB_PATH"
-
-      - name: Cleanup space
-        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
-
-      - name: Install bitcoind
-        env:
-          BITCOIND_VERSION: "30.2"
-          BITCOIND_ARCH: "x86_64-linux-gnu"
-        run: |
-          curl -fsSLO --proto "=https" --tlsv1.2 "https://bitcoincore.org/bin/bitcoin-core-$BITCOIND_VERSION/bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
-          curl -fsSLO --proto "=https" --tlsv1.2 "https://bitcoincore.org/bin/bitcoin-core-$BITCOIND_VERSION/SHA256SUMS"
-          sha256sum --ignore-missing --check SHA256SUMS
-          tar xzf "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
-          sudo install -m 0755 -t /usr/local/bin "bitcoin-$BITCOIND_VERSION"/bin/*
-          bitcoind --version
-          rm -rf SHA256SUMS "bitcoin-$BITCOIND_VERSION" "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
@@ -119,9 +91,6 @@ jobs:
         uses: taiki-e/install-action@81ecf985428d5c2ea81dbf079bceca32bc9604ab # v2.62.43
         with:
           tool: just
-
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --locked
 
       - name: Run db migrations
         run: just migrate
@@ -149,12 +118,14 @@ jobs:
           NO_COLOR: "1"
           LOG_LEVEL: "info"
           LLVM_PROFILE_FILE: "${{ github.workspace }}/target/llvm-cov-target/strata-%p-%m.profraw"
+        shell: bash
         run: |
           NEWPATH="${{ github.workspace }}/target/llvm-cov-target/debug"
           export PATH="$NEWPATH:$PATH"
           cd functional-tests
           source ./env.bash
-          uv run python entry.py
+          uv run --python "$PYTHON_VERSION" python entry.py
+
       - name: Generate combined coverage lcov
         id: genFunctionalLcov
         continue-on-error: true
@@ -164,6 +135,7 @@ jobs:
           LLVM_PROFILE_FILE: "${{ github.workspace }}/target/llvm-cov-target/strata-%p-%m.profraw"
         run: |
           cargo llvm-cov report --lcov > lcov.functional.info
+
       - name: Upload coverage lcov artifact
         if: steps.genFunctionalLcov.outcome == 'success'
         continue-on-error: true
