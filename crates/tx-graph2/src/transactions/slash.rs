@@ -8,19 +8,17 @@ use bitcoin::{
 };
 use secp256k1::schnorr;
 use strata_asm_txs_bridge_v1::slash::SlashTxHeaderAux;
+use strata_bridge_connectors2::{
+    prelude::{
+        ContestSlashConnector, CpfpConnector, NOfNConnector, NOfNSpend, TimelockedSpendPath,
+        TimelockedWitness,
+    },
+    Connector, ParentTx, SigningInfo,
+};
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 use strata_primitives::bitcoin_bosd::Descriptor;
 
-use crate::{
-    connectors::{
-        prelude::{
-            ContestSlashConnector, CpfpConnector, NOfNConnector, NOfNSpend, TimelockedSpendPath,
-            TimelockedWitness,
-        },
-        Connector, SigningInfo,
-    },
-    transactions::{prelude::ContestTx, ParentTx, PresignedTx},
-};
+use crate::transactions::{prelude::ContestTx, PresignedTx};
 
 /// Data that is needed to construct a [`SlashTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -107,6 +105,13 @@ impl SlashTx {
             value: watchtower_stake,
         }));
         output.push(cpfp_connector.tx_out());
+
+        let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
+        let value_out: Amount = output.iter().map(|x| x.value).sum();
+        debug_assert!(
+            value_in == value_out,
+            "tx should pay zero fees (value in = {value_in}, value out = {value_out})"
+        );
 
         let tx = Transaction {
             version: Version(3),

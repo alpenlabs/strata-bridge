@@ -1,8 +1,6 @@
 //! This module contains the individual transactions of the Glock transaction graph.
 
-use bitcoin::{OutPoint, TxOut};
-
-use crate::connectors::SigningInfo;
+use strata_bridge_connectors2::SigningInfo;
 
 pub mod bridge_proof;
 pub mod bridge_proof_timeout;
@@ -17,15 +15,6 @@ pub mod prelude;
 pub mod slash;
 pub mod uncontested_payout;
 pub mod withdrawal_fulfillment;
-
-/// Bitcoin transaction that is the parent in a CPFP fee-bumping scheme.
-pub trait ParentTx {
-    /// Returns the output that is spent by the CPFP child.
-    fn cpfp_tx_out(&self) -> TxOut;
-
-    /// Returns the outpoint that is spent by the CPFP child.
-    fn cpfp_outpoint(&self) -> OutPoint;
-}
 
 /// Bitcoin transaction that spends an N/N output.
 ///

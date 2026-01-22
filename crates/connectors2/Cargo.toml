@@ -1,0 +1,31 @@
+[package]
+edition = "2021"
+name = "strata-bridge-connectors2"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[features]
+test_utils = ["dep:bitcoind-async-client", "dep:corepc-node"]
+
+[dependencies]
+strata-bridge-primitives.workspace = true
+
+bitcoin = { workspace = true, features = ["rand-std"] }
+secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
+strata-crypto.workspace = true
+
+# Optional dependencies for test_utils feature
+bitcoind-async-client = { workspace = true, features = [
+  "29_0",
+], optional = true }
+corepc-node = { workspace = true, features = ["29_0"], optional = true }
+
+[dev-dependencies]
+strata-bridge-test-utils.workspace = true
+
+strata-bridge-common.workspace = true
+bitcoind-async-client = { workspace = true, features = ["29_0"] }
+corepc-node = { workspace = true, features = ["29_0"] }
+tracing.workspace = true

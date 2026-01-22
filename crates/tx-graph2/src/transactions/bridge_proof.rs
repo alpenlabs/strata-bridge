@@ -10,14 +10,12 @@ use bitcoin::{
     Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::{schnorr, Scalar};
-
-use crate::{
-    connectors::{
-        prelude::{ContestProofConnector, TimelockedSpendPath, TimelockedWitness},
-        Connector, SigningInfo,
-    },
-    transactions::prelude::ContestTx,
+use strata_bridge_connectors2::{
+    prelude::{ContestProofConnector, TimelockedSpendPath, TimelockedWitness},
+    Connector, SigningInfo,
 };
+
+use crate::transactions::prelude::ContestTx;
 
 /// Data that is needed to construct a [`BridgeProofTx`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

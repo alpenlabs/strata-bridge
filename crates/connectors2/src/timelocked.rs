@@ -14,7 +14,7 @@ use std::num::NonZero;
 use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf, Sequence};
 use secp256k1::{schnorr, Scalar, XOnlyPublicKey, SECP256K1};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::{Connector, TaprootWitness};
 
 /// Generic timelocked connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -354,7 +354,7 @@ mod tests {
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::connectors::{test_utils::Signer, SigningInfo};
+    use crate::{test_utils::Signer, SigningInfo};
 
     const TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
 

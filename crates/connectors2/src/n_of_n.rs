@@ -3,7 +3,7 @@
 use bitcoin::{Amount, Network};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::{Connector, TaprootWitness};
 
 /// Generic N/N connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -62,7 +62,7 @@ mod tests {
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::connectors::{
+    use crate::{
         test_utils::{self, Signer},
         SigningInfo,
     };

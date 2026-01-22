@@ -10377,6 +10377,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-connectors2"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "bitcoind-async-client",
+ "corepc-node",
+ "secp256k1 0.29.1",
+ "strata-bridge-common",
+ "strata-bridge-primitives",
+ "strata-bridge-test-utils",
+ "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=a97d9d322d032e0129fc52418082ecc096ea2378)",
+ "tracing",
+]
+
+[[package]]
 name = "strata-bridge-db"
 version = "0.1.0"
 dependencies = [
@@ -10638,20 +10653,16 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "bitcoin",
- "bitcoind-async-client",
- "corepc-node",
  "futures",
  "secp256k1 0.29.1",
  "serde",
  "strata-asm-txs-bridge-v1",
- "strata-bridge-common",
+ "strata-bridge-connectors2",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
- "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=a97d9d322d032e0129fc52418082ecc096ea2378)",
  "strata-l1-txfmt",
  "strata-primitives",
  "tokio",
- "tracing",
 ]
 
 [[package]]

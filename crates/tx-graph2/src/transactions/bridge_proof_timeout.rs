@@ -4,20 +4,18 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
+    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
-
-use crate::{
-    connectors::{
-        prelude::{
-            ContestPayoutConnector, ContestProofConnector, CpfpConnector, TimelockedSpendPath,
-            TimelockedWitness,
-        },
-        Connector, SigningInfo,
+use strata_bridge_connectors2::{
+    prelude::{
+        ContestPayoutConnector, ContestProofConnector, CpfpConnector, TimelockedSpendPath,
+        TimelockedWitness,
     },
-    transactions::{prelude::ContestTx, ParentTx, PresignedTx},
+    Connector, ParentTx, SigningInfo,
 };
+
+use crate::transactions::{prelude::ContestTx, PresignedTx};
 
 /// Data that is needed to construct a [`BridgeProofTimeoutTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -77,6 +75,14 @@ impl BridgeProofTimeoutTx {
             },
         ];
         let output = vec![cpfp_connector.tx_out()];
+
+        let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
+        let value_out: Amount = output.iter().map(|x| x.value).sum();
+        debug_assert!(
+            value_in == value_out,
+            "tx should pay zero fees (value in = {value_in}, value out = {value_out})"
+        );
+
         let tx = Transaction {
             version: Version(3),
             lock_time: absolute::LockTime::ZERO,

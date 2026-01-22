@@ -14,17 +14,15 @@ use bitcoin::{
     OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
-
-use crate::{
-    connectors::{
-        prelude::{
-            ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness, CounterproofConnector,
-            TimelockedSpendPath, TimelockedWitness,
-        },
-        Connector, SigningInfo,
+use strata_bridge_connectors2::{
+    prelude::{
+        ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness, CounterproofConnector,
+        TimelockedSpendPath, TimelockedWitness,
     },
-    transactions::prelude::{ClaimTx, CounterproofTx},
+    Connector, SigningInfo,
 };
+
+use crate::transactions::prelude::{ClaimTx, CounterproofTx};
 
 macro_rules! impl_not_presigned_tx {
     (

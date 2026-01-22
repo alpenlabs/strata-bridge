@@ -4,18 +4,18 @@
 use std::{array, num::NonZero};
 
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
+use strata_bridge_connectors2::{
+    prelude::{
+        ClaimContestConnector, ClaimPayoutConnector, ContestCounterproofOutput,
+        ContestPayoutConnector, ContestProofConnector, ContestSlashConnector,
+        CounterproofConnector, NOfNConnector,
+    },
+    SigningInfo,
+};
 use strata_l1_txfmt::MagicBytes;
 use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
-    connectors::{
-        prelude::{
-            ClaimContestConnector, ClaimPayoutConnector, ContestCounterproofOutput,
-            ContestPayoutConnector, ContestProofConnector, ContestSlashConnector,
-            CounterproofConnector, NOfNConnector,
-        },
-        SigningInfo,
-    },
     musig_functor::MusigFunctor,
     transactions::{
         prelude::{
@@ -551,16 +551,16 @@ impl GameConnectors {
 mod tests {
     use bitcoin::{hashes::Hash, transaction::Version, TxOut};
     use secp256k1::{rand::random, Keypair, SECP256K1};
+    use strata_bridge_connectors2::{
+        prelude::ContestCounterproofWitness, test_utils::BitcoinNode, Connector,
+    };
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins};
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::{
-        connectors::{prelude::ContestCounterproofWitness, test_utils::BitcoinNode, Connector},
-        transactions::prelude::{
-            AdminBurnData, AdminBurnTx, BridgeProofData, BridgeProofTx, CounterproofNackData,
-            CounterproofNackTx, UnstakingBurnData, UnstakingBurnTx,
-        },
+    use crate::transactions::prelude::{
+        AdminBurnData, AdminBurnTx, BridgeProofData, BridgeProofTx, CounterproofNackData,
+        CounterproofNackTx, UnstakingBurnData, UnstakingBurnTx,
     };
 
     const N_WATCHTOWERS: usize = 10;
