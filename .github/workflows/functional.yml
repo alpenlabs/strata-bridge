@@ -104,9 +104,8 @@ jobs:
           cache-suffix: "functional-tests"
 
       - name: Build Cargo project
-        env:
-          COV_TARGET_DIR: "${{ github.workspace }}/target/llvm-cov-target"
         run: |
+          COV_TARGET_DIR="$GITHUB_WORKSPACE/target/llvm-cov-target"
           RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin alpen-bridge --target-dir "$COV_TARGET_DIR"
           RUSTFLAGS="-Cinstrument-coverage" cargo build --locked -p secret-service --bin secret-service --target-dir "$COV_TARGET_DIR"
           cargo build --locked --bin dev-cli --target-dir "$COV_TARGET_DIR"
@@ -120,8 +119,14 @@ jobs:
           PYTHON_VERSION: "3.12" # NOTE: (@Rajil1213) build fails with 3.13 since bitcoinlib (>=0.7.5,<0.8) uses an old version of numpy
         shell: bash
         run: |
-          NEWPATH="${{ github.workspace }}/target/llvm-cov-target/debug"
+          export LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/target/llvm-cov-target/strata-%p-%m.profraw"
+          NEWPATH="$GITHUB_WORKSPACE/target/llvm-cov-target/debug"
           export PATH="$NEWPATH:$PATH"
+          echo "$PATH"
+          echo "Making sure built binaries are available"
+          which alpen-bridge
+          which secret-service
+          which dev-cli
           cd functional-tests
           source ./env.bash
           uv run --python "$PYTHON_VERSION" python entry.py
@@ -129,11 +134,10 @@ jobs:
       - name: Generate combined coverage lcov
         id: genFunctionalLcov
         continue-on-error: true
-        env:
-          # cargo-llvm-cov expects default target dir and adds llvm-cov-target itself
-          CARGO_TARGET_DIR: "${{ github.workspace }}/target"
-          LLVM_PROFILE_FILE: "${{ github.workspace }}/target/llvm-cov-target/strata-%p-%m.profraw"
         run: |
+          # cargo-llvm-cov expects default target dir and adds llvm-cov-target itself
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          export LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/target/llvm-cov-target/strata-%p-%m.profraw"
           cargo llvm-cov report --lcov > lcov.functional.info
 
       - name: Upload coverage lcov artifact
