@@ -1,7 +1,6 @@
 import flexitest
 
 from envs.base_test import StrataTestBase
-from envs.bridge_network_env import BridgeNetworkEnv
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.network import wait_until_p2p_connected
 from utils.utils import wait_until_bridge_ready
