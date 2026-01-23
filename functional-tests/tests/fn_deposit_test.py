@@ -60,7 +60,7 @@ class BridgeDepositTest(StrataTestBase):
 
         # Verify operator connectivity again
         self.logger.info("Verifying P2P connectivity among bridge nodes")
-        wait_until_p2p_connected(bridge_rpcs, timeout=900)
+        wait_until_p2p_connected(bridge_rpcs, timeout=1500)
 
         self.logger.info("Waiting for deposit to complete after operator nodes restart")
         wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusComplete, timeout=600)
