@@ -56,18 +56,18 @@ class BridgeDepositTest(StrataTestBase):
             bridge_nodes[i].start()
             wait_until_bridge_ready(bridge_rpcs[i])
 
-        self.logger.info("Verifying P2P connectivity among bridge nodes")
-        wait_until_p2p_connected(bridge_rpcs)
-
         self.logger.info("Making sure deposit is still in progress after restarting nodes")
         wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusInProgress)
+
+        self.logger.info("Verifying P2P connectivity among bridge nodes before deposit")
+        wait_until_p2p_connected(bridge_rpcs)
 
         self.logger.info("Waiting for deposit to complete after operator nodes restart")
         wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusComplete)
 
         # Verify operator connectivity again
         # TODO: @MdTeach investigate why this fails in CI but passes locally
-        self.logger.info("Verifying P2P connectivity among bridge nodes")
+        self.logger.info("Verifying P2P connectivity among bridge nodes after deposit")
         wait_until_p2p_connected(bridge_rpcs)
 
         return True

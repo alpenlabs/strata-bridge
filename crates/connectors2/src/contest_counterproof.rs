@@ -5,7 +5,7 @@ use std::num::NonZero;
 use bitcoin::{opcodes, script, Amount, Network, ScriptBuf};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::{Connector, TaprootWitness};
 
 /// Output between `Contest` and `Watchtower i Counterproof`.
 ///
@@ -132,7 +132,7 @@ mod tests {
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::connectors::test_utils::BitcoinNode;
+    use crate::test_utils::BitcoinNode;
 
     const N_DATA: NonZero<usize> = NonZero::new(10).unwrap();
     const FEE: Amount = Amount::from_sat(1_000);

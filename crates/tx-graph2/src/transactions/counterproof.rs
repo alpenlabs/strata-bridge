@@ -1,4 +1,4 @@
-//! This module contains the contest transaction.
+//! This module contains the counterproof transaction.
 
 use bitcoin::{
     absolute,
@@ -7,17 +7,15 @@ use bitcoin::{
     Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::Message;
-
-use crate::{
-    connectors::{
-        prelude::{
-            ContestCounterproofOutput, ContestCounterproofSpend, ContestCounterproofWitness,
-            CounterproofConnector, CpfpConnector,
-        },
-        Connector, SigningInfo,
+use strata_bridge_connectors2::{
+    prelude::{
+        ContestCounterproofOutput, ContestCounterproofSpend, ContestCounterproofWitness,
+        CounterproofConnector, CpfpConnector,
     },
-    transactions::{prelude::ContestTx, ParentTx, PresignedTx},
+    Connector, ParentTx, SigningInfo,
 };
+
+use crate::transactions::{prelude::ContestTx, PresignedTx};
 
 /// Data that is needed to construct a [`CounterproofTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

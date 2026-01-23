@@ -14,6 +14,7 @@ members = [
   "crates/bridge-proof/test-utils",
   "crates/stake-chain",
   "crates/connectors",
+  "crates/connectors2",
   "crates/common",
   "crates/tx-graph",
   "crates/tx-graph2",
@@ -73,6 +74,7 @@ secret-service-proto = { path = "crates/secret-service-proto" }
 secret-service-server = { path = "crates/secret-service-server" }
 strata-bridge-common = { path = "crates/common" }
 strata-bridge-connectors = { path = "crates/connectors" }
+strata-bridge-connectors2 = { path = "crates/connectors2" }
 strata-bridge-db = { path = "crates/db" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }

@@ -3,10 +3,10 @@
 use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf, Sequence};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::{
-    connectors::{Connector, TaprootWitness},
-    transactions::prelude::ContestTx,
-};
+use crate::{Connector, TaprootWitness};
+
+/// Index of the counterproof output of watchtower 0 in the contest transaction.
+const CONTEST_WATCHTOWER_0_VOUT: u32 = 3;
 
 /// Connector output between `Claim` and:
 /// 1. `Contest`
@@ -91,7 +91,9 @@ impl Connector for ClaimContestConnector {
 
     fn value(&self) -> Amount {
         let minimal_non_dust = self.script_pubkey().minimal_non_dust();
-        minimal_non_dust * u64::from(ContestTx::n_taproot_outputs(self.n_watchtowers()))
+        // NOTE: (@uncomputable) correctness is asserted in tx-graph2 crate:
+        // presigned transactions pay zero fees
+        minimal_non_dust * u64::from(CONTEST_WATCHTOWER_0_VOUT + self.n_watchtowers())
     }
 
     fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
@@ -183,7 +185,7 @@ mod tests {
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::connectors::{test_utils::Signer, SigningInfo};
+    use crate::{test_utils::Signer, SigningInfo};
 
     const N_WATCHTOWERS: usize = 10;
     const DELTA_CONTEST: relative::LockTime = relative::LockTime::from_height(10);

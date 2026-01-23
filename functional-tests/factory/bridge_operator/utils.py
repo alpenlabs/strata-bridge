@@ -18,6 +18,8 @@ from .config_cfg import (
 )
 from .params_cfg import BridgeOperatorParams, Connectors, Keys, Sidesystem, StakeChain, TxGraph
 
+DEFAULT_INITIAL_HEARBEAT_DELAY_SECS = 10
+
 
 def zmq_connection_string(port: int) -> str:
     return f"tcp://127.0.0.1:{port}"
@@ -32,6 +34,7 @@ def generate_config_toml(
     output_path: str,
     datadir: str,
     tls_dir: str,
+    heartbeat_delay_factor: int = 1,  # no delay by default
 ):
     mtls_dir = Path(tls_dir)
     total_peers = len(other_p2p_addrs) + 1  # +1 for self
@@ -63,10 +66,13 @@ def generate_config_toml(
             idle_connection_timeout=Duration(secs=1000, nanos=0),
             listening_addr=my_p2p_addr,
             connect_to=other_p2p_addrs,
-            num_threads=4,
-            dial_timeout=Duration(secs=0, nanos=250_000_000),
+            num_threads=10,
+            dial_timeout=Duration(secs=1, nanos=0),
             general_timeout=Duration(secs=0, nanos=250_000_000),
-            connection_check_interval=Duration(secs=0, nanos=500_000_000),
+            connection_check_interval=Duration(secs=0, nanos=100_000_000),
+            gossipsub_heartbeat_initial_delay=Duration(
+                secs=heartbeat_delay_factor * DEFAULT_INITIAL_HEARBEAT_DELAY_SECS, nanos=0
+            ),
             # Configure gossipsub mesh for small network
             # Each operator can only see n-1 peers, so mesh_n_low must be <= n-1
             gossipsub_mesh_n=total_peers - 1,
