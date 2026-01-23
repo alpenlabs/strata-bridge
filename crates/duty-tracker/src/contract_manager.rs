@@ -811,9 +811,15 @@ impl ContractManagerCtx {
                 .find(|(_, state)| state.deposit_idx() == entry.deposit_idx())
                 .map(|(_, state)| state)
             else {
-                // NOTE: This is expected for nodes that joined later and don't have all historical
+                // TODO: (@prajwolrg) Instead of just checking the current assignee, check if the
+                // pov_idx() is part of the group that presigned this deposit contract.
+                if self.cfg.operator_table.pov_idx() == entry.current_assignee() {
+                    error!(deposit_idx = %entry.deposit_idx(), "assignment received for unknown deposit, skipping");
+                    continue;
+                }
+
+                // This is expected for nodes that joined later and don't have all historical
                 // contracts. It's safe to skip assignments for unknown deposits.
-                warn!(deposit_idx = %entry.deposit_idx(), "assignment received for unknown deposit, skipping");
                 continue;
             };
 
