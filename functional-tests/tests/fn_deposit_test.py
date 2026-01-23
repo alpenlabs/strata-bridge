@@ -49,13 +49,13 @@ class BridgeDepositTest(StrataTestBase):
             self.logger.info(f"Check DRT on node {i}")
             wait_until_drt_recognized(bridge_rpcs[i], drt_txid)
 
-        time.sleep(5)
+        # time.sleep(5)
         self.logger.info("Crashing all operator nodes")
         for i in range(num_operators):
             self.logger.info(f"Stopping operator node {i}")
             bridge_nodes[i].stop()
 
-        time.sleep(5)
+        # time.sleep(5)
         self.logger.info("Restarting nodes")
         for i in range(num_operators):
             self.logger.info(f"Restarting operator node {i}")

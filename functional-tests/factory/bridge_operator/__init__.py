@@ -40,6 +40,10 @@ class BridgeOperatorFactory(flexitest.Factory):
 
         # write bridge operator config
         config_toml_path = str((envdd_path / bridge_operator_name / "config.toml").resolve())
+        # heartbeat delay decreases with operator index
+        # so that first node tries to establish connections the last_cred_path
+        # NOTE: (@Rajil1213) This assumes that the nodes are started in the order of their indices
+        heartbeat_delay_factor = len(operator_key_infos) - operator_idx
         generate_config_toml(
             bitcoind_props,
             s2_props,
@@ -49,6 +53,7 @@ class BridgeOperatorFactory(flexitest.Factory):
             config_toml_path,
             dd,
             mtls_cred_path,
+            heartbeat_delay_factor,
         )
 
         # write bridge operator params
