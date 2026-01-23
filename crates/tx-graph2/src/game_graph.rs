@@ -16,7 +16,7 @@ use strata_l1_txfmt::MagicBytes;
 use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
-    musig_functor::MusigFunctor,
+    musig_functor::GameFunctor,
     transactions::{
         prelude::{
             BridgeProofTimeoutData, BridgeProofTimeoutTx, ClaimData, ClaimTx, ContestData,
@@ -367,8 +367,8 @@ impl GameGraph {
     ///
     /// The counterproof transaction has multiple sighashes because it uses OP_CODESEPARATOR.
     /// For Musig2, only the first sighash is relevant, which is returned by this method.
-    pub fn musig_signing_info(&self) -> MusigFunctor<SigningInfo> {
-        MusigFunctor {
+    pub fn musig_signing_info(&self) -> GameFunctor<SigningInfo> {
+        GameFunctor {
             uncontested_payout: self.uncontested_payout.signing_info(),
             contest: (0..self.contest.n_watchtowers())
                 .map(|watchtower_index| self.contest.signing_info(watchtower_index))
@@ -407,7 +407,7 @@ impl GameGraph {
     /// The contest transaction has multiple spending paths leading to it,
     /// one for each watchtower. This method returns a vector of equal inpoints
     /// for the contest transaction.
-    pub fn musig_inpoints(&self) -> MusigFunctor<OutPoint> {
+    pub fn musig_inpoints(&self) -> GameFunctor<OutPoint> {
         let uncontested_payout_txid = self.uncontested_payout.as_ref().compute_txid();
         let contest_txid = self.contest.as_ref().compute_txid();
         let bridge_proof_timeout_txid = self.bridge_proof_timeout.as_ref().compute_txid();
@@ -416,7 +416,7 @@ impl GameGraph {
 
         // cast safety: the number of inputs of each transaction
         // is bounded and strictly less than u32::MAX
-        MusigFunctor {
+        GameFunctor {
             uncontested_payout: array::from_fn(|i| {
                 OutPoint::new(uncontested_payout_txid, i as u32)
             }),
