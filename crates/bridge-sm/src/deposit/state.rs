@@ -68,7 +68,7 @@ impl DepositCfg {
         self.deposit_idx
     }
 
-    /// Returns the outpoint of the deposit request UTXO.
+    /// Returns the outpoint of the deposit transaction.
     pub const fn deposit_outpoint(&self) -> OutPoint {
         self.deposit_outpoint
     }
@@ -93,7 +93,7 @@ pub enum DepositState {
         /// Latest Bitcoin block height observed by the state machine.
         block_height: BitcoinBlockHeight,
 
-        /// Operators whose pegout graphs have been generated for this deposit request.
+        /// Operators whose pegout graphs have been generated for this deposit transaction.
         linked_graphs: BTreeSet<OperatorIdx>,
     },
     /// This state represents the phase where all operator graphs have been generated.
