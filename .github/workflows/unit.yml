@@ -86,8 +86,11 @@ jobs:
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --locked
 
-      - name: Install FoundationDB
+      - name: Install FoundationDB Client
         uses: ./.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
+
+      - name: Install FoundationDB Server
+        uses: ./.github/actions/setup-foundationdb-server # zizmor: ignore[unpinned-uses]
 
       - name: Run db migrations
         run: just migrate

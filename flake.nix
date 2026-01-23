@@ -1,4 +1,9 @@
 {
+  # NOTE: The Nix devshell currently has limited support for FoundationDB (db2 crate).
+  # - Linux: FDB is included via nixpkgs, but may have version compatibility issues.
+  # - macOS: FDB is NOT available via Nix; must be installed manually from .pkg.
+  # See CONTRIBUTING.md and .github/workflows/nix.yml for more details.
+  # The Nix CI devshell job is currently disabled until these issues are resolved.
   description = "Strata Bridge Nix";
 
   inputs = {
@@ -141,7 +146,10 @@
             chmod +x $out/bin/rustup
           '';
         };
-        # FoundationDB is only available on Linux in nixpkgs
+        # FoundationDB is only available on Linux in nixpkgs.
+        # On macOS, you must install FDB manually from:
+        # https://github.com/apple/foundationdb/releases (use the .pkg installer)
+        # See the NOTE at the top of this file for more details.
         fdbPackages = if pkgs.stdenv.isLinux then [ pkgs.foundationdb ] else [ ];
       in
       {

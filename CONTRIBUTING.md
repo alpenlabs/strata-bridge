@@ -123,6 +123,17 @@ Install [Nix](https://nixos.org) and run:
 nix develop
 ```
 
+> [!WARNING]
+> **FoundationDB Limitations in Nix**
+>
+> The Nix devshell has limited support for FoundationDB (required by the `db2` crate):
+> - **Linux**: FDB is included via nixpkgs, but may have version compatibility issues.
+> - **macOS**: FDB is NOT available via Nix and must be installed manually from the
+>   [official releases](https://github.com/apple/foundationdb/releases) using the `.pkg` installer.
+>
+> Due to these issues, the Nix CI devshell job is currently disabled. If you're working on
+> FDB-related code, consider using the standard toolchain with manually installed FDB.
+
 ## Locally running CI
 
 Before you create a PR, make sure that all the required CI checks pass locally.
