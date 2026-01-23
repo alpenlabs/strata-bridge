@@ -66,10 +66,10 @@ def generate_config_toml(
             idle_connection_timeout=Duration(secs=1000, nanos=0),
             listening_addr=my_p2p_addr,
             connect_to=other_p2p_addrs,
-            num_threads=4,
-            dial_timeout=Duration(secs=0, nanos=250_000_000),
+            num_threads=10,
+            dial_timeout=Duration(secs=1, nanos=0),
             general_timeout=Duration(secs=0, nanos=250_000_000),
-            connection_check_interval=Duration(secs=0, nanos=500_000_000),
+            connection_check_interval=Duration(secs=0, nanos=100_000_000),
             gossipsub_heartbeat_initial_delay=Duration(
                 secs=heartbeat_delay_factor * DEFAULT_INITIAL_HEARBEAT_DELAY_SECS, nanos=0
             ),
