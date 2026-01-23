@@ -7,17 +7,15 @@ use bitcoin::{Amount, Network, OutPoint, Transaction, absolute, relative, transa
 use musig2::KeyAggContext;
 use proptest::prelude::*;
 use secp256k1::{Message, SECP256K1, SecretKey};
+use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx, operator_table::OperatorTable, scripts::taproot::TaprootWitness,
     secp::EvenSecretKey, types::OperatorIdx,
 };
 use strata_bridge_test_utils::musig2::{generate_agg_nonce, generate_pubnonce};
-use strata_bridge_tx_graph2::{
-    connectors::{n_of_n::NOfNConnector, prelude::DepositRequestConnector},
-    transactions::{
-        PresignedTx,
-        prelude::{DepositData, DepositTx},
-    },
+use strata_bridge_tx_graph2::transactions::{
+    PresignedTx,
+    prelude::{DepositData, DepositTx},
 };
 use strata_l1_txfmt::MagicBytes;
 use strata_p2p_types::P2POperatorPubKey;
@@ -187,7 +185,6 @@ impl Arbitrary for DepositState {
                 DepositState::Created {
                     block_height: height,
                     deposit_transaction: test_deposit_txn(),
-                    output_index: Default::default(),
                     linked_graphs: Default::default(),
                 }
             }),
@@ -195,7 +192,6 @@ impl Arbitrary for DepositState {
                 DepositState::GraphGenerated {
                     block_height: height,
                     deposit_transaction: test_deposit_txn(),
-                    output_index: Default::default(),
                     pubnonces: Default::default(),
                 }
             }),
@@ -203,7 +199,6 @@ impl Arbitrary for DepositState {
                 DepositState::DepositNoncesCollected {
                     block_height: height,
                     deposit_transaction: test_deposit_txn(),
-                    output_index: Default::default(),
                     agg_nonce: generate_agg_nonce(),
                     partial_signatures: Default::default(),
                     pubnonces: Default::default(),
@@ -218,7 +213,6 @@ impl Arbitrary for DepositState {
                         version: Version(2),
                         lock_time: absolute::LockTime::ZERO,
                     },
-                    output_index: Default::default(),
                 }
             }),
             block_height

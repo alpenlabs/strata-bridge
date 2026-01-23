@@ -10,10 +10,7 @@ use bitcoin::{
 };
 use secp256k1::{Keypair, SECP256K1};
 use strata_bridge_test_utils::bitcoin::generate_spending_tx;
-use strata_bridge_tx_graph2::{
-    connectors::{n_of_n::NOfNConnector, timelocked::DepositRequestConnector},
-    transactions::deposit::{DepositData, DepositTx},
-};
+use strata_bridge_tx_graph2::transactions::deposit::{DepositData, DepositTx};
 use strata_l1_txfmt::MagicBytes;
 
 /// Creates a takeback transaction (script-spend with multiple witness elements).
