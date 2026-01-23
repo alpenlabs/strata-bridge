@@ -1,3 +1,5 @@
+import time
+
 import flexitest
 
 from envs import BridgeNetworkEnv
@@ -44,27 +46,39 @@ class BridgeDepositTest(StrataTestBase):
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
         new_deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
+        for i in range(num_operators):
+            self.logger.info(f"Check DRT on node {i}")
+            wait_until_drt_recognized(bridge_rpcs[i], drt_txid)
 
+        time.sleep(5)
         self.logger.info("Crashing all operator nodes")
         for i in range(num_operators):
             self.logger.info(f"Stopping operator node {i}")
             bridge_nodes[i].stop()
 
+        time.sleep(5)
         self.logger.info("Restarting nodes")
         for i in range(num_operators):
             self.logger.info(f"Restarting operator node {i}")
             bridge_nodes[i].start()
             wait_until_bridge_ready(bridge_rpcs[i])
+            time.sleep(5)
 
         self.logger.info("Making sure deposit is still in progress after restarting nodes")
-        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusInProgress)
+        # wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusInProgress)
+        for i in range(num_operators):
+            self.logger.info(f"Check DRT on node {i}")
+            wait_until_deposit_status(bridge_rpcs[i], new_deposit_id, RpcDepositStatusInProgress)
+
+        self.logger.info("Verifying P2P connectivity among bridge nodes before deposit")
+        wait_until_p2p_connected(bridge_rpcs)
 
         self.logger.info("Waiting for deposit to complete after operator nodes restart")
         wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusComplete)
 
         # Verify operator connectivity again
         # TODO: @MdTeach investigate why this fails in CI but passes locally
-        self.logger.info("Verifying P2P connectivity among bridge nodes")
+        self.logger.info("Verifying P2P connectivity among bridge nodes after deposit")
         wait_until_p2p_connected(bridge_rpcs)
 
         return True
