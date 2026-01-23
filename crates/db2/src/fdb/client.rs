@@ -44,7 +44,16 @@ impl std::fmt::Debug for MustDrop {
 
 impl FdbClient {
     /// Sets up the database with all the correct directories.
-    /// Can only be called once per process.
+    ///
+    /// # Panics
+    ///
+    /// This function can only be called **once per process**. Calling it a second time will panic
+    /// with the message `"the fdb select api version can only be run once per process"`.
+    ///
+    /// This is because [`FdbApiBuilder::build()`](foundationdb::api::FdbApiBuilder::build) uses a
+    /// global [`AtomicBool`](std::sync::atomic::AtomicBool) to ensure the FDB API version selection
+    /// and network initialization only happens once. If you need multiple database connections,
+    /// reuse the [`FdbClient`] instance returned from the first call.
     pub async fn setup(
         config: Config,
         my_p2p_pubkey: P2POperatorPubKey,

@@ -38,9 +38,11 @@ services:
       - ./docker/vol/fdb/fdb.cluster:/var/fdb/fdb.cluster:ro
       - ./docker/vol/fdb/data:/var/fdb/data
     ports:
+      # NOTE: Keep this port in sync with docker/vol/fdb/fdb.cluster
       - "4500:4500"
     networks:
       bridge:
+        # NOTE: Keep this IP in sync with docker/vol/fdb/fdb.cluster
         ipv4_address: 172.28.0.100
     healthcheck:
       test:
