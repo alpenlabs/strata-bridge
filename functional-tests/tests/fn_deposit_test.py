@@ -1,5 +1,3 @@
-import time
-
 import flexitest
 
 from envs.base_test import StrataTestBase
@@ -45,23 +43,17 @@ class BridgeDepositTest(StrataTestBase):
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
         new_deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
-        for i in range(num_operators):
-            self.logger.info(f"Check DRT on node {i}")
-            wait_until_drt_recognized(bridge_rpcs[i], drt_txid)
 
-        time.sleep(1)
         self.logger.info("Crashing all operator nodes")
         for i in range(num_operators):
             self.logger.info(f"Stopping operator node {i}")
             bridge_nodes[i].stop()
 
-        # time.sleep(1)
         self.logger.info("Restarting nodes")
         for i in range(num_operators):
             self.logger.info(f"Restarting operator node {i}")
             bridge_nodes[i].start()
             wait_until_bridge_ready(bridge_rpcs[i])
-            time.sleep(3)
 
         self.logger.info("Verifying P2P connectivity among bridge nodes before deposit")
         wait_until_p2p_connected(bridge_rpcs)
