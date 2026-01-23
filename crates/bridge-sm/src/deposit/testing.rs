@@ -3,17 +3,24 @@
 //! This module provides helpers and `Arbitrary` implementations for testing
 //! the DepositSM across multiple state transition functions.
 
-use bitcoin::{Amount, OutPoint, Transaction, absolute, relative, transaction::Version};
+use bitcoin::{Amount, Network, OutPoint, Transaction, absolute, relative, transaction::Version};
 use musig2::KeyAggContext;
 use proptest::prelude::*;
 use secp256k1::{Message, SECP256K1, SecretKey};
-use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx, operator_table::OperatorTable, scripts::taproot::TaprootWitness,
     secp::EvenSecretKey, types::OperatorIdx,
 };
 use strata_bridge_test_utils::musig2::{generate_agg_nonce, generate_pubnonce};
-use strata_bridge_tx_graph2::transactions::{PresignedTx, prelude::DepositTx};
+use strata_bridge_tx_graph2::{
+    connectors::{n_of_n::NOfNConnector, prelude::DepositRequestConnector},
+    transactions::{
+        PresignedTx,
+        prelude::{DepositData, DepositTx},
+    },
+};
+use strata_l1_txfmt::MagicBytes;
+use strata_p2p_types::P2POperatorPubKey;
 
 use super::{
     events::DepositEvent,
@@ -22,7 +29,7 @@ use super::{
 use crate::{
     signals::GraphToDeposit,
     testing::{
-        fixtures::{generate_test_deposit_txn, test_payout_tx, test_takeback_tx},
+        fixtures::{test_payout_tx, test_takeback_tx},
         signer::TestMusigSigner,
     },
 };
@@ -120,7 +127,7 @@ pub(super) fn get_deposit_signing_info(
     (key_agg_ctx, sighash)
 }
 
-/// Generates a test deposit transaction.
+/// Creates a test deposit transaction with deterministic values.
 pub(super) fn test_deposit_txn() -> DepositTx {
     let operator_table = test_operator_table();
 
@@ -128,7 +135,26 @@ pub(super) fn test_deposit_txn() -> DepositTx {
     let timelock = relative::LockTime::from_height(144);
     let n_of_n_pubkey = operator_table.aggregated_btc_key().x_only_public_key().0;
     let depositor_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
-    generate_test_deposit_txn(amount, timelock, n_of_n_pubkey, depositor_pubkey)
+
+    // Create DepositData
+    let data = DepositData {
+        deposit_idx: 0,
+        deposit_request_outpoint: OutPoint::default(),
+        magic_bytes: MagicBytes::from([0x54, 0x45, 0x53, 0x54]), // "TEST"
+    };
+
+    // Create connectors with matching network, internal_key, and value
+    let deposit_connector = NOfNConnector::new(Network::Regtest, n_of_n_pubkey, amount);
+
+    let deposit_request_connector = DepositRequestConnector::new(
+        Network::Regtest,
+        n_of_n_pubkey,
+        depositor_pubkey,
+        timelock,
+        amount,
+    );
+
+    DepositTx::new(data, deposit_connector, deposit_request_connector)
 }
 
 // ===== State Machine Helpers =====
