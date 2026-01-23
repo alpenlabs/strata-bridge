@@ -1,6 +1,6 @@
 //! Bootstraps an RPC server for the operator.
 
-use std::{fmt, sync::Arc};
+use std::{fmt, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
@@ -422,7 +422,11 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 operator_pk,
             ));
         };
-        if self.command_handle.is_connected(&conversion, None).await {
+        if self
+            .command_handle
+            .is_connected(&conversion, Option::from(Duration::from_secs(5)))
+            .await
+        {
             Ok(RpcOperatorStatus::Online)
         } else {
             Ok(RpcOperatorStatus::Offline)
