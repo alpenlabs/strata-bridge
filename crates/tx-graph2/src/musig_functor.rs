@@ -354,42 +354,54 @@ impl<A> GameFunctor<A> {
     }
 }
 
-impl<A: Clone, B: Clone> GameFunctor<(A, B)> {
+impl<A, B> GameFunctor<(A, B)> {
     /// Converts a functor of pairs into two functors of the respective components.
     pub fn unzip(self) -> (GameFunctor<A>, GameFunctor<B>) {
-        let game_t = GameFunctor {
-            bridge_proof_timeout: self.bridge_proof_timeout.clone().map(|(t, _)| t),
-            contested_payout: self.contested_payout.clone().map(|(t, _)| t),
-            slash: self.slash.clone().map(|(t, _)| t),
-            uncontested_payout: self.uncontested_payout.clone().map(|(t, _)| t),
-            watchtowers: self
-                .watchtowers
-                .iter()
-                .cloned()
-                .map(|watchtower| WatchtowerFunctor {
-                    contest: watchtower.contest.map(|(t, _)| t),
-                    counterproof: watchtower.counterproof.map(|(t, _)| t),
-                    counterproof_ack: watchtower.counterproof_ack.map(|(t, _)| t),
-                })
-                .collect(),
-        };
-        let game_u = GameFunctor {
-            bridge_proof_timeout: self.bridge_proof_timeout.map(|(_, u)| u),
-            contested_payout: self.contested_payout.map(|(_, u)| u),
-            slash: self.slash.map(|(_, u)| u),
-            uncontested_payout: self.uncontested_payout.map(|(_, u)| u),
-            watchtowers: self
-                .watchtowers
-                .into_iter()
-                .map(|watchtower| WatchtowerFunctor {
-                    contest: watchtower.contest.map(|(_, u)| u),
-                    counterproof: watchtower.counterproof.map(|(_, u)| u),
-                    counterproof_ack: watchtower.counterproof_ack.map(|(_, u)| u),
-                })
-                .collect(),
-        };
+        let (bridge_proof_timeout_a, bridge_proof_timeout_b) =
+            unzip_array(self.bridge_proof_timeout);
+        let (contested_payout_a, contested_payout_b) = unzip_array(self.contested_payout);
+        let (slash_a, slash_b) = unzip_array(self.slash);
+        let (uncontested_payout_a, uncontested_payout_b) = unzip_array(self.uncontested_payout);
 
-        (game_t, game_u)
+        let (watchtowers_a, watchtowers_b): (Vec<_>, Vec<_>) = self
+            .watchtowers
+            .into_iter()
+            .map(|watchtower| {
+                let (contest_a, contest_b) = unzip_array(watchtower.contest);
+                let (counterproof_a, counterproof_b) = unzip_array(watchtower.counterproof);
+                let (counterproof_ack_a, counterproof_ack_b) =
+                    unzip_array(watchtower.counterproof_ack);
+                (
+                    WatchtowerFunctor {
+                        contest: contest_a,
+                        counterproof: counterproof_a,
+                        counterproof_ack: counterproof_ack_a,
+                    },
+                    WatchtowerFunctor {
+                        contest: contest_b,
+                        counterproof: counterproof_b,
+                        counterproof_ack: counterproof_ack_b,
+                    },
+                )
+            })
+            .unzip();
+
+        (
+            GameFunctor {
+                bridge_proof_timeout: bridge_proof_timeout_a,
+                contested_payout: contested_payout_a,
+                slash: slash_a,
+                uncontested_payout: uncontested_payout_a,
+                watchtowers: watchtowers_a,
+            },
+            GameFunctor {
+                bridge_proof_timeout: bridge_proof_timeout_b,
+                contested_payout: contested_payout_b,
+                slash: slash_b,
+                uncontested_payout: uncontested_payout_b,
+                watchtowers: watchtowers_b,
+            },
+        )
     }
 }
 
@@ -467,6 +479,20 @@ fn sequence_result_array<T, E, const N: usize>(arr: [Result<T, E>; N]) -> Result
         Ok(array) => Ok(array),
         Err(_) => unreachable!("array size is known at compile time"),
     }
+}
+
+/// Unzips the contents of an array of pairs.
+fn unzip_array<A, B, const N: usize>(arr: [(A, B); N]) -> ([A; N], [B; N]) {
+    let (vec_a, vec_b): (Vec<A>, Vec<B>) = arr.into_iter().unzip();
+    let arr_a: [A; N] = match vec_a.try_into() {
+        Ok(x) => x,
+        Err(_) => unreachable!("correct length guaranteed by type bounds"),
+    };
+    let arr_b: [B; N] = match vec_b.try_into() {
+        Ok(x) => x,
+        Err(_) => unreachable!("correct length guaranteed by type bounds"),
+    };
+    (arr_a, arr_b)
 }
 
 #[cfg(test)]
