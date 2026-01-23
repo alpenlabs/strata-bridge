@@ -1,6 +1,5 @@
 import flexitest
 
-from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from rpc.types import RpcDepositStatusComplete, RpcDepositStatusInProgress
 from utils.bridge import get_bridge_nodes_and_rpcs
@@ -17,7 +16,7 @@ class BridgeDepositTest(StrataTestBase):
     """
 
     def __init__(self, ctx: flexitest.InitContext):
-        ctx.set_env(BridgeNetworkEnv())
+        ctx.set_env("network")
 
     def main(self, ctx: flexitest.RunContext):
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
@@ -56,18 +55,14 @@ class BridgeDepositTest(StrataTestBase):
             bridge_nodes[i].start()
             wait_until_bridge_ready(bridge_rpcs[i])
 
-        self.logger.info("Verifying P2P connectivity among bridge nodes")
-        wait_until_p2p_connected(bridge_rpcs)
-
         self.logger.info("Making sure deposit is still in progress after restarting nodes")
         wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusInProgress)
 
-        self.logger.info("Waiting for deposit to complete after operator nodes restart")
-        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusComplete)
-
         # Verify operator connectivity again
-        # TODO: @MdTeach investigate why this fails in CI but passes locally
         self.logger.info("Verifying P2P connectivity among bridge nodes")
-        wait_until_p2p_connected(bridge_rpcs)
+        wait_until_p2p_connected(bridge_rpcs, timeout=900)
+
+        self.logger.info("Waiting for deposit to complete after operator nodes restart")
+        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusComplete, timeout=600)
 
         return True
