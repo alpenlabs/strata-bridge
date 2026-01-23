@@ -267,7 +267,9 @@ impl ContractManager {
                 state_handles,
             };
 
-            let mut interval = time::interval(nag_interval);
+            // only start nagging after the first interval elapses so that we don't pollute the p2p
+            // channel before mesh stabilization can take place
+            let mut interval = time::interval_at(time::Instant::now() + nag_interval, nag_interval);
             // skip any missed ticks to avoid flooding the network with duplicate nag messages
             interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
