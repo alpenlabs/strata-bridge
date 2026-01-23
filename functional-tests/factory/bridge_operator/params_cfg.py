@@ -32,22 +32,6 @@ class Connectors:
 
 
 @dataclass
-class RollupVk:
-    native: str
-
-
-@dataclass
-class OperatorInfo:
-    signing_pk: str
-    wallet_pk: str
-
-
-@dataclass
-class OperatorConfig:
-    static: list[OperatorInfo]
-
-
-@dataclass
 class Block:
     height: int
     blkid: str
@@ -65,10 +49,7 @@ class GenesisL1View:
 class Sidesystem:
     magic_bytes: str
     block_time: int
-    da_tag: str
-    checkpoint_tag: str
     cred_rule: str
-    horizon_l1_height: int
     genesis_l1_height: int
     l1_reorg_safe_depth: int
     target_l2_batch_size: int
@@ -81,8 +62,8 @@ class Sidesystem:
     network: str
     evm_genesis_block_hash: str
     evm_genesis_block_state_root: str
-    rollup_vk: RollupVk
-    operator_config: OperatorConfig
+    recovery_delay: int
+    operators: list[str]
     genesis_l1_view: GenesisL1View
 
     @classmethod
@@ -90,10 +71,7 @@ class Sidesystem:
         return cls(
             magic_bytes="ALPN",
             block_time=1000,
-            da_tag="alpen-bridge-da",
-            checkpoint_tag="alpen-bridge-checkpoint",
             cred_rule="unchecked",
-            horizon_l1_height=1000,
             genesis_l1_height=1000,
             l1_reorg_safe_depth=1000,
             target_l2_batch_size=1000,
@@ -103,13 +81,11 @@ class Sidesystem:
             proof_publish_mode="strict",
             checkpoint_predicate="AlwaysAccept",
             max_deposits_in_block=20,
+            recovery_delay=1008,
             network="signet",
             evm_genesis_block_hash="0x46c0dc60fb131be4ccc55306a345fcc20e44233324950f978ba5f185aa2af4dc",
             evm_genesis_block_state_root="0x351714af72d74259f45cd7eab0b04527cd40e74836a45abcae50f92d919d988f",
-            rollup_vk=RollupVk(
-                native="0x0000000000000000000000000000000000000000000000000000000000000000"
-            ),
-            operator_config=OperatorConfig(static=[]),
+            operators=[],
             genesis_l1_view=GenesisL1View(
                 blk=Block(
                     height=100,

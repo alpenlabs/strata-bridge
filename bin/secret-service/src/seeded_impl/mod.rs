@@ -2,7 +2,11 @@
 
 use std::path::Path;
 
-use bitcoin::{bip32::Xpriv, Network};
+use bitcoin::{
+    bip32::{Xpriv, Xpub},
+    secp256k1::SECP256K1,
+    Network,
+};
 use colored::Colorize;
 use libp2p_identity::ed25519::SecretKey;
 use musig2::Ms2Signer;
@@ -10,7 +14,7 @@ use p2p::ServerP2PSigner;
 use rand::Rng;
 use secret_service_proto::v2::traits::{SecretService, Server};
 use stakechain::StakeChain;
-use strata_key_derivation::operator::OperatorKeys;
+use strata_bridge_key_deriv::OperatorKeys;
 use tokio::{fs, io};
 use tracing::info;
 use wallet::{GeneralWalletSigner, StakechainWalletSigner};
@@ -63,12 +67,14 @@ impl Service {
 
     /// Deterministically creates a new service using a given seed
     pub fn new_with_seed(seed: [u8; 32], network: Network) -> Self {
-        let keys = OperatorKeys::new(&Xpriv::new_master(network, &seed).expect("valid xpriv"))
-            .expect("valid keychain");
+        let master = Xpriv::new_master(network, &seed).expect("valid xpriv");
+        let master_xpub = Xpub::from_priv(SECP256K1, &master);
         info!(
             "Master fingerprint: {}",
-            keys.master_xpub().fingerprint().to_string().bold()
+            master_xpub.fingerprint().to_string().bold()
         );
+
+        let keys = OperatorKeys::new(&master).expect("valid xpriv");
         Self { keys }
     }
 }

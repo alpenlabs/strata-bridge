@@ -9,6 +9,8 @@ workspace = true
 
 [dependencies]
 bitcoin.workspace = true
+ed25519-dalek.workspace = true
 secp256k1.workspace = true
 strata-bridge-primitives.workspace = true
 thiserror.workspace = true
+zeroize.workspace = true

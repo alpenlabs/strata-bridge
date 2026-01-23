@@ -1,14 +1,13 @@
 //! Key derivation primitives for Strata Bridge.
 //!
-//! This crate provides utilities for deriving operator keys from a master seed,
-//! complementing the external `strata-key-derivation` crate's `OperatorKeys`.
+//! This crate provides utilities for deriving operator keys and all bridge-specific
+//! key material from a master seed.
 //!
 //! # Usage
 //!
 //! ```rust,ignore
 //! use bitcoin::{bip32::Xpriv, Network};
-//! use strata_key_derivation::operator::OperatorKeys;
-//! use strata_bridge_key_deriv::{WalletKeys, Musig2Keys};
+//! use strata_bridge_key_deriv::{Musig2Keys, OperatorKeys, WalletKeys};
 //!
 //! // Create OperatorKeys from seed
 //! let xpriv = Xpriv::new_master(Network::Regtest, &seed)?;
@@ -29,12 +28,13 @@
 //!
 //! # Key Hierarchy
 //!
-//! All keys derive from a master seed through `OperatorKeys::base_xpriv()`.
+//! All keys derive from a master seed through `OperatorKeys::base_xpriv()` (`m/20000'`).
 //! Use the provided structs ([`WalletKeys`], [`Musig2Keys`], [`WotsIkm`],
 //! [`StakechainPreimageIkm`]) to derive keys at the correct paths.
 
 pub mod address;
 pub mod derive;
+mod keys;
 
 // Internal module - paths are obscured to prevent direct usage and ensure consistency
 mod paths;
@@ -57,3 +57,4 @@ pub use derive::{
     WotsIkm128,
     WotsIkm256,
 };
+pub use keys::OperatorKeys;
