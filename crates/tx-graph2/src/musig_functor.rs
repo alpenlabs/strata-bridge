@@ -22,55 +22,59 @@ use crate::transactions::{
 ///
 /// Transactions that are not presigned are not included.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GameFunctor<T> {
-    /// For each contesting watchtower, data for the single contest transaction input.
-    pub contest: Vec<T>,
-
+pub struct GameFunctor<A> {
     /// Data for each input of the bridge proof timeout transaction.
-    pub bridge_proof_timeout: [T; BridgeProofTimeoutTx::N_INPUTS],
-
-    /// For each watchtower, data for the single counterproof transaction input.
-    pub counterproofs: Vec<T>,
-
-    /// For each watchtower, data for each input of the counterproof ACK transaction.
-    pub counterproof_acks: Vec<[T; CounterproofAckTx::N_INPUTS]>,
+    pub bridge_proof_timeout: [A; BridgeProofTimeoutTx::N_INPUTS],
 
     /// Data for each input of the contested payout transaction.
-    pub contested_payout: [T; ContestedPayoutTx::N_INPUTS],
+    pub contested_payout: [A; ContestedPayoutTx::N_INPUTS],
 
     /// Data for each input of the slash transaction.
-    pub slash: [T; SlashTx::N_INPUTS],
+    pub slash: [A; SlashTx::N_INPUTS],
 
     /// Data for each input of the uncontested payout transaction.
-    pub uncontested_payout: [T; UncontestedPayoutTx::N_INPUTS],
+    pub uncontested_payout: [A; UncontestedPayoutTx::N_INPUTS],
+
+    /// Data for each watchtower.
+    pub watchtowers: Vec<WatchtowerFunctor<A>>,
+}
+
+/// Functor-like data structure for associating generic data
+/// with each presigned transaction input of the transactions
+/// of a given watchtower.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WatchtowerFunctor<A> {
+    /// For the contesting watchtower, data for the single contest transaction input.
+    pub contest: [A; ContestTx::N_INPUTS],
+    /// For the counterproving watchtower, data for the single counterproof transaction input.
+    pub counterproof: [A; CounterproofTx::N_INPUTS],
+    /// For the counterproving watchtower, data for each input of the counterproof ACK transaction.
+    pub counterproof_ack: [A; CounterproofAckTx::N_INPUTS],
 }
 
 impl<A> GameFunctor<A> {
     /// Packs the data into a vector.
     pub fn pack(self) -> Vec<A> {
-        debug_assert_eq!(self.contest.len(), self.counterproofs.len());
-        debug_assert_eq!(self.contest.len(), self.counterproof_acks.len());
-
-        let total_len = ContestTx::N_INPUTS * self.contest.len()
-            + BridgeProofTimeoutTx::N_INPUTS
-            + CounterproofTx::N_INPUTS * self.contest.len()
-            + CounterproofAckTx::N_INPUTS * self.contest.len()
+        let total_len = BridgeProofTimeoutTx::N_INPUTS
             + ContestedPayoutTx::N_INPUTS
             + SlashTx::N_INPUTS
-            + UncontestedPayoutTx::N_INPUTS;
+            + UncontestedPayoutTx::N_INPUTS
+            + (ContestTx::N_INPUTS + CounterproofTx::N_INPUTS + CounterproofAckTx::N_INPUTS)
+                * self.watchtowers.len();
 
         let mut packed = Vec::with_capacity(total_len);
-        packed.extend(self.contest);
         packed.extend(self.bridge_proof_timeout);
-        packed.extend(self.counterproofs);
-        for x in self.counterproof_acks {
-            packed.extend(x);
-        }
         packed.extend(self.contested_payout);
         packed.extend(self.slash);
         packed.extend(self.uncontested_payout);
-        debug_assert_eq!(packed.len(), total_len);
 
+        for watchtower in self.watchtowers {
+            packed.extend(watchtower.contest);
+            packed.extend(watchtower.counterproof);
+            packed.extend(watchtower.counterproof_ack);
+        }
+
+        debug_assert_eq!(packed.len(), total_len);
         packed
     }
 
@@ -81,92 +85,88 @@ impl<A> GameFunctor<A> {
         let mut cursor = graph_vec.into_iter();
         let cursor = cursor.by_ref();
 
-        let mut contest = Vec::with_capacity(n_watchtowers);
-        for _ in 0..n_watchtowers {
-            contest.push(cursor.next()?);
-        }
-
         let bridge_proof_timeout = take_array(cursor)?;
-
-        let mut counterproofs = Vec::with_capacity(n_watchtowers);
-        for _ in 0..n_watchtowers {
-            counterproofs.push(cursor.next()?);
-        }
-
-        let mut counterproof_acks = Vec::with_capacity(n_watchtowers);
-        for _ in 0..n_watchtowers {
-            counterproof_acks.push(take_array(cursor)?);
-        }
-
         let contested_payout = take_array(cursor)?;
         let slash = take_array(cursor)?;
-
         let uncontested_payout = take_array(cursor)?;
 
+        let watchtowers = (0..n_watchtowers)
+            .map(|_| {
+                let contest = take_array(cursor)?;
+                let counterproof = take_array(cursor)?;
+                let counterproof_ack = take_array(cursor)?;
+                Some(WatchtowerFunctor {
+                    contest,
+                    counterproof,
+                    counterproof_ack,
+                })
+            })
+            .collect::<Option<Vec<WatchtowerFunctor<A>>>>()?;
+
         Some(GameFunctor {
-            contest,
             bridge_proof_timeout,
-            counterproofs,
-            counterproof_acks,
             contested_payout,
             slash,
             uncontested_payout,
+            watchtowers,
         })
     }
 
     /// Returns references to the data.
     pub fn as_ref(&self) -> GameFunctor<&A> {
         GameFunctor {
-            contest: self.contest.iter().collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.each_ref(),
-            counterproofs: self.counterproofs.iter().collect(),
-            counterproof_acks: self
-                .counterproof_acks
-                .iter()
-                .map(|a| a.each_ref())
-                .collect(),
             contested_payout: self.contested_payout.each_ref(),
             slash: self.slash.each_ref(),
             uncontested_payout: self.uncontested_payout.each_ref(),
+            watchtowers: self
+                .watchtowers
+                .iter()
+                .map(|watchtower| WatchtowerFunctor {
+                    contest: watchtower.contest.each_ref(),
+                    counterproof: watchtower.counterproof.each_ref(),
+                    counterproof_ack: watchtower.counterproof_ack.each_ref(),
+                })
+                .collect(),
         }
     }
 
     /// Maps the data to a new type.
     pub fn map<B>(self, mut f: impl FnMut(A) -> B) -> GameFunctor<B> {
         GameFunctor {
-            contest: self.contest.into_iter().map(&mut f).collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.map(&mut f),
-            counterproofs: self.counterproofs.into_iter().map(&mut f).collect(),
-            counterproof_acks: self
-                .counterproof_acks
-                .into_iter()
-                .map(|a| a.map(&mut f))
-                .collect(),
             contested_payout: self.contested_payout.map(&mut f),
             slash: self.slash.map(&mut f),
             uncontested_payout: self.uncontested_payout.map(&mut f),
+            watchtowers: self
+                .watchtowers
+                .into_iter()
+                .map(|watchtower| WatchtowerFunctor {
+                    contest: watchtower.contest.map(&mut f),
+                    counterproof: watchtower.counterproof.map(&mut f),
+                    counterproof_ack: watchtower.counterproof_ack.map(&mut f),
+                })
+                .collect(),
         }
     }
 
     /// Zips the data of two functors.
     pub fn zip<B>(self, other: GameFunctor<B>) -> GameFunctor<(A, B)> {
         GameFunctor {
-            contest: self.contest.into_iter().zip(other.contest).collect(),
             bridge_proof_timeout: zip_arrays(self.bridge_proof_timeout, other.bridge_proof_timeout),
-            counterproofs: self
-                .counterproofs
-                .into_iter()
-                .zip(other.counterproofs)
-                .collect(),
-            counterproof_acks: self
-                .counterproof_acks
-                .into_iter()
-                .zip(other.counterproof_acks)
-                .map(|(a, b)| zip_arrays(a, b))
-                .collect(),
             contested_payout: zip_arrays(self.contested_payout, other.contested_payout),
             slash: zip_arrays(self.slash, other.slash),
             uncontested_payout: zip_arrays(self.uncontested_payout, other.uncontested_payout),
+            watchtowers: self
+                .watchtowers
+                .into_iter()
+                .zip(other.watchtowers.into_iter())
+                .map(|(w1, w2)| WatchtowerFunctor {
+                    contest: zip_arrays(w1.contest, w2.contest),
+                    counterproof: zip_arrays(w1.counterproof, w2.counterproof),
+                    counterproof_ack: zip_arrays(w1.counterproof_ack, w2.counterproof_ack),
+                })
+                .collect(),
         }
     }
 
@@ -204,28 +204,20 @@ impl<A> GameFunctor<A> {
     /// resulting in an functor of mapped data.
     pub fn zip_apply<O>(f: GameFunctor<impl Fn(A) -> O>, a: GameFunctor<A>) -> GameFunctor<O> {
         GameFunctor {
-            contest: f
-                .contest
-                .into_iter()
-                .zip(a.contest)
-                .map(|(fp, ap)| fp(ap))
-                .collect(),
             bridge_proof_timeout: zip_apply_arrays(f.bridge_proof_timeout, a.bridge_proof_timeout),
-            counterproofs: f
-                .counterproofs
-                .into_iter()
-                .zip(a.counterproofs)
-                .map(|(fp, ap)| fp(ap))
-                .collect(),
-            counterproof_acks: f
-                .counterproof_acks
-                .into_iter()
-                .zip(a.counterproof_acks)
-                .map(|(fp, ap)| zip_apply_arrays(fp, ap))
-                .collect(),
             contested_payout: zip_apply_arrays(f.contested_payout, a.contested_payout),
             slash: zip_apply_arrays(f.slash, a.slash),
             uncontested_payout: zip_apply_arrays(f.uncontested_payout, a.uncontested_payout),
+            watchtowers: f
+                .watchtowers
+                .into_iter()
+                .zip(a.watchtowers.into_iter())
+                .map(|(w1, w2)| WatchtowerFunctor {
+                    contest: zip_apply_arrays(w1.contest, w2.contest),
+                    counterproof: zip_apply_arrays(w1.counterproof, w2.counterproof),
+                    counterproof_ack: zip_apply_arrays(w1.counterproof_ack, w2.counterproof_ack),
+                })
+                .collect(),
         }
     }
 
@@ -279,20 +271,21 @@ impl<A> GameFunctor<A> {
     /// returning `None` if any functor component is `None`.
     pub fn sequence_option(graph: GameFunctor<Option<A>>) -> Option<GameFunctor<A>> {
         Some(GameFunctor {
-            contest: graph.contest.into_iter().collect::<Option<Vec<_>>>()?,
             bridge_proof_timeout: sequence_option_array(graph.bridge_proof_timeout)?,
-            counterproofs: graph
-                .counterproofs
-                .into_iter()
-                .collect::<Option<Vec<_>>>()?,
-            counterproof_acks: graph
-                .counterproof_acks
-                .into_iter()
-                .map(sequence_option_array)
-                .collect::<Option<Vec<_>>>()?,
             contested_payout: sequence_option_array(graph.contested_payout)?,
             slash: sequence_option_array(graph.slash)?,
             uncontested_payout: sequence_option_array(graph.uncontested_payout)?,
+            watchtowers: graph
+                .watchtowers
+                .into_iter()
+                .map(|watchtower| {
+                    Some(WatchtowerFunctor {
+                        contest: sequence_option_array(watchtower.contest)?,
+                        counterproof: sequence_option_array(watchtower.counterproof)?,
+                        counterproof_ack: sequence_option_array(watchtower.counterproof_ack)?,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?,
         })
     }
 
@@ -302,20 +295,21 @@ impl<A> GameFunctor<A> {
     /// The returned `Err` is the first one that was encountered.
     pub fn sequence_result<E>(graph: GameFunctor<Result<A, E>>) -> Result<GameFunctor<A>, E> {
         Ok(GameFunctor {
-            contest: graph.contest.into_iter().collect::<Result<Vec<_>, E>>()?,
             bridge_proof_timeout: sequence_result_array(graph.bridge_proof_timeout)?,
-            counterproofs: graph
-                .counterproofs
-                .into_iter()
-                .collect::<Result<Vec<_>, E>>()?,
-            counterproof_acks: graph
-                .counterproof_acks
-                .into_iter()
-                .map(sequence_result_array)
-                .collect::<Result<Vec<_>, E>>()?,
             contested_payout: sequence_result_array(graph.contested_payout)?,
             slash: sequence_result_array(graph.slash)?,
             uncontested_payout: sequence_result_array(graph.uncontested_payout)?,
+            watchtowers: graph
+                .watchtowers
+                .into_iter()
+                .map(|watchtower| {
+                    Ok(WatchtowerFunctor {
+                        contest: sequence_result_array(watchtower.contest)?,
+                        counterproof: sequence_result_array(watchtower.counterproof)?,
+                        counterproof_ack: sequence_result_array(watchtower.counterproof_ack)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, E>>()?,
         })
     }
 
@@ -325,32 +319,33 @@ impl<A> GameFunctor<A> {
     /// of the numbers of watchtowers from the input functors.
     /// Excess watchtowers are truncated.
     pub fn sequence_musig_functor(graphs: Vec<GameFunctor<A>>) -> GameFunctor<Vec<A>> {
-        for graph in &graphs {
-            debug_assert_eq!(graph.contest.len(), graph.counterproofs.len());
-            debug_assert_eq!(graph.contest.len(), graph.counterproof_acks.len());
-        }
-
-        let n_watchtowers = graphs.iter().map(|g| g.contest.len()).min().unwrap_or(0);
+        let n_watchtowers = graphs
+            .iter()
+            .map(|graph| graph.watchtowers.len())
+            .min()
+            .unwrap_or(0);
 
         // NOTE: (@uncomputable) We cannot use `Vec::with_capacity(graphs.len())`
         //                       because `T` doesn't implement `Default`.
         let init = GameFunctor {
-            contest: (0..n_watchtowers).map(|_| Vec::new()).collect(),
             bridge_proof_timeout: array::from_fn(|_| Vec::new()),
-            counterproofs: (0..n_watchtowers).map(|_| Vec::new()).collect(),
-            counterproof_acks: (0..n_watchtowers)
-                .map(|_| array::from_fn(|_| Vec::new()))
-                .collect(),
             contested_payout: array::from_fn(|_| Vec::new()),
             slash: array::from_fn(|_| Vec::new()),
             uncontested_payout: array::from_fn(|_| Vec::new()),
+            watchtowers: (0..n_watchtowers)
+                .map(|_| WatchtowerFunctor {
+                    contest: array::from_fn(|_| Vec::new()),
+                    counterproof: array::from_fn(|_| Vec::new()),
+                    counterproof_ack: array::from_fn(|_| Vec::new()),
+                })
+                .collect(),
         };
 
         graphs
             .into_iter()
             // Lift each element into a vector, because `Vec` implements `Semigroup`.
             // The resulting functor also implements `Semigroup`.
-            .map(|g| g.map(|a| vec![a]))
+            .map(|graph| graph.map(|a| vec![a]))
             // Because `MusigFunctor::merge` calls `MusigFunctor::zip_with`,
             // this operation silently truncates each vector to the minimum shared length.
             // Since the vector lengths are always equal to the number of watchtowers,
@@ -363,31 +358,35 @@ impl<A: Clone, B: Clone> GameFunctor<(A, B)> {
     /// Converts a functor of pairs into two functors of the respective components.
     pub fn unzip(self) -> (GameFunctor<A>, GameFunctor<B>) {
         let game_t = GameFunctor {
-            contest: self.contest.iter().cloned().map(|(t, _)| t).collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.clone().map(|(t, _)| t),
-            counterproofs: self.counterproofs.iter().cloned().map(|(t, _)| t).collect(),
-            counterproof_acks: self
-                .counterproof_acks
-                .iter()
-                .cloned()
-                .map(|a| a.map(|(t, _)| t))
-                .collect(),
             contested_payout: self.contested_payout.clone().map(|(t, _)| t),
             slash: self.slash.clone().map(|(t, _)| t),
             uncontested_payout: self.uncontested_payout.clone().map(|(t, _)| t),
+            watchtowers: self
+                .watchtowers
+                .iter()
+                .cloned()
+                .map(|watchtower| WatchtowerFunctor {
+                    contest: watchtower.contest.map(|(t, _)| t),
+                    counterproof: watchtower.counterproof.map(|(t, _)| t),
+                    counterproof_ack: watchtower.counterproof_ack.map(|(t, _)| t),
+                })
+                .collect(),
         };
         let game_u = GameFunctor {
-            contest: self.contest.into_iter().map(|(_, u)| u).collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.map(|(_, u)| u),
-            counterproofs: self.counterproofs.into_iter().map(|(_, u)| u).collect(),
-            counterproof_acks: self
-                .counterproof_acks
-                .into_iter()
-                .map(|a| a.map(|(_, u)| u))
-                .collect(),
             contested_payout: self.contested_payout.map(|(_, u)| u),
             slash: self.slash.map(|(_, u)| u),
             uncontested_payout: self.uncontested_payout.map(|(_, u)| u),
+            watchtowers: self
+                .watchtowers
+                .into_iter()
+                .map(|watchtower| WatchtowerFunctor {
+                    contest: watchtower.contest.map(|(_, u)| u),
+                    counterproof: watchtower.counterproof.map(|(_, u)| u),
+                    counterproof_ack: watchtower.counterproof_ack.map(|(_, u)| u),
+                })
+                .collect(),
         };
 
         (game_t, game_u)
@@ -477,17 +476,12 @@ mod tests {
     use super::*;
 
     const N_WATCHTOWERS: usize = 10;
-    const PACKED_LEN: usize = packed_len(N_WATCHTOWERS);
-
-    const fn packed_len(n_watchtowers: usize) -> usize {
-        UncontestedPayoutTx::N_INPUTS
-            + ContestTx::N_INPUTS * n_watchtowers
-            + BridgeProofTimeoutTx::N_INPUTS
-            + CounterproofTx::N_INPUTS * n_watchtowers
-            + CounterproofAckTx::N_INPUTS * n_watchtowers
-            + ContestedPayoutTx::N_INPUTS
-            + SlashTx::N_INPUTS
-    }
+    const PACKED_LEN: usize = UncontestedPayoutTx::N_INPUTS
+        + BridgeProofTimeoutTx::N_INPUTS
+        + ContestedPayoutTx::N_INPUTS
+        + SlashTx::N_INPUTS
+        + (ContestTx::N_INPUTS + CounterproofTx::N_INPUTS + CounterproofAckTx::N_INPUTS)
+            * N_WATCHTOWERS;
 
     #[test]
     fn unpack_too_short() {
