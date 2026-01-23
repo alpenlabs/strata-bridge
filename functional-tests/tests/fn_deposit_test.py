@@ -1,5 +1,6 @@
-import flexitest
 import time
+
+import flexitest
 
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
