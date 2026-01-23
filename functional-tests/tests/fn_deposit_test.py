@@ -56,6 +56,9 @@ class BridgeDepositTest(StrataTestBase):
             bridge_nodes[i].start()
             wait_until_bridge_ready(bridge_rpcs[i])
 
+        self.logger.info("Verifying P2P connectivity among bridge nodes")
+        wait_until_p2p_connected(bridge_rpcs)
+
         self.logger.info("Making sure deposit is still in progress after restarting nodes")
         wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusInProgress)
 

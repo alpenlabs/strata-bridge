@@ -113,6 +113,9 @@ pub trait StateMachine {
     /// The error type returned when event processing fails.
     type Error;
 
+    // TODO: (@Rajil1213) add an associated type for static configurations which needs to be fed to
+    // the STF.
+
     /// Processes an event and returns the output (duties and signals) or an error.
     ///
     /// This is the main entry point for advancing the state machine. The implementation

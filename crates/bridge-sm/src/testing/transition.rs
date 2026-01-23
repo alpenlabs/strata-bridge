@@ -112,8 +112,9 @@ pub fn test_invalid_transition<SM, S, E, D, Sig, Err, CreateFn>(
 
     assert!(
         (invalid.expected_error)(&err),
-        "Error type mismatch. Got: {:?}",
-        err
+        "Error type mismatch. Got: {:?}, Expected: {:?}",
+        err,
+        invalid.expected_error
     );
 }
 
@@ -202,6 +203,11 @@ where
     /// Get all signals emitted during the sequence.
     pub fn all_signals(&self) -> Vec<&SM::OutgoingSignal> {
         self.outputs.iter().flat_map(|o| &o.signals).collect()
+    }
+
+    /// Get all the errors during processing.
+    pub fn all_errors(&self) -> Vec<&SM::Error> {
+        self.errors.iter().map(|(_, e)| e).collect()
     }
 
     /// Assert that specific duties were emitted (in any order).

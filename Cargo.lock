@@ -9925,6 +9925,7 @@ name = "strata-bridge-sm"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "musig2",
  "proptest",
  "secp256k1 0.29.1",
  "strata-bridge-p2p-types",

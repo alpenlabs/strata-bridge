@@ -42,6 +42,7 @@ jobs:
           activate-environment: true
           enable-cache: true
           cache-suffix: "functional-tests"
+          python-version: "3.12"
 
       - name: Check formatting
         working-directory: functional-tests
@@ -59,7 +60,8 @@ jobs:
     name: Run functional tests and generate report
     runs-on: self-hosted
     container:
-      image: alpine/openssl:3.5.4
+      # NOTE: (@Rajil1213) this image has: `bitcoind 30.2`, `bitcoin-cli`, `rustup`, `sqlx-cli`, `openssl 3.5.4` (based on ubuntu:26.04)
+      image: public.ecr.aws/r1l9t0r6/tn1/ci:latest # zizmor: ignore[unpinned-images] -- this is built by us and trusted
     needs: extract-rust-version
     timeout-minutes: 60
 
@@ -68,53 +70,6 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
-
-      - name: Download and build OpenSSL 3.5.0
-        run: |
-          # check current version of openssl
-          version=$(openssl version | awk '{print $2}' | cut -d. -f1,2)
-          echo "Current OpenSSL version: $version"
-          if [ "$version" = "3.5" ]; then
-            echo "OpenSSL 3.5 is already installed"
-            exit 0
-          fi
-          sudo apt install -y build-essential
-          wget https://www.openssl.org/source/openssl-3.5.0.tar.gz
-          tar -xzf openssl-3.5.0.tar.gz
-          cd openssl-3.5.0
-          ./config --prefix=/usr/local/openssl-3.5 --openssldir=/usr/local/openssl-3.5
-          make -j"$(nproc)"
-          sudo make install
-          echo "/usr/local/openssl-3.5/lib64" | sudo tee /etc/ld.so.conf.d/openssl-3.5.conf
-          sudo ldconfig
-          echo "OPENSSL_ROOT_DIR=/usr/local/openssl-3.5" >> "$GITHUB_ENV"
-          echo "PKG_CONFIG_PATH=/usr/local/openssl-3.5/lib64/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
-          echo "/usr/local/openssl-3.5/bin" >> "$GITHUB_PATH"
-
-      # - name: Cleanup space
-      #   shell: sh
-      #   # https://github.com/actions/runner-images/issues/2840#issuecomment-790492173
-      #   run: |
-      #     echo "Starting cleanup..."
-      #     sudo rm -rf /usr/share/dotnet
-      #     sudo rm -rf /usr/local/lib/android
-      #     sudo rm -rf /usr/local/.ghcup
-      #     sudo rm -rf /opt/ghc
-      #     sudo rm -rf "/usr/local/share/boost"
-      #     sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
-      - name: Install bitcoind
-        env:
-          BITCOIND_VERSION: "29.2"
-          BITCOIND_ARCH: "x86_64-linux-gnu"
-        run: |
-          curl -fsSLO --proto "=https" --tlsv1.2 "https://bitcoincore.org/bin/bitcoin-core-$BITCOIND_VERSION/bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
-          curl -fsSLO --proto "=https" --tlsv1.2 "https://bitcoincore.org/bin/bitcoin-core-$BITCOIND_VERSION/SHA256SUMS"
-          sha256sum --ignore-missing --check SHA256SUMS
-          tar xzf "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
-          sudo install -m 0755 -t /usr/local/bin "bitcoin-$BITCOIND_VERSION"/bin/*
-          bitcoind --version
-          rm -rf SHA256SUMS "bitcoin-$BITCOIND_VERSION" "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
@@ -137,11 +92,6 @@ jobs:
         with:
           tool: just
 
-      - name: Install sqlx-cli
-        run: |
-          sudo apt install libssl-dev # required in self-hosted runner
-          cargo install sqlx-cli --locked
-
       - name: Run db migrations
         run: just migrate
 
@@ -154,9 +104,8 @@ jobs:
           cache-suffix: "functional-tests"
 
       - name: Build Cargo project
-        env:
-          COV_TARGET_DIR: "${{ github.workspace }}/target/llvm-cov-target"
         run: |
+          COV_TARGET_DIR="$GITHUB_WORKSPACE/target/llvm-cov-target"
           RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin alpen-bridge --target-dir "$COV_TARGET_DIR"
           RUSTFLAGS="-Cinstrument-coverage" cargo build --locked -p secret-service --bin secret-service --target-dir "$COV_TARGET_DIR"
           cargo build --locked --bin dev-cli --target-dir "$COV_TARGET_DIR"
@@ -167,22 +116,30 @@ jobs:
         env:
           NO_COLOR: "1"
           LOG_LEVEL: "info"
-          LLVM_PROFILE_FILE: "${{ github.workspace }}/target/llvm-cov-target/strata-%p-%m.profraw"
+          PYTHON_VERSION: "3.12" # NOTE: (@Rajil1213) build fails with 3.13 since bitcoinlib (>=0.7.5,<0.8) uses an old version of numpy
+        shell: bash
         run: |
-          NEWPATH="${{ github.workspace }}/target/llvm-cov-target/debug"
+          export LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/target/llvm-cov-target/strata-%p-%m.profraw"
+          NEWPATH="$GITHUB_WORKSPACE/target/llvm-cov-target/debug"
           export PATH="$NEWPATH:$PATH"
+          echo "$PATH"
+          echo "Making sure built binaries are available"
+          which alpen-bridge
+          which secret-service
+          which dev-cli
           cd functional-tests
           source ./env.bash
-          uv run python entry.py
+          uv run --python "$PYTHON_VERSION" python entry.py
+
       - name: Generate combined coverage lcov
         id: genFunctionalLcov
         continue-on-error: true
-        env:
-          # cargo-llvm-cov expects default target dir and adds llvm-cov-target itself
-          CARGO_TARGET_DIR: "${{ github.workspace }}/target"
-          LLVM_PROFILE_FILE: "${{ github.workspace }}/target/llvm-cov-target/strata-%p-%m.profraw"
         run: |
+          # cargo-llvm-cov expects default target dir and adds llvm-cov-target itself
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target"
+          export LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/target/llvm-cov-target/strata-%p-%m.profraw"
           cargo llvm-cov report --lcov > lcov.functional.info
+
       - name: Upload coverage lcov artifact
         if: steps.genFunctionalLcov.outcome == 'success'
         continue-on-error: true
@@ -192,7 +149,7 @@ jobs:
           path: lcov.functional.info
 
       - name: Zip log files on failure
-        # if: steps.funcTestsRun.outcome == 'failure'
+        if: steps.funcTestsRun.outcome == 'failure'
         # Create a zip archive (logs.zip) that includes only service.log files,
         # preserving the folder structure starting from functional-tests/_dd
         # NOTE: Entire _dd could end up hundreds of MBs, so keep only logs
@@ -203,7 +160,7 @@ jobs:
           zip -r logs.zip functional-tests/_dd -i '*/logs/*.log'
 
       - name: Upload logs as build artifact on failure
-        # if: steps.funcTestsRun.outcome == 'failure'
+        if: steps.funcTestsRun.outcome == 'failure'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: fntest_dd
