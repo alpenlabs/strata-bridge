@@ -82,8 +82,8 @@ class BridgeDepositTest(StrataTestBase):
             for i in range(num_operators):
                 self.logger.info(f"Check DT on node {i}")
                 result = {"deposit_info": None}
-                result["deposit_info"] = bridge_rpc.stratabridge_depositInfo(deposit_id)
-                self.logger.info(f"Deposit info for {deposit_id}: {result['deposit_info']}")
+                result["deposit_info"] = bridge_rpc.stratabridge_depositInfo(new_deposit_id)
+                self.logger.info(f"Deposit info for {new_deposit_id}: {result['deposit_info']}")
 
             time.sleep(60)
 
