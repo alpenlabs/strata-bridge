@@ -907,7 +907,6 @@ mod tests {
 
     use std::str::FromStr;
 
-    use bitcoin::OutPoint;
     use proptest::prelude::*;
     use strata_bridge_test_utils::prelude::generate_spending_tx;
 
@@ -1244,7 +1243,7 @@ mod tests {
         let operator_signers_nonce_counter = 0u64;
 
         // Extract signing info
-        let (key_agg_ctx, _sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let (key_agg_ctx, _sighash) = get_deposit_signing_info(&deposit_tx, &operator_signers);
         let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
 
         // Generate nonces using the tweaked aggregated pubkey
@@ -1301,7 +1300,7 @@ mod tests {
         let operator_signers_nonce_counter = 0u64;
 
         // Extract signing info
-        let (key_agg_ctx, _sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let (key_agg_ctx, _sighash) = get_deposit_signing_info(&deposit_tx, &operator_signers);
         let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
 
         let initial_state = DepositState::GraphGenerated {
@@ -1345,7 +1344,7 @@ mod tests {
         let operator_signers_nonce_counter = 0u64;
 
         // Extract signing info
-        let (key_agg_ctx, _sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let (key_agg_ctx, _sighash) = get_deposit_signing_info(&deposit_tx, &operator_signers);
         let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
 
         let initial_state = DepositState::GraphGenerated {
@@ -1380,7 +1379,7 @@ mod tests {
         let operator_signers_nonce_counter = 0u64;
 
         // Extract signing info
-        let (key_agg_ctx, sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let (key_agg_ctx, sighash) = get_deposit_signing_info(&deposit_tx, &operator_signers);
         let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
 
         // Generate nonces using the tweaked aggregated pubkey
@@ -1446,7 +1445,7 @@ mod tests {
         let mut operator_signers_nonce_counter = 0u64;
 
         // Extract signing info
-        let (key_agg_ctx, sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let (key_agg_ctx, sighash) = get_deposit_signing_info(&deposit_tx, &operator_signers);
         let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
 
         // Generate nonces using the tweaked aggregated pubkey
@@ -1518,7 +1517,7 @@ mod tests {
         let operator_signers_nonce_counter = 0u64;
 
         // Extract signing info
-        let (key_agg_ctx, sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let (key_agg_ctx, sighash) = get_deposit_signing_info(&deposit_tx, &operator_signers);
         let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
 
         // Generate nonces using the tweaked aggregated pubkey
@@ -1582,7 +1581,7 @@ mod tests {
         let operator_signers_nonce_counter = 0u64;
 
         // Extract signing info
-        let (key_agg_ctx, sighash) = get_signing_info(&deposit_tx, &operator_signers);
+        let (key_agg_ctx, sighash) = get_deposit_signing_info(&deposit_tx, &operator_signers);
         let tweaked_agg_pubkey = key_agg_ctx.aggregated_pubkey();
 
         // Generate nonces using the tweaked aggregated pubkey

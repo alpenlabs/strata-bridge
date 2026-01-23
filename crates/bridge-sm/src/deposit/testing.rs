@@ -94,7 +94,7 @@ pub(super) fn test_operator_signers() -> Vec<TestMusigSigner> {
 }
 
 /// Retrieves the key aggregation context and message for signing a deposit transaction.
-pub(super) fn get_signing_info(
+pub(super) fn get_deposit_signing_info(
     deposit_tx: &DepositTx,
     operator_signers: &[TestMusigSigner],
 ) -> (KeyAggContext, Message) {
