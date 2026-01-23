@@ -46,6 +46,7 @@ use sqlx::{
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
+use strata_bridge_asm_events::client::AsmEventFeed;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
@@ -518,6 +519,7 @@ async fn init_duty_tracker(
     let shutdown_stake_chain_persister = StakeChainPersister::new(db.clone()).await?;
     debug!("shutdown persisters initialized");
 
+    let asm_feed = AsmEventFeed::new(config.asm_rpc.clone());
     let contract_manager = ContractManager::new(
         network,
         keypair,
@@ -533,6 +535,7 @@ async fn init_duty_tracker(
         config.stake_tx,
         pre_stake_pubkey,
         zmq_client,
+        asm_feed,
         rpc_client,
         gossip_handle,
         req_resp_handle,

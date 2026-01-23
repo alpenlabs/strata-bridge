@@ -7,8 +7,8 @@ use std::{
 
 use tokio::sync::mpsc;
 
-/// The primary type that consumers of this API will handle. It is created via one of the calls to
-/// `BtcNotifyClient::subscribe_*`. From there you should use it via it's [`futures::Stream`] API.
+/// A generic subscription type for event streams. It wraps an unbounded channel receiver
+/// and implements [`futures::Stream`] for consuming events asynchronously.
 #[derive(Debug)]
 pub struct Subscription<T> {
     receiver: mpsc::UnboundedReceiver<T>,
@@ -21,8 +21,8 @@ impl<T> Subscription<T> {
 }
 
 impl<T> Subscription<T> {
-    /// Intentionally left private so as not to leak implementation details to consuming APIs.
-    pub(crate) const fn from_receiver(receiver: mpsc::UnboundedReceiver<T>) -> Subscription<T> {
+    /// Creates a new subscription from an unbounded receiver.
+    pub const fn from_receiver(receiver: mpsc::UnboundedReceiver<T>) -> Subscription<T> {
         Subscription { receiver }
     }
 }

@@ -6,6 +6,7 @@ import toml
 from utils.utils import OperatorKeyInfo
 
 from .config_cfg import (
+    AsmRpcConfig,
     BridgeOperatorConfig,
     BtcClientConfig,
     BtcZmqConfig,

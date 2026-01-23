@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 algebra.workspace = true
+strata-bridge-primitives = { workspace = true, features = ["async"] }
 
 async-trait.workspace = true
 bitcoin.workspace = true
@@ -19,6 +20,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util"] }
 tokio-stream.workspace = true
 tracing.workspace = true
+
 
 [dev-dependencies]
 strata-bridge-common.workspace = true

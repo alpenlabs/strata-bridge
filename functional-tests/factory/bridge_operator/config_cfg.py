@@ -71,6 +71,16 @@ class StakeTxConfig:
 
 
 @dataclass
+class AsmRpcConfig:
+    rpc_url: str
+    request_timeout: Duration
+    max_retries: int | None
+    retry_initial_delay: Duration
+    retry_max_delay: Duration
+    retry_multiplier: int
+
+
+@dataclass
 class BridgeOperatorConfig:
     datadir: str
     is_faulty: bool
@@ -83,5 +93,6 @@ class BridgeOperatorConfig:
     db: DbConfig
     p2p: P2pConfig
     rpc: RpcConfig
+    asm_rpc: AsmRpcConfig
     btc_zmq: BtcZmqConfig
     stake_tx: StakeTxConfig

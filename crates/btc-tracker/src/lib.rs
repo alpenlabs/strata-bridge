@@ -9,7 +9,6 @@ pub mod config;
 mod constants;
 pub mod event;
 mod state_machine;
-pub mod subscription;
 pub mod tx_driver;
 
 // Re-exports

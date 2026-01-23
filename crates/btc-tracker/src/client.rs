@@ -8,6 +8,7 @@ use std::{collections::VecDeque, error::Error, marker::PhantomData, sync::Arc, t
 use bitcoin::{Block, Transaction};
 use bitcoincore_zmq::{subscribe_async_wait_handshake, Message, SocketMessage};
 use futures::{future::join_all, StreamExt};
+use strata_bridge_primitives::subscription::Subscription;
 use tokio::{
     sync::{mpsc, Mutex},
     task::{self, JoinHandle},
@@ -18,7 +19,6 @@ use crate::{
     config::BtcNotifyConfig,
     event::{BlockEvent, BlockStatus, TxEvent},
     state_machine::{BtcNotifySM, TxPredicate},
-    subscription::Subscription,
 };
 
 // State marker types for the typestate pattern

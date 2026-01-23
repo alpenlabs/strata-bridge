@@ -10,6 +10,7 @@ workspace = true
 algebra.workspace = true
 alpen-bridge-params.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
+strata-bridge-asm-events.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
