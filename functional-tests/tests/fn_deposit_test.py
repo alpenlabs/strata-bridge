@@ -65,7 +65,10 @@ class BridgeDepositTest(StrataTestBase):
             time.sleep(5)
 
         self.logger.info("Making sure deposit is still in progress after restarting nodes")
-        wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusInProgress)
+        # wait_until_deposit_status(bridge_rpc, new_deposit_id, RpcDepositStatusInProgress)
+        for i in range(num_operators):
+            self.logger.info(f"Check DRT on node {i}")
+            wait_until_deposit_status(bridge_rpcs[i], new_deposit_id, RpcDepositStatusInProgress)
 
         self.logger.info("Verifying P2P connectivity among bridge nodes before deposit")
         wait_until_p2p_connected(bridge_rpcs)
