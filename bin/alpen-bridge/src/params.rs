@@ -156,24 +156,21 @@ mod tests {
             [sidesystem]
             magic_bytes = "ALPN"
             block_time = 1_000
-            da_tag = "alpen-bridge-da"
-            checkpoint_tag = "alpen-bridge-checkpoint"
             cred_rule = "unchecked"
-            horizon_l1_height = 1_000
             genesis_l1_height = 1_000
             l1_reorg_safe_depth = 1_000
             target_l2_batch_size = 1_000
             max_address_length = 20
             deposit_amount = {deposit_amount}
             dispatch_assignment_dur = 1000
+            recovery_delay = 1008
             proof_publish_mode = "strict"
             checkpoint_predicate = "AlwaysAccept"
             max_deposits_in_block = 20
             network = "signet"
             evm_genesis_block_hash = "0x46c0dc60fb131be4ccc55306a345fcc20e44233324950f978ba5f185aa2af4dc"
             evm_genesis_block_state_root = "0x351714af72d74259f45cd7eab0b04527cd40e74836a45abcae50f92d919d988f"
-            rollup_vk.native = "0x0000000000000000000000000000000000000000000000000000000000000000"
-            operator_config.static = [{{ signing_pk = "0x69d6917eece56dfe15921c4ce2b6d7d41f9fa82706d78a2933f1365d07615463", wallet_pk = "0x30377cf0fe6db23123099fc89006bf8b18263e5579f914e53dce451af94cc0ea" }}, {{ signing_pk = "0x50b9c486ac70b7b343847c34ef9bb7b216328a691fbd413c4b3efdd389bdc71a", wallet_pk = "0xf4c9ed887e5bf6c756dc2d5de8c55f2a05a176f88951d2e355236d6af2df111b" }}]
+            operators = ["69d6917eece56dfe15921c4ce2b6d7d41f9fa82706d78a2933f1365d07615463", "30377cf0fe6db23123099fc89006bf8b18263e5579f914e53dce451af94cc0ea", "f4c9ed887e5bf6c756dc2d5de8c55f2a05a176f88951d2e355236d6af2df111b"]
 
             [sidesystem.genesis_l1_view.blk]
             height = 100

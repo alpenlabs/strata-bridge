@@ -6,8 +6,7 @@ use anyhow::{bail, Result};
 use bitcoin::{bip32::Xpriv, hex::DisplayHex};
 use libp2p_identity::ed25519::{Keypair as EdKeypair, SecretKey as EdSecretKey};
 use serde_json::json;
-use strata_bridge_key_deriv::{Musig2Keys, WalletKeys};
-use strata_key_derivation::operator::OperatorKeys;
+use strata_bridge_key_deriv::{Musig2Keys, OperatorKeys, WalletKeys};
 
 use crate::cli::DeriveKeysArgs;
 
@@ -28,7 +27,7 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&seed_bytes);
 
-    // Derive keys using OperatorKeys from strata-key-derivation
+    // Derive operator keys
     let xpriv = Xpriv::new_master(args.network, &seed)?;
     let keys = OperatorKeys::new(&xpriv)?;
     let base_xpriv = keys.base_xpriv();

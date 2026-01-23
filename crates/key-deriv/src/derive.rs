@@ -7,8 +7,7 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use strata_key_derivation::operator::OperatorKeys;
-//! use strata_bridge_key_deriv::WalletKeys;
+//! use strata_bridge_key_deriv::{OperatorKeys, WalletKeys};
 //!
 //! let keys = OperatorKeys::new(&master_xpriv)?;
 //! let wallet_keys = WalletKeys::derive(keys.base_xpriv())?;
