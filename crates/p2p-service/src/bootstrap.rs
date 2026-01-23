@@ -159,6 +159,8 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
         gossipsub_mesh_n_low: config.gossipsub_mesh_n_low,
         gossipsub_mesh_n_high: config.gossipsub_mesh_n_high,
         gossipsub_heartbeat_initial_delay: config.gossipsub_heartbeat_initial_delay,
+        gossipsub_publish_queue_duration: None,
+        gossipsub_forward_queue_duration: None,
         gossip_event_buffer_size: None,
         commands_event_buffer_size: None,
         command_buffer_size: None,

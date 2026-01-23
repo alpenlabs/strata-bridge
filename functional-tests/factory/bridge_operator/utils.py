@@ -74,6 +74,8 @@ def generate_config_toml(
             gossipsub_heartbeat_initial_delay=Duration(
                 secs=heartbeat_delay_factor * DEFAULT_INITIAL_HEARBEAT_DELAY_SECS, nanos=0
             ),
+            gossipsub_forward_queue_duration=Duration(secs=60, nanos=0),
+            gossipsub_publish_queue_duration=Duration(secs=60, nanos=0),
             # Configure gossipsub mesh for small network
             # Each operator can only see n-1 peers, so mesh_n_low must be <= n-1
             gossipsub_mesh_n=total_peers - 1,

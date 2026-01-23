@@ -70,6 +70,8 @@ impl Operator {
             gossipsub_mesh_n_low: None,
             gossipsub_mesh_n_high: None,
             gossipsub_heartbeat_initial_delay: heartbeat_initial_delay,
+            gossipsub_forward_queue_duration: None,
+            gossipsub_publish_queue_duration: None,
             gossip_event_buffer_size: None,
             commands_event_buffer_size: None,
             command_buffer_size: None,

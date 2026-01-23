@@ -105,6 +105,12 @@ pub struct Configuration {
 
     /// Initial delay before the first gossipsub heartbeat.
     pub gossipsub_heartbeat_initial_delay: Option<Duration>,
+
+    /// The duration a message to be published can wait to be sent before it is abandoned.
+    pub gossipsub_publish_queue_duration: Option<Duration>,
+
+    /// The duration a message to be forwarded can wait to be sent before it is abandoned.
+    pub gossipsub_forward_queue_duration: Option<Duration>,
 }
 
 impl Configuration {
@@ -126,6 +132,8 @@ impl Configuration {
         gossipsub_mesh_n_high: Option<usize>,
         gossipsub_scoring_preset: Option<GossipsubScoringPreset>,
         gossipsub_heartbeat_initial_delay: Option<Duration>,
+        gossipsub_publish_queue_duration: Option<Duration>,
+        gossipsub_forward_queue_duration: Option<Duration>,
     ) -> Self {
         let keypair = Libp2pEdKeypair::from(sk);
         Self {
@@ -144,6 +152,8 @@ impl Configuration {
             gossipsub_mesh_n_high,
             gossipsub_scoring_preset,
             gossipsub_heartbeat_initial_delay,
+            gossipsub_publish_queue_duration,
+            gossipsub_forward_queue_duration,
         }
     }
 }
@@ -163,6 +173,8 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            None,
+            None,
             None,
             None,
             None,
