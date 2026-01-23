@@ -70,6 +70,23 @@ class BridgeDepositTest(StrataTestBase):
             self.logger.info(f"Check DRT on node {i}")
             wait_until_deposit_status(bridge_rpcs[i], new_deposit_id, RpcDepositStatusInProgress)
 
+        for i in range(10):
+            self.logger.info("Connection Check")
+            for bridge_index, rpc in enumerate(bridge_rpcs):
+                operators = rpc.stratabridge_bridgeOperators()
+                other_operators = [op for idx, op in enumerate(operators) if idx != bridge_index]
+                for operator in other_operators:
+                    status = rpc.stratabridge_operatorStatus(operator)
+                    self.logger.info(f"Bridge {bridge_index}: Operator {operator} is {status}")
+
+            for i in range(num_operators):
+                self.logger.info(f"Check DT on node {i}")
+                result = {"deposit_info": None}
+                result["deposit_info"] = bridge_rpc.stratabridge_depositInfo(deposit_id)
+                self.logger.info(f"Deposit info for {deposit_id}: {result['deposit_info']}")
+
+            time.sleep(60)
+
         self.logger.info("Verifying P2P connectivity among bridge nodes before deposit")
         wait_until_p2p_connected(bridge_rpcs)
 
