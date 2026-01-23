@@ -15,7 +15,7 @@ class BridgeNetworkTest(StrataTestBase):
     """
 
     def __init__(self, ctx: flexitest.InitContext):
-        ctx.set_env(BridgeNetworkEnv())
+        ctx.set_env("network")
 
     def main(self, ctx: flexitest.RunContext):
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)

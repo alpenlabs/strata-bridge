@@ -165,6 +165,16 @@ pub(crate) struct P2PConfig {
 
     /// Initial delay for the gossipsub heartbeat.
     pub gossipsub_heartbeat_initial_delay: Option<Duration>,
+
+    /// The duration a message to be published can wait to be sent before it is abandoned.
+    ///
+    /// If [`None`], defaults to libp2p's default of 5 seconds.
+    pub gossipsub_publish_queue_duration: Option<Duration>,
+
+    /// The duration a message to be forwarded can wait to be sent before it is abandoned.
+    ///
+    /// If [`None`], defaults to libp2p's default of 1 second.
+    pub gossipsub_forward_queue_duration: Option<Duration>,
 }
 
 /// RPC server configuration.

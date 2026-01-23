@@ -380,6 +380,8 @@ async fn init_p2p_handles(
         gossipsub_mesh_n_high,
         gossipsub_scoring_preset,
         gossipsub_heartbeat_initial_delay,
+        gossipsub_publish_queue_duration,
+        gossipsub_forward_queue_duration,
     } = config.p2p.clone();
 
     let config = P2PConfiguration::new_with_secret_key(
@@ -398,6 +400,8 @@ async fn init_p2p_handles(
         gossipsub_mesh_n_high,
         gossipsub_scoring_preset,
         gossipsub_heartbeat_initial_delay,
+        gossipsub_publish_queue_duration,
+        gossipsub_forward_queue_duration,
     );
     let handles = p2p_bootstrap(&config).await?;
     Ok(P2PHandles {

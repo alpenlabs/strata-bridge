@@ -19,7 +19,7 @@ class BridgeDepositTest(StrataTestBase):
     """
 
     def __init__(self, ctx: flexitest.InitContext):
-        ctx.set_env(BridgeNetworkEnv())
+        ctx.set_env("network")
 
     def main(self, ctx: flexitest.RunContext):
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
@@ -70,7 +70,7 @@ class BridgeDepositTest(StrataTestBase):
             self.logger.info(f"Check DRT on node {i}")
             wait_until_deposit_status(bridge_rpcs[i], new_deposit_id, RpcDepositStatusInProgress)
 
-        for i in range(10):
+        for i in range(12):
             self.logger.info("Connection Check")
             for bridge_index, rpc in enumerate(bridge_rpcs):
                 operators = rpc.stratabridge_bridgeOperators()
