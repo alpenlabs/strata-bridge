@@ -20,10 +20,9 @@ use crate::transactions::{
 ///
 /// # Note
 ///
-/// The claim, bridge proof, counterproof NACK, admin burn and unstaking burn
-/// transactions are not included, because they are not presigned.
+/// Transactions that are not presigned are not included.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MusigFunctor<T> {
+pub struct GameFunctor<T> {
     /// For each contesting watchtower, data for the single contest transaction input.
     pub contest: Vec<T>,
 
@@ -46,7 +45,7 @@ pub struct MusigFunctor<T> {
     pub uncontested_payout: [T; UncontestedPayoutTx::N_INPUTS],
 }
 
-impl<A> MusigFunctor<A> {
+impl<A> GameFunctor<A> {
     /// Packs the data into a vector.
     pub fn pack(self) -> Vec<A> {
         debug_assert_eq!(self.contest.len(), self.counterproofs.len());
@@ -78,7 +77,7 @@ impl<A> MusigFunctor<A> {
     /// Unpacks the data from a vector.
     ///
     /// The `n_watchtowers` parameter specifies how many watchtowers to expect.
-    pub fn unpack(graph_vec: Vec<A>, n_watchtowers: usize) -> Option<MusigFunctor<A>> {
+    pub fn unpack(graph_vec: Vec<A>, n_watchtowers: usize) -> Option<GameFunctor<A>> {
         let mut cursor = graph_vec.into_iter();
         let cursor = cursor.by_ref();
 
@@ -104,7 +103,7 @@ impl<A> MusigFunctor<A> {
 
         let uncontested_payout = take_array(cursor)?;
 
-        Some(MusigFunctor {
+        Some(GameFunctor {
             contest,
             bridge_proof_timeout,
             counterproofs,
@@ -116,8 +115,8 @@ impl<A> MusigFunctor<A> {
     }
 
     /// Returns references to the data.
-    pub fn as_ref(&self) -> MusigFunctor<&A> {
-        MusigFunctor {
+    pub fn as_ref(&self) -> GameFunctor<&A> {
+        GameFunctor {
             contest: self.contest.iter().collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.each_ref(),
             counterproofs: self.counterproofs.iter().collect(),
@@ -133,8 +132,8 @@ impl<A> MusigFunctor<A> {
     }
 
     /// Maps the data to a new type.
-    pub fn map<B>(self, mut f: impl FnMut(A) -> B) -> MusigFunctor<B> {
-        MusigFunctor {
+    pub fn map<B>(self, mut f: impl FnMut(A) -> B) -> GameFunctor<B> {
+        GameFunctor {
             contest: self.contest.into_iter().map(&mut f).collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.map(&mut f),
             counterproofs: self.counterproofs.into_iter().map(&mut f).collect(),
@@ -150,8 +149,8 @@ impl<A> MusigFunctor<A> {
     }
 
     /// Zips the data of two functors.
-    pub fn zip<B>(self, other: MusigFunctor<B>) -> MusigFunctor<(A, B)> {
-        MusigFunctor {
+    pub fn zip<B>(self, other: GameFunctor<B>) -> GameFunctor<(A, B)> {
+        GameFunctor {
             contest: self.contest.into_iter().zip(other.contest).collect(),
             bridge_proof_timeout: zip_arrays(self.bridge_proof_timeout, other.bridge_proof_timeout),
             counterproofs: self
@@ -173,38 +172,38 @@ impl<A> MusigFunctor<A> {
 
     /// Zips 3 functors into a functor of a 3-tuple.
     pub fn zip3<B, C>(
-        a: MusigFunctor<A>,
-        b: MusigFunctor<B>,
-        c: MusigFunctor<C>,
-    ) -> MusigFunctor<(A, B, C)> {
-        MusigFunctor::zip_with_3(|a, b, c| (a, b, c), a, b, c)
+        a: GameFunctor<A>,
+        b: GameFunctor<B>,
+        c: GameFunctor<C>,
+    ) -> GameFunctor<(A, B, C)> {
+        GameFunctor::zip_with_3(|a, b, c| (a, b, c), a, b, c)
     }
 
     /// Zips 4 functors into a functor of a 4-tuple.
     pub fn zip4<B, C, D>(
-        a: MusigFunctor<A>,
-        b: MusigFunctor<B>,
-        c: MusigFunctor<C>,
-        d: MusigFunctor<D>,
-    ) -> MusigFunctor<(A, B, C, D)> {
-        MusigFunctor::zip_with_4(|a, b, c, d| (a, b, c, d), a, b, c, d)
+        a: GameFunctor<A>,
+        b: GameFunctor<B>,
+        c: GameFunctor<C>,
+        d: GameFunctor<D>,
+    ) -> GameFunctor<(A, B, C, D)> {
+        GameFunctor::zip_with_4(|a, b, c, d| (a, b, c, d), a, b, c, d)
     }
 
     /// Zips 5 functors into a functor of a 5-tuple.
     pub fn zip5<B, C, D, E>(
-        a: MusigFunctor<A>,
-        b: MusigFunctor<B>,
-        c: MusigFunctor<C>,
-        d: MusigFunctor<D>,
-        e: MusigFunctor<E>,
-    ) -> MusigFunctor<(A, B, C, D, E)> {
-        MusigFunctor::zip_with_5(|a, b, c, d, e| (a, b, c, d, e), a, b, c, d, e)
+        a: GameFunctor<A>,
+        b: GameFunctor<B>,
+        c: GameFunctor<C>,
+        d: GameFunctor<D>,
+        e: GameFunctor<E>,
+    ) -> GameFunctor<(A, B, C, D, E)> {
+        GameFunctor::zip_with_5(|a, b, c, d, e| (a, b, c, d, e), a, b, c, d, e)
     }
 
     /// Zips a functor of functions with a functor of data,
     /// resulting in an functor of mapped data.
-    pub fn zip_apply<O>(f: MusigFunctor<impl Fn(A) -> O>, a: MusigFunctor<A>) -> MusigFunctor<O> {
-        MusigFunctor {
+    pub fn zip_apply<O>(f: GameFunctor<impl Fn(A) -> O>, a: GameFunctor<A>) -> GameFunctor<O> {
+        GameFunctor {
             contest: f
                 .contest
                 .into_iter()
@@ -233,42 +232,42 @@ impl<A> MusigFunctor<A> {
     /// Zips the data of two functors and applies a function to the result.
     pub fn zip_with<B, O>(
         f: impl Fn(A, B) -> O,
-        a: MusigFunctor<A>,
-        b: MusigFunctor<B>,
-    ) -> MusigFunctor<O> {
+        a: GameFunctor<A>,
+        b: GameFunctor<B>,
+    ) -> GameFunctor<O> {
         a.zip(b).map(|(a, b)| f(a, b))
     }
 
     /// Zips the data of three functors and applies a function to the result.
     pub fn zip_with_3<B, C, O>(
         f: impl Fn(A, B, C) -> O,
-        a: MusigFunctor<A>,
-        b: MusigFunctor<B>,
-        c: MusigFunctor<C>,
-    ) -> MusigFunctor<O> {
+        a: GameFunctor<A>,
+        b: GameFunctor<B>,
+        c: GameFunctor<C>,
+    ) -> GameFunctor<O> {
         a.zip(b).zip(c).map(|((a, b), c)| f(a, b, c))
     }
 
     /// Zips the data of four functors and applies a function to the result.
     pub fn zip_with_4<B, C, D, O>(
         f: impl Fn(A, B, C, D) -> O,
-        a: MusigFunctor<A>,
-        b: MusigFunctor<B>,
-        c: MusigFunctor<C>,
-        d: MusigFunctor<D>,
-    ) -> MusigFunctor<O> {
+        a: GameFunctor<A>,
+        b: GameFunctor<B>,
+        c: GameFunctor<C>,
+        d: GameFunctor<D>,
+    ) -> GameFunctor<O> {
         a.zip(b).zip(c.zip(d)).map(|((a, b), (c, d))| f(a, b, c, d))
     }
 
     /// Zips the data of five functors and applies a function to the result.
     pub fn zip_with_5<B, C, D, E, O>(
         f: impl Fn(A, B, C, D, E) -> O,
-        a: MusigFunctor<A>,
-        b: MusigFunctor<B>,
-        c: MusigFunctor<C>,
-        d: MusigFunctor<D>,
-        e: MusigFunctor<E>,
-    ) -> MusigFunctor<O> {
+        a: GameFunctor<A>,
+        b: GameFunctor<B>,
+        c: GameFunctor<C>,
+        d: GameFunctor<D>,
+        e: GameFunctor<E>,
+    ) -> GameFunctor<O> {
         a.zip(b)
             .zip(c)
             .zip(d)
@@ -278,8 +277,8 @@ impl<A> MusigFunctor<A> {
 
     /// Converts a functor of options into an option of a functor,
     /// returning `None` if any functor component is `None`.
-    pub fn sequence_option(graph: MusigFunctor<Option<A>>) -> Option<MusigFunctor<A>> {
-        Some(MusigFunctor {
+    pub fn sequence_option(graph: GameFunctor<Option<A>>) -> Option<GameFunctor<A>> {
+        Some(GameFunctor {
             contest: graph.contest.into_iter().collect::<Option<Vec<_>>>()?,
             bridge_proof_timeout: sequence_option_array(graph.bridge_proof_timeout)?,
             counterproofs: graph
@@ -301,8 +300,8 @@ impl<A> MusigFunctor<A> {
     /// returning `Err` if any functor component is `Err`.
     ///
     /// The returned `Err` is the first one that was encountered.
-    pub fn sequence_result<E>(graph: MusigFunctor<Result<A, E>>) -> Result<MusigFunctor<A>, E> {
-        Ok(MusigFunctor {
+    pub fn sequence_result<E>(graph: GameFunctor<Result<A, E>>) -> Result<GameFunctor<A>, E> {
+        Ok(GameFunctor {
             contest: graph.contest.into_iter().collect::<Result<Vec<_>, E>>()?,
             bridge_proof_timeout: sequence_result_array(graph.bridge_proof_timeout)?,
             counterproofs: graph
@@ -325,7 +324,7 @@ impl<A> MusigFunctor<A> {
     /// The number of watchtowers in the resulting functor is the minimum
     /// of the numbers of watchtowers from the input functors.
     /// Excess watchtowers are truncated.
-    pub fn sequence_musig_functor(graphs: Vec<MusigFunctor<A>>) -> MusigFunctor<Vec<A>> {
+    pub fn sequence_musig_functor(graphs: Vec<GameFunctor<A>>) -> GameFunctor<Vec<A>> {
         for graph in &graphs {
             debug_assert_eq!(graph.contest.len(), graph.counterproofs.len());
             debug_assert_eq!(graph.contest.len(), graph.counterproof_acks.len());
@@ -335,7 +334,7 @@ impl<A> MusigFunctor<A> {
 
         // NOTE: (@uncomputable) We cannot use `Vec::with_capacity(graphs.len())`
         //                       because `T` doesn't implement `Default`.
-        let init = MusigFunctor {
+        let init = GameFunctor {
             contest: (0..n_watchtowers).map(|_| Vec::new()).collect(),
             bridge_proof_timeout: array::from_fn(|_| Vec::new()),
             counterproofs: (0..n_watchtowers).map(|_| Vec::new()).collect(),
@@ -356,14 +355,14 @@ impl<A> MusigFunctor<A> {
             // this operation silently truncates each vector to the minimum shared length.
             // Since the vector lengths are always equal to the number of watchtowers,
             // this effectively reduces the number of watchtowers to the minimum shared length.
-            .fold(init, MusigFunctor::<_>::merge)
+            .fold(init, GameFunctor::<_>::merge)
     }
 }
 
-impl<A: Clone, B: Clone> MusigFunctor<(A, B)> {
+impl<A: Clone, B: Clone> GameFunctor<(A, B)> {
     /// Converts a functor of pairs into two functors of the respective components.
-    pub fn unzip(self) -> (MusigFunctor<A>, MusigFunctor<B>) {
-        let game_t = MusigFunctor {
+    pub fn unzip(self) -> (GameFunctor<A>, GameFunctor<B>) {
+        let game_t = GameFunctor {
             contest: self.contest.iter().cloned().map(|(t, _)| t).collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.clone().map(|(t, _)| t),
             counterproofs: self.counterproofs.iter().cloned().map(|(t, _)| t).collect(),
@@ -377,7 +376,7 @@ impl<A: Clone, B: Clone> MusigFunctor<(A, B)> {
             slash: self.slash.clone().map(|(t, _)| t),
             uncontested_payout: self.uncontested_payout.clone().map(|(t, _)| t),
         };
-        let game_u = MusigFunctor {
+        let game_u = GameFunctor {
             contest: self.contest.into_iter().map(|(_, u)| u).collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.map(|(_, u)| u),
             counterproofs: self.counterproofs.into_iter().map(|(_, u)| u).collect(),
@@ -395,14 +394,14 @@ impl<A: Clone, B: Clone> MusigFunctor<(A, B)> {
     }
 }
 
-impl<A: Clone> MusigFunctor<&A> {
-    /// Maps a [`MusigFunctor<&A>`] to a [`MusigFunctor<A>`] by cloning its contents.
-    pub fn cloned(self) -> MusigFunctor<A> {
+impl<A: Clone> GameFunctor<&A> {
+    /// Maps a functor of references to a functor of owned values by cloning its contents.
+    pub fn cloned(self) -> GameFunctor<A> {
         self.map(A::clone)
     }
 }
 
-impl<F> MusigFunctor<F>
+impl<F> GameFunctor<F>
 where
     F: Future,
     F::Output: std::fmt::Debug,
@@ -411,15 +410,15 @@ where
     /// by joining and awaiting the futures.
     ///
     /// The `n_watchtowers` parameter is needed for unpacking the results.
-    pub async fn join_all(self, n_watchtowers: usize) -> MusigFunctor<F::Output> {
-        MusigFunctor::unpack(join_all(self.pack()).await, n_watchtowers).unwrap()
+    pub async fn join_all(self, n_watchtowers: usize) -> GameFunctor<F::Output> {
+        GameFunctor::unpack(join_all(self.pack()).await, n_watchtowers).unwrap()
     }
 }
 
-impl<T: Semigroup> Semigroup for MusigFunctor<T> {
+impl<T: Semigroup> Semigroup for GameFunctor<T> {
     /// [`MusigFunctor`] preserves the [`Semigroup`] structure of its leaves.
     fn merge(self, other: Self) -> Self {
-        MusigFunctor::<T>::zip_with(T::merge, self, other)
+        GameFunctor::<T>::zip_with(T::merge, self, other)
     }
 }
 
@@ -493,26 +492,26 @@ mod tests {
     #[test]
     fn unpack_too_short() {
         let too_short: Vec<i32> = (0..PACKED_LEN - 1).map(|i| i as i32).collect();
-        assert!(MusigFunctor::<i32>::unpack(too_short, N_WATCHTOWERS).is_none());
+        assert!(GameFunctor::<i32>::unpack(too_short, N_WATCHTOWERS).is_none());
     }
 
     #[test]
     fn unpack_pack_roundtrip() {
         let packed: Vec<i32> = (0..PACKED_LEN).map(|i| i as i32).collect();
-        let functor = MusigFunctor::unpack(packed.clone(), N_WATCHTOWERS).expect("enough data");
+        let functor = GameFunctor::unpack(packed.clone(), N_WATCHTOWERS).expect("enough data");
         assert_eq!(packed, functor.pack());
     }
 
-    fn get_functor(start: usize) -> MusigFunctor<i32> {
+    fn get_functor(start: usize) -> GameFunctor<i32> {
         let packed: Vec<i32> = (start..start + PACKED_LEN).map(|i| i as i32).collect();
-        MusigFunctor::unpack(packed, N_WATCHTOWERS).expect("enough data")
+        GameFunctor::unpack(packed, N_WATCHTOWERS).expect("enough data")
     }
 
-    static A: LazyLock<MusigFunctor<i32>> = LazyLock::new(|| get_functor(0));
-    static B: LazyLock<MusigFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN));
-    static C: LazyLock<MusigFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN * 2));
-    static D: LazyLock<MusigFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN * 3));
-    static E: LazyLock<MusigFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN * 4));
+    static A: LazyLock<GameFunctor<i32>> = LazyLock::new(|| get_functor(0));
+    static B: LazyLock<GameFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN));
+    static C: LazyLock<GameFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN * 2));
+    static D: LazyLock<GameFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN * 3));
+    static E: LazyLock<GameFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN * 4));
 
     #[test]
     fn as_ref_cloned_roundtrip() {
@@ -535,7 +534,7 @@ mod tests {
 
     #[test]
     fn zip3_unzip_roundtrip() {
-        let (ab_prime, c_prime) = MusigFunctor::zip3(A.clone(), B.clone(), C.clone())
+        let (ab_prime, c_prime) = GameFunctor::zip3(A.clone(), B.clone(), C.clone())
             .map(|(a, b, c)| ((a, b), c))
             .unzip();
         let (a_prime, b_prime) = ab_prime.unzip();
@@ -546,7 +545,7 @@ mod tests {
 
     #[test]
     fn zip4_unzip_roundtrip() {
-        let (ab_prime, cd_prime) = MusigFunctor::zip4(A.clone(), B.clone(), C.clone(), D.clone())
+        let (ab_prime, cd_prime) = GameFunctor::zip4(A.clone(), B.clone(), C.clone(), D.clone())
             .map(|(a, b, c, d)| ((a, b), (c, d)))
             .unzip();
         let (a_prime, b_prime) = ab_prime.unzip();
@@ -560,7 +559,7 @@ mod tests {
     #[test]
     fn zip5_unzip_roundtrip() {
         let (abcd_prime, e_prime) =
-            MusigFunctor::zip5(A.clone(), B.clone(), C.clone(), D.clone(), E.clone())
+            GameFunctor::zip5(A.clone(), B.clone(), C.clone(), D.clone(), E.clone())
                 .map(|(a, b, c, d, e)| (((a, b), (c, d)), e))
                 .unzip();
         let (ab_prime, cd_prime) = abcd_prime.unzip();
@@ -575,7 +574,7 @@ mod tests {
 
     #[test]
     fn zip_apply_roundtrip() {
-        let f = MusigFunctor::unpack(
+        let f = GameFunctor::unpack(
             (0..PACKED_LEN)
                 .map(|i| {
                     if i % 2 == 0 {
@@ -588,7 +587,7 @@ mod tests {
             N_WATCHTOWERS,
         )
         .expect("enough data");
-        let inverse_f = MusigFunctor::unpack(
+        let inverse_f = GameFunctor::unpack(
             (0..PACKED_LEN)
                 .map(|i| {
                     if i % 2 == 0 {
@@ -602,15 +601,14 @@ mod tests {
         )
         .expect("enough data");
 
-        let a_applied = MusigFunctor::zip_apply(f, A.clone());
-        let a_prime = MusigFunctor::zip_apply(inverse_f, a_applied);
+        let a_applied = GameFunctor::zip_apply(f, A.clone());
+        let a_prime = GameFunctor::zip_apply(inverse_f, a_applied);
         assert_eq!(*A, a_prime);
     }
 
     #[test]
     fn zip_with_roundtrip() {
-        let (a_prime, b_prime) =
-            MusigFunctor::zip_with(|a, b| (a, b), A.clone(), B.clone()).unzip();
+        let (a_prime, b_prime) = GameFunctor::zip_with(|a, b| (a, b), A.clone(), B.clone()).unzip();
         assert_eq!(*A, a_prime);
         assert_eq!(*B, b_prime);
     }
@@ -618,8 +616,7 @@ mod tests {
     #[test]
     fn zip_with_3_roundtrip() {
         let (ab_prime, c_prime) =
-            MusigFunctor::zip_with_3(|a, b, c| ((a, b), c), A.clone(), B.clone(), C.clone())
-                .unzip();
+            GameFunctor::zip_with_3(|a, b, c| ((a, b), c), A.clone(), B.clone(), C.clone()).unzip();
         let (a_prime, b_prime) = ab_prime.unzip();
         assert_eq!(*A, a_prime);
         assert_eq!(*B, b_prime);
@@ -628,7 +625,7 @@ mod tests {
 
     #[test]
     fn zip_with_4_roundtrip() {
-        let (ab_prime, cd_prime) = MusigFunctor::zip_with_4(
+        let (ab_prime, cd_prime) = GameFunctor::zip_with_4(
             |a, b, c, d| ((a, b), (c, d)),
             A.clone(),
             B.clone(),
@@ -646,7 +643,7 @@ mod tests {
 
     #[test]
     fn zip_with_5_roundtrip() {
-        let (abcd_prime, e_prime) = MusigFunctor::zip_with_5(
+        let (abcd_prime, e_prime) = GameFunctor::zip_with_5(
             |a, b, c, d, e| (((a, b), (c, d)), e),
             A.clone(),
             B.clone(),
@@ -669,16 +666,16 @@ mod tests {
     fn sequence_option_none() {
         let mut has_none = vec![Some(0); PACKED_LEN - 1];
         has_none.push(None);
-        let has_none = MusigFunctor::unpack(has_none, N_WATCHTOWERS).expect("enough data");
-        assert!(MusigFunctor::sequence_option(has_none).is_none());
+        let has_none = GameFunctor::unpack(has_none, N_WATCHTOWERS).expect("enough data");
+        assert!(GameFunctor::sequence_option(has_none).is_none());
     }
 
     #[test]
     fn sequence_option_some() {
         let mut all_some = vec![Some(0); PACKED_LEN];
         all_some.push(None);
-        let all_some = MusigFunctor::unpack(all_some, N_WATCHTOWERS).expect("enough data");
-        assert!(MusigFunctor::sequence_option(all_some).is_some());
+        let all_some = GameFunctor::unpack(all_some, N_WATCHTOWERS).expect("enough data");
+        assert!(GameFunctor::sequence_option(all_some).is_some());
     }
 
     #[test]
@@ -686,21 +683,21 @@ mod tests {
         let mut has_err = vec![Ok(0); PACKED_LEN - 2];
         has_err.push(Err(0));
         has_err.push(Err(1));
-        let has_err = MusigFunctor::unpack(has_err, N_WATCHTOWERS).expect("enough data");
-        assert_eq!(MusigFunctor::sequence_result(has_err), Err(0));
+        let has_err = GameFunctor::unpack(has_err, N_WATCHTOWERS).expect("enough data");
+        assert_eq!(GameFunctor::sequence_result(has_err), Err(0));
     }
 
     #[test]
     fn sequence_result_ok() {
         let mut all_ok = vec![Result::<u32, u32>::Ok(0); PACKED_LEN];
         all_ok.push(Ok(0));
-        let all_ok = MusigFunctor::unpack(all_ok, N_WATCHTOWERS).expect("enough data");
-        assert!(MusigFunctor::sequence_result(all_ok).is_ok());
+        let all_ok = GameFunctor::unpack(all_ok, N_WATCHTOWERS).expect("enough data");
+        assert!(GameFunctor::sequence_result(all_ok).is_ok());
     }
 
     #[test]
     fn sequence_musig_functor() {
-        let abc_prime = MusigFunctor::sequence_musig_functor(vec![A.clone(), B.clone(), C.clone()]);
+        let abc_prime = GameFunctor::sequence_musig_functor(vec![A.clone(), B.clone(), C.clone()]);
         let abc_packed: Vec<Vec<i32>> = A
             .clone()
             .pack()
@@ -709,19 +706,19 @@ mod tests {
             .zip(C.clone().pack())
             .map(|((a, b), c)| vec![a, b, c])
             .collect();
-        let abc = MusigFunctor::unpack(abc_packed, N_WATCHTOWERS).expect("enough data");
+        let abc = GameFunctor::unpack(abc_packed, N_WATCHTOWERS).expect("enough data");
         assert_eq!(abc_prime, abc);
     }
 
     #[test]
     fn semigroup_merge_elementwise() {
         // Vec<T> is a Semigroup that concatenates elements
-        let a: MusigFunctor<Vec<i32>> = A.as_ref().map(|&x| vec![x]);
-        let b: MusigFunctor<Vec<i32>> = B.as_ref().map(|&x| vec![x]);
+        let a: GameFunctor<Vec<i32>> = A.as_ref().map(|&x| vec![x]);
+        let b: GameFunctor<Vec<i32>> = B.as_ref().map(|&x| vec![x]);
         let merged = a.clone().merge(b.clone());
 
-        let expected: MusigFunctor<Vec<i32>> =
-            MusigFunctor::zip_with(|a_vec, b_vec| [a_vec, b_vec].concat(), a, b);
+        let expected: GameFunctor<Vec<i32>> =
+            GameFunctor::zip_with(|a_vec, b_vec| [a_vec, b_vec].concat(), a, b);
 
         assert_eq!(merged, expected);
     }
@@ -729,9 +726,9 @@ mod tests {
     #[test]
     fn semigroup_merge_associative() {
         // Test associativity: (A merge B) merge C == A merge (B merge C)
-        let a: MusigFunctor<Vec<i32>> = A.as_ref().map(|&x| vec![x]);
-        let b: MusigFunctor<Vec<i32>> = B.as_ref().map(|&x| vec![x]);
-        let c: MusigFunctor<Vec<i32>> = C.as_ref().map(|&x| vec![x]);
+        let a: GameFunctor<Vec<i32>> = A.as_ref().map(|&x| vec![x]);
+        let b: GameFunctor<Vec<i32>> = B.as_ref().map(|&x| vec![x]);
+        let c: GameFunctor<Vec<i32>> = C.as_ref().map(|&x| vec![x]);
 
         let lhs = a.clone().merge(b.clone()).merge(c.clone());
         let rhs = a.clone().merge(b.clone().merge(c.clone()));
@@ -744,7 +741,7 @@ mod tests {
         use std::future::ready;
 
         // Create a MusigFunctor of ready futures
-        let functor_of_futures: MusigFunctor<_> = A.as_ref().map(|&x| ready(x * 2));
+        let functor_of_futures: GameFunctor<_> = A.as_ref().map(|&x| ready(x * 2));
 
         let result = functor_of_futures.join_all(N_WATCHTOWERS).await;
 
@@ -758,7 +755,7 @@ mod tests {
         use std::future::ready;
 
         // Create futures that return different values based on position
-        let functor_of_futures: MusigFunctor<_> = A.as_ref().map(|&x| ready(x));
+        let functor_of_futures: GameFunctor<_> = A.as_ref().map(|&x| ready(x));
 
         let result = functor_of_futures.join_all(N_WATCHTOWERS).await;
 
