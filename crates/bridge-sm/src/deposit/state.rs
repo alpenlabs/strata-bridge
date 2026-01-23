@@ -630,18 +630,25 @@ impl DepositSM {
                 let out_idx = *output_index;
                 let blk_height = *block_height;
 
-                let operator_pubnonce = pubnonces
-                    .get(&operator_idx)
-                    .expect("operator must have submitted nonce")
-                    .clone();
+                // Check for duplicate partial signature submission
+                if partial_signatures.contains_key(&operator_idx) {
+                    return Err(DSMError::Duplicate {
+                        state: Box::new(self.state().clone()),
+                        event: Box::new(DepositEvent::PartialReceived {
+                            partial_sig,
+                            operator_idx,
+                        }),
+                    });
+                }
 
                 // Extract signing info once - used for both verification and aggregation
-                let signing_info = deposit_transaction.signing_info();
-                let info = signing_info
+                let signing_info = deposit_transaction
+                    .signing_info()
                     .first()
+                    .copied()
                     .expect("deposit transaction must have signing info");
-                let sighash = info.sighash;
-                let tweak = info
+                let sighash = signing_info.sighash;
+                let tweak = signing_info
                     .tweak
                     .expect("DRT->DT key-path spend must include a taproot tweak")
                     .expect("tweak must be present for deposit transaction");
@@ -653,6 +660,10 @@ impl DepositSM {
                     .expect("must be able to create key aggregation context");
 
                 // Verify the partial signature
+                let operator_pubnonce = pubnonces
+                    .get(&operator_idx)
+                    .expect("operator must have submitted nonce")
+                    .clone();
                 if verify_partial(
                     &key_agg_ctx,
                     partial_sig,
@@ -666,17 +677,6 @@ impl DepositSM {
                     return Err(DSMError::Rejected {
                         state: Box::new(self.state().clone()),
                         reason: "Invalid partial signature".to_string(),
-                        event: Box::new(DepositEvent::PartialReceived {
-                            partial_sig,
-                            operator_idx,
-                        }),
-                    });
-                }
-
-                // Check for duplicate partial signature submission
-                if partial_signatures.contains_key(&operator_idx) {
-                    return Err(DSMError::Duplicate {
-                        state: Box::new(self.state().clone()),
                         event: Box::new(DepositEvent::PartialReceived {
                             partial_sig,
                             operator_idx,

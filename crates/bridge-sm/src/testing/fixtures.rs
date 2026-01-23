@@ -30,37 +30,3 @@ pub fn test_takeback_tx(outpoint: OutPoint) -> Transaction {
 pub fn test_payout_tx(outpoint: OutPoint) -> Transaction {
     generate_spending_tx(outpoint, &[])
 }
-
-/// Creates a test deposit transaction with deterministic values.
-///
-/// # Arguments
-/// * `amount` - The amount for the deposit transaction
-/// * `timelock` - The relative locktime for the deposit request connector
-/// * `n_of_n_pubkey` - The n_of_n public key to use.
-/// * `depositor_pubkey` - The depositor's public key to use.
-pub fn generate_test_deposit_txn(
-    amount: Amount,
-    timelock: relative::LockTime,
-    n_of_n_pubkey: XOnlyPublicKey,
-    depositor_pubkey: XOnlyPublicKey,
-) -> DepositTx {
-    // Create DepositData
-    let data = DepositData {
-        deposit_idx: 0,
-        deposit_request_outpoint: OutPoint::default(),
-        magic_bytes: MagicBytes::from([0x54, 0x45, 0x53, 0x54]), // "TEST"
-    };
-
-    // Create connectors with matching network, internal_key, and value
-    let deposit_connector = NOfNConnector::new(Network::Regtest, n_of_n_pubkey, amount);
-
-    let deposit_request_connector = DepositRequestConnector::new(
-        Network::Regtest,
-        n_of_n_pubkey,
-        depositor_pubkey,
-        timelock,
-        amount,
-    );
-
-    DepositTx::new(data, deposit_connector, deposit_request_connector)
-}
