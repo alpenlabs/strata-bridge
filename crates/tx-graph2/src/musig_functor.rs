@@ -419,9 +419,8 @@ where
 {
     /// Converts a functor of futures into a functor of outputs,
     /// by joining and awaiting the futures.
-    ///
-    /// The `n_watchtowers` parameter is needed for unpacking the results.
-    pub async fn join_all(self, n_watchtowers: usize) -> GameFunctor<F::Output> {
+    pub async fn join_all(self) -> GameFunctor<F::Output> {
+        let n_watchtowers = self.watchtowers.len();
         GameFunctor::unpack(join_all(self.pack()).await, n_watchtowers).unwrap()
     }
 }
@@ -763,7 +762,7 @@ mod tests {
         // Create a MusigFunctor of ready futures
         let functor_of_futures: GameFunctor<_> = A.as_ref().map(|&x| ready(x * 2));
 
-        let result = functor_of_futures.join_all(N_WATCHTOWERS).await;
+        let result = functor_of_futures.join_all().await;
 
         // Each element should be doubled
         let expected = A.as_ref().map(|&x| x * 2);
@@ -777,7 +776,7 @@ mod tests {
         // Create futures that return different values based on position
         let functor_of_futures: GameFunctor<_> = A.as_ref().map(|&x| ready(x));
 
-        let result = functor_of_futures.join_all(N_WATCHTOWERS).await;
+        let result = functor_of_futures.join_all().await;
 
         // Result should match the original values
         assert_eq!(result, *A);
