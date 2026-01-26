@@ -25,7 +25,9 @@ class BasicEnv(BaseEnv):
         ectx.make_service_dir(bridge_operator_name)
 
         # Create single operator
-        s2_service, bridge_node = self.create_operator(ectx, operator_idx, bitcoind.props)
+        s2_service, bridge_node, asm_service = self.create_operator(
+            ectx, operator_idx, bitcoind.props
+        )
 
         # Fund operator
         self.fund_operator(brpc, bridge_node.props, wallet_addr)
@@ -37,5 +39,6 @@ class BasicEnv(BaseEnv):
         # register services
         svcs["bridge_node"] = bridge_node
         svcs["s2"] = s2_service
+        svcs["asm_rpc"] = asm_service
 
         return flexitest.LiveEnv(svcs)
