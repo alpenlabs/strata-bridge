@@ -4,6 +4,7 @@
 //! for querying ASM state.
 mod config;
 mod storage;
+mod worker_context;
 
 use std::path::PathBuf;
 

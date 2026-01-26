@@ -104,16 +104,20 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-bridge-tx-graph2 = { path = "crates/tx-graph2" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 21cf498 (main @ 2026-01-26)
+strata-asm-common = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-asm-txs-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-asm-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
+strata-asm-worker = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
+strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-config = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-db-store-sled = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
+strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-ol-chainstate-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
@@ -127,6 +131,7 @@ strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd
 # Dependencies from alpenlabs/strata-common
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc4" }
 strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc4" }
+strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc4" }
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc4" }
 
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.5", features = [
