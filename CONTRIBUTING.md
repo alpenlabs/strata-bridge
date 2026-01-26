@@ -115,7 +115,50 @@ you can run the basic CI checks in your local environment:
 - [`cargo-audit`](https://docs.rs/cargo-audit/latest/cargo_audit/):
   tool to check `Cargo.lock` files for security vulnerabilities.
 
-We also provide a [`flake.nix`](flake.nix) with a `devShell` with all the dependencies
+### FoundationDB
+
+The `db2` crate requires [FoundationDB](https://apple.github.io/foundationdb/):
+
+- **Client package**: Required at compile time for linking against `libfdb_c`, and at runtime
+  for connecting to the database.
+- **Server**: Required at runtime. A FoundationDB server must be available to connect to
+  (either locally or remotely).
+
+**Client Package** (required for compilation and runtime):
+
+- **Ubuntu/Debian**:
+  ```sh
+  curl -fsSLO https://github.com/apple/foundationdb/releases/download/7.3.43/foundationdb-clients_7.3.43-1_amd64.deb
+  sudo dpkg -i foundationdb-clients_7.3.43-1_amd64.deb
+  ```
+- **macOS (Apple Silicon)**:
+  ```sh
+  # Download and install the .pkg from:
+  # https://github.com/apple/foundationdb/releases/download/7.3.43/FoundationDB-7.3.43_arm64.pkg
+  ```
+- **macOS (Intel)**:
+  ```sh
+  # Download and install the .pkg from:
+  # https://github.com/apple/foundationdb/releases/download/7.3.43/FoundationDB-7.3.43_x86_64.pkg
+  ```
+
+**Server** (required at runtime, e.g., for running `db2` tests):
+
+- **Ubuntu/Debian**:
+  ```sh
+  curl -fsSLO https://github.com/apple/foundationdb/releases/download/7.3.43/foundationdb-server_7.3.43-1_amd64.deb
+  sudo dpkg -i foundationdb-server_7.3.43-1_amd64.deb
+  ```
+- **macOS**: The server is included in the `.pkg` installer above.
+
+After installation, verify the server is running:
+```sh
+fdbcli --exec "status"
+```
+
+### Nix (Optional)
+
+We also provide a [`flake.nix`](flake.nix) with a `devShell` with most dependencies
 necessary for local development.
 Install [Nix](https://nixos.org) and run:
 
@@ -128,11 +171,12 @@ nix develop
 >
 > The Nix devshell has limited support for FoundationDB (required by the `db2` crate):
 > - **Linux**: FDB is included via nixpkgs, but may have version compatibility issues.
-> - **macOS**: FDB is NOT available via Nix and must be installed manually from the
->   [official releases](https://github.com/apple/foundationdb/releases) using the `.pkg` installer.
+> - **macOS**: FDB is NOT available via Nix and must be installed manually using the
+>   instructions above.
 >
-> Due to these issues, the Nix CI devshell job is currently disabled. If you're working on
-> FDB-related code, consider using the standard toolchain with manually installed FDB.
+> Due to these issues, the Nix CI workflow (`.github/workflows/nix.yml.disabled`) is
+> currently disabled. If you're working on FDB-related code, we recommend using the
+> standard Rust toolchain with manually installed FDB.
 
 ## Locally running CI
 
