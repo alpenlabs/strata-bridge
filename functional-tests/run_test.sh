@@ -27,6 +27,7 @@ fi
 # Build all required binaries (only alpen-bridge and secret-service gets coverage instrumentation)
 RUSTFLAGS="$RUSTFLAGS" cargo build --bin alpen-bridge $CARGO_ARGS
 RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO_ARGS
+RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-asm-runner $CARGO_ARGS
 cargo build --bin dev-cli $CARGO_ARGS
 
 export PATH=$BIN_PATH:$PATH

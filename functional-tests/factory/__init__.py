@@ -8,10 +8,12 @@ Available Factories:
     BitcoinFactory: Creates and manages Bitcoin regtest nodes
     BridgeOperatorFactory: Creates and manages bridge operator services
     S2Factory: Creates and manages S2 service instances
+    AsmRpcFactory: Creates and manages ASM Runner services
 """
 
 from .bitcoin import BitcoinFactory
 from .bridge_operator import BridgeOperatorFactory
 from .s2 import S2Factory
+from .asm_rpc import AsmRpcFactory
 
-__all__ = ["BitcoinFactory", "BridgeOperatorFactory", "S2Factory"]
+__all__ = ["BitcoinFactory", "BridgeOperatorFactory", "S2Factory", "AsmRpcFactory"]

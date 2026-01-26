@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import flexitest
 
 from utils import (
@@ -23,6 +25,7 @@ class BaseEnv(flexitest.EnvConfig):
         self.funding_amount = funding_amount
         self.initial_blocks = initial_blocks
         self.finalization_blocks = finalization_blocks
+        self._asm_rpc_service = None
 
         # Generate P2P ports for this environment
         p2p_port_gen = generate_p2p_ports()
@@ -51,7 +54,7 @@ class BaseEnv(flexitest.EnvConfig):
         return bitcoind, brpc, wallet_addr
 
     def create_operator(self, ectx: flexitest.EnvContext, operator_idx, bitcoind_props):
-        """Create a single bridge operator (S2 service + Bridge node)."""
+        """Create a single bridge operator (S2 service + Bridge node + ASM RPC)."""
         s2_fac = ectx.get_factory("s2")
         bo_fac = ectx.get_factory("bofac")
 
@@ -63,7 +66,15 @@ class BaseEnv(flexitest.EnvConfig):
             operator_idx, bitcoind_props, s2_service.props, self.operator_key_infos, self.p2p_ports
         )
 
-        return s2_service, bridge_operator
+        if self._asm_rpc_service is None:
+            asm_fac = ectx.get_factory("asm_rpc")
+            # FIXME: (@prajwolrg) - Generate right rollup params
+            params_file_path = (
+                Path(__file__).resolve().parents[2] / "test-data" / "rollup_params.json"
+            ).as_posix()
+            self._asm_rpc_service = asm_fac.create_asm_rpc_service(bitcoind_props, params_file_path)
+
+        return s2_service, bridge_operator, self._asm_rpc_service
 
     def fund_operator(self, brpc, bridge_operator_props, wallet_addr):
         """Fund an operator's wallets."""
