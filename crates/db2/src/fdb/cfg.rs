@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 /// FoundationDB client configuration.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Config {
     /// Path to the FDB cluster file aka database config
     pub cluster_file_path: PathBuf,
@@ -22,7 +22,7 @@ impl Default for Config {
 
 /// See [`foundationdb::options::NetworkOption`]::TLS* and
 /// <https://apple.github.io/foundationdb/tls.html> for more information.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TlsConfig {
     /// Path to the TLS certificate file.
     pub cert_path: PathBuf,

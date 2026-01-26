@@ -73,6 +73,7 @@ clippy.missing_const_for_fn = "deny"
 algebra = { path = "crates/algebra" }
 alpen-bridge-params = { path = "crates/params" }
 btc-tracker = { path = "crates/btc-tracker" }
+db2 = { path = "crates/db2" }
 duty-tracker = { path = "crates/duty-tracker" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
