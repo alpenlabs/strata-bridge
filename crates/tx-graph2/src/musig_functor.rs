@@ -318,39 +318,94 @@ impl<A> GameFunctor<A> {
     /// The number of watchtowers in the resulting functor is the minimum
     /// of the numbers of watchtowers from the input functors.
     /// Excess watchtowers are truncated.
-    pub fn sequence_musig_functor(graphs: Vec<GameFunctor<A>>) -> GameFunctor<Vec<A>> {
+    pub fn sequence_functor(graphs: Vec<GameFunctor<A>>) -> GameFunctor<Vec<A>> {
         let n_watchtowers = graphs
             .iter()
             .map(|graph| graph.watchtowers.len())
             .min()
             .unwrap_or(0);
 
-        // NOTE: (@uncomputable) We cannot use `Vec::with_capacity(graphs.len())`
-        //                       because `T` doesn't implement `Default`.
-        let init = GameFunctor {
-            bridge_proof_timeout: array::from_fn(|_| Vec::new()),
-            contested_payout: array::from_fn(|_| Vec::new()),
-            slash: array::from_fn(|_| Vec::new()),
-            uncontested_payout: array::from_fn(|_| Vec::new()),
+        let mut bridge_proof_timeout_iter = Vec::with_capacity(graphs.len());
+        let mut contested_payout_iter = Vec::with_capacity(graphs.len());
+        let mut slash_iter = Vec::with_capacity(graphs.len());
+        let mut uncontested_payout_iter = Vec::with_capacity(graphs.len());
+        let mut watchtowers_iter = Vec::with_capacity(graphs.len());
+
+        for graph in graphs {
+            bridge_proof_timeout_iter.push(graph.bridge_proof_timeout.into_iter());
+            contested_payout_iter.push(graph.contested_payout.into_iter());
+            slash_iter.push(graph.slash.into_iter());
+            uncontested_payout_iter.push(graph.uncontested_payout.into_iter());
+            watchtowers_iter.push(graph.watchtowers.into_iter().take(n_watchtowers));
+        }
+
+        GameFunctor {
+            bridge_proof_timeout: array::from_fn(|_| {
+                bridge_proof_timeout_iter
+                    .iter_mut()
+                    .map(|it| it.next().unwrap())
+                    .collect()
+            }),
+            contested_payout: array::from_fn(|_| {
+                contested_payout_iter
+                    .iter_mut()
+                    .map(|it| it.next().unwrap())
+                    .collect()
+            }),
+            slash: array::from_fn(|_| slash_iter.iter_mut().map(|it| it.next().unwrap()).collect()),
+            uncontested_payout: array::from_fn(|_| {
+                uncontested_payout_iter
+                    .iter_mut()
+                    .map(|it| it.next().unwrap())
+                    .collect()
+            }),
             watchtowers: (0..n_watchtowers)
-                .map(|_| WatchtowerFunctor {
-                    contest: array::from_fn(|_| Vec::new()),
-                    counterproof: array::from_fn(|_| Vec::new()),
-                    counterproof_ack: array::from_fn(|_| Vec::new()),
+                .map(|_| {
+                    WatchtowerFunctor::sequence_functor(
+                        watchtowers_iter
+                            .iter_mut()
+                            .map(|it| it.next().unwrap())
+                            .collect(),
+                    )
                 })
                 .collect(),
-        };
+        }
+    }
+}
 
-        graphs
-            .into_iter()
-            // Lift each element into a vector, because `Vec` implements `Semigroup`.
-            // The resulting functor also implements `Semigroup`.
-            .map(|graph| graph.map(|a| vec![a]))
-            // Because `MusigFunctor::merge` calls `MusigFunctor::zip_with`,
-            // this operation silently truncates each vector to the minimum shared length.
-            // Since the vector lengths are always equal to the number of watchtowers,
-            // this effectively reduces the number of watchtowers to the minimum shared length.
-            .fold(init, GameFunctor::<_>::merge)
+impl<A> WatchtowerFunctor<A> {
+    /// Converts a vector of watchtower functors into a watchtower functor of vectors.
+    pub fn sequence_functor(watchtowers: Vec<WatchtowerFunctor<A>>) -> WatchtowerFunctor<Vec<A>> {
+        let mut contest_iter = Vec::with_capacity(watchtowers.len());
+        let mut counterproof_iter = Vec::with_capacity(watchtowers.len());
+        let mut counterproof_ack_iter = Vec::with_capacity(watchtowers.len());
+
+        for watchtower in watchtowers {
+            contest_iter.push(watchtower.contest.into_iter());
+            counterproof_iter.push(watchtower.counterproof.into_iter());
+            counterproof_ack_iter.push(watchtower.counterproof_ack.into_iter());
+        }
+
+        WatchtowerFunctor {
+            contest: array::from_fn(|_| {
+                contest_iter
+                    .iter_mut()
+                    .map(|it| it.next().unwrap())
+                    .collect()
+            }),
+            counterproof: array::from_fn(|_| {
+                counterproof_iter
+                    .iter_mut()
+                    .map(|it| it.next().unwrap())
+                    .collect()
+            }),
+            counterproof_ack: array::from_fn(|_| {
+                counterproof_ack_iter
+                    .iter_mut()
+                    .map(|it| it.next().unwrap())
+                    .collect()
+            }),
+        }
     }
 }
 
@@ -715,8 +770,8 @@ mod tests {
     }
 
     #[test]
-    fn sequence_musig_functor() {
-        let abc_prime = GameFunctor::sequence_musig_functor(vec![A.clone(), B.clone(), C.clone()]);
+    fn sequence_functor() {
+        let abc_prime = GameFunctor::sequence_functor(vec![A.clone(), B.clone(), C.clone()]);
         let abc_packed: Vec<Vec<i32>> = A
             .clone()
             .pack()
