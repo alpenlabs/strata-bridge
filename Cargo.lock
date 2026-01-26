@@ -9795,6 +9795,7 @@ dependencies = [
  "bitcoind-async-client",
  "btc-tracker",
  "clap",
+ "futures",
  "serde",
  "serde_json",
  "strata-asm-common",
