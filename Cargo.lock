@@ -9912,7 +9912,11 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
+ "serde",
  "strata-asm-proto-bridge-v1",
+ "strata-asm-worker",
+ "strata-identifiers",
+ "strata-state",
 ]
 
 [[package]]
@@ -9920,14 +9924,20 @@ name = "strata-asm-runner"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bitcoin",
  "bitcoind-async-client",
+ "borsh",
  "btc-tracker",
  "clap",
  "futures",
+ "jsonrpsee",
  "serde",
  "serde_json",
  "strata-asm-common",
+ "strata-asm-proto-bridge-v1",
+ "strata-asm-rpc",
+ "strata-asm-txs-bridge-v1",
  "strata-asm-worker",
  "strata-bridge-common",
  "strata-btc-types",
@@ -9937,6 +9947,7 @@ dependencies = [
  "strata-params",
  "strata-state",
  "strata-storage",
+ "strata-tasks",
  "threadpool",
  "tokio",
  "toml",
