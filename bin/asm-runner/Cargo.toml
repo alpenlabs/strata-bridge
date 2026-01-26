@@ -1,0 +1,10 @@
+[package]
+name = "strata-asm-runner"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-bridge-common.workspace = true
