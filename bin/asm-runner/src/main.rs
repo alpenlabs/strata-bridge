@@ -3,6 +3,7 @@
 //! Standalone binary that runs the ASM (Anchor State Machine) STF and exposes an RPC API
 //! for querying ASM state.
 mod config;
+mod storage;
 
 use std::path::PathBuf;
 

@@ -113,6 +113,7 @@ strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39
 strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-config = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
+strata-db-store-sled = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-ol-chainstate-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
@@ -121,6 +122,7 @@ strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "693
 strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
+strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "693efd39b6d41f50ea85f20bfec3c92c213d716c" }
 
 # Dependencies from alpenlabs/strata-common
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc4" }

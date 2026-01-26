@@ -487,7 +487,7 @@ dependencies = [
  "futures",
  "futures-utils-wasm",
  "lru 0.16.3",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project",
  "reqwest",
  "serde",
@@ -511,7 +511,7 @@ dependencies = [
  "auto_impl",
  "bimap",
  "futures",
- "parking_lot",
+ "parking_lot 0.12.4",
  "serde",
  "serde_json",
  "tokio",
@@ -812,7 +812,7 @@ dependencies = [
  "derive_more 2.0.1",
  "futures",
  "futures-utils-wasm",
- "parking_lot",
+ "parking_lot 0.12.4",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -2881,7 +2881,7 @@ dependencies = [
  "crossterm_winapi",
  "libc",
  "mio 0.8.11",
- "parking_lot",
+ "parking_lot 0.12.4",
  "signal-hook",
  "signal-hook-mio",
  "winapi 0.3.9",
@@ -3062,7 +3062,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
- "parking_lot_core",
+ "parking_lot_core 0.9.11",
 ]
 
 [[package]]
@@ -3675,7 +3675,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3947,6 +3947,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "fuchsia-zircon"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4029,7 +4039,7 @@ checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
 dependencies = [
  "futures-core",
  "lock_api",
- "parking_lot",
+ "parking_lot 0.12.4",
 ]
 
 [[package]]
@@ -4115,6 +4125,15 @@ name = "futures-utils-wasm"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
+
+[[package]]
+name = "fxhash"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
+dependencies = [
+ "byteorder",
+]
 
 [[package]]
 name = "gcd"
@@ -4468,7 +4487,7 @@ dependencies = [
  "ipconfig",
  "moka",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.4",
  "rand 0.9.2",
  "resolv-conf",
  "smallvec",
@@ -5158,7 +5177,7 @@ dependencies = [
  "http-body",
  "http-body-util",
  "jsonrpsee-types",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project",
  "rand 0.8.5",
  "rustc-hash 2.1.1",
@@ -5442,7 +5461,7 @@ dependencies = [
  "multiaddr",
  "multihash",
  "multistream-select",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project",
  "quick-protobuf",
  "rand 0.8.5",
@@ -5464,7 +5483,7 @@ dependencies = [
  "hickory-resolver",
  "libp2p-core",
  "libp2p-identity",
- "parking_lot",
+ "parking_lot 0.12.4",
  "smallvec",
  "tracing",
 ]
@@ -6065,7 +6084,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "loom",
- "parking_lot",
+ "parking_lot 0.12.4",
  "portable-atomic",
  "rustc_version 0.4.1",
  "smallvec",
@@ -6555,6 +6574,20 @@ checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
 
 [[package]]
 name = "opentelemetry"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "570074cc999d1a58184080966e5bd3bf3a9a4af650c3b05047c2621e7405cd17"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "js-sys",
+ "once_cell",
+ "pin-project-lite",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "opentelemetry"
 version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e87237e2775f74896f9ad219d26a2081751187eb7c9f5c58dde20a23b95d16c"
@@ -6576,7 +6609,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "http",
- "opentelemetry",
+ "opentelemetry 0.29.1",
  "reqwest",
  "tracing",
 ]
@@ -6589,7 +6622,7 @@ checksum = "d899720fe06916ccba71c01d04ecd77312734e2de3467fd30d9d580c8ce85656"
 dependencies = [
  "futures-core",
  "http",
- "opentelemetry",
+ "opentelemetry 0.29.1",
  "opentelemetry-http",
  "opentelemetry-proto",
  "opentelemetry_sdk",
@@ -6607,7 +6640,7 @@ version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c40da242381435e18570d5b9d50aca2a4f4f4d8e146231adb4e7768023309b3"
 dependencies = [
- "opentelemetry",
+ "opentelemetry 0.29.1",
  "opentelemetry_sdk",
  "prost",
  "tonic",
@@ -6623,7 +6656,7 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "glob",
- "opentelemetry",
+ "opentelemetry 0.29.1",
  "percent-encoding",
  "rand 0.9.2",
  "serde_json",
@@ -6961,12 +6994,37 @@ checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
 [[package]]
 name = "parking_lot"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d17b78036a60663b797adeaee46f5c9dfebb86948d1255007a1d6be0271ff99"
+dependencies = [
+ "instant",
+ "lock_api",
+ "parking_lot_core 0.8.6",
+]
+
+[[package]]
+name = "parking_lot"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70d58bf43669b5795d1576d0641cfb6fbb2057bf629506267a92807158584a13"
 dependencies = [
  "lock_api",
- "parking_lot_core",
+ "parking_lot_core 0.9.11",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60a2cfe6f0ad2bfc16aefa463b497d5c7a5ecd44a23efa72aa342d90177356dc"
+dependencies = [
+ "cfg-if 1.0.1",
+ "instant",
+ "libc",
+ "redox_syscall 0.2.16",
+ "smallvec",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -6977,7 +7035,7 @@ checksum = "bc838d2a56b5b1a6c25f55575dfc605fabb63bb2365f6c2353ef9159aa69e4a5"
 dependencies = [
  "cfg-if 1.0.1",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.5.13",
  "smallvec",
  "windows-targets 0.52.6",
 ]
@@ -7336,7 +7394,7 @@ checksum = "cf41c1a7c32ed72abe5082fb19505b969095c12da9f5732a4bc9878757fd087c"
 dependencies = [
  "dtoa",
  "itoa",
- "parking_lot",
+ "parking_lot 0.12.4",
  "prometheus-client-derive-encode",
 ]
 
@@ -7353,14 +7411,13 @@ dependencies = [
 
 [[package]]
 name = "proptest"
-version = "1.7.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fcdab19deb5195a31cf7726a210015ff1496ba1464fd42cb4f537b8b01b471f"
+checksum = "bee689443a2bd0a16ab0348b52ee43e3b2d1b1f931c8aa5c9f8de4c86fbe8c40"
 dependencies = [
  "bit-set",
  "bit-vec",
  "bitflags 2.9.1",
- "lazy_static",
  "num-traits",
  "rand 0.9.2",
  "rand_chacha 0.9.0",
@@ -7702,6 +7759,15 @@ name = "recvmsg"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
+
+[[package]]
+name = "redox_syscall"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
+dependencies = [
+ "bitflags 1.3.2",
+]
 
 [[package]]
 name = "redox_syscall"
@@ -8666,7 +8732,7 @@ dependencies = [
  "futures",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.4",
  "scc",
  "serial_test_derive",
 ]
@@ -8810,6 +8876,22 @@ name = "slab"
 version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04dc19736151f35336d325007ac991178d504a119863a2fcb3758cdb5e52c50d"
+
+[[package]]
+name = "sled"
+version = "0.34.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f96b4737c2ce5987354855aed3797279def4ebf734436c6aa4552cf8e169935"
+dependencies = [
+ "crc32fast",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "fs2",
+ "fxhash",
+ "libc",
+ "log",
+ "parking_lot 0.11.2",
+]
 
 [[package]]
 name = "smallvec"
@@ -9654,6 +9736,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9091b6114800a5f2141aee1d1b9d6ca3592ac062dc5decb3764ec5895a47b4eb"
 
 [[package]]
+name = "strata-acct-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "digest 0.10.7",
+ "sha2",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-btc-types",
+ "strata-codec",
+ "strata-identifiers",
+ "strata-merkle",
+ "thiserror 2.0.17",
+ "tree_hash",
+ "tree_hash_derive",
+]
+
+[[package]]
 name = "strata-asm-bridge-msgs"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
@@ -9761,9 +9864,23 @@ dependencies = [
  "serde",
  "serde_json",
  "strata-bridge-common",
+ "strata-db-store-sled",
  "strata-params",
+ "strata-storage",
+ "threadpool",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "strata-asm-stf"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "bitcoin",
+ "strata-asm-common",
+ "strata-identifiers",
+ "strata-l1-txfmt",
 ]
 
 [[package]]
@@ -9812,7 +9929,7 @@ dependencies = [
 name = "strata-bridge-common"
 version = "0.1.0"
 dependencies = [
- "opentelemetry",
+ "opentelemetry 0.29.1",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "tracing",
@@ -10249,6 +10366,79 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-csm-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "arbitrary",
+ "borsh",
+ "serde",
+ "strata-btc-types",
+ "strata-checkpoint-types",
+ "strata-identifiers",
+ "strata-primitives",
+]
+
+[[package]]
+name = "strata-db-store-sled"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "borsh",
+ "sled",
+ "ssz",
+ "ssz_derive",
+ "ssz_types",
+ "strata-acct-types",
+ "strata-asm-common",
+ "strata-checkpoint-types",
+ "strata-codec",
+ "strata-csm-types",
+ "strata-db-types",
+ "strata-identifiers",
+ "strata-ol-chain-types",
+ "strata-ol-chain-types-new",
+ "strata-ol-chainstate-types",
+ "strata-ol-state-types",
+ "strata-paas",
+ "strata-primitives",
+ "strata-state",
+ "tracing",
+ "typed-sled",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc18)",
+]
+
+[[package]]
+name = "strata-db-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "anyhow",
+ "arbitrary",
+ "bitcoin",
+ "borsh",
+ "serde",
+ "strata-acct-types",
+ "strata-asm-common",
+ "strata-checkpoint-types",
+ "strata-csm-types",
+ "strata-identifiers",
+ "strata-merkle",
+ "strata-ol-chain-types",
+ "strata-ol-chain-types-new",
+ "strata-ol-chainstate-types",
+ "strata-ol-state-types",
+ "strata-primitives",
+ "strata-state",
+ "strata-storage-common",
+ "thiserror 2.0.17",
+ "typed-sled",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc18)",
+]
+
+[[package]]
 name = "strata-identifiers"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
@@ -10282,6 +10472,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-ledger-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "strata-acct-types",
+ "strata-asm-manifest-types",
+ "strata-identifiers",
+ "strata-predicate",
+ "strata-snark-acct-types",
+]
+
+[[package]]
 name = "strata-merkle"
 version = "0.2.0"
 source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc4#197c4fb95d52f81ccece68b3f1185fa583f648d2"
@@ -10290,8 +10492,15 @@ dependencies = [
  "digest 0.10.7",
  "serde",
  "sha2",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
  "strata-codec",
  "thiserror 2.0.17",
+ "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]
@@ -10300,6 +10509,85 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc4#197c4fb95d52f81ccece68b3f1185fa583f648d2"
 dependencies = [
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "strata-ol-chain-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "arbitrary",
+ "borsh",
+ "serde",
+ "strata-asm-common",
+ "strata-crypto",
+ "strata-params",
+ "strata-primitives",
+ "strata-state",
+ "thiserror 2.0.17",
+ "tracing",
+]
+
+[[package]]
+name = "strata-ol-chain-types-new"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "int-enum",
+ "proptest",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-acct-types",
+ "strata-asm-common",
+ "strata-codec",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-snark-acct-types",
+ "thiserror 2.0.17",
+ "tree_hash",
+ "tree_hash_derive",
+]
+
+[[package]]
+name = "strata-ol-chainstate-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "arbitrary",
+ "borsh",
+ "strata-bridge-types",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-primitives",
+ "strata-state",
+]
+
+[[package]]
+name = "strata-ol-state-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "bitcoin",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-acct-types",
+ "strata-asm-manifest-types",
+ "strata-codec",
+ "strata-codec-utils",
+ "strata-crypto",
+ "strata-identifiers",
+ "strata-ledger-types",
+ "strata-merkle",
+ "strata-predicate",
+ "strata-snark-acct-types",
+ "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]
@@ -10316,6 +10604,24 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "strata-paas"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "borsh",
+ "serde",
+ "strata-service",
+ "strata-tasks",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc18)",
 ]
 
 [[package]]
@@ -10366,6 +10672,98 @@ dependencies = [
  "strata-crypto",
  "strata-identifiers",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "strata-service"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc4#197c4fb95d52f81ccece68b3f1185fa583f648d2"
+dependencies = [
+ "anyhow",
+ "futures",
+ "opentelemetry 0.26.0",
+ "serde",
+ "serde_json",
+ "strata-tasks",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "strata-snark-acct-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-acct-types",
+ "strata-identifiers",
+ "thiserror 2.0.17",
+ "tree_hash",
+ "tree_hash_derive",
+]
+
+[[package]]
+name = "strata-state"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "anyhow",
+ "arbitrary",
+ "async-trait",
+ "borsh",
+ "serde",
+ "strata-asm-common",
+ "strata-asm-stf",
+ "strata-bridge-types",
+ "strata-csm-types",
+ "strata-identifiers",
+ "strata-primitives",
+]
+
+[[package]]
+name = "strata-storage"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "borsh",
+ "futures",
+ "strata-asm-common",
+ "strata-checkpoint-types",
+ "strata-csm-types",
+ "strata-db-store-sled",
+ "strata-db-types",
+ "strata-identifiers",
+ "strata-merkle",
+ "strata-ol-chain-types",
+ "strata-ol-chain-types-new",
+ "strata-ol-chainstate-types",
+ "strata-ol-state-types",
+ "strata-primitives",
+ "strata-state",
+ "strata-storage-common",
+ "threadpool",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "strata-storage-common"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
+dependencies = [
+ "lru 0.12.5",
+ "paste",
+ "thiserror 2.0.17",
+ "threadpool",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -10781,7 +11179,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio 1.0.4",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.6.1",
@@ -11098,7 +11496,7 @@ checksum = "fd8e764bd6f5813fd8bebc3117875190c5b0415be8f7f8059bffb6ecd979c444"
 dependencies = [
  "js-sys",
  "once_cell",
- "opentelemetry",
+ "opentelemetry 0.29.1",
  "opentelemetry_sdk",
  "smallvec",
  "tracing",
@@ -11209,6 +11607,16 @@ dependencies = [
  "tokio",
  "tower 0.5.2",
  "url",
+]
+
+[[package]]
+name = "typed-sled"
+version = "0.1.1"
+source = "git+https://github.com/alpenlabs/typed-sled#9062bff3067ffb31fc6582ad7c659fc6e26ccd78"
+dependencies = [
+ "dashmap",
+ "sled",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11358,6 +11766,7 @@ checksum = "ee48d38b119b0cd71fe4141b30f5ba9c7c5d9f4e7a3a8b4a674e4b6ef789976f"
 dependencies = [
  "getrandom 0.3.3",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 
@@ -11535,7 +11944,7 @@ checksum = "d8d49b5d6c64e8558d9b1b065014426f35c18de636895d24893dbbd329743446"
 dependencies = [
  "futures",
  "js-sys",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-utils",
  "slab",
  "wasm-bindgen",
@@ -11612,7 +12021,7 @@ version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6994d13118ab492c3c80c1f81928718159254c53c472bf9ce36f8dae4add02a7"
 dependencies = [
- "redox_syscall",
+ "redox_syscall 0.5.13",
  "wasite",
 ]
 
@@ -12266,7 +12675,7 @@ dependencies = [
  "futures",
  "log",
  "nohash-hasher",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project",
  "rand 0.8.5",
  "static_assertions",
@@ -12281,7 +12690,7 @@ dependencies = [
  "futures",
  "log",
  "nohash-hasher",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project",
  "rand 0.9.2",
  "static_assertions",
