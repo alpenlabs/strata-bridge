@@ -9626,7 +9626,15 @@ dependencies = [
 name = "strata-asm-runner"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "btc-tracker",
+ "clap",
+ "serde",
+ "serde_json",
  "strata-bridge-common",
+ "strata-params",
+ "toml",
+ "tracing",
 ]
 
 [[package]]
