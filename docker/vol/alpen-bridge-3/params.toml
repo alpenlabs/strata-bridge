@@ -32,6 +32,7 @@ pre_assert_timelock = 1_152
 payout_timelock = 1_008
 
 [sidesystem]
+magic_bytes = "ALPN"
 deposit_amount = 1_000_000_000
 operator_config.static = [
   { signing_pk = "0x8d86834e6fdb45ba6b7ffd067a27b9e1d67778047581d7ef757ed9e0fa474000", wallet_pk = "0xb49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d" },

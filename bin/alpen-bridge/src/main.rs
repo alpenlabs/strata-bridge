@@ -5,16 +5,20 @@
 )]
 #![feature(generic_const_exprs)] //strata-p2p
 
-use std::{fs, path::Path, thread::sleep};
+use std::{fs, path::Path, sync::Arc, thread::sleep};
 
 use args::OperationMode;
 use clap::Parser;
 use config::Config;
 use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE, STARTUP_DELAY};
-use mode::{operator, verifier};
+use db2::fdb::client::{FdbClient, MustDrop};
+use ed25519_dalek::SigningKey;
+use mode::{init_secret_service_client, operator, verifier};
 use params::Params;
+use secret_service_proto::v2::traits::{P2PSigner, SecretService};
 use serde::de::DeserializeOwned;
 use strata_bridge_common::{logging, logging::LoggerConfig};
+use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_tasks::TaskManager;
 use tokio::runtime;
 use tracing::{debug, info, trace};
@@ -72,6 +76,35 @@ fn main() {
         .build()
         .expect("must be able to create runtime");
 
+    // Initialize Secret Service client to get P2P key (needed for FDB setup)
+    debug!("initializing secret service client for FDB setup");
+    let s2_client = runtime.block_on(init_secret_service_client(&config.secret_service_client));
+
+    // Derive P2P public key from secret key for FDB directory namespacing
+    let p2p_pubkey: P2POperatorPubKey = runtime.block_on(async {
+        let p2p_sk = s2_client
+            .p2p_signer()
+            .secret_key()
+            .await
+            .expect("should get p2p secret key");
+        let pk_bytes =
+            SigningKey::from_bytes(p2p_sk.as_ref().try_into().expect("private key is 32 bytes"))
+                .verifying_key()
+                .to_bytes();
+        P2POperatorPubKey::from(pk_bytes.to_vec())
+    });
+    debug!(?p2p_pubkey, "derived P2P public key for FDB");
+
+    // Initialize FDB client - must happen once per process, before spawning tasks.
+    // The MustDrop guard stops the FDB network thread when dropped, so it must
+    // stay in main() scope until after all tasks complete.
+    info!("initializing FoundationDB client");
+    let (fdb_client, _fdb_guard): (FdbClient, MustDrop) = runtime
+        .block_on(FdbClient::setup(config.fdb.clone(), p2p_pubkey))
+        .expect("should initialize FDB client");
+    let fdb_client = Arc::new(fdb_client);
+    debug!("FoundationDB client initialized");
+
     let task_manager = TaskManager::new(runtime.handle().clone());
     task_manager.start_signal_listeners();
 
@@ -79,12 +112,13 @@ fn main() {
 
     match cli.mode {
         OperationMode::Operator => {
+            let fdb = fdb_client.clone();
             executor
                 .clone()
                 .spawn_critical_async("operator", async move {
                     #[cfg(feature = "memory_profiling")]
                     memory_pprof::setup_memory_profiling(3_000);
-                    operator::bootstrap(params, config, executor.clone()).await
+                    operator::bootstrap(params, config, s2_client, fdb, executor.clone()).await
                 });
         }
         OperationMode::Verifier => {
