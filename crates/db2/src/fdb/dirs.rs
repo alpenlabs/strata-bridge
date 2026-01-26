@@ -34,7 +34,7 @@ use foundationdb::{
     RetryableTransaction,
     directory::{Directory, DirectoryError, DirectoryLayer, DirectoryOutput, DirectorySubspace},
 };
-use strata_p2p_types::P2POperatorPubKey;
+use strata_bridge_p2p_types::P2POperatorPubKey;
 
 use crate::fdb::LAYER_ID;
 
