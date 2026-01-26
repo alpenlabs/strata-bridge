@@ -24,7 +24,7 @@ serde.workspace = true
 sha2.workspace = true
 strata-bridge-key-deriv.workspace = true
 strata-bridge-primitives.workspace = true
-strata-key-derivation = { git = "https://github.com/alpenlabs/alpen", version = "0.3.0-alpha.1" }
+strata-key-derivation.workspace = true
 terrors.workspace = true
 tokio.workspace = true
 toml = "0.8.19"
