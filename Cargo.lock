@@ -9975,13 +9975,12 @@ dependencies = [
  "musig2",
  "proptest",
  "secp256k1 0.29.1",
- "strata-bridge-p2p-types",
  "strata-bridge-connectors2",
+ "strata-bridge-p2p-types",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph2",
  "strata-l1-txfmt",
- "strata-p2p-types",
  "thiserror 2.0.17",
 ]
 

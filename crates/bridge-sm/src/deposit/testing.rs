@@ -8,6 +8,7 @@ use musig2::KeyAggContext;
 use proptest::prelude::*;
 use secp256k1::{Message, SECP256K1, SecretKey};
 use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
+use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx, operator_table::OperatorTable, scripts::taproot::TaprootWitness,
     secp::EvenSecretKey, types::OperatorIdx,
@@ -18,7 +19,6 @@ use strata_bridge_tx_graph2::transactions::{
     prelude::{DepositData, DepositTx},
 };
 use strata_l1_txfmt::MagicBytes;
-use strata_p2p_types::P2POperatorPubKey;
 
 use super::{
     events::DepositEvent,
