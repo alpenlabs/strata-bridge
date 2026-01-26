@@ -105,7 +105,7 @@ mod tests {
         Keypair, Message, Secp256k1,
         rand::{random, thread_rng},
     };
-    use strata_p2p_types::P2POperatorPubKey;
+    use strata_bridge_p2p_types::P2POperatorPubKey;
 
     use super::*;
     use crate::fdb::{cfg::Config, client::MustDrop};

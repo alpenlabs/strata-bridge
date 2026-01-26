@@ -6,7 +6,7 @@ use foundationdb::{
     directory::DirectoryError,
     options::NetworkOption,
 };
-use strata_p2p_types::P2POperatorPubKey;
+use strata_bridge_p2p_types::P2POperatorPubKey;
 use terrors::OneOf;
 
 use crate::fdb::{
