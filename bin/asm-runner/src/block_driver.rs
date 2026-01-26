@@ -1,17 +1,20 @@
 //! Block driver that feeds Bitcoin blocks to the ASM worker
 
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use anyhow::Result;
 use bitcoin::absolute::Height;
+use bitcoind_async_client::{Client, traits::Reader};
 use btc_tracker::{
-    client::{BtcNotifyClient, Connected},
+    client::{BlockFetcher, BtcNotifyClient, Connected},
     event::BlockStatus,
 };
 use futures::StreamExt;
 use strata_asm_worker::AsmWorkerHandle;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_state::BlockSubmitter;
+
+use crate::config::AsmRpcConfig;
 
 /// Drive the ASM worker by subscribing to Bitcoin block events from BtcTracker
 ///
@@ -71,4 +74,37 @@ pub(crate) async fn drive_asm_from_btc_tracker(
     }
 
     Ok(())
+}
+
+/// Wrapper to implement BlockFetcher for bitcoind Client
+struct BitcoinBlockFetcher {
+    client: Arc<Client>,
+}
+
+#[async_trait::async_trait]
+impl BlockFetcher for BitcoinBlockFetcher {
+    type Error = anyhow::Error;
+
+    async fn fetch_block(&self, height: u64) -> Result<bitcoin::Block, Self::Error> {
+        let block_hash = self.client.get_block_hash(height).await?;
+        Ok(self.client.get_block(&block_hash).await?)
+    }
+}
+
+/// Setup BTC tracker client
+pub(crate) async fn setup_btc_tracker(
+    config: &AsmRpcConfig,
+    bitcoin_client: Arc<Client>,
+    start_height: u64,
+) -> Result<BtcNotifyClient<Connected>> {
+    let fetcher = BitcoinBlockFetcher {
+        client: bitcoin_client,
+    };
+
+    let btc_tracker = BtcNotifyClient::new(&config.btc_tracker, VecDeque::new())
+        .connect(start_height, fetcher)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to BTC tracker: {}", e))?;
+
+    Ok(btc_tracker)
 }
