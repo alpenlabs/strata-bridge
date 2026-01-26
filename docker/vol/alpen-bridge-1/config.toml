@@ -24,6 +24,9 @@ retry_interval = 1000
 max_retry_count = 3
 backoff_period = { secs = 1000, nanos = 0 }
 
+[fdb]
+cluster_file_path = "/var/fdb/fdb.cluster"
+
 [p2p]
 idle_connection_timeout = { secs = 1000, nanos = 0 }
 listening_addr = "/ip4/172.28.0.5/tcp/5679"
