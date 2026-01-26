@@ -917,6 +917,7 @@ dependencies = [
  "btc-tracker",
  "chrono",
  "clap",
+ "db2",
  "duty-tracker",
  "ed25519-dalek",
  "hex",

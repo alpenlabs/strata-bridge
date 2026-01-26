@@ -19,6 +19,7 @@ use bitcoind_async_client::{
     Auth, Client as BitcoinClient,
 };
 use btc_tracker::client::BtcNotifyClient;
+use db2::fdb::client::FdbClient;
 use duty_tracker::{
     contract_manager::ContractManager, contract_persister::ContractPersister,
     shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister,
@@ -72,13 +73,13 @@ use crate::{
 pub(crate) async fn bootstrap(
     params: Params,
     config: Config,
+    s2_client: SecretServiceClient,
+    _fdb_client: Arc<FdbClient>,
     executor: TaskExecutor,
 ) -> anyhow::Result<()> {
     debug!("bootstrapping operator node");
 
-    // Secret Service stuff.
-    debug!("initializing secret service client (s2)");
-    let s2_client = init_secret_service_client(&config.secret_service_client).await;
+    // Secret Service stuff - client is pre-initialized and passed in from main.
     let p2p_sk = s2_client
         .p2p_signer()
         .secret_key()
@@ -274,7 +275,9 @@ pub(crate) async fn bootstrap(
     Ok(())
 }
 
-async fn init_secret_service_client(config: &SecretServiceConfig) -> SecretServiceClient {
+pub(crate) async fn init_secret_service_client(
+    config: &SecretServiceConfig,
+) -> SecretServiceClient {
     let key = fs::read(&config.key).expect("readable key");
     let key = if config.key.extension().is_some_and(|x| x == "der") {
         PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key))
