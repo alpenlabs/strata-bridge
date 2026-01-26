@@ -9,15 +9,24 @@ workspace = true
 [dependencies]
 btc-tracker.workspace = true
 
+bitcoind-async-client.workspace = true
+strata-asm-common.workspace = true
+strata-asm-worker.workspace = true
 strata-bridge-common.workspace = true
+strata-btc-types.workspace = true
 strata-db-store-sled.workspace = true
+strata-identifiers.workspace = true
+strata-merkle.workspace = true
 strata-params.workspace = true
+strata-state.workspace = true
 strata-storage.workspace = true
 
 anyhow.workspace = true
+bitcoin.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 threadpool = "1.8"
+tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
