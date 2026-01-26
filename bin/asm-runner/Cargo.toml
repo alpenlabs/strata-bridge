@@ -8,12 +8,16 @@ workspace = true
 
 [dependencies]
 btc-tracker.workspace = true
+
 strata-bridge-common.workspace = true
+strata-db-store-sled.workspace = true
 strata-params.workspace = true
+strata-storage.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+threadpool = "1.8"
 toml.workspace = true
 tracing.workspace = true
