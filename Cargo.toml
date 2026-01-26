@@ -41,6 +41,7 @@ members = [
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/alpen-bridge",
+  "bin/asm-runner",
 
   "bridge-guest-builder",
 
@@ -49,7 +50,13 @@ members = [
   "crates/bridge-proof/test-utils",
 ]
 
-default-members = ["bin/alpen-bridge", "bin/dev-cli", "bin/assert-splitter"]
+default-members = [
+  "bin/alpen-bridge",
+  "bin/dev-cli",
+  "bin/assert-splitter",
+  "bin/asm-runner",
+  # "bin/mock-checkpoint",
+]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"

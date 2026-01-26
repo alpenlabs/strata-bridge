@@ -9752,6 +9752,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-runner"
+version = "0.1.0"
+dependencies = [
+ "strata-bridge-common",
+]
+
+[[package]]
 name = "strata-asm-txs-bridge-v1"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=693efd39b6d41f50ea85f20bfec3c92c213d716c#693efd39b6d41f50ea85f20bfec3c92c213d716c"
