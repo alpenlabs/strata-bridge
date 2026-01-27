@@ -5,6 +5,7 @@
 //! propagated.
 
 use bitcoin::Transaction;
+use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 
@@ -35,16 +36,51 @@ pub enum DepositEvent {
         /// The index of the operator who provided the partial signature
         operator_idx: OperatorIdx,
     },
-    /// TODO: (@mukeshdroid)
-    DepositConfirmed,
-    /// TODO: (@mukeshdroid)
-    Assignment,
-    /// TODO: (@mukeshdroid)
-    FulfillmentConfirmed,
-    /// TODO: (@mukeshdroid)
-    PayoutNonceReceived,
-    /// TODO: (@mukeshdroid)
-    PayoutPartialReceived,
+    /// This event notifies that the deposit has been confirmed on-chain.
+    DepositConfirmed {
+        /// The deposit transaction that has been confirmed on-chain.
+        deposit_transaction: Transaction,
+    },
+    /// This event notifies that the withdrawal request has been assigned to some operator for
+    /// fulfillment.
+    WithdrawalAssigned {
+        /// The index of the operator assigned to serve the withdrawal request.
+        assignee: OperatorIdx,
+        /// The block height until which the assignment is valid.
+        deadline: BitcoinBlockHeight,
+        /// The user's descriptor where funds are to be sent by the operator.
+        recipient_desc: Descriptor,
+    },
+    /// This event notifies that the fulfillment transaction has been confirmed on-chain.
+    FulfillmentConfirmed {
+        /// The fulfillment transaction that has been confirmed on-chain
+        fulfillment_transaction: Transaction,
+        /// The block height at which the fulfillment transaction was confirmed.
+        fulfillment_height: BitcoinBlockHeight,
+    },
+    /// This event notifies that the output descriptor of the operator for the cooperative payout
+    /// has been received.
+    PayoutDescriptorReceived {
+        /// The output descriptor of the operator where the funds for the cooperative payout are to
+        /// be received.
+        operator_desc: Descriptor,
+    },
+    /// This event notifies that a pubnonce from some operator for the cooperative payout
+    /// transaction has been received.
+    PayoutNonceReceived {
+        /// The pubnonce for the cooperative payout transaction that was received.
+        payout_nonce: PubNonce,
+        /// The operator who sent the pubnonce.
+        operator_idx: OperatorIdx,
+    },
+    /// This event notifies that a partial signature from some operator for the cooperative payout
+    /// transaction has been received.
+    PayoutPartialReceived {
+        /// The partial signature for the cooperative payout transaction that was received.
+        partial_signature: PartialSignature,
+        /// The operator who sent the partial signature.
+        operator_idx: OperatorIdx,
+    },
     /// TODO: (@Rajil1213)
     PayoutConfirmed {
         /// The transaction that confirms the payout.
@@ -77,11 +113,12 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::PartialReceived { operator_idx, .. } => {
                 return write!(f, "PartialReceived from operator_idx: {}", operator_idx);
             }
-            DepositEvent::DepositConfirmed => "DepositConfirmed",
-            DepositEvent::Assignment => "Assignment",
-            DepositEvent::FulfillmentConfirmed => "FulfillmentConfirmed",
-            DepositEvent::PayoutNonceReceived => "PayoutNonceReceived",
-            DepositEvent::PayoutPartialReceived => "PayoutPartialReceived",
+            DepositEvent::DepositConfirmed { .. } => "DepositConfirmed",
+            DepositEvent::WithdrawalAssigned { .. } => "Assignment",
+            DepositEvent::FulfillmentConfirmed { .. } => "FulfillmentConfirmed",
+            DepositEvent::PayoutDescriptorReceived { .. } => "PayoutDescriptorReceived",
+            DepositEvent::PayoutNonceReceived { .. } => "PayoutNonceReceived",
+            DepositEvent::PayoutPartialReceived { .. } => "PayoutPartialReceived",
             DepositEvent::PayoutConfirmed { tx } => {
                 return write!(f, "PayoutConfirmed via {}", tx.compute_txid());
             }
