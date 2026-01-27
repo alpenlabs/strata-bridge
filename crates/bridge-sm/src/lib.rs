@@ -7,6 +7,7 @@
 //! effect the desired operations.
 
 pub mod deposit;
+pub mod graph;
 pub mod signals;
 pub mod state_machine;
 
