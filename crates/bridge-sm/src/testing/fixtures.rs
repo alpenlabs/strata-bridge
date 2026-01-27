@@ -4,10 +4,14 @@
 //! like blocks and transactions that are used across multiple state machines.
 
 use bitcoin::{
-    Block, BlockHash, CompactTarget, OutPoint, ScriptBuf, Sequence, Transaction, TxIn,
-    TxMerkleNode, Witness, block, blockdata, hashes::Hash, script::Builder, transaction,
+    Amount, Block, BlockHash, CompactTarget, Network, OutPoint, ScriptBuf, Sequence, Transaction,
+    TxIn, TxMerkleNode, Witness, XOnlyPublicKey, block, blockdata, hashes::Hash, relative,
+    script::Builder, transaction,
 };
+use secp256k1::{Keypair, SECP256K1};
 use strata_bridge_test_utils::bitcoin::generate_spending_tx;
+use strata_bridge_tx_graph2::transactions::deposit::{DepositData, DepositTx};
+use strata_l1_txfmt::MagicBytes;
 
 /// Creates a takeback transaction (script-spend with multiple witness elements).
 ///

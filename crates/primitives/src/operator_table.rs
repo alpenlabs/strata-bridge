@@ -103,19 +103,19 @@ impl OperatorTable {
         self.btc_key.get(btc_key).map(|x| &x.1)
     }
 
-    /// Returns the index of the proof of work operator.
+    /// Returns the index of this (point of view) operator
     pub const fn pov_idx(&self) -> OperatorIdx {
         self.pov
     }
 
-    /// Returns the operator public key for the proof of work operator.
+    /// Returns the operator public key for this (point of view) operator.
     pub fn pov_p2p_key(&self) -> &P2POperatorPubKey {
         // NOTE(proofofkeags): unwrap is safe because we assert this key is in the map in the
         // constructor.
         &self.idx_key.get(&self.pov).unwrap().0
     }
 
-    /// Returns the bitcoin public key for the proof of work operator.
+    /// Returns the bitcoin public key for this (point of view) operator.
     pub fn pov_btc_key(&self) -> secp256k1::PublicKey {
         // NOTE(proofofkeags): unwrap is safe because we assert this key is in the map in the
         // constructor.

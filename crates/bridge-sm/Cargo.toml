@@ -8,15 +8,21 @@ description = "State machines for the Strata Bridge"
 workspace = true
 
 [dependencies]
+strata-bridge-connectors2.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-tx-graph2.workspace = true
 
 bitcoin.workspace = true
+bitcoin-bosd.workspace = true
+musig2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
-musig2.workspace = true
+strata-bridge-p2p-types.workspace = true
 
+strata-l1-txfmt.workspace = true
+
+musig2.workspace = true
 proptest.workspace = true
 secp256k1.workspace = true
-strata-bridge-p2p-types.workspace = true
