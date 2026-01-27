@@ -1,5 +1,8 @@
+from pathlib import Path
+
 import flexitest
 
+from factory.bridge_operator.sidesystem_cfg import build_sidesystem, write_rollup_params_json
 from utils import (
     BLOCK_GENERATION_INTERVAL_SECS,
     generate_blocks,
@@ -23,6 +26,9 @@ class BaseEnv(flexitest.EnvConfig):
         self.funding_amount = funding_amount
         self.initial_blocks = initial_blocks
         self.finalization_blocks = finalization_blocks
+        self._asm_rpc_service = None
+        self._sidesystem = None
+        self._rollup_params_path = None
 
         # Generate P2P ports for this environment
         p2p_port_gen = generate_p2p_ports()
@@ -50,20 +56,52 @@ class BaseEnv(flexitest.EnvConfig):
 
         return bitcoind, brpc, wallet_addr
 
-    def create_operator(self, ectx: flexitest.EnvContext, operator_idx, bitcoind_props):
-        """Create a single bridge operator (S2 service + Bridge node)."""
+    def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
+        """Build sidesystem params and rollup_params.json once per environment."""
+        if self._sidesystem is not None and self._rollup_params_path is not None:
+            return
+
+        genesis_height = int(self.initial_blocks)
+        sidesystem = build_sidesystem(bitcoind_rpc, self.operator_key_infos, genesis_height)
+
+        envdd_path = Path(ectx.envdd_path)
+        rollup_params_path = envdd_path / "generated" / "rollup_params.json"
+        self._rollup_params_path = write_rollup_params_json(rollup_params_path, sidesystem)
+        self._sidesystem = sidesystem
+
+    def create_operator(
+        self,
+        ectx: flexitest.EnvContext,
+        operator_idx,
+        bitcoind_props,
+        bitcoind_rpc,
+    ):
+        """Create a single bridge operator (S2 service + Bridge node + ASM RPC)."""
         s2_fac = ectx.get_factory("s2")
         bo_fac = ectx.get_factory("bofac")
 
         # Use pre-loaded operator key
         operator_key = self.operator_key_infos[operator_idx]
 
+        # Build sidesystem + rollup params once using live bitcoind data.
+        self._ensure_rollup_params(ectx, bitcoind_rpc)
+
         s2_service = s2_fac.create_s2_service(operator_idx, operator_key)
         bridge_operator = bo_fac.create_server(
-            operator_idx, bitcoind_props, s2_service.props, self.operator_key_infos, self.p2p_ports
+            operator_idx,
+            bitcoind_props,
+            s2_service.props,
+            self.operator_key_infos,
+            self.p2p_ports,
+            sidesystem=self._sidesystem,
         )
 
-        return s2_service, bridge_operator
+        if self._asm_rpc_service is None:
+            asm_fac = ectx.get_factory("asm_rpc")
+            params_file_path = self._rollup_params_path
+            self._asm_rpc_service = asm_fac.create_asm_rpc_service(bitcoind_props, params_file_path)
+
+        return s2_service, bridge_operator, self._asm_rpc_service
 
     def fund_operator(self, brpc, bridge_operator_props, wallet_addr):
         """Fund an operator's wallets."""
