@@ -26,7 +26,7 @@ class BasicEnv(BaseEnv):
 
         # Create single operator
         s2_service, bridge_node, asm_service = self.create_operator(
-            ectx, operator_idx, bitcoind.props
+            ectx, operator_idx, bitcoind.props, brpc
         )
 
         # Fund operator
