@@ -42,7 +42,7 @@ class Sidesystem:
     genesis_l1_view: GenesisL1View
 
     @classmethod
-    def default(cls) -> "Sidesystem":
+    def default(cls) -> Sidesystem:
         # These defaults are intentionally test-friendly (small safety depths and
         # durations) to allow the ASM runner to progress quickly on regtest.
         return cls(
@@ -77,6 +77,16 @@ def _parse_bits_to_target(bits: int | str) -> int:
     return int(bits)
 
 
+def _reverse_hex_bytes(hex_str: str) -> str:
+    """Reverse a hex string by bytes (Bitcoin displays hashes in reverse order)."""
+    s = hex_str[2:] if hex_str.startswith("0x") else hex_str
+    try:
+        return bytes.fromhex(s)[::-1].hex()
+    except ValueError:
+        # Fall back to the original string if it is not valid hex.
+        return s
+
+
 def build_genesis_l1_view(bitcoind_rpc: Any, genesis_height: int) -> GenesisL1View:
     """Build a GenesisL1View using the live bitcoind RPC."""
     block_hash = bitcoind_rpc.proxy.getblockhash(genesis_height)
@@ -89,9 +99,10 @@ def build_genesis_l1_view(bitcoind_rpc: Any, genesis_height: int) -> GenesisL1Vi
     # less than the genesis block's time.
     history_time = header_time - 1 if header_time > 0 else header_time
     last_11_timestamps = [history_time] * 11
+    blkid = _reverse_hex_bytes(block_hash)
 
     return GenesisL1View(
-        blk=Block(height=genesis_height, blkid=block_hash),
+        blk=Block(height=genesis_height, blkid=blkid),
         next_target=next_target,
         epoch_start_timestamp=header_time,
         last_11_timestamps=last_11_timestamps,
