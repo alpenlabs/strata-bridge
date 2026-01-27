@@ -31,7 +31,9 @@ class BridgeNetworkEnv(BaseEnv):
 
         # Create operators dynamically based on configuration
         for i in range(self.num_operators):
-            s2_service, bridge_node, asm_service = self.create_operator(ectx, i, bitcoind.props)
+            s2_service, bridge_node, asm_service = self.create_operator(
+                ectx, i, bitcoind.props, brpc
+            )
 
             # Fund operator
             self.fund_operator(brpc, bridge_node.props, wallet_addr)

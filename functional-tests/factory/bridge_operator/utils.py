@@ -112,17 +112,22 @@ def generate_config_toml(
         toml.dump(config_dict, f)
 
 
-def generate_params_toml(output_path: str, operator_key_infos: list[OperatorKeyInfo]):
+def generate_params_toml(
+    output_path: str,
+    operator_key_infos: list[OperatorKeyInfo],
+    sidesystem: Sidesystem,
+):
     """
     Generate bridge operator params.toml file using operator keys.
 
     Args:
         output_path: Path to write the params.toml file
         operator_key_infos: List of OperatorKeys containing MUSIG2_KEY and P2P_KEY
+        sidesystem: Pre-built sidesystem params to embed
     """
     params = BridgeOperatorParams(
         network="regtest",
-        genesis_height=101,
+        genesis_height=sidesystem.genesis_l1_view.blk.height,
         keys=Keys(
             musig2=[key.MUSIG2_KEY for key in operator_key_infos],
             p2p=[key.P2P_KEY for key in operator_key_infos],
@@ -143,7 +148,7 @@ def generate_params_toml(output_path: str, operator_key_infos: list[OperatorKeyI
         connectors=Connectors(
             payout_optimistic_timelock=1008, pre_assert_timelock=1152, payout_timelock=1008
         ),
-        sidesystem=Sidesystem.default(),
+        sidesystem=sidesystem,
     )
 
     with open(output_path, "w") as f:
