@@ -35,6 +35,8 @@ pub enum DSMError {
     #[error("Event {event} rejected in state: {state}, reason: {reason}")]
     Rejected {
         /// The state in which the event was rejected.
+        // NOTE: (@Rajil1213) Since errors are supposed to be rare, owning the DepositState here is
+        // acceptable.
         state: Box<DepositState>,
         /// The reason for the rejection.
         reason: String, // rejection reason is a must
