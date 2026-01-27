@@ -11,9 +11,9 @@ Available Factories:
     AsmRpcFactory: Creates and manages ASM Runner services
 """
 
+from .asm_rpc import AsmRpcFactory
 from .bitcoin import BitcoinFactory
 from .bridge_operator import BridgeOperatorFactory
 from .s2 import S2Factory
-from .asm_rpc import AsmRpcFactory
 
 __all__ = ["BitcoinFactory", "BridgeOperatorFactory", "S2Factory", "AsmRpcFactory"]
