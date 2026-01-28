@@ -139,8 +139,7 @@ pub struct CounterproofGraph {
     pub counterproof_ack: CounterproofAckTx,
 }
 
-/// Minimum necessary information to recognize
-/// all relevant transactions in a given [`GameGraph`].
+/// Collection of the IDs of all transactions of a [`GameGraph`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GameGraphSummary {
     /// ID of the claim transaction.
@@ -155,8 +154,7 @@ pub struct GameGraphSummary {
     pub slash: Txid,
 }
 
-/// Minimum necessary information to recognize
-/// all relevant transactions in a given [`CounterproofGraph`].
+/// Collection of the IDs of all transactions of a [`CounterproofGraph`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct CounterproofGraphSummary {
     /// ID of the counterproof transaction.

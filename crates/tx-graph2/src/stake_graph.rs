@@ -69,8 +69,7 @@ pub struct StakeGraph {
     unstaking: UnstakingTx,
 }
 
-/// Minimum necessary information to recognize
-/// all relevant transactions in a given [`StakeGraph`].
+/// Collection of the IDs of all transactions of a [`StakeGraph`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StakeGraphSummary {
     /// ID of the stake transaction.
