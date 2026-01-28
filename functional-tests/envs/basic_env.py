@@ -19,6 +19,10 @@ class BasicEnv(BaseEnv):
         bitcoind, brpc, wallet_addr = self.setup_bitcoin(ectx)
         svcs["bitcoin"] = bitcoind
 
+        # Setup FoundationDB
+        fdb = self.setup_fdb(ectx)
+        svcs["fdb"] = fdb
+
         # Create operator directory
         operator_idx = 0
         bridge_operator_name = get_operator_dir_name(operator_idx)
@@ -26,7 +30,7 @@ class BasicEnv(BaseEnv):
 
         # Create single operator
         s2_service, bridge_node, asm_service = self.create_operator(
-            ectx, operator_idx, bitcoind.props, brpc
+            ectx, operator_idx, bitcoind.props, brpc, fdb.props
         )
 
         # Fund operator

@@ -56,6 +56,12 @@ class BaseEnv(flexitest.EnvConfig):
 
         return bitcoind, brpc, wallet_addr
 
+    def setup_fdb(self, ectx: flexitest.EnvContext):
+        """Setup FoundationDB instance."""
+        fdb_fac = ectx.get_factory("fdb")
+        fdb = fdb_fac.create_fdb()
+        return fdb
+
     def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
         """Build sidesystem params and rollup_params.json once per environment."""
         if self._sidesystem is not None and self._rollup_params_path is not None:
@@ -75,6 +81,7 @@ class BaseEnv(flexitest.EnvConfig):
         operator_idx,
         bitcoind_props,
         bitcoind_rpc,
+        fdb_props,
     ):
         """Create a single bridge operator (S2 service + Bridge node + ASM RPC)."""
         s2_fac = ectx.get_factory("s2")
@@ -91,6 +98,7 @@ class BaseEnv(flexitest.EnvConfig):
             operator_idx,
             bitcoind_props,
             s2_service.props,
+            fdb_props,
             self.operator_key_infos,
             self.p2p_ports,
             sidesystem=self._sidesystem,
