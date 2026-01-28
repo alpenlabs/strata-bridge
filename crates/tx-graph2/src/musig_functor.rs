@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::transactions::prelude::{
     BridgeProofTimeoutTx, ContestTx, ContestedPayoutTx, CounterproofAckTx, CounterproofTx, SlashTx,
-    UncontestedPayoutTx,
+    UncontestedPayoutTx, UnstakingIntentTx, UnstakingTx,
 };
 
 // NOTE: (@uncomputable) We have multiple functors that implement the same interface.
@@ -505,6 +505,203 @@ where
 impl<A: Semigroup> Semigroup for GameFunctor<A> {
     fn merge(self, other: Self) -> Self {
         GameFunctor::zip_with(A::merge, self, other)
+    }
+}
+
+/// Functor-like data structure that holds data for each input
+/// of each presigned transaction of a stake graph.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct StakeFunctor<A> {
+    /// Data for the single unstaking intent transaction input.
+    pub unstaking_intent: [A; UnstakingIntentTx::N_INPUTS],
+    /// Data for the two unstaking transaction inputs.
+    pub unstaking: [A; UnstakingTx::N_INPUTS],
+}
+
+const STAKE_SINGLE_LEN: usize = UnstakingIntentTx::N_INPUTS + UnstakingTx::N_INPUTS;
+type StakeFunctorInner<A> = FunctorInner<STAKE_SINGLE_LEN, 0, A>;
+
+impl<A> StakeFunctor<A> {
+    /// Converts a `StakeFunctor` into a `FunctorInner`.
+    fn into_inner(self) -> StakeFunctorInner<A> {
+        let [a] = self.unstaking_intent;
+        let [b, c] = self.unstaking;
+
+        FunctorInner {
+            fields: [a, b, c],
+            watchtowers: Vec::new(),
+        }
+    }
+
+    /// Converts a `FunctorInner` into a `StakeFunctor`.
+    fn from_inner(inner: StakeFunctorInner<A>) -> Self {
+        let [a, b, c] = inner.fields;
+        StakeFunctor {
+            unstaking_intent: [a],
+            unstaking: [b, c],
+        }
+    }
+
+    /// Consumes the functor and returns its data as a vector.
+    pub fn pack(self) -> Vec<A> {
+        let mut packed = Vec::with_capacity(STAKE_SINGLE_LEN);
+        let inner = self.into_inner();
+        packed.extend(inner.fields);
+
+        debug_assert_eq!(packed.len(), STAKE_SINGLE_LEN);
+        packed
+    }
+
+    /// Attempts to create a new functor from a vector.
+    pub fn unpack(packed: Vec<A>) -> Option<Self> {
+        let mut cursor = packed.into_iter();
+        let inner = FunctorInner::<STAKE_SINGLE_LEN, 0, A> {
+            fields: take_array(&mut cursor)?,
+            watchtowers: Vec::new(),
+        };
+
+        Some(Self::from_inner(inner))
+    }
+
+    /// Converts a reference to a functor into a functor of references.
+    pub const fn as_ref(&self) -> StakeFunctor<&A> {
+        StakeFunctor {
+            unstaking_intent: self.unstaking_intent.each_ref(),
+            unstaking: self.unstaking.each_ref(),
+        }
+    }
+
+    /// Maps the data to a new type.
+    pub fn map<O>(self, f: impl FnMut(A) -> O) -> StakeFunctor<O> {
+        StakeFunctor::from_inner(self.into_inner().map(f))
+    }
+
+    /// Zips the data of two functors.
+    pub fn zip<B>(self, other: StakeFunctor<B>) -> StakeFunctor<(A, B)> {
+        StakeFunctor::from_inner(self.into_inner().zip(other.into_inner()))
+    }
+
+    /// Zips 3 functors into a functor of a 3-tuple.
+    pub fn zip3<B, C>(
+        a: StakeFunctor<A>,
+        b: StakeFunctor<B>,
+        c: StakeFunctor<C>,
+    ) -> StakeFunctor<(A, B, C)> {
+        StakeFunctor::zip_with_3(|a, b, c| (a, b, c), a, b, c)
+    }
+
+    /// Zips 4 functors into a functor of a 4-tuple.
+    pub fn zip4<B, C, D>(
+        a: StakeFunctor<A>,
+        b: StakeFunctor<B>,
+        c: StakeFunctor<C>,
+        d: StakeFunctor<D>,
+    ) -> StakeFunctor<(A, B, C, D)> {
+        StakeFunctor::zip_with_4(|a, b, c, d| (a, b, c, d), a, b, c, d)
+    }
+
+    /// Zips 5 functors into a functor of a 5-tuple.
+    pub fn zip5<B, C, D, E>(
+        a: StakeFunctor<A>,
+        b: StakeFunctor<B>,
+        c: StakeFunctor<C>,
+        d: StakeFunctor<D>,
+        e: StakeFunctor<E>,
+    ) -> StakeFunctor<(A, B, C, D, E)> {
+        StakeFunctor::zip_with_5(|a, b, c, d, e| (a, b, c, d, e), a, b, c, d, e)
+    }
+
+    /// Zips a functor of functions with a functor of data,
+    /// resulting in a functor of mapped data.
+    pub fn zip_apply<O>(f: StakeFunctor<impl Fn(A) -> O>, a: StakeFunctor<A>) -> StakeFunctor<O> {
+        StakeFunctor::from_inner(FunctorInner::zip_apply(f.into_inner(), a.into_inner()))
+    }
+
+    /// Zips the data of two functors and applies a function to the result.
+    pub fn zip_with<B, O>(
+        f: impl Fn(A, B) -> O,
+        a: StakeFunctor<A>,
+        b: StakeFunctor<B>,
+    ) -> StakeFunctor<O> {
+        a.zip(b).map(|(a, b)| f(a, b))
+    }
+
+    /// Zips the data of three functors and applies a function to the result.
+    pub fn zip_with_3<B, C, O>(
+        f: impl Fn(A, B, C) -> O,
+        a: StakeFunctor<A>,
+        b: StakeFunctor<B>,
+        c: StakeFunctor<C>,
+    ) -> StakeFunctor<O> {
+        a.zip(b).zip(c).map(|((a, b), c)| f(a, b, c))
+    }
+
+    /// Zips the data of four functors and applies a function to the result.
+    pub fn zip_with_4<B, C, D, O>(
+        f: impl Fn(A, B, C, D) -> O,
+        a: StakeFunctor<A>,
+        b: StakeFunctor<B>,
+        c: StakeFunctor<C>,
+        d: StakeFunctor<D>,
+    ) -> StakeFunctor<O> {
+        a.zip(b).zip(c.zip(d)).map(|((a, b), (c, d))| f(a, b, c, d))
+    }
+
+    /// Zips the data of five functors and applies a function to the result.
+    pub fn zip_with_5<B, C, D, E, O>(
+        f: impl Fn(A, B, C, D, E) -> O,
+        a: StakeFunctor<A>,
+        b: StakeFunctor<B>,
+        c: StakeFunctor<C>,
+        d: StakeFunctor<D>,
+        e: StakeFunctor<E>,
+    ) -> StakeFunctor<O> {
+        a.zip(b)
+            .zip(c)
+            .zip(d)
+            .zip(e)
+            .map(|((((a, b), c), d), e)| f(a, b, c, d, e))
+    }
+
+    /// Converts a functor of options into an option of a functor,
+    /// returning `None` if any functor component is `None`.
+    pub fn sequence_option(option_a: StakeFunctor<Option<A>>) -> Option<StakeFunctor<A>> {
+        StakeFunctorInner::sequence_option(option_a.into_inner()).map(StakeFunctor::from_inner)
+    }
+
+    /// Converts a functor of results into the result of a functor,
+    /// returning `Err` if any functor component is `Err`.
+    ///
+    /// The returned `Err` is the first one that was encountered.
+    pub fn sequence_result<E>(result_a: StakeFunctor<Result<A, E>>) -> Result<StakeFunctor<A>, E> {
+        StakeFunctorInner::sequence_result(result_a.into_inner()).map(StakeFunctor::from_inner)
+    }
+
+    /// Converts a vector of functors into a functor of vectors.
+    pub fn sequence_functor(vec_self: Vec<StakeFunctor<A>>) -> StakeFunctor<Vec<A>> {
+        let inners = vec_self.into_iter().map(StakeFunctor::into_inner).collect();
+        StakeFunctor::from_inner(StakeFunctorInner::sequence_functor(inners))
+    }
+}
+
+impl<A, B> StakeFunctor<(A, B)> {
+    /// Converts a functor of pairs into two functors of the respective components.
+    pub fn unzip(self) -> (StakeFunctor<A>, StakeFunctor<B>) {
+        let (a, b) = self.into_inner().unzip();
+        (StakeFunctor::from_inner(a), StakeFunctor::from_inner(b))
+    }
+}
+
+impl<A: Clone> StakeFunctor<&A> {
+    /// Maps a functor of references to a functor of owned values by cloning its contents.
+    pub fn cloned(self) -> StakeFunctor<A> {
+        StakeFunctor::from_inner(self.into_inner().cloned())
+    }
+}
+
+impl<A: Semigroup> Semigroup for StakeFunctor<A> {
+    fn merge(self, other: Self) -> Self {
+        StakeFunctor::zip_with(A::merge, self, other)
     }
 }
 
