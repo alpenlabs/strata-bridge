@@ -28,7 +28,7 @@ pub enum DepositState {
         deposit_transaction: DepositTx,
 
         /// Latest Bitcoin block height observed by the state machine.
-        block_height: BitcoinBlockHeight,
+        last_block_height: BitcoinBlockHeight,
 
         /// Operators whose pegout graphs have been generated for this deposit transaction.
         linked_graphs: BTreeSet<OperatorIdx>,
@@ -42,7 +42,7 @@ pub enum DepositState {
         deposit_transaction: DepositTx,
 
         /// Latest Bitcoin block height observed by the state machine.
-        block_height: BitcoinBlockHeight,
+        last_block_height: BitcoinBlockHeight,
 
         /// Public nonces provided by each operator for signing.
         pubnonces: BTreeMap<OperatorIdx, PubNonce>,
@@ -56,7 +56,7 @@ pub enum DepositState {
         deposit_transaction: DepositTx,
 
         /// Latest Bitcoin block height observed by the state machine.
-        block_height: BitcoinBlockHeight,
+        last_block_height: BitcoinBlockHeight,
 
         /// Aggregated nonce used to validate partial signatures.
         agg_nonce: AggNonce,
@@ -73,7 +73,7 @@ pub enum DepositState {
     /// is broadcast and confirmed.
     DepositPartialsCollected {
         /// Latest Bitcoin block height observed by the state machine.
-        block_height: BitcoinBlockHeight,
+        last_block_height: BitcoinBlockHeight,
 
         /// The fully signed deposit transaction.
         deposit_transaction: Transaction,
@@ -81,12 +81,12 @@ pub enum DepositState {
     /// This state indicates that the deposit transaction has been confirmed on-chain.
     Deposited {
         /// The last block height observed by this state machine.
-        block_height: u64,
+        last_block_height: u64,
     },
     /// This state indicates that this deposit has been assigned for withdrawal.
     Assigned {
         /// The last block height observed by this state machine.
-        block_height: u64,
+        last_block_height: u64,
         /// The index of the operator assigned to fulfill the withdrawal request.
         assignee: OperatorIdx,
         /// The block height by which the operator must fulfill the withdrawal request.
@@ -97,7 +97,7 @@ pub enum DepositState {
     /// This state indicates that the operator has fronted the user.
     Fulfilled {
         /// The last block height observed by this state machine.
-        block_height: u64,
+        last_block_height: u64,
         /// The index of the operator assigned to fulfill the withdrawal request.
         assignee: OperatorIdx,
         /// The txid of the fulfillment transaction.
@@ -111,7 +111,7 @@ pub enum DepositState {
     /// received.
     PayoutDescriptorReceived {
         /// The last block height observed by this state machine.
-        block_height: u64,
+        last_block_height: u64,
         /// The index of the operator assigned to fulfill the withdrawal request.
         assignee: OperatorIdx,
         /// The block height by which the cooperative payout must be completed.
@@ -127,7 +127,7 @@ pub enum DepositState {
     /// collected.
     PayoutNoncesCollected {
         /// The last block height observed by this state machine.
-        block_height: u64,
+        last_block_height: u64,
         /// The index of the operator assigned to fulfill the withdrawal request.
         assignee: OperatorIdx,
         /// The operator's descriptor where they want the funds in the cooperative path.
@@ -149,7 +149,7 @@ pub enum DepositState {
     /// the cooperative payout transaction.
     CooperativePathFailed {
         /// The height of the latest block that this state machine is aware of.
-        block_height: u64,
+        last_block_height: u64,
     },
     /// This represents the terminal state where the deposit has been spent.
     Spent,
@@ -205,7 +205,7 @@ impl DepositState {
 
         DepositState::Created {
             deposit_transaction,
-            block_height,
+            last_block_height: block_height,
             linked_graphs: BTreeSet::new(),
         }
     }
@@ -213,22 +213,50 @@ impl DepositState {
     /// Returns the height of the last processed Bitcoin block for this deposit state.
     pub const fn last_processed_block_height(&self) -> Option<&BitcoinBlockHeight> {
         match self {
-            DepositState::Created { block_height, .. }
-            | DepositState::GraphGenerated { block_height, .. }
-            | DepositState::DepositNoncesCollected { block_height, .. }
-            | DepositState::DepositPartialsCollected { block_height, .. }
-            | DepositState::Deposited { block_height, .. }
-            | DepositState::Assigned { block_height, .. }
-            | DepositState::Fulfilled { block_height, .. }
-            | DepositState::PayoutDescriptorReceived { block_height, .. }
-            | DepositState::PayoutNoncesCollected { block_height, .. }
-            | DepositState::CooperativePathFailed { block_height, .. } => Some(block_height),
+            DepositState::Created {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::GraphGenerated {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::DepositNoncesCollected {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::DepositPartialsCollected {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::Deposited {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::Assigned {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::Fulfilled {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::PayoutDescriptorReceived {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::PayoutNoncesCollected {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::CooperativePathFailed {
+                last_block_height: block_height,
+                ..
+            } => Some(block_height),
             DepositState::Spent | DepositState::Aborted => {
                 // Terminal states do not track block height
                 None
             }
         }
     }
-
-    // TODO: (@Rajil1213, @MdTeach, @mukeshdroid) Add more introspection methods here
 }

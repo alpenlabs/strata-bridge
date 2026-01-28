@@ -255,21 +255,21 @@ impl Arbitrary for DepositState {
         prop_oneof![
             (block_height.clone()).prop_map(|height| {
                 DepositState::Created {
-                    block_height: height,
+                    last_block_height: height,
                     deposit_transaction: test_deposit_txn(),
                     linked_graphs: Default::default(),
                 }
             }),
             (block_height.clone()).prop_map(|height| {
                 DepositState::GraphGenerated {
-                    block_height: height,
+                    last_block_height: height,
                     deposit_transaction: test_deposit_txn(),
                     pubnonces: Default::default(),
                 }
             }),
             (block_height.clone()).prop_map(|height| {
                 DepositState::DepositNoncesCollected {
-                    block_height: height,
+                    last_block_height: height,
                     deposit_transaction: test_deposit_txn(),
                     agg_nonce: generate_agg_nonce(),
                     partial_signatures: Default::default(),
@@ -278,7 +278,7 @@ impl Arbitrary for DepositState {
             }),
             (block_height.clone()).prop_map(|height| {
                 DepositState::DepositPartialsCollected {
-                    block_height: height,
+                    last_block_height: height,
                     deposit_transaction: Transaction {
                         input: vec![],
                         output: vec![],
@@ -289,12 +289,12 @@ impl Arbitrary for DepositState {
             }),
             block_height.clone().prop_map(|height| {
                 DepositState::Deposited {
-                    block_height: height,
+                    last_block_height: height,
                 }
             }),
             block_height.clone().prop_map(|height| {
                 DepositState::Assigned {
-                    block_height: height,
+                    last_block_height: height,
                     assignee: TEST_ASSIGNEE,
                     deadline: height + TEST_ASSIGNMENT_DEADLINE_OFFSET,
                     recipient_desc: random_p2tr_desc(),
@@ -302,7 +302,7 @@ impl Arbitrary for DepositState {
             }),
             block_height.clone().prop_map(|height| {
                 DepositState::Fulfilled {
-                    block_height: height,
+                    last_block_height: height,
                     assignee: TEST_ASSIGNEE,
                     fulfillment_txid: generate_txid(),
                     fulfillment_height: height,
@@ -311,7 +311,7 @@ impl Arbitrary for DepositState {
             }),
             block_height.clone().prop_map(|height| {
                 DepositState::PayoutDescriptorReceived {
-                    block_height: height,
+                    last_block_height: height,
                     assignee: TEST_ASSIGNEE,
                     cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
                     operator_desc: random_p2tr_desc(),
@@ -325,7 +325,7 @@ impl Arbitrary for DepositState {
                     .collect();
                 let agg_nonce = musig2::AggNonce::sum(nonces.values().cloned());
                 DepositState::PayoutNoncesCollected {
-                    block_height: height,
+                    last_block_height: height,
                     assignee: TEST_ASSIGNEE,
                     operator_desc: random_p2tr_desc(),
                     cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
@@ -335,7 +335,7 @@ impl Arbitrary for DepositState {
                 }
             }),
             block_height.prop_map(|height| DepositState::CooperativePathFailed {
-                block_height: height
+                last_block_height: height
             }),
             Just(DepositState::Spent),
             Just(DepositState::Aborted),

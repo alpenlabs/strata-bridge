@@ -270,7 +270,7 @@ impl DepositSM {
                 match self.state_mut() {
                     DepositState::Created {
                         deposit_transaction,
-                        block_height,
+                        last_block_height,
                         linked_graphs,
                     } => {
                         // Check for duplicate graph submission
@@ -290,7 +290,7 @@ impl DepositSM {
                             // state
                             let new_state = DepositState::GraphGenerated {
                                 deposit_transaction: deposit_transaction.clone(),
-                                block_height: *block_height,
+                                last_block_height: *last_block_height,
                                 pubnonces: BTreeMap::new(),
                             };
                             self.state = new_state;
@@ -341,7 +341,7 @@ impl DepositSM {
         match self.state_mut() {
             DepositState::GraphGenerated {
                 deposit_transaction,
-                block_height,
+                last_block_height,
                 pubnonces,
             } => {
                 // Check for duplicate nonce submission
@@ -373,7 +373,7 @@ impl DepositSM {
                     // Transition to DepositNoncesCollected state
                     let new_state = DepositState::DepositNoncesCollected {
                         deposit_transaction: deposit_transaction.clone(),
-                        block_height: *block_height,
+                        last_block_height: *last_block_height,
                         agg_nonce: agg_nonce.clone(),
                         pubnonces: pubnonces.clone(),
                         partial_signatures: BTreeMap::new(),
@@ -442,13 +442,13 @@ impl DepositSM {
         match self.state_mut() {
             DepositState::DepositNoncesCollected {
                 deposit_transaction,
-                block_height,
+                last_block_height,
                 agg_nonce,
                 pubnonces,
                 partial_signatures,
             } => {
                 // Extract Copy types immediately using dereference pattern to bypass borrow checker
-                let blk_height = *block_height;
+                let blk_height = *last_block_height;
 
                 // Check for duplicate partial signature submission
                 if partial_signatures.contains_key(&operator_idx) {
@@ -527,7 +527,7 @@ impl DepositSM {
                     // Transition to DepositPartialsCollected state
                     self.state = DepositState::DepositPartialsCollected {
                         deposit_transaction: deposit_transaction.clone(),
-                        block_height: blk_height,
+                        last_block_height: blk_height,
                     };
 
                     // Create the duty to publish the deposit transaction
@@ -560,7 +560,7 @@ impl DepositSM {
     ) -> DSMResult<DSMOutput> {
         match self.state() {
             DepositState::DepositPartialsCollected {
-                block_height,
+                last_block_height,
                 deposit_transaction,
                 ..
             } => {
@@ -581,7 +581,7 @@ impl DepositSM {
                 }
                 // Transition to the Deposited State
                 self.state = DepositState::Deposited {
-                    block_height: *block_height,
+                    last_block_height: *last_block_height,
                 };
                 // No duties or signals required
                 Ok(DSMOutput::new())
@@ -591,7 +591,7 @@ impl DepositSM {
             // while aggregating it with the rest of the collected partials and broadcasts it
             // unilaterally.
             DepositState::DepositNoncesCollected {
-                block_height,
+                last_block_height,
                 deposit_transaction,
                 ..
             } => {
@@ -612,7 +612,7 @@ impl DepositSM {
                 }
                 // Transition to the Deposited State
                 self.state = DepositState::Deposited {
-                    block_height: *block_height,
+                    last_block_height: *last_block_height,
                 };
                 // No duties or signals required
                 Ok(DSMOutput::new())
@@ -634,10 +634,12 @@ impl DepositSM {
         recipient_desc: Descriptor,
     ) -> DSMResult<DSMOutput> {
         match self.state() {
-            DepositState::Deposited { block_height }
-            | DepositState::Assigned { block_height, .. } => {
+            DepositState::Deposited { last_block_height }
+            | DepositState::Assigned {
+                last_block_height, ..
+            } => {
                 self.state = DepositState::Assigned {
-                    block_height: *block_height,
+                    last_block_height: *last_block_height,
                     assignee,
                     deadline,
                     recipient_desc: recipient_desc.clone(),
@@ -674,7 +676,7 @@ impl DepositSM {
     ) -> DSMResult<DSMOutput> {
         match self.state() {
             DepositState::Assigned {
-                block_height,
+                last_block_height,
                 assignee,
                 ..
             } => {
@@ -688,7 +690,7 @@ impl DepositSM {
 
                 // Transition to the Fulfilled state
                 self.state = DepositState::Fulfilled {
-                    block_height: *block_height,
+                    last_block_height: *last_block_height,
                     assignee,
                     fulfillment_txid,
                     fulfillment_height,
@@ -722,7 +724,7 @@ impl DepositSM {
     ) -> DSMResult<DSMOutput> {
         match self.state() {
             DepositState::Fulfilled {
-                block_height,
+                last_block_height,
                 assignee,
                 cooperative_payout_deadline: cooperative_payment_deadline,
                 ..
@@ -731,7 +733,7 @@ impl DepositSM {
 
                 // Transition to the PayoutDescriptorReceived state
                 self.state = DepositState::PayoutDescriptorReceived {
-                    block_height: *block_height,
+                    last_block_height: *last_block_height,
                     assignee,
                     cooperative_payment_deadline: *cooperative_payment_deadline,
                     operator_desc: operator_desc.clone(),
@@ -766,7 +768,7 @@ impl DepositSM {
 
         match self.state_mut() {
             DepositState::PayoutDescriptorReceived {
-                block_height,
+                last_block_height,
                 assignee,
                 cooperative_payment_deadline,
                 operator_desc,
@@ -798,7 +800,7 @@ impl DepositSM {
 
                     // Transition to the PayoutNoncesCollected State.
                     self.state = DepositState::PayoutNoncesCollected {
-                        block_height: *block_height,
+                        last_block_height: *last_block_height,
                         assignee,
                         operator_desc: operator_desc.clone(),
                         cooperative_payment_deadline: *cooperative_payment_deadline,
@@ -1041,14 +1043,28 @@ impl DepositSM {
         }
 
         match self.state_mut() {
-            DepositState::Created { block_height, .. }
-            | DepositState::GraphGenerated { block_height, .. }
-            | DepositState::DepositNoncesCollected { block_height, .. }
-            | DepositState::DepositPartialsCollected { block_height, .. }
-            | DepositState::Deposited { block_height, .. }
-            | DepositState::Assigned { block_height, .. }
-            | DepositState::CooperativePathFailed { block_height, .. } => {
-                *block_height = new_block_height;
+            DepositState::Created {
+                last_block_height, ..
+            }
+            | DepositState::GraphGenerated {
+                last_block_height, ..
+            }
+            | DepositState::DepositNoncesCollected {
+                last_block_height, ..
+            }
+            | DepositState::DepositPartialsCollected {
+                last_block_height, ..
+            }
+            | DepositState::Deposited {
+                last_block_height, ..
+            }
+            | DepositState::Assigned {
+                last_block_height, ..
+            }
+            | DepositState::CooperativePathFailed {
+                last_block_height, ..
+            } => {
+                *last_block_height = new_block_height;
 
                 Ok(SMOutput {
                     duties: vec![],
@@ -1057,19 +1073,19 @@ impl DepositSM {
             }
 
             DepositState::Fulfilled {
-                block_height,
+                last_block_height,
                 assignee,
                 cooperative_payout_deadline: cooperative_payment_deadline,
                 ..
             }
             | DepositState::PayoutDescriptorReceived {
-                block_height,
+                last_block_height,
                 assignee,
                 cooperative_payment_deadline,
                 ..
             }
             | DepositState::PayoutNoncesCollected {
-                block_height,
+                last_block_height,
                 assignee,
                 cooperative_payment_deadline,
                 ..
@@ -1085,7 +1101,7 @@ impl DepositSM {
                 if has_cooperative_payout_timed_out {
                     // Transition to CooperativePathFailed state
                     self.state = DepositState::CooperativePathFailed {
-                        block_height: new_block_height,
+                        last_block_height: new_block_height,
                     };
 
                     // activate the graph if the cooperative payout path has failed
@@ -1100,7 +1116,7 @@ impl DepositSM {
                     });
                 }
 
-                *block_height = new_block_height;
+                *last_block_height = new_block_height;
 
                 Ok(SMOutput {
                     duties: vec![],
@@ -1151,7 +1167,7 @@ mod tests {
         let outpoint = OutPoint::default();
         let state = DepositState::Created {
             deposit_transaction: test_deposit_txn(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             linked_graphs: Default::default(),
         };
 
@@ -1176,7 +1192,7 @@ mod tests {
         let state = DepositState::GraphGenerated {
             deposit_transaction: test_deposit_txn(),
             pubnonces: Default::default(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
         let tx = test_takeback_tx(outpoint);
@@ -1191,7 +1207,7 @@ mod tests {
     #[test]
     fn test_drt_takeback_invalid_from_deposited() {
         let state = DepositState::Deposited {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
         let tx = test_takeback_tx(OutPoint::default());
@@ -1228,7 +1244,7 @@ mod tests {
         let initial_state = DepositState::Created {
             deposit_transaction: test_deposit_txn(),
             linked_graphs: Default::default(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
         let sm = create_sm(initial_state.clone());
@@ -1275,7 +1291,7 @@ mod tests {
     #[test]
     fn test_new_block_updates_height_in_deposited() {
         let state = DepositState::Deposited {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
         let block_height = LATER_BLOCK_HEIGHT;
@@ -1287,7 +1303,7 @@ mod tests {
         assert_eq!(
             sm.state(),
             &DepositState::Deposited {
-                block_height: LATER_BLOCK_HEIGHT
+                last_block_height: LATER_BLOCK_HEIGHT
             }
         );
     }
@@ -1296,7 +1312,7 @@ mod tests {
     fn test_new_block_triggers_cooperative_timeout() {
         const FULFILLMENT_HEIGHT: u64 = INITIAL_BLOCK_HEIGHT;
         let state = DepositState::Fulfilled {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             fulfillment_txid: Txid::all_zeros(),
             fulfillment_height: FULFILLMENT_HEIGHT,
@@ -1311,7 +1327,9 @@ mod tests {
         assert!(result.is_ok(), "Expected Ok result, got {:?}", result);
         assert_eq!(
             sm.state(),
-            &DepositState::CooperativePathFailed { block_height }
+            &DepositState::CooperativePathFailed {
+                last_block_height: block_height
+            }
         );
 
         // Check signal was emitted
@@ -1363,7 +1381,7 @@ mod tests {
         let deposit_tx = generate_spending_tx(deposit_request_outpoint, &[]);
 
         let state = DepositState::DepositPartialsCollected {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             deposit_transaction: deposit_tx.clone(),
         };
 
@@ -1376,7 +1394,7 @@ mod tests {
                     deposit_transaction: deposit_tx,
                 },
                 expected_state: DepositState::Deposited {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                 },
                 expected_duties: vec![],
                 expected_signals: vec![],
@@ -1391,7 +1409,7 @@ mod tests {
         let deposit_tx = test_deposit_txn();
 
         let state = DepositState::DepositNoncesCollected {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             deposit_transaction: deposit_tx.clone(),
             pubnonces: BTreeMap::new(),
             agg_nonce: generate_agg_nonce(),
@@ -1407,7 +1425,7 @@ mod tests {
                     deposit_transaction: deposit_tx.as_ref().clone(),
                 },
                 expected_state: DepositState::Deposited {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                 },
                 expected_duties: vec![],
                 expected_signals: vec![],
@@ -1426,39 +1444,39 @@ mod tests {
         let invalid_states = [
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 linked_graphs: BTreeSet::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 pubnonces: BTreeMap::new(),
             },
             DepositState::Deposited {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Assigned {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: desc.clone(),
             },
             DepositState::Fulfilled {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: Txid::all_zeros(),
                 fulfillment_height: INITIAL_BLOCK_HEIGHT,
                 cooperative_payout_deadline: LATER_BLOCK_HEIGHT,
             },
             DepositState::PayoutDescriptorReceived {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 operator_desc: desc.clone(),
                 payout_nonces: BTreeMap::new(),
             },
             DepositState::PayoutNoncesCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 operator_desc: desc.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -1467,7 +1485,7 @@ mod tests {
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Spent,
             DepositState::Aborted,
@@ -1497,7 +1515,7 @@ mod tests {
 
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             linked_graphs: BTreeSet::new(),
         };
 
@@ -1533,7 +1551,7 @@ mod tests {
 
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             linked_graphs: BTreeSet::new(),
         };
 
@@ -1585,7 +1603,7 @@ mod tests {
         );
 
         let state = DepositState::DepositPartialsCollected {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             deposit_transaction: expected_deposit_tx,
         };
 
@@ -1607,7 +1625,7 @@ mod tests {
 
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             linked_graphs: BTreeSet::new(),
         };
 
@@ -1659,7 +1677,7 @@ mod tests {
         );
 
         let state = DepositState::DepositNoncesCollected {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             deposit_transaction: test_deposit_txn(),
             pubnonces: BTreeMap::new(),
             agg_nonce: generate_agg_nonce(),
@@ -1704,7 +1722,7 @@ mod tests {
 
         let initial_state = DepositState::GraphGenerated {
             deposit_transaction: deposit_tx.clone(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces: BTreeMap::new(),
         };
 
@@ -1748,7 +1766,7 @@ mod tests {
 
         let initial_state = DepositState::GraphGenerated {
             deposit_transaction: deposit_tx.clone(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces: BTreeMap::new(),
         };
 
@@ -1791,7 +1809,7 @@ mod tests {
 
         let initial_state = DepositState::GraphGenerated {
             deposit_transaction: deposit_tx.clone(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces: BTreeMap::new(),
         };
 
@@ -1838,7 +1856,7 @@ mod tests {
 
         let initial_state = DepositState::DepositNoncesCollected {
             deposit_transaction: deposit_tx.clone(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
             agg_nonce: agg_nonce.clone(),
             partial_signatures: BTreeMap::new(),
@@ -1903,7 +1921,7 @@ mod tests {
 
         let initial_state = DepositState::DepositNoncesCollected {
             deposit_transaction: deposit_tx.clone(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
             agg_nonce: agg_nonce.clone(),
             partial_signatures: BTreeMap::new(),
@@ -1974,7 +1992,7 @@ mod tests {
 
         let initial_state = DepositState::DepositNoncesCollected {
             deposit_transaction: deposit_tx.clone(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
             agg_nonce: agg_nonce.clone(),
             partial_signatures: BTreeMap::new(),
@@ -2037,7 +2055,7 @@ mod tests {
 
         let initial_state = DepositState::DepositNoncesCollected {
             deposit_transaction: deposit_tx.clone(),
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
             agg_nonce: agg_nonce.clone(),
             partial_signatures: BTreeMap::new(),
@@ -2075,7 +2093,7 @@ mod tests {
         let desc = random_p2tr_desc();
 
         let state = DepositState::Deposited {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
@@ -2089,7 +2107,7 @@ mod tests {
                     recipient_desc: desc.clone(),
                 },
                 expected_state: DepositState::Assigned {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_POV_IDX,
                     deadline: LATER_BLOCK_HEIGHT,
                     recipient_desc: desc.clone(),
@@ -2111,7 +2129,7 @@ mod tests {
         let desc = random_p2tr_desc();
 
         let state = DepositState::Deposited {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
@@ -2125,7 +2143,7 @@ mod tests {
                     recipient_desc: desc.clone(),
                 },
                 expected_state: DepositState::Assigned {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_NONPOV_IDX,
                     deadline: LATER_BLOCK_HEIGHT,
                     recipient_desc: desc,
@@ -2146,7 +2164,7 @@ mod tests {
         assert_ne!(old_desc, new_desc, "must be diff");
 
         let state = DepositState::Assigned {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_NONPOV_IDX,
             deadline: LATER_BLOCK_HEIGHT,
             recipient_desc: old_desc,
@@ -2163,7 +2181,7 @@ mod tests {
                     recipient_desc: new_desc.clone(),
                 },
                 expected_state: DepositState::Assigned {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_POV_IDX,
                     deadline: REASSIGNMENT_DEADLINE,
                     recipient_desc: new_desc.clone(),
@@ -2187,7 +2205,7 @@ mod tests {
 
         // Start in Assigned state with POV operator
         let state = DepositState::Assigned {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_POV_IDX,
             deadline: LATER_BLOCK_HEIGHT,
             recipient_desc: old_desc,
@@ -2204,7 +2222,7 @@ mod tests {
                     recipient_desc: new_desc.clone(),
                 },
                 expected_state: DepositState::Assigned {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_NONPOV_IDX,
                     deadline: REASSIGNMENT_DEADLINE,
                     recipient_desc: new_desc,
@@ -2224,41 +2242,41 @@ mod tests {
         let invalid_states = [
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 linked_graphs: BTreeSet::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 pubnonces: BTreeMap::new(),
             },
             DepositState::DepositNoncesCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn(),
                 pubnonces: BTreeMap::new(),
                 agg_nonce: generate_agg_nonce(),
                 partial_signatures: BTreeMap::new(),
             },
             DepositState::DepositPartialsCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn().as_ref().clone(),
             },
             DepositState::Fulfilled {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: Txid::all_zeros(),
                 fulfillment_height: INITIAL_BLOCK_HEIGHT,
                 cooperative_payout_deadline: LATER_BLOCK_HEIGHT,
             },
             DepositState::PayoutDescriptorReceived {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 operator_desc: desc.clone(),
                 payout_nonces: BTreeMap::new(),
             },
             DepositState::PayoutNoncesCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 operator_desc: desc.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -2267,7 +2285,7 @@ mod tests {
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Spent,
             DepositState::Aborted,
@@ -2299,7 +2317,7 @@ mod tests {
         let desc = random_p2tr_desc();
 
         let state = DepositState::Assigned {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_POV_IDX,
             deadline: LATER_BLOCK_HEIGHT,
             recipient_desc: desc,
@@ -2315,7 +2333,7 @@ mod tests {
                     fulfillment_height: LATER_BLOCK_HEIGHT,
                 },
                 expected_state: DepositState::Fulfilled {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_POV_IDX,
                     fulfillment_txid: fulfillment_tx.compute_txid(),
                     fulfillment_height: LATER_BLOCK_HEIGHT,
@@ -2338,7 +2356,7 @@ mod tests {
         let desc = random_p2tr_desc();
 
         let state = DepositState::Assigned {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_NONPOV_IDX,
             deadline: LATER_BLOCK_HEIGHT,
             recipient_desc: desc,
@@ -2354,7 +2372,7 @@ mod tests {
                     fulfillment_height: LATER_BLOCK_HEIGHT,
                 },
                 expected_state: DepositState::Fulfilled {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_NONPOV_IDX,
                     fulfillment_txid: fulfillment_tx.compute_txid(),
                     fulfillment_height: LATER_BLOCK_HEIGHT,
@@ -2376,44 +2394,44 @@ mod tests {
         let invalid_states = [
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 linked_graphs: BTreeSet::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 pubnonces: BTreeMap::new(),
             },
             DepositState::DepositNoncesCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn(),
                 pubnonces: BTreeMap::new(),
                 agg_nonce: generate_agg_nonce(),
                 partial_signatures: BTreeMap::new(),
             },
             DepositState::DepositPartialsCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn().as_ref().clone(),
             },
             DepositState::Deposited {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Fulfilled {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: Txid::all_zeros(),
                 fulfillment_height: INITIAL_BLOCK_HEIGHT,
                 cooperative_payout_deadline: LATER_BLOCK_HEIGHT,
             },
             DepositState::PayoutDescriptorReceived {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 operator_desc: desc.clone(),
                 payout_nonces: BTreeMap::new(),
             },
             DepositState::PayoutNoncesCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 operator_desc: desc.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -2422,7 +2440,7 @@ mod tests {
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Spent,
             DepositState::Aborted,
@@ -2452,7 +2470,7 @@ mod tests {
         let operator_desc = random_p2tr_desc();
 
         let state = DepositState::Fulfilled {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             fulfillment_txid: generate_txid(),
             fulfillment_height: LATER_BLOCK_HEIGHT,
@@ -2468,7 +2486,7 @@ mod tests {
                     operator_desc: operator_desc.clone(),
                 },
                 expected_state: DepositState::PayoutDescriptorReceived {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
                     cooperative_payment_deadline: LATER_BLOCK_HEIGHT
                         + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
@@ -2494,43 +2512,43 @@ mod tests {
         let invalid_states = [
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 linked_graphs: BTreeSet::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 pubnonces: BTreeMap::new(),
             },
             DepositState::DepositNoncesCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn(),
                 pubnonces: BTreeMap::new(),
                 agg_nonce: generate_agg_nonce(),
                 partial_signatures: BTreeMap::new(),
             },
             DepositState::DepositPartialsCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn().as_ref().clone(),
             },
             DepositState::Deposited {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Assigned {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: desc.clone(),
             },
             DepositState::PayoutDescriptorReceived {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 operator_desc: desc.clone(),
                 payout_nonces: BTreeMap::new(),
             },
             DepositState::PayoutNoncesCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 operator_desc: desc.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -2539,7 +2557,7 @@ mod tests {
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Spent,
             DepositState::Aborted,
@@ -2569,7 +2587,7 @@ mod tests {
         let nonce = generate_pubnonce();
 
         let state = DepositState::PayoutDescriptorReceived {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             operator_desc: desc.clone(),
@@ -2589,7 +2607,7 @@ mod tests {
                     operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
                 },
                 expected_state: DepositState::PayoutDescriptorReceived {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
                     cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                     operator_desc: desc,
@@ -2624,7 +2642,7 @@ mod tests {
         let incoming_nonce = nonces[&incoming_idx].clone();
 
         let state = DepositState::PayoutDescriptorReceived {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             operator_desc: desc.clone(),
@@ -2641,7 +2659,7 @@ mod tests {
                     operator_idx: incoming_idx,
                 },
                 expected_state: DepositState::PayoutDescriptorReceived {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
                     cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                     operator_desc: desc,
@@ -2675,7 +2693,7 @@ mod tests {
         let incoming_nonce = all_nonces[&incoming_idx].clone();
 
         let state = DepositState::PayoutDescriptorReceived {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_NONPOV_IDX,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             operator_desc: desc.clone(),
@@ -2695,7 +2713,7 @@ mod tests {
                     operator_idx: incoming_idx,
                 },
                 expected_state: DepositState::PayoutNoncesCollected {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_NONPOV_IDX,
                     operator_desc: desc,
                     cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -2734,7 +2752,7 @@ mod tests {
         let incoming_nonce = all_nonces[&incoming_idx].clone();
 
         let state = DepositState::PayoutDescriptorReceived {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_POV_IDX,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             operator_desc: desc.clone(),
@@ -2754,7 +2772,7 @@ mod tests {
                     operator_idx: incoming_idx,
                 },
                 expected_state: DepositState::PayoutNoncesCollected {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_POV_IDX,
                     operator_desc: desc,
                     cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -2776,7 +2794,7 @@ mod tests {
         let nonce = generate_pubnonce();
 
         let initial_state = DepositState::PayoutDescriptorReceived {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             operator_desc: desc,
@@ -2819,7 +2837,7 @@ mod tests {
         let duplicate_nonce = generate_pubnonce();
 
         let initial_state = DepositState::PayoutDescriptorReceived {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             operator_desc: desc,
@@ -2868,43 +2886,43 @@ mod tests {
         let invalid_states = [
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 linked_graphs: BTreeSet::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 pubnonces: BTreeMap::new(),
             },
             DepositState::DepositNoncesCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn(),
                 pubnonces: BTreeMap::new(),
                 agg_nonce: generate_agg_nonce(),
                 partial_signatures: BTreeMap::new(),
             },
             DepositState::DepositPartialsCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn().as_ref().clone(),
             },
             DepositState::Deposited {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Assigned {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: desc.clone(),
             },
             DepositState::Fulfilled {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: Txid::all_zeros(),
                 fulfillment_height: INITIAL_BLOCK_HEIGHT,
                 cooperative_payout_deadline: LATER_BLOCK_HEIGHT,
             },
             DepositState::PayoutNoncesCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 operator_desc: desc.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -2913,7 +2931,7 @@ mod tests {
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Spent,
             DepositState::Aborted,
@@ -2968,7 +2986,7 @@ mod tests {
         let agg_nonce = AggNonce::sum(nonces.values().cloned());
 
         let state = DepositState::PayoutNoncesCollected {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee,
             operator_desc: operator_desc.clone(),
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -3023,7 +3041,7 @@ mod tests {
                     operator_idx: TEST_NON_ASSIGNEE_IDX,
                 },
                 expected_state: DepositState::PayoutNoncesCollected {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
                     operator_desc,
                     cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -3097,7 +3115,7 @@ mod tests {
                     operator_idx: incoming_idx,
                 },
                 expected_state: DepositState::PayoutNoncesCollected {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_POV_IDX,
                     operator_desc,
                     cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -3166,7 +3184,7 @@ mod tests {
                     operator_idx: incoming_idx,
                 },
                 expected_state: DepositState::PayoutNoncesCollected {
-                    block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_NONPOV_IDX,
                     operator_desc,
                     cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
@@ -3303,50 +3321,50 @@ mod tests {
         let invalid_states = [
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 linked_graphs: BTreeSet::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 pubnonces: BTreeMap::new(),
             },
             DepositState::DepositNoncesCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn(),
                 pubnonces: BTreeMap::new(),
                 agg_nonce: generate_agg_nonce(),
                 partial_signatures: BTreeMap::new(),
             },
             DepositState::DepositPartialsCollected {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn().as_ref().clone(),
             },
             DepositState::Deposited {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Assigned {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: desc.clone(),
             },
             DepositState::Fulfilled {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: Txid::all_zeros(),
                 fulfillment_height: INITIAL_BLOCK_HEIGHT,
                 cooperative_payout_deadline: LATER_BLOCK_HEIGHT,
             },
             DepositState::PayoutDescriptorReceived {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 operator_desc: desc.clone(),
                 payout_nonces: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::Spent,
             DepositState::Aborted,
@@ -3404,7 +3422,7 @@ mod tests {
     fn test_cooperative_timeout_sequence() {
         const FULFILLMENT_HEIGHT: u64 = INITIAL_BLOCK_HEIGHT;
         let initial_state = DepositState::Fulfilled {
-            block_height: INITIAL_BLOCK_HEIGHT,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             fulfillment_txid: Txid::all_zeros(),
             fulfillment_height: FULFILLMENT_HEIGHT,
@@ -3428,7 +3446,7 @@ mod tests {
         assert_eq!(
             seq.state(),
             &DepositState::CooperativePathFailed {
-                block_height: timeout_height
+                last_block_height: timeout_height
             }
         );
 
