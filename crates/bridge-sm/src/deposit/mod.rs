@@ -7,6 +7,7 @@
 //! - The tracking of the deposit UTXO on chain.
 //! - The collection of nonces and partials for spending the deposit cooperatively.
 
+pub mod config;
 pub mod duties;
 pub mod errors;
 pub mod events;
