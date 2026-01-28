@@ -50,7 +50,13 @@ class BaseEnv(flexitest.EnvConfig):
 
         return bitcoind, brpc, wallet_addr
 
-    def create_operator(self, ectx: flexitest.EnvContext, operator_idx, bitcoind_props):
+    def setup_fdb(self, ectx: flexitest.EnvContext):
+        """Setup FoundationDB instance."""
+        fdb_fac = ectx.get_factory("fdb")
+        fdb = fdb_fac.create_fdb()
+        return fdb
+
+    def create_operator(self, ectx: flexitest.EnvContext, operator_idx, bitcoind_props, fdb_props):
         """Create a single bridge operator (S2 service + Bridge node)."""
         s2_fac = ectx.get_factory("s2")
         bo_fac = ectx.get_factory("bofac")
@@ -60,7 +66,12 @@ class BaseEnv(flexitest.EnvConfig):
 
         s2_service = s2_fac.create_s2_service(operator_idx, operator_key)
         bridge_operator = bo_fac.create_server(
-            operator_idx, bitcoind_props, s2_service.props, self.operator_key_infos, self.p2p_ports
+            operator_idx,
+            bitcoind_props,
+            s2_service.props,
+            fdb_props,
+            self.operator_key_infos,
+            self.p2p_ports,
         )
 
         return s2_service, bridge_operator

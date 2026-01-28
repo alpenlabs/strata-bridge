@@ -73,6 +73,11 @@ class StakeTxConfig:
 
 
 @dataclass
+class FdbConfig:
+    cluster_file_path: str
+
+
+@dataclass
 class AsmRpcConfig:
     rpc_url: str
     request_timeout: Duration
@@ -93,6 +98,7 @@ class BridgeOperatorConfig:
     secret_service_client: SecretServiceClientConfig
     btc_client: BtcClientConfig
     db: DbConfig
+    fdb: FdbConfig
     p2p: P2pConfig
     rpc: RpcConfig
     asm_rpc: AsmRpcConfig
