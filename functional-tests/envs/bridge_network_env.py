@@ -29,10 +29,14 @@ class BridgeNetworkEnv(BaseEnv):
         bitcoind, brpc, wallet_addr = self.setup_bitcoin(ectx)
         svcs["bitcoin"] = bitcoind
 
+        # Setup FoundationDB
+        fdb = self.setup_fdb(ectx)
+        svcs["fdb"] = fdb
+
         # Create operators dynamically based on configuration
         for i in range(self.num_operators):
             s2_service, bridge_node, asm_service = self.create_operator(
-                ectx, i, bitcoind.props, brpc
+                ectx, i, bitcoind.props, brpc, fdb.props
             )
 
             # Fund operator
