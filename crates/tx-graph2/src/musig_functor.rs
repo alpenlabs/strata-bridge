@@ -7,21 +7,218 @@ use algebra::semigroup::Semigroup;
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 
-use crate::transactions::{
-    contest::ContestTx,
-    prelude::{
-        BridgeProofTimeoutTx, ContestedPayoutTx, CounterproofAckTx, CounterproofTx, SlashTx,
-        UncontestedPayoutTx,
-    },
+use crate::transactions::prelude::{
+    BridgeProofTimeoutTx, ContestTx, ContestedPayoutTx, CounterproofAckTx, CounterproofTx, SlashTx,
+    UncontestedPayoutTx,
 };
 
-/// Functor-like data structure for associating generic data
-/// with each presigned transaction input of the game graph.
+// NOTE: (@uncomputable) We have multiple functors that implement the same interface.
+// We want to ensure that the implementations are consistent and we want to reduce code duplication.
+//
+// My solution: `FunctorInner` implements the core methods that other functors can reference:
+// 1. The functor is converted to `FunctorInner`.
+// 2. The method is called.
+// 3. The functor is converted back.
+//
+// The two conversions are almost free, minus two allocations for watchtowers.
+// (Functors without watchtowers don't have any allocations.)
+// I argue that this is a small price to pay for achieving the above goals,
+// since the functor API is more about usability and less about being as efficient as possible.
+//
+// Higher-level methods like `zip3` that call other functor methods are implemented directly
+// for the respective functor. There is code duplication, but it's extremely repetitive code
+// that is thus easy to verify. We could even write a macro for this.
+/// Underlying data structure that implements the functor API.
 ///
-/// # Note
+/// All functors can be converted to and from `FunctorInner`.
 ///
-/// Transactions that are not presigned are not included.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// # Generics
+///
+/// - `N` is the total number of transaction inputs.
+/// - `M` is the total number of transaction inputs per watchtower. Each watchtower has the same
+///   number of transaction inputs.
+///
+/// If the functor has no watchtowers, then the `watchtowers` vector is empty.
+/// In this case, `M` should be set to 0.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FunctorInner<const N: usize, const M: usize, A> {
+    /// Data for each transaction input.
+    fields: [A; N],
+    // NOTE: (@uncomputable) Functors without watchtowers don't allocate
+    // because Vec::new() doesn't allocate.
+    /// Data for each watchtower.
+    ///
+    /// Each watchtower has data for each of its transaction inputs.
+    watchtowers: Vec<[A; M]>,
+}
+
+impl<const N: usize, const M: usize, A> FunctorInner<N, M, A> {
+    /// Maps the data to a new type.
+    fn map<B>(self, mut f: impl FnMut(A) -> B) -> FunctorInner<N, M, B> {
+        let mapped_fields = self.fields.map(&mut f);
+        let mapped_watchtowers = self
+            .watchtowers
+            .into_iter()
+            .map(|watchtower| watchtower.map(&mut f))
+            .collect();
+
+        FunctorInner {
+            fields: mapped_fields,
+            watchtowers: mapped_watchtowers,
+        }
+    }
+
+    /// Zips the data of two functors.
+    fn zip<B>(self, other: FunctorInner<N, M, B>) -> FunctorInner<N, M, (A, B)> {
+        let zipped_fields = zip_arrays(self.fields, other.fields);
+        let zipped_watchtowers = self
+            .watchtowers
+            .into_iter()
+            .zip(other.watchtowers)
+            .map(|(w1, w2)| zip_arrays(w1, w2))
+            .collect();
+
+        FunctorInner {
+            fields: zipped_fields,
+            watchtowers: zipped_watchtowers,
+        }
+    }
+
+    /// Zips a functor of functions with a functor of data,
+    /// resulting in a functor of mapped data.
+    fn zip_apply<B, O>(self, other: FunctorInner<N, M, B>) -> FunctorInner<N, M, O>
+    where
+        A: Fn(B) -> O,
+    {
+        let applied_fields = zip_apply_arrays(self.fields, other.fields);
+        let applied_watchtowers = self
+            .watchtowers
+            .into_iter()
+            .zip(other.watchtowers)
+            .map(|(w1, w2)| zip_apply_arrays(w1, w2))
+            .collect();
+
+        FunctorInner {
+            fields: applied_fields,
+            watchtowers: applied_watchtowers,
+        }
+    }
+
+    /// Converts a functor of options into an option of a functor,
+    /// returning `None` if any functor component is `None`.
+    fn sequence_option(option_a: FunctorInner<N, M, Option<A>>) -> Option<FunctorInner<N, M, A>> {
+        let sequenced_fields = sequence_option_array(option_a.fields)?;
+        let sequenced_watchtowers = option_a
+            .watchtowers
+            .into_iter()
+            .map(sequence_option_array)
+            .collect::<Option<Vec<_>>>()?;
+
+        Some(FunctorInner {
+            fields: sequenced_fields,
+            watchtowers: sequenced_watchtowers,
+        })
+    }
+
+    /// Converts a functor of results into the result of a functor,
+    /// returning `Err` if any functor component is `Err`.
+    ///
+    /// The returned `Err` is the first one that was encountered.
+    fn sequence_result<E>(
+        result_a: FunctorInner<N, M, Result<A, E>>,
+    ) -> Result<FunctorInner<N, M, A>, E> {
+        let sequenced_fields = sequence_result_array(result_a.fields)?;
+        let sequenced_watchtowers = result_a
+            .watchtowers
+            .into_iter()
+            .map(sequence_result_array)
+            .collect::<Result<Vec<_>, E>>()?;
+
+        Ok(FunctorInner {
+            fields: sequenced_fields,
+            watchtowers: sequenced_watchtowers,
+        })
+    }
+
+    /// Converts a vector of functors into a functor of vectors.
+    fn sequence_functor(vec_self: Vec<FunctorInner<N, M, A>>) -> FunctorInner<N, M, Vec<A>> {
+        let mut fields: [Vec<A>; N] = array::from_fn(|_| Vec::with_capacity(vec_self.len()));
+        let n_watchtowers = vec_self
+            .iter()
+            .map(|functor| functor.watchtowers.len())
+            .min()
+            .unwrap_or(0);
+        let mut watchtowers: Vec<[Vec<A>; M]> = (0..n_watchtowers)
+            .map(|_| array::from_fn(|_| Vec::with_capacity(vec_self.len())))
+            .collect();
+
+        for functor in vec_self {
+            functor
+                .fields
+                .into_iter()
+                .enumerate()
+                .for_each(|(i, field)| fields[i].push(field));
+
+            for (wt_idx, wt_fields) in functor
+                .watchtowers
+                .into_iter()
+                .take(n_watchtowers)
+                .enumerate()
+            {
+                wt_fields
+                    .into_iter()
+                    .enumerate()
+                    .for_each(|(i, field)| watchtowers[wt_idx][i].push(field));
+            }
+        }
+
+        FunctorInner {
+            fields,
+            watchtowers,
+        }
+    }
+}
+
+impl<const N: usize, const M: usize, A, B> FunctorInner<N, M, (A, B)> {
+    /// Converts a functor of pairs into two functors of the respective components.
+    fn unzip(self) -> (FunctorInner<N, M, A>, FunctorInner<N, M, B>) {
+        let (fields_a, fields_b) = unzip_array(self.fields);
+        let (watchtowers_a, watchtowers_b): (Vec<_>, Vec<_>) =
+            self.watchtowers.into_iter().map(unzip_array).unzip();
+
+        (
+            FunctorInner {
+                fields: fields_a,
+                watchtowers: watchtowers_a,
+            },
+            FunctorInner {
+                fields: fields_b,
+                watchtowers: watchtowers_b,
+            },
+        )
+    }
+}
+
+impl<const N: usize, const M: usize, A: Clone> FunctorInner<N, M, &A> {
+    /// Maps a functor of references to a functor of owned values by cloning its contents.
+    fn cloned(self) -> FunctorInner<N, M, A> {
+        let cloned_fields = self.fields.map(Clone::clone);
+        let cloned_watchtowers = self
+            .watchtowers
+            .into_iter()
+            .map(|watchtower| watchtower.map(Clone::clone))
+            .collect();
+
+        FunctorInner {
+            fields: cloned_fields,
+            watchtowers: cloned_watchtowers,
+        }
+    }
+}
+
+/// Functor-like structure that holds data for each
+/// presigned transaction input of a game graph.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GameFunctor<A> {
     /// Data for each input of the bridge proof timeout transaction.
     pub bridge_proof_timeout: [A; BridgeProofTimeoutTx::N_INPUTS],
@@ -39,10 +236,9 @@ pub struct GameFunctor<A> {
     pub watchtowers: Vec<WatchtowerFunctor<A>>,
 }
 
-/// Functor-like data structure for associating generic data
-/// with each presigned transaction input of the transactions
-/// of a given watchtower.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Functor-like structure that holds data for each
+/// presigned transaction input of a given watchtower.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WatchtowerFunctor<A> {
     /// For the contesting watchtower, data for the single contest transaction input.
     pub contest: [A; ContestTx::N_INPUTS],
@@ -52,67 +248,101 @@ pub struct WatchtowerFunctor<A> {
     pub counterproof_ack: [A; CounterproofAckTx::N_INPUTS],
 }
 
+const GAME_SINGLE_LEN: usize = UncontestedPayoutTx::N_INPUTS
+    + BridgeProofTimeoutTx::N_INPUTS
+    + ContestedPayoutTx::N_INPUTS
+    + SlashTx::N_INPUTS;
+const GAME_WATCHTOWER_LEN: usize =
+    ContestTx::N_INPUTS + CounterproofTx::N_INPUTS + CounterproofAckTx::N_INPUTS;
+type GameFunctorInner<A> = FunctorInner<GAME_SINGLE_LEN, GAME_WATCHTOWER_LEN, A>;
+
 impl<A> GameFunctor<A> {
-    /// Packs the data into a vector.
+    /// Converts a `GameFunctor` into a `FunctorInner`.
+    fn into_inner(self) -> GameFunctorInner<A> {
+        let [a, b] = self.bridge_proof_timeout;
+        let [c, d, e, f] = self.contested_payout;
+        let [g, h] = self.slash;
+        let [i, j, k] = self.uncontested_payout;
+
+        let fields = [a, b, c, d, e, f, g, h, i, j, k];
+        let watchtowers = self
+            .watchtowers
+            .into_iter()
+            .map(|wt| {
+                let [a] = wt.contest;
+                let [b] = wt.counterproof;
+                let [c, d] = wt.counterproof_ack;
+
+                [a, b, c, d]
+            })
+            .collect();
+
+        FunctorInner {
+            fields,
+            watchtowers,
+        }
+    }
+
+    /// Converts a `FunctorInner` into a `GameFunctor`.
+    fn from_inner(inner: GameFunctorInner<A>) -> Self {
+        let [a, b, c, d, e, f, g, h, i, j, k] = inner.fields;
+        let bridge_proof_timeout = [a, b];
+        let contested_payout = [c, d, e, f];
+        let slash = [g, h];
+        let uncontested_payout = [i, j, k];
+        let watchtowers = inner
+            .watchtowers
+            .into_iter()
+            .map(|wt| {
+                let [a, b, c, d] = wt;
+                WatchtowerFunctor {
+                    contest: [a],
+                    counterproof: [b],
+                    counterproof_ack: [c, d],
+                }
+            })
+            .collect();
+
+        GameFunctor {
+            bridge_proof_timeout,
+            contested_payout,
+            slash,
+            uncontested_payout,
+            watchtowers,
+        }
+    }
+
+    /// Consumes the functor and returns its data as a vector.
     pub fn pack(self) -> Vec<A> {
-        let total_len = BridgeProofTimeoutTx::N_INPUTS
-            + ContestedPayoutTx::N_INPUTS
-            + SlashTx::N_INPUTS
-            + UncontestedPayoutTx::N_INPUTS
-            + (ContestTx::N_INPUTS + CounterproofTx::N_INPUTS + CounterproofAckTx::N_INPUTS)
-                * self.watchtowers.len();
-
+        let total_len = GAME_SINGLE_LEN + GAME_WATCHTOWER_LEN * self.watchtowers.len();
         let mut packed = Vec::with_capacity(total_len);
-        packed.extend(self.bridge_proof_timeout);
-        packed.extend(self.contested_payout);
-        packed.extend(self.slash);
-        packed.extend(self.uncontested_payout);
+        let inner = self.into_inner();
+        packed.extend(inner.fields);
 
-        for watchtower in self.watchtowers {
-            packed.extend(watchtower.contest);
-            packed.extend(watchtower.counterproof);
-            packed.extend(watchtower.counterproof_ack);
+        for watchtower in inner.watchtowers {
+            packed.extend(watchtower);
         }
 
         debug_assert_eq!(packed.len(), total_len);
         packed
     }
 
-    /// Unpacks the data from a vector.
+    /// Attempts to create a new functor from a vector.
     ///
     /// The `n_watchtowers` parameter specifies how many watchtowers to expect.
-    pub fn unpack(graph_vec: Vec<A>, n_watchtowers: usize) -> Option<GameFunctor<A>> {
-        let mut cursor = graph_vec.into_iter();
-        let cursor = cursor.by_ref();
+    pub fn unpack(packed: Vec<A>, n_watchtowers: usize) -> Option<Self> {
+        let mut cursor = packed.into_iter();
+        let inner = FunctorInner::<GAME_SINGLE_LEN, GAME_WATCHTOWER_LEN, A> {
+            fields: take_array(&mut cursor)?,
+            watchtowers: (0..n_watchtowers)
+                .map(|_| take_array(&mut cursor))
+                .collect::<Option<Vec<_>>>()?,
+        };
 
-        let bridge_proof_timeout = take_array(cursor)?;
-        let contested_payout = take_array(cursor)?;
-        let slash = take_array(cursor)?;
-        let uncontested_payout = take_array(cursor)?;
-
-        let watchtowers = (0..n_watchtowers)
-            .map(|_| {
-                let contest = take_array(cursor)?;
-                let counterproof = take_array(cursor)?;
-                let counterproof_ack = take_array(cursor)?;
-                Some(WatchtowerFunctor {
-                    contest,
-                    counterproof,
-                    counterproof_ack,
-                })
-            })
-            .collect::<Option<Vec<WatchtowerFunctor<A>>>>()?;
-
-        Some(GameFunctor {
-            bridge_proof_timeout,
-            contested_payout,
-            slash,
-            uncontested_payout,
-            watchtowers,
-        })
+        Some(Self::from_inner(inner))
     }
 
-    /// Returns references to the data.
+    /// Converts a reference to a functor into a functor of references.
     pub fn as_ref(&self) -> GameFunctor<&A> {
         GameFunctor {
             bridge_proof_timeout: self.bridge_proof_timeout.each_ref(),
@@ -132,42 +362,13 @@ impl<A> GameFunctor<A> {
     }
 
     /// Maps the data to a new type.
-    pub fn map<B>(self, mut f: impl FnMut(A) -> B) -> GameFunctor<B> {
-        GameFunctor {
-            bridge_proof_timeout: self.bridge_proof_timeout.map(&mut f),
-            contested_payout: self.contested_payout.map(&mut f),
-            slash: self.slash.map(&mut f),
-            uncontested_payout: self.uncontested_payout.map(&mut f),
-            watchtowers: self
-                .watchtowers
-                .into_iter()
-                .map(|watchtower| WatchtowerFunctor {
-                    contest: watchtower.contest.map(&mut f),
-                    counterproof: watchtower.counterproof.map(&mut f),
-                    counterproof_ack: watchtower.counterproof_ack.map(&mut f),
-                })
-                .collect(),
-        }
+    pub fn map<O>(self, f: impl FnMut(A) -> O) -> GameFunctor<O> {
+        GameFunctor::from_inner(self.into_inner().map(f))
     }
 
     /// Zips the data of two functors.
     pub fn zip<B>(self, other: GameFunctor<B>) -> GameFunctor<(A, B)> {
-        GameFunctor {
-            bridge_proof_timeout: zip_arrays(self.bridge_proof_timeout, other.bridge_proof_timeout),
-            contested_payout: zip_arrays(self.contested_payout, other.contested_payout),
-            slash: zip_arrays(self.slash, other.slash),
-            uncontested_payout: zip_arrays(self.uncontested_payout, other.uncontested_payout),
-            watchtowers: self
-                .watchtowers
-                .into_iter()
-                .zip(other.watchtowers.into_iter())
-                .map(|(w1, w2)| WatchtowerFunctor {
-                    contest: zip_arrays(w1.contest, w2.contest),
-                    counterproof: zip_arrays(w1.counterproof, w2.counterproof),
-                    counterproof_ack: zip_arrays(w1.counterproof_ack, w2.counterproof_ack),
-                })
-                .collect(),
-        }
+        GameFunctor::from_inner(self.into_inner().zip(other.into_inner()))
     }
 
     /// Zips 3 functors into a functor of a 3-tuple.
@@ -201,24 +402,9 @@ impl<A> GameFunctor<A> {
     }
 
     /// Zips a functor of functions with a functor of data,
-    /// resulting in an functor of mapped data.
+    /// resulting in a functor of mapped data.>
     pub fn zip_apply<O>(f: GameFunctor<impl Fn(A) -> O>, a: GameFunctor<A>) -> GameFunctor<O> {
-        GameFunctor {
-            bridge_proof_timeout: zip_apply_arrays(f.bridge_proof_timeout, a.bridge_proof_timeout),
-            contested_payout: zip_apply_arrays(f.contested_payout, a.contested_payout),
-            slash: zip_apply_arrays(f.slash, a.slash),
-            uncontested_payout: zip_apply_arrays(f.uncontested_payout, a.uncontested_payout),
-            watchtowers: f
-                .watchtowers
-                .into_iter()
-                .zip(a.watchtowers.into_iter())
-                .map(|(w1, w2)| WatchtowerFunctor {
-                    contest: zip_apply_arrays(w1.contest, w2.contest),
-                    counterproof: zip_apply_arrays(w1.counterproof, w2.counterproof),
-                    counterproof_ack: zip_apply_arrays(w1.counterproof_ack, w2.counterproof_ack),
-                })
-                .collect(),
-        }
+        GameFunctor::from_inner(FunctorInner::zip_apply(f.into_inner(), a.into_inner()))
     }
 
     /// Zips the data of two functors and applies a function to the result.
@@ -269,201 +455,37 @@ impl<A> GameFunctor<A> {
 
     /// Converts a functor of options into an option of a functor,
     /// returning `None` if any functor component is `None`.
-    pub fn sequence_option(graph: GameFunctor<Option<A>>) -> Option<GameFunctor<A>> {
-        Some(GameFunctor {
-            bridge_proof_timeout: sequence_option_array(graph.bridge_proof_timeout)?,
-            contested_payout: sequence_option_array(graph.contested_payout)?,
-            slash: sequence_option_array(graph.slash)?,
-            uncontested_payout: sequence_option_array(graph.uncontested_payout)?,
-            watchtowers: graph
-                .watchtowers
-                .into_iter()
-                .map(|watchtower| {
-                    Some(WatchtowerFunctor {
-                        contest: sequence_option_array(watchtower.contest)?,
-                        counterproof: sequence_option_array(watchtower.counterproof)?,
-                        counterproof_ack: sequence_option_array(watchtower.counterproof_ack)?,
-                    })
-                })
-                .collect::<Option<Vec<_>>>()?,
-        })
+    pub fn sequence_option(option_a: GameFunctor<Option<A>>) -> Option<GameFunctor<A>> {
+        GameFunctorInner::sequence_option(option_a.into_inner()).map(GameFunctor::from_inner)
     }
 
     /// Converts a functor of results into the result of a functor,
     /// returning `Err` if any functor component is `Err`.
     ///
     /// The returned `Err` is the first one that was encountered.
-    pub fn sequence_result<E>(graph: GameFunctor<Result<A, E>>) -> Result<GameFunctor<A>, E> {
-        Ok(GameFunctor {
-            bridge_proof_timeout: sequence_result_array(graph.bridge_proof_timeout)?,
-            contested_payout: sequence_result_array(graph.contested_payout)?,
-            slash: sequence_result_array(graph.slash)?,
-            uncontested_payout: sequence_result_array(graph.uncontested_payout)?,
-            watchtowers: graph
-                .watchtowers
-                .into_iter()
-                .map(|watchtower| {
-                    Ok(WatchtowerFunctor {
-                        contest: sequence_result_array(watchtower.contest)?,
-                        counterproof: sequence_result_array(watchtower.counterproof)?,
-                        counterproof_ack: sequence_result_array(watchtower.counterproof_ack)?,
-                    })
-                })
-                .collect::<Result<Vec<_>, E>>()?,
-        })
+    pub fn sequence_result<E>(result_a: GameFunctor<Result<A, E>>) -> Result<GameFunctor<A>, E> {
+        GameFunctorInner::sequence_result(result_a.into_inner()).map(GameFunctor::from_inner)
     }
 
     /// Converts a vector of functors into a functor of vectors.
-    ///
-    /// The number of watchtowers in the resulting functor is the minimum
-    /// of the numbers of watchtowers from the input functors.
-    /// Excess watchtowers are truncated.
-    pub fn sequence_functor(graphs: Vec<GameFunctor<A>>) -> GameFunctor<Vec<A>> {
-        let n_watchtowers = graphs
-            .iter()
-            .map(|graph| graph.watchtowers.len())
-            .min()
-            .unwrap_or(0);
-
-        let mut bridge_proof_timeout_iter = Vec::with_capacity(graphs.len());
-        let mut contested_payout_iter = Vec::with_capacity(graphs.len());
-        let mut slash_iter = Vec::with_capacity(graphs.len());
-        let mut uncontested_payout_iter = Vec::with_capacity(graphs.len());
-        let mut watchtowers_iter = Vec::with_capacity(graphs.len());
-
-        for graph in graphs {
-            bridge_proof_timeout_iter.push(graph.bridge_proof_timeout.into_iter());
-            contested_payout_iter.push(graph.contested_payout.into_iter());
-            slash_iter.push(graph.slash.into_iter());
-            uncontested_payout_iter.push(graph.uncontested_payout.into_iter());
-            watchtowers_iter.push(graph.watchtowers.into_iter().take(n_watchtowers));
-        }
-
-        GameFunctor {
-            bridge_proof_timeout: array::from_fn(|_| {
-                bridge_proof_timeout_iter
-                    .iter_mut()
-                    .map(|it| it.next().unwrap())
-                    .collect()
-            }),
-            contested_payout: array::from_fn(|_| {
-                contested_payout_iter
-                    .iter_mut()
-                    .map(|it| it.next().unwrap())
-                    .collect()
-            }),
-            slash: array::from_fn(|_| slash_iter.iter_mut().map(|it| it.next().unwrap()).collect()),
-            uncontested_payout: array::from_fn(|_| {
-                uncontested_payout_iter
-                    .iter_mut()
-                    .map(|it| it.next().unwrap())
-                    .collect()
-            }),
-            watchtowers: (0..n_watchtowers)
-                .map(|_| {
-                    WatchtowerFunctor::sequence_functor(
-                        watchtowers_iter
-                            .iter_mut()
-                            .map(|it| it.next().unwrap())
-                            .collect(),
-                    )
-                })
-                .collect(),
-        }
-    }
-}
-
-impl<A> WatchtowerFunctor<A> {
-    /// Converts a vector of watchtower functors into a watchtower functor of vectors.
-    pub fn sequence_functor(watchtowers: Vec<WatchtowerFunctor<A>>) -> WatchtowerFunctor<Vec<A>> {
-        let mut contest_iter = Vec::with_capacity(watchtowers.len());
-        let mut counterproof_iter = Vec::with_capacity(watchtowers.len());
-        let mut counterproof_ack_iter = Vec::with_capacity(watchtowers.len());
-
-        for watchtower in watchtowers {
-            contest_iter.push(watchtower.contest.into_iter());
-            counterproof_iter.push(watchtower.counterproof.into_iter());
-            counterproof_ack_iter.push(watchtower.counterproof_ack.into_iter());
-        }
-
-        WatchtowerFunctor {
-            contest: array::from_fn(|_| {
-                contest_iter
-                    .iter_mut()
-                    .map(|it| it.next().unwrap())
-                    .collect()
-            }),
-            counterproof: array::from_fn(|_| {
-                counterproof_iter
-                    .iter_mut()
-                    .map(|it| it.next().unwrap())
-                    .collect()
-            }),
-            counterproof_ack: array::from_fn(|_| {
-                counterproof_ack_iter
-                    .iter_mut()
-                    .map(|it| it.next().unwrap())
-                    .collect()
-            }),
-        }
+    pub fn sequence_functor(vec_self: Vec<GameFunctor<A>>) -> GameFunctor<Vec<A>> {
+        let inners = vec_self.into_iter().map(GameFunctor::into_inner).collect();
+        GameFunctor::from_inner(GameFunctorInner::sequence_functor(inners))
     }
 }
 
 impl<A, B> GameFunctor<(A, B)> {
     /// Converts a functor of pairs into two functors of the respective components.
     pub fn unzip(self) -> (GameFunctor<A>, GameFunctor<B>) {
-        let (bridge_proof_timeout_a, bridge_proof_timeout_b) =
-            unzip_array(self.bridge_proof_timeout);
-        let (contested_payout_a, contested_payout_b) = unzip_array(self.contested_payout);
-        let (slash_a, slash_b) = unzip_array(self.slash);
-        let (uncontested_payout_a, uncontested_payout_b) = unzip_array(self.uncontested_payout);
-
-        let (watchtowers_a, watchtowers_b): (Vec<_>, Vec<_>) = self
-            .watchtowers
-            .into_iter()
-            .map(|watchtower| {
-                let (contest_a, contest_b) = unzip_array(watchtower.contest);
-                let (counterproof_a, counterproof_b) = unzip_array(watchtower.counterproof);
-                let (counterproof_ack_a, counterproof_ack_b) =
-                    unzip_array(watchtower.counterproof_ack);
-                (
-                    WatchtowerFunctor {
-                        contest: contest_a,
-                        counterproof: counterproof_a,
-                        counterproof_ack: counterproof_ack_a,
-                    },
-                    WatchtowerFunctor {
-                        contest: contest_b,
-                        counterproof: counterproof_b,
-                        counterproof_ack: counterproof_ack_b,
-                    },
-                )
-            })
-            .unzip();
-
-        (
-            GameFunctor {
-                bridge_proof_timeout: bridge_proof_timeout_a,
-                contested_payout: contested_payout_a,
-                slash: slash_a,
-                uncontested_payout: uncontested_payout_a,
-                watchtowers: watchtowers_a,
-            },
-            GameFunctor {
-                bridge_proof_timeout: bridge_proof_timeout_b,
-                contested_payout: contested_payout_b,
-                slash: slash_b,
-                uncontested_payout: uncontested_payout_b,
-                watchtowers: watchtowers_b,
-            },
-        )
+        let (a, b) = self.into_inner().unzip();
+        (GameFunctor::from_inner(a), GameFunctor::from_inner(b))
     }
 }
 
 impl<A: Clone> GameFunctor<&A> {
     /// Maps a functor of references to a functor of owned values by cloning its contents.
     pub fn cloned(self) -> GameFunctor<A> {
-        self.map(A::clone)
+        GameFunctor::from_inner(self.into_inner().cloned())
     }
 }
 
@@ -480,10 +502,9 @@ where
     }
 }
 
-impl<T: Semigroup> Semigroup for GameFunctor<T> {
-    /// [`MusigFunctor`] preserves the [`Semigroup`] structure of its leaves.
+impl<A: Semigroup> Semigroup for GameFunctor<A> {
     fn merge(self, other: Self) -> Self {
-        GameFunctor::<T>::zip_with(T::merge, self, other)
+        GameFunctor::zip_with(A::merge, self, other)
     }
 }
 
