@@ -7,6 +7,7 @@ pub mod cpfp;
 pub mod n_of_n;
 pub mod prelude;
 pub mod timelocked;
+pub mod unstaking_intent;
 
 #[cfg(any(test, feature = "test_utils"))]
 pub mod test_utils;

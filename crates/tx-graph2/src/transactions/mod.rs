@@ -14,7 +14,10 @@ pub mod deposit;
 pub mod not_presigned;
 pub mod prelude;
 pub mod slash;
+pub mod stake;
 pub mod uncontested_payout;
+pub mod unstaking;
+pub mod unstaking_intent;
 pub mod withdrawal_fulfillment;
 
 /// Bitcoin transaction that spends an N/N output.

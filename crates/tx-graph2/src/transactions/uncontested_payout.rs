@@ -49,7 +49,7 @@ impl UncontestedPayoutTx {
         deposit_connector: NOfNConnector,
         claim_contest_connector: ClaimContestConnector,
         claim_payout_connector: ClaimPayoutConnector,
-        operator_descriptor: Descriptor,
+        operator_descriptor: &Descriptor,
     ) -> Self {
         debug_assert!(deposit_connector.network() == claim_contest_connector.network());
         debug_assert!(deposit_connector.network() == claim_payout_connector.network());

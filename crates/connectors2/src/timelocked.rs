@@ -8,11 +8,13 @@
 //! 3. contest slash
 //! 4. counterproof_i
 //! 5. deposit request
+//! 6. unstaking
 
 use std::num::NonZero;
 
 use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf, Sequence};
 use secp256k1::{schnorr, Scalar, XOnlyPublicKey, SECP256K1};
+use strata_crypto::keys::constants::UNSPENDABLE_PUBLIC_KEY;
 
 use crate::{Connector, TaprootWitness};
 
@@ -312,6 +314,33 @@ impl DepositRequestConnector {
             timelock: deposit_timelock,
             value: deposit_amount,
         })
+    }
+}
+
+impl_timelocked_connector! {
+    /// Output between `Unstaking Intent` and `Unstaking`.
+    ///
+    /// The internal key is the unspendable key.
+    /// The timelocked key is the N/N key.
+    pub struct UnstakingOutput;
+}
+
+impl UnstakingOutput {
+    /// Creates a new connector.
+    pub fn new(
+        network: Network,
+        n_of_n_pubkey: XOnlyPublicKey,
+        game_timelock: relative::LockTime,
+    ) -> Self {
+        let mut inner = TimelockedConnector {
+            network,
+            internal_key: *UNSPENDABLE_PUBLIC_KEY,
+            timelocked_key: n_of_n_pubkey,
+            timelock: game_timelock,
+            value: Amount::ZERO,
+        };
+        inner.value = inner.script_pubkey().minimal_non_dust();
+        Self(inner)
     }
 }
 

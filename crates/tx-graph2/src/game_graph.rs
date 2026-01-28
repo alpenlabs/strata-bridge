@@ -16,7 +16,7 @@ use strata_l1_txfmt::MagicBytes;
 use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
-    musig_functor::MusigFunctor,
+    musig_functor::{GameFunctor, WatchtowerFunctor},
     transactions::{
         prelude::{
             BridgeProofTimeoutData, BridgeProofTimeoutTx, ClaimData, ClaimTx, ContestData,
@@ -139,8 +139,7 @@ pub struct CounterproofGraph {
     pub counterproof_ack: CounterproofAckTx,
 }
 
-/// Minimum necessary information to recognize
-/// all relevant transactions in a given [`GameGraph`].
+/// Collection of the IDs of all transactions of a [`GameGraph`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GameGraphSummary {
     /// ID of the claim transaction.
@@ -155,8 +154,7 @@ pub struct GameGraphSummary {
     pub slash: Txid,
 }
 
-/// Minimum necessary information to recognize
-/// all relevant transactions in a given [`CounterproofGraph`].
+/// Collection of the IDs of all transactions of a [`CounterproofGraph`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct CounterproofGraphSummary {
     /// ID of the counterproof transaction.
@@ -242,7 +240,7 @@ impl GameGraph {
             connectors.deposit,
             connectors.claim_contest.clone(),
             connectors.claim_payout,
-            keys.payout_operator_descriptor.clone(),
+            &keys.payout_operator_descriptor,
         );
 
         let contest_data = ContestData {
@@ -311,7 +309,7 @@ impl GameGraph {
             connectors.claim_payout,
             connectors.contest_payout,
             connectors.contest_slash,
-            keys.payout_operator_descriptor.clone(),
+            &keys.payout_operator_descriptor,
         );
 
         let slash_data = SlashData {
@@ -367,25 +365,23 @@ impl GameGraph {
     ///
     /// The counterproof transaction has multiple sighashes because it uses OP_CODESEPARATOR.
     /// For Musig2, only the first sighash is relevant, which is returned by this method.
-    pub fn musig_signing_info(&self) -> MusigFunctor<SigningInfo> {
-        MusigFunctor {
+    pub fn musig_signing_info(&self) -> GameFunctor<SigningInfo> {
+        GameFunctor {
             uncontested_payout: self.uncontested_payout.signing_info(),
-            contest: (0..self.contest.n_watchtowers())
-                .map(|watchtower_index| self.contest.signing_info(watchtower_index))
-                .collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.signing_info(),
-            counterproofs: self
-                .counterproofs
-                .iter()
-                .map(|subgraph| subgraph.counterproof.signing_info()[0])
-                .collect(),
-            counterproof_acks: self
-                .counterproofs
-                .iter()
-                .map(|subgraph| subgraph.counterproof_ack.signing_info())
-                .collect(),
             contested_payout: self.contested_payout.signing_info(),
             slash: self.slash.signing_info(),
+            watchtowers: (0..self.contest.n_watchtowers())
+                .map(|watchtower_index| WatchtowerFunctor {
+                    contest: [self.contest.signing_info(watchtower_index)],
+                    counterproof: self.counterproofs[watchtower_index as usize]
+                        .counterproof
+                        .signing_info(),
+                    counterproof_ack: self.counterproofs[watchtower_index as usize]
+                        .counterproof_ack
+                        .signing_info(),
+                })
+                .collect(),
         }
     }
 
@@ -407,7 +403,7 @@ impl GameGraph {
     /// The contest transaction has multiple spending paths leading to it,
     /// one for each watchtower. This method returns a vector of equal inpoints
     /// for the contest transaction.
-    pub fn musig_inpoints(&self) -> MusigFunctor<OutPoint> {
+    pub fn musig_inpoints(&self) -> GameFunctor<OutPoint> {
         let uncontested_payout_txid = self.uncontested_payout.as_ref().compute_txid();
         let contest_txid = self.contest.as_ref().compute_txid();
         let bridge_proof_timeout_txid = self.bridge_proof_timeout.as_ref().compute_txid();
@@ -416,29 +412,30 @@ impl GameGraph {
 
         // cast safety: the number of inputs of each transaction
         // is bounded and strictly less than u32::MAX
-        MusigFunctor {
+        GameFunctor {
             uncontested_payout: array::from_fn(|i| {
                 OutPoint::new(uncontested_payout_txid, i as u32)
             }),
-            contest: vec![OutPoint::new(contest_txid, 0); self.contest.n_watchtowers() as usize],
             bridge_proof_timeout: array::from_fn(|i| {
                 OutPoint::new(bridge_proof_timeout_txid, i as u32)
             }),
-            counterproofs: self
-                .counterproofs
-                .iter()
-                .map(|subgraph| OutPoint::new(subgraph.counterproof.as_ref().compute_txid(), 0))
-                .collect(),
-            counterproof_acks: self
+            contested_payout: array::from_fn(|i| OutPoint::new(contested_payout_txid, i as u32)),
+            slash: array::from_fn(|i| OutPoint::new(slash_txid, i as u32)),
+            watchtowers: self
                 .counterproofs
                 .iter()
                 .map(|subgraph| {
-                    let txid = subgraph.counterproof_ack.as_ref().compute_txid();
-                    array::from_fn(|i| OutPoint::new(txid, i as u32))
+                    let counterproof_txid = subgraph.counterproof.as_ref().compute_txid();
+                    let counterproof_ack_txid = subgraph.counterproof_ack.as_ref().compute_txid();
+                    WatchtowerFunctor {
+                        contest: [OutPoint::new(contest_txid, 0)],
+                        counterproof: [OutPoint::new(counterproof_txid, 0)],
+                        counterproof_ack: array::from_fn(|i| {
+                            OutPoint::new(counterproof_ack_txid, i as u32)
+                        }),
+                    }
                 })
                 .collect(),
-            contested_payout: array::from_fn(|i| OutPoint::new(contested_payout_txid, i as u32)),
-            slash: array::from_fn(|i| OutPoint::new(slash_txid, i as u32)),
         }
     }
 }
@@ -657,7 +654,9 @@ mod tests {
         );
         let claim_funds_amount = claim_contest_connector.value() + claim_payout_connector.value();
 
-        // Create a transaction that funds the claim, deposit and stake.
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │                       Funding Transaction                         │
+        // └───────────────────────────────────────────────────────────────────┘
         //
         // inputs         | outputs
         // ---------------+------------------------------------
@@ -850,7 +849,7 @@ mod tests {
         let child = node.create_cpfp_child(&game.contest, FEE * 2);
         assert_eq!(child.version, Version(3));
         let contest = game.contest.finalize(
-            presigned.contest[CONTESTING_WATCHTOWER_IDX as usize],
+            presigned.watchtowers[CONTESTING_WATCHTOWER_IDX as usize].contest[0],
             CONTESTING_WATCHTOWER_IDX,
             watchtower_signature,
         );
@@ -950,7 +949,7 @@ mod tests {
                 .map(|msg| signer.operator_keypair.sign_schnorr(msg))
                 .collect();
             let witness = ContestCounterproofWitness {
-                n_of_n_signature: presigned.counterproofs[0],
+                n_of_n_signature: presigned.watchtowers[0].counterproof[0],
                 operator_signatures,
             };
             let counterproof = game.counterproofs[0]
@@ -1006,7 +1005,7 @@ mod tests {
             let counterproof_ack = game.counterproofs[0]
                 .counterproof_ack
                 .clone()
-                .finalize(presigned.counterproof_acks[0]);
+                .finalize(presigned.watchtowers[0].counterproof_ack);
             assert_eq!(counterproof_ack.version, Version(3));
             let child = node.create_cpfp_child(&game.counterproofs[0].counterproof_ack, FEE * 2);
             assert_eq!(child.version, Version(3));

@@ -56,7 +56,7 @@ impl ContestedPayoutTx {
         claim_payout_connector: ClaimPayoutConnector,
         contest_payout_connector: ContestPayoutConnector,
         contest_slash_connector: ContestSlashConnector,
-        operator_descriptor: Descriptor,
+        operator_descriptor: &Descriptor,
     ) -> Self {
         debug_assert!(deposit_connector.network() == claim_payout_connector.network());
         debug_assert!(deposit_connector.network() == contest_payout_connector.network());
