@@ -29,10 +29,7 @@ use strata_bridge_tx_graph2::transactions::{
 };
 use strata_l1_txfmt::MagicBytes;
 
-use super::{
-    events::DepositEvent,
-    state::{DepositSM, DepositState},
-};
+use super::{events::DepositEvent, state::DepositState, state_machine::DepositSM};
 use crate::{
     deposit::config::DepositCfg,
     signals::GraphToDeposit,
