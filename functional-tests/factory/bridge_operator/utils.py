@@ -12,6 +12,7 @@ from .config_cfg import (
     BtcZmqConfig,
     DbConfig,
     Duration,
+    FdbConfig,
     P2pConfig,
     RpcConfig,
     SecretServiceClientConfig,
@@ -29,6 +30,7 @@ def zmq_connection_string(port: int) -> str:
 def generate_config_toml(
     bitcoind_props: dict,
     s2_props: dict,
+    fdb_props: dict,
     rpc_port: int,
     my_p2p_addr: str,
     other_p2p_addrs: list[str],
@@ -63,6 +65,9 @@ def generate_config_toml(
             retry_interval=1000,
         ),
         db=DbConfig(max_retry_count=3, backoff_period=Duration(secs=1000, nanos=0)),
+        fdb=FdbConfig(
+            cluster_file_path=fdb_props["cluster_file"],
+        ),
         p2p=P2pConfig(
             idle_connection_timeout=Duration(secs=1000, nanos=0),
             listening_addr=my_p2p_addr,

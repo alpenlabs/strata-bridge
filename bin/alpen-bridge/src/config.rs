@@ -1,6 +1,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use btc_tracker::config::BtcNotifyConfig;
+use db2::fdb::cfg::Config as FdbConfig;
 use duty_tracker::executors::config::StakeTxRetryConfig;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
@@ -54,6 +55,9 @@ pub(crate) struct Config {
 
     /// Configuration for the sqlite3 database.
     pub db: DbConfig,
+
+    /// Configuration for the FoundationDB database.
+    pub fdb: FdbConfig,
 
     /// Configuration for the P2P.
     pub p2p: P2PConfig,
@@ -228,6 +232,9 @@ mod tests {
             [db]
             max_retry_count = 3
             backoff_period = { secs = 1_000, nanos = 0 }
+
+            [fdb]
+            cluster_file_path = "/etc/foundationdb/fdb.cluster"
 
             [p2p]
             idle_connection_timeout = { secs = 1_000, nanos = 0 }
