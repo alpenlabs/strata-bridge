@@ -9,7 +9,7 @@ use std::{
     fmt::Display,
 };
 
-use bitcoin::{Amount, Network, OutPoint, Transaction, Txid, XOnlyPublicKey, relative::LockTime};
+use bitcoin::{Amount, Network, Transaction, Txid, XOnlyPublicKey, relative::LockTime};
 use bitcoin_bosd::Descriptor;
 use musig2::{
     AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures, secp256k1::schnorr,
@@ -18,9 +18,8 @@ use musig2::{
 use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
-    operator_table::OperatorTable,
     scripts::prelude::{TaprootWitness, get_aggregated_pubkey},
-    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, OperatorIdx},
 };
 use strata_bridge_tx_graph2::transactions::{
     PresignedTx,
@@ -30,6 +29,7 @@ use strata_bridge_tx_graph2::transactions::{
 
 use crate::{
     deposit::{
+        config::DepositCfg,
         duties::DepositDuty,
         errors::{DSMError, DSMResult},
         events::DepositEvent,
@@ -42,51 +42,6 @@ use crate::{
 /// is considered to have failed.
 // TODO: (@Rajil1213) Move this to a config
 const COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS: u64 = 144; // Approx. 24 hours
-
-// TODO: (@Rajil1213) Maybe move configuration to a separate `config` module.
-// This module will have a
-// - `DepositSMCfg` which contains values that are static over the
-//  lifetime of a single Deposit State Machine, and a
-// - `DepositGlobalCfg` which contains values that are static over the lifetime of all Deposit State
-//   Machines
-//  (such as timelocks).
-
-/// The static configuration for a Deposit State Machine.
-///
-/// These configurations are set at the creation of the Deposit State Machine and do not change
-/// during any state transition.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DepositCfg {
-    /// The index of the deposit being tracked in a Deposit State Machine.
-    pub(super) deposit_idx: DepositIdx,
-    /// The outpoint of the deposit being tracked in a Deposit State Machine.
-    pub(super) deposit_outpoint: OutPoint,
-    /// The operators involved in the signing of this deposit.
-    pub(super) operator_table: OperatorTable,
-    /// The network (mainnet, testnet, regtest, etc.) for the deposit.
-    // FIXME: (@mukeshdroid) network should not be part of state but a static config.
-    pub(super) network: Network,
-    /// The deposit amount.
-    // FIXME: (@mukeshdroid) deposit amount should not be part of state but a static config.
-    pub(super) deposit_amount: Amount,
-}
-
-impl DepositCfg {
-    /// Returns the deposit index.
-    pub const fn deposit_idx(&self) -> DepositIdx {
-        self.deposit_idx
-    }
-
-    /// Returns the outpoint of the deposit transaction.
-    pub const fn deposit_outpoint(&self) -> OutPoint {
-        self.deposit_outpoint
-    }
-
-    /// Returns the operator table.
-    pub const fn operator_table(&self) -> &OperatorTable {
-        &self.operator_table
-    }
-}
 
 /// The state of a Deposit.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1395,7 +1350,7 @@ mod tests {
 
     use std::{collections::BTreeMap, str::FromStr};
 
-    use bitcoin::hashes::Hash;
+    use bitcoin::{OutPoint, hashes::Hash};
     use bitcoin_bosd::Descriptor;
     use proptest::prelude::*;
     use secp256k1::Message;

@@ -31,9 +31,10 @@ use strata_l1_txfmt::MagicBytes;
 
 use super::{
     events::DepositEvent,
-    state::{DepositCfg, DepositSM, DepositState},
+    state::{DepositSM, DepositState},
 };
 use crate::{
+    deposit::config::DepositCfg,
     signals::GraphToDeposit,
     testing::{
         fixtures::{test_payout_tx, test_takeback_tx},
