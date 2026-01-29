@@ -17,17 +17,17 @@ use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DepositCfg {
     /// The index of the deposit being tracked in a Deposit State Machine.
-    pub(super) deposit_idx: DepositIdx,
+    pub deposit_idx: DepositIdx,
     /// The outpoint of the deposit being tracked in a Deposit State Machine.
-    pub(super) deposit_outpoint: OutPoint,
+    pub deposit_outpoint: OutPoint,
     /// The operators involved in the signing of this deposit.
-    pub(super) operator_table: OperatorTable,
+    pub operator_table: OperatorTable,
     /// The network (mainnet, testnet, regtest, etc.) for the deposit.
     // FIXME: (@mukeshdroid) network should not be part of state but a static config.
-    pub(super) network: Network,
+    pub network: Network,
     /// The deposit amount.
     // FIXME: (@mukeshdroid) deposit amount should not be part of state but a static config.
-    pub(super) deposit_amount: Amount,
+    pub deposit_amount: Amount,
 }
 
 impl DepositCfg {

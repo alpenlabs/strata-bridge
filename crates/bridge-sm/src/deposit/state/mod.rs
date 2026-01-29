@@ -4,6 +4,10 @@
 //! with respect to the multisig. Each state represents a specific point in the process
 //! of handling a deposit, from the initial request to the final spend.
 
+pub mod config;
+pub mod machine;
+pub mod transitions;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Display,

@@ -23,11 +23,10 @@ use strata_bridge_tx_graph2::transactions::{
 
 use crate::{
     deposit::{
-        config::DepositCfg,
         duties::DepositDuty,
         errors::{DSMError, DSMResult},
         events::DepositEvent,
-        state::DepositState,
+        state::{DepositState, config::DepositCfg},
     },
     signals::{DepositSignal, DepositToGraph, GraphToDeposit},
     state_machine::{SMOutput, StateMachine},
@@ -45,9 +44,9 @@ const COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS: u64 = 144; // Approx. 24 hours
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepositSM {
     /// The static configuration for this Deposit State Machine.
-    pub(super) cfg: DepositCfg,
+    pub cfg: DepositCfg,
     /// The current state of the Deposit State Machine.
-    pub(super) state: DepositState,
+    pub state: DepositState,
 }
 
 impl StateMachine for DepositSM {
