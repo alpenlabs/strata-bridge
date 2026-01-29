@@ -1,7 +1,7 @@
 //! Unit Tests for process_new_block
 #[cfg(test)]
 mod tests {
-    use bitcoin::{OutPoint, Txid, hashes::Hash as _};
+    use bitcoin::{OutPoint, Txid, hashes::Hash};
 
     use crate::{
         deposit::{
@@ -10,7 +10,7 @@ mod tests {
             state::{
                 DepositState,
                 machine::{COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, DepositSM},
-                tests::{INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_ASSIGNEE, create_sm},
+                tests::*,
             },
         },
         signals::{DepositSignal, DepositToGraph},
