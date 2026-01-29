@@ -2,7 +2,7 @@
 
 use bitcoin::{absolute, transaction::Version, Amount, OutPoint, Transaction, TxOut};
 use strata_bridge_connectors2::{
-    prelude::{ClaimContestConnector, ClaimPayoutConnector, CpfpConnector},
+    prelude::{ClaimContestConnector, ClaimPayoutConnector, P2AConnector},
     Connector, ParentTx,
 };
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
@@ -18,7 +18,7 @@ pub struct ClaimData {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClaimTx {
     tx: Transaction,
-    cpfp_connector: CpfpConnector,
+    cpfp_connector: P2AConnector,
 }
 
 impl ClaimTx {
@@ -36,7 +36,7 @@ impl ClaimTx {
         claim_payout_connector: ClaimPayoutConnector,
     ) -> Self {
         debug_assert!(claim_contest_connector.network() == claim_payout_connector.network());
-        let cpfp_connector = CpfpConnector::new(claim_contest_connector.network(), Amount::ZERO);
+        let cpfp_connector = P2AConnector::new(claim_contest_connector.network(), Amount::ZERO);
 
         let input = create_tx_ins([data.claim_funds]);
         let output = vec![

@@ -10,7 +10,7 @@ use secp256k1::schnorr;
 use strata_asm_txs_bridge_v1::slash::SlashTxHeaderAux;
 use strata_bridge_connectors2::{
     prelude::{
-        ContestSlashConnector, CpfpConnector, NOfNConnector, NOfNSpend, TimelockedSpendPath,
+        ContestSlashConnector, NOfNConnector, NOfNSpend, P2AConnector, TimelockedSpendPath,
         TimelockedWitness,
     },
     Connector, ParentTx, SigningInfo,
@@ -53,7 +53,7 @@ pub struct SlashTx {
     prevouts: [TxOut; Self::N_INPUTS],
     contest_slash_connector: ContestSlashConnector,
     stake_connector: NOfNConnector,
-    cpfp_connector: CpfpConnector,
+    cpfp_connector: P2AConnector,
 }
 
 impl SlashTx {
@@ -75,7 +75,7 @@ impl SlashTx {
             None => panic!("The total stake must be divisible by the number of watchtowers. Total stake = {}, number of watchtowers = {}", stake_connector.value(), watchtower_descriptors.len()),
         };
         debug_assert!(contest_slash_connector.network() == stake_connector.network());
-        let cpfp_connector = CpfpConnector::new(
+        let cpfp_connector = P2AConnector::new(
             contest_slash_connector.network(),
             contest_slash_connector.value(),
         );

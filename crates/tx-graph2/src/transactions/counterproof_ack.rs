@@ -9,7 +9,7 @@ use bitcoin::{
 use secp256k1::schnorr;
 use strata_bridge_connectors2::{
     prelude::{
-        ContestPayoutConnector, CounterproofConnector, CpfpConnector, TimelockedSpendPath,
+        ContestPayoutConnector, CounterproofConnector, P2AConnector, TimelockedSpendPath,
         TimelockedWitness,
     },
     Connector, ParentTx, SigningInfo,
@@ -36,7 +36,7 @@ pub struct CounterproofAckTx {
     prevouts: [TxOut; Self::N_INPUTS],
     counterproof_connector: CounterproofConnector,
     contest_payout_connector: ContestPayoutConnector,
-    cpfp_connector: CpfpConnector,
+    cpfp_connector: P2AConnector,
 }
 
 impl CounterproofAckTx {
@@ -52,7 +52,7 @@ impl CounterproofAckTx {
         contest_payout_connector: ContestPayoutConnector,
     ) -> Self {
         debug_assert!(counterproof_connector.network() == contest_payout_connector.network());
-        let cpfp_connector = CpfpConnector::new(
+        let cpfp_connector = P2AConnector::new(
             counterproof_connector.network(),
             counterproof_connector.value() + contest_payout_connector.value(),
         );

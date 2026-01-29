@@ -11,7 +11,7 @@ use strata_bridge_connectors2::{
     prelude::{
         ClaimContestConnector, ClaimContestSpendPath, ClaimContestWitness,
         ContestCounterproofOutput, ContestPayoutConnector, ContestProofConnector,
-        ContestSlashConnector, CpfpConnector,
+        ContestSlashConnector, P2AConnector,
     },
     Connector, ParentTx, SigningInfo,
 };
@@ -35,7 +35,7 @@ pub struct ContestTx {
     payout_connector: ContestPayoutConnector,
     slash_connector: ContestSlashConnector,
     counterproof_output: ContestCounterproofOutput,
-    cpfp_connector: CpfpConnector,
+    cpfp_connector: P2AConnector,
 }
 
 impl ContestTx {
@@ -65,7 +65,7 @@ impl ContestTx {
         debug_assert!(claim_contest_connector.network() == payout_connector.network());
         debug_assert!(claim_contest_connector.network() == slash_connector.network());
         debug_assert!(claim_contest_connector.network() == counterproof_output.network());
-        let cpfp_connector = CpfpConnector::new(claim_contest_connector.network(), Amount::ZERO);
+        let cpfp_connector = P2AConnector::new(claim_contest_connector.network(), Amount::ZERO);
 
         let prevouts = [claim_contest_connector.tx_out()];
         let input = vec![TxIn {

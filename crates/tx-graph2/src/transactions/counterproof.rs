@@ -10,7 +10,7 @@ use secp256k1::Message;
 use strata_bridge_connectors2::{
     prelude::{
         ContestCounterproofOutput, ContestCounterproofSpend, ContestCounterproofWitness,
-        CounterproofConnector, CpfpConnector,
+        CounterproofConnector, P2AConnector,
     },
     Connector, ParentTx, SigningInfo,
 };
@@ -34,7 +34,7 @@ pub struct CounterproofTx {
     watchtower_index: u32,
     contest_counterproof_output: ContestCounterproofOutput,
     counterproof_connector: CounterproofConnector,
-    cpfp_connector: CpfpConnector,
+    cpfp_connector: P2AConnector,
 }
 
 impl CounterproofTx {
@@ -58,8 +58,7 @@ impl CounterproofTx {
             contest_counterproof_output.value(),
             counterproof_connector.value()
         );
-        let cpfp_connector =
-            CpfpConnector::new(contest_counterproof_output.network(), Amount::ZERO);
+        let cpfp_connector = P2AConnector::new(contest_counterproof_output.network(), Amount::ZERO);
 
         let prevouts = [contest_counterproof_output.tx_out()];
         let input = vec![TxIn {

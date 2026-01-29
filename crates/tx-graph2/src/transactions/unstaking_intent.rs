@@ -9,7 +9,7 @@ use bitcoin::{
 use strata_asm_txs_bridge_v1::unstake::UnstakeTxHeaderAux;
 use strata_bridge_connectors2::{
     prelude::{
-        CpfpConnector, UnstakingIntentOutput, UnstakingIntentSpend, UnstakingIntentWitness,
+        P2AConnector, UnstakingIntentOutput, UnstakingIntentSpend, UnstakingIntentWitness,
         UnstakingOutput,
     },
     Connector, ParentTx, SigningInfo,
@@ -49,7 +49,7 @@ pub struct UnstakingIntentTx {
     prevouts: [TxOut; Self::N_INPUTS],
     unstaking_intent_output: UnstakingIntentOutput,
     unstaking_output: UnstakingOutput,
-    cpfp_connector: CpfpConnector,
+    cpfp_connector: P2AConnector,
 }
 
 impl UnstakingIntentTx {
@@ -69,7 +69,7 @@ impl UnstakingIntentTx {
         unstaking_output: UnstakingOutput,
     ) -> Self {
         debug_assert!(unstaking_intent_output.network() == unstaking_output.network());
-        let cpfp_connector = CpfpConnector::new(unstaking_intent_output.network(), Amount::ZERO);
+        let cpfp_connector = P2AConnector::new(unstaking_intent_output.network(), Amount::ZERO);
 
         let prevouts = [unstaking_intent_output.tx_out()];
         let input = vec![TxIn {
