@@ -16,7 +16,7 @@ use strata_state::BlockSubmitter;
 
 use crate::config::AsmRpcConfig;
 
-/// Drive the ASM worker by subscribing to Bitcoin block events from BtcTracker
+/// Drive the ASM worker by subscribing to Bitcoin [`BlockEvent`](btc_tracker::event::BlockEvent).
 ///
 /// This function subscribes to block events from the BTC tracker and submits
 /// them to the ASM worker for processing.
