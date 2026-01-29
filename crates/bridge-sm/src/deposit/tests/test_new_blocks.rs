@@ -7,7 +7,7 @@ mod tests {
         deposit::{
             errors::DSMError,
             events::{DepositEvent, NewBlockEvent, PayoutConfirmedEvent},
-            machine::{COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, DepositSM},
+            machine::DepositSM,
             state::DepositState,
             tests::*,
         },
@@ -43,10 +43,12 @@ mod tests {
             assignee: TEST_ASSIGNEE,
             fulfillment_txid: Txid::all_zeros(),
             fulfillment_height: FULFILLMENT_HEIGHT,
-            cooperative_payout_deadline: FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+            cooperative_payout_deadline: FULFILLMENT_HEIGHT
+                + test_bridge_cfg().cooperative_payout_timeout_blocks(),
         };
 
-        let block_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
+        let block_height =
+            FULFILLMENT_HEIGHT + test_bridge_cfg().cooperative_payout_timeout_blocks();
 
         let mut sm = create_sm(state);
         let result = sm.process_new_block(NewBlockEvent { block_height });

@@ -89,7 +89,7 @@ impl DepositSM {
                         signals: vec![DepositSignal::ToGraph(
                             DepositToGraph::CooperativePayoutFailed {
                                 assignee,
-                                deposit_idx: self.cfg().deposit_idx,
+                                deposit_idx: self.sm_cfg().deposit_idx(),
                             },
                         )],
                     });
