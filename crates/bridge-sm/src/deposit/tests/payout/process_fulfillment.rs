@@ -11,7 +11,7 @@ mod tests {
             duties::DepositDuty,
             errors::DSMError,
             events::{DepositEvent, FulfillmentConfirmedEvent},
-            machine::{COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, DepositSM},
+            machine::DepositSM,
             state::DepositState,
             tests::*,
         },
@@ -47,7 +47,7 @@ mod tests {
                     fulfillment_txid: fulfillment_tx.compute_txid(),
                     fulfillment_height: LATER_BLOCK_HEIGHT,
                     cooperative_payout_deadline: LATER_BLOCK_HEIGHT
-                        + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+                        + test_bridge_cfg().cooperative_payout_timeout_blocks(),
                 },
                 expected_duties: vec![DepositDuty::RequestPayoutNonces {
                     deposit_idx: TEST_DEPOSIT_IDX,
@@ -86,7 +86,7 @@ mod tests {
                     fulfillment_txid: fulfillment_tx.compute_txid(),
                     fulfillment_height: LATER_BLOCK_HEIGHT,
                     cooperative_payout_deadline: LATER_BLOCK_HEIGHT
-                        + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+                        + test_bridge_cfg().cooperative_payout_timeout_blocks(),
                 },
                 expected_duties: vec![], // No duty since POV is not the assignee
                 expected_signals: vec![],

@@ -2,23 +2,19 @@
 //!
 //! Responsible for driving deposit progress by reacting to events and
 //! producing the required duties and signals.
-use bitcoin::{Amount, Network, XOnlyPublicKey, relative::LockTime};
+use bitcoin::{XOnlyPublicKey, relative::LockTime};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph2::transactions::prelude::DepositData;
 
 use crate::{
+    config::BridgeCfg,
     deposit::{
-        config::DepositCfg, duties::DepositDuty, errors::DSMError, events::DepositEvent,
+        config::DepositSMCfg, duties::DepositDuty, errors::DSMError, events::DepositEvent,
         state::DepositState,
     },
     signals::DepositSignal,
     state_machine::{SMOutput, StateMachine},
 };
-
-/// The number of blocks after the fulfillment confirmation after which the cooperative payout path
-/// is considered to have failed.
-// TODO: (@Rajil1213) Move this to a config
-pub const COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS: u64 = 144; // Approx. 24 hours
 
 /// The State Machine that tracks the state of a deposit utxo at any given time (including the state
 /// of cooperative payout process)
@@ -26,8 +22,10 @@ pub const COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS: u64 = 144; // Approx. 24 hours
 /// This includes some static configuration along with the actual state of the deposit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepositSM {
-    /// The static configuration for this Deposit State Machine.
-    pub cfg: DepositCfg,
+    /// Bridge-wide configuration shared across all state machines.
+    pub bridge_cfg: BridgeCfg,
+    /// Per-instance configuration for this specific deposit state machine.
+    pub sm_cfg: DepositSMCfg,
     /// The current state of the Deposit State Machine.
     pub state: DepositState,
 }
@@ -51,9 +49,10 @@ impl StateMachine for DepositSM {
             }
             DepositEvent::DepositConfirmed(confirmed) => self.process_deposit_confirmed(confirmed),
             DepositEvent::WithdrawalAssigned(assignment) => self.process_assignment(assignment),
-            DepositEvent::FulfillmentConfirmed(fulfillment) => {
-                self.process_fulfillment(fulfillment, COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS)
-            }
+            DepositEvent::FulfillmentConfirmed(fulfillment) => self.process_fulfillment(
+                fulfillment,
+                self.bridge_cfg.cooperative_payout_timeout_blocks,
+            ),
             DepositEvent::PayoutDescriptorReceived(descriptor) => {
                 self.process_payout_descriptor_received(descriptor)
             }
@@ -83,23 +82,22 @@ impl DepositSM {
     ///
     /// The state machine starts in [`DepositState::Created`] by constructing an initial
     /// [`DepositState`] via [`DepositState::new`].
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
-        cfg: DepositCfg,
-        deposit_ammount: Amount,
+        bridge_cfg: BridgeCfg,
+        sm_cfg: DepositSMCfg,
         deposit_time_lock: LockTime,
-        network: Network,
         deposit_data: DepositData,
         depositor_pubkey: XOnlyPublicKey,
         n_of_n_pubkey: XOnlyPublicKey,
         block_height: BitcoinBlockHeight,
     ) -> Self {
         DepositSM {
-            cfg,
+            bridge_cfg: bridge_cfg.clone(),
+            sm_cfg: sm_cfg.clone(),
             state: DepositState::new(
-                deposit_ammount,
+                bridge_cfg.deposit_amount(),
                 deposit_time_lock,
-                network,
+                bridge_cfg.network(),
                 deposit_data,
                 depositor_pubkey,
                 n_of_n_pubkey,
@@ -108,9 +106,9 @@ impl DepositSM {
         }
     }
 
-    /// Returns a reference to the configuration of the Deposit State Machine.
-    pub const fn cfg(&self) -> &DepositCfg {
-        &self.cfg
+    /// Returns a reference to the per-instance configuration of the Deposit State Machine.
+    pub const fn sm_cfg(&self) -> &DepositSMCfg {
+        &self.sm_cfg
     }
 
     /// Returns a reference to the current state of the Deposit State Machine.
@@ -130,8 +128,8 @@ impl DepositSM {
         event: &impl ToString,
     ) -> Result<(), DSMError> {
         if self
-            .cfg()
-            .operator_table
+            .sm_cfg
+            .operator_table()
             .idx_to_btc_key(&operator_idx)
             .is_some()
         {

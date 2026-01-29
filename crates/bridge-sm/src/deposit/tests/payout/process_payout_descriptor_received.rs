@@ -8,7 +8,7 @@ mod tests {
             duties::DepositDuty,
             errors::DSMError,
             events::{DepositEvent, PayoutDescriptorReceivedEvent},
-            machine::{COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, DepositSM},
+            machine::DepositSM,
             state::DepositState,
             tests::*,
         },
@@ -26,7 +26,8 @@ mod tests {
             assignee: TEST_ASSIGNEE,
             fulfillment_txid: generate_txid(),
             fulfillment_height: LATER_BLOCK_HEIGHT,
-            cooperative_payout_deadline: LATER_BLOCK_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+            cooperative_payout_deadline: LATER_BLOCK_HEIGHT
+                + test_bridge_cfg().cooperative_payout_timeout_blocks(),
         };
 
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
@@ -41,12 +42,12 @@ mod tests {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
                     cooperative_payment_deadline: LATER_BLOCK_HEIGHT
-                        + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+                        + test_bridge_cfg().cooperative_payout_timeout_blocks(),
                     operator_desc: operator_desc.clone(),
                     payout_nonces: BTreeMap::new(),
                 },
                 expected_duties: vec![DepositDuty::PublishPayoutNonce {
-                    deposit_outpoint: test_cfg().deposit_outpoint,
+                    deposit_outpoint: test_sm_cfg().deposit_outpoint(),
                     operator_idx: TEST_ASSIGNEE,
                     operator_desc,
                 }],
