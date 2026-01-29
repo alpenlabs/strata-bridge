@@ -9,13 +9,13 @@ workspace = true
 [dependencies]
 btc-tracker.workspace = true
 strata-asm-rpc.workspace = true
+strata-bridge-common.workspace = true
 
 bitcoind-async-client.workspace = true
 strata-asm-common.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-txs-bridge-v1.workspace = true
 strata-asm-worker.workspace = true
-strata-bridge-common.workspace = true
 strata-btc-types.workspace = true
 strata-db-store-sled.workspace = true
 strata-identifiers.workspace = true
