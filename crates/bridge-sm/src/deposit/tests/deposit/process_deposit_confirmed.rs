@@ -8,7 +8,10 @@ mod tests {
 
     use crate::{
         deposit::{
-            errors::DSMError, events::DepositEvent, machine::DepositSM, state::DepositState,
+            errors::DSMError,
+            events::{DepositConfirmedEvent, DepositEvent},
+            machine::DepositSM,
+            state::DepositState,
             tests::*,
         },
         testing::transition::*,
@@ -31,9 +34,9 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::DepositConfirmed {
+                event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
                     deposit_transaction: deposit_tx,
-                },
+                }),
                 expected_state: DepositState::Deposited {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                 },
@@ -62,9 +65,9 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::DepositConfirmed {
+                event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
                     deposit_transaction: deposit_tx.as_ref().clone(),
-                },
+                }),
                 expected_state: DepositState::Deposited {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                 },
@@ -137,9 +140,9 @@ mod tests {
                 create_sm,
                 InvalidTransition {
                     from_state: state,
-                    event: DepositEvent::DepositConfirmed {
+                    event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
                         deposit_transaction: tx.clone(),
-                    },
+                    }),
                     expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
                 },
             );

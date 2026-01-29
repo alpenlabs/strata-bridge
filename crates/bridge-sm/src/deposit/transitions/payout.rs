@@ -1,13 +1,11 @@
 use std::collections::BTreeMap;
 
-use bitcoin::{Transaction, Txid};
-use bitcoin_bosd::Descriptor;
-use musig2::{AggNonce, PartialSignature, PubNonce, verify_partial};
+use bitcoin::Txid;
+use musig2::{AggNonce, verify_partial};
 use strata_bridge_connectors2::n_of_n::NOfNConnector;
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
     scripts::prelude::{TaprootWitness, get_aggregated_pubkey},
-    types::{BitcoinBlockHeight, OperatorIdx},
 };
 use strata_bridge_tx_graph2::transactions::prelude::{CooperativePayoutData, CooperativePayoutTx};
 
@@ -15,7 +13,11 @@ use crate::{
     deposit::{
         duties::DepositDuty,
         errors::{DSMError, DSMResult},
-        events::DepositEvent,
+        events::{
+            DepositEvent, FulfillmentConfirmedEvent, PayoutConfirmedEvent,
+            PayoutDescriptorReceivedEvent, PayoutNonceReceivedEvent, PayoutPartialReceivedEvent,
+            WithdrawalAssignedEvent,
+        },
         machine::{DSMOutput, DepositSM},
         state::DepositState,
     },
@@ -29,10 +31,7 @@ impl DepositSM {
     /// [`DepositDuty::FulfillWithdrawal`] duty if the local operator is the assignee.
     pub(crate) fn process_assignment(
         &mut self,
-        event_description: String,
-        assignee: OperatorIdx,
-        deadline: BitcoinBlockHeight,
-        recipient_desc: Descriptor,
+        assignment: WithdrawalAssignedEvent,
     ) -> DSMResult<DSMOutput> {
         match self.state() {
             DepositState::Deposited { last_block_height }
@@ -41,18 +40,18 @@ impl DepositSM {
             } => {
                 self.state = DepositState::Assigned {
                     last_block_height: *last_block_height,
-                    assignee,
-                    deadline,
-                    recipient_desc: recipient_desc.clone(),
+                    assignee: assignment.assignee,
+                    deadline: assignment.deadline,
+                    recipient_desc: assignment.recipient_desc.clone(),
                 };
                 // Dispatch the duty to fulfill the assignment if the assignee is the pov operator,
                 // otherwise no duties or signals need to be dispatched.
-                if self.cfg.operator_table.pov_idx() == assignee {
+                if self.cfg.operator_table.pov_idx() == assignment.assignee {
                     Ok(DSMOutput::with_duties(vec![
                         DepositDuty::FulfillWithdrawal {
                             deposit_idx: self.cfg.deposit_idx,
-                            deadline,
-                            recipient_desc,
+                            deadline: assignment.deadline,
+                            recipient_desc: assignment.recipient_desc,
                         },
                     ]))
                 } else {
@@ -62,7 +61,7 @@ impl DepositSM {
 
             _ => Err(DSMError::InvalidEvent {
                 state: self.state.to_string(),
-                event: event_description,
+                event: DepositEvent::WithdrawalAssigned(assignment).to_string(),
                 reason: None,
             }),
         }
@@ -74,10 +73,8 @@ impl DepositSM {
     /// Emits a [`DepositDuty::RequestPayoutNonces`] duty if the local operator is the assignee.
     pub(crate) fn process_fulfillment(
         &mut self,
-        event_description: String,
-        fulfillment_transaction: Transaction,
-        fulfillment_height: BitcoinBlockHeight,
-        cooperative_payout_timelock: u64,
+        fulfillment: FulfillmentConfirmedEvent,
+        timeout: u64,
     ) -> DSMResult<DSMOutput> {
         match self.state() {
             DepositState::Assigned {
@@ -88,17 +85,17 @@ impl DepositSM {
                 let assignee = *assignee;
 
                 // Compute the txid of the fulfillment transaction
-                let fulfillment_txid: Txid = fulfillment_transaction.compute_txid();
+                let fulfillment_txid: Txid = fulfillment.fulfillment_transaction.compute_txid();
 
                 // Compute the cooperative payout deadline.
-                let cooperative_payment_deadline = fulfillment_height + cooperative_payout_timelock;
+                let cooperative_payment_deadline = fulfillment.fulfillment_height + timeout;
 
                 // Transition to the Fulfilled state
                 self.state = DepositState::Fulfilled {
                     last_block_height: *last_block_height,
                     assignee,
                     fulfillment_txid,
-                    fulfillment_height,
+                    fulfillment_height: fulfillment.fulfillment_height,
                     cooperative_payout_deadline: cooperative_payment_deadline,
                 };
                 // Dispatch the duty to request the payout nonces if the assignee is the pov
@@ -116,7 +113,7 @@ impl DepositSM {
 
             _ => Err(DSMError::InvalidEvent {
                 state: self.state.to_string(),
-                event: event_description,
+                event: DepositEvent::FulfillmentConfirmed(fulfillment).to_string(),
                 reason: None,
             }),
         }
@@ -128,8 +125,7 @@ impl DepositSM {
     /// [`DepositDuty::PublishPayoutNonce`] duty.
     pub(crate) fn process_payout_descriptor_received(
         &mut self,
-        event_description: String,
-        operator_desc: Descriptor,
+        descriptor: PayoutDescriptorReceivedEvent,
     ) -> DSMResult<DSMOutput> {
         match self.state() {
             DepositState::Fulfilled {
@@ -145,7 +141,7 @@ impl DepositSM {
                     last_block_height: *last_block_height,
                     assignee,
                     cooperative_payment_deadline: *cooperative_payment_deadline,
-                    operator_desc: operator_desc.clone(),
+                    operator_desc: descriptor.operator_desc.clone(),
                     payout_nonces: BTreeMap::new(),
                 };
                 // Dispatch the duty to publish the payout nonce
@@ -153,14 +149,14 @@ impl DepositSM {
                     DepositDuty::PublishPayoutNonce {
                         deposit_outpoint: self.cfg.deposit_outpoint,
                         operator_idx: assignee,
-                        operator_desc,
+                        operator_desc: descriptor.operator_desc,
                     },
                 ]))
             }
 
             _ => Err(DSMError::InvalidEvent {
                 state: self.state.to_string(),
-                event: event_description,
+                event: DepositEvent::PayoutDescriptorReceived(descriptor).to_string(),
                 reason: None,
             }),
         }
@@ -173,9 +169,7 @@ impl DepositSM {
     /// [`DepositDuty::PublishPayoutPartial`] duty for non-assignee operators.
     pub(crate) fn process_payout_nonce_received(
         &mut self,
-        event_description: String,
-        payout_nonce: PubNonce,
-        operator_idx: OperatorIdx,
+        payout_nonce: PayoutNonceReceivedEvent,
     ) -> DSMResult<DSMOutput> {
         let operator_table_cardinality = self.cfg.operator_table.cardinality();
         let pov_operator_idx = self.cfg.operator_table.pov_idx();
@@ -192,18 +186,14 @@ impl DepositSM {
 
                 // Check for duplicate nonce submission. If an entry from the same operator exists,
                 // return with an error.
-                if payout_nonces.contains_key(&operator_idx) {
+                if payout_nonces.contains_key(&payout_nonce.operator_idx) {
                     return Err(DSMError::Duplicate {
                         state: Box::new(self.state().clone()),
-                        event: DepositEvent::PayoutNonceReceived {
-                            payout_nonce,
-                            operator_idx,
-                        }
-                        .into(),
+                        event: Box::new(DepositEvent::PayoutNonceReceived(payout_nonce)),
                     });
                 }
                 // Update the payout nonces with the new nonce just received.
-                payout_nonces.insert(operator_idx, payout_nonce);
+                payout_nonces.insert(payout_nonce.operator_idx, payout_nonce.payout_nonce);
 
                 // Transition to the PayoutNoncesCollected State if *all* the nonces have been
                 // received. Dispatch duty to publish the cooperative payout partial signatures
@@ -253,7 +243,7 @@ impl DepositSM {
 
             _ => Err(DSMError::InvalidEvent {
                 state: self.state.to_string(),
-                event: event_description,
+                event: DepositEvent::PayoutNonceReceived(payout_nonce).to_string(),
                 reason: None,
             }),
         }
@@ -266,9 +256,7 @@ impl DepositSM {
     /// operator is the assignee.
     pub(crate) fn process_payout_partial_received(
         &mut self,
-        event_description: String,
-        partial_signature: PartialSignature,
-        operator_idx: OperatorIdx,
+        payout_partial: PayoutPartialReceivedEvent,
     ) -> DSMResult<DSMOutput> {
         // Extract from self.cfg before the match to avoid borrow conflicts
         let operator_table_cardinality = self.cfg.operator_table.cardinality();
@@ -287,7 +275,7 @@ impl DepositSM {
         let operator_pubkey = self
             .cfg
             .operator_table
-            .idx_to_btc_key(&operator_idx)
+            .idx_to_btc_key(&payout_partial.operator_idx)
             .expect("operator must be in table");
 
         match self.state_mut() {
@@ -303,14 +291,10 @@ impl DepositSM {
 
                 // Check for duplicate Partial Signature submission. If an entry from the same
                 // operator exists, return with an error.
-                if payout_partial_signatures.contains_key(&operator_idx) {
+                if payout_partial_signatures.contains_key(&payout_partial.operator_idx) {
                     return Err(DSMError::Duplicate {
                         state: Box::new(self.state().clone()),
-                        event: DepositEvent::PayoutPartialReceived {
-                            partial_signature,
-                            operator_idx,
-                        }
-                        .into(),
+                        event: Box::new(DepositEvent::PayoutPartialReceived(payout_partial)),
                     });
                 }
 
@@ -327,13 +311,13 @@ impl DepositSM {
 
                 // Get the operator's pubnonce for verification.
                 let operator_pubnonce = payout_nonces
-                    .get(&operator_idx)
+                    .get(&payout_partial.operator_idx)
                     .expect("operator must have submitted nonce");
 
                 // Verify the partial signature.
                 if verify_partial(
                     &key_agg_ctx,
-                    partial_signature,
+                    payout_partial.partial_signature,
                     payout_aggregated_nonce,
                     operator_pubkey,
                     operator_pubnonce,
@@ -344,16 +328,15 @@ impl DepositSM {
                     return Err(DSMError::Rejected {
                         state: Box::new(self.state().clone()),
                         reason: "Partial Signature Verification Failed".to_string(),
-                        event: DepositEvent::PayoutPartialReceived {
-                            partial_signature,
-                            operator_idx,
-                        }
-                        .into(),
+                        event: Box::new(DepositEvent::PayoutPartialReceived(payout_partial)),
                     });
                 }
 
                 // If the partial signature verification passes, add it to state
-                payout_partial_signatures.insert(operator_idx, partial_signature);
+                payout_partial_signatures.insert(
+                    payout_partial.operator_idx,
+                    payout_partial.partial_signature,
+                );
 
                 // Check that *all* the partial signatures except from the assignee
                 // for the cooperative payout have been received.
@@ -379,7 +362,7 @@ impl DepositSM {
 
             _ => Err(DSMError::InvalidEvent {
                 state: self.state.to_string(),
-                event: event_description,
+                event: DepositEvent::PayoutPartialReceived(payout_partial).to_string(),
                 reason: None,
             }),
         }
@@ -398,7 +381,10 @@ impl DepositSM {
     /// - A sweep transaction in the event of a hard upgrade (migration) of deposited UTXOs.
     // TODO: Add event description as a parameter so that event needn't be recreated to
     //       for the error.
-    pub(crate) fn process_payout_confirmed(&mut self, tx: &Transaction) -> DSMResult<DSMOutput> {
+    pub(crate) fn process_payout_confirmed(
+        &mut self,
+        payout_confirmed: &PayoutConfirmedEvent,
+    ) -> DSMResult<DSMOutput> {
         match self.state() {
             // It must be the sweep transaction in case of a hard upgrade
             DepositState::Deposited { .. }
@@ -412,16 +398,16 @@ impl DepositSM {
             // transaction on-chain or because each operator has a different configuration for how
             // long to wait till the cooperative payout path is considered failed.
             | DepositState::CooperativePathFailed { .. } => {
-                tx
+                payout_confirmed.tx
                 .input
                 .iter()
                 .any(|input| input.previous_output == self.cfg().deposit_outpoint)
                 .ok_or(DSMError::InvalidEvent {
                     state: self.state().to_string(),
-                    event: DepositEvent::PayoutConfirmed { tx: tx.clone() }.to_string(),
+                    event: DepositEvent::PayoutConfirmed(payout_confirmed.clone()).to_string(),
                     reason: format!(
                         "Transaction {} does not spend from the expected deposit outpoint {}",
-                        tx.compute_txid(),
+                        payout_confirmed.tx.compute_txid(),
                         self.cfg().deposit_outpoint
                         ).into(),
                 })?;
@@ -437,10 +423,10 @@ impl DepositSM {
             }
             DepositState::Spent => Err(DSMError::Duplicate {
                 state: Box::new(self.state().clone()),
-                event: Box::new(DepositEvent::PayoutConfirmed { tx: tx.clone() })
+                event: Box::new(DepositEvent::PayoutConfirmed(payout_confirmed.clone()))
             }),
             _ => Err(DSMError::InvalidEvent {
-                event: DepositEvent::PayoutConfirmed { tx: tx.clone() }.to_string(),
+                event: DepositEvent::PayoutConfirmed(payout_confirmed.clone()).to_string(),
                 state: self.state.to_string(),
                 reason: None
             }),

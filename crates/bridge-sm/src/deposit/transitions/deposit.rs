@@ -1,20 +1,17 @@
 use std::collections::BTreeMap;
 
-use bitcoin::Transaction;
-use musig2::{
-    AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures, secp256k1::schnorr,
-    verify_partial,
-};
-use strata_bridge_primitives::{
-    key_agg::create_agg_ctx, scripts::prelude::TaprootWitness, types::OperatorIdx,
-};
+use musig2::{AggNonce, aggregate_partial_signatures, secp256k1::schnorr, verify_partial};
+use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::prelude::TaprootWitness};
 use strata_bridge_tx_graph2::transactions::PresignedTx;
 
 use crate::{
     deposit::{
         duties::DepositDuty,
         errors::{DSMError, DSMResult},
-        events::DepositEvent,
+        events::{
+            DepositConfirmedEvent, DepositEvent, NonceReceivedEvent, PartialReceivedEvent,
+            UserTakeBackEvent,
+        },
         machine::{DSMOutput, DepositSM},
         state::DepositState,
     },
@@ -31,7 +28,7 @@ impl DepositSM {
     //       for the error.
     pub(crate) fn process_drt_takeback(
         &mut self,
-        tx: Transaction,
+        takeback: UserTakeBackEvent,
     ) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
         let deposit_request_outpoint = &self.cfg().deposit_outpoint;
         match self.state() {
@@ -40,7 +37,8 @@ impl DepositSM {
             | DepositState::DepositNoncesCollected { .. }
             | DepositState::DepositPartialsCollected { .. } => {
                 // FIXME: (@Rajil1213) Check if `txid` is not that of a Deposit Transaction instead
-                if tx
+                if takeback
+                    .tx
                     .input
                     .iter()
                     .find(|input| input.previous_output == *deposit_request_outpoint)
@@ -65,19 +63,19 @@ impl DepositSM {
                         state: Box::new(self.state().clone()),
                         reason: format!(
                             "Transaction {} is not a take back transaction for the deposit request outpoint {}",
-                            tx.compute_txid(),
+                            takeback.tx.compute_txid(),
                             deposit_request_outpoint
                         ),
-                        event: Box::new(DepositEvent::UserTakeBack { tx }),
+                        event: Box::new(DepositEvent::UserTakeBack(takeback)),
                     })
                 }
             }
             DepositState::Aborted => Err(DSMError::Duplicate {
                 state: Box::new(self.state().clone()),
-                event: Box::new(DepositEvent::UserTakeBack { tx }),
+                event: Box::new(DepositEvent::UserTakeBack(takeback)),
             }),
             _ => Err(DSMError::InvalidEvent {
-                event: DepositEvent::UserTakeBack { tx }.to_string(),
+                event: DepositEvent::UserTakeBack(takeback).to_string(),
                 state: self.state.to_string(),
                 reason: None,
             }),
@@ -161,20 +159,19 @@ impl DepositSM {
     /// [`DepositDuty::PublishDepositPartial`] duty.
     pub(crate) fn process_nonce_received(
         &mut self,
-        nonce: PubNonce,
-        operator_idx: OperatorIdx,
+        nonce_event: NonceReceivedEvent,
     ) -> DSMResult<DSMOutput> {
         let operator_table_cardinality = self.cfg().operator_table.cardinality();
 
         // Validate operator_idx is in the operator table
-        if !self.validate_operator_idx(operator_idx) {
+        if !self.validate_operator_idx(nonce_event.operator_idx) {
             return Err(DSMError::Rejected {
                 state: Box::new(self.state().clone()),
-                reason: format!("Operator index {} not in operator table", operator_idx),
-                event: Box::new(DepositEvent::NonceReceived {
-                    nonce,
-                    operator_idx,
-                }),
+                reason: format!(
+                    "Operator index {} not in operator table",
+                    nonce_event.operator_idx
+                ),
+                event: Box::new(DepositEvent::NonceReceived(nonce_event)),
             });
         }
 
@@ -185,18 +182,15 @@ impl DepositSM {
                 pubnonces,
             } => {
                 // Check for duplicate nonce submission
-                if pubnonces.contains_key(&operator_idx) {
+                if pubnonces.contains_key(&nonce_event.operator_idx) {
                     return Err(DSMError::Duplicate {
                         state: Box::new(self.state().clone()),
-                        event: Box::new(DepositEvent::NonceReceived {
-                            nonce,
-                            operator_idx,
-                        }),
+                        event: Box::new(DepositEvent::NonceReceived(nonce_event)),
                     });
                 }
 
                 // Insert the new nonce into the map
-                pubnonces.insert(operator_idx, nonce);
+                pubnonces.insert(nonce_event.operator_idx, nonce_event.nonce);
 
                 // Check if we have collected all nonces
                 if pubnonces.len() == operator_table_cardinality {
@@ -235,11 +229,7 @@ impl DepositSM {
             }
             _ => Err(DSMError::InvalidEvent {
                 state: self.state().to_string(),
-                event: DepositEvent::NonceReceived {
-                    nonce,
-                    operator_idx,
-                }
-                .to_string(),
+                event: DepositEvent::NonceReceived(nonce_event).to_string(),
                 reason: None,
             }),
         }
@@ -254,21 +244,20 @@ impl DepositSM {
     /// duty.
     pub(crate) fn process_partial_received(
         &mut self,
-        partial_sig: PartialSignature,
-        operator_idx: OperatorIdx,
+        partial_event: PartialReceivedEvent,
     ) -> DSMResult<DSMOutput> {
         let operator_table_cardinality = self.cfg().operator_table.cardinality();
         let btc_keys: Vec<_> = self.cfg().operator_table.btc_keys().into_iter().collect();
 
         // Validate operator_idx is in the operator table
-        if !self.validate_operator_idx(operator_idx) {
+        if !self.validate_operator_idx(partial_event.operator_idx) {
             return Err(DSMError::Rejected {
                 state: Box::new(self.state().clone()),
-                reason: format!("Operator index {} not in operator table", operator_idx),
-                event: Box::new(DepositEvent::PartialReceived {
-                    partial_sig,
-                    operator_idx,
-                }),
+                reason: format!(
+                    "Operator index {} not in operator table",
+                    partial_event.operator_idx
+                ),
+                event: Box::new(DepositEvent::PartialReceived(partial_event)),
             });
         }
 
@@ -276,7 +265,7 @@ impl DepositSM {
         let operator_pubkey = self
             .cfg()
             .operator_table
-            .idx_to_btc_key(&operator_idx)
+            .idx_to_btc_key(&partial_event.operator_idx)
             .expect("validated above");
 
         match self.state_mut() {
@@ -291,13 +280,10 @@ impl DepositSM {
                 let blk_height = *last_block_height;
 
                 // Check for duplicate partial signature submission
-                if partial_signatures.contains_key(&operator_idx) {
+                if partial_signatures.contains_key(&partial_event.operator_idx) {
                     return Err(DSMError::Duplicate {
                         state: Box::new(self.state().clone()),
-                        event: Box::new(DepositEvent::PartialReceived {
-                            partial_sig,
-                            operator_idx,
-                        }),
+                        event: Box::new(DepositEvent::PartialReceived(partial_event)),
                     });
                 }
 
@@ -321,12 +307,12 @@ impl DepositSM {
 
                 // Verify the partial signature
                 let operator_pubnonce = pubnonces
-                    .get(&operator_idx)
+                    .get(&partial_event.operator_idx)
                     .expect("operator must have submitted nonce")
                     .clone();
                 if verify_partial(
                     &key_agg_ctx,
-                    partial_sig,
+                    partial_event.partial_sig,
                     agg_nonce,
                     operator_pubkey,
                     &operator_pubnonce,
@@ -337,15 +323,12 @@ impl DepositSM {
                     return Err(DSMError::Rejected {
                         state: Box::new(self.state().clone()),
                         reason: "Invalid partial signature".to_string(),
-                        event: Box::new(DepositEvent::PartialReceived {
-                            partial_sig,
-                            operator_idx,
-                        }),
+                        event: Box::new(DepositEvent::PartialReceived(partial_event)),
                     });
                 }
 
                 // Insert the new partial signature into the map
-                partial_signatures.insert(operator_idx, partial_sig);
+                partial_signatures.insert(partial_event.operator_idx, partial_event.partial_sig);
 
                 // Check if we have collected all partial signatures
                 if partial_signatures.len() == operator_table_cardinality {
@@ -383,11 +366,7 @@ impl DepositSM {
             }
             _ => Err(DSMError::InvalidEvent {
                 state: self.state().to_string(),
-                event: DepositEvent::PartialReceived {
-                    partial_sig,
-                    operator_idx,
-                }
-                .to_string(),
+                event: DepositEvent::PartialReceived(partial_event).to_string(),
                 reason: None,
             }),
         }
@@ -403,8 +382,7 @@ impl DepositSM {
     /// the transaction early).
     pub(crate) fn process_deposit_confirmed(
         &mut self,
-        event_description: String,
-        confirmed_deposit_transaction: Transaction,
+        confirmed: DepositConfirmedEvent,
     ) -> DSMResult<DSMOutput> {
         match self.state() {
             DepositState::DepositPartialsCollected {
@@ -414,14 +392,12 @@ impl DepositSM {
             } => {
                 // Ensure that the deposit transaction confirmed on-chain is the one we were
                 // expecting.
-                if confirmed_deposit_transaction.compute_txid()
+                if confirmed.deposit_transaction.compute_txid()
                     != deposit_transaction.compute_txid()
                 {
                     return Err(DSMError::Rejected {
                         state: Box::new(self.state().clone()),
-                        event: Box::new(DepositEvent::DepositConfirmed {
-                            deposit_transaction: deposit_transaction.clone(),
-                        }),
+                        event: Box::new(DepositEvent::DepositConfirmed(confirmed)),
                         reason:
                             "Transaction confirmed on chain does not match expected deposit transaction"
                                 .to_string(),
@@ -445,14 +421,12 @@ impl DepositSM {
             } => {
                 // Ensure that the deposit transaction confirmed on-chain is the one we were
                 // expecting.
-                if confirmed_deposit_transaction.compute_txid()
+                if confirmed.deposit_transaction.compute_txid()
                     != deposit_transaction.as_ref().compute_txid()
                 {
                     return Err(DSMError::Rejected {
                         state: Box::new(self.state().clone()),
-                        event: Box::new(DepositEvent::DepositConfirmed {
-                            deposit_transaction: confirmed_deposit_transaction,
-                        }),
+                        event: Box::new(DepositEvent::DepositConfirmed(confirmed)),
                         reason:
                             "Transaction confirmed on chain does not match expected deposit transaction"
                                 .to_string(),
@@ -468,7 +442,7 @@ impl DepositSM {
 
             _ => Err(DSMError::InvalidEvent {
                 state: self.state.to_string(),
-                event: event_description,
+                event: DepositEvent::DepositConfirmed(confirmed).to_string(),
                 reason: None,
             }),
         }

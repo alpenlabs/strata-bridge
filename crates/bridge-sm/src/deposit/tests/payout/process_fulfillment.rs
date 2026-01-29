@@ -10,7 +10,7 @@ mod tests {
         deposit::{
             duties::DepositDuty,
             errors::DSMError,
-            events::DepositEvent,
+            events::{DepositEvent, FulfillmentConfirmedEvent},
             machine::{COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, DepositSM},
             state::DepositState,
             tests::*,
@@ -37,10 +37,10 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::FulfillmentConfirmed {
+                event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
                     fulfillment_transaction: fulfillment_tx.clone(),
                     fulfillment_height: LATER_BLOCK_HEIGHT,
-                },
+                }),
                 expected_state: DepositState::Fulfilled {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_POV_IDX,
@@ -76,10 +76,10 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::FulfillmentConfirmed {
+                event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
                     fulfillment_transaction: fulfillment_tx.clone(),
                     fulfillment_height: LATER_BLOCK_HEIGHT,
-                },
+                }),
                 expected_state: DepositState::Fulfilled {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_NONPOV_IDX,
@@ -160,10 +160,10 @@ mod tests {
                 create_sm,
                 InvalidTransition {
                     from_state: state,
-                    event: DepositEvent::FulfillmentConfirmed {
+                    event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
                         fulfillment_transaction: tx.clone(),
                         fulfillment_height: LATER_BLOCK_HEIGHT,
-                    },
+                    }),
                     expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
                 },
             );

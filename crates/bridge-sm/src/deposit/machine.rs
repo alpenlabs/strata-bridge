@@ -42,52 +42,31 @@ impl StateMachine for DepositSM {
         &mut self,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
-        let event_description: String = event.to_string();
         match event {
-            DepositEvent::UserTakeBack { tx } => self.process_drt_takeback(tx),
+            DepositEvent::UserTakeBack(takeback) => self.process_drt_takeback(takeback),
             DepositEvent::GraphMessage(graph_msg) => self.process_graph_available(graph_msg),
-            DepositEvent::NonceReceived {
-                nonce,
-                operator_idx,
-            } => self.process_nonce_received(nonce, operator_idx),
-            DepositEvent::PartialReceived {
-                partial_sig,
-                operator_idx,
-            } => self.process_partial_received(partial_sig, operator_idx),
-            DepositEvent::DepositConfirmed {
-                deposit_transaction,
-            } => self.process_deposit_confirmed(event_description, deposit_transaction),
-            DepositEvent::WithdrawalAssigned {
-                assignee,
-                deadline,
-                recipient_desc,
-            } => self.process_assignment(event_description, assignee, deadline, recipient_desc),
-            DepositEvent::FulfillmentConfirmed {
-                fulfillment_transaction,
-                fulfillment_height,
-            } => self.process_fulfillment(
-                event_description,
-                fulfillment_transaction,
-                fulfillment_height,
-                COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
-            ),
-            DepositEvent::PayoutDescriptorReceived { operator_desc } => {
-                self.process_payout_descriptor_received(event_description, operator_desc)
+            DepositEvent::NonceReceived(nonce_event) => self.process_nonce_received(nonce_event),
+            DepositEvent::PartialReceived(partial_event) => {
+                self.process_partial_received(partial_event)
             }
-            DepositEvent::PayoutNonceReceived {
-                payout_nonce,
-                operator_idx,
-            } => self.process_payout_nonce_received(event_description, payout_nonce, operator_idx),
-            DepositEvent::PayoutPartialReceived {
-                partial_signature,
-                operator_idx,
-            } => self.process_payout_partial_received(
-                event_description,
-                partial_signature,
-                operator_idx,
-            ),
-            DepositEvent::PayoutConfirmed { tx } => self.process_payout_confirmed(&tx),
-            DepositEvent::NewBlock { block_height } => self.process_new_block(block_height),
+            DepositEvent::DepositConfirmed(confirmed) => self.process_deposit_confirmed(confirmed),
+            DepositEvent::WithdrawalAssigned(assignment) => self.process_assignment(assignment),
+            DepositEvent::FulfillmentConfirmed(fulfillment) => {
+                self.process_fulfillment(fulfillment, COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS)
+            }
+            DepositEvent::PayoutDescriptorReceived(descriptor) => {
+                self.process_payout_descriptor_received(descriptor)
+            }
+            DepositEvent::PayoutNonceReceived(payout_nonce) => {
+                self.process_payout_nonce_received(payout_nonce)
+            }
+            DepositEvent::PayoutPartialReceived(payout_partial) => {
+                self.process_payout_partial_received(payout_partial)
+            }
+            DepositEvent::PayoutConfirmed(payout_confirmed) => {
+                self.process_payout_confirmed(&payout_confirmed)
+            }
+            DepositEvent::NewBlock(new_block) => self.process_new_block(new_block),
         }
     }
 }

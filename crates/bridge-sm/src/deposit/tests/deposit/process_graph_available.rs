@@ -8,8 +8,12 @@ mod tests {
 
     use crate::{
         deposit::{
-            duties::DepositDuty, errors::DSMError, events::DepositEvent, machine::DepositSM,
-            state::DepositState, tests::*,
+            duties::DepositDuty,
+            errors::DSMError,
+            events::{DepositConfirmedEvent, DepositEvent},
+            machine::DepositSM,
+            state::DepositState,
+            tests::*,
         },
         testing::transition::*,
     };
@@ -118,9 +122,9 @@ mod tests {
             create_sm,
             InvalidTransition {
                 from_state: state,
-                event: DepositEvent::DepositConfirmed {
+                event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
                     deposit_transaction: wrong_tx,
-                },
+                }),
                 expected_error: |e| matches!(e, DSMError::Rejected { .. }),
             },
         );
@@ -195,9 +199,9 @@ mod tests {
             create_sm,
             InvalidTransition {
                 from_state: state,
-                event: DepositEvent::DepositConfirmed {
+                event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
                     deposit_transaction: wrong_tx,
-                },
+                }),
                 expected_error: |e| matches!(e, DSMError::Rejected { .. }),
             },
         );

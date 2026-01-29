@@ -6,7 +6,7 @@ mod tests {
     use crate::{
         deposit::{
             errors::DSMError,
-            events::DepositEvent,
+            events::{DepositEvent, NewBlockEvent, PayoutConfirmedEvent},
             machine::{COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, DepositSM},
             state::DepositState,
             tests::*,
@@ -24,7 +24,7 @@ mod tests {
         let block_height = LATER_BLOCK_HEIGHT;
 
         let mut sm = create_sm(state);
-        let result = sm.process_new_block(block_height);
+        let result = sm.process_new_block(NewBlockEvent { block_height });
 
         assert!(result.is_ok());
         assert_eq!(
@@ -49,7 +49,7 @@ mod tests {
         let block_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
 
         let mut sm = create_sm(state);
-        let result = sm.process_new_block(block_height);
+        let result = sm.process_new_block(NewBlockEvent { block_height });
 
         assert!(result.is_ok(), "Expected Ok result, got {:?}", result);
         assert_eq!(
@@ -74,7 +74,7 @@ mod tests {
 
         for terminal_state in [DepositState::Spent, DepositState::Aborted] {
             let mut sm = create_sm(terminal_state.clone());
-            let result = sm.process_new_block(block_height);
+            let result = sm.process_new_block(NewBlockEvent { block_height });
 
             assert!(
                 matches!(result, Err(DSMError::Rejected { .. })),
@@ -92,7 +92,7 @@ mod tests {
             create_sm,
             InvalidTransition {
                 from_state: DepositState::Spent,
-                event: DepositEvent::PayoutConfirmed { tx },
+                event: DepositEvent::PayoutConfirmed(PayoutConfirmedEvent { tx }),
                 expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
             },
         );

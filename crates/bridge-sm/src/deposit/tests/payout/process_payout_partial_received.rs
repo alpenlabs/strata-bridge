@@ -8,8 +8,12 @@ mod tests {
 
     use crate::{
         deposit::{
-            duties::DepositDuty, errors::DSMError, events::DepositEvent, machine::DepositSM,
-            state::DepositState, tests::*,
+            duties::DepositDuty,
+            errors::DSMError,
+            events::{DepositEvent, PayoutPartialReceivedEvent},
+            machine::DepositSM,
+            state::DepositState,
+            tests::*,
         },
         testing::transition::*,
     };
@@ -96,10 +100,10 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::PayoutPartialReceived {
+                event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
                     partial_signature: partial_sig,
                     operator_idx: TEST_NON_ASSIGNEE_IDX,
-                },
+                }),
                 expected_state: DepositState::PayoutNoncesCollected {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
@@ -170,10 +174,10 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::PayoutPartialReceived {
+                event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
                     partial_signature: incoming_partial,
                     operator_idx: incoming_idx,
-                },
+                }),
                 expected_state: DepositState::PayoutNoncesCollected {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_POV_IDX,
@@ -239,10 +243,10 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::PayoutPartialReceived {
+                event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
                     partial_signature: incoming_partial,
                     operator_idx: incoming_idx,
-                },
+                }),
                 expected_state: DepositState::PayoutNoncesCollected {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_NONPOV_IDX,
@@ -276,10 +280,10 @@ mod tests {
             message,
         );
 
-        let event = DepositEvent::PayoutPartialReceived {
+        let event = DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
             partial_signature: partial_sig,
             operator_idx: TEST_NON_ASSIGNEE_IDX,
-        };
+        });
 
         sequence.process(event.clone());
         sequence.assert_no_errors();
@@ -316,14 +320,14 @@ mod tests {
         // Generate a random (different) partial signature
         let duplicate_partial = generate_partial_signature();
 
-        let first_event = DepositEvent::PayoutPartialReceived {
+        let first_event = DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
             partial_signature: first_partial,
             operator_idx: TEST_NON_ASSIGNEE_IDX,
-        };
-        let duplicate_event = DepositEvent::PayoutPartialReceived {
+        });
+        let duplicate_event = DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
             partial_signature: duplicate_partial,
             operator_idx: TEST_NON_ASSIGNEE_IDX,
-        };
+        });
 
         sequence.process(first_event);
         sequence.assert_no_errors();
@@ -356,10 +360,10 @@ mod tests {
             create_sm,
             InvalidTransition {
                 from_state: state,
-                event: DepositEvent::PayoutPartialReceived {
+                event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
                     partial_signature: invalid_partial,
                     operator_idx: TEST_NON_ASSIGNEE_IDX,
-                },
+                }),
                 expected_error: |e| {
                     matches!(
                         e,
@@ -435,10 +439,10 @@ mod tests {
                 create_sm,
                 InvalidTransition {
                     from_state: state,
-                    event: DepositEvent::PayoutPartialReceived {
+                    event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
                         partial_signature: partial_sig,
                         operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
-                    },
+                    }),
                     expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
                 },
             );

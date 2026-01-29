@@ -8,7 +8,10 @@ mod tests {
 
     use crate::{
         deposit::{
-            errors::DSMError, events::DepositEvent, machine::DepositSM, state::DepositState,
+            errors::DSMError,
+            events::{DepositEvent, UserTakeBackEvent},
+            machine::DepositSM,
+            state::DepositState,
             tests::*,
         },
         testing::{fixtures::*, transition::*},
@@ -30,7 +33,7 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::UserTakeBack { tx },
+                event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
                 expected_state: DepositState::Aborted,
                 expected_duties: vec![],
                 expected_signals: vec![],
@@ -50,7 +53,7 @@ mod tests {
         let tx = test_takeback_tx(outpoint);
 
         let mut sm = create_sm(state);
-        let result = sm.process_drt_takeback(tx);
+        let result = sm.process_drt_takeback(UserTakeBackEvent { tx });
 
         assert!(result.is_ok());
         assert_eq!(sm.state(), &DepositState::Aborted);
@@ -68,7 +71,7 @@ mod tests {
             create_sm,
             InvalidTransition {
                 from_state: state,
-                event: DepositEvent::UserTakeBack { tx },
+                event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
                 expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
             },
         );
@@ -84,7 +87,7 @@ mod tests {
             create_sm,
             InvalidTransition {
                 from_state: state,
-                event: DepositEvent::UserTakeBack { tx },
+                event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
                 expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
             },
         );
@@ -107,16 +110,16 @@ mod tests {
         )
         .unwrap();
         let wrong_tx = test_takeback_tx(wrong_outpoint);
-        let wrong_tx_event = DepositEvent::UserTakeBack { tx: wrong_tx };
+        let wrong_tx_event = DepositEvent::UserTakeBack(UserTakeBackEvent { tx: wrong_tx });
 
         sequence.process(wrong_tx_event);
 
         // Create a transaction that spends the outpoint but is not a valid take back transaction
         let witness_elements = [vec![0u8; 1]]; // HACK: single witness element implies key-spend
         let wrong_spend_path = generate_spending_tx(drt_outpoint, &witness_elements[..]);
-        let wrong_spend_path_event = DepositEvent::UserTakeBack {
+        let wrong_spend_path_event = DepositEvent::UserTakeBack(UserTakeBackEvent {
             tx: wrong_spend_path,
-        };
+        });
 
         sequence.process(wrong_spend_path_event);
 
