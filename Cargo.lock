@@ -9913,11 +9913,8 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
- "serde",
  "strata-asm-proto-bridge-v1",
  "strata-asm-worker",
- "strata-identifiers",
- "strata-state",
 ]
 
 [[package]]

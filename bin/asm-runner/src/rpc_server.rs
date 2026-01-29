@@ -12,9 +12,9 @@ use jsonrpsee::{
     types::{ErrorObject, ErrorObjectOwned},
 };
 use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State};
-use strata_asm_rpc::{traits::AssignmentsApiServer, types::AsmWorkerStatusNew};
+use strata_asm_rpc::traits::AssignmentsApiServer;
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_asm_worker::AsmWorkerHandle;
+use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_identifiers::L1BlockCommitment;
 use strata_storage::AsmStateManager;
 use strata_tasks::ShutdownGuard;
@@ -86,9 +86,8 @@ impl AssignmentsApiServer for AsmRpcServer {
         }
     }
 
-    async fn get_status(&self) -> RpcResult<AsmWorkerStatusNew> {
-        let status = self.asm_worker.monitor().get_current();
-        Ok(status.into())
+    async fn get_status(&self) -> RpcResult<AsmWorkerStatus> {
+        Ok(self.asm_worker.monitor().get_current())
     }
 }
 

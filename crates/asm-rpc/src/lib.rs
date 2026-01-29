@@ -5,4 +5,3 @@
 //! ASM-derived outputs keyed by Bitcoin block hashes.
 
 pub mod traits;
-pub mod types;
