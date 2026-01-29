@@ -6,6 +6,8 @@
 
 pub mod config;
 pub mod machine;
+#[cfg(test)]
+pub mod tests;
 pub mod transitions;
 
 use std::{

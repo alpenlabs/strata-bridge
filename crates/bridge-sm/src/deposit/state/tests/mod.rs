@@ -3,6 +3,8 @@
 //! This module provides helpers and `Arbitrary` implementations for testing
 //! the DepositSM across multiple state transition functions.
 
+pub(super) mod new_block_tests;
+
 use std::collections::BTreeMap;
 
 use bitcoin::{Amount, Network, OutPoint, Transaction, absolute, relative, transaction::Version};
@@ -29,9 +31,11 @@ use strata_bridge_tx_graph2::transactions::{
 };
 use strata_l1_txfmt::MagicBytes;
 
-use super::{events::DepositEvent, state::DepositState};
 use crate::{
-    deposit::state::{config::DepositCfg, machine::DepositSM},
+    deposit::{
+        events::DepositEvent,
+        state::{DepositState, config::DepositCfg, machine::DepositSM},
+    },
     signals::GraphToDeposit,
     testing::{
         fixtures::{test_payout_tx, test_takeback_tx},
