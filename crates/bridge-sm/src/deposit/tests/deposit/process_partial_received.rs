@@ -5,8 +5,12 @@ mod tests {
 
     use crate::{
         deposit::{
-            duties::DepositDuty, errors::DSMError, events::DepositEvent, machine::DepositSM,
-            state::DepositState, tests::*,
+            duties::DepositDuty,
+            errors::DSMError,
+            events::{DepositEvent, PartialReceivedEvent},
+            machine::DepositSM,
+            state::DepositState,
+            tests::*,
         },
         testing::transition::*,
     };
@@ -52,10 +56,10 @@ mod tests {
                 &agg_nonce,
                 sighash,
             );
-            seq.process(DepositEvent::PartialReceived {
+            seq.process(DepositEvent::PartialReceived(PartialReceivedEvent {
                 partial_sig,
                 operator_idx: signer.operator_idx(),
-            });
+            }));
         }
 
         seq.assert_no_errors();
@@ -120,10 +124,10 @@ mod tests {
                 &agg_nonce,
                 sighash,
             );
-            seq.process(DepositEvent::PartialReceived {
+            seq.process(DepositEvent::PartialReceived(PartialReceivedEvent {
                 partial_sig,
                 operator_idx: signer.operator_idx(),
-            });
+            }));
         }
 
         // Shoudon't have transitioned state
@@ -192,10 +196,10 @@ mod tests {
                 &agg_nonce,
                 sighash,
             );
-            let event = DepositEvent::PartialReceived {
+            let event = DepositEvent::PartialReceived(PartialReceivedEvent {
                 partial_sig,
                 operator_idx: signer.operator_idx(),
-            };
+            });
             seq.process(event.clone());
 
             // Process the same event again to simulate duplicate
@@ -249,10 +253,10 @@ mod tests {
             &agg_nonce,
             sighash,
         );
-        let event = DepositEvent::PartialReceived {
+        let event = DepositEvent::PartialReceived(PartialReceivedEvent {
             partial_sig,
             operator_idx: u32::MAX,
-        };
+        });
 
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,

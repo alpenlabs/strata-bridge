@@ -8,8 +8,12 @@ mod tests {
 
     use crate::{
         deposit::{
-            duties::DepositDuty, errors::DSMError, events::DepositEvent, machine::DepositSM,
-            state::DepositState, tests::*,
+            duties::DepositDuty,
+            errors::DSMError,
+            events::{DepositEvent, PayoutNonceReceivedEvent},
+            machine::DepositSM,
+            state::DepositState,
+            tests::*,
         },
         testing::transition::*,
     };
@@ -37,10 +41,10 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::PayoutNonceReceived {
+                event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
                     payout_nonce: nonce,
                     operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
-                },
+                }),
                 expected_state: DepositState::PayoutDescriptorReceived {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
@@ -89,10 +93,10 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::PayoutNonceReceived {
+                event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
                     payout_nonce: incoming_nonce,
                     operator_idx: incoming_idx,
-                },
+                }),
                 expected_state: DepositState::PayoutDescriptorReceived {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
@@ -143,10 +147,10 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::PayoutNonceReceived {
+                event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
                     payout_nonce: incoming_nonce,
                     operator_idx: incoming_idx,
-                },
+                }),
                 expected_state: DepositState::PayoutNoncesCollected {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_NONPOV_IDX,
@@ -202,10 +206,10 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::PayoutNonceReceived {
+                event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
                     payout_nonce: incoming_nonce,
                     operator_idx: incoming_idx,
-                },
+                }),
                 expected_state: DepositState::PayoutNoncesCollected {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_POV_IDX,
@@ -239,10 +243,10 @@ mod tests {
         let sm = create_sm(initial_state);
         let mut sequence = EventSequence::new(sm, get_state);
 
-        let nonce_event = DepositEvent::PayoutNonceReceived {
+        let nonce_event = DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
             payout_nonce: nonce,
             operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
-        };
+        });
 
         sequence.process(nonce_event.clone());
         sequence.assert_no_errors();
@@ -282,14 +286,14 @@ mod tests {
         let sm = create_sm(initial_state);
         let mut sequence = EventSequence::new(sm, get_state);
 
-        let first_event = DepositEvent::PayoutNonceReceived {
+        let first_event = DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
             payout_nonce: first_nonce,
             operator_idx: TEST_POV_IDX,
-        };
-        let duplicate_event = DepositEvent::PayoutNonceReceived {
+        });
+        let duplicate_event = DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
             payout_nonce: duplicate_nonce,
             operator_idx: TEST_POV_IDX,
-        };
+        });
 
         sequence.process(first_event);
         sequence.assert_no_errors();
@@ -377,10 +381,10 @@ mod tests {
                 create_sm,
                 InvalidTransition {
                     from_state: state,
-                    event: DepositEvent::PayoutNonceReceived {
+                    event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
                         payout_nonce: nonce.clone(),
                         operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
-                    },
+                    }),
                     expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
                 },
             );

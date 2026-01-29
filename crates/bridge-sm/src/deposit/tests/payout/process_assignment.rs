@@ -7,8 +7,12 @@ mod tests {
 
     use crate::{
         deposit::{
-            duties::DepositDuty, errors::DSMError, events::DepositEvent, machine::DepositSM,
-            state::DepositState, tests::*,
+            duties::DepositDuty,
+            errors::DSMError,
+            events::{DepositEvent, WithdrawalAssignedEvent},
+            machine::DepositSM,
+            state::DepositState,
+            tests::*,
         },
         testing::transition::*,
     };
@@ -28,11 +32,11 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::WithdrawalAssigned {
+                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                     assignee: TEST_POV_IDX,
                     deadline: LATER_BLOCK_HEIGHT,
                     recipient_desc: desc.clone(),
-                },
+                }),
                 expected_state: DepositState::Assigned {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_POV_IDX,
@@ -64,11 +68,11 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::WithdrawalAssigned {
+                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                     assignee: TEST_NONPOV_IDX,
                     deadline: LATER_BLOCK_HEIGHT,
                     recipient_desc: desc.clone(),
-                },
+                }),
                 expected_state: DepositState::Assigned {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_NONPOV_IDX,
@@ -102,11 +106,11 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::WithdrawalAssigned {
+                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                     assignee: TEST_POV_IDX,
                     deadline: REASSIGNMENT_DEADLINE,
                     recipient_desc: new_desc.clone(),
-                },
+                }),
                 expected_state: DepositState::Assigned {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_POV_IDX,
@@ -143,11 +147,11 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::WithdrawalAssigned {
+                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                     assignee: TEST_NONPOV_IDX,
                     deadline: REASSIGNMENT_DEADLINE,
                     recipient_desc: new_desc.clone(),
-                },
+                }),
                 expected_state: DepositState::Assigned {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_NONPOV_IDX,
@@ -223,11 +227,11 @@ mod tests {
                 create_sm,
                 InvalidTransition {
                     from_state: state,
-                    event: DepositEvent::WithdrawalAssigned {
+                    event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                         assignee: TEST_ASSIGNEE,
                         deadline: LATER_BLOCK_HEIGHT,
                         recipient_desc: desc.clone(),
-                    },
+                    }),
                     expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
                 },
             );

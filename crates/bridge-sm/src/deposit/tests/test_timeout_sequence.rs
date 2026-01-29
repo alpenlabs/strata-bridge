@@ -5,7 +5,9 @@ mod tests {
 
     use crate::{
         deposit::{
-            events::DepositEvent, machine::COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, state::DepositState,
+            events::{DepositEvent, NewBlockEvent},
+            machine::COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+            state::DepositState,
             tests::*,
         },
         signals::{DepositSignal, DepositToGraph},
@@ -29,9 +31,9 @@ mod tests {
         // Process blocks up to and past timeout
         let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
         for height in (FULFILLMENT_HEIGHT + 1)..=timeout_height {
-            seq.process(DepositEvent::NewBlock {
+            seq.process(DepositEvent::NewBlock(NewBlockEvent {
                 block_height: height,
-            });
+            }));
         }
 
         seq.assert_no_errors();
