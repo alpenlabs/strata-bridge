@@ -1,4 +1,4 @@
-//! Storage manager setup using SledDB from alpen
+//! Storage manager setup using SledDB from [Alpen](https://github.com/alpenlabs/alpen)
 
 use std::{sync::Arc, time::Duration};
 
