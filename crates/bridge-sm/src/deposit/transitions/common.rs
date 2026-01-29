@@ -1,7 +1,7 @@
 use crate::{
     deposit::{
         errors::{DSMError, DSMResult},
-        events::{DepositEvent, NewBlockEvent},
+        events::NewBlockEvent,
         machine::{DSMOutput, DepositSM},
         state::DepositState,
     },
@@ -12,14 +12,12 @@ use crate::{
 impl DepositSM {
     /// Processes information about new blocks and applies any updates related to block height
     /// timeouts
-    // TODO: Add event description as a parameter so that event needn't be recreated to for the
-    // error.
     pub(crate) fn process_new_block(&mut self, new_block: NewBlockEvent) -> DSMResult<DSMOutput> {
         let last_processed_block_height = self.state().last_processed_block_height();
         if last_processed_block_height.is_some_and(|height| *height >= new_block.block_height) {
             return Err(DSMError::Duplicate {
-                state: Box::new(self.state().clone()),
-                event: DepositEvent::NewBlock(new_block).into(),
+                state: self.state().to_string(),
+                event: new_block.to_string(),
             });
         }
 
@@ -106,9 +104,9 @@ impl DepositSM {
             }
 
             DepositState::Spent | DepositState::Aborted => Err(DSMError::Rejected {
-                state: Box::new(self.state().clone()),
+                state: self.state().to_string(),
                 reason: "New blocks irrelevant in terminal state".to_string(),
-                event: DepositEvent::NewBlock(new_block).into(),
+                event: new_block.to_string(),
             }),
         }
     }

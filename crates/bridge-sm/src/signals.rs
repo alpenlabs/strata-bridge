@@ -75,3 +75,13 @@ pub enum GraphToDeposit {
         // add more fields if necessary
     },
 }
+
+impl std::fmt::Display for GraphToDeposit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GraphToDeposit::GraphAvailable { operator_idx } => {
+                write!(f, "GraphAvailable for operator_idx: {}", operator_idx)
+            }
+        }
+    }
+}

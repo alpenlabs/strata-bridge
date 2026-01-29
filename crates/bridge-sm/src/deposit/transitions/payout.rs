@@ -188,8 +188,8 @@ impl DepositSM {
                 // return with an error.
                 if payout_nonces.contains_key(&payout_nonce.operator_idx) {
                     return Err(DSMError::Duplicate {
-                        state: Box::new(self.state().clone()),
-                        event: Box::new(DepositEvent::PayoutNonceReceived(payout_nonce)),
+                        state: self.state().to_string(),
+                        event: payout_nonce.to_string(),
                     });
                 }
                 // Update the payout nonces with the new nonce just received.
@@ -293,8 +293,8 @@ impl DepositSM {
                 // operator exists, return with an error.
                 if payout_partial_signatures.contains_key(&payout_partial.operator_idx) {
                     return Err(DSMError::Duplicate {
-                        state: Box::new(self.state().clone()),
-                        event: Box::new(DepositEvent::PayoutPartialReceived(payout_partial)),
+                        state: self.state().to_string(),
+                        event: payout_partial.to_string(),
                     });
                 }
 
@@ -326,9 +326,9 @@ impl DepositSM {
                 .is_err()
                 {
                     return Err(DSMError::Rejected {
-                        state: Box::new(self.state().clone()),
+                        state: self.state().to_string(),
                         reason: "Partial Signature Verification Failed".to_string(),
-                        event: Box::new(DepositEvent::PayoutPartialReceived(payout_partial)),
+                        event: payout_partial.to_string(),
                     });
                 }
 
@@ -379,8 +379,6 @@ impl DepositSM {
     /// - A contested payout transaction, if the assignee published a claim that was contested but
     ///   not successfully.
     /// - A sweep transaction in the event of a hard upgrade (migration) of deposited UTXOs.
-    // TODO: Add event description as a parameter so that event needn't be recreated to
-    //       for the error.
     pub(crate) fn process_payout_confirmed(
         &mut self,
         payout_confirmed: &PayoutConfirmedEvent,
@@ -422,8 +420,8 @@ impl DepositSM {
                 })
             }
             DepositState::Spent => Err(DSMError::Duplicate {
-                state: Box::new(self.state().clone()),
-                event: Box::new(DepositEvent::PayoutConfirmed(payout_confirmed.clone()))
+                state: self.state().to_string(),
+                event: payout_confirmed.to_string(),
             }),
             _ => Err(DSMError::InvalidEvent {
                 event: DepositEvent::PayoutConfirmed(payout_confirmed.clone()).to_string(),

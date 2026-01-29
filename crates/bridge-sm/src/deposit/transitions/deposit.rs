@@ -24,8 +24,6 @@ impl DepositSM {
     ///
     /// This can happen if any of the operators are not operational for the entire duration of the
     /// take back period.
-    // TODO: Add event description as a parameter so that event needn't be recreated to
-    //       for the error.
     pub(crate) fn process_drt_takeback(
         &mut self,
         takeback: UserTakeBackEvent,
@@ -60,19 +58,19 @@ impl DepositSM {
                     })
                 } else {
                     Err(DSMError::Rejected {
-                        state: Box::new(self.state().clone()),
+                        state: self.state().to_string(),
                         reason: format!(
                             "Transaction {} is not a take back transaction for the deposit request outpoint {}",
                             takeback.tx.compute_txid(),
                             deposit_request_outpoint
                         ),
-                        event: Box::new(DepositEvent::UserTakeBack(takeback)),
+                        event: takeback.to_string(),
                     })
                 }
             }
             DepositState::Aborted => Err(DSMError::Duplicate {
-                state: Box::new(self.state().clone()),
-                event: Box::new(DepositEvent::UserTakeBack(takeback)),
+                state: self.state().to_string(),
+                event: takeback.to_string(),
             }),
             _ => Err(DSMError::InvalidEvent {
                 event: DepositEvent::UserTakeBack(takeback).to_string(),
@@ -99,9 +97,9 @@ impl DepositSM {
                 // Validate operator_idx is in the operator table
                 if !self.validate_operator_idx(operator_idx) {
                     return Err(DSMError::Rejected {
-                        state: Box::new(self.state().clone()),
+                        state: self.state().to_string(),
                         reason: format!("Operator index {} not in operator table", operator_idx),
-                        event: Box::new(DepositEvent::GraphMessage(graph_msg)),
+                        event: graph_msg.to_string(),
                     });
                 }
 
@@ -114,10 +112,8 @@ impl DepositSM {
                         // Check for duplicate graph submission
                         if linked_graphs.contains(&operator_idx) {
                             return Err(DSMError::Duplicate {
-                                state: Box::new(self.state().clone()),
-                                event: Box::new(DepositEvent::GraphMessage(
-                                    GraphToDeposit::GraphAvailable { operator_idx },
-                                )),
+                                state: self.state().to_string(),
+                                event: graph_msg.to_string(),
                             });
                         }
 
@@ -166,12 +162,12 @@ impl DepositSM {
         // Validate operator_idx is in the operator table
         if !self.validate_operator_idx(nonce_event.operator_idx) {
             return Err(DSMError::Rejected {
-                state: Box::new(self.state().clone()),
+                state: self.state().to_string(),
                 reason: format!(
                     "Operator index {} not in operator table",
                     nonce_event.operator_idx
                 ),
-                event: Box::new(DepositEvent::NonceReceived(nonce_event)),
+                event: nonce_event.to_string(),
             });
         }
 
@@ -184,8 +180,8 @@ impl DepositSM {
                 // Check for duplicate nonce submission
                 if pubnonces.contains_key(&nonce_event.operator_idx) {
                     return Err(DSMError::Duplicate {
-                        state: Box::new(self.state().clone()),
-                        event: Box::new(DepositEvent::NonceReceived(nonce_event)),
+                        state: self.state().to_string(),
+                        event: nonce_event.to_string(),
                     });
                 }
 
@@ -252,12 +248,12 @@ impl DepositSM {
         // Validate operator_idx is in the operator table
         if !self.validate_operator_idx(partial_event.operator_idx) {
             return Err(DSMError::Rejected {
-                state: Box::new(self.state().clone()),
+                state: self.state().to_string(),
                 reason: format!(
                     "Operator index {} not in operator table",
                     partial_event.operator_idx
                 ),
-                event: Box::new(DepositEvent::PartialReceived(partial_event)),
+                event: partial_event.to_string(),
             });
         }
 
@@ -282,8 +278,8 @@ impl DepositSM {
                 // Check for duplicate partial signature submission
                 if partial_signatures.contains_key(&partial_event.operator_idx) {
                     return Err(DSMError::Duplicate {
-                        state: Box::new(self.state().clone()),
-                        event: Box::new(DepositEvent::PartialReceived(partial_event)),
+                        state: self.state().to_string(),
+                        event: partial_event.to_string(),
                     });
                 }
 
@@ -321,9 +317,9 @@ impl DepositSM {
                 .is_err()
                 {
                     return Err(DSMError::Rejected {
-                        state: Box::new(self.state().clone()),
+                        state: self.state().to_string(),
                         reason: "Invalid partial signature".to_string(),
-                        event: Box::new(DepositEvent::PartialReceived(partial_event)),
+                        event: partial_event.to_string(),
                     });
                 }
 
@@ -396,8 +392,8 @@ impl DepositSM {
                     != deposit_transaction.compute_txid()
                 {
                     return Err(DSMError::Rejected {
-                        state: Box::new(self.state().clone()),
-                        event: Box::new(DepositEvent::DepositConfirmed(confirmed)),
+                        state: self.state().to_string(),
+                        event: confirmed.to_string(),
                         reason:
                             "Transaction confirmed on chain does not match expected deposit transaction"
                                 .to_string(),
@@ -425,8 +421,8 @@ impl DepositSM {
                     != deposit_transaction.as_ref().compute_txid()
                 {
                     return Err(DSMError::Rejected {
-                        state: Box::new(self.state().clone()),
-                        event: Box::new(DepositEvent::DepositConfirmed(confirmed)),
+                        state: self.state().to_string(),
+                        event: confirmed.to_string(),
                         reason:
                             "Transaction confirmed on chain does not match expected deposit transaction"
                                 .to_string(),
