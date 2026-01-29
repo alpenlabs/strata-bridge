@@ -146,39 +146,85 @@ pub enum DepositEvent {
 
 impl std::fmt::Display for DepositEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let event_str = match self {
-            DepositEvent::UserTakeBack(event) => {
-                return write!(f, "UserTakeBack via {}", event.tx.compute_txid());
-            }
-            DepositEvent::GraphMessage(graph_msg) => match graph_msg {
-                GraphToDeposit::GraphAvailable { operator_idx } => {
-                    return write!(f, "GraphAvailable for operator_idx: {}", operator_idx);
-                }
-            },
-            DepositEvent::NonceReceived(event) => {
-                return write!(f, "NonceReceived from operator_idx: {}", event.operator_idx);
-            }
-            DepositEvent::PartialReceived(event) => {
-                return write!(
-                    f,
-                    "PartialReceived from operator_idx: {}",
-                    event.operator_idx
-                );
-            }
-            DepositEvent::DepositConfirmed(..) => "DepositConfirmed",
-            DepositEvent::WithdrawalAssigned(..) => "Assignment",
-            DepositEvent::FulfillmentConfirmed(..) => "FulfillmentConfirmed",
-            DepositEvent::PayoutDescriptorReceived(..) => "PayoutDescriptorReceived",
-            DepositEvent::PayoutNonceReceived(..) => "PayoutNonceReceived",
-            DepositEvent::PayoutPartialReceived(..) => "PayoutPartialReceived",
-            DepositEvent::PayoutConfirmed(event) => {
-                return write!(f, "PayoutConfirmed via {}", event.tx.compute_txid());
-            }
-            DepositEvent::NewBlock(event) => {
-                return write!(f, "NewBlock at height {}", event.block_height);
-            }
-        };
+        match self {
+            DepositEvent::UserTakeBack(event) => write!(f, "{}", event),
+            DepositEvent::GraphMessage(graph_msg) => write!(f, "{}", graph_msg),
+            DepositEvent::NonceReceived(event) => write!(f, "{}", event),
+            DepositEvent::PartialReceived(event) => write!(f, "{}", event),
+            DepositEvent::DepositConfirmed(event) => write!(f, "{}", event),
+            DepositEvent::WithdrawalAssigned(event) => write!(f, "{}", event),
+            DepositEvent::FulfillmentConfirmed(event) => write!(f, "{}", event),
+            DepositEvent::PayoutDescriptorReceived(event) => write!(f, "{}", event),
+            DepositEvent::PayoutNonceReceived(event) => write!(f, "{}", event),
+            DepositEvent::PayoutPartialReceived(event) => write!(f, "{}", event),
+            DepositEvent::PayoutConfirmed(event) => write!(f, "{}", event),
+            DepositEvent::NewBlock(event) => write!(f, "{}", event),
+        }
+    }
+}
 
-        write!(f, "{}", event_str)
+impl std::fmt::Display for UserTakeBackEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UserTakeBack via {}", self.tx.compute_txid())
+    }
+}
+
+impl std::fmt::Display for NonceReceivedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NonceReceived from operator_idx: {}", self.operator_idx)
+    }
+}
+
+impl std::fmt::Display for PartialReceivedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PartialReceived from operator_idx: {}", self.operator_idx)
+    }
+}
+
+impl std::fmt::Display for DepositConfirmedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DepositConfirmed")
+    }
+}
+
+impl std::fmt::Display for WithdrawalAssignedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Assignment")
+    }
+}
+
+impl std::fmt::Display for FulfillmentConfirmedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FulfillmentConfirmed")
+    }
+}
+
+impl std::fmt::Display for PayoutDescriptorReceivedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PayoutDescriptorReceived")
+    }
+}
+
+impl std::fmt::Display for PayoutNonceReceivedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PayoutNonceReceived")
+    }
+}
+
+impl std::fmt::Display for PayoutPartialReceivedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PayoutPartialReceived")
+    }
+}
+
+impl std::fmt::Display for PayoutConfirmedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PayoutConfirmed via {}", self.tx.compute_txid())
+    }
+}
+
+impl std::fmt::Display for NewBlockEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NewBlock at height {}", self.block_height)
     }
 }
