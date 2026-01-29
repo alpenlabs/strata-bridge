@@ -13,6 +13,7 @@ use futures::StreamExt;
 use strata_asm_worker::AsmWorkerHandle;
 use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_state::BlockSubmitter;
+use tracing::{debug, error, info};
 
 use crate::config::AsmRpcConfig;
 
@@ -27,7 +28,7 @@ pub(crate) async fn drive_asm_from_btc_tracker(
     // Subscribe to block events
     let mut block_subscription = btc_client.subscribe_blocks().await;
 
-    tracing::info!("Started ASM block driver, listening for Bitcoin blocks");
+    info!("Started ASM block driver, listening for Bitcoin blocks");
 
     // Process blocks as they arrive
     loop {
@@ -39,12 +40,7 @@ pub(crate) async fn drive_asm_from_btc_tracker(
         let block_height = block_event.block.bip34_block_height().unwrap_or(0);
         let block_hash = block_event.block.block_hash();
 
-        tracing::info!(
-            block_height = block_height,
-            block_hash = %block_hash,
-            status = ?block_event.status,
-            "received block event"
-        );
+        info!(%block_height, %block_hash, status=?block_event.status, "received block event");
 
         // Only process buried blocks
         if matches!(block_event.status, BlockStatus::Buried) {
@@ -55,19 +51,10 @@ pub(crate) async fn drive_asm_from_btc_tracker(
 
             match asm_worker.submit_block_async(block_commitment).await {
                 Ok(_) => {
-                    tracing::debug!(
-                        block_height = block_height,
-                        block_hash = %block_hash,
-                        "submitted block to ASM worker"
-                    );
+                    debug!(%block_height, %block_hash, "submitted block to ASM worker");
                 }
                 Err(e) => {
-                    tracing::error!(
-                        block_height = block_height,
-                        block_hash = %block_hash,
-                        error = ?e,
-                        "failed to submit block to ASM worker"
-                    );
+                    error!(%block_height, %block_hash, error = ?e, "failed to submit block to ASM worker");
                 }
             }
         }
