@@ -1,10 +1,6 @@
 from dataclasses import dataclass
 
-
-@dataclass
-class Duration:
-    secs: int
-    nanos: int
+from factory.common_cfg import Duration
 
 
 @dataclass

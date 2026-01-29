@@ -104,7 +104,7 @@ async fn connect_bitcoin(config: &config::BitcoinConfig) -> Result<Client> {
         Auth::UserPass(config.rpc_user.clone(), config.rpc_password.clone()),
         None, // timeout
         config.retry_count,
-        config.retry_interval,
+        config.retry_interval.map(|d| d.as_millis() as u64),
     )?;
 
     Ok(client)
@@ -116,7 +116,7 @@ async fn bootstrap(
     executor: TaskExecutor,
 ) -> Result<()> {
     // 1. Create storage managers (AsmStateManager + MmrHandle)
-    let (asm_manager, mmr_handle) = storage::create_storage_managers(&config.database.path)?;
+    let (asm_manager, mmr_handle) = storage::create_storage_managers(&config.database)?;
 
     // 2. Connect to Bitcoin node
     let bitcoin_client = Arc::new(connect_bitcoin(&config.bitcoin).await?);
