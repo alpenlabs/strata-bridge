@@ -11,119 +11,171 @@ use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 
 use crate::signals::GraphToDeposit;
 
+/// Event signifying that the output of the deposit request was spent by the user instead of the
+/// bridge covenant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserTakeBackEvent {
+    /// The transaction that spends the deposit request.
+    pub tx: Transaction,
+}
+
+/// Nonce received from an operator for the deposit transaction signing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NonceReceivedEvent {
+    /// The public nonce provided by the operator
+    pub nonce: PubNonce,
+    /// The index of the operator who provided the nonce
+    pub operator_idx: OperatorIdx,
+}
+
+/// Partial signature received from an operator for the deposit transaction signing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartialReceivedEvent {
+    /// The partial signature provided by the operator
+    pub partial_sig: PartialSignature,
+    /// The index of the operator who provided the partial signature
+    pub operator_idx: OperatorIdx,
+}
+
+/// Event notifying that the deposit has been confirmed on-chain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DepositConfirmedEvent {
+    /// The deposit transaction that has been confirmed on-chain.
+    pub deposit_transaction: Transaction,
+}
+
+/// Event notifying that the withdrawal request has been assigned to some operator for fulfillment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WithdrawalAssignedEvent {
+    /// The index of the operator assigned to serve the withdrawal request.
+    pub assignee: OperatorIdx,
+    /// The block height until which the assignment is valid.
+    pub deadline: BitcoinBlockHeight,
+    /// The user's descriptor where funds are to be sent by the operator.
+    pub recipient_desc: Descriptor,
+}
+
+/// Event notifying that the fulfillment transaction has been confirmed on-chain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FulfillmentConfirmedEvent {
+    /// The fulfillment transaction that has been confirmed on-chain
+    pub fulfillment_transaction: Transaction,
+    /// The block height at which the fulfillment transaction was confirmed.
+    pub fulfillment_height: BitcoinBlockHeight,
+}
+
+/// Event notifying that the output descriptor of the operator for the cooperative payout has been
+/// received.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayoutDescriptorReceivedEvent {
+    /// The output descriptor of the operator where the funds for the cooperative payout are to
+    /// be received.
+    pub operator_desc: Descriptor,
+}
+
+/// Event notifying that a pubnonce from some operator for the cooperative payout transaction has
+/// been received.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayoutNonceReceivedEvent {
+    /// The pubnonce for the cooperative payout transaction that was received.
+    pub payout_nonce: PubNonce,
+    /// The operator who sent the pubnonce.
+    pub operator_idx: OperatorIdx,
+}
+
+/// Event notifying that a partial signature from some operator for the cooperative payout
+/// transaction has been received.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayoutPartialReceivedEvent {
+    /// The partial signature for the cooperative payout transaction that was received.
+    pub partial_signature: PartialSignature,
+    /// The operator who sent the partial signature.
+    pub operator_idx: OperatorIdx,
+}
+
+/// Event notifying that the payout has been confirmed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayoutConfirmedEvent {
+    /// The transaction that confirms the payout.
+    pub tx: Transaction,
+}
+
+/// Event signalling that a new block has been observed on chain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewBlockEvent {
+    /// The new block height.
+    pub block_height: BitcoinBlockHeight,
+}
+
 /// The external events that affect the Deposit State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositEvent {
     /// Event signifying that the output of the deposit request was spent by the user instead of the
     /// bridge covenant.
-    UserTakeBack {
-        /// The transaction that spends the deposit request.
-        tx: Transaction,
-    },
+    UserTakeBack(UserTakeBackEvent),
     /// Message received from the Graph State Machine.
     GraphMessage(GraphToDeposit),
     /// Nonce received from an operator for the deposit transaction signing
-    NonceReceived {
-        /// The public nonce provided by the operator
-        nonce: PubNonce,
-        /// The index of the operator who provided the nonce
-        operator_idx: OperatorIdx,
-    },
+    NonceReceived(NonceReceivedEvent),
     /// Partial signature received from an operator for the deposit transaction signing
-    PartialReceived {
-        /// The partial signature provided by the operator
-        partial_sig: PartialSignature,
-        /// The index of the operator who provided the partial signature
-        operator_idx: OperatorIdx,
-    },
+    PartialReceived(PartialReceivedEvent),
     /// This event notifies that the deposit has been confirmed on-chain.
-    DepositConfirmed {
-        /// The deposit transaction that has been confirmed on-chain.
-        deposit_transaction: Transaction,
-    },
+    DepositConfirmed(DepositConfirmedEvent),
     /// This event notifies that the withdrawal request has been assigned to some operator for
     /// fulfillment.
-    WithdrawalAssigned {
-        /// The index of the operator assigned to serve the withdrawal request.
-        assignee: OperatorIdx,
-        /// The block height until which the assignment is valid.
-        deadline: BitcoinBlockHeight,
-        /// The user's descriptor where funds are to be sent by the operator.
-        recipient_desc: Descriptor,
-    },
+    WithdrawalAssigned(WithdrawalAssignedEvent),
     /// This event notifies that the fulfillment transaction has been confirmed on-chain.
-    FulfillmentConfirmed {
-        /// The fulfillment transaction that has been confirmed on-chain
-        fulfillment_transaction: Transaction,
-        /// The block height at which the fulfillment transaction was confirmed.
-        fulfillment_height: BitcoinBlockHeight,
-    },
+    FulfillmentConfirmed(FulfillmentConfirmedEvent),
     /// This event notifies that the output descriptor of the operator for the cooperative payout
     /// has been received.
-    PayoutDescriptorReceived {
-        /// The output descriptor of the operator where the funds for the cooperative payout are to
-        /// be received.
-        operator_desc: Descriptor,
-    },
+    PayoutDescriptorReceived(PayoutDescriptorReceivedEvent),
     /// This event notifies that a pubnonce from some operator for the cooperative payout
     /// transaction has been received.
-    PayoutNonceReceived {
-        /// The pubnonce for the cooperative payout transaction that was received.
-        payout_nonce: PubNonce,
-        /// The operator who sent the pubnonce.
-        operator_idx: OperatorIdx,
-    },
+    PayoutNonceReceived(PayoutNonceReceivedEvent),
     /// This event notifies that a partial signature from some operator for the cooperative payout
     /// transaction has been received.
-    PayoutPartialReceived {
-        /// The partial signature for the cooperative payout transaction that was received.
-        partial_signature: PartialSignature,
-        /// The operator who sent the partial signature.
-        operator_idx: OperatorIdx,
-    },
+    PayoutPartialReceived(PayoutPartialReceivedEvent),
     /// TODO: (@Rajil1213)
-    PayoutConfirmed {
-        /// The transaction that confirms the payout.
-        tx: Transaction,
-    },
+    PayoutConfirmed(PayoutConfirmedEvent),
     /// Event signalling that a new block has been observed on chain.
     ///
     /// This is required to deal with timelocks in various states and to track the last observed
     /// block.
-    NewBlock {
-        /// The new block.
-        block_height: BitcoinBlockHeight,
-    },
+    NewBlock(NewBlockEvent),
 }
 
 impl std::fmt::Display for DepositEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let event_str = match self {
-            DepositEvent::UserTakeBack { tx } => {
-                return write!(f, "UserTakeBack via {}", tx.compute_txid());
+            DepositEvent::UserTakeBack(event) => {
+                return write!(f, "UserTakeBack via {}", event.tx.compute_txid());
             }
             DepositEvent::GraphMessage(graph_msg) => match graph_msg {
                 GraphToDeposit::GraphAvailable { operator_idx } => {
                     return write!(f, "GraphAvailable for operator_idx: {}", operator_idx);
                 }
             },
-            DepositEvent::NonceReceived { operator_idx, .. } => {
-                return write!(f, "NonceReceived from operator_idx: {}", operator_idx);
+            DepositEvent::NonceReceived(event) => {
+                return write!(f, "NonceReceived from operator_idx: {}", event.operator_idx);
             }
-            DepositEvent::PartialReceived { operator_idx, .. } => {
-                return write!(f, "PartialReceived from operator_idx: {}", operator_idx);
+            DepositEvent::PartialReceived(event) => {
+                return write!(
+                    f,
+                    "PartialReceived from operator_idx: {}",
+                    event.operator_idx
+                );
             }
-            DepositEvent::DepositConfirmed { .. } => "DepositConfirmed",
-            DepositEvent::WithdrawalAssigned { .. } => "Assignment",
-            DepositEvent::FulfillmentConfirmed { .. } => "FulfillmentConfirmed",
-            DepositEvent::PayoutDescriptorReceived { .. } => "PayoutDescriptorReceived",
-            DepositEvent::PayoutNonceReceived { .. } => "PayoutNonceReceived",
-            DepositEvent::PayoutPartialReceived { .. } => "PayoutPartialReceived",
-            DepositEvent::PayoutConfirmed { tx } => {
-                return write!(f, "PayoutConfirmed via {}", tx.compute_txid());
+            DepositEvent::DepositConfirmed(..) => "DepositConfirmed",
+            DepositEvent::WithdrawalAssigned(..) => "Assignment",
+            DepositEvent::FulfillmentConfirmed(..) => "FulfillmentConfirmed",
+            DepositEvent::PayoutDescriptorReceived(..) => "PayoutDescriptorReceived",
+            DepositEvent::PayoutNonceReceived(..) => "PayoutNonceReceived",
+            DepositEvent::PayoutPartialReceived(..) => "PayoutPartialReceived",
+            DepositEvent::PayoutConfirmed(event) => {
+                return write!(f, "PayoutConfirmed via {}", event.tx.compute_txid());
             }
-            DepositEvent::NewBlock { block_height } => {
-                return write!(f, "NewBlock at height {}", block_height);
+            DepositEvent::NewBlock(event) => {
+                return write!(f, "NewBlock at height {}", event.block_height);
             }
         };
 

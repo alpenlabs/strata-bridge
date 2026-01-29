@@ -7,7 +7,7 @@ mod tests {
         deposit::{
             duties::DepositDuty,
             errors::DSMError,
-            events::DepositEvent,
+            events::{DepositEvent, PayoutDescriptorReceivedEvent},
             machine::{COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, DepositSM},
             state::DepositState,
             tests::*,
@@ -34,9 +34,9 @@ mod tests {
             get_state,
             Transition {
                 from_state: state,
-                event: DepositEvent::PayoutDescriptorReceived {
+                event: DepositEvent::PayoutDescriptorReceived(PayoutDescriptorReceivedEvent {
                     operator_desc: operator_desc.clone(),
-                },
+                }),
                 expected_state: DepositState::PayoutDescriptorReceived {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
@@ -120,9 +120,9 @@ mod tests {
                 create_sm,
                 InvalidTransition {
                     from_state: state,
-                    event: DepositEvent::PayoutDescriptorReceived {
+                    event: DepositEvent::PayoutDescriptorReceived(PayoutDescriptorReceivedEvent {
                         operator_desc: desc.clone(),
-                    },
+                    }),
                     expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
                 },
             );

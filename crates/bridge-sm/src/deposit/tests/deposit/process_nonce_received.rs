@@ -5,8 +5,12 @@ mod tests {
 
     use crate::{
         deposit::{
-            duties::DepositDuty, errors::DSMError, events::DepositEvent, machine::DepositSM,
-            state::DepositState, tests::*,
+            duties::DepositDuty,
+            errors::DSMError,
+            events::{DepositEvent, NonceReceivedEvent},
+            machine::DepositSM,
+            state::DepositState,
+            tests::*,
         },
         testing::transition::*,
     };
@@ -43,10 +47,10 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         for (operator_idx, nonce) in &pubnonces {
-            seq.process(DepositEvent::NonceReceived {
+            seq.process(DepositEvent::NonceReceived(NonceReceivedEvent {
                 nonce: nonce.clone(),
                 operator_idx: *operator_idx,
-            });
+            }));
         }
 
         seq.assert_no_errors();
@@ -92,10 +96,10 @@ mod tests {
             .take(operator_signers.len().saturating_sub(1))
         {
             let nonce = signer.pubnonce(tweaked_agg_pubkey, operator_signers_nonce_counter);
-            let event = DepositEvent::NonceReceived {
+            let event = DepositEvent::NonceReceived(NonceReceivedEvent {
                 nonce,
                 operator_idx: signer.operator_idx(),
-            };
+            });
             seq.process(event.clone());
 
             // Process the same event again to simulate duplicate
@@ -129,10 +133,10 @@ mod tests {
         // Process nonces, with invalid operator idex
         let signer = operator_signers.first().expect("singer set empty");
         let nonce = signer.pubnonce(tweaked_agg_pubkey, operator_signers_nonce_counter);
-        let event = DepositEvent::NonceReceived {
+        let event = DepositEvent::NonceReceived(NonceReceivedEvent {
             nonce,
             operator_idx: u32::MAX,
-        };
+        });
 
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
