@@ -3,8 +3,7 @@
 use bitcoin::BlockHash;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_asm_proto_bridge_v1::AssignmentEntry;
-
-use crate::types::AsmWorkerStatusNew;
+use strata_asm_worker::AsmWorkerStatus;
 
 /// RPCs for retrieving ASM-derived outputs keyed by Bitcoin block hashes.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata_asm"))]
@@ -16,5 +15,5 @@ pub trait AssignmentsApi {
 
     /// Return the status
     #[method(name = "getStatus")]
-    async fn get_status(&self) -> RpcResult<AsmWorkerStatusNew>;
+    async fn get_status(&self) -> RpcResult<AsmWorkerStatus>;
 }

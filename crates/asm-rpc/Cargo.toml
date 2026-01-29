@@ -9,12 +9,9 @@ workspace = true
 [dependencies]
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-worker.workspace = true
-strata-identifiers.workspace = true
-strata-state.workspace = true
 
 bitcoin.workspace = true
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
-serde.workspace = true
 
 [features]
 default = []
