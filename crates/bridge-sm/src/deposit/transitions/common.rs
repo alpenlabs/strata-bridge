@@ -4,10 +4,8 @@ use crate::{
     deposit::{
         errors::{DSMError, DSMResult},
         events::DepositEvent,
-        state::{
-            DepositState,
-            machine::{DSMOutput, DepositSM},
-        },
+        machine::{DSMOutput, DepositSM},
+        state::DepositState,
     },
     signals::{DepositSignal, DepositToGraph},
     state_machine::SMOutput,

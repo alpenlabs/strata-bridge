@@ -5,8 +5,8 @@ mod tests {
 
     use crate::{
         deposit::{
-            events::DepositEvent,
-            state::{DepositState, machine::COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, tests::*},
+            events::DepositEvent, machine::COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, state::DepositState,
+            tests::*,
         },
         signals::{DepositSignal, DepositToGraph},
         testing::transition::*,

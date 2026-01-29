@@ -8,9 +8,8 @@ mod tests {
 
     use crate::{
         deposit::{
-            errors::DSMError,
-            events::DepositEvent,
-            state::{DepositState, machine::DepositSM, tests::*},
+            errors::DSMError, events::DepositEvent, machine::DepositSM, state::DepositState,
+            tests::*,
         },
         testing::{fixtures::*, transition::*},
     };
