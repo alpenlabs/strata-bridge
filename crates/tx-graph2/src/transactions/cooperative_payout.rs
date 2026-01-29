@@ -9,7 +9,7 @@ use bitcoin::{
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors2::{
-    prelude::{CpfpConnector, NOfNConnector, NOfNSpend},
+    prelude::{NOfNConnector, NOfNSpend, P2AConnector},
     Connector, ParentTx, SigningInfo,
 };
 use strata_primitives::bitcoin_bosd::Descriptor;
@@ -35,7 +35,7 @@ pub struct CooperativePayoutTx {
     /// The connector for the deposit input.
     deposit_connector: NOfNConnector,
     /// The CPFP connector for fee bumping.
-    cpfp_connector: CpfpConnector,
+    cpfp_connector: P2AConnector,
 }
 
 impl CooperativePayoutTx {
@@ -62,7 +62,7 @@ impl CooperativePayoutTx {
         deposit_connector: NOfNConnector,
         operator_descriptor: Descriptor,
     ) -> Self {
-        let cpfp_connector = CpfpConnector::new(deposit_connector.network(), bitcoin::Amount::ZERO);
+        let cpfp_connector = P2AConnector::new(deposit_connector.network(), bitcoin::Amount::ZERO);
 
         let prevouts = [deposit_connector.tx_out()];
         let input = vec![TxIn {
