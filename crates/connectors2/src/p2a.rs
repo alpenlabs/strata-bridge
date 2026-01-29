@@ -1,16 +1,16 @@
-//! This module contains the CPFP connector.
+//! This module contains the P2A connector.
 
 use bitcoin::{psbt::Input, Address, Amount, Network, ScriptBuf, TxOut, Witness, WitnessProgram};
 use serde::{Deserialize, Serialize};
 
 /// CPFP connector that uses the P2A locking script.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct CpfpConnector {
+pub struct P2AConnector {
     network: Network,
     value: Amount,
 }
 
-impl CpfpConnector {
+impl P2AConnector {
     /// Creates a new connector.
     pub const fn new(network: Network, value: Amount) -> Self {
         Self { network, value }
@@ -70,7 +70,7 @@ mod tests {
         // N sat: wallet | N sat: wallet
         //               |--------------
         //               | 0 sat: P2A (CPFP)
-        let connector = CpfpConnector::new(Network::Regtest, Amount::ZERO);
+        let connector = P2AConnector::new(Network::Regtest, Amount::ZERO);
         let input = create_tx_ins([node.next_coinbase_outpoint()]);
         let output = vec![
             TxOut {

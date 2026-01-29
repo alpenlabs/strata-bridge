@@ -2,7 +2,7 @@
 
 use bitcoin::{absolute, transaction::Version, Amount, OutPoint, Transaction, TxIn, TxOut};
 use strata_bridge_connectors2::{
-    prelude::{CpfpConnector, NOfNConnector, UnstakingIntentOutput},
+    prelude::{NOfNConnector, P2AConnector, UnstakingIntentOutput},
     Connector, ParentTx,
 };
 
@@ -23,7 +23,7 @@ pub struct StakeTx {
     tx: Transaction,
     unstaking_intent_output: UnstakingIntentOutput,
     stake_connector: NOfNConnector,
-    cpfp_connector: CpfpConnector,
+    cpfp_connector: P2AConnector,
 }
 
 impl StakeTx {
@@ -43,7 +43,7 @@ impl StakeTx {
         stake_connector: NOfNConnector,
     ) -> Self {
         debug_assert!(unstaking_intent_output.network() == stake_connector.network());
-        let cpfp_connector = CpfpConnector::new(unstaking_intent_output.network(), Amount::ZERO);
+        let cpfp_connector = P2AConnector::new(unstaking_intent_output.network(), Amount::ZERO);
 
         let input = vec![TxIn {
             previous_output: data.stake_funds,
