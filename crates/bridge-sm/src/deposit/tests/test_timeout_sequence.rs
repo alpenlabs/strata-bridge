@@ -6,7 +6,6 @@ mod tests {
     use crate::{
         deposit::{
             events::{DepositEvent, NewBlockEvent},
-            machine::COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
             state::DepositState,
             tests::*,
         },
@@ -22,14 +21,16 @@ mod tests {
             assignee: TEST_ASSIGNEE,
             fulfillment_txid: Txid::all_zeros(),
             fulfillment_height: FULFILLMENT_HEIGHT,
-            cooperative_payout_deadline: FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS,
+            cooperative_payout_deadline: FULFILLMENT_HEIGHT
+                + test_bridge_cfg().cooperative_payout_timeout_blocks(),
         };
 
         let sm = create_sm(initial_state);
         let mut seq = EventSequence::new(sm, get_state);
 
         // Process blocks up to and past timeout
-        let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
+        let timeout_height =
+            FULFILLMENT_HEIGHT + test_bridge_cfg().cooperative_payout_timeout_blocks();
         for height in (FULFILLMENT_HEIGHT + 1)..=timeout_height {
             seq.process(DepositEvent::NewBlock(NewBlockEvent {
                 block_height: height,
