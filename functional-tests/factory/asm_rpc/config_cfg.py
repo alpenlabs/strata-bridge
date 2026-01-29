@@ -5,6 +5,8 @@ These dataclasses mirror the Rust configuration structures in bin/asm-rpc/src/co
 
 from dataclasses import dataclass
 
+from factory.common_cfg import Duration
+
 
 @dataclass
 class RpcConfig:
@@ -19,6 +21,9 @@ class DatabaseConfig:
     """Database configuration."""
 
     path: str
+    num_threads: int | None = None
+    retry_count: int | None = None
+    delay: Duration | None = None
 
 
 @dataclass
@@ -29,7 +34,7 @@ class BitcoinConfig:
     rpc_user: str
     rpc_password: str
     retry_count: int | None = None
-    retry_interval: int | None = None
+    retry_interval: Duration | None = None
 
 
 @dataclass

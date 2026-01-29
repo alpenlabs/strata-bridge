@@ -18,6 +18,7 @@ from .config_cfg import (
     BitcoinConfig,
     BtcNotifyConfig,
     DatabaseConfig,
+    Duration,
     RpcConfig,
 )
 
@@ -135,13 +136,16 @@ def generate_asm_rpc_config(
         ),
         database=DatabaseConfig(
             path=db_path,
+            num_threads=4,
+            retry_count=4,
+            delay=Duration(secs=0, nanos=150_000_000),
         ),
         bitcoin=BitcoinConfig(
             rpc_url=f"http://127.0.0.1:{bitcoind_props['rpc_port']}",
             rpc_user="user",
             rpc_password="password",
             retry_count=3,
-            retry_interval=1000,
+            retry_interval=Duration(secs=1, nanos=0),
         ),
         btc_tracker=BtcNotifyConfig(
             bury_depth=2,
