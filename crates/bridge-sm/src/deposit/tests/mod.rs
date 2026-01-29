@@ -36,10 +36,7 @@ use strata_bridge_tx_graph2::transactions::{
 use strata_l1_txfmt::MagicBytes;
 
 use crate::{
-    deposit::{
-        events::DepositEvent,
-        state::{DepositState, config::DepositCfg, machine::DepositSM},
-    },
+    deposit::{config::DepositCfg, events::DepositEvent, machine::DepositSM, state::DepositState},
     signals::GraphToDeposit,
     testing::{
         fixtures::{test_payout_tx, test_takeback_tx},
