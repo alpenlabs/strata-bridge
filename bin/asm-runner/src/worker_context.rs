@@ -12,7 +12,7 @@ use strata_state::asm_state::AsmState;
 use strata_storage::{AsmStateManager, MmrHandle};
 use tokio::runtime::Handle;
 
-/// ASM WorkerContext implementation
+/// ASM [`WorkerContext`] implementation
 ///
 /// This implementation fetches L1 blocks directly from a Bitcoin node
 /// and uses SledDB for state storage.
