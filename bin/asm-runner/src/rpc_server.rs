@@ -18,6 +18,7 @@ use strata_asm_worker::AsmWorkerHandle;
 use strata_identifiers::L1BlockCommitment;
 use strata_storage::AsmStateManager;
 use strata_tasks::ShutdownGuard;
+use tracing::info;
 
 /// Convert any error to an RPC error
 fn to_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
@@ -108,16 +109,16 @@ pub(crate) async fn run_rpc_server(
 
     let rpc_handle = server.start(rpc_server.into_rpc());
 
-    tracing::info!("ASM RPC server listening on {}:{}", rpc_host, rpc_port);
+    info!("ASM RPC server listening on {}:{}", rpc_host, rpc_port);
 
     // Wait for shutdown signal
     shutdown_guard.wait_for_shutdown().await;
 
     // Graceful cleanup
-    tracing::info!("Stopping RPC server");
+    info!("Stopping RPC server");
     rpc_handle.stop()?;
     rpc_handle.stopped().await;
 
-    tracing::info!("RPC server stopped");
+    info!("RPC server stopped");
     Ok(())
 }
