@@ -3,6 +3,12 @@
 //! This module provides helpers and `Arbitrary` implementations for testing
 //! the DepositSM across multiple state transition functions.
 
+mod deposit;
+mod payout;
+mod prop_tests;
+mod test_new_blocks;
+mod test_timeout_sequence;
+
 use std::collections::BTreeMap;
 
 use bitcoin::{Amount, Network, OutPoint, Transaction, absolute, relative, transaction::Version};
@@ -29,11 +35,18 @@ use strata_bridge_tx_graph2::transactions::{
 };
 use strata_l1_txfmt::MagicBytes;
 
-use super::{
-    events::DepositEvent,
-    state::{DepositCfg, DepositSM, DepositState},
-};
 use crate::{
+    config::BridgeCfg,
+    deposit::{
+        config::DepositSMCfg,
+        events::{
+            DepositConfirmedEvent, DepositEvent, FulfillmentConfirmedEvent, NewBlockEvent,
+            NonceReceivedEvent, PayoutConfirmedEvent, PayoutNonceReceivedEvent,
+            PayoutPartialReceivedEvent, UserTakeBackEvent, WithdrawalAssignedEvent,
+        },
+        machine::DepositSM,
+        state::DepositState,
+    },
     signals::GraphToDeposit,
     testing::{
         fixtures::{test_payout_tx, test_takeback_tx},
@@ -79,14 +92,21 @@ pub(super) const TEST_DEPOSIT_IDX: u32 = 0;
 
 // ===== Configuration Helpers =====
 
-/// Creates a test configuration for DepositSM.
-pub(super) fn test_cfg() -> DepositCfg {
-    DepositCfg {
+/// Creates a test bridge-wide configuration.
+pub(super) fn test_bridge_cfg() -> BridgeCfg {
+    BridgeCfg {
+        network: Network::Regtest,
+        cooperative_payout_timeout_blocks: 144,
+        deposit_amount: Amount::from_sat(10_000_000),
+    }
+}
+
+/// Creates a test per-instance configuration for DepositSM.
+pub(super) fn test_sm_cfg() -> DepositSMCfg {
+    DepositSMCfg {
         deposit_idx: TEST_DEPOSIT_IDX,
         deposit_outpoint: OutPoint::default(),
         operator_table: test_operator_table(),
-        network: Network::Regtest,
-        deposit_amount: Amount::from_sat(10_000_000),
     }
 }
 
@@ -234,7 +254,8 @@ pub(super) fn get_payout_signing_info(
 /// Creates a DepositSM from a given state.
 pub(super) fn create_sm(state: DepositState) -> DepositSM {
     DepositSM {
-        cfg: test_cfg(),
+        bridge_cfg: test_bridge_cfg(),
+        sm_cfg: test_sm_cfg(),
         state,
     }
 }
@@ -257,21 +278,21 @@ impl Arbitrary for DepositState {
         prop_oneof![
             (block_height.clone()).prop_map(|height| {
                 DepositState::Created {
-                    block_height: height,
+                    last_block_height: height,
                     deposit_transaction: test_deposit_txn(),
                     linked_graphs: Default::default(),
                 }
             }),
             (block_height.clone()).prop_map(|height| {
                 DepositState::GraphGenerated {
-                    block_height: height,
+                    last_block_height: height,
                     deposit_transaction: test_deposit_txn(),
                     pubnonces: Default::default(),
                 }
             }),
             (block_height.clone()).prop_map(|height| {
                 DepositState::DepositNoncesCollected {
-                    block_height: height,
+                    last_block_height: height,
                     deposit_transaction: test_deposit_txn(),
                     agg_nonce: generate_agg_nonce(),
                     partial_signatures: Default::default(),
@@ -280,7 +301,7 @@ impl Arbitrary for DepositState {
             }),
             (block_height.clone()).prop_map(|height| {
                 DepositState::DepositPartialsCollected {
-                    block_height: height,
+                    last_block_height: height,
                     deposit_transaction: Transaction {
                         input: vec![],
                         output: vec![],
@@ -291,12 +312,12 @@ impl Arbitrary for DepositState {
             }),
             block_height.clone().prop_map(|height| {
                 DepositState::Deposited {
-                    block_height: height,
+                    last_block_height: height,
                 }
             }),
             block_height.clone().prop_map(|height| {
                 DepositState::Assigned {
-                    block_height: height,
+                    last_block_height: height,
                     assignee: TEST_ASSIGNEE,
                     deadline: height + TEST_ASSIGNMENT_DEADLINE_OFFSET,
                     recipient_desc: random_p2tr_desc(),
@@ -304,7 +325,7 @@ impl Arbitrary for DepositState {
             }),
             block_height.clone().prop_map(|height| {
                 DepositState::Fulfilled {
-                    block_height: height,
+                    last_block_height: height,
                     assignee: TEST_ASSIGNEE,
                     fulfillment_txid: generate_txid(),
                     fulfillment_height: height,
@@ -313,7 +334,7 @@ impl Arbitrary for DepositState {
             }),
             block_height.clone().prop_map(|height| {
                 DepositState::PayoutDescriptorReceived {
-                    block_height: height,
+                    last_block_height: height,
                     assignee: TEST_ASSIGNEE,
                     cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
                     operator_desc: random_p2tr_desc(),
@@ -327,7 +348,7 @@ impl Arbitrary for DepositState {
                     .collect();
                 let agg_nonce = musig2::AggNonce::sum(nonces.values().cloned());
                 DepositState::PayoutNoncesCollected {
-                    block_height: height,
+                    last_block_height: height,
                     assignee: TEST_ASSIGNEE,
                     operator_desc: random_p2tr_desc(),
                     cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
@@ -337,7 +358,7 @@ impl Arbitrary for DepositState {
                 }
             }),
             block_height.prop_map(|height| DepositState::CooperativePathFailed {
-                block_height: height
+                last_block_height: height
             }),
             Just(DepositState::Spent),
             Just(DepositState::Aborted),
@@ -356,54 +377,54 @@ impl Arbitrary for DepositEvent {
         let operator_idx = 0..test_operator_table().cardinality() as u32;
 
         prop_oneof![
-            Just(DepositEvent::UserTakeBack {
+            Just(DepositEvent::UserTakeBack(UserTakeBackEvent {
                 tx: test_takeback_tx(OutPoint::default()),
-            }),
+            })),
             operator_idx.clone().prop_map(|idx| {
                 DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx: idx })
             }),
             operator_idx.clone().prop_map(|idx| {
-                DepositEvent::NonceReceived {
+                DepositEvent::NonceReceived(NonceReceivedEvent {
                     nonce: generate_pubnonce(),
                     operator_idx: idx,
-                }
+                })
             }),
             outpoint.prop_map(|outpoint| {
-                DepositEvent::DepositConfirmed {
+                DepositEvent::DepositConfirmed(DepositConfirmedEvent {
                     deposit_transaction: generate_spending_tx(outpoint, &[]),
-                }
+                })
             }),
             block_height.clone().prop_map(|height| {
-                DepositEvent::WithdrawalAssigned {
+                DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                     assignee: TEST_ASSIGNEE,
                     deadline: height + TEST_ASSIGNMENT_DEADLINE_OFFSET,
                     recipient_desc: random_p2tr_desc(),
-                }
+                })
             }),
             (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
-                DepositEvent::FulfillmentConfirmed {
+                DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
                     fulfillment_transaction: generate_spending_tx(outpoint, &[]),
                     fulfillment_height: height,
-                }
+                })
             }),
             operator_idx.clone().prop_map(|idx| {
-                DepositEvent::PayoutNonceReceived {
+                DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
                     payout_nonce: generate_pubnonce(),
                     operator_idx: idx,
-                }
+                })
             }),
             operator_idx.clone().prop_map(|idx| {
-                DepositEvent::PayoutPartialReceived {
+                DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
                     partial_signature: generate_partial_signature(),
                     operator_idx: idx,
-                }
+                })
             }),
-            Just(DepositEvent::PayoutConfirmed {
+            Just(DepositEvent::PayoutConfirmed(PayoutConfirmedEvent {
                 tx: test_payout_tx(OutPoint::default())
-            }),
-            block_height.prop_map(|height| DepositEvent::NewBlock {
+            })),
+            block_height.prop_map(|height| DepositEvent::NewBlock(NewBlockEvent {
                 block_height: height
-            }),
+            })),
         ]
         .boxed()
     }
@@ -422,43 +443,51 @@ pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
     let operator_idx = 0..num_operators;
 
     prop_oneof![
-        Just(DepositEvent::UserTakeBack {
+        Just(DepositEvent::UserTakeBack(UserTakeBackEvent {
             tx: test_takeback_tx(outpoint)
-        }),
+        })),
         operator_idx.clone().prop_map(|idx| {
             DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx: idx })
         }),
         operator_idx.clone().prop_map(|idx| {
-            DepositEvent::NonceReceived {
+            DepositEvent::NonceReceived(NonceReceivedEvent {
                 nonce: generate_pubnonce(),
                 operator_idx: idx,
-            }
+            })
         }),
-        Just(DepositEvent::PayoutConfirmed {
+        Just(DepositEvent::PayoutConfirmed(PayoutConfirmedEvent {
             tx: test_payout_tx(outpoint)
-        }),
-        (BIP34_MIN_BLOCK_HEIGHT..1000u64).prop_map(|height| DepositEvent::NewBlock {
-            block_height: height
-        }),
-        Just(DepositEvent::DepositConfirmed {
+        })),
+        (BIP34_MIN_BLOCK_HEIGHT..1000u64).prop_map(|height| DepositEvent::NewBlock(
+            NewBlockEvent {
+                block_height: height
+            }
+        )),
+        Just(DepositEvent::DepositConfirmed(DepositConfirmedEvent {
             deposit_transaction: generate_spending_tx(outpoint, &[])
-        }),
-        Just(DepositEvent::FulfillmentConfirmed {
-            fulfillment_transaction: generate_spending_tx(outpoint, &[]),
-            fulfillment_height: LATER_BLOCK_HEIGHT,
-        }),
-        Just(DepositEvent::WithdrawalAssigned {
+        })),
+        Just(DepositEvent::FulfillmentConfirmed(
+            FulfillmentConfirmedEvent {
+                fulfillment_transaction: generate_spending_tx(outpoint, &[]),
+                fulfillment_height: LATER_BLOCK_HEIGHT,
+            }
+        )),
+        Just(DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
             assignee: TEST_ASSIGNEE,
             deadline: LATER_BLOCK_HEIGHT,
             recipient_desc: random_p2tr_desc(),
-        }),
-        (0..num_operators).prop_map(|idx| DepositEvent::PayoutNonceReceived {
-            payout_nonce: generate_pubnonce(),
-            operator_idx: idx,
-        }),
-        (0..num_operators).prop_map(|idx| DepositEvent::PayoutPartialReceived {
-            partial_signature: generate_partial_signature(),
-            operator_idx: idx,
-        }),
+        })),
+        (0..num_operators).prop_map(|idx| DepositEvent::PayoutNonceReceived(
+            PayoutNonceReceivedEvent {
+                payout_nonce: generate_pubnonce(),
+                operator_idx: idx,
+            }
+        )),
+        (0..num_operators).prop_map(|idx| DepositEvent::PayoutPartialReceived(
+            PayoutPartialReceivedEvent {
+                partial_signature: generate_partial_signature(),
+                operator_idx: idx,
+            }
+        )),
     ]
 }

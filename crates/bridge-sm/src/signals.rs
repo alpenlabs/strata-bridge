@@ -15,7 +15,7 @@ pub enum Signal {
     FromGraph(GraphSignal),
 }
 
-/// Signals that the [Deposit State Machine](crate::deposit::state::DepositSM) can emit.
+/// Signals that the [Deposit State Machine](crate::deposit::machine::DepositSM) can emit.
 ///
 /// This enum is type-safe: it only contains signals that the Deposit SM is allowed to produce.
 /// Each variant represents a different destination state machine.
@@ -50,7 +50,7 @@ impl From<GraphSignal> for Signal {
 }
 
 /// The signals that need to be sent from the [Deposit State
-/// Machine](crate::deposit::state::DepositSM) to the Graph State Machine.
+/// Machine](crate::deposit::machine::DepositSM) to the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DepositToGraph {
     /// Indicates that the cooperative payout has failed and so the unilateral withdrawal path has
@@ -65,7 +65,7 @@ pub enum DepositToGraph {
 }
 
 /// The signals that need to be sent from the Graph State Machine to the [Deposit State
-/// Machine](crate::deposit::state::DepositSM).
+/// Machine](crate::deposit::machine::DepositSM).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GraphToDeposit {
     /// Indicates that the pegout graph has been generated and signed.
@@ -74,4 +74,14 @@ pub enum GraphToDeposit {
         operator_idx: OperatorIdx,
         // add more fields if necessary
     },
+}
+
+impl std::fmt::Display for GraphToDeposit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GraphToDeposit::GraphAvailable { operator_idx } => {
+                write!(f, "GraphAvailable for operator_idx: {}", operator_idx)
+            }
+        }
+    }
 }
