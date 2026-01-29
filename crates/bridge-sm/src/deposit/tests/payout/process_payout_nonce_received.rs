@@ -314,6 +314,41 @@ mod tests {
         );
     }
 
+    /// tests that invalid operator index is rejected
+    #[test]
+    fn test_invalid_operator_idx_in_payout_nonce_received() {
+        let desc = random_p2tr_desc();
+
+        let initial_state = DepositState::PayoutDescriptorReceived {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_ASSIGNEE,
+            cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+            operator_desc: desc,
+            payout_nonces: BTreeMap::new(),
+        };
+
+        let sm = create_sm(initial_state.clone());
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // Process PayoutNonceReceived with invalid operator idx
+        let nonce = generate_pubnonce();
+        let event = DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
+            payout_nonce: nonce,
+            operator_idx: u32::MAX,
+        });
+        seq.process(event.clone());
+
+        // Verify rejection with test_invalid_transition
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: seq.state().clone(),
+                event,
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            },
+        );
+    }
+
     /// tests that all states except PayoutDescriptorReceived should reject PayoutNonceReceived
     /// event
     #[test]

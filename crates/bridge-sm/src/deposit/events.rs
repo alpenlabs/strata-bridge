@@ -177,7 +177,11 @@ impl std::fmt::Display for NonceReceivedEvent {
 
 impl std::fmt::Display for PartialReceivedEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PartialReceived from operator_idx: {}", self.operator_idx)
+        write!(
+            f,
+            "PartialReceived from operator_idx: {}",
+            self.operator_idx
+        )
     }
 }
 

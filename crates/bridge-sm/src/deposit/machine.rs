@@ -3,7 +3,7 @@
 //! Responsible for driving deposit progress by reacting to events and
 //! producing the required duties and signals.
 use bitcoin::{Amount, Network, XOnlyPublicKey, relative::LockTime};
-use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
+use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph2::transactions::prelude::DepositData;
 
 use crate::{
@@ -123,11 +123,25 @@ impl DepositSM {
         &mut self.state
     }
 
-    /// Returns `true` if the operator index exists in the operator table.
-    pub fn validate_operator_idx(&self, operator_idx: OperatorIdx) -> bool {
-        self.cfg()
+    /// Checks that the operator index exists, otherwise returns `DSMError::Rejected`.
+    pub fn check_operator_idx(
+        &self,
+        operator_idx: u32,
+        event: &impl ToString,
+    ) -> Result<(), DSMError> {
+        if self
+            .cfg()
             .operator_table
             .idx_to_btc_key(&operator_idx)
             .is_some()
+        {
+            Ok(())
+        } else {
+            Err(DSMError::Rejected {
+                state: self.state().to_string(),
+                reason: format!("Operator index {} not in operator table", operator_idx),
+                event: event.to_string(),
+            })
+        }
     }
 }

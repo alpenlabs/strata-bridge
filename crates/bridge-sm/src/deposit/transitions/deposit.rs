@@ -95,13 +95,7 @@ impl DepositSM {
         match graph_msg {
             GraphToDeposit::GraphAvailable { operator_idx } => {
                 // Validate operator_idx is in the operator table
-                if !self.validate_operator_idx(operator_idx) {
-                    return Err(DSMError::Rejected {
-                        state: self.state().to_string(),
-                        reason: format!("Operator index {} not in operator table", operator_idx),
-                        event: graph_msg.to_string(),
-                    });
-                }
+                self.check_operator_idx(operator_idx, &graph_msg)?;
 
                 match self.state_mut() {
                     DepositState::Created {
@@ -157,19 +151,10 @@ impl DepositSM {
         &mut self,
         nonce_event: NonceReceivedEvent,
     ) -> DSMResult<DSMOutput> {
-        let operator_table_cardinality = self.cfg().operator_table.cardinality();
-
         // Validate operator_idx is in the operator table
-        if !self.validate_operator_idx(nonce_event.operator_idx) {
-            return Err(DSMError::Rejected {
-                state: self.state().to_string(),
-                reason: format!(
-                    "Operator index {} not in operator table",
-                    nonce_event.operator_idx
-                ),
-                event: nonce_event.to_string(),
-            });
-        }
+        self.check_operator_idx(nonce_event.operator_idx, &nonce_event)?;
+
+        let operator_table_cardinality = self.cfg().operator_table.cardinality();
 
         match self.state_mut() {
             DepositState::GraphGenerated {
@@ -242,20 +227,11 @@ impl DepositSM {
         &mut self,
         partial_event: PartialReceivedEvent,
     ) -> DSMResult<DSMOutput> {
+        // Validate operator_idx is in the operator table
+        self.check_operator_idx(partial_event.operator_idx, &partial_event)?;
+
         let operator_table_cardinality = self.cfg().operator_table.cardinality();
         let btc_keys: Vec<_> = self.cfg().operator_table.btc_keys().into_iter().collect();
-
-        // Validate operator_idx is in the operator table
-        if !self.validate_operator_idx(partial_event.operator_idx) {
-            return Err(DSMError::Rejected {
-                state: self.state().to_string(),
-                reason: format!(
-                    "Operator index {} not in operator table",
-                    partial_event.operator_idx
-                ),
-                event: partial_event.to_string(),
-            });
-        }
 
         // Get the operator pubkey (safe after validation)
         let operator_pubkey = self

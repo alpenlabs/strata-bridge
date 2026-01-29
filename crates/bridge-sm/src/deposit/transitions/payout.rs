@@ -171,6 +171,9 @@ impl DepositSM {
         &mut self,
         payout_nonce: PayoutNonceReceivedEvent,
     ) -> DSMResult<DSMOutput> {
+        // Validate operator_idx is in the operator table
+        self.check_operator_idx(payout_nonce.operator_idx, &payout_nonce)?;
+
         let operator_table_cardinality = self.cfg.operator_table.cardinality();
         let pov_operator_idx = self.cfg.operator_table.pov_idx();
 
@@ -258,6 +261,9 @@ impl DepositSM {
         &mut self,
         payout_partial: PayoutPartialReceivedEvent,
     ) -> DSMResult<DSMOutput> {
+        // Validate operator_idx is in the operator table
+        self.check_operator_idx(payout_partial.operator_idx, &payout_partial)?;
+
         // Extract from self.cfg before the match to avoid borrow conflicts
         let operator_table_cardinality = self.cfg.operator_table.cardinality();
         let pov_operator_idx = self.cfg.operator_table.pov_idx();

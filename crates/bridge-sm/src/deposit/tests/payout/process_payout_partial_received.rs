@@ -348,6 +348,33 @@ mod tests {
         );
     }
 
+    /// tests that invalid operator index is rejected
+    #[test]
+    fn test_invalid_operator_idx_in_payout_partial_received() {
+        let (state, _, _, _, _, _, _) = create_payout_partial_test_setup(TEST_ASSIGNEE);
+
+        let sm = create_sm(state.clone());
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // Process PayoutPartialReceived with invalid operator idx
+        let partial_sig = generate_partial_signature();
+        let event = DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
+            partial_signature: partial_sig,
+            operator_idx: u32::MAX,
+        });
+        seq.process(event.clone());
+
+        // Verify rejection with test_invalid_transition
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: seq.state().clone(),
+                event,
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            },
+        );
+    }
+
     /// tests that invalid partial signature is rejected with Rejected error
     #[test]
     fn test_payout_partial_received_invalid_signature() {
