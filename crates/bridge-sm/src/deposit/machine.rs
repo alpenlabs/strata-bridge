@@ -8,10 +8,8 @@ use strata_bridge_tx_graph2::transactions::prelude::DepositData;
 
 use crate::{
     deposit::{
-        duties::DepositDuty,
-        errors::DSMError,
-        events::DepositEvent,
-        state::{DepositState, config::DepositCfg},
+        config::DepositCfg, duties::DepositDuty, errors::DSMError, events::DepositEvent,
+        state::DepositState,
     },
     signals::DepositSignal,
     state_machine::{SMOutput, StateMachine},

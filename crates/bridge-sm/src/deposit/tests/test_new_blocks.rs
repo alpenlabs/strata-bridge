@@ -7,11 +7,9 @@ mod tests {
         deposit::{
             errors::DSMError,
             events::DepositEvent,
-            state::{
-                DepositState,
-                machine::{COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, DepositSM},
-                tests::*,
-            },
+            machine::{COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS, DepositSM},
+            state::DepositState,
+            tests::*,
         },
         signals::{DepositSignal, DepositToGraph},
         testing::{fixtures::*, transition::*},

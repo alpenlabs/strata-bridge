@@ -16,10 +16,8 @@ use crate::{
         duties::DepositDuty,
         errors::{DSMError, DSMResult},
         events::DepositEvent,
-        state::{
-            DepositState,
-            machine::{DSMOutput, DepositSM},
-        },
+        machine::{DSMOutput, DepositSM},
+        state::DepositState,
     },
     state_machine::SMOutput,
 };

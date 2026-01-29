@@ -4,7 +4,7 @@ mod tests {
     use proptest::prelude::*;
 
     use crate::{
-        deposit::state::tests::*, prop_deterministic, prop_no_silent_acceptance,
+        deposit::tests::*, prop_deterministic, prop_no_silent_acceptance,
         prop_terminal_states_reject,
     };
 
