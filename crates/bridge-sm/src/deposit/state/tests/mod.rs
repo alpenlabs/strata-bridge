@@ -3,7 +3,11 @@
 //! This module provides helpers and `Arbitrary` implementations for testing
 //! the DepositSM across multiple state transition functions.
 
-pub(super) mod new_block_tests;
+mod deposit;
+mod payout;
+mod prop_tests;
+mod test_new_blocks;
+mod test_timeout_sequence;
 
 use std::collections::BTreeMap;
 
