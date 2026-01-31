@@ -33,6 +33,7 @@ class ProcServiceWithEnv(flexitest.service.ProcService):
 
         if self.stdout is not None:
             if type(self.stdout) is str:
+                # file handle must stay open for subprocess lifetime (no context manager)
                 f = open(self.stdout, "a")  # noqa: SIM115
                 f.write(f"(process started as: {self.cmd})\n")
                 kwargs["stdout"] = f

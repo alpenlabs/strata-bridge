@@ -6,7 +6,6 @@ use foundationdb::{
     directory::DirectoryError,
     options::NetworkOption,
 };
-use strata_bridge_p2p_types::P2POperatorPubKey;
 use terrors::OneOf;
 
 use crate::fdb::{
@@ -56,7 +55,6 @@ impl FdbClient {
     /// reuse the [`FdbClient`] instance returned from the first call.
     pub async fn setup(
         config: Config,
-        my_p2p_pubkey: P2POperatorPubKey,
     ) -> Result<(Self, MustDrop), OneOf<(FdbBindingError, FdbError, DirectoryError)>> {
         let mut network_builder = FdbApiBuilder::default()
             .build()
@@ -88,10 +86,11 @@ impl FdbClient {
         let db =
             Database::new(Some(&config.cluster_file_path.to_string_lossy())).map_err(OneOf::new)?;
 
+        let root_directory = config.root_directory.clone();
         let dirs = db
             .run(|trx, _| {
-                let my_p2p_pubkey = my_p2p_pubkey.clone();
-                async move { Ok(Directories::setup(&trx, my_p2p_pubkey).await) }
+                let root_directory = root_directory.clone();
+                async move { Ok(Directories::setup(&trx, &root_directory).await) }
             })
             .await
             .map_err(OneOf::new)?

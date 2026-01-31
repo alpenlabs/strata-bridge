@@ -1,12 +1,12 @@
 use std::{path::PathBuf, time::Duration};
 
 use btc_tracker::config::BtcNotifyConfig;
-use db2::fdb::cfg::Config as FdbConfig;
 use duty_tracker::executors::config::StakeTxRetryConfig;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
 use strata_bridge_db::persistent::config::DbConfig;
+use strata_bridge_db2::fdb::cfg::Config as FdbConfig;
 use strata_bridge_p2p_service::GossipsubScoringPreset;
 
 /// Configuration values that dictate the behavior of the bridge node.

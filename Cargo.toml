@@ -73,7 +73,6 @@ clippy.missing_const_for_fn = "deny"
 algebra = { path = "crates/algebra" }
 alpen-bridge-params = { path = "crates/params" }
 btc-tracker = { path = "crates/btc-tracker" }
-db2 = { path = "crates/db2" }
 duty-tracker = { path = "crates/duty-tracker" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
@@ -86,6 +85,7 @@ strata-bridge-common = { path = "crates/common" }
 strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-connectors2 = { path = "crates/connectors2" }
 strata-bridge-db = { path = "crates/db" }
+strata-bridge-db2 = { path = "crates/db2" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
 strata-bridge-key-deriv = { path = "crates/key-deriv" }

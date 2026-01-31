@@ -19,8 +19,8 @@ class BasicEnv(BaseEnv):
         bitcoind, brpc, wallet_addr = self.setup_bitcoin(ectx)
         svcs["bitcoin"] = bitcoind
 
-        # Setup FoundationDB
-        fdb = self.setup_fdb(ectx)
+        # Setup FoundationDB with unique root directory for this environment
+        fdb = self.setup_fdb(ectx, "basic")
         svcs["fdb"] = fdb
 
         # Create operator directory

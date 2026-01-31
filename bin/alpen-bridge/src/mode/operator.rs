@@ -19,7 +19,6 @@ use bitcoind_async_client::{
     Auth, Client as BitcoinClient,
 };
 use btc_tracker::client::BtcNotifyClient;
-use db2::fdb::client::FdbClient;
 use duty_tracker::{
     contract_manager::ContractManager, contract_persister::ContractPersister,
     shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister,
@@ -49,6 +48,7 @@ use sqlx::{
 };
 use strata_bridge_asm_events::client::AsmEventFeed;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_db2::fdb::client::FdbClient;
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
 };

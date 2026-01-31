@@ -1,11 +1,21 @@
+"""FoundationDB factory for functional testing.
+
+This factory creates a single shared FoundationDB server instance for all tests.
+Each test environment can use different root directories within the shared FDB
+instance for isolation.
+"""
+
+import atexit
 import logging
 import os
 import random
 import string
 import subprocess
-import time
+import threading
 
 import flexitest
+
+from utils.utils import wait_until
 
 logger = logging.getLogger(__name__)
 
@@ -14,25 +24,96 @@ logger = logging.getLogger(__name__)
 FDBSERVER_PATH = os.environ.get("FDBSERVER_PATH", "fdbserver")
 FDBCLI_PATH = os.environ.get("FDBCLI_PATH", "fdbcli")
 
+# Module-level singleton for the shared FDB instance
+_fdb_instance: "PersistentFdbService | None" = None
+_fdb_lock = threading.Lock()
+
+
+class PersistentFdbService(flexitest.service.ProcService):
+    """A ProcService that ignores stop() calls from flexitest environment teardown.
+
+    This allows the FDB instance to persist across multiple test environments.
+    The service is only stopped when force_stop() is called (typically at process exit).
+    """
+
+    def __init__(self, props: dict, cmd: list[str], stdout=None):
+        super().__init__(props, cmd, stdout)
+        self._force_stopped = False
+
+    def stop(self):
+        """Ignore stop calls from flexitest - we want to persist across environments."""
+        logger.debug("Ignoring stop() call for persistent FDB instance")
+        # Don't actually stop - just return
+
+    def force_stop(self):
+        """Actually stop the FDB server (called at process exit)."""
+        if self._force_stopped:
+            return
+        self._force_stopped = True
+        logger.info("Force stopping FDB server")
+        super().stop()
+
+
+def _cleanup_fdb():
+    """Cleanup function called at process exit."""
+    global _fdb_instance
+    if _fdb_instance is not None:
+        _fdb_instance.force_stop()
+        _fdb_instance = None
+
+
+# Register cleanup at process exit
+atexit.register(_cleanup_fdb)
+
 
 class FdbFactory(flexitest.Factory):
-    """Factory for creating FoundationDB server instances for testing."""
+    """Factory for creating a shared FoundationDB server instance for testing.
+
+    This factory implements a singleton pattern - only one FDB server is created
+    and shared across all test environments. Each environment should use a unique
+    `root_directory` in its FDB config for isolation.
+    """
 
     def __init__(self, port_range: list[int]):
         super().__init__(port_range)
+        self._datadir_root: str | None = None
 
     @flexitest.with_ectx("ctx")
     def create_fdb(self, ctx: flexitest.EnvContext) -> flexitest.Service:
         """
-        Create and start a FoundationDB server instance.
+        Get or create the shared FoundationDB server instance.
 
-        Spawns an isolated fdbserver process for testing.
+        On first call, spawns an fdbserver process. Subsequent calls return
+        the existing instance.
 
         Returns a service with the following properties:
         - port: The port the server is listening on
         - cluster_file: Path to the cluster file for client connections
         """
-        datadir = ctx.make_service_dir("fdb")
+        global _fdb_instance
+
+        with _fdb_lock:
+            if _fdb_instance is not None and _fdb_instance.check_status():
+                logger.info(
+                    "Reusing existing FDB instance on port %d", _fdb_instance.get_prop("port")
+                )
+                return _fdb_instance
+
+            # Store datadir root from first context we see
+            if self._datadir_root is None:
+                # Go up one level from environment dir to get the test run root
+                self._datadir_root = os.path.dirname(ctx.envdd_path)
+
+            _fdb_instance = self._create_fdb_instance()
+            return _fdb_instance
+
+    def _create_fdb_instance(self) -> PersistentFdbService:
+        """Create a new FDB server instance at the test run root level."""
+        # Create FDB directory at test run root (shared across all environments)
+        assert self._datadir_root is not None, "datadir_root must be set before creating FDB"
+        datadir = os.path.join(self._datadir_root, "_shared_fdb")
+        os.makedirs(datadir, exist_ok=True)
+
         logfile = os.path.join(datadir, "service.log")
 
         port = self.next_port()
@@ -71,7 +152,7 @@ class FdbFactory(flexitest.Factory):
             "cluster_file": cluster_file,
         }
 
-        svc = flexitest.service.ProcService(props, cmd, stdout=logfile)
+        svc = PersistentFdbService(props, cmd, stdout=logfile)
         svc.start()
 
         # Check if process is still running
@@ -104,20 +185,18 @@ def _wait_and_init_fdb(cluster_file: str, log_dir: str, timeout: int = 60):
     On an unconfigured database, 'status minimal' will hang indefinitely,
     but 'configure new single ssd' will work immediately.
     """
-    start = time.time()
-    last_error = None
-    last_stdout = ""
-    last_stderr = ""
-
     logger.info("Waiting for FDB to become ready (timeout: %ds)...", timeout)
 
-    # First, configure the database (this works even when status would hang)
-    for attempt in range(1, 6):  # Try up to 5 times
-        if time.time() - start > timeout:
-            break
+    # State to track configuration success and errors for diagnostics
+    config_state = {"configured": False}
+
+    def try_configure_database() -> bool:
+        """Attempt to configure the database as 'new single ssd'."""
+        if config_state["configured"]:
+            return True
 
         try:
-            logger.info("Attempt %d: Configuring database as 'new single ssd'...", attempt)
+            logger.info("Configuring database as 'new single ssd'...")
             configure_result = subprocess.run(
                 [
                     FDBCLI_PATH,
@@ -140,29 +219,30 @@ def _wait_and_init_fdb(cluster_file: str, log_dir: str, timeout: int = 60):
                 configure_result.stderr.strip(),
             )
 
-            # "Database created" means success
             if configure_result.returncode == 0:
                 logger.info("Database configuration successful")
-                break
+                config_state["configured"] = True
+                return True
 
-            last_error = (
-                f"Configure attempt {attempt}: {configure_result.stderr or configure_result.stdout}"
-            )
+            return False
 
         except subprocess.TimeoutExpired:
-            last_error = f"Configure attempt {attempt}: timed out"
-            logger.debug("Configure attempt %d timed out", attempt)
+            logger.debug("Configure attempt timed out")
+            return False
         except Exception as e:
-            last_error = f"Configure attempt {attempt}: {e}"
-            logger.debug("Configure attempt %d error: %s", attempt, e)
+            logger.debug("Configure attempt error: %s", e)
+            return False
 
-        time.sleep(2)
-    else:
-        # All attempts failed
-        _raise_fdb_error(cluster_file, log_dir, timeout, last_error, last_stdout, last_stderr)
+    # First, configure the database (this works even when status would hang)
+    wait_until(
+        try_configure_database,
+        timeout=timeout,
+        step=2,
+        error_msg=f"Failed to configure FDB database. Check logs in {log_dir}",
+    )
 
-    # Now wait for the database to become available
-    while time.time() - start < timeout:
+    def check_database_available() -> bool:
+        """Check if the database is available."""
         try:
             result = subprocess.run(
                 [FDBCLI_PATH, "-C", cluster_file, "--exec", "status minimal", "--timeout", "5"],
@@ -171,63 +251,37 @@ def _wait_and_init_fdb(cluster_file: str, log_dir: str, timeout: int = 60):
                 timeout=10,
             )
 
-            last_stdout = result.stdout
-            last_stderr = result.stderr
-
             if "The database is available" in result.stdout:
                 logger.info("FDB database is available and ready")
-                return
+                return True
 
-            last_error = f"Database not yet available: {result.stdout.strip()}"
+            logger.debug("Database not yet available: %s", result.stdout.strip())
+            return False
 
         except subprocess.TimeoutExpired:
-            last_error = "Status check timed out"
+            logger.debug("Status check timed out")
+            return False
         except Exception as e:
-            last_error = f"Status check error: {e}"
+            logger.debug("Status check error: %s", e)
+            return False
 
-        time.sleep(1)
+    # Now wait for the database to become available
+    wait_until(
+        check_database_available,
+        timeout=timeout,
+        step=1,
+        error_msg=f"FDB database did not become available. Check logs in {log_dir}",
+    )
 
-    # Timeout reached
-    _raise_fdb_error(cluster_file, log_dir, timeout, last_error, last_stdout, last_stderr)
 
+def generate_fdb_root_directory(env_name: str) -> str:
+    """Generate a unique root directory name for an environment.
 
-def _raise_fdb_error(
-    cluster_file: str,
-    log_dir: str,
-    timeout: int,
-    last_error: str | None,
-    last_stdout: str,
-    last_stderr: str,
-):
-    """Gather diagnostic information and raise an error."""
-    diagnostics = [
-        f"FDB failed to start within {timeout} seconds",
-        f"Last error: {last_error}",
-        f"Last stdout: {last_stdout}",
-        f"Last stderr: {last_stderr}",
-        f"Cluster file: {cluster_file}",
-    ]
+    Args:
+        env_name: Name of the test environment (e.g., "basic", "network")
 
-    # Try to read cluster file
-    try:
-        with open(cluster_file) as f:
-            diagnostics.append(f"Cluster file contents: {f.read().strip()}")
-    except Exception as e:
-        diagnostics.append(f"Could not read cluster file: {e}")
-
-    # Check for FDB log files
-    try:
-        if os.path.isdir(log_dir):
-            log_files = os.listdir(log_dir)
-            diagnostics.append(f"FDB log files in {log_dir}: {log_files}")
-            for log_file in sorted(log_files, reverse=True)[:1]:
-                log_path = os.path.join(log_dir, log_file)
-                with open(log_path) as f:
-                    lines = f.readlines()[-50:]
-                    diagnostics.append(f"Last 50 lines of {log_file}:\n{''.join(lines)}")
-    except Exception as e:
-        diagnostics.append(f"Could not read FDB logs: {e}")
-
-    error_message = "\n".join(diagnostics)
-    logger.error(error_message)
-    raise RuntimeError(error_message)
+    Returns:
+        A unique root directory name like "test-basic-a1b2c3d4"
+    """
+    suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    return f"test-{env_name}-{suffix}"
