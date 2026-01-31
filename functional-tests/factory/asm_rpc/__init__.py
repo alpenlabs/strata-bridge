@@ -22,7 +22,6 @@ from .config_cfg import (
     RpcConfig,
 )
 
-
 EXPECTED_TARGET_PATHS = (
     "target/debug/strata-asm-runner",
     "target/release/strata-asm-runner",
