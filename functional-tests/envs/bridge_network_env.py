@@ -29,8 +29,8 @@ class BridgeNetworkEnv(BaseEnv):
         bitcoind, brpc, wallet_addr = self.setup_bitcoin(ectx)
         svcs["bitcoin"] = bitcoind
 
-        # Setup FoundationDB
-        fdb = self.setup_fdb(ectx)
+        # Setup FoundationDB with unique root directory for this environment
+        fdb = self.setup_fdb(ectx, "network")
         svcs["fdb"] = fdb
 
         # Create operators dynamically based on configuration

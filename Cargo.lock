@@ -917,7 +917,6 @@ dependencies = [
  "btc-tracker",
  "chrono",
  "clap",
- "db2",
  "duty-tracker",
  "ed25519-dalek",
  "hex",
@@ -937,6 +936,7 @@ dependencies = [
  "strata-bridge-common",
  "strata-bridge-connectors",
  "strata-bridge-db",
+ "strata-bridge-db2",
  "strata-bridge-p2p-service",
  "strata-bridge-p2p-types",
  "strata-bridge-primitives",
@@ -3168,21 +3168,6 @@ checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "db2"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "foundationdb",
- "proptest",
- "secp256k1 0.29.1",
- "serde",
- "strata-bridge-p2p-types",
- "strata-bridge-primitives",
- "terrors",
- "tokio",
 ]
 
 [[package]]
@@ -9862,6 +9847,20 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "strata-bridge-db2"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "foundationdb",
+ "proptest",
+ "secp256k1 0.29.1",
+ "serde",
+ "strata-bridge-primitives",
+ "terrors",
+ "tokio",
 ]
 
 [[package]]

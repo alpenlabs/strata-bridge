@@ -7,14 +7,24 @@ use std::path::PathBuf;
 pub struct Config {
     /// Path to the FDB cluster file aka database config
     pub cluster_file_path: PathBuf,
+    /// Name of the root directory in FDB's directory layer.
+    /// Defaults to "strata-bridge-v1".
+    #[serde(default = "default_root_directory")]
+    pub root_directory: String,
     /// Optional TLS configuration.
     pub tls: Option<TlsConfig>,
+}
+
+/// Default root directory name for FDB's directory layer.
+fn default_root_directory() -> String {
+    "strata-bridge-v1".to_string()
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             cluster_file_path: PathBuf::from(foundationdb::default_config_path()),
+            root_directory: default_root_directory(),
             tls: None,
         }
     }
