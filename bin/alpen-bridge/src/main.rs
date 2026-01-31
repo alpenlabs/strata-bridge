@@ -11,14 +11,11 @@ use args::OperationMode;
 use clap::Parser;
 use config::Config;
 use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE, STARTUP_DELAY};
-use db2::fdb::client::{FdbClient, MustDrop};
-use ed25519_dalek::SigningKey;
 use mode::{init_secret_service_client, operator, verifier};
 use params::Params;
-use secret_service_proto::v2::traits::{P2PSigner, SecretService};
 use serde::de::DeserializeOwned;
 use strata_bridge_common::{logging, logging::LoggerConfig};
-use strata_bridge_p2p_types::P2POperatorPubKey;
+use strata_bridge_db2::fdb::client::{FdbClient, MustDrop};
 use strata_tasks::TaskManager;
 use tokio::runtime;
 use tracing::{debug, info, trace};
@@ -76,31 +73,18 @@ fn main() {
         .build()
         .expect("must be able to create runtime");
 
-    // Initialize Secret Service client to get P2P key (needed for FDB setup)
-    debug!("initializing secret service client for FDB setup");
+    // Initialize Secret Service client
+    debug!("initializing secret service client");
     let s2_client = runtime.block_on(init_secret_service_client(&config.secret_service_client));
-
-    // Derive P2P public key from secret key for FDB directory namespacing
-    let p2p_pubkey: P2POperatorPubKey = runtime.block_on(async {
-        let p2p_sk = s2_client
-            .p2p_signer()
-            .secret_key()
-            .await
-            .expect("should get p2p secret key");
-        let pk_bytes =
-            SigningKey::from_bytes(p2p_sk.as_ref().try_into().expect("private key is 32 bytes"))
-                .verifying_key()
-                .to_bytes();
-        P2POperatorPubKey::from(pk_bytes.to_vec())
-    });
-    debug!(?p2p_pubkey, "derived P2P public key for FDB");
 
     // Initialize FDB client - must happen once per process, before spawning tasks.
     // The MustDrop guard stops the FDB network thread when dropped, so it must
     // stay in main() scope until after all tasks complete.
-    info!("initializing FoundationDB client");
+    // The root directory name is configured via config.fdb.root_directory (defaults to
+    // "strata-bridge-v1").
+    info!(root_directory = %config.fdb.root_directory, "initializing FoundationDB client");
     let (fdb_client, _fdb_guard): (FdbClient, MustDrop) = runtime
-        .block_on(FdbClient::setup(config.fdb.clone(), p2p_pubkey))
+        .block_on(FdbClient::setup(config.fdb.clone()))
         .expect("should initialize FDB client");
     let fdb_client = Arc::new(fdb_client);
     debug!("FoundationDB client initialized");

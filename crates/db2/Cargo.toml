@@ -1,12 +1,10 @@
 [package]
-name = "db2"
+name = "strata-bridge-db2"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 strata-bridge-primitives.workspace = true
-
-strata-bridge-p2p-types.workspace = true
 
 bitcoin = { workspace = true, features = ["rand-std"] }
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }

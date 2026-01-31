@@ -71,6 +71,7 @@ class StakeTxConfig:
 @dataclass
 class FdbConfig:
     cluster_file_path: str
+    root_directory: str
 
 
 @dataclass

@@ -3,6 +3,7 @@ from pathlib import Path
 import flexitest
 
 from factory.bridge_operator.sidesystem_cfg import build_sidesystem, write_rollup_params_json
+from factory.fdb import generate_fdb_root_directory
 from utils import (
     BLOCK_GENERATION_INTERVAL_SECS,
     generate_blocks,
@@ -37,6 +38,10 @@ class BaseEnv(flexitest.EnvConfig):
         # Load all operator keys
         self.operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
 
+        # Generate unique root directory for this environment's FDB data
+        # This allows multiple test environments to share a single FDB instance
+        self.fdb_root_directory: str | None = None
+
     def setup_bitcoin(self, ectx: flexitest.EnvContext):
         """Setup Bitcoin node with wallet and initial funding."""
         btc_fac = ectx.get_factory("bitcoin")
@@ -56,10 +61,22 @@ class BaseEnv(flexitest.EnvConfig):
 
         return bitcoind, brpc, wallet_addr
 
-    def setup_fdb(self, ectx: flexitest.EnvContext):
-        """Setup FoundationDB instance."""
+    def setup_fdb(self, ectx: flexitest.EnvContext, env_name: str):
+        """Setup FoundationDB instance with a unique root directory for this environment.
+
+        Args:
+            ectx: Environment context
+            env_name: Name of this environment (used to generate unique root directory)
+
+        Returns:
+            FDB service instance
+        """
         fdb_fac = ectx.get_factory("fdb")
         fdb = fdb_fac.create_fdb()
+
+        # Generate unique root directory for this environment
+        self.fdb_root_directory = generate_fdb_root_directory(env_name)
+
         return fdb
 
     def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
@@ -93,12 +110,18 @@ class BaseEnv(flexitest.EnvConfig):
         # Build sidesystem + rollup params once using live bitcoind data.
         self._ensure_rollup_params(ectx, bitcoind_rpc)
 
+        # Augment fdb_props with root_directory for this environment
+        fdb_props_with_root = {
+            **fdb_props,
+            "root_directory": self.fdb_root_directory,
+        }
+
         s2_service = s2_fac.create_s2_service(operator_idx, operator_key)
         bridge_operator = bo_fac.create_server(
             operator_idx,
             bitcoind_props,
             s2_service.props,
-            fdb_props,
+            fdb_props_with_root,
             self.operator_key_infos,
             self.p2p_ports,
             sidesystem=self._sidesystem,
