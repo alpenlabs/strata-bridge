@@ -103,6 +103,17 @@ jobs:
           enable-cache: true
           cache-suffix: "functional-tests"
 
+      - name: Install libclang for bindgen
+        run: |
+          apt-get update
+          apt-get install -y libclang-dev
+
+      - name: Setup FoundationDB client
+        uses: ./.github/actions/setup-foundationdb
+
+      - name: Setup FoundationDB server
+        uses: ./.github/actions/setup-foundationdb-server
+
       - name: Build Cargo project
         run: |
           COV_TARGET_DIR="$GITHUB_WORKSPACE/target/llvm-cov-target"

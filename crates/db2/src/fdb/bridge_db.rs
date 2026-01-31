@@ -105,7 +105,6 @@ mod tests {
         Keypair, Message, Secp256k1,
         rand::{random, thread_rng},
     };
-    use strata_bridge_p2p_types::P2POperatorPubKey;
 
     use super::*;
     use crate::fdb::{cfg::Config, client::MustDrop};
@@ -137,10 +136,13 @@ mod tests {
         &FDB_CLIENT
             .get_or_init(|| {
                 block_on(async {
-                    let pubkey_bytes: [u8; 32] = random();
-                    let fdb_config = Config::default();
-                    let p2p_pubkey = P2POperatorPubKey::from(Vec::from(pubkey_bytes));
-                    FdbClient::setup(fdb_config, p2p_pubkey).await.unwrap()
+                    // Use a random root directory name for test isolation
+                    let random_suffix: u64 = random();
+                    let fdb_config = Config {
+                        root_directory: format!("test-{random_suffix}"),
+                        ..Default::default()
+                    };
+                    FdbClient::setup(fdb_config).await.unwrap()
                 })
             })
             .0

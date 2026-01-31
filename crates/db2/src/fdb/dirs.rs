@@ -12,10 +12,9 @@
 //! provide a level of indirection for access to subspaces. Directory operations
 //! are transactional.
 //!
-//! For each node, we create a directory named after the node's P2P public key.
-//! This is a reasonably unique identifier (even inside of an operator) so that
-//! multiple operators can share the same database if they so desired. This is
-//! also valuable if running multiple versions of a bridge from a shared database.
+//! The root directory name is configurable (defaulting to "strata-bridge-v1").
+//! This allows multiple bridge deployments to share the same FDB cluster if
+//! needed, and provides a versioning mechanism for future schema migrations.
 //!
 //! Within this directory, we have different subspaces for different purposes.
 //! Generally, you can imagine these subspaces as similar to tables in a relational
@@ -34,7 +33,6 @@ use foundationdb::{
     RetryableTransaction,
     directory::{Directory, DirectoryError, DirectoryLayer, DirectoryOutput, DirectorySubspace},
 };
-use strata_bridge_p2p_types::P2POperatorPubKey;
 
 use crate::fdb::LAYER_ID;
 
@@ -51,11 +49,11 @@ pub struct Directories {
 impl Directories {
     pub(crate) async fn setup(
         txn: &RetryableTransaction,
-        node_pubkey: P2POperatorPubKey,
+        root_dir_name: &str,
     ) -> Result<Self, DirectoryError> {
         let dir = DirectoryLayer::default();
         let DirectoryOutput::DirectorySubspace(root) = dir
-            .create_or_open(txn, &[node_pubkey.to_string()], None, Some(LAYER_ID))
+            .create_or_open(txn, &[root_dir_name.to_string()], None, Some(LAYER_ID))
             .await?
         else {
             panic!("should receive a subspace")
