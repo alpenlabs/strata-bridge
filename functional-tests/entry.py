@@ -9,6 +9,7 @@ import flexitest
 from constants import BRIDGE_NETWORK_SIZE, TEST_DIR
 from envs import BasicEnv, BridgeNetworkEnv
 from envs.testenv import StrataTestRuntime
+from factory.asm_rpc import AsmRpcFactory
 from factory.bitcoin import BitcoinFactory
 from factory.bridge_operator import BridgeOperatorFactory
 from factory.s2 import S2Factory
@@ -44,7 +45,8 @@ def main(argv):
     bfac = BitcoinFactory([12300 + i for i in range(100)])
     s2fac = S2Factory([12400 + i for i in range(100)])
     bofac = BridgeOperatorFactory([12500 + i for i in range(100)])
-    factories = {"bitcoin": bfac, "s2": s2fac, "bofac": bofac}
+    asmfac = AsmRpcFactory([12600 + i for i in range(100)])
+    factories = {"bitcoin": bfac, "s2": s2fac, "bofac": bofac, "asm_rpc": asmfac}
 
     # Register envs
     basic_env = BasicEnv()
