@@ -23,6 +23,12 @@ from .config_cfg import (
 )
 
 
+EXPECTED_TARGET_PATHS = (
+    "target/debug/strata-asm-runner",
+    "target/release/strata-asm-runner",
+)
+
+
 class AsmRpcFactory(flexitest.Factory):
     """Factory for creating ASM RPC service instances."""
 
@@ -46,8 +52,8 @@ class AsmRpcFactory(flexitest.Factory):
         Returns:
             A running ASM RPC service
         """
-        service_name = "asm_rpc"
-        datadir = ctx.make_service_dir(service_name)
+        SERVICE_NAME = "asm_rpc"
+        datadir = ctx.make_service_dir(SERVICE_NAME)
 
         envdd_path = Path(ctx.envdd_path)
 
@@ -55,10 +61,10 @@ class AsmRpcFactory(flexitest.Factory):
         rpc_port = self.next_port()
 
         # Database path
-        db_path = str((envdd_path / service_name / "db").resolve())
+        db_path = str((envdd_path / SERVICE_NAME / "db").resolve())
 
         # Generate config file
-        config_toml_path = str((envdd_path / service_name / "config.toml").resolve())
+        config_toml_path = str((envdd_path / SERVICE_NAME / "config.toml").resolve())
         generate_asm_rpc_config(
             bitcoind_props=bitcoind_props,
             rpc_port=rpc_port,
@@ -87,7 +93,7 @@ class AsmRpcFactory(flexitest.Factory):
         rpc_url = f"http://127.0.0.1:{rpc_port}"
         svc = flexitest.service.ProcService(props, cmd, stdout=logfile)
         svc.start()
-        inject_service_create_rpc(svc, rpc_url, service_name)
+        inject_service_create_rpc(svc, rpc_url, SERVICE_NAME)
         return svc
 
 
@@ -102,7 +108,7 @@ def resolve_asm_runner_bin() -> str:
         return path
 
     repo_root = Path(__file__).resolve().parents[2]
-    for rel in ("target/debug/strata-asm-runner", "target/release/strata-asm-runner"):
+    for rel in EXPECTED_TARGET_PATHS:
         candidate = (repo_root / rel).as_posix()
         if os.path.exists(candidate):
             return candidate
