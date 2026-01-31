@@ -45,7 +45,6 @@ class BridgeNetworkEnv(BaseEnv):
             # register services
             svcs[f"s2_{i}"] = s2_service
             svcs[f"bridge_node_{i}"] = bridge_node
-            if "asm_rpc" not in svcs:
-                svcs["asm_rpc"] = asm_service
+            svcs["asm_rpc"] = asm_service
 
         return flexitest.LiveEnv(svcs)

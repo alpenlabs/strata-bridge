@@ -45,9 +45,9 @@ class AsmBlockProcessingTest(StrataTestBase):
 
         # Generate blocks to ensure ASM has something to process
         wallet_addr = bitcoin_rpc.proxy.getnewaddress()
-        num_blocks_to_generate = 10
-        self.logger.info(f"Generating {num_blocks_to_generate} blocks")
-        bitcoin_rpc.proxy.generatetoaddress(num_blocks_to_generate, wallet_addr)
+        NUM_BLOCKS_TO_GENERATE = 10
+        self.logger.info(f"Generating {NUM_BLOCKS_TO_GENERATE} blocks")
+        bitcoin_rpc.proxy.generatetoaddress(NUM_BLOCKS_TO_GENERATE, wallet_addr)
 
         new_btc_height = bitcoin_rpc.proxy.getblockcount()
         self.logger.info(f"New Bitcoin block height: {new_btc_height}")
