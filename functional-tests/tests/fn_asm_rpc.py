@@ -1,6 +1,7 @@
 import flexitest
 
 from envs.base_test import StrataTestBase
+from rpc.asm_types import AsmWorkerStatus, AssignmentEntry, L1BlockCommitment
 from utils.utils import wait_until, wait_until_bitcoind_ready
 
 
@@ -33,10 +34,10 @@ class AsmBlockProcessingTest(StrataTestBase):
         self.logger.info("ASM RPC service is ready")
 
         # Ensure ASM has a current block commitment
-        initial_status = self.wait_until_asm_has_block(asm_rpc)
-        initial_cur_block = initial_status["cur_block"]
+        initial_status: AsmWorkerStatus = asm_rpc.strata_asm_getStatus()
+        initial_cur_block: L1BlockCommitment = initial_status["cur_block"]
         initial_asm_height = int(initial_cur_block["height"])
-        initial_asm_blkid = initial_cur_block["blkid"]
+        initial_asm_blkid: str = initial_cur_block["blkid"]
         self.logger.info(f"Initial ASM block: {initial_asm_blkid} at height {initial_asm_height}")
 
         # Get initial block count from Bitcoin
@@ -53,31 +54,11 @@ class AsmBlockProcessingTest(StrataTestBase):
         self.logger.info(f"New Bitcoin block height: {new_btc_height}")
 
         # Wait for ASM to progress past its initial height
-        self.wait_until_asm_progresses(
+        latest_asm_height = self.wait_until_asm_progresses(
             asm_rpc,
             initial_height=initial_asm_height,
         )
-        self.logger.info("ASM has progressed to a new block")
-
-        # Get the processed state from status
-        latest_status = asm_rpc.strata_asm_getStatus()
-        if not latest_status.get("is_initialized", False):
-            raise AssertionError("ASM should report is_initialized=True")
-
-        latest_cur_block = latest_status["cur_block"]
-        if latest_cur_block is None:
-            raise AssertionError("ASM should have a current block commitment")
-
-        latest_asm_height = int(latest_cur_block["height"])
-        latest_asm_blkid = latest_cur_block["blkid"]
-        self.logger.info(
-            f"ASM latest processed block: {latest_asm_blkid} at height {latest_asm_height}"
-        )
-
-        if latest_asm_height <= initial_asm_height:
-            raise AssertionError(
-                f"ASM did not progress: {latest_asm_height} <= {initial_asm_height}"
-            )
+        self.logger.info(f"ASM has progressed to height {latest_asm_height}")
 
         # Verify the assignments RPC works at the latest ASM block (may be empty).
         # IMPORTANT: the blkid in getStatus is in internal byte order, while the
@@ -86,7 +67,9 @@ class AsmBlockProcessingTest(StrataTestBase):
         self.logger.info(
             f"Bitcoin block hash at ASM height {latest_asm_height}: {latest_btc_block_hash}"
         )
-        assignments = asm_rpc.strata_asm_getAssignments(latest_btc_block_hash)
+        assignments: list[AssignmentEntry] = asm_rpc.strata_asm_getAssignments(
+            latest_btc_block_hash
+        )
         if assignments is None:
             raise AssertionError("ASM getAssignments should return a list (possibly empty)")
         self.logger.info(f"Assignments at latest ASM block: {len(assignments)} entries")
@@ -98,8 +81,7 @@ class AsmBlockProcessingTest(StrataTestBase):
 
         def check_asm_ready():
             try:
-                # Try to get status - even if it returns None, it means RPC is responsive
-                status = asm_rpc.strata_asm_getStatus()
+                status: AsmWorkerStatus = asm_rpc.strata_asm_getStatus()
                 self.logger.debug(f"ASM status: {status}")
                 return True
             except Exception as e:
@@ -113,45 +95,23 @@ class AsmBlockProcessingTest(StrataTestBase):
             error_msg=f"ASM RPC did not become ready within {timeout} seconds",
         )
 
-    def wait_until_asm_has_block(self, asm_rpc, timeout=120):
-        """Wait until ASM reports a current block commitment."""
-
-        status_holder: dict = {}
-
-        def check_asm_has_block():
-            try:
-                status = asm_rpc.strata_asm_getStatus()
-                cur_block = status.get("cur_block")
-                if cur_block is None:
-                    self.logger.debug("ASM has no current block yet")
-                    return False
-                status_holder["status"] = status
-                self.logger.debug(f"ASM current block: {cur_block}")
-                return True
-            except Exception as e:
-                self.logger.debug(f"ASM not ready yet: {e}")
-                return False
-
-        wait_until(
-            check_asm_has_block,
-            timeout=timeout,
-            step=3,
-            error_msg=f"ASM did not report a current block within {timeout} seconds",
-        )
-        return status_holder["status"]
-
     def wait_until_asm_progresses(
         self,
         asm_rpc,
         initial_height: int,
         timeout=180,
-    ):
-        """Wait until ASM processes a new block beyond the initial height."""
+    ) -> int:
+        """Wait until ASM processes a new block beyond the initial height.
+
+        Returns the new height.
+        """
+
+        height_holder: dict = {}
 
         def check_asm_progressed():
             try:
-                status = asm_rpc.strata_asm_getStatus()
-                cur_block = status.get("cur_block")
+                status: AsmWorkerStatus = asm_rpc.strata_asm_getStatus()
+                cur_block: L1BlockCommitment | None = status.get("cur_block")
                 if cur_block is None:
                     self.logger.debug("ASM has no current block yet")
                     return False
@@ -162,7 +122,10 @@ class AsmBlockProcessingTest(StrataTestBase):
                     f"ASM height check: current={cur_height}, initial={initial_height}"
                 )
 
-                return cur_height > initial_height
+                if cur_height > initial_height:
+                    height_holder["height"] = cur_height
+                    return True
+                return False
             except Exception as e:
                 self.logger.debug(f"Error checking ASM progression: {e}")
                 return False
@@ -173,3 +136,4 @@ class AsmBlockProcessingTest(StrataTestBase):
             step=5,
             error_msg=f"ASM did not progress within {timeout} seconds",
         )
+        return height_holder["height"]
