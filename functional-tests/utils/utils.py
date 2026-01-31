@@ -132,7 +132,7 @@ def wait_until_bitcoind_ready(rpc_client, timeout: int = 120, step: int = 1):
     )
 
 
-def generate_p2p_ports(start_port=12700):
+def generate_p2p_ports(start_port=12800):
     """P2P port generator to avoid port conflicts."""
     port = start_port
     while True:
