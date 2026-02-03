@@ -7,6 +7,7 @@ use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPu
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors2::{
+    cpfp::CpfpConnector,
     prelude::{
         ClaimContestConnector, ClaimPayoutConnector, ContestCounterproofOutput,
         ContestPayoutConnector, ContestProofConnector, ContestSlashConnector,
@@ -87,8 +88,8 @@ pub struct KeyData {
     pub unstaking_image: sha256::Hash,
     /// For each watchtower, a fault key from Mosaic.
     pub wt_fault_pubkeys: Vec<XOnlyPublicKey>,
-    /// Descriptor where the operator wants to receive the payout.
-    pub payout_operator_descriptor: Descriptor,
+    /// Operator descriptor that is used for CPFP and for receiving payouts.
+    pub operator_descriptor: Descriptor,
     /// For each watchtower, a descriptor where to receive the slashed stake.
     pub slash_watchtower_descriptors: Vec<Descriptor>,
 }
@@ -212,7 +213,9 @@ impl GameGraph {
     /// - The number of watchtower fault keys.
     /// - The number of watchtower slash descriptors.
     ///
-    /// This method also panics if the number of watchtowers is greater than [`u32::MAX`].
+    /// This method panics if the number of watchtowers is greater than [`u32::MAX`].
+    ///
+    /// This method panics if the operator descriptor has no address (OP_RETURN).
     pub fn new(data: GameData) -> (Self, GameConnectors) {
         let protocol = data.protocol;
         let setup = data.setup;
@@ -240,10 +243,13 @@ impl GameGraph {
         let claim_data = ClaimData {
             claim_funds: deposit.claim_funds,
         };
+        let claim_cpfp_connector = CpfpConnector::new(protocol.network, &keys.operator_descriptor)
+            .expect("operator descriptor should have an address");
         let claim = ClaimTx::new(
             claim_data,
             connectors.claim_contest.clone(),
             connectors.claim_payout,
+            claim_cpfp_connector,
         );
 
         let uncontested_payout_data = UncontestedPayoutData {
@@ -255,7 +261,7 @@ impl GameGraph {
             connectors.deposit,
             connectors.claim_contest.clone(),
             connectors.claim_payout,
-            &keys.payout_operator_descriptor,
+            &keys.operator_descriptor,
         );
 
         let contest_data = ContestData {
@@ -324,7 +330,7 @@ impl GameGraph {
             connectors.claim_payout,
             connectors.contest_payout,
             connectors.contest_slash,
-            &keys.payout_operator_descriptor,
+            &keys.operator_descriptor,
         );
 
         let slash_data = SlashData {
@@ -649,7 +655,7 @@ mod tests {
                 .iter()
                 .map(|k| k.x_only_public_key().0)
                 .collect(),
-            payout_operator_descriptor: wallet_descriptor.clone(),
+            operator_descriptor: wallet_descriptor.clone(),
             slash_watchtower_descriptors: vec![wallet_descriptor; N_WATCHTOWERS],
         };
 
