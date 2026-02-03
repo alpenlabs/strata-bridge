@@ -10194,6 +10194,7 @@ name = "strata-bridge-connectors2"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "bitcoin-bosd",
  "bitcoind-async-client",
  "corepc-node",
  "secp256k1 0.29.1",
