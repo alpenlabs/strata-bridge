@@ -356,7 +356,7 @@ impl BitcoinNode {
 
     /// Signs the inputs that the wallet controls, providing prevouts for
     /// inputs that spend from unconfirmed transactions.
-    fn sign_with_prevouts(
+    pub fn sign_with_prevouts(
         &self,
         partially_signed_tx: &Transaction,
         prevouts: &[TxOut],

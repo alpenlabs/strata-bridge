@@ -3,6 +3,7 @@
 pub mod claim_contest;
 pub mod claim_payout;
 pub mod contest_counterproof;
+pub mod cpfp;
 pub mod n_of_n;
 pub mod p2a;
 pub mod prelude;
