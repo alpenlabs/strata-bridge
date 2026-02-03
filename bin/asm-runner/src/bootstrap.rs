@@ -57,19 +57,13 @@ pub(crate) async fn bootstrap(
         drive_asm_from_btc_tracker(btc_tracker_for_driver, asm_worker_for_driver),
     );
 
-    // 7. Spawn RPC server as a critical task with graceful shutdown
+    // 7. Spawn RPC server as a critical task
     let rpc_host = config.rpc.host.clone();
     let rpc_port = config.rpc.port;
-    executor.spawn_critical_async_with_shutdown("rpc_server", move |shutdown_guard| {
-        run_rpc_server(
-            asm_manager,
-            asm_worker,
-            bitcoin_client,
-            rpc_host,
-            rpc_port,
-            shutdown_guard,
-        )
-    });
+    executor.spawn_critical_async(
+        "rpc_server",
+        run_rpc_server(asm_manager, asm_worker, bitcoin_client, rpc_host, rpc_port),
+    );
 
     Ok(())
 }
