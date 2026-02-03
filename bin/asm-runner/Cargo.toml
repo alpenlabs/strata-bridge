@@ -11,7 +11,6 @@ btc-tracker.workspace = true
 strata-asm-rpc.workspace = true
 strata-bridge-common.workspace = true
 
-bitcoind-async-client.workspace = true
 strata-asm-common.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-txs-bridge-v1.workspace = true
@@ -28,6 +27,7 @@ strata-tasks.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 bitcoin.workspace = true
+bitcoind-async-client.workspace = true
 borsh.workspace = true
 clap.workspace = true
 futures.workspace = true
