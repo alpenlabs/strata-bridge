@@ -122,24 +122,19 @@ impl DepositSM {
     }
 
     /// Checks that the operator index exists, otherwise returns `DSMError::Rejected`.
-    pub fn check_operator_idx(
+    pub(super) fn check_operator_idx(
         &self,
         operator_idx: u32,
         event: &impl ToString,
     ) -> Result<(), DSMError> {
-        if self
-            .sm_cfg
+        self.sm_cfg
             .operator_table()
             .idx_to_btc_key(&operator_idx)
-            .is_some()
-        {
-            Ok(())
-        } else {
-            Err(DSMError::Rejected {
+            .ok_or_else(|| DSMError::Rejected {
                 state: self.state().to_string(),
                 reason: format!("Operator index {} not in operator table", operator_idx),
                 event: event.to_string(),
-            })
-        }
+            })?;
+        Ok(())
     }
 }
