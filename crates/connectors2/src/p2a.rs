@@ -40,7 +40,7 @@ impl P2AConnector {
     pub fn tx_out(&self) -> TxOut {
         TxOut {
             value: self.value(),
-            script_pubkey: self.address().script_pubkey(),
+            script_pubkey: self.script_pubkey(),
         }
     }
 
