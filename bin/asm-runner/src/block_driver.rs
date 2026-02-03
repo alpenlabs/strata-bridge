@@ -49,7 +49,7 @@ pub(crate) async fn drive_asm_from_btc_tracker(
 
         info!(%block_height, %block_hash, status=?block_event.status, "received block event");
 
-        // Only process mined blocks
+        // Process blocks as they get mined
         if matches!(block_event.status, BlockStatus::Mined) {
             // Construct L1BlockCommitment from block
             let block_id = L1BlockId::from(block_hash);
