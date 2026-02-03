@@ -81,7 +81,7 @@ impl GraphSMCfg {
             watchtower_pubkeys: self.watchtower_pubkeys.clone(),
             admin_pubkey: self.admin_pubkey,
             wt_fault_pubkeys: self.watchtower_fault_pubkeys.clone(),
-            payout_operator_descriptor: self.payout_desc.clone(),
+            operator_descriptor: self.payout_desc.clone(),
             slash_watchtower_descriptors: self.slash_watchtower_descriptors.clone(),
         }
     }
