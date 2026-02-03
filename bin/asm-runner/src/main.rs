@@ -31,7 +31,7 @@ struct Cli {
     config: PathBuf,
 
     /// Path to rollup params JSON file
-    #[arg(short, long)]
+    #[arg(short, long, default_value = "params.json")]
     params: PathBuf,
 }
 
