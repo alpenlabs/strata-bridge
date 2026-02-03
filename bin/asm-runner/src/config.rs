@@ -2,7 +2,6 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use btc_tracker::config::BtcNotifyConfig;
 use serde::{Deserialize, Serialize};
 
 /// Main configuration structure
@@ -14,8 +13,6 @@ pub(crate) struct AsmRpcConfig {
     pub database: DatabaseConfig,
     /// Bitcoin node configuration
     pub bitcoin: BitcoinConfig,
-    /// BTC tracker configuration
-    pub btc_tracker: BtcNotifyConfig,
 }
 
 /// RPC server configuration
@@ -53,4 +50,9 @@ pub(crate) struct BitcoinConfig {
     pub retry_count: Option<u64>,
     /// Optional retry interval
     pub retry_interval: Option<Duration>,
+    /// Connection string used in `bitcoin.conf => zmqpubrawblock`.
+    // TODO: (@prajwolrg) We should be able to work with `hashblock_connection_string` since ASM
+    // runner used btc-client to fetch the full block. We don't use it here since the BlockEvent is
+    // emitted only on the rawblock connection. Fix that.
+    pub rawblock_connection_string: String,
 }

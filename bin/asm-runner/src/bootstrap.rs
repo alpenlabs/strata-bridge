@@ -46,7 +46,7 @@ pub(crate) async fn bootstrap(
         None => params.genesis_l1_view.height_u64(),
     };
     let btc_tracker =
-        Arc::new(setup_btc_tracker(&config, bitcoin_client.clone(), start_height).await?);
+        Arc::new(setup_btc_tracker(&config.bitcoin, bitcoin_client.clone(), start_height).await?);
     let asm_worker = Arc::new(asm_worker);
 
     // 6. Spawn block driver as a critical task

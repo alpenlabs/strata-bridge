@@ -7,6 +7,7 @@ use bitcoin::absolute::Height;
 use bitcoind_async_client::{Client, traits::Reader};
 use btc_tracker::{
     client::{BlockFetcher, BtcNotifyClient, Connected},
+    config::BtcNotifyConfig,
     event::BlockStatus,
 };
 use futures::StreamExt;
@@ -15,7 +16,13 @@ use strata_identifiers::{L1BlockCommitment, L1BlockId};
 use strata_state::BlockSubmitter;
 use tracing::{debug, error, info};
 
-use crate::config::AsmRpcConfig;
+use crate::config::BitcoinConfig;
+
+/// Bury depth for ASM Runner's BTC tracker.
+///
+/// Set to 0 because ASM Runner can safely process blocks at the tip - it doesn't require
+/// confirmations since the ASM state can be recomputed from any point if a reorg occurs.
+const ASM_BURY_DEPTH: usize = 0;
 
 /// Drive the ASM worker by subscribing to Bitcoin [`BlockEvent`](btc_tracker::event::BlockEvent).
 ///
@@ -42,8 +49,8 @@ pub(crate) async fn drive_asm_from_btc_tracker(
 
         info!(%block_height, %block_hash, status=?block_event.status, "received block event");
 
-        // Only process buried blocks
-        if matches!(block_event.status, BlockStatus::Buried) {
+        // Only process mined blocks
+        if matches!(block_event.status, BlockStatus::Mined) {
             // Construct L1BlockCommitment from block
             let block_id = L1BlockId::from(block_hash);
             let height = Height::from_consensus(block_height as u32).unwrap_or(Height::ZERO);
@@ -80,7 +87,7 @@ impl BlockFetcher for BitcoinBlockFetcher {
 
 /// Setup BTC tracker client
 pub(crate) async fn setup_btc_tracker(
-    config: &AsmRpcConfig,
+    config: &BitcoinConfig,
     bitcoin_client: Arc<Client>,
     start_height: u64,
 ) -> Result<BtcNotifyClient<Connected>> {
@@ -88,7 +95,11 @@ pub(crate) async fn setup_btc_tracker(
         client: bitcoin_client,
     };
 
-    let btc_tracker = BtcNotifyClient::new(&config.btc_tracker, VecDeque::new())
+    let btc_notify_config = BtcNotifyConfig::default()
+        .with_bury_depth(ASM_BURY_DEPTH)
+        .with_rawblock_connection_string(&config.rawblock_connection_string);
+
+    let btc_tracker = BtcNotifyClient::new(&btc_notify_config, VecDeque::new())
         .connect(start_height, fetcher)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to BTC tracker: {}", e))?;
