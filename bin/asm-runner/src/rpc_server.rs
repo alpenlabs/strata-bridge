@@ -17,7 +17,6 @@ use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_identifiers::L1BlockCommitment;
 use strata_storage::AsmStateManager;
-use strata_tasks::ShutdownGuard;
 use tracing::info;
 
 /// Convert any error to an RPC error
@@ -91,14 +90,13 @@ impl AssignmentsApiServer for AsmRpcServer {
     }
 }
 
-/// Run the RPC server with graceful shutdown handling
+/// Run the RPC server
 pub(crate) async fn run_rpc_server(
     asm_manager: Arc<AsmStateManager>,
     asm_worker: Arc<AsmWorkerHandle>,
     bitcoin_client: Arc<Client>,
     rpc_host: String,
     rpc_port: u16,
-    shutdown_guard: ShutdownGuard,
 ) -> Result<()> {
     let rpc_server = AsmRpcServer::new(asm_manager, asm_worker, bitcoin_client);
 
@@ -110,14 +108,8 @@ pub(crate) async fn run_rpc_server(
 
     info!("ASM RPC server listening on {}:{}", rpc_host, rpc_port);
 
-    // Wait for shutdown signal
-    shutdown_guard.wait_for_shutdown().await;
-
-    // Graceful cleanup
-    info!("Stopping RPC server");
-    rpc_handle.stop()?;
+    // Run until cancelled
     rpc_handle.stopped().await;
 
-    info!("RPC server stopped");
     Ok(())
 }
