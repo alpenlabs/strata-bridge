@@ -1,3 +1,11 @@
+# NOTE: This workflow is currently disabled due to issues with FoundationDB
+# integration in the db2 crate. FoundationDB is not easily available via Nix
+# on macOS, and the Linux package has compatibility issues.
+#
+# See CONTRIBUTING.md for more details.
+#
+# To re-enable this workflow, rename this file from nix.yml.disabled back to nix.yml
+
 name: Update Flake Lock File
 on:
   workflow_dispatch: # allows manual triggering
