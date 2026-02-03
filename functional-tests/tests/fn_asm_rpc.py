@@ -1,7 +1,7 @@
 import flexitest
 
 from envs.base_test import StrataTestBase
-from rpc.asm_types import AsmWorkerStatus, AssignmentEntry, L1BlockCommitment
+from rpc.asm_types import AsmWorkerStatus, AssignmentEntry
 from utils.utils import wait_until, wait_until_bitcoind_ready
 
 
@@ -33,12 +33,9 @@ class AsmBlockProcessingTest(StrataTestBase):
         self.wait_until_asm_ready(asm_rpc)
         self.logger.info("ASM RPC service is ready")
 
-        # Ensure ASM has a current block commitment
-        initial_status: AsmWorkerStatus = asm_rpc.strata_asm_getStatus()
-        initial_cur_block: L1BlockCommitment = initial_status["cur_block"]
-        initial_asm_height = int(initial_cur_block["height"])
-        initial_asm_blkid: str = initial_cur_block["blkid"]
-        self.logger.info(f"Initial ASM block: {initial_asm_blkid} at height {initial_asm_height}")
+        # Get initial status
+        initial_status = AsmWorkerStatus.from_dict(asm_rpc.strata_asm_getStatus())
+        self.logger.info(f"ASM status: {initial_status.cur_block}")
 
         # Get initial block count from Bitcoin
         initial_btc_height = bitcoin_rpc.proxy.getblockcount()
@@ -56,7 +53,7 @@ class AsmBlockProcessingTest(StrataTestBase):
         # Wait for ASM to progress past its initial height
         latest_asm_height = self.wait_until_asm_progresses(
             asm_rpc,
-            initial_height=initial_asm_height,
+            initial_height=initial_status.cur_block.height,
         )
         self.logger.info(f"ASM has progressed to height {latest_asm_height}")
 
@@ -81,7 +78,7 @@ class AsmBlockProcessingTest(StrataTestBase):
 
         def check_asm_ready():
             try:
-                status: AsmWorkerStatus = asm_rpc.strata_asm_getStatus()
+                status = asm_rpc.strata_asm_getStatus()
                 self.logger.debug(f"ASM status: {status}")
                 return True
             except Exception as e:
@@ -110,13 +107,12 @@ class AsmBlockProcessingTest(StrataTestBase):
 
         def check_asm_progressed():
             try:
-                status: AsmWorkerStatus = asm_rpc.strata_asm_getStatus()
-                cur_block: L1BlockCommitment | None = status.get("cur_block")
-                if cur_block is None:
+                status = AsmWorkerStatus.from_dict(asm_rpc.strata_asm_getStatus())
+                if status.cur_block is None:
                     self.logger.debug("ASM has no current block yet")
                     return False
 
-                cur_height = int(cur_block["height"])
+                cur_height = status.cur_block.height
 
                 self.logger.debug(
                     f"ASM height check: current={cur_height}, initial={initial_height}"
