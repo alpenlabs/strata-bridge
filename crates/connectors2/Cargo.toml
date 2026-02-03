@@ -13,6 +13,7 @@ test_utils = ["dep:bitcoind-async-client", "dep:corepc-node"]
 strata-bridge-primitives.workspace = true
 
 bitcoin = { workspace = true, features = ["rand-std"] }
+bitcoin-bosd.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
 strata-crypto.workspace = true
