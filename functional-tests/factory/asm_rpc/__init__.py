@@ -16,7 +16,6 @@ from rpc import inject_service_create_rpc
 from .config_cfg import (
     AsmRpcConfig,
     BitcoinConfig,
-    BtcNotifyConfig,
     DatabaseConfig,
     Duration,
     RpcConfig,
@@ -149,16 +148,9 @@ def generate_asm_rpc_config(
             rpc_url=f"http://127.0.0.1:{bitcoind_props['rpc_port']}",
             rpc_user="user",
             rpc_password="password",
+            rawblock_connection_string=zmq_connection_string(bitcoind_props["zmq_rawblock"]),
             retry_count=3,
             retry_interval=Duration(secs=1, nanos=0),
-        ),
-        btc_tracker=BtcNotifyConfig(
-            bury_depth=2,
-            hashblock_connection_string=zmq_connection_string(bitcoind_props["zmq_hashblock"]),
-            hashtx_connection_string=zmq_connection_string(bitcoind_props["zmq_hashtx"]),
-            rawblock_connection_string=zmq_connection_string(bitcoind_props["zmq_rawblock"]),
-            rawtx_connection_string=zmq_connection_string(bitcoind_props["zmq_rawtx"]),
-            sequence_connection_string=zmq_connection_string(bitcoind_props["zmq_sequence"]),
         ),
     )
 

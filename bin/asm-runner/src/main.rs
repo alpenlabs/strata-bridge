@@ -21,6 +21,9 @@ use tracing::info;
 
 use crate::{bootstrap::bootstrap, config::AsmRpcConfig};
 
+/// Timeout for graceful shutdown.
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// ASM Runner - Run the ASM STF and expose RPC API
 #[derive(Parser, Debug)]
 #[command(name = "asm-runner")]
@@ -71,8 +74,7 @@ fn main() {
     });
 
     // 8. Monitor all tasks and handle shutdown
-    let shutdown_timeout = Duration::from_secs(30);
-    if let Err(e) = task_manager.monitor(Some(shutdown_timeout)) {
+    if let Err(e) = task_manager.monitor(Some(SHUTDOWN_TIMEOUT)) {
         panic!("ASM RPC server crashed: {e:?}");
     }
 
