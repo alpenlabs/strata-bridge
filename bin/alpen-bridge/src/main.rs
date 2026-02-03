@@ -11,7 +11,7 @@ use args::OperationMode;
 use clap::Parser;
 use config::Config;
 use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE, STARTUP_DELAY};
-use mode::{init_secret_service_client, operator, verifier};
+use mode::{operator, verifier};
 use params::Params;
 use serde::de::DeserializeOwned;
 use strata_bridge_common::{logging, logging::LoggerConfig};
@@ -73,10 +73,7 @@ fn main() {
         .build()
         .expect("must be able to create runtime");
 
-    // Initialize Secret Service client
-    debug!("initializing secret service client");
-    let s2_client = runtime.block_on(init_secret_service_client(&config.secret_service_client));
-
+    // Initialize FDB client
     // Initialize FDB client - must happen once per process, before spawning tasks.
     // The MustDrop guard stops the FDB network thread when dropped, so it must
     // stay in main() scope until after all tasks complete.
@@ -102,7 +99,7 @@ fn main() {
                 .spawn_critical_async("operator", async move {
                     #[cfg(feature = "memory_profiling")]
                     memory_pprof::setup_memory_profiling(3_000);
-                    operator::bootstrap(params, config, s2_client, fdb, executor.clone()).await
+                    operator::bootstrap(params, config, fdb, executor.clone()).await
                 });
         }
         OperationMode::Verifier => {

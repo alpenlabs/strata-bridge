@@ -73,13 +73,16 @@ use crate::{
 pub(crate) async fn bootstrap(
     params: Params,
     config: Config,
-    s2_client: SecretServiceClient,
     _fdb_client: Arc<FdbClient>,
     executor: TaskExecutor,
 ) -> anyhow::Result<()> {
     debug!("bootstrapping operator node");
 
-    // Secret Service stuff - client is pre-initialized and passed in from main.
+    // Initialize Secret Service client
+    debug!("initializing secret service client");
+    let s2_client = init_secret_service_client(&config.secret_service_client).await;
+
+    // Secret Service stuff
     let p2p_sk = s2_client
         .p2p_signer()
         .secret_key()
