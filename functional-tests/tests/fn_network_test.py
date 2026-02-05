@@ -1,3 +1,5 @@
+import time
+
 import flexitest
 
 from envs.base_test import StrataTestBase
@@ -24,6 +26,10 @@ class BridgeNetworkTest(StrataTestBase):
         for idx, bridge_node in enumerate(bridge_nodes):
             self.logger.info(f"Stopping bridge node {idx}")
             bridge_node.stop()
+
+        # Wait for ports to be released before restarting
+        self.logger.info("Waiting for ports to be released...")
+        time.sleep(5)
 
         # Start all bridge nodes again
         for i, (node, rpc) in enumerate(zip(bridge_nodes, bridge_rpcs, strict=True)):
