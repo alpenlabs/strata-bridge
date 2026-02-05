@@ -55,7 +55,6 @@ default-members = [
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/asm-runner",
-  # "bin/mock-checkpoint",
 ]
 
 [workspace.lints]
