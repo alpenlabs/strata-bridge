@@ -13,11 +13,12 @@
 /// * `$sm_type` - The state machine type
 /// * `$create_fn` - Function to create SM from state: `Fn(State) -> SM`
 /// * `$get_state_fn` - Function to get state from SM: `Fn(&SM) -> &State`
+/// * `$config` - Configuration to pass to `process_event`
 /// * `$state_strategy` - Proptest strategy for generating states
 /// * `$event_strategy` - Proptest strategy for generating events
 #[macro_export]
 macro_rules! prop_deterministic {
-    ($sm_type:ty, $create_fn:expr, $get_state_fn:expr, $state_strategy:expr, $event_strategy:expr) => {
+    ($sm_type:ty, $create_fn:expr, $get_state_fn:expr, $config:expr, $state_strategy:expr, $event_strategy:expr) => {
         proptest::proptest! {
             #[test]
             fn state_machine_is_deterministic(
@@ -29,8 +30,8 @@ macro_rules! prop_deterministic {
                 let mut sm1 = $create_fn(state.clone());
                 let mut sm2 = $create_fn(state);
 
-                let result1 = sm1.process_event(event.clone());
-                let result2 = sm2.process_event(event);
+                let result1 = sm1.process_event($config, event.clone());
+                let result2 = sm2.process_event($config, event);
 
                 match (result1, result2) {
                     (Ok(out1), Ok(out2)) => {
@@ -58,11 +59,12 @@ macro_rules! prop_deterministic {
 /// # Arguments
 /// * `$sm_type` - The state machine type
 /// * `$create_fn` - Function to create SM from state: `Fn(State) -> SM`
+/// * `$config` - Configuration to pass to `process_event`
 /// * `$terminal_states` - Proptest strategy for generating terminal states
 /// * `$event_strategy` - Proptest strategy for generating events
 #[macro_export]
 macro_rules! prop_terminal_states_reject {
-    ($sm_type:ty, $create_fn:expr, $terminal_states:expr, $event_strategy:expr) => {
+    ($sm_type:ty, $create_fn:expr, $config:expr, $terminal_states:expr, $event_strategy:expr) => {
         proptest::proptest! {
             #[test]
             fn terminal_states_reject_all_events(
@@ -72,7 +74,7 @@ macro_rules! prop_terminal_states_reject {
                 use $crate::state_machine::StateMachine;
 
                 let mut sm = $create_fn(terminal_state);
-                let result = sm.process_event(event);
+                let result = sm.process_event($config, event);
 
                 proptest::prop_assert!(result.is_err(), "Terminal state should reject event");
                 proptest::prop_assert!(
@@ -92,12 +94,13 @@ macro_rules! prop_terminal_states_reject {
 /// # Arguments
 /// * `$sm_type` - The state machine type
 /// * `$create_fn` - Function to create SM from state: `Fn(State) -> SM`
+/// * `$config` - Configuration to pass to `process_event`
 /// * `$get_state_fn` - Function to get state from SM: `Fn(&SM) -> &State`
 /// * `$state_strategy` - Proptest strategy for generating states
 /// * `$event_strategy` - Proptest strategy for generating events
 #[macro_export]
 macro_rules! prop_no_silent_acceptance {
-    ($sm_type:ty, $create_fn:expr, $get_state_fn:expr, $state_strategy:expr, $event_strategy:expr) => {
+    ($sm_type:ty, $create_fn:expr, $get_state_fn:expr, $config:expr, $state_strategy:expr, $event_strategy:expr) => {
         proptest::proptest! {
             #[test]
             fn events_transition_or_error(
@@ -109,7 +112,7 @@ macro_rules! prop_no_silent_acceptance {
                 let initial_state = state.clone();
                 let mut sm = $create_fn(state);
 
-                let result = sm.process_event(event);
+                let result = sm.process_event($config, event);
                 let final_state = $get_state_fn(&sm).clone();
 
                 match result {

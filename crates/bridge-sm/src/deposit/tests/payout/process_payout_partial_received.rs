@@ -98,6 +98,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
@@ -172,6 +173,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
@@ -241,6 +243,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
@@ -285,10 +288,10 @@ mod tests {
             operator_idx: TEST_NON_ASSIGNEE_IDX,
         });
 
-        sequence.process(event.clone());
+        sequence.process(&test_bridge_cfg(), event.clone());
         sequence.assert_no_errors();
         // Second submission with same signature - should fail with Duplicate
-        sequence.process(event);
+        sequence.process(&test_bridge_cfg(), event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -329,10 +332,10 @@ mod tests {
             operator_idx: TEST_NON_ASSIGNEE_IDX,
         });
 
-        sequence.process(first_event);
+        sequence.process(&test_bridge_cfg(), first_event);
         sequence.assert_no_errors();
         // Second submission with different signature but same operator - should fail with Duplicate
-        sequence.process(duplicate_event);
+        sequence.process(&test_bridge_cfg(), duplicate_event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -362,11 +365,12 @@ mod tests {
             partial_signature: partial_sig,
             operator_idx: u32::MAX,
         });
-        seq.process(event.clone());
+        seq.process(&test_bridge_cfg(), event.clone());
 
         // Verify rejection with test_invalid_transition
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
+            &test_bridge_cfg(),
             InvalidTransition {
                 from_state: seq.state().clone(),
                 event,
@@ -385,6 +389,7 @@ mod tests {
 
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
+            &test_bridge_cfg(),
             InvalidTransition {
                 from_state: state,
                 event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
@@ -464,6 +469,7 @@ mod tests {
         for state in invalid_states {
             test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
                 create_sm,
+                &test_bridge_cfg(),
                 InvalidTransition {
                     from_state: state,
                     event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {

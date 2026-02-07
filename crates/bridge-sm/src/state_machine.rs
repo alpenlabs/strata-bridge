@@ -113,8 +113,8 @@ pub trait StateMachine {
     /// The error type returned when event processing fails.
     type Error;
 
-    // TODO: (@Rajil1213) add an associated type for static configurations which needs to be fed to
-    // the STF.
+    /// Static configuration required by this state machine.
+    type Config;
 
     /// Processes an event and returns the output (duties and signals) or an error.
     ///
@@ -124,6 +124,7 @@ pub trait StateMachine {
     /// to other state machines.
     fn process_event(
         &mut self,
+        cfg: &Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error>;
 }

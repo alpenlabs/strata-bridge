@@ -1,35 +1,35 @@
-//! Configuration for the Deposit State Machine.
+//! Configuration shared across all deposit state machines.
 
-use bitcoin::OutPoint;
-use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx};
+use bitcoin::{Amount, Network};
 
-/// Per-instance configuration for a single Deposit State Machine.
+/// Bridge-wide configuration shared across all deposit state machines.
 ///
-/// These configurations are static over the lifetime of a single Deposit State Machine
-/// and identify/configure a specific deposit.
+/// These configurations are static over the lifetime of the bridge protocol
+/// and apply uniformly to all deposit state machine instances.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DepositSMCfg {
-    /// The index of the deposit being tracked in a Deposit State Machine.
-    pub deposit_idx: DepositIdx,
-    /// The outpoint of the deposit being tracked in a Deposit State Machine.
-    pub deposit_outpoint: OutPoint,
-    /// The operators involved in the signing of this deposit.
-    pub operator_table: OperatorTable,
+    /// The Bitcoin network (mainnet, testnet, regtest, etc.) used by the bridge.
+    pub network: Network,
+    /// The number of blocks after fulfillment confirmation after which the
+    /// cooperative payout path is considered to have failed.
+    pub cooperative_payout_timeout_blocks: u64,
+    /// The fixed deposit amount expected by the bridge protocol.
+    pub deposit_amount: Amount,
 }
 
 impl DepositSMCfg {
-    /// Returns the deposit index.
-    pub const fn deposit_idx(&self) -> DepositIdx {
-        self.deposit_idx
+    /// Returns the Bitcoin network used by the bridge.
+    pub const fn network(&self) -> Network {
+        self.network
     }
 
-    /// Returns the outpoint of the deposit transaction.
-    pub const fn deposit_outpoint(&self) -> OutPoint {
-        self.deposit_outpoint
+    /// Returns the cooperative payout timeout, in blocks.
+    pub const fn cooperative_payout_timeout_blocks(&self) -> u64 {
+        self.cooperative_payout_timeout_blocks
     }
 
-    /// Returns the operator table.
-    pub const fn operator_table(&self) -> &OperatorTable {
-        &self.operator_table
+    /// Returns the expected deposit amount.
+    pub const fn deposit_amount(&self) -> Amount {
+        self.deposit_amount
     }
 }

@@ -12,6 +12,7 @@ pub mod duties;
 pub mod errors;
 pub mod events;
 pub mod machine;
+pub mod params;
 pub mod state;
 #[cfg(test)]
 pub mod tests;

@@ -92,6 +92,7 @@ mod tests {
 
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
+            &test_bridge_cfg(),
             InvalidTransition {
                 from_state: DepositState::Spent,
                 event: DepositEvent::PayoutConfirmed(PayoutConfirmedEvent { tx }),

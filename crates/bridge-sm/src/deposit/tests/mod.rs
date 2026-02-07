@@ -36,7 +36,6 @@ use strata_bridge_tx_graph2::transactions::{
 use strata_l1_txfmt::MagicBytes;
 
 use crate::{
-    config::BridgeCfg,
     deposit::{
         config::DepositSMCfg,
         events::{
@@ -45,6 +44,7 @@ use crate::{
             PayoutPartialReceivedEvent, UserTakeBackEvent, WithdrawalAssignedEvent,
         },
         machine::DepositSM,
+        params::DepositSMParams,
         state::DepositState,
     },
     signals::GraphToDeposit,
@@ -93,8 +93,8 @@ pub(super) const TEST_DEPOSIT_IDX: u32 = 0;
 // ===== Configuration Helpers =====
 
 /// Creates a test bridge-wide configuration.
-pub(super) fn test_bridge_cfg() -> BridgeCfg {
-    BridgeCfg {
+pub(super) fn test_bridge_cfg() -> DepositSMCfg {
+    DepositSMCfg {
         network: Network::Regtest,
         cooperative_payout_timeout_blocks: 144,
         deposit_amount: Amount::from_sat(10_000_000),
@@ -102,8 +102,8 @@ pub(super) fn test_bridge_cfg() -> BridgeCfg {
 }
 
 /// Creates a test per-instance configuration for DepositSM.
-pub(super) fn test_sm_cfg() -> DepositSMCfg {
-    DepositSMCfg {
+pub(super) fn test_sm_cfg() -> DepositSMParams {
+    DepositSMParams {
         deposit_idx: TEST_DEPOSIT_IDX,
         deposit_outpoint: OutPoint::default(),
         operator_table: test_operator_table(),

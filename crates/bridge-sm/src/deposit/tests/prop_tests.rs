@@ -13,6 +13,7 @@ mod tests {
         DepositSM,
         create_sm,
         get_state,
+        &test_bridge_cfg(),
         any::<DepositState>(),
         arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
                               * STFs are implemented */
@@ -23,6 +24,7 @@ mod tests {
         DepositSM,
         create_sm,
         get_state,
+        &test_bridge_cfg(),
         any::<DepositState>(),
         arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
                               * STFs are implemented */
@@ -32,6 +34,7 @@ mod tests {
     prop_terminal_states_reject!(
         DepositSM,
         create_sm,
+        &test_bridge_cfg(),
         arb_terminal_state(),
         arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
                               * STFs are implemented */

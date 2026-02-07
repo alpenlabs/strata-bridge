@@ -31,6 +31,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
@@ -69,6 +70,7 @@ mod tests {
 
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
+            &test_bridge_cfg(),
             InvalidTransition {
                 from_state: state,
                 event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
@@ -85,6 +87,7 @@ mod tests {
 
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
+            &test_bridge_cfg(),
             InvalidTransition {
                 from_state: state,
                 event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
@@ -112,7 +115,7 @@ mod tests {
         let wrong_tx = test_takeback_tx(wrong_outpoint);
         let wrong_tx_event = DepositEvent::UserTakeBack(UserTakeBackEvent { tx: wrong_tx });
 
-        sequence.process(wrong_tx_event);
+        sequence.process(&test_bridge_cfg(), wrong_tx_event);
 
         // Create a transaction that spends the outpoint but is not a valid take back transaction
         let witness_elements = [vec![0u8; 1]]; // HACK: single witness element implies key-spend
@@ -121,7 +124,7 @@ mod tests {
             tx: wrong_spend_path,
         });
 
-        sequence.process(wrong_spend_path_event);
+        sequence.process(&test_bridge_cfg(), wrong_spend_path_event);
 
         sequence.assert_final_state(&initial_state);
 

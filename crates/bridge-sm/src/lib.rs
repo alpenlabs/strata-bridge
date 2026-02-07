@@ -6,7 +6,6 @@
 //! other, and each state machine can also emit duties that need to be executed externally to
 //! effect the desired operations.
 
-pub mod config;
 pub mod deposit;
 pub mod signals;
 pub mod state_machine;
