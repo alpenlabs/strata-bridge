@@ -8,7 +8,6 @@ mod tests {
             duties::DepositDuty,
             errors::DSMError,
             events::{DepositEvent, NonceReceivedEvent},
-            machine::DepositSM,
             state::DepositState,
             tests::*,
         },
@@ -48,7 +47,7 @@ mod tests {
 
         for (operator_idx, nonce) in &pubnonces {
             seq.process(
-                &test_bridge_cfg(),
+                &test_deposit_sm_cfg(),
                 DepositEvent::NonceReceived(NonceReceivedEvent {
                     nonce: nonce.clone(),
                     operator_idx: *operator_idx,
@@ -103,18 +102,14 @@ mod tests {
                 nonce,
                 operator_idx: signer.operator_idx(),
             });
-            seq.process(&test_bridge_cfg(), event.clone());
+            seq.process(&test_deposit_sm_cfg(), event.clone());
 
             // Process the same event again to simulate duplicate
-            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-                create_sm,
-                &test_bridge_cfg(),
-                InvalidTransition {
-                    from_state: seq.state().clone(),
-                    event,
-                    expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
-                },
-            );
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: seq.state().clone(),
+                event,
+                expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+            });
         }
     }
 
@@ -142,14 +137,10 @@ mod tests {
             operator_idx: u32::MAX,
         });
 
-        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-            create_sm,
-            &test_bridge_cfg(),
-            InvalidTransition {
-                from_state: initial_state,
-                event,
-                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
-            },
-        );
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: initial_state,
+            event,
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
     }
 }

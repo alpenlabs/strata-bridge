@@ -3,16 +3,12 @@
 mod tests {
     use std::collections::BTreeSet;
 
-    use crate::{
-        deposit::{
-            duties::DepositDuty,
-            errors::DSMError,
-            events::{DepositEvent, PayoutDescriptorReceivedEvent},
-            machine::DepositSM,
-            state::DepositState,
-            tests::*,
-        },
-        testing::transition::*,
+    use crate::deposit::{
+        duties::DepositDuty,
+        errors::DSMError,
+        events::{DepositEvent, PayoutDescriptorReceivedEvent},
+        state::DepositState,
+        tests::*,
     };
 
     /// Tests correct transition from Fulfilled to PayoutDescriptorReceived state when
@@ -27,34 +23,29 @@ mod tests {
             fulfillment_txid: generate_txid(),
             fulfillment_height: LATER_BLOCK_HEIGHT,
             cooperative_payout_deadline: LATER_BLOCK_HEIGHT
-                + test_bridge_cfg().cooperative_payout_timeout_blocks(),
+                + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
         };
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::PayoutDescriptorReceived(PayoutDescriptorReceivedEvent {
-                    operator_desc: operator_desc.clone(),
-                }),
-                expected_state: DepositState::PayoutDescriptorReceived {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_ASSIGNEE,
-                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT
-                        + test_bridge_cfg().cooperative_payout_timeout_blocks(),
-                    operator_desc: operator_desc.clone(),
-                    payout_nonces: BTreeMap::new(),
-                },
-                expected_duties: vec![DepositDuty::PublishPayoutNonce {
-                    deposit_outpoint: test_sm_cfg().deposit_outpoint(),
-                    operator_idx: TEST_ASSIGNEE,
-                    operator_desc,
-                }],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::PayoutDescriptorReceived(PayoutDescriptorReceivedEvent {
+                operator_desc: operator_desc.clone(),
+            }),
+            expected_state: DepositState::PayoutDescriptorReceived {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT
+                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
+                operator_desc: operator_desc.clone(),
+                payout_nonces: BTreeMap::new(),
             },
-        );
+            expected_duties: vec![DepositDuty::PublishPayoutNonce {
+                deposit_outpoint: test_sm_cfg().deposit_outpoint(),
+                operator_idx: TEST_ASSIGNEE,
+                operator_desc,
+            }],
+            expected_signals: vec![],
+        });
     }
 
     /// Tests that all states apart from Fulfilled should NOT accept the PayoutDescriptorReceived
@@ -118,17 +109,13 @@ mod tests {
         ];
 
         for state in invalid_states {
-            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-                create_sm,
-                &test_bridge_cfg(),
-                InvalidTransition {
-                    from_state: state,
-                    event: DepositEvent::PayoutDescriptorReceived(PayoutDescriptorReceivedEvent {
-                        operator_desc: desc.clone(),
-                    }),
-                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
-                },
-            );
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::PayoutDescriptorReceived(PayoutDescriptorReceivedEvent {
+                    operator_desc: desc.clone(),
+                }),
+                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+            });
         }
     }
 }

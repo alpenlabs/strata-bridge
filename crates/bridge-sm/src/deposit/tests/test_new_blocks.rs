@@ -7,12 +7,11 @@ mod tests {
         deposit::{
             errors::DSMError,
             events::{DepositEvent, NewBlockEvent, PayoutConfirmedEvent},
-            machine::DepositSM,
             state::DepositState,
             tests::*,
         },
         signals::{DepositSignal, DepositToGraph},
-        testing::{fixtures::*, transition::*},
+        testing::fixtures::*,
     };
 
     #[test]
@@ -44,11 +43,11 @@ mod tests {
             fulfillment_txid: Txid::all_zeros(),
             fulfillment_height: FULFILLMENT_HEIGHT,
             cooperative_payout_deadline: FULFILLMENT_HEIGHT
-                + test_bridge_cfg().cooperative_payout_timeout_blocks(),
+                + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
         };
 
         let block_height =
-            FULFILLMENT_HEIGHT + test_bridge_cfg().cooperative_payout_timeout_blocks();
+            FULFILLMENT_HEIGHT + test_deposit_sm_cfg().cooperative_payout_timeout_blocks();
 
         let mut sm = create_sm(state);
         let result = sm.process_new_block(NewBlockEvent { block_height });
@@ -90,14 +89,10 @@ mod tests {
     fn test_payout_confirmed_duplicate_in_spent() {
         let tx = test_payout_tx(OutPoint::default());
 
-        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-            create_sm,
-            &test_bridge_cfg(),
-            InvalidTransition {
-                from_state: DepositState::Spent,
-                event: DepositEvent::PayoutConfirmed(PayoutConfirmedEvent { tx }),
-                expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
-            },
-        );
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: DepositState::Spent,
+            event: DepositEvent::PayoutConfirmed(PayoutConfirmedEvent { tx }),
+            expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+        });
     }
 }

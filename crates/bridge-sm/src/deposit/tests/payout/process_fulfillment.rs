@@ -6,16 +6,12 @@ mod tests {
     use bitcoin::{OutPoint, Txid, hashes::Hash};
     use strata_bridge_test_utils::prelude::generate_spending_tx;
 
-    use crate::{
-        deposit::{
-            duties::DepositDuty,
-            errors::DSMError,
-            events::{DepositEvent, FulfillmentConfirmedEvent},
-            machine::DepositSM,
-            state::DepositState,
-            tests::*,
-        },
-        testing::transition::*,
+    use crate::deposit::{
+        duties::DepositDuty,
+        errors::DSMError,
+        events::{DepositEvent, FulfillmentConfirmedEvent},
+        state::DepositState,
+        tests::*,
     };
 
     /// tests correct transition from Assigned to Fulfilled state when FulfillmentConfirmed event
@@ -32,30 +28,25 @@ mod tests {
             recipient_desc: desc,
         };
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
-                    fulfillment_transaction: fulfillment_tx.clone(),
-                    fulfillment_height: LATER_BLOCK_HEIGHT,
-                }),
-                expected_state: DepositState::Fulfilled {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_POV_IDX,
-                    fulfillment_txid: fulfillment_tx.compute_txid(),
-                    fulfillment_height: LATER_BLOCK_HEIGHT,
-                    cooperative_payout_deadline: LATER_BLOCK_HEIGHT
-                        + test_bridge_cfg().cooperative_payout_timeout_blocks(),
-                },
-                expected_duties: vec![DepositDuty::RequestPayoutNonces {
-                    deposit_idx: TEST_DEPOSIT_IDX,
-                }],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
+                fulfillment_transaction: fulfillment_tx.clone(),
+                fulfillment_height: LATER_BLOCK_HEIGHT,
+            }),
+            expected_state: DepositState::Fulfilled {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_POV_IDX,
+                fulfillment_txid: fulfillment_tx.compute_txid(),
+                fulfillment_height: LATER_BLOCK_HEIGHT,
+                cooperative_payout_deadline: LATER_BLOCK_HEIGHT
+                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
             },
-        );
+            expected_duties: vec![DepositDuty::RequestPayoutNonces {
+                deposit_idx: TEST_DEPOSIT_IDX,
+            }],
+            expected_signals: vec![],
+        });
     }
 
     /// tests correct transition from Assigned to Fulfilled state when FulfillmentConfirmed event
@@ -72,28 +63,23 @@ mod tests {
             recipient_desc: desc,
         };
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
-                    fulfillment_transaction: fulfillment_tx.clone(),
-                    fulfillment_height: LATER_BLOCK_HEIGHT,
-                }),
-                expected_state: DepositState::Fulfilled {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_NONPOV_IDX,
-                    fulfillment_txid: fulfillment_tx.compute_txid(),
-                    fulfillment_height: LATER_BLOCK_HEIGHT,
-                    cooperative_payout_deadline: LATER_BLOCK_HEIGHT
-                        + test_bridge_cfg().cooperative_payout_timeout_blocks(),
-                },
-                expected_duties: vec![], // No duty since POV is not the assignee
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
+                fulfillment_transaction: fulfillment_tx.clone(),
+                fulfillment_height: LATER_BLOCK_HEIGHT,
+            }),
+            expected_state: DepositState::Fulfilled {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_NONPOV_IDX,
+                fulfillment_txid: fulfillment_tx.compute_txid(),
+                fulfillment_height: LATER_BLOCK_HEIGHT,
+                cooperative_payout_deadline: LATER_BLOCK_HEIGHT
+                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
             },
-        );
+            expected_duties: vec![], // No duty since POV is not the assignee
+            expected_signals: vec![],
+        });
     }
 
     /// tests that all states apart from Assigned should NOT accept the FulfillmentConfirmed event.
@@ -158,18 +144,14 @@ mod tests {
         ];
 
         for state in invalid_states {
-            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-                create_sm,
-                &test_bridge_cfg(),
-                InvalidTransition {
-                    from_state: state,
-                    event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
-                        fulfillment_transaction: tx.clone(),
-                        fulfillment_height: LATER_BLOCK_HEIGHT,
-                    }),
-                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
-                },
-            );
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
+                    fulfillment_transaction: tx.clone(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                }),
+                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+            });
         }
     }
 }

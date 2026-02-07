@@ -11,7 +11,6 @@ mod tests {
             duties::DepositDuty,
             errors::DSMError,
             events::{DepositConfirmedEvent, DepositEvent},
-            machine::DepositSM,
             state::DepositState,
             tests::*,
         },
@@ -35,7 +34,7 @@ mod tests {
 
         for operator_idx in 0..operator_count {
             seq.process(
-                &test_bridge_cfg(),
+                &test_deposit_sm_cfg(),
                 DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx }),
             );
         }
@@ -73,18 +72,14 @@ mod tests {
         // Process GraphAvailable messages, all operators except the last one
         for operator_idx in 0..(operator_count - 1) {
             let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx });
-            seq.process(&test_bridge_cfg(), event.clone());
+            seq.process(&test_deposit_sm_cfg(), event.clone());
 
             // Process the same event again to simulate duplicate
-            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-                create_sm,
-                &test_bridge_cfg(),
-                InvalidTransition {
-                    from_state: seq.state().clone(),
-                    event,
-                    expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
-                },
-            );
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: seq.state().clone(),
+                event,
+                expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+            });
         }
     }
 
@@ -120,17 +115,13 @@ mod tests {
             deposit_transaction: expected_deposit_tx,
         };
 
-        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-            create_sm,
-            &test_bridge_cfg(),
-            InvalidTransition {
-                from_state: state,
-                event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
-                    deposit_transaction: wrong_tx,
-                }),
-                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
-            },
-        );
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: state,
+            event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
+                deposit_transaction: wrong_tx,
+            }),
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
     }
 
     #[test]
@@ -150,18 +141,14 @@ mod tests {
         let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
             operator_idx: u32::MAX,
         });
-        seq.process(&test_bridge_cfg(), event.clone());
+        seq.process(&test_deposit_sm_cfg(), event.clone());
 
         // Process the same event again to simulate duplicate
-        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-            create_sm,
-            &test_bridge_cfg(),
-            InvalidTransition {
-                from_state: seq.state().clone(),
-                event,
-                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
-            },
-        );
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: seq.state().clone(),
+            event,
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
     }
 
     /// tests that a DepositConfirmed event with a deposit tx that doesn't spend the DRT outpoint
@@ -199,16 +186,12 @@ mod tests {
             partial_signatures: BTreeMap::new(),
         };
 
-        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-            create_sm,
-            &test_bridge_cfg(),
-            InvalidTransition {
-                from_state: state,
-                event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
-                    deposit_transaction: wrong_tx,
-                }),
-                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
-            },
-        );
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: state,
+            event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
+                deposit_transaction: wrong_tx,
+            }),
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
     }
 }
