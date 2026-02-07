@@ -232,3 +232,31 @@ impl std::fmt::Display for NewBlockEvent {
         write!(f, "NewBlock at height {}", self.block_height)
     }
 }
+
+/// Implements `From<T> for DepositEvent` for leaf event types.
+///
+/// This allows all deposit-related event structs to be ergonomically
+/// converted into `DepositEvent` via `.into()` and used uniformly
+/// by the Deposit State Machine.
+macro_rules! impl_into_deposit_event {
+    ($t:ty, $variant:ident) => {
+        impl From<$t> for DepositEvent {
+            fn from(e: $t) -> Self {
+                DepositEvent::$variant(e)
+            }
+        }
+    };
+}
+
+impl_into_deposit_event!(UserTakeBackEvent, UserTakeBack);
+impl_into_deposit_event!(GraphToDeposit, GraphMessage);
+impl_into_deposit_event!(NonceReceivedEvent, NonceReceived);
+impl_into_deposit_event!(PartialReceivedEvent, PartialReceived);
+impl_into_deposit_event!(DepositConfirmedEvent, DepositConfirmed);
+impl_into_deposit_event!(WithdrawalAssignedEvent, WithdrawalAssigned);
+impl_into_deposit_event!(FulfillmentConfirmedEvent, FulfillmentConfirmed);
+impl_into_deposit_event!(PayoutDescriptorReceivedEvent, PayoutDescriptorReceived);
+impl_into_deposit_event!(PayoutNonceReceivedEvent, PayoutNonceReceived);
+impl_into_deposit_event!(PayoutPartialReceivedEvent, PayoutPartialReceived);
+impl_into_deposit_event!(PayoutConfirmedEvent, PayoutConfirmed);
+impl_into_deposit_event!(NewBlockEvent, NewBlock);

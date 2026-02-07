@@ -28,7 +28,7 @@ impl DepositSM {
         &mut self,
         takeback: UserTakeBackEvent,
     ) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        let deposit_request_outpoint = &self.sm_cfg().deposit_outpoint();
+        let deposit_request_outpoint = &self.sm_params().deposit_outpoint();
         match self.state() {
             DepositState::Created { .. }
             | DepositState::GraphGenerated { .. }
@@ -57,26 +57,25 @@ impl DepositSM {
                         signals: vec![],
                     })
                 } else {
-                    Err(DSMError::Rejected {
-                        state: self.state().to_string(),
-                        reason: format!(
+                    let txid = takeback.tx.compute_txid();
+                    Err(DSMError::rejected(
+                        self.state().clone(),
+                        takeback.into(),
+                        format!(
                             "Transaction {} is not a take back transaction for the deposit request outpoint {}",
-                            takeback.tx.compute_txid(),
-                            deposit_request_outpoint
+                            txid, deposit_request_outpoint
                         ),
-                        event: takeback.to_string(),
-                    })
+                    ))
                 }
             }
-            DepositState::Aborted => Err(DSMError::Duplicate {
-                state: self.state().to_string(),
-                event: takeback.to_string(),
-            }),
-            _ => Err(DSMError::InvalidEvent {
-                event: DepositEvent::UserTakeBack(takeback).to_string(),
-                state: self.state.to_string(),
-                reason: None,
-            }),
+            DepositState::Aborted => {
+                Err(DSMError::duplicate(self.state().clone(), takeback.into()))
+            }
+            _ => Err(DSMError::invalid_event(
+                self.state().clone(),
+                takeback.into(),
+                None,
+            )),
         }
     }
 
@@ -89,8 +88,8 @@ impl DepositSM {
         &mut self,
         graph_msg: GraphToDeposit,
     ) -> DSMResult<DSMOutput> {
-        let operator_table_cardinality = self.sm_cfg().operator_table().cardinality();
-        let deposit_outpoint = self.sm_cfg().deposit_outpoint();
+        let operator_table_cardinality = self.sm_params().operator_table().cardinality();
+        let deposit_outpoint = self.sm_params().deposit_outpoint();
 
         match graph_msg {
             GraphToDeposit::GraphAvailable { operator_idx } => {
@@ -105,10 +104,10 @@ impl DepositSM {
                     } => {
                         // Check for duplicate graph submission
                         if linked_graphs.contains(&operator_idx) {
-                            return Err(DSMError::Duplicate {
-                                state: self.state().to_string(),
-                                event: graph_msg.to_string(),
-                            });
+                            return Err(DSMError::duplicate(
+                                self.state().clone(),
+                                graph_msg.clone().into(),
+                            ));
                         }
 
                         linked_graphs.insert(operator_idx);
@@ -131,11 +130,11 @@ impl DepositSM {
 
                         Ok(DSMOutput::new())
                     }
-                    _ => Err(DSMError::InvalidEvent {
-                        state: self.state().to_string(),
-                        event: DepositEvent::GraphMessage(graph_msg).to_string(),
-                        reason: None,
-                    }),
+                    _ => Err(DSMError::invalid_event(
+                        self.state().clone(),
+                        DepositEvent::GraphMessage(graph_msg),
+                        None,
+                    )),
                 }
             }
         }
@@ -154,7 +153,7 @@ impl DepositSM {
         // Validate operator_idx is in the operator table
         self.check_operator_idx(nonce_event.operator_idx, &nonce_event)?;
 
-        let operator_table_cardinality = self.sm_cfg().operator_table().cardinality();
+        let operator_table_cardinality = self.sm_params().operator_table().cardinality();
 
         match self.state_mut() {
             DepositState::GraphGenerated {
@@ -164,10 +163,10 @@ impl DepositSM {
             } => {
                 // Check for duplicate nonce submission
                 if pubnonces.contains_key(&nonce_event.operator_idx) {
-                    return Err(DSMError::Duplicate {
-                        state: self.state().to_string(),
-                        event: nonce_event.to_string(),
-                    });
+                    return Err(DSMError::duplicate(
+                        self.state().clone(),
+                        nonce_event.into(),
+                    ));
                 }
 
                 // Insert the new nonce into the map
@@ -197,7 +196,7 @@ impl DepositSM {
 
                     // Create the duty to publish deposit partials
                     let duty = DepositDuty::PublishDepositPartial {
-                        deposit_outpoint: self.sm_cfg().deposit_outpoint(),
+                        deposit_outpoint: self.sm_params().deposit_outpoint(),
                         deposit_sighash,
                         deposit_agg_nonce: agg_nonce,
                     };
@@ -208,11 +207,11 @@ impl DepositSM {
                     Ok(DSMOutput::new())
                 }
             }
-            _ => Err(DSMError::InvalidEvent {
-                state: self.state().to_string(),
-                event: DepositEvent::NonceReceived(nonce_event).to_string(),
-                reason: None,
-            }),
+            _ => Err(DSMError::invalid_event(
+                self.state().clone(),
+                nonce_event.into(),
+                None,
+            )),
         }
     }
 
@@ -230,9 +229,9 @@ impl DepositSM {
         // Validate operator_idx is in the operator table
         self.check_operator_idx(partial_event.operator_idx, &partial_event)?;
 
-        let operator_table_cardinality = self.sm_cfg().operator_table().cardinality();
+        let operator_table_cardinality = self.sm_params().operator_table().cardinality();
         let btc_keys: Vec<_> = self
-            .sm_cfg()
+            .sm_params()
             .operator_table()
             .btc_keys()
             .into_iter()
@@ -240,7 +239,7 @@ impl DepositSM {
 
         // Get the operator pubkey (safe after validation)
         let operator_pubkey = self
-            .sm_cfg()
+            .sm_params()
             .operator_table
             .idx_to_btc_key(&partial_event.operator_idx)
             .expect("validated above");
@@ -258,10 +257,10 @@ impl DepositSM {
 
                 // Check for duplicate partial signature submission
                 if partial_signatures.contains_key(&partial_event.operator_idx) {
-                    return Err(DSMError::Duplicate {
-                        state: self.state().to_string(),
-                        event: partial_event.to_string(),
-                    });
+                    return Err(DSMError::duplicate(
+                        self.state().clone(),
+                        partial_event.into(),
+                    ));
                 }
 
                 // Extract signing info once - used for both verification and aggregation
@@ -297,11 +296,11 @@ impl DepositSM {
                 )
                 .is_err()
                 {
-                    return Err(DSMError::Rejected {
-                        state: self.state().to_string(),
-                        reason: "Invalid partial signature".to_string(),
-                        event: partial_event.to_string(),
-                    });
+                    return Err(DSMError::rejected(
+                        self.state().clone(),
+                        partial_event.into(),
+                        "Invalid partial signature",
+                    ));
                 }
 
                 // Insert the new partial signature into the map
@@ -341,11 +340,11 @@ impl DepositSM {
                     Ok(DSMOutput::new())
                 }
             }
-            _ => Err(DSMError::InvalidEvent {
-                state: self.state().to_string(),
-                event: DepositEvent::PartialReceived(partial_event).to_string(),
-                reason: None,
-            }),
+            _ => Err(DSMError::invalid_event(
+                self.state().clone(),
+                partial_event.into(),
+                None,
+            )),
         }
     }
 
@@ -372,13 +371,11 @@ impl DepositSM {
                 if confirmed.deposit_transaction.compute_txid()
                     != deposit_transaction.compute_txid()
                 {
-                    return Err(DSMError::Rejected {
-                        state: self.state().to_string(),
-                        event: confirmed.to_string(),
-                        reason:
-                            "Transaction confirmed on chain does not match expected deposit transaction"
-                                .to_string(),
-                    });
+                    return Err(DSMError::rejected(
+                        self.state().clone(),
+                        confirmed.into(),
+                        "Transaction confirmed on chain does not match expected deposit transaction",
+                    ));
                 }
                 // Transition to the Deposited State
                 self.state = DepositState::Deposited {
@@ -401,13 +398,11 @@ impl DepositSM {
                 if confirmed.deposit_transaction.compute_txid()
                     != deposit_transaction.as_ref().compute_txid()
                 {
-                    return Err(DSMError::Rejected {
-                        state: self.state().to_string(),
-                        event: confirmed.to_string(),
-                        reason:
-                            "Transaction confirmed on chain does not match expected deposit transaction"
-                                .to_string(),
-                    });
+                    return Err(DSMError::rejected(
+                        self.state().clone(),
+                        confirmed.into(),
+                        "Transaction confirmed on chain does not match expected deposit transaction",
+                    ));
                 }
                 // Transition to the Deposited State
                 self.state = DepositState::Deposited {
@@ -417,11 +412,11 @@ impl DepositSM {
                 Ok(DSMOutput::new())
             }
 
-            _ => Err(DSMError::InvalidEvent {
-                state: self.state.to_string(),
-                event: DepositEvent::DepositConfirmed(confirmed).to_string(),
-                reason: None,
-            }),
+            _ => Err(DSMError::invalid_event(
+                self.state.clone(),
+                confirmed.into(),
+                None,
+            )),
         }
     }
 }
