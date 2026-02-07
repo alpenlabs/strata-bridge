@@ -22,7 +22,7 @@ mod tests {
             fulfillment_txid: Txid::all_zeros(),
             fulfillment_height: FULFILLMENT_HEIGHT,
             cooperative_payout_deadline: FULFILLMENT_HEIGHT
-                + test_bridge_cfg().cooperative_payout_timeout_blocks(),
+                + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
         };
 
         let sm = create_sm(initial_state);
@@ -30,10 +30,10 @@ mod tests {
 
         // Process blocks up to and past timeout
         let timeout_height =
-            FULFILLMENT_HEIGHT + test_bridge_cfg().cooperative_payout_timeout_blocks();
+            FULFILLMENT_HEIGHT + test_deposit_sm_cfg().cooperative_payout_timeout_blocks();
         for height in (FULFILLMENT_HEIGHT + 1)..=timeout_height {
             seq.process(
-                &test_bridge_cfg(),
+                &test_deposit_sm_cfg(),
                 DepositEvent::NewBlock(NewBlockEvent {
                     block_height: height,
                 }),

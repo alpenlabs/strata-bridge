@@ -5,16 +5,12 @@ mod tests {
 
     use bitcoin::{Txid, hashes::Hash};
 
-    use crate::{
-        deposit::{
-            duties::DepositDuty,
-            errors::DSMError,
-            events::{DepositEvent, WithdrawalAssignedEvent},
-            machine::DepositSM,
-            state::DepositState,
-            tests::*,
-        },
-        testing::transition::*,
+    use crate::deposit::{
+        duties::DepositDuty,
+        errors::DSMError,
+        events::{DepositEvent, WithdrawalAssignedEvent},
+        state::DepositState,
+        tests::*,
     };
 
     /// tests correct transition from Deposited to Assigned state when Assignment event
@@ -27,31 +23,26 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
-                    assignee: TEST_POV_IDX,
-                    deadline: LATER_BLOCK_HEIGHT,
-                    recipient_desc: desc.clone(),
-                }),
-                expected_state: DepositState::Assigned {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_POV_IDX,
-                    deadline: LATER_BLOCK_HEIGHT,
-                    recipient_desc: desc.clone(),
-                },
-                expected_duties: vec![DepositDuty::FulfillWithdrawal {
-                    deposit_idx: TEST_DEPOSIT_IDX,
-                    deadline: LATER_BLOCK_HEIGHT,
-                    recipient_desc: desc,
-                }],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_POV_IDX,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: desc.clone(),
+            }),
+            expected_state: DepositState::Assigned {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_POV_IDX,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: desc.clone(),
             },
-        );
+            expected_duties: vec![DepositDuty::FulfillWithdrawal {
+                deposit_idx: TEST_DEPOSIT_IDX,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: desc,
+            }],
+            expected_signals: vec![],
+        });
     }
 
     /// tests correct transition from Deposited to Assigned state when Assignment event
@@ -64,27 +55,22 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
-                    assignee: TEST_NONPOV_IDX,
-                    deadline: LATER_BLOCK_HEIGHT,
-                    recipient_desc: desc.clone(),
-                }),
-                expected_state: DepositState::Assigned {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_NONPOV_IDX,
-                    deadline: LATER_BLOCK_HEIGHT,
-                    recipient_desc: desc,
-                },
-                expected_duties: vec![],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_NONPOV_IDX,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: desc.clone(),
+            }),
+            expected_state: DepositState::Assigned {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_NONPOV_IDX,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: desc,
             },
-        );
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
 
     /// tests correct re-assignment from Assigned state when Assignment event is received
@@ -103,31 +89,26 @@ mod tests {
             recipient_desc: old_desc,
         };
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
-                    assignee: TEST_POV_IDX,
-                    deadline: REASSIGNMENT_DEADLINE,
-                    recipient_desc: new_desc.clone(),
-                }),
-                expected_state: DepositState::Assigned {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_POV_IDX,
-                    deadline: REASSIGNMENT_DEADLINE,
-                    recipient_desc: new_desc.clone(),
-                },
-                expected_duties: vec![DepositDuty::FulfillWithdrawal {
-                    deposit_idx: TEST_DEPOSIT_IDX,
-                    deadline: REASSIGNMENT_DEADLINE,
-                    recipient_desc: new_desc,
-                }],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_POV_IDX,
+                deadline: REASSIGNMENT_DEADLINE,
+                recipient_desc: new_desc.clone(),
+            }),
+            expected_state: DepositState::Assigned {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_POV_IDX,
+                deadline: REASSIGNMENT_DEADLINE,
+                recipient_desc: new_desc.clone(),
             },
-        );
+            expected_duties: vec![DepositDuty::FulfillWithdrawal {
+                deposit_idx: TEST_DEPOSIT_IDX,
+                deadline: REASSIGNMENT_DEADLINE,
+                recipient_desc: new_desc,
+            }],
+            expected_signals: vec![],
+        });
     }
 
     /// tests correct re-assignment from Assigned state when Assignment event is received
@@ -145,27 +126,22 @@ mod tests {
             recipient_desc: old_desc,
         };
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
-                    assignee: TEST_NONPOV_IDX,
-                    deadline: REASSIGNMENT_DEADLINE,
-                    recipient_desc: new_desc.clone(),
-                }),
-                expected_state: DepositState::Assigned {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_NONPOV_IDX,
-                    deadline: REASSIGNMENT_DEADLINE,
-                    recipient_desc: new_desc,
-                },
-                expected_duties: vec![],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_NONPOV_IDX,
+                deadline: REASSIGNMENT_DEADLINE,
+                recipient_desc: new_desc.clone(),
+            }),
+            expected_state: DepositState::Assigned {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_NONPOV_IDX,
+                deadline: REASSIGNMENT_DEADLINE,
+                recipient_desc: new_desc,
             },
-        );
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
 
     /// tests that all states apart from Deposited and Assigned should NOT accept the Assignment
@@ -227,19 +203,15 @@ mod tests {
         ];
 
         for state in invalid_states {
-            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-                create_sm,
-                &test_bridge_cfg(),
-                InvalidTransition {
-                    from_state: state,
-                    event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
-                        assignee: TEST_ASSIGNEE,
-                        deadline: LATER_BLOCK_HEIGHT,
-                        recipient_desc: desc.clone(),
-                    }),
-                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
-                },
-            );
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                    assignee: TEST_ASSIGNEE,
+                    deadline: LATER_BLOCK_HEIGHT,
+                    recipient_desc: desc.clone(),
+                }),
+                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+            });
         }
     }
 }

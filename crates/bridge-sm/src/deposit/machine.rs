@@ -18,14 +18,10 @@ use crate::{
 
 /// The State Machine that tracks the state of a deposit utxo at any given time (including the state
 /// of cooperative payout process)
-///
-/// This includes some static configuration along with the actual state of the deposit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepositSM {
-    /// Bridge-wide configuration shared across all state machines.
-    pub bridge_cfg: DepositSMCfg,
     /// Per-instance configuration for this specific deposit state machine.
-    pub sm_cfg: DepositSMParams,
+    pub sm_params: DepositSMParams,
     /// The current state of the Deposit State Machine.
     pub state: DepositState,
 }
@@ -85,7 +81,7 @@ impl DepositSM {
     /// [`DepositState`] via [`DepositState::new`].
     pub fn new(
         bridge_cfg: DepositSMCfg,
-        sm_cfg: DepositSMParams,
+        sm_params: DepositSMParams,
         deposit_time_lock: LockTime,
         deposit_data: DepositData,
         depositor_pubkey: XOnlyPublicKey,
@@ -93,8 +89,7 @@ impl DepositSM {
         block_height: BitcoinBlockHeight,
     ) -> Self {
         DepositSM {
-            bridge_cfg: bridge_cfg.clone(),
-            sm_cfg: sm_cfg.clone(),
+            sm_params,
             state: DepositState::new(
                 bridge_cfg.deposit_amount(),
                 deposit_time_lock,
@@ -109,7 +104,7 @@ impl DepositSM {
 
     /// Returns a reference to the per-instance configuration of the Deposit State Machine.
     pub const fn sm_cfg(&self) -> &DepositSMParams {
-        &self.sm_cfg
+        &self.sm_params
     }
 
     /// Returns a reference to the current state of the Deposit State Machine.
@@ -128,7 +123,7 @@ impl DepositSM {
         operator_idx: u32,
         event: &impl ToString,
     ) -> Result<(), DSMError> {
-        self.sm_cfg
+        self.sm_params
             .operator_table()
             .idx_to_btc_key(&operator_idx)
             .ok_or_else(|| DSMError::Rejected {

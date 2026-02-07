@@ -11,7 +11,6 @@ mod tests {
             duties::DepositDuty,
             errors::DSMError,
             events::{DepositEvent, PayoutPartialReceivedEvent},
-            machine::DepositSM,
             state::DepositState,
             tests::*,
         },
@@ -95,29 +94,24 @@ mod tests {
         let mut expected_partials = BTreeMap::new();
         expected_partials.insert(TEST_NON_ASSIGNEE_IDX, partial_sig);
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
-                    partial_signature: partial_sig,
-                    operator_idx: TEST_NON_ASSIGNEE_IDX,
-                }),
-                expected_state: DepositState::PayoutNoncesCollected {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_ASSIGNEE,
-                    operator_desc,
-                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                    payout_nonces: nonces,
-                    payout_aggregated_nonce: agg_nonce,
-                    payout_partial_signatures: expected_partials,
-                },
-                expected_duties: vec![],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
+                partial_signature: partial_sig,
+                operator_idx: TEST_NON_ASSIGNEE_IDX,
+            }),
+            expected_state: DepositState::PayoutNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                operator_desc,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: nonces,
+                payout_aggregated_nonce: agg_nonce,
+                payout_partial_signatures: expected_partials,
             },
-        );
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
 
     /// tests all partials collected when POV is the assignee - should emit
@@ -170,31 +164,26 @@ mod tests {
             *payout_partial_signatures = initial_partials;
         }
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
-                    partial_signature: incoming_partial,
-                    operator_idx: incoming_idx,
-                }),
-                expected_state: DepositState::PayoutNoncesCollected {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_POV_IDX,
-                    operator_desc,
-                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                    payout_nonces: nonces,
-                    payout_aggregated_nonce: agg_nonce,
-                    payout_partial_signatures: all_partials,
-                },
-                expected_duties: vec![DepositDuty::PublishPayout {
-                    payout_tx: expected_payout_tx,
-                }],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
+                partial_signature: incoming_partial,
+                operator_idx: incoming_idx,
+            }),
+            expected_state: DepositState::PayoutNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_POV_IDX,
+                operator_desc,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: nonces,
+                payout_aggregated_nonce: agg_nonce,
+                payout_partial_signatures: all_partials,
             },
-        );
+            expected_duties: vec![DepositDuty::PublishPayout {
+                payout_tx: expected_payout_tx,
+            }],
+            expected_signals: vec![],
+        });
     }
 
     /// tests all partials collected when POV is NOT the assignee - should NOT
@@ -240,29 +229,24 @@ mod tests {
             *payout_partial_signatures = initial_partials;
         }
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
-                    partial_signature: incoming_partial,
-                    operator_idx: incoming_idx,
-                }),
-                expected_state: DepositState::PayoutNoncesCollected {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_NONPOV_IDX,
-                    operator_desc,
-                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                    payout_nonces: nonces,
-                    payout_aggregated_nonce: agg_nonce,
-                    payout_partial_signatures: all_partials,
-                },
-                expected_duties: vec![], // No duty since POV is not assignee
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
+                partial_signature: incoming_partial,
+                operator_idx: incoming_idx,
+            }),
+            expected_state: DepositState::PayoutNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_NONPOV_IDX,
+                operator_desc,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: nonces,
+                payout_aggregated_nonce: agg_nonce,
+                payout_partial_signatures: all_partials,
             },
-        );
+            expected_duties: vec![], // No duty since POV is not assignee
+            expected_signals: vec![],
+        });
     }
 
     /// tests duplicate detection: same operator sends same partial signature twice
@@ -288,10 +272,10 @@ mod tests {
             operator_idx: TEST_NON_ASSIGNEE_IDX,
         });
 
-        sequence.process(&test_bridge_cfg(), event.clone());
+        sequence.process(&test_deposit_sm_cfg(), event.clone());
         sequence.assert_no_errors();
         // Second submission with same signature - should fail with Duplicate
-        sequence.process(&test_bridge_cfg(), event);
+        sequence.process(&test_deposit_sm_cfg(), event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -332,10 +316,10 @@ mod tests {
             operator_idx: TEST_NON_ASSIGNEE_IDX,
         });
 
-        sequence.process(&test_bridge_cfg(), first_event);
+        sequence.process(&test_deposit_sm_cfg(), first_event);
         sequence.assert_no_errors();
         // Second submission with different signature but same operator - should fail with Duplicate
-        sequence.process(&test_bridge_cfg(), duplicate_event);
+        sequence.process(&test_deposit_sm_cfg(), duplicate_event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -365,18 +349,14 @@ mod tests {
             partial_signature: partial_sig,
             operator_idx: u32::MAX,
         });
-        seq.process(&test_bridge_cfg(), event.clone());
+        seq.process(&test_deposit_sm_cfg(), event.clone());
 
         // Verify rejection with test_invalid_transition
-        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-            create_sm,
-            &test_bridge_cfg(),
-            InvalidTransition {
-                from_state: seq.state().clone(),
-                event,
-                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
-            },
-        );
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: seq.state().clone(),
+            event,
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
     }
 
     /// tests that invalid partial signature is rejected with Rejected error
@@ -387,24 +367,20 @@ mod tests {
         // Generate an invalid/random partial signature
         let invalid_partial = generate_partial_signature();
 
-        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-            create_sm,
-            &test_bridge_cfg(),
-            InvalidTransition {
-                from_state: state,
-                event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
-                    partial_signature: invalid_partial,
-                    operator_idx: TEST_NON_ASSIGNEE_IDX,
-                }),
-                expected_error: |e| {
-                    matches!(
-                        e,
-                        DSMError::Rejected { reason, .. }
-                        if reason == "Partial Signature Verification Failed"
-                    )
-                },
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: state,
+            event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
+                partial_signature: invalid_partial,
+                operator_idx: TEST_NON_ASSIGNEE_IDX,
+            }),
+            expected_error: |e| {
+                matches!(
+                    e,
+                    DSMError::Rejected { reason, .. }
+                    if reason == "Partial Signature Verification Failed"
+                )
             },
-        );
+        });
     }
 
     /// tests that all states except PayoutNoncesCollected should reject PayoutPartialReceived event
@@ -467,18 +443,14 @@ mod tests {
         ];
 
         for state in invalid_states {
-            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-                create_sm,
-                &test_bridge_cfg(),
-                InvalidTransition {
-                    from_state: state,
-                    event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
-                        partial_signature: partial_sig,
-                        operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
-                    }),
-                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
-                },
-            );
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
+                    partial_signature: partial_sig,
+                    operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
+                }),
+                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+            });
         }
     }
 }

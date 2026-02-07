@@ -38,6 +38,8 @@ use strata_l1_txfmt::MagicBytes;
 use crate::{
     deposit::{
         config::DepositSMCfg,
+        duties::DepositDuty,
+        errors::DSMError,
         events::{
             DepositConfirmedEvent, DepositEvent, FulfillmentConfirmedEvent, NewBlockEvent,
             NonceReceivedEvent, PayoutConfirmedEvent, PayoutNonceReceivedEvent,
@@ -47,10 +49,11 @@ use crate::{
         params::DepositSMParams,
         state::DepositState,
     },
-    signals::GraphToDeposit,
+    signals::{DepositSignal, GraphToDeposit},
     testing::{
         fixtures::{test_payout_tx, test_takeback_tx},
         signer::TestMusigSigner,
+        transition::{InvalidTransition, Transition, test_invalid_transition, test_transition},
     },
 };
 
@@ -93,7 +96,7 @@ pub(super) const TEST_DEPOSIT_IDX: u32 = 0;
 // ===== Configuration Helpers =====
 
 /// Creates a test bridge-wide configuration.
-pub(super) fn test_bridge_cfg() -> DepositSMCfg {
+pub(super) fn test_deposit_sm_cfg() -> DepositSMCfg {
     DepositSMCfg {
         network: Network::Regtest,
         cooperative_payout_timeout_blocks: 144,
@@ -254,8 +257,7 @@ pub(super) fn get_payout_signing_info(
 /// Creates a DepositSM from a given state.
 pub(super) fn create_sm(state: DepositState) -> DepositSM {
     DepositSM {
-        bridge_cfg: test_bridge_cfg(),
-        sm_cfg: test_sm_cfg(),
+        sm_params: test_sm_cfg(),
         state,
     }
 }
@@ -263,6 +265,34 @@ pub(super) fn create_sm(state: DepositState) -> DepositSM {
 /// Gets the state from a DepositSM.
 pub(super) const fn get_state(sm: &DepositSM) -> &DepositState {
     sm.state()
+}
+
+// ===== Test Transition Helpers =====
+
+/// Type alias for DepositSM transitions.
+pub(super) type DepositTransition =
+    Transition<DepositState, DepositEvent, DepositDuty, DepositSignal>;
+
+/// Type alias for invalid DepositSM transitions.
+pub(super) type DepositInvalidTransition = InvalidTransition<DepositState, DepositEvent, DSMError>;
+
+/// Test a valid DepositSM transition with pre-configured test helpers.
+pub(super) fn test_deposit_transition(transition: DepositTransition) {
+    test_transition::<DepositSM, _, _, _, _, _, _, _>(
+        create_sm,
+        get_state,
+        &test_deposit_sm_cfg(),
+        transition,
+    );
+}
+
+/// Test an invalid DepositSM transition with pre-configured test helpers.
+pub(super) fn test_deposit_invalid_transition(invalid: DepositInvalidTransition) {
+    test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+        create_sm,
+        &test_deposit_sm_cfg(),
+        invalid,
+    );
 }
 
 // ===== Arbitrary Implementations =====

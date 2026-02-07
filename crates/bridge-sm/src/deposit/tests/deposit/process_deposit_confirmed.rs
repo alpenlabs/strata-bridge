@@ -6,15 +6,11 @@ mod tests {
     use bitcoin::{OutPoint, Txid, hashes::Hash};
     use strata_bridge_test_utils::prelude::generate_spending_tx;
 
-    use crate::{
-        deposit::{
-            errors::DSMError,
-            events::{DepositConfirmedEvent, DepositEvent},
-            machine::DepositSM,
-            state::DepositState,
-            tests::*,
-        },
-        testing::transition::*,
+    use crate::deposit::{
+        errors::DSMError,
+        events::{DepositConfirmedEvent, DepositEvent},
+        state::DepositState,
+        tests::*,
     };
 
     #[test]
@@ -29,22 +25,17 @@ mod tests {
             deposit_transaction: deposit_tx.clone(),
         };
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
-                    deposit_transaction: deposit_tx,
-                }),
-                expected_state: DepositState::Deposited {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                },
-                expected_duties: vec![],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
+                deposit_transaction: deposit_tx,
+            }),
+            expected_state: DepositState::Deposited {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
-        );
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
 
     /// tests correct transition from DepositNoncesCollected state to the DepositConfirmed state
@@ -61,22 +52,17 @@ mod tests {
             partial_signatures: BTreeMap::new(),
         };
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
-                    deposit_transaction: deposit_tx.as_ref().clone(),
-                }),
-                expected_state: DepositState::Deposited {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                },
-                expected_duties: vec![],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
+                deposit_transaction: deposit_tx.as_ref().clone(),
+            }),
+            expected_state: DepositState::Deposited {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
             },
-        );
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
 
     /// tests that all states apart from the DepositNoncesCollected and
@@ -138,17 +124,13 @@ mod tests {
         ];
 
         for state in invalid_states {
-            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-                create_sm,
-                &test_bridge_cfg(),
-                InvalidTransition {
-                    from_state: state,
-                    event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
-                        deposit_transaction: tx.clone(),
-                    }),
-                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
-                },
-            );
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
+                    deposit_transaction: tx.clone(),
+                }),
+                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+            });
         }
     }
 }

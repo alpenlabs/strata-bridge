@@ -11,7 +11,6 @@ mod tests {
             duties::DepositDuty,
             errors::DSMError,
             events::{DepositEvent, PayoutNonceReceivedEvent},
-            machine::DepositSM,
             state::DepositState,
             tests::*,
         },
@@ -36,27 +35,22 @@ mod tests {
         let mut expected_nonces = BTreeMap::new();
         expected_nonces.insert(TEST_ARBITRARY_OPERATOR_IDX, nonce.clone());
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
-                    payout_nonce: nonce,
-                    operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
-                }),
-                expected_state: DepositState::PayoutDescriptorReceived {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_ASSIGNEE,
-                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                    operator_desc: desc,
-                    payout_nonces: expected_nonces,
-                },
-                expected_duties: vec![],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
+                payout_nonce: nonce,
+                operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
+            }),
+            expected_state: DepositState::PayoutDescriptorReceived {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                operator_desc: desc,
+                payout_nonces: expected_nonces,
             },
-        );
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
 
     /// tests partial collection: nonce received with existing nonces (not yet complete),
@@ -89,27 +83,22 @@ mod tests {
             payout_nonces: initial_nonces,
         };
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
-                    payout_nonce: incoming_nonce,
-                    operator_idx: incoming_idx,
-                }),
-                expected_state: DepositState::PayoutDescriptorReceived {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_ASSIGNEE,
-                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                    operator_desc: desc,
-                    payout_nonces: nonces,
-                },
-                expected_duties: vec![],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
+                payout_nonce: incoming_nonce,
+                operator_idx: incoming_idx,
+            }),
+            expected_state: DepositState::PayoutDescriptorReceived {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                operator_desc: desc,
+                payout_nonces: nonces,
             },
-        );
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
 
     /// tests all nonces collected with POV operator NOT being the assignee - should emit
@@ -144,33 +133,28 @@ mod tests {
         // Compute expected aggregated nonce
         let expected_agg_nonce = AggNonce::sum(all_nonces.values().cloned());
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
-                    payout_nonce: incoming_nonce,
-                    operator_idx: incoming_idx,
-                }),
-                expected_state: DepositState::PayoutNoncesCollected {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_NONPOV_IDX,
-                    operator_desc: desc,
-                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                    payout_nonces: all_nonces,
-                    payout_aggregated_nonce: expected_agg_nonce.clone(),
-                    payout_partial_signatures: BTreeMap::new(),
-                },
-                expected_duties: vec![DepositDuty::PublishPayoutPartial {
-                    deposit_outpoint: OutPoint::default(),
-                    deposit_idx: TEST_DEPOSIT_IDX,
-                    agg_nonce: expected_agg_nonce,
-                }],
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
+                payout_nonce: incoming_nonce,
+                operator_idx: incoming_idx,
+            }),
+            expected_state: DepositState::PayoutNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_NONPOV_IDX,
+                operator_desc: desc,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: all_nonces,
+                payout_aggregated_nonce: expected_agg_nonce.clone(),
+                payout_partial_signatures: BTreeMap::new(),
             },
-        );
+            expected_duties: vec![DepositDuty::PublishPayoutPartial {
+                deposit_outpoint: OutPoint::default(),
+                deposit_idx: TEST_DEPOSIT_IDX,
+                agg_nonce: expected_agg_nonce,
+            }],
+            expected_signals: vec![],
+        });
     }
 
     /// tests all nonces collected with POV operator being the assignee - should NOT emit any duty
@@ -204,29 +188,24 @@ mod tests {
         // Compute expected aggregated nonce
         let expected_agg_nonce = AggNonce::sum(all_nonces.values().cloned());
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
-                    payout_nonce: incoming_nonce,
-                    operator_idx: incoming_idx,
-                }),
-                expected_state: DepositState::PayoutNoncesCollected {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    assignee: TEST_POV_IDX,
-                    operator_desc: desc,
-                    cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                    payout_nonces: all_nonces,
-                    payout_aggregated_nonce: expected_agg_nonce,
-                    payout_partial_signatures: BTreeMap::new(),
-                },
-                expected_duties: vec![], // No duty since POV is the assignee
-                expected_signals: vec![],
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
+                payout_nonce: incoming_nonce,
+                operator_idx: incoming_idx,
+            }),
+            expected_state: DepositState::PayoutNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_POV_IDX,
+                operator_desc: desc,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: all_nonces,
+                payout_aggregated_nonce: expected_agg_nonce,
+                payout_partial_signatures: BTreeMap::new(),
             },
-        );
+            expected_duties: vec![], // No duty since POV is the assignee
+            expected_signals: vec![],
+        });
     }
 
     /// tests duplicate detection: same operator sends same nonce twice
@@ -252,10 +231,10 @@ mod tests {
             operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
         });
 
-        sequence.process(&test_bridge_cfg(), nonce_event.clone());
+        sequence.process(&test_deposit_sm_cfg(), nonce_event.clone());
         sequence.assert_no_errors();
         // Second submission with same nonce - should fail with Duplicate
-        sequence.process(&test_bridge_cfg(), nonce_event);
+        sequence.process(&test_deposit_sm_cfg(), nonce_event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -299,10 +278,10 @@ mod tests {
             operator_idx: TEST_POV_IDX,
         });
 
-        sequence.process(&test_bridge_cfg(), first_event);
+        sequence.process(&test_deposit_sm_cfg(), first_event);
         sequence.assert_no_errors();
         // Second submission with different nonce but same operator - should fail with Duplicate
-        sequence.process(&test_bridge_cfg(), duplicate_event);
+        sequence.process(&test_deposit_sm_cfg(), duplicate_event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -340,18 +319,14 @@ mod tests {
             payout_nonce: nonce,
             operator_idx: u32::MAX,
         });
-        seq.process(&test_bridge_cfg(), event.clone());
+        seq.process(&test_deposit_sm_cfg(), event.clone());
 
         // Verify rejection with test_invalid_transition
-        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-            create_sm,
-            &test_bridge_cfg(),
-            InvalidTransition {
-                from_state: seq.state().clone(),
-                event,
-                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
-            },
-        );
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: seq.state().clone(),
+            event,
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
     }
 
     /// tests that all states except PayoutDescriptorReceived should reject PayoutNonceReceived
@@ -417,18 +392,14 @@ mod tests {
         ];
 
         for state in invalid_states {
-            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-                create_sm,
-                &test_bridge_cfg(),
-                InvalidTransition {
-                    from_state: state,
-                    event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
-                        payout_nonce: nonce.clone(),
-                        operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
-                    }),
-                    expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
-                },
-            );
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
+                    payout_nonce: nonce.clone(),
+                    operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
+                }),
+                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+            });
         }
     }
 }

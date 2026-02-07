@@ -10,7 +10,6 @@ mod tests {
         deposit::{
             errors::DSMError,
             events::{DepositEvent, UserTakeBackEvent},
-            machine::DepositSM,
             state::DepositState,
             tests::*,
         },
@@ -28,18 +27,13 @@ mod tests {
 
         let tx = test_takeback_tx(outpoint);
 
-        test_transition::<DepositSM, _, _, _, _, _, _, _>(
-            create_sm,
-            get_state,
-            &test_bridge_cfg(),
-            Transition {
-                from_state: state,
-                event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
-                expected_state: DepositState::Aborted,
-                expected_duties: vec![],
-                expected_signals: vec![],
-            },
-        );
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
+            expected_state: DepositState::Aborted,
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
 
     #[test]
@@ -68,15 +62,11 @@ mod tests {
 
         let tx = test_takeback_tx(OutPoint::default());
 
-        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-            create_sm,
-            &test_bridge_cfg(),
-            InvalidTransition {
-                from_state: state,
-                event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
-                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
-            },
-        );
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: state,
+            event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
+            expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+        });
     }
 
     #[test]
@@ -85,15 +75,11 @@ mod tests {
 
         let tx = test_takeback_tx(OutPoint::default());
 
-        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-            create_sm,
-            &test_bridge_cfg(),
-            InvalidTransition {
-                from_state: state,
-                event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
-                expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
-            },
-        );
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: state,
+            event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
+            expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+        });
     }
 
     #[test]
@@ -115,7 +101,7 @@ mod tests {
         let wrong_tx = test_takeback_tx(wrong_outpoint);
         let wrong_tx_event = DepositEvent::UserTakeBack(UserTakeBackEvent { tx: wrong_tx });
 
-        sequence.process(&test_bridge_cfg(), wrong_tx_event);
+        sequence.process(&test_deposit_sm_cfg(), wrong_tx_event);
 
         // Create a transaction that spends the outpoint but is not a valid take back transaction
         let witness_elements = [vec![0u8; 1]]; // HACK: single witness element implies key-spend
@@ -124,7 +110,7 @@ mod tests {
             tx: wrong_spend_path,
         });
 
-        sequence.process(&test_bridge_cfg(), wrong_spend_path_event);
+        sequence.process(&test_deposit_sm_cfg(), wrong_spend_path_event);
 
         sequence.assert_final_state(&initial_state);
 
