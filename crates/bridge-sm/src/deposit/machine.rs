@@ -9,8 +9,12 @@ use strata_bridge_tx_graph2::transactions::prelude::DepositData;
 
 use crate::{
     deposit::{
-        config::DepositSMCfg, duties::DepositDuty, errors::DSMError, events::DepositEvent,
-        params::DepositSMParams, state::DepositState,
+        config::DepositSMCfg,
+        duties::DepositDuty,
+        errors::{DSMError, DSMResult},
+        events::DepositEvent,
+        params::DepositSMParams,
+        state::DepositState,
     },
     signals::DepositSignal,
     state_machine::{SMOutput, StateMachine},
@@ -102,8 +106,8 @@ impl DepositSM {
         }
     }
 
-    /// Returns a reference to the per-instance configuration of the Deposit State Machine.
-    pub const fn sm_cfg(&self) -> &DepositSMParams {
+    /// Returns a reference to the Deposit State Machine params.
+    pub const fn sm_params(&self) -> &DepositSMParams {
         &self.sm_params
     }
 
@@ -118,19 +122,21 @@ impl DepositSM {
     }
 
     /// Checks that the operator index exists, otherwise returns `DSMError::Rejected`.
-    pub(super) fn check_operator_idx(
-        &self,
-        operator_idx: u32,
-        event: &impl ToString,
-    ) -> Result<(), DSMError> {
-        self.sm_params
+    pub(super) fn check_operator_idx<E>(&self, operator_idx: u32, inner_event: &E) -> DSMResult<()>
+    where
+        E: Clone + Into<DepositEvent>,
+    {
+        self.sm_params()
             .operator_table()
             .idx_to_btc_key(&operator_idx)
-            .ok_or_else(|| DSMError::Rejected {
-                state: self.state().to_string(),
-                reason: format!("Operator index {} not in operator table", operator_idx),
-                event: event.to_string(),
+            .ok_or_else(|| {
+                DSMError::rejected(
+                    self.state().clone(),
+                    inner_event.clone().into(),
+                    format!("Operator index {} not in operator table", operator_idx),
+                )
             })?;
+
         Ok(())
     }
 }

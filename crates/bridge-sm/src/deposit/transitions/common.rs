@@ -15,10 +15,7 @@ impl DepositSM {
     pub(crate) fn process_new_block(&mut self, new_block: NewBlockEvent) -> DSMResult<DSMOutput> {
         let last_processed_block_height = self.state().last_processed_block_height();
         if last_processed_block_height.is_some_and(|height| *height >= new_block.block_height) {
-            return Err(DSMError::Duplicate {
-                state: self.state().to_string(),
-                event: new_block.to_string(),
-            });
+            return Err(DSMError::duplicate(self.state().clone(), new_block.into()));
         }
 
         match self.state_mut() {
@@ -89,7 +86,7 @@ impl DepositSM {
                         signals: vec![DepositSignal::ToGraph(
                             DepositToGraph::CooperativePayoutFailed {
                                 assignee,
-                                deposit_idx: self.sm_cfg().deposit_idx(),
+                                deposit_idx: self.sm_params().deposit_idx(),
                             },
                         )],
                     });
@@ -103,11 +100,11 @@ impl DepositSM {
                 })
             }
 
-            DepositState::Spent | DepositState::Aborted => Err(DSMError::Rejected {
-                state: self.state().to_string(),
-                reason: "New blocks irrelevant in terminal state".to_string(),
-                event: new_block.to_string(),
-            }),
+            DepositState::Spent | DepositState::Aborted => Err(DSMError::rejected(
+                self.state().clone(),
+                new_block.into(),
+                "New blocks irrelevant in terminal state",
+            )),
         }
     }
 }

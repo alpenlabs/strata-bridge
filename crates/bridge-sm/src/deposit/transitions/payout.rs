@@ -15,9 +15,8 @@ use crate::{
         duties::DepositDuty,
         errors::{DSMError, DSMResult},
         events::{
-            DepositEvent, FulfillmentConfirmedEvent, PayoutConfirmedEvent,
-            PayoutDescriptorReceivedEvent, PayoutNonceReceivedEvent, PayoutPartialReceivedEvent,
-            WithdrawalAssignedEvent,
+            FulfillmentConfirmedEvent, PayoutConfirmedEvent, PayoutDescriptorReceivedEvent,
+            PayoutNonceReceivedEvent, PayoutPartialReceivedEvent, WithdrawalAssignedEvent,
         },
         machine::{DSMOutput, DepositSM},
         state::DepositState,
@@ -60,11 +59,11 @@ impl DepositSM {
                 }
             }
 
-            _ => Err(DSMError::InvalidEvent {
-                state: self.state.to_string(),
-                event: DepositEvent::WithdrawalAssigned(assignment).to_string(),
-                reason: None,
-            }),
+            _ => Err(DSMError::invalid_event(
+                self.state.clone(),
+                assignment.into(),
+                None,
+            )),
         }
     }
 
@@ -113,11 +112,11 @@ impl DepositSM {
                 }
             }
 
-            _ => Err(DSMError::InvalidEvent {
-                state: self.state.to_string(),
-                event: DepositEvent::FulfillmentConfirmed(fulfillment).to_string(),
-                reason: None,
-            }),
+            _ => Err(DSMError::invalid_event(
+                self.state().clone(),
+                fulfillment.into(),
+                None,
+            )),
         }
     }
 
@@ -156,11 +155,11 @@ impl DepositSM {
                 ]))
             }
 
-            _ => Err(DSMError::InvalidEvent {
-                state: self.state.to_string(),
-                event: DepositEvent::PayoutDescriptorReceived(descriptor).to_string(),
-                reason: None,
-            }),
+            _ => Err(DSMError::invalid_event(
+                self.state().clone(),
+                descriptor.into(),
+                None,
+            )),
         }
     }
 
@@ -192,10 +191,10 @@ impl DepositSM {
                 // Check for duplicate nonce submission. If an entry from the same operator exists,
                 // return with an error.
                 if payout_nonces.contains_key(&payout_nonce.operator_idx) {
-                    return Err(DSMError::Duplicate {
-                        state: self.state().to_string(),
-                        event: payout_nonce.to_string(),
-                    });
+                    return Err(DSMError::duplicate(
+                        self.state().clone(),
+                        payout_nonce.into(),
+                    ));
                 }
                 // Update the payout nonces with the new nonce just received.
                 payout_nonces.insert(payout_nonce.operator_idx, payout_nonce.payout_nonce);
@@ -246,11 +245,11 @@ impl DepositSM {
                 }
             }
 
-            _ => Err(DSMError::InvalidEvent {
-                state: self.state.to_string(),
-                event: DepositEvent::PayoutNonceReceived(payout_nonce).to_string(),
-                reason: None,
-            }),
+            _ => Err(DSMError::invalid_event(
+                self.state().clone(),
+                payout_nonce.into(),
+                None,
+            )),
         }
     }
 
@@ -304,10 +303,10 @@ impl DepositSM {
                 // Check for duplicate Partial Signature submission. If an entry from the same
                 // operator exists, return with an error.
                 if payout_partial_signatures.contains_key(&payout_partial.operator_idx) {
-                    return Err(DSMError::Duplicate {
-                        state: self.state().to_string(),
-                        event: payout_partial.to_string(),
-                    });
+                    return Err(DSMError::duplicate(
+                        self.state().clone(),
+                        payout_partial.into(),
+                    ));
                 }
 
                 // Construct the cooperative payout transaction.
@@ -337,11 +336,11 @@ impl DepositSM {
                 )
                 .is_err()
                 {
-                    return Err(DSMError::Rejected {
-                        state: self.state().to_string(),
-                        reason: "Partial Signature Verification Failed".to_string(),
-                        event: payout_partial.to_string(),
-                    });
+                    return Err(DSMError::rejected(
+                        self.state().clone(),
+                        payout_partial.into(),
+                        "Partial Signature Verification Failed",
+                    ));
                 }
 
                 // If the partial signature verification passes, add it to state
@@ -372,11 +371,11 @@ impl DepositSM {
                 }
             }
 
-            _ => Err(DSMError::InvalidEvent {
-                state: self.state.to_string(),
-                event: DepositEvent::PayoutPartialReceived(payout_partial).to_string(),
-                reason: None,
-            }),
+            _ => Err(DSMError::invalid_event(
+                self.state.clone(),
+                payout_partial.into(),
+                None,
+            )),
         }
     }
 
@@ -411,16 +410,16 @@ impl DepositSM {
                 payout_confirmed.tx
                 .input
                 .iter()
-                .any(|input| input.previous_output == self.sm_cfg().deposit_outpoint)
-                .ok_or(DSMError::InvalidEvent {
-                    state: self.state().to_string(),
-                    event: DepositEvent::PayoutConfirmed(payout_confirmed.clone()).to_string(),
-                    reason: format!(
+                .any(|input| input.previous_output == self.sm_params().deposit_outpoint)
+                .ok_or_else(|| DSMError::invalid_event(
+                    self.state().clone(),
+                    payout_confirmed.clone().into(),
+                    Some(format!(
                         "Transaction {} does not spend from the expected deposit outpoint {}",
                         payout_confirmed.tx.compute_txid(),
-                        self.sm_cfg().deposit_outpoint
-                        ).into(),
-                })?;
+                        self.sm_params().deposit_outpoint
+                    )),
+                ))?;
 
                 // Transition to Spent state
                 self.state = DepositState::Spent;
@@ -431,15 +430,15 @@ impl DepositSM {
                     signals: vec![],
                 })
             }
-            DepositState::Spent => Err(DSMError::Duplicate {
-                state: self.state().to_string(),
-                event: payout_confirmed.to_string(),
-            }),
-            _ => Err(DSMError::InvalidEvent {
-                event: DepositEvent::PayoutConfirmed(payout_confirmed.clone()).to_string(),
-                state: self.state.to_string(),
-                reason: None
-            }),
+            DepositState::Spent => Err(DSMError::duplicate(
+                self.state().clone(),
+                payout_confirmed.clone().into(),
+            )),
+            _ => Err(DSMError::invalid_event(
+                self.state().clone(),
+                payout_confirmed.clone().into(),
+                None,
+            )),
         }
     }
 }
