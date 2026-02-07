@@ -11,7 +11,8 @@ use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx}
 pub struct DepositSMParams {
     /// The index of the deposit being tracked in a Deposit State Machine.
     pub deposit_idx: DepositIdx,
-    /// The outpoint of the deposit being tracked in a Deposit State Machine.
+    /// The output UTXO of the deposit request transaction being tracked in a Deposit State
+    /// Machine.
     pub deposit_outpoint: OutPoint,
     /// The operators involved in the signing of this deposit.
     pub operator_table: OperatorTable,
@@ -23,7 +24,7 @@ impl DepositSMParams {
         self.deposit_idx
     }
 
-    /// Returns the outpoint of the deposit transaction.
+    /// Returns the outpoint of the deposit request transaction.
     pub const fn deposit_outpoint(&self) -> OutPoint {
         self.deposit_outpoint
     }
