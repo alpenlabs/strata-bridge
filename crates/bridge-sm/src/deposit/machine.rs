@@ -2,15 +2,15 @@
 //!
 //! Responsible for driving deposit progress by reacting to events and
 //! producing the required duties and signals.
+
 use bitcoin::{XOnlyPublicKey, relative::LockTime};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph2::transactions::prelude::DepositData;
 
 use crate::{
-    config::BridgeCfg,
     deposit::{
         config::DepositSMCfg, duties::DepositDuty, errors::DSMError, events::DepositEvent,
-        state::DepositState,
+        params::DepositSMParams, state::DepositState,
     },
     signals::DepositSignal,
     state_machine::{SMOutput, StateMachine},
@@ -23,14 +23,15 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepositSM {
     /// Bridge-wide configuration shared across all state machines.
-    pub bridge_cfg: BridgeCfg,
+    pub bridge_cfg: DepositSMCfg,
     /// Per-instance configuration for this specific deposit state machine.
-    pub sm_cfg: DepositSMCfg,
+    pub sm_cfg: DepositSMParams,
     /// The current state of the Deposit State Machine.
     pub state: DepositState,
 }
 
 impl StateMachine for DepositSM {
+    type Config = DepositSMCfg;
     type Duty = DepositDuty;
     type OutgoingSignal = DepositSignal;
     type Event = DepositEvent;
@@ -38,6 +39,7 @@ impl StateMachine for DepositSM {
 
     fn process_event(
         &mut self,
+        cfg: &DepositSMCfg,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
@@ -49,10 +51,9 @@ impl StateMachine for DepositSM {
             }
             DepositEvent::DepositConfirmed(confirmed) => self.process_deposit_confirmed(confirmed),
             DepositEvent::WithdrawalAssigned(assignment) => self.process_assignment(assignment),
-            DepositEvent::FulfillmentConfirmed(fulfillment) => self.process_fulfillment(
-                fulfillment,
-                self.bridge_cfg.cooperative_payout_timeout_blocks,
-            ),
+            DepositEvent::FulfillmentConfirmed(fulfillment) => {
+                self.process_fulfillment(cfg, fulfillment)
+            }
             DepositEvent::PayoutDescriptorReceived(descriptor) => {
                 self.process_payout_descriptor_received(descriptor)
             }
@@ -60,7 +61,7 @@ impl StateMachine for DepositSM {
                 self.process_payout_nonce_received(payout_nonce)
             }
             DepositEvent::PayoutPartialReceived(payout_partial) => {
-                self.process_payout_partial_received(payout_partial)
+                self.process_payout_partial_received(cfg, payout_partial)
             }
             DepositEvent::PayoutConfirmed(payout_confirmed) => {
                 self.process_payout_confirmed(&payout_confirmed)
@@ -83,8 +84,8 @@ impl DepositSM {
     /// The state machine starts in [`DepositState::Created`] by constructing an initial
     /// [`DepositState`] via [`DepositState::new`].
     pub fn new(
-        bridge_cfg: BridgeCfg,
-        sm_cfg: DepositSMCfg,
+        bridge_cfg: DepositSMCfg,
+        sm_cfg: DepositSMParams,
         deposit_time_lock: LockTime,
         deposit_data: DepositData,
         depositor_pubkey: XOnlyPublicKey,
@@ -107,7 +108,7 @@ impl DepositSM {
     }
 
     /// Returns a reference to the per-instance configuration of the Deposit State Machine.
-    pub const fn sm_cfg(&self) -> &DepositSMCfg {
+    pub const fn sm_cfg(&self) -> &DepositSMParams {
         &self.sm_cfg
     }
 

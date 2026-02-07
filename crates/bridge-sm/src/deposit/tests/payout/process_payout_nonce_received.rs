@@ -39,6 +39,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
@@ -91,6 +92,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
@@ -145,6 +147,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
@@ -204,6 +207,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
@@ -248,10 +252,10 @@ mod tests {
             operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
         });
 
-        sequence.process(nonce_event.clone());
+        sequence.process(&test_bridge_cfg(), nonce_event.clone());
         sequence.assert_no_errors();
         // Second submission with same nonce - should fail with Duplicate
-        sequence.process(nonce_event);
+        sequence.process(&test_bridge_cfg(), nonce_event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -295,10 +299,10 @@ mod tests {
             operator_idx: TEST_POV_IDX,
         });
 
-        sequence.process(first_event);
+        sequence.process(&test_bridge_cfg(), first_event);
         sequence.assert_no_errors();
         // Second submission with different nonce but same operator - should fail with Duplicate
-        sequence.process(duplicate_event);
+        sequence.process(&test_bridge_cfg(), duplicate_event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -336,11 +340,12 @@ mod tests {
             payout_nonce: nonce,
             operator_idx: u32::MAX,
         });
-        seq.process(event.clone());
+        seq.process(&test_bridge_cfg(), event.clone());
 
         // Verify rejection with test_invalid_transition
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
+            &test_bridge_cfg(),
             InvalidTransition {
                 from_state: seq.state().clone(),
                 event,
@@ -414,6 +419,7 @@ mod tests {
         for state in invalid_states {
             test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
                 create_sm,
+                &test_bridge_cfg(),
                 InvalidTransition {
                     from_state: state,
                     event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {

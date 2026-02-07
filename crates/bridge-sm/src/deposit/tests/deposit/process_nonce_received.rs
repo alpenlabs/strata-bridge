@@ -47,10 +47,13 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         for (operator_idx, nonce) in &pubnonces {
-            seq.process(DepositEvent::NonceReceived(NonceReceivedEvent {
-                nonce: nonce.clone(),
-                operator_idx: *operator_idx,
-            }));
+            seq.process(
+                &test_bridge_cfg(),
+                DepositEvent::NonceReceived(NonceReceivedEvent {
+                    nonce: nonce.clone(),
+                    operator_idx: *operator_idx,
+                }),
+            );
         }
 
         seq.assert_no_errors();
@@ -100,11 +103,12 @@ mod tests {
                 nonce,
                 operator_idx: signer.operator_idx(),
             });
-            seq.process(event.clone());
+            seq.process(&test_bridge_cfg(), event.clone());
 
             // Process the same event again to simulate duplicate
             test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
                 create_sm,
+                &test_bridge_cfg(),
                 InvalidTransition {
                     from_state: seq.state().clone(),
                     event,
@@ -140,6 +144,7 @@ mod tests {
 
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
+            &test_bridge_cfg(),
             InvalidTransition {
                 from_state: initial_state,
                 event,

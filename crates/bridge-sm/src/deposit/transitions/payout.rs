@@ -11,6 +11,7 @@ use strata_bridge_tx_graph2::transactions::prelude::{CooperativePayoutData, Coop
 
 use crate::{
     deposit::{
+        config::DepositSMCfg,
         duties::DepositDuty,
         errors::{DSMError, DSMResult},
         events::{
@@ -73,8 +74,8 @@ impl DepositSM {
     /// Emits a [`DepositDuty::RequestPayoutNonces`] duty if the local operator is the assignee.
     pub(crate) fn process_fulfillment(
         &mut self,
+        cfg: &DepositSMCfg,
         fulfillment: FulfillmentConfirmedEvent,
-        timeout: u64,
     ) -> DSMResult<DSMOutput> {
         match self.state() {
             DepositState::Assigned {
@@ -83,6 +84,7 @@ impl DepositSM {
                 ..
             } => {
                 let assignee = *assignee;
+                let timeout = cfg.cooperative_payout_timeout_blocks();
 
                 // Compute the txid of the fulfillment transaction
                 let fulfillment_txid: Txid = fulfillment.fulfillment_transaction.compute_txid();
@@ -259,6 +261,7 @@ impl DepositSM {
     /// operator is the assignee.
     pub(crate) fn process_payout_partial_received(
         &mut self,
+        cfg: &DepositSMCfg,
         payout_partial: PayoutPartialReceivedEvent,
     ) -> DSMResult<DSMOutput> {
         // Validate operator_idx is in the operator table
@@ -268,11 +271,8 @@ impl DepositSM {
         let operator_table_cardinality = self.sm_cfg.operator_table().cardinality();
         let pov_operator_idx = self.sm_cfg.operator_table().pov_idx();
         let n_of_n_pubkey = get_aggregated_pubkey(self.sm_cfg.operator_table().btc_keys());
-        let deposit_connector = NOfNConnector::new(
-            self.bridge_cfg.network(),
-            n_of_n_pubkey,
-            self.bridge_cfg.deposit_amount(),
-        );
+        let deposit_connector =
+            NOfNConnector::new(cfg.network(), n_of_n_pubkey, cfg.deposit_amount());
         let coop_payout_data = CooperativePayoutData {
             deposit_outpoint: self.sm_cfg.deposit_outpoint(),
         };

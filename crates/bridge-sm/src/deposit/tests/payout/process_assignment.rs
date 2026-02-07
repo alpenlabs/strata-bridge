@@ -30,6 +30,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
@@ -66,6 +67,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
@@ -104,6 +106,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
@@ -145,6 +148,7 @@ mod tests {
         test_transition::<DepositSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
+            &test_bridge_cfg(),
             Transition {
                 from_state: state,
                 event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
@@ -225,6 +229,7 @@ mod tests {
         for state in invalid_states {
             test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
                 create_sm,
+                &test_bridge_cfg(),
                 InvalidTransition {
                     from_state: state,
                     event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {

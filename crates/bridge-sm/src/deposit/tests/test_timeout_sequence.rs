@@ -32,9 +32,12 @@ mod tests {
         let timeout_height =
             FULFILLMENT_HEIGHT + test_bridge_cfg().cooperative_payout_timeout_blocks();
         for height in (FULFILLMENT_HEIGHT + 1)..=timeout_height {
-            seq.process(DepositEvent::NewBlock(NewBlockEvent {
-                block_height: height,
-            }));
+            seq.process(
+                &test_bridge_cfg(),
+                DepositEvent::NewBlock(NewBlockEvent {
+                    block_height: height,
+                }),
+            );
         }
 
         seq.assert_no_errors();

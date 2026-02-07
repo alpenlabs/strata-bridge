@@ -34,9 +34,10 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         for operator_idx in 0..operator_count {
-            seq.process(DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
-                operator_idx,
-            }));
+            seq.process(
+                &test_bridge_cfg(),
+                DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx }),
+            );
         }
 
         seq.assert_no_errors();
@@ -72,11 +73,12 @@ mod tests {
         // Process GraphAvailable messages, all operators except the last one
         for operator_idx in 0..(operator_count - 1) {
             let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx });
-            seq.process(event.clone());
+            seq.process(&test_bridge_cfg(), event.clone());
 
             // Process the same event again to simulate duplicate
             test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
                 create_sm,
+                &test_bridge_cfg(),
                 InvalidTransition {
                     from_state: seq.state().clone(),
                     event,
@@ -120,6 +122,7 @@ mod tests {
 
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
+            &test_bridge_cfg(),
             InvalidTransition {
                 from_state: state,
                 event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
@@ -147,11 +150,12 @@ mod tests {
         let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
             operator_idx: u32::MAX,
         });
-        seq.process(event.clone());
+        seq.process(&test_bridge_cfg(), event.clone());
 
         // Process the same event again to simulate duplicate
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
+            &test_bridge_cfg(),
             InvalidTransition {
                 from_state: seq.state().clone(),
                 event,
@@ -197,6 +201,7 @@ mod tests {
 
         test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
             create_sm,
+            &test_bridge_cfg(),
             InvalidTransition {
                 from_state: state,
                 event: DepositEvent::DepositConfirmed(DepositConfirmedEvent {
