@@ -1,0 +1,25 @@
+[package]
+edition = "2021"
+name = "strata-bridge-p2p-types2"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-bridge-primitives.workspace = true
+
+bitcoin-bosd.workspace = true
+hex.workspace = true
+libp2p-identity.workspace = true
+musig2.workspace = true
+proptest.workspace = true
+proptest-derive.workspace = true
+rkyv.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+strata-bridge-test-utils.workspace = true
+
+secp256k1 = { workspace = true, features = ["rand"] }
+serde_json.workspace = true
