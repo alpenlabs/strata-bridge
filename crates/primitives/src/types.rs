@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 
 use bitcoin::XOnlyPublicKey;
 use musig2::{errors::KeyAggError, KeyAggContext};
+use proptest_derive::Arbitrary;
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 use strata_primitives::bitcoin_bosd::{Descriptor, DescriptorError, DescriptorType};
@@ -18,7 +20,23 @@ pub type DepositIdx = u32;
 /// and an operator index.
 // NOTE: (@Rajil1213) this uses a struct instead of a tuple struct or newtype for better readability
 // and to avoid confusion about the order of the indices as they're both of the same type (u32).
-#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+    Arbitrary,
+)]
+#[rkyv(attr(expect(missing_docs)))]
 pub struct GraphIdx {
     /// The index of the deposit that a peg out graph is associated with.
     pub deposit: DepositIdx,

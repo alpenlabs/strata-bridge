@@ -8,13 +8,18 @@ workspace = true
 
 [dependencies]
 strata-bridge-p2p-types.workspace = true
+strata-bridge-p2p-types2.workspace = true
 strata-bridge-p2p-wire.workspace = true
+strata-bridge-primitives.workspace = true
+
 strata-p2p.workspace = true
 
 anyhow.workspace = true
 bitcoin.workspace = true
 libp2p.workspace = true
+libp2p-identity.workspace = true
 musig2.workspace = true
+rkyv.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
@@ -26,4 +31,3 @@ strata-bridge-common.workspace = true
 
 futures.workspace = true
 tokio.workspace = true
-rkyv.workspace = true
