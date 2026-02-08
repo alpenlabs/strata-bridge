@@ -10176,12 +10176,15 @@ dependencies = [
  "bitcoin",
  "futures",
  "libp2p",
+ "libp2p-identity",
  "musig2",
  "rkyv",
  "serde",
  "strata-bridge-common",
  "strata-bridge-p2p-types",
+ "strata-bridge-p2p-types2",
  "strata-bridge-p2p-wire",
+ "strata-bridge-primitives",
  "strata-bridge-test-utils",
  "strata-p2p",
  "tokio",
@@ -10204,6 +10207,24 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "strata-bridge-p2p-types2"
+version = "0.1.0"
+dependencies = [
+ "bitcoin-bosd",
+ "hex",
+ "libp2p-identity",
+ "musig2",
+ "proptest",
+ "proptest-derive",
+ "rkyv",
+ "secp256k1 0.29.1",
+ "serde",
+ "serde_json",
+ "strata-bridge-primitives",
+ "strata-bridge-test-utils",
 ]
 
 [[package]]
