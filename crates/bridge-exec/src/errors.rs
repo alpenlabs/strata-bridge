@@ -17,6 +17,10 @@ pub enum ExecutorError {
     #[error("our pubkey not in params")]
     OurPubKeyNotInParams,
 
+    /// The partial signature we generated failed self-verification.
+    #[error("partial signature self-verification failed")]
+    SelfVerifyFailed,
+
     /// Missing required configuration.
     #[error("missing configuration: {0}")]
     MissingConfig(String),

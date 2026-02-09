@@ -197,11 +197,22 @@ impl DepositSM {
                     };
                     self.state = new_state;
 
+                    // Get ordered pubkeys for MuSig2 signing
+                    let ordered_pubkeys = self
+                        .context()
+                        .operator_table()
+                        .btc_keys()
+                        .into_iter()
+                        .map(|pk| pk.x_only_public_key().0)
+                        .collect();
+
                     // Create the duty to publish deposit partials
                     let duty = DepositDuty::PublishDepositPartial {
+                        deposit_idx: self.context().deposit_idx,
                         drt_outpoint: self.context().deposit_outpoint(),
                         deposit_sighash,
                         deposit_agg_nonce: agg_nonce,
+                        ordered_pubkeys,
                     };
 
                     Ok(DSMOutput::with_duties(vec![duty]))

@@ -19,6 +19,7 @@ strata-bridge-sm.workspace = true
 bitcoin.workspace = true
 bitcoind-async-client.workspace = true
 musig2.workspace = true
+terrors.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
