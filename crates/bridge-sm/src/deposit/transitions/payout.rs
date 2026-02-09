@@ -46,10 +46,10 @@ impl DepositSM {
                 };
                 // Dispatch the duty to fulfill the assignment if the assignee is the pov operator,
                 // otherwise no duties or signals need to be dispatched.
-                if self.sm_params.operator_table().pov_idx() == assignment.assignee {
+                if self.context.operator_table().pov_idx() == assignment.assignee {
                     Ok(DSMOutput::with_duties(vec![
                         DepositDuty::FulfillWithdrawal {
-                            deposit_idx: self.sm_params.deposit_idx(),
+                            deposit_idx: self.context.deposit_idx(),
                             deadline: assignment.deadline,
                             recipient_desc: assignment.recipient_desc,
                         },
@@ -101,10 +101,10 @@ impl DepositSM {
                 };
                 // Dispatch the duty to request the payout nonces if the assignee is the pov
                 // operator, otherwise no duties or signals need to be dispatched.
-                if self.sm_params.operator_table().pov_idx() == assignee {
+                if self.context.operator_table().pov_idx() == assignee {
                     Ok(DSMOutput::with_duties(vec![
                         DepositDuty::RequestPayoutNonces {
-                            deposit_idx: self.sm_params.deposit_idx(),
+                            deposit_idx: self.context.deposit_idx(),
                         },
                     ]))
                 } else {
@@ -148,7 +148,7 @@ impl DepositSM {
                 // Dispatch the duty to publish the payout nonce
                 Ok(DSMOutput::with_duties(vec![
                     DepositDuty::PublishPayoutNonce {
-                        deposit_outpoint: self.sm_params.deposit_outpoint(),
+                        deposit_outpoint: self.context.deposit_outpoint(),
                         operator_idx: assignee,
                         operator_desc: descriptor.operator_desc,
                     },
@@ -175,8 +175,8 @@ impl DepositSM {
         // Validate operator_idx is in the operator table
         self.check_operator_idx(payout_nonce.operator_idx, &payout_nonce)?;
 
-        let operator_table_cardinality = self.sm_params.operator_table().cardinality();
-        let pov_operator_idx = self.sm_params.operator_table().pov_idx();
+        let operator_table_cardinality = self.context.operator_table().cardinality();
+        let pov_operator_idx = self.context.operator_table().pov_idx();
 
         match self.state_mut() {
             DepositState::PayoutDescriptorReceived {
@@ -229,8 +229,8 @@ impl DepositSM {
                     if pov_operator_idx != assignee {
                         Ok(DSMOutput::with_duties(vec![
                             DepositDuty::PublishPayoutPartial {
-                                deposit_outpoint: self.sm_params.deposit_outpoint(),
-                                deposit_idx: self.sm_params.deposit_idx(),
+                                deposit_outpoint: self.context.deposit_outpoint(),
+                                deposit_idx: self.context.deposit_idx(),
                                 agg_nonce,
                             },
                         ]))
@@ -267,24 +267,24 @@ impl DepositSM {
         self.check_operator_idx(payout_partial.operator_idx, &payout_partial)?;
 
         // Extract from self.cfg before the match to avoid borrow conflicts
-        let operator_table_cardinality = self.sm_params.operator_table().cardinality();
-        let pov_operator_idx = self.sm_params.operator_table().pov_idx();
-        let n_of_n_pubkey = get_aggregated_pubkey(self.sm_params.operator_table().btc_keys());
+        let operator_table_cardinality = self.context.operator_table().cardinality();
+        let pov_operator_idx = self.context.operator_table().pov_idx();
+        let n_of_n_pubkey = get_aggregated_pubkey(self.context.operator_table().btc_keys());
         let deposit_connector =
             NOfNConnector::new(cfg.network(), n_of_n_pubkey, cfg.deposit_amount());
         let coop_payout_data = CooperativePayoutData {
-            deposit_outpoint: self.sm_params.deposit_outpoint(),
+            deposit_outpoint: self.context.deposit_outpoint(),
         };
         // Generate the key_agg_ctx using the operator table.
         // NOfNConnector uses key-path spend with no script tree, so we use
         // TaprootWitness::Key which applies with_unspendable_taproot_tweak()
         let key_agg_ctx = create_agg_ctx(
-            self.sm_params.operator_table().btc_keys(),
+            self.context.operator_table().btc_keys(),
             &TaprootWitness::Key,
         )
         .expect("must be able to create key aggregation context");
         let operator_pubkey = self
-            .sm_params
+            .context
             .operator_table
             .idx_to_btc_key(&payout_partial.operator_idx)
             .expect("operator must be in table");
@@ -410,14 +410,14 @@ impl DepositSM {
                 payout_confirmed.tx
                 .input
                 .iter()
-                .any(|input| input.previous_output == self.sm_params().deposit_outpoint)
+                .any(|input| input.previous_output == self.context().deposit_outpoint)
                 .ok_or_else(|| DSMError::invalid_event(
                     self.state().clone(),
                     payout_confirmed.clone().into(),
                     Some(format!(
                         "Transaction {} does not spend from the expected deposit outpoint {}",
                         payout_confirmed.tx.compute_txid(),
-                        self.sm_params().deposit_outpoint
+                        self.context().deposit_outpoint
                     )),
                 ))?;
 

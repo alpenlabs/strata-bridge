@@ -38,6 +38,7 @@ use strata_l1_txfmt::MagicBytes;
 use crate::{
     deposit::{
         config::DepositSMCfg,
+        context::DepositSMCtx,
         duties::DepositDuty,
         errors::DSMError,
         events::{
@@ -46,7 +47,6 @@ use crate::{
             PayoutPartialReceivedEvent, UserTakeBackEvent, WithdrawalAssignedEvent,
         },
         machine::DepositSM,
-        params::DepositSMParams,
         state::DepositState,
     },
     signals::{DepositSignal, GraphToDeposit},
@@ -104,9 +104,9 @@ pub(super) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
     })
 }
 
-/// Creates a test per-instance configuration for DepositSM.
-pub(super) fn test_sm_cfg() -> DepositSMParams {
-    DepositSMParams {
+/// Creates a test per-instance context for DepositSM.
+pub(super) fn test_sm_ctx() -> DepositSMCtx {
+    DepositSMCtx {
         deposit_idx: TEST_DEPOSIT_IDX,
         deposit_outpoint: OutPoint::default(),
         operator_table: test_operator_table(),
@@ -257,7 +257,7 @@ pub(super) fn get_payout_signing_info(
 /// Creates a DepositSM from a given state.
 pub(super) fn create_sm(state: DepositState) -> DepositSM {
     DepositSM {
-        sm_params: test_sm_cfg(),
+        context: test_sm_ctx(),
         state,
     }
 }

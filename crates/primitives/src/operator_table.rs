@@ -277,6 +277,11 @@ impl OperatorTable {
     pub fn select_btc_x_only(btc: XOnlyPublicKey) -> impl Fn(&OperatorTableEntry) -> bool {
         move |(_, _, b)| b.x_only_public_key().0 == btc
     }
+
+    /// Returns true if the operator index exists in the table.
+    pub fn contains_idx(&self, idx: &OperatorIdx) -> bool {
+        self.idx_key.contains_key(idx)
+    }
 }
 
 /// Proptest generators for the operator table.

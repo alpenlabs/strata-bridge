@@ -40,7 +40,7 @@ mod tests {
                 payout_nonces: BTreeMap::new(),
             },
             expected_duties: vec![DepositDuty::PublishPayoutNonce {
-                deposit_outpoint: test_sm_cfg().deposit_outpoint(),
+                deposit_outpoint: test_sm_ctx().deposit_outpoint(),
                 operator_idx: TEST_ASSIGNEE,
                 operator_desc,
             }],
