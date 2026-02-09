@@ -4,6 +4,7 @@
 use std::{array, num::NonZero};
 
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin_bosd::Descriptor;
 use strata_bridge_connectors2::{
     prelude::{
         ClaimContestConnector, ClaimPayoutConnector, ContestCounterproofOutput,
@@ -13,7 +14,6 @@ use strata_bridge_connectors2::{
     SigningInfo,
 };
 use strata_l1_txfmt::MagicBytes;
-use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
     musig_functor::{GameFunctor, WatchtowerFunctor},
@@ -608,7 +608,7 @@ mod tests {
             deposit_amount: DEPOSIT_AMOUNT,
             stake_amount: STAKE_AMOUNT,
         };
-        let wallet_descriptor = Descriptor::from(node.wallet_address().clone());
+        let wallet_descriptor = Descriptor::try_from(node.wallet_address().clone()).unwrap();
         let keys = KeyData {
             n_of_n_pubkey: signer.n_of_n_keypair.x_only_public_key().0,
             operator_pubkey: signer.operator_keypair.x_only_public_key().0,

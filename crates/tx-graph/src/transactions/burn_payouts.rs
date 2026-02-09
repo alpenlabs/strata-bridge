@@ -158,7 +158,7 @@ mod tests {
             .unwrap();
 
         let recipient_key = generate_keypair().x_only_public_key().0;
-        let recipient_addr = Descriptor::new_p2tr_unchecked(&recipient_key.serialize());
+        let recipient_addr = Descriptor::new_p2tr(&recipient_key.serialize()).unwrap();
 
         let burn_payouts_tx_input = BurnPayoutsTxInput {
             stake_out: OutPoint {

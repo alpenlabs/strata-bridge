@@ -15,6 +15,7 @@ strata-primitives.workspace = true
 
 algebra.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
+bitcoin-bosd = { workspace = true, features = ["address"] }
 futures.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
