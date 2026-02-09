@@ -15,6 +15,7 @@ members = [
   "crates/connectors",
   "crates/connectors2",
   "crates/db",
+  "crates/db2",
   "crates/duty-tracker",
   "crates/key-deriv",
   "crates/memory_pprof",
@@ -32,16 +33,13 @@ members = [
   "crates/tx-graph",
   "crates/tx-graph2",
   "crates/wots",
-  "crates/memory_pprof",
-  "crates/bridge-sm",
-  "crates/db2",
 
   # binaries listed separately
-  "bin/secret-service",
-  "bin/dev-cli",
-  "bin/assert-splitter",
   "bin/alpen-bridge",
   "bin/asm-runner",
+  "bin/assert-splitter",
+  "bin/dev-cli",
+  "bin/secret-service",
 
   "bridge-guest-builder",
 
