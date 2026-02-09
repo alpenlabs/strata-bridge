@@ -28,7 +28,7 @@ impl DepositSM {
         &mut self,
         takeback: UserTakeBackEvent,
     ) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        let deposit_request_outpoint = &self.sm_params().deposit_outpoint();
+        let deposit_request_outpoint = &self.context().deposit_outpoint();
         match self.state() {
             DepositState::Created { .. }
             | DepositState::GraphGenerated { .. }
@@ -88,8 +88,8 @@ impl DepositSM {
         &mut self,
         graph_msg: GraphToDeposit,
     ) -> DSMResult<DSMOutput> {
-        let operator_table_cardinality = self.sm_params().operator_table().cardinality();
-        let deposit_outpoint = self.sm_params().deposit_outpoint();
+        let operator_table_cardinality = self.context().operator_table().cardinality();
+        let deposit_outpoint = self.context().deposit_outpoint();
 
         match graph_msg {
             GraphToDeposit::GraphAvailable { operator_idx } => {
@@ -153,7 +153,7 @@ impl DepositSM {
         // Validate operator_idx is in the operator table
         self.check_operator_idx(nonce_event.operator_idx, &nonce_event)?;
 
-        let operator_table_cardinality = self.sm_params().operator_table().cardinality();
+        let operator_table_cardinality = self.context().operator_table().cardinality();
 
         match self.state_mut() {
             DepositState::GraphGenerated {
@@ -196,7 +196,7 @@ impl DepositSM {
 
                     // Create the duty to publish deposit partials
                     let duty = DepositDuty::PublishDepositPartial {
-                        deposit_outpoint: self.sm_params().deposit_outpoint(),
+                        deposit_outpoint: self.context().deposit_outpoint(),
                         deposit_sighash,
                         deposit_agg_nonce: agg_nonce,
                     };
@@ -229,9 +229,9 @@ impl DepositSM {
         // Validate operator_idx is in the operator table
         self.check_operator_idx(partial_event.operator_idx, &partial_event)?;
 
-        let operator_table_cardinality = self.sm_params().operator_table().cardinality();
+        let operator_table_cardinality = self.context().operator_table().cardinality();
         let btc_keys: Vec<_> = self
-            .sm_params()
+            .context()
             .operator_table()
             .btc_keys()
             .into_iter()
@@ -239,7 +239,7 @@ impl DepositSM {
 
         // Get the operator pubkey (safe after validation)
         let operator_pubkey = self
-            .sm_params()
+            .context()
             .operator_table
             .idx_to_btc_key(&partial_event.operator_idx)
             .expect("validated above");

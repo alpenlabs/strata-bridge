@@ -12,10 +12,10 @@ use strata_bridge_tx_graph2::transactions::prelude::DepositData;
 use crate::{
     deposit::{
         config::DepositSMCfg,
+        context::DepositSMCtx,
         duties::DepositDuty,
         errors::{DSMError, DSMResult},
         events::DepositEvent,
-        params::DepositSMParams,
         state::DepositState,
     },
     signals::DepositSignal,
@@ -26,8 +26,8 @@ use crate::{
 /// of cooperative payout process)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepositSM {
-    /// Per-instance configuration for this specific deposit state machine.
-    pub sm_params: DepositSMParams,
+    /// Context associated with this Deposit State Machine instance.
+    pub context: DepositSMCtx,
     /// The current state of the Deposit State Machine.
     pub state: DepositState,
 }
@@ -87,7 +87,7 @@ impl DepositSM {
     /// [`DepositState`] via [`DepositState::new`].
     pub fn new(
         bridge_cfg: DepositSMCfg,
-        sm_params: DepositSMParams,
+        context: DepositSMCtx,
         deposit_time_lock: LockTime,
         deposit_data: DepositData,
         depositor_pubkey: XOnlyPublicKey,
@@ -95,7 +95,7 @@ impl DepositSM {
         block_height: BitcoinBlockHeight,
     ) -> Self {
         DepositSM {
-            sm_params,
+            context,
             state: DepositState::new(
                 bridge_cfg.deposit_amount(),
                 deposit_time_lock,
@@ -109,8 +109,8 @@ impl DepositSM {
     }
 
     /// Returns a reference to the Deposit State Machine params.
-    pub const fn sm_params(&self) -> &DepositSMParams {
-        &self.sm_params
+    pub const fn context(&self) -> &DepositSMCtx {
+        &self.context
     }
 
     /// Returns a reference to the current state of the Deposit State Machine.
@@ -128,17 +128,14 @@ impl DepositSM {
     where
         E: Clone + Into<DepositEvent>,
     {
-        self.sm_params()
-            .operator_table()
-            .idx_to_btc_key(&operator_idx)
-            .ok_or_else(|| {
-                DSMError::rejected(
-                    self.state().clone(),
-                    inner_event.clone().into(),
-                    format!("Operator index {} not in operator table", operator_idx),
-                )
-            })?;
-
-        Ok(())
+        if self.context().operator_table().contains_idx(&operator_idx) {
+            Ok(())
+        } else {
+            Err(DSMError::rejected(
+                self.state().clone(),
+                inner_event.clone().into(),
+                format!("Operator index {} not in operator table", operator_idx),
+            ))
+        }
     }
 }

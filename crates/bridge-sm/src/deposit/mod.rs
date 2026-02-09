@@ -8,11 +8,11 @@
 //! - The collection of nonces and partials for spending the deposit cooperatively.
 
 pub mod config;
+pub mod context;
 pub mod duties;
 pub mod errors;
 pub mod events;
 pub mod machine;
-pub mod params;
 pub mod state;
 #[cfg(test)]
 pub mod tests;

@@ -1,14 +1,11 @@
-//! Parameters for the Deposit State Machine.
+//! Context for the Deposit State Machine.
 
 use bitcoin::OutPoint;
 use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx};
 
-/// Per-instance parameters for a single Deposit State Machine.
-///
-/// These parameters are static over the lifetime of a single Deposit State Machine
-/// and identify a specific deposit.
+/// Execution context for a single instance of the Deposit State Machine.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DepositSMParams {
+pub struct DepositSMCtx {
     /// The index of the deposit being tracked in a Deposit State Machine.
     pub deposit_idx: DepositIdx,
     /// The output UTXO of the deposit request transaction being tracked in a Deposit State
@@ -18,7 +15,7 @@ pub struct DepositSMParams {
     pub operator_table: OperatorTable,
 }
 
-impl DepositSMParams {
+impl DepositSMCtx {
     /// Returns the deposit index.
     pub const fn deposit_idx(&self) -> DepositIdx {
         self.deposit_idx
