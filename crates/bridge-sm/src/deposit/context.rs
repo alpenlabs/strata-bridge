@@ -8,7 +8,7 @@ use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx}
 pub struct DepositSMCtx {
     /// The index of the deposit being tracked in a Deposit State Machine.
     pub deposit_idx: DepositIdx,
-    /// The output UTXO of the deposit request transaction being tracked in a Deposit State
+    /// The output UTXO of the deposit transaction being tracked in a Deposit State
     /// Machine.
     pub deposit_outpoint: OutPoint,
     /// The operators involved in the signing of this deposit.
