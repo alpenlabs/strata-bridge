@@ -101,7 +101,7 @@ mod tests {
         let wrong_tx = test_takeback_tx(wrong_outpoint);
         let wrong_tx_event = DepositEvent::UserTakeBack(UserTakeBackEvent { tx: wrong_tx });
 
-        sequence.process(&test_deposit_sm_cfg(), wrong_tx_event);
+        sequence.process(test_deposit_sm_cfg(), wrong_tx_event);
 
         // Create a transaction that spends the outpoint but is not a valid take back transaction
         let witness_elements = [vec![0u8; 1]]; // HACK: single witness element implies key-spend
@@ -110,7 +110,7 @@ mod tests {
             tx: wrong_spend_path,
         });
 
-        sequence.process(&test_deposit_sm_cfg(), wrong_spend_path_event);
+        sequence.process(test_deposit_sm_cfg(), wrong_spend_path_event);
 
         sequence.assert_final_state(&initial_state);
 

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::Txid;
 use musig2::{AggNonce, verify_partial};
@@ -73,7 +73,7 @@ impl DepositSM {
     /// Emits a [`DepositDuty::RequestPayoutNonces`] duty if the local operator is the assignee.
     pub(crate) fn process_fulfillment(
         &mut self,
-        cfg: &DepositSMCfg,
+        cfg: Arc<DepositSMCfg>,
         fulfillment: FulfillmentConfirmedEvent,
     ) -> DSMResult<DSMOutput> {
         match self.state() {
@@ -260,7 +260,7 @@ impl DepositSM {
     /// operator is the assignee.
     pub(crate) fn process_payout_partial_received(
         &mut self,
-        cfg: &DepositSMCfg,
+        cfg: Arc<DepositSMCfg>,
         payout_partial: PayoutPartialReceivedEvent,
     ) -> DSMResult<DSMOutput> {
         // Validate operator_idx is in the operator table

@@ -9,7 +9,7 @@ mod prop_tests;
 mod test_new_blocks;
 mod test_timeout_sequence;
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{Amount, Network, OutPoint, Transaction, absolute, relative, transaction::Version};
 use bitcoin_bosd::Descriptor;
@@ -96,12 +96,12 @@ pub(super) const TEST_DEPOSIT_IDX: u32 = 0;
 // ===== Configuration Helpers =====
 
 /// Creates a test bridge-wide configuration.
-pub(super) fn test_deposit_sm_cfg() -> DepositSMCfg {
-    DepositSMCfg {
+pub(super) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
+    Arc::new(DepositSMCfg {
         network: Network::Regtest,
         cooperative_payout_timeout_blocks: 144,
         deposit_amount: Amount::from_sat(10_000_000),
-    }
+    })
 }
 
 /// Creates a test per-instance configuration for DepositSM.
@@ -281,7 +281,7 @@ pub(super) fn test_deposit_transition(transition: DepositTransition) {
     test_transition::<DepositSM, _, _, _, _, _, _, _>(
         create_sm,
         get_state,
-        &test_deposit_sm_cfg(),
+        test_deposit_sm_cfg(),
         transition,
     );
 }
@@ -290,7 +290,7 @@ pub(super) fn test_deposit_transition(transition: DepositTransition) {
 pub(super) fn test_deposit_invalid_transition(invalid: DepositInvalidTransition) {
     test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
         create_sm,
-        &test_deposit_sm_cfg(),
+        test_deposit_sm_cfg(),
         invalid,
     );
 }
