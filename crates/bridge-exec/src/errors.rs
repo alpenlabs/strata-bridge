@@ -1,0 +1,27 @@
+//! Error types for the bridge-exec executors.
+
+use thiserror::Error;
+
+/// Errors that can occur during executor operations.
+#[derive(Debug, Error)]
+pub enum ExecutorError {
+    /// Error from secret service requests.
+    #[error("secret service error: {0:?}")]
+    SecretServiceErr(#[from] secret_service_proto::v2::traits::ClientError),
+
+    /// Error from tx driver while submitting/tracking transaction.
+    #[error("transaction driver error: {0:?}")]
+    TxDriverErr(#[from] btc_tracker::tx_driver::DriveErr),
+
+    /// Our pubkey was not found in the MuSig2 params.
+    #[error("our pubkey not in params")]
+    OurPubKeyNotInParams,
+
+    /// Missing required configuration.
+    #[error("missing configuration: {0}")]
+    MissingConfig(String),
+
+    /// Wallet-related error.
+    #[error("wallet error: {0}")]
+    WalletErr(String),
+}

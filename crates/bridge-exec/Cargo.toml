@@ -11,9 +11,14 @@ workspace = true
 btc-tracker.workspace = true
 operator-wallet.workspace = true
 secret-service-client.workspace = true
+secret-service-proto.workspace = true
 strata-bridge-p2p-service.workspace = true
+strata-bridge-primitives.workspace = true
 strata-bridge-sm.workspace = true
 
 bitcoin.workspace = true
 bitcoind-async-client.workspace = true
+musig2.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
