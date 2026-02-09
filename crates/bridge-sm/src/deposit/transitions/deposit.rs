@@ -123,7 +123,9 @@ impl DepositSM {
                             self.state = new_state;
 
                             // Create the duty to publish deposit nonce
-                            let duty = DepositDuty::PublishDepositNonce { deposit_outpoint };
+                            let duty = DepositDuty::PublishDepositNonce {
+                                drt_outpoint: deposit_outpoint,
+                            };
 
                             return Ok(DSMOutput::with_duties(vec![duty]));
                         }
@@ -196,7 +198,7 @@ impl DepositSM {
 
                     // Create the duty to publish deposit partials
                     let duty = DepositDuty::PublishDepositPartial {
-                        deposit_outpoint: self.context().deposit_outpoint(),
+                        drt_outpoint: self.context().deposit_outpoint(),
                         deposit_sighash,
                         deposit_agg_nonce: agg_nonce,
                     };
