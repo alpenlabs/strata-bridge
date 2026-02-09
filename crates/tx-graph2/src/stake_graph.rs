@@ -186,7 +186,7 @@ mod tests {
             game_timelock: GAME_TIMELOCK,
             stake_amount: Amount::from_int_btc(1),
         };
-        let wallet_descriptor = Descriptor::from(node.wallet_address().clone());
+        let wallet_descriptor = Descriptor::try_from(node.wallet_address().clone()).unwrap();
         let mut setup = SetupParams {
             network: Network::Regtest,
             magic_bytes: (*b"ALPN").into(),

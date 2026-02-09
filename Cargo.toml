@@ -101,30 +101,30 @@ strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-bridge-tx-graph2 = { path = "crates/tx-graph2" }
 
-# Dependencies from alpenlabs/alpen pinned to commit 21cf498 (main @ 2026-01-29)
-strata-asm-common = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-asm-txs-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-asm-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-asm-worker = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-config = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-db-store-sled = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-ol-chainstate-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-params = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
-strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "394cd77d2bd9afad817d18311f906001ceb4b386" }
+# Dependencies from alpenlabs/alpen pinned to commit 1d88d8 (main @ 2026-02-08)
+strata-asm-common = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-asm-txs-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-asm-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-asm-worker = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-config = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-db-store-sled = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-ol-chainstate-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-params = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
+strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
 
 # Dependencies from alpenlabs/strata-common
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc4" }
@@ -149,7 +149,7 @@ zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1
 alloy = { version = "1.4.3", features = ["full", "node-bindings"] }
 alloy-signer = "1.4.3"
 anyhow = "1.0.95"
-arbitrary = { version = "1.4.1", features = ["derive"] }
+arbitrary = { version = "1.4.2", features = ["derive"] }
 ark-bn254 = "0.5.0"
 ark-ec = "0.5.0"
 ark-ff = "0.5.0"
@@ -168,7 +168,7 @@ bincode = "1.3.3"
 blake3 = "1.6.1"
 # TODO(proofofkeags): when updating `bitcoin` to >=0.33.0, go through `btc-tracker` and `tx-driver` and update tests to no longer constrain heights.
 bitcoin = { version = "0.32.8", features = ["rand-std", "serde"] }
-bitcoin-bosd = "0.4.0"
+bitcoin-bosd = { version = "0.9.0", features = ["address"] }
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
 bitcoincore-rpc = "0.19.0"
 bitcoind-async-client = { version = "0.9.0", features = ["29_0"] }

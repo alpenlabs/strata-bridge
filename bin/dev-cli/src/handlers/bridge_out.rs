@@ -38,7 +38,7 @@ pub(crate) async fn handle_bridge_out(args: BridgeOutArgs) -> Result<()> {
         .context("decode address pubkey")?
         .try_into()
         .unwrap();
-    let bosd_data = Descriptor::new_p2tr_unchecked(&data).to_bytes();
+    let bosd_data = Descriptor::new_p2tr(&data).unwrap().to_bytes();
 
     let amount = U256::from(params.deposit_amount.to_sat() as u128 * SATS_TO_WEI);
     let rollup_address =

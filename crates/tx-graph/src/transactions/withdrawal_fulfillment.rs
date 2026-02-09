@@ -140,7 +140,7 @@ mod tests {
         let recipient_key = generate_xonly_pubkey();
         let recipient_addr =
             Address::p2tr_tweaked(recipient_key.dangerous_assume_tweaked(), network);
-        let recipient_desc = recipient_addr.into();
+        let recipient_desc = recipient_addr.try_into().unwrap();
 
         // Use a random change address
         let change_keypair = Keypair::new(SECP256K1, &mut rand::thread_rng());
