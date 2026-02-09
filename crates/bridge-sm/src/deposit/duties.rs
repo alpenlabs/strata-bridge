@@ -1,21 +1,30 @@
 //! The duties that need to be performed in the Deposit State Machine in response to the state
 //! transitions.
 
-use bitcoin::{OutPoint, Transaction};
+use bitcoin::{OutPoint, Transaction, secp256k1::XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
 use musig2::{
     AggNonce,
     secp256k1::{Message, schnorr::Signature},
 };
-use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    scripts::taproot::TaprootTweak,
+    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
+};
 
 /// The duties that need to be performed to drive the Deposit State Machine forward.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositDuty {
     /// Publish this operator's nonce for spending the DRT
     PublishDepositNonce {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
         /// DRT outpoint to ID the signing session
         drt_outpoint: OutPoint,
+        /// Ordered public keys of all operators for MuSig2 signing
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
+        /// The taproot tweak for the DRT output (merkle root of take-back script)
+        drt_tweak: TaprootTweak,
     },
     /// Publish this operator's partial signature for spending the DRT
     PublishDepositPartial {
@@ -77,8 +86,15 @@ pub enum DepositDuty {
 impl std::fmt::Display for DepositDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display_str = match self {
-            DepositDuty::PublishDepositNonce { drt_outpoint } => {
-                format!("PublishDepositNonce (outpoint: {})", drt_outpoint)
+            DepositDuty::PublishDepositNonce {
+                deposit_idx,
+                drt_outpoint,
+                ..
+            } => {
+                format!(
+                    "PublishDepositNonce (deposit_idx: {}, outpoint: {})",
+                    deposit_idx, drt_outpoint
+                )
             }
             DepositDuty::PublishDepositPartial { drt_outpoint, .. } => {
                 format!("PublishDepositPartial (outpoint: {})", drt_outpoint)
