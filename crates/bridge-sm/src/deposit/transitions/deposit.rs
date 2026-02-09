@@ -188,12 +188,12 @@ impl DepositSM {
                     // All nonces collected, compute the aggregated nonce
                     let agg_nonce = AggNonce::sum(pubnonces.values().cloned());
 
-                    // Derive the sighash message for the deposit transaction
-                    let deposit_sighash = deposit_transaction
+                    // Get signing info containing sighash and tweak for the deposit transaction
+                    let signing_info = deposit_transaction
                         .signing_info()
                         .first()
-                        .expect("deposit transaction must have signing info")
-                        .sighash;
+                        .copied()
+                        .expect("deposit transaction must have signing info");
 
                     // Transition to DepositNoncesCollected state
                     let new_state = DepositState::DepositNoncesCollected {
@@ -205,11 +205,22 @@ impl DepositSM {
                     };
                     self.state = new_state;
 
+                    // Get ordered pubkeys for MuSig2 signing
+                    let ordered_pubkeys = self
+                        .context()
+                        .operator_table()
+                        .btc_keys()
+                        .into_iter()
+                        .map(|pk| pk.x_only_public_key().0)
+                        .collect();
+
                     // Create the duty to publish deposit partials
                     let duty = DepositDuty::PublishDepositPartial {
+                        deposit_idx: self.context().deposit_idx,
                         drt_outpoint: self.context().deposit_outpoint(),
-                        deposit_sighash,
+                        signing_info,
                         deposit_agg_nonce: agg_nonce,
+                        ordered_pubkeys,
                     };
 
                     Ok(DSMOutput::with_duties(vec![duty]))

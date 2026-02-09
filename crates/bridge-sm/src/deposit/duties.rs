@@ -3,10 +3,8 @@
 
 use bitcoin::{OutPoint, Transaction, secp256k1::XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
-use musig2::{
-    AggNonce,
-    secp256k1::{Message, schnorr::Signature},
-};
+use musig2::{AggNonce, secp256k1::schnorr::Signature};
+use strata_bridge_connectors2::SigningInfo;
 use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
@@ -28,12 +26,16 @@ pub enum DepositDuty {
     },
     /// Publish this operator's partial signature for spending the DRT
     PublishDepositPartial {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
         /// DRT outpoint to resume the earlier signing session
         drt_outpoint: OutPoint,
-        /// sighash to be signed for the deposit transaction
-        deposit_sighash: Message,
+        /// Signing info containing sighash and tweak for the DRT input
+        signing_info: SigningInfo,
         /// aggregated nonce from all operators for this signing session
         deposit_agg_nonce: AggNonce,
+        /// Ordered public keys of all operators for MuSig2 signing
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
     /// Publish the deposit transaction to the Bitcoin network
     PublishDeposit {
