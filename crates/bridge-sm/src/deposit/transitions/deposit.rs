@@ -103,6 +103,13 @@ impl DepositSM {
                         linked_graphs.insert(operator_idx);
 
                         if linked_graphs.len() == operator_table_cardinality {
+                            // Get the tweak from signing_info
+                            let drt_tweak = deposit_transaction
+                                .signing_info()
+                                .first()
+                                .expect("deposit transaction must have signing info")
+                                .tweak;
+
                             // All operators have linked their graphs, transition to GraphGenerated
                             // state
                             let new_state = DepositState::GraphGenerated {
@@ -112,9 +119,21 @@ impl DepositSM {
                             };
                             self.state = new_state;
 
+                            // Get ordered pubkeys for MuSig2 signing
+                            let ordered_pubkeys = self
+                                .context()
+                                .operator_table()
+                                .btc_keys()
+                                .into_iter()
+                                .map(|pk| pk.x_only_public_key().0)
+                                .collect();
+
                             // Create the duty to publish deposit nonce
                             let duty = DepositDuty::PublishDepositNonce {
+                                deposit_idx: self.context().deposit_idx,
                                 drt_outpoint: deposit_outpoint,
+                                ordered_pubkeys,
+                                drt_tweak,
                             };
 
                             return Ok(DSMOutput::with_duties(vec![duty]));

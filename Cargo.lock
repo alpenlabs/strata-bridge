@@ -2260,11 +2260,16 @@ dependencies = [
  "bitcoin",
  "bitcoind-async-client",
  "btc-tracker",
+ "musig2",
  "operator-wallet",
  "secret-service-client",
+ "secret-service-proto",
  "strata-bridge-p2p-service",
+ "strata-bridge-primitives",
  "strata-bridge-sm",
+ "thiserror 2.0.17",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
