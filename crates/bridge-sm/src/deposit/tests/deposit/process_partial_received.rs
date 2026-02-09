@@ -56,7 +56,7 @@ mod tests {
                 sighash,
             );
             seq.process(
-                &test_deposit_sm_cfg(),
+                test_deposit_sm_cfg(),
                 DepositEvent::PartialReceived(PartialReceivedEvent {
                     partial_sig,
                     operator_idx: signer.operator_idx(),
@@ -127,7 +127,7 @@ mod tests {
                 sighash,
             );
             seq.process(
-                &test_deposit_sm_cfg(),
+                test_deposit_sm_cfg(),
                 DepositEvent::PartialReceived(PartialReceivedEvent {
                     partial_sig,
                     operator_idx: signer.operator_idx(),
@@ -205,7 +205,7 @@ mod tests {
                 partial_sig,
                 operator_idx: signer.operator_idx(),
             });
-            seq.process(&test_deposit_sm_cfg(), event.clone());
+            seq.process(test_deposit_sm_cfg(), event.clone());
 
             // Process the same event again to simulate duplicate
             test_deposit_invalid_transition(DepositInvalidTransition {

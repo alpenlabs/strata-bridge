@@ -33,7 +33,7 @@ mod tests {
             FULFILLMENT_HEIGHT + test_deposit_sm_cfg().cooperative_payout_timeout_blocks();
         for height in (FULFILLMENT_HEIGHT + 1)..=timeout_height {
             seq.process(
-                &test_deposit_sm_cfg(),
+                test_deposit_sm_cfg(),
                 DepositEvent::NewBlock(NewBlockEvent {
                     block_height: height,
                 }),

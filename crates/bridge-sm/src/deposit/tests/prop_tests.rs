@@ -13,10 +13,9 @@ mod tests {
         DepositSM,
         create_sm,
         get_state,
-        &test_deposit_sm_cfg(),
+        test_deposit_sm_cfg(),
         any::<DepositState>(),
-        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
-                              * STFs are implemented */
+        any::<DepositEvent>()
     );
 
     // Property: No silent acceptance
@@ -24,7 +23,7 @@ mod tests {
         DepositSM,
         create_sm,
         get_state,
-        &test_deposit_sm_cfg(),
+        test_deposit_sm_cfg(),
         any::<DepositState>(),
         arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
                               * STFs are implemented */
@@ -34,7 +33,7 @@ mod tests {
     prop_terminal_states_reject!(
         DepositSM,
         create_sm,
-        &test_deposit_sm_cfg(),
+        test_deposit_sm_cfg(),
         arb_terminal_state(),
         arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
                               * STFs are implemented */

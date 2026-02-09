@@ -231,10 +231,10 @@ mod tests {
             operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
         });
 
-        sequence.process(&test_deposit_sm_cfg(), nonce_event.clone());
+        sequence.process(test_deposit_sm_cfg(), nonce_event.clone());
         sequence.assert_no_errors();
         // Second submission with same nonce - should fail with Duplicate
-        sequence.process(&test_deposit_sm_cfg(), nonce_event);
+        sequence.process(test_deposit_sm_cfg(), nonce_event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -278,10 +278,10 @@ mod tests {
             operator_idx: TEST_POV_IDX,
         });
 
-        sequence.process(&test_deposit_sm_cfg(), first_event);
+        sequence.process(test_deposit_sm_cfg(), first_event);
         sequence.assert_no_errors();
         // Second submission with different nonce but same operator - should fail with Duplicate
-        sequence.process(&test_deposit_sm_cfg(), duplicate_event);
+        sequence.process(test_deposit_sm_cfg(), duplicate_event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -319,7 +319,7 @@ mod tests {
             payout_nonce: nonce,
             operator_idx: u32::MAX,
         });
-        seq.process(&test_deposit_sm_cfg(), event.clone());
+        seq.process(test_deposit_sm_cfg(), event.clone());
 
         // Verify rejection with test_invalid_transition
         test_deposit_invalid_transition(DepositInvalidTransition {

@@ -43,7 +43,7 @@ pub struct Transition<S, E, D, Sig> {
 pub fn test_transition<SM, S, E, D, Sig, Err, CreateFn, GetStateFn>(
     create_sm: CreateFn,
     get_state: GetStateFn,
-    config: &SM::Config,
+    config: SM::Config,
     transition: Transition<S, E, D, Sig>,
 ) where
     SM: StateMachine<Event = E, Duty = D, OutgoingSignal = Sig, Error = Err>,
@@ -94,7 +94,7 @@ pub struct InvalidTransition<S, E, Err> {
 /// Test that an invalid transition produces the expected error.
 pub fn test_invalid_transition<SM, S, E, D, Sig, Err, CreateFn>(
     create_sm: CreateFn,
-    config: &SM::Config,
+    config: SM::Config,
     invalid: InvalidTransition<S, E, Err>,
 ) where
     SM: StateMachine<Event = E, Duty = D, OutgoingSignal = Sig, Error = Err>,
@@ -152,7 +152,7 @@ where
     }
 
     /// Process an event and record the result.
-    pub fn process(&mut self, config: &SM::Config, event: SM::Event) -> &mut Self {
+    pub fn process(&mut self, config: SM::Config, event: SM::Event) -> &mut Self {
         let event_idx = self.outputs.len() + self.errors.len();
         match self.sm.process_event(config, event) {
             Ok(output) => self.outputs.push(output),

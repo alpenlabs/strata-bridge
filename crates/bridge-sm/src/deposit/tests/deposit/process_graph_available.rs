@@ -34,7 +34,7 @@ mod tests {
 
         for operator_idx in 0..operator_count {
             seq.process(
-                &test_deposit_sm_cfg(),
+                test_deposit_sm_cfg(),
                 DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx }),
             );
         }
@@ -72,7 +72,7 @@ mod tests {
         // Process GraphAvailable messages, all operators except the last one
         for operator_idx in 0..(operator_count - 1) {
             let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx });
-            seq.process(&test_deposit_sm_cfg(), event.clone());
+            seq.process(test_deposit_sm_cfg(), event.clone());
 
             // Process the same event again to simulate duplicate
             test_deposit_invalid_transition(DepositInvalidTransition {
@@ -141,7 +141,7 @@ mod tests {
         let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
             operator_idx: u32::MAX,
         });
-        seq.process(&test_deposit_sm_cfg(), event.clone());
+        seq.process(test_deposit_sm_cfg(), event.clone());
 
         // Process the same event again to simulate duplicate
         test_deposit_invalid_transition(DepositInvalidTransition {

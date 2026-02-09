@@ -47,7 +47,7 @@ mod tests {
 
         for (operator_idx, nonce) in &pubnonces {
             seq.process(
-                &test_deposit_sm_cfg(),
+                test_deposit_sm_cfg(),
                 DepositEvent::NonceReceived(NonceReceivedEvent {
                     nonce: nonce.clone(),
                     operator_idx: *operator_idx,
@@ -102,7 +102,7 @@ mod tests {
                 nonce,
                 operator_idx: signer.operator_idx(),
             });
-            seq.process(&test_deposit_sm_cfg(), event.clone());
+            seq.process(test_deposit_sm_cfg(), event.clone());
 
             // Process the same event again to simulate duplicate
             test_deposit_invalid_transition(DepositInvalidTransition {

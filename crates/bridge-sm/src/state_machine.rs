@@ -87,6 +87,7 @@ where
 /// ```ignore
 /// impl StateMachine for DepositSM {
 ///     type Duty = DepositDuty;
+///     type Config = Arc<DepositSMCfg>;
 ///     type OutgoingSignal = DepositSignal;  // Can only emit DepositSignal variants
 ///     type Event = DepositEvent;
 ///     type Error = DSMError;
@@ -124,7 +125,7 @@ pub trait StateMachine {
     /// to other state machines.
     fn process_event(
         &mut self,
-        cfg: &Self::Config,
+        cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error>;
 }

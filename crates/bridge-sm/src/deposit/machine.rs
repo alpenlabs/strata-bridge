@@ -3,6 +3,8 @@
 //! Responsible for driving deposit progress by reacting to events and
 //! producing the required duties and signals.
 
+use std::sync::Arc;
+
 use bitcoin::{XOnlyPublicKey, relative::LockTime};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph2::transactions::prelude::DepositData;
@@ -31,7 +33,7 @@ pub struct DepositSM {
 }
 
 impl StateMachine for DepositSM {
-    type Config = DepositSMCfg;
+    type Config = Arc<DepositSMCfg>;
     type Duty = DepositDuty;
     type OutgoingSignal = DepositSignal;
     type Event = DepositEvent;
@@ -39,7 +41,7 @@ impl StateMachine for DepositSM {
 
     fn process_event(
         &mut self,
-        cfg: &DepositSMCfg,
+        cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
