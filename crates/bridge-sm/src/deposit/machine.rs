@@ -58,13 +58,13 @@ impl StateMachine for DepositSM {
                 self.process_fulfillment(cfg, fulfillment)
             }
             DepositEvent::PayoutDescriptorReceived(descriptor) => {
-                self.process_payout_descriptor_received(descriptor)
+                self.process_payout_descriptor_received(cfg, descriptor)
             }
             DepositEvent::PayoutNonceReceived(payout_nonce) => {
                 self.process_payout_nonce_received(payout_nonce)
             }
             DepositEvent::PayoutPartialReceived(payout_partial) => {
-                self.process_payout_partial_received(cfg, payout_partial)
+                self.process_payout_partial_received(payout_partial)
             }
             DepositEvent::PayoutConfirmed(payout_confirmed) => {
                 self.process_payout_confirmed(&payout_confirmed)

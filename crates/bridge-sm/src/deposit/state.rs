@@ -15,7 +15,10 @@ use musig2::{AggNonce, PartialSignature, PubNonce};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph2::transactions::{deposit::DepositTx, prelude::DepositData};
+use strata_bridge_tx_graph2::transactions::{
+    deposit::DepositTx,
+    prelude::{CooperativePayoutTx, DepositData},
+};
 
 /// The state of a Deposit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,9 +120,8 @@ pub enum DepositState {
         assignee: OperatorIdx,
         /// The block height by which the cooperative payout must be completed.
         cooperative_payment_deadline: BitcoinBlockHeight,
-        /// The operator's descriptor to send the funds via the cooperative path.
-        /// This can only be set once and needs to be provided by the assigned operator.
-        operator_desc: Descriptor,
+        /// The cooperative payout transaction.
+        cooperative_payout_tx: CooperativePayoutTx,
         /// The pubnonces, indexed by operator, required to sign the cooperative payout
         /// transaction.
         payout_nonces: BTreeMap<OperatorIdx, PubNonce>,
@@ -131,8 +133,8 @@ pub enum DepositState {
         last_block_height: u64,
         /// The index of the operator assigned to fulfill the withdrawal request.
         assignee: OperatorIdx,
-        /// The operator's descriptor where they want the funds in the cooperative path.
-        operator_desc: Descriptor,
+        /// The cooperative payout transaction.
+        cooperative_payout_tx: CooperativePayoutTx,
         /// The block height by which the cooperative payout must be completed.
         cooperative_payment_deadline: BitcoinBlockHeight,
         /// The pubnonces, indexed by operator, required to sign the cooperative payout

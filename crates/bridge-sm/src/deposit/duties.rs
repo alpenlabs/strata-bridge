@@ -69,12 +69,16 @@ pub enum DepositDuty {
     },
     /// Publish the partial signature for spending the deposit UTXO cooperatively.
     PublishPayoutPartial {
-        /// Outpoint referencing the deposit UTXO.
-        deposit_outpoint: OutPoint,
         /// The index of the deposit.
         deposit_idx: DepositIdx,
+        /// Outpoint referencing the deposit UTXO.
+        deposit_outpoint: OutPoint,
+        /// Sighash to be signed for the payout transaction.
+        payout_sighash: Message,
         /// Aggregated nonce for the payout transaction signing.
         agg_nonce: AggNonce,
+        /// Ordered public keys of all operators for MuSig2 signing.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
     /// Publish the cooperative payout transaction to the Bitcoin network.
     /// This duty is also responsible for generating the partial signature by the assignee on the

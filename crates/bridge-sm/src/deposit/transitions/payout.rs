@@ -3,10 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use bitcoin::Txid;
 use musig2::{AggNonce, verify_partial};
 use strata_bridge_connectors2::n_of_n::NOfNConnector;
-use strata_bridge_primitives::{
-    key_agg::create_agg_ctx,
-    scripts::{prelude::get_aggregated_pubkey, taproot::TaprootTweak},
-};
+use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootTweak};
 use strata_bridge_tx_graph2::transactions::prelude::{CooperativePayoutData, CooperativePayoutTx};
 
 use crate::{
@@ -128,23 +125,37 @@ impl DepositSM {
     /// [`DepositDuty::PublishPayoutNonce`] duty.
     pub(crate) fn process_payout_descriptor_received(
         &mut self,
+        cfg: Arc<DepositSMCfg>,
         descriptor: PayoutDescriptorReceivedEvent,
     ) -> DSMResult<DSMOutput> {
+        // Extract values before the match to avoid borrow conflicts
+        let n_of_n_pubkey = self.context.operator_table().aggregated_btc_key().into();
+        let deposit_outpoint = self.context.deposit_outpoint();
+        let deposit_idx = self.context.deposit_idx();
+
         match self.state() {
             DepositState::Fulfilled {
                 last_block_height,
                 assignee,
-                cooperative_payout_deadline: cooperative_payment_deadline,
+                cooperative_payout_deadline,
                 ..
             } => {
-                let assignee = *assignee;
+                // Build the cooperative payout transaction
+                let deposit_connector =
+                    NOfNConnector::new(cfg.network(), n_of_n_pubkey, cfg.deposit_amount());
+                let coop_payout_data = CooperativePayoutData { deposit_outpoint };
+                let cooperative_payout_tx = CooperativePayoutTx::new(
+                    coop_payout_data,
+                    deposit_connector,
+                    descriptor.operator_desc,
+                );
 
                 // Transition to the PayoutDescriptorReceived state
                 self.state = DepositState::PayoutDescriptorReceived {
                     last_block_height: *last_block_height,
-                    assignee,
-                    cooperative_payment_deadline: *cooperative_payment_deadline,
-                    operator_desc: descriptor.operator_desc.clone(),
+                    assignee: *assignee,
+                    cooperative_payment_deadline: *cooperative_payout_deadline,
+                    cooperative_payout_tx,
                     payout_nonces: BTreeMap::new(),
                 };
                 // Get ordered pubkeys for MuSig2 signing
@@ -159,8 +170,8 @@ impl DepositSM {
                 // Dispatch the duty to publish the payout nonce
                 Ok(DSMOutput::with_duties(vec![
                     DepositDuty::PublishPayoutNonce {
-                        deposit_idx: self.context.deposit_idx(),
-                        deposit_outpoint: self.context.deposit_outpoint(),
+                        deposit_idx,
+                        deposit_outpoint,
                         ordered_pubkeys,
                     },
                 ]))
@@ -194,7 +205,7 @@ impl DepositSM {
                 last_block_height,
                 assignee,
                 cooperative_payment_deadline,
-                operator_desc,
+                cooperative_payout_tx,
                 payout_nonces,
             } => {
                 let assignee = *assignee;
@@ -217,11 +228,18 @@ impl DepositSM {
                     // Compute the aggregated nonce from the collected nonces.
                     let agg_nonce = AggNonce::sum(payout_nonces.values());
 
+                    // Derive the sighash of the cooperative payout transaction.
+                    let payout_sighash = cooperative_payout_tx
+                        .signing_info()
+                        .first()
+                        .expect("cooperative payout transaction must have signing info")
+                        .sighash;
+
                     // Transition to the PayoutNoncesCollected State.
                     self.state = DepositState::PayoutNoncesCollected {
                         last_block_height: *last_block_height,
                         assignee,
-                        operator_desc: operator_desc.clone(),
+                        cooperative_payout_tx: cooperative_payout_tx.clone(),
                         cooperative_payment_deadline: *cooperative_payment_deadline,
                         payout_nonces: payout_nonces.clone(),
                         payout_aggregated_nonce: agg_nonce.clone(),
@@ -238,11 +256,22 @@ impl DepositSM {
                     // and can be slashed after the timelock expires. By withholding their
                     // partial, only the assignee can finalize and broadcast
                     if pov_operator_idx != assignee {
+                        // Get ordered pubkeys for MuSig2 signing
+                        let ordered_pubkeys = self
+                            .context
+                            .operator_table()
+                            .btc_keys()
+                            .into_iter()
+                            .map(|pk| pk.x_only_public_key().0)
+                            .collect();
+
                         Ok(DSMOutput::with_duties(vec![
                             DepositDuty::PublishPayoutPartial {
-                                deposit_outpoint: self.context.deposit_outpoint(),
                                 deposit_idx: self.context.deposit_idx(),
+                                deposit_outpoint: self.context.deposit_outpoint(),
+                                payout_sighash,
                                 agg_nonce,
+                                ordered_pubkeys,
                             },
                         ]))
                     } else {
@@ -271,21 +300,14 @@ impl DepositSM {
     /// operator is the assignee.
     pub(crate) fn process_payout_partial_received(
         &mut self,
-        cfg: Arc<DepositSMCfg>,
         payout_partial: PayoutPartialReceivedEvent,
     ) -> DSMResult<DSMOutput> {
         // Validate operator_idx is in the operator table
         self.check_operator_idx(payout_partial.operator_idx, &payout_partial)?;
 
-        // Extract from self.cfg before the match to avoid borrow conflicts
+        // Extract context values before the match to avoid borrow conflicts
         let operator_table_cardinality = self.context.operator_table().cardinality();
         let pov_operator_idx = self.context.operator_table().pov_idx();
-        let n_of_n_pubkey = get_aggregated_pubkey(self.context.operator_table().btc_keys());
-        let deposit_connector =
-            NOfNConnector::new(cfg.network(), n_of_n_pubkey, cfg.deposit_amount());
-        let coop_payout_data = CooperativePayoutData {
-            deposit_outpoint: self.context.deposit_outpoint(),
-        };
         // Generate the key_agg_ctx using the operator table.
         // NOfNConnector uses key-path spend with no script tree, so we use
         // TaprootTweak::Key which applies with_unspendable_taproot_tweak()
@@ -303,7 +325,7 @@ impl DepositSM {
         match self.state_mut() {
             DepositState::PayoutNoncesCollected {
                 assignee,
-                operator_desc,
+                cooperative_payout_tx,
                 payout_nonces,
                 payout_aggregated_nonce,
                 payout_partial_signatures,
@@ -320,16 +342,12 @@ impl DepositSM {
                     ));
                 }
 
-                // Construct the cooperative payout transaction.
-                let coop_payout_tx = CooperativePayoutTx::new(
-                    coop_payout_data,
-                    deposit_connector,
-                    operator_desc.clone(),
-                );
-
-                // Get the sighash for signature verification
-                let signing_info = coop_payout_tx.signing_info();
-                let message = signing_info[0].sighash;
+                // Get the sighash from the stored cooperative payout transaction
+                let message = cooperative_payout_tx
+                    .signing_info()
+                    .first()
+                    .expect("cooperative payout transaction must have signing info")
+                    .sighash;
 
                 // Get the operator's pubnonce for verification.
                 let operator_pubnonce = payout_nonces
@@ -370,7 +388,7 @@ impl DepositSM {
                     // Dispatch the duty to publish payout tx if the pov operator is the assignee.
                     if pov_operator_idx == assignee {
                         Ok(DSMOutput::with_duties(vec![DepositDuty::PublishPayout {
-                            payout_tx: coop_payout_tx.as_ref().clone(),
+                            payout_tx: cooperative_payout_tx.as_ref().clone(),
                         }]))
                     } else {
                         Ok(DSMOutput::new())

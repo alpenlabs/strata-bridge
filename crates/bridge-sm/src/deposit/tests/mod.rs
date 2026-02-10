@@ -359,11 +359,12 @@ impl Arbitrary for DepositState {
                 }
             }),
             block_height.clone().prop_map(|height| {
+                let operator_desc = random_p2tr_desc();
                 DepositState::PayoutDescriptorReceived {
                     last_block_height: height,
                     assignee: TEST_ASSIGNEE,
                     cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
-                    operator_desc: random_p2tr_desc(),
+                    cooperative_payout_tx: test_payout_txn(operator_desc),
                     payout_nonces: BTreeMap::new(),
                 }
             }),
@@ -373,10 +374,11 @@ impl Arbitrary for DepositState {
                     .map(|idx| (idx, generate_pubnonce()))
                     .collect();
                 let agg_nonce = musig2::AggNonce::sum(nonces.values().cloned());
+                let operator_desc = random_p2tr_desc();
                 DepositState::PayoutNoncesCollected {
                     last_block_height: height,
                     assignee: TEST_ASSIGNEE,
-                    operator_desc: random_p2tr_desc(),
+                    cooperative_payout_tx: test_payout_txn(operator_desc),
                     cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
                     payout_nonces: nonces,
                     payout_aggregated_nonce: agg_nonce,
