@@ -2258,6 +2258,7 @@ name = "bridge-exec"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "bitcoin-bosd",
  "bitcoind-async-client",
  "btc-tracker",
  "musig2",
@@ -2266,6 +2267,7 @@ dependencies = [
  "secret-service-proto",
  "strata-bridge-connectors2",
  "strata-bridge-p2p-service",
+ "strata-bridge-p2p-types2",
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "terrors",

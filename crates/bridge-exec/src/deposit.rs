@@ -3,11 +3,16 @@
 use std::sync::Arc;
 
 use bitcoin::{OutPoint, Transaction, secp256k1::XOnlyPublicKey};
+use bitcoin_bosd::Descriptor;
 use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce};
-use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SecretService};
+use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors2::SigningInfo;
-use strata_bridge_primitives::{scripts::taproot::TaprootTweak, types::DepositIdx};
+use strata_bridge_p2p_types2::PayoutDescriptor;
+use strata_bridge_primitives::{
+    scripts::taproot::TaprootTweak,
+    types::{DepositIdx, OperatorIdx},
+};
 use strata_bridge_sm::deposit::duties::DepositDuty;
 use tracing::info;
 
@@ -56,7 +61,10 @@ pub async fn execute_deposit_duty(
             signed_deposit_transaction,
         } => publish_deposit(&output_handles, signed_deposit_transaction.clone()).await,
         DepositDuty::FulfillWithdrawal { .. } => fulfill_withdrawal().await,
-        DepositDuty::RequestPayoutNonces { .. } => request_payout_nonces().await,
+        DepositDuty::RequestPayoutNonces {
+            deposit_idx,
+            pov_operator_idx,
+        } => request_payout_nonces(&output_handles, *deposit_idx, *pov_operator_idx).await,
         DepositDuty::PublishPayoutNonce { .. } => publish_payout_nonce().await,
         DepositDuty::PublishPayoutPartial { .. } => publish_payout_partial().await,
         DepositDuty::PublishPayout { .. } => publish_payout().await,
@@ -167,8 +175,43 @@ async fn fulfill_withdrawal() -> Result<(), ExecutorError> {
     todo!("@mukeshdroid")
 }
 
-async fn request_payout_nonces() -> Result<(), ExecutorError> {
-    todo!("@mukeshdroid")
+/// Initiates the cooperative payout flow by publishing the assignee's payout descriptor.
+///
+/// Only the assignee executes this duty. The descriptor tells other operators
+/// where the assignee wants to receive their payout funds.
+async fn request_payout_nonces(
+    output_handles: &OutputHandles,
+    deposit_idx: DepositIdx,
+    operator_idx: OperatorIdx,
+) -> Result<(), ExecutorError> {
+    info!(%deposit_idx, "executing request_payout_nonces duty");
+
+    // TODO (mukeshdroid): Ideally, the s2 client could provide the descriptor directly instead of
+    // simply returning the public key.
+    // Get the general wallet public key for the payout descriptor
+    let pubkey = output_handles
+        .s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await?;
+
+    // Create a P2TR descriptor for the payout address.
+    let descriptor = Descriptor::new_p2tr(&pubkey.serialize())
+        .map_err(|e| ExecutorError::WalletErr(format!("failed to create descriptor: {e}")))?;
+
+    // Convert to PayoutDescriptor for P2P transmission
+    let payout_descriptor: PayoutDescriptor = descriptor.into();
+
+    // Broadcast to all operators
+    output_handles
+        .msg_handler2
+        .write()
+        .await
+        .send_payout_descriptor(deposit_idx, operator_idx, payout_descriptor.clone(), None)
+        .await;
+
+    info!(%deposit_idx, %operator_idx, ?payout_descriptor, "published payout descriptor");
+    Ok(())
 }
 
 async fn publish_payout_nonce() -> Result<(), ExecutorError> {

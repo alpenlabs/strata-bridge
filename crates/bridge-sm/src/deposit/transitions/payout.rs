@@ -101,10 +101,12 @@ impl DepositSM {
                 };
                 // Dispatch the duty to request the payout nonces if the assignee is the pov
                 // operator, otherwise no duties or signals need to be dispatched.
-                if self.context.operator_table().pov_idx() == assignee {
+                let pov_operator_idx = self.context.operator_table().pov_idx();
+                if pov_operator_idx == assignee {
                     Ok(DSMOutput::with_duties(vec![
                         DepositDuty::RequestPayoutNonces {
                             deposit_idx: self.context.deposit_idx(),
+                            pov_operator_idx,
                         },
                     ]))
                 } else {
