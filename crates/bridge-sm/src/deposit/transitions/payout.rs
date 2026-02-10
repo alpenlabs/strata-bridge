@@ -147,12 +147,21 @@ impl DepositSM {
                     operator_desc: descriptor.operator_desc.clone(),
                     payout_nonces: BTreeMap::new(),
                 };
+                // Get ordered pubkeys for MuSig2 signing
+                let ordered_pubkeys = self
+                    .context
+                    .operator_table()
+                    .btc_keys()
+                    .into_iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect();
+
                 // Dispatch the duty to publish the payout nonce
                 Ok(DSMOutput::with_duties(vec![
                     DepositDuty::PublishPayoutNonce {
+                        deposit_idx: self.context.deposit_idx(),
                         deposit_outpoint: self.context.deposit_outpoint(),
-                        operator_idx: assignee,
-                        operator_desc: descriptor.operator_desc,
+                        ordered_pubkeys,
                     },
                 ]))
             }
