@@ -1,6 +1,6 @@
 //! The States for the Graph State Machine.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 
 use bitcoin::{Txid, taproot::Signature};
 use musig2::{AggNonce, PubNonce};
@@ -264,5 +264,29 @@ impl GraphState {
         Self::Created {
             last_block_height: block_height,
         }
+    }
+}
+
+impl Display for GraphState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let display_str = match self {
+            GraphState::Created { .. } => "Created",
+            GraphState::GraphGenerated { .. } => "GraphGenerated",
+            GraphState::AdaptorsVerified { .. } => "AdaptorsVerified",
+            GraphState::NoncesCollected { .. } => "NoncesCollected",
+            GraphState::GraphSigned { .. } => "GraphSigned",
+            GraphState::Assigned { .. } => "Assigned",
+            GraphState::Fulfilled { .. } => "Fulfilled",
+            GraphState::Claimed { .. } => "Claimed",
+            GraphState::Contested { .. } => "Contested",
+            GraphState::BridgeProofPosted { .. } => "BridgeProofPosted",
+            GraphState::BridgeProofTimedout { .. } => "BridgeProofTimedout",
+            GraphState::CounterProofPosted { .. } => "CounterProofPosted",
+            GraphState::AllNackd { .. } => "AllNackd",
+            GraphState::Acked { .. } => "Acked",
+            GraphState::Withdrawn { .. } => "Withdrawn",
+            GraphState::Slashed => "Slashed",
+        };
+        write!(f, "{}", display_str)
     }
 }
