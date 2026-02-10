@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use bitcoin::Transaction;
+use bitcoin::OutPoint;
 use musig2::{AggNonce, aggregate_partial_signatures, secp256k1::schnorr, verify_partial};
 use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::prelude::TaprootWitness};
 use strata_bridge_tx_graph2::transactions::PresignedTx;
@@ -33,7 +33,7 @@ impl DepositSM {
             return Err(DSMError::duplicate(self.state().clone(), takeback.into()));
         }
 
-        let Some(deposit_tx) = self.deposit_transaction() else {
+        let Some(deposit_request_outpoint) = self.deposit_request_outpoint() else {
             return Err(DSMError::invalid_event(
                 self.state().clone(),
                 takeback.into(),
@@ -41,19 +41,13 @@ impl DepositSM {
             ));
         };
 
-        let deposit_request_outpoint = deposit_tx
-            .input
-            .first()
-            .expect("Deposit request transaction must have at least one input")
-            .previous_output;
-
         let spends_deposit_request = takeback
             .tx
             .input
             .iter()
             .any(|input| input.previous_output == deposit_request_outpoint);
 
-        let is_different_tx = takeback.tx.compute_txid() != deposit_tx.compute_txid();
+        let is_different_tx = takeback.tx.compute_txid() != self.context().deposit_outpoint().txid;
 
         if spends_deposit_request && is_different_tx {
             self.state = DepositState::Aborted;
@@ -418,11 +412,10 @@ impl DepositSM {
         }
     }
 
-    /// Helper function to extract the deposit transaction from the state machine's current
-    /// state.
+    /// Returns the `OutPoint` of the DRT from the current state
     ///
-    /// Returns `None` if deposit transaction has been confirmed on-chain
-    pub(crate) fn deposit_transaction(&self) -> Option<&Transaction> {
+    /// Returns `None` if the deposit UTXO has been confirmed spent on-chain.
+    pub(crate) fn deposit_request_outpoint(&self) -> Option<OutPoint> {
         match self.state() {
             DepositState::Created {
                 deposit_transaction,
@@ -435,11 +428,24 @@ impl DepositSM {
             | DepositState::DepositNoncesCollected {
                 deposit_transaction,
                 ..
-            } => Some(deposit_transaction.as_ref()),
+            } => Some(
+                deposit_transaction
+                    .as_ref()
+                    .input
+                    .first()
+                    .expect("Deposit transaction must have at least one input point")
+                    .previous_output,
+            ),
             DepositState::DepositPartialsCollected {
                 deposit_transaction,
                 ..
-            } => Some(deposit_transaction),
+            } => Some(
+                deposit_transaction
+                    .input
+                    .first()
+                    .expect("Deposit transaction must have at least one input point")
+                    .previous_output,
+            ),
             _ => None,
         }
     }

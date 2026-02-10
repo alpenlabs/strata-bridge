@@ -103,8 +103,8 @@ mod tests {
 
         sequence.process(test_deposit_sm_cfg(), wrong_tx_event);
 
-        // Run STF with a takeback transaction that is identical to the deposit request (should also
-        // be rejected)
+        // Run STF with a takeback transaction that is identical to the deposit request (should
+        // also be rejected)
         let duplicate_deposit_txn = test_deposit_txn().as_ref().clone();
         let wrong_spend_path_event = DepositEvent::UserTakeBack(UserTakeBackEvent {
             tx: duplicate_deposit_txn,

@@ -77,15 +77,12 @@ pub enum DepositDuty {
 impl std::fmt::Display for DepositDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display_str = match self {
-            DepositDuty::PublishDepositNonce {
-                drt_outpoint: deposit_outpoint,
-            } => {
-                format!("PublishDepositNonce (outpoint: {})", deposit_outpoint)
+            DepositDuty::PublishDepositNonce { drt_outpoint } => {
+                format!("PublishDepositNonce (outpoint: {})", drt_outpoint)
             }
-            DepositDuty::PublishDepositPartial {
-                drt_outpoint: deposit_outpoint,
-                ..
-            } => format!("PublishDepositPartial (outpoint: {})", deposit_outpoint),
+            DepositDuty::PublishDepositPartial { drt_outpoint, .. } => {
+                format!("PublishDepositPartial (outpoint: {})", drt_outpoint)
+            }
             DepositDuty::PublishDeposit {
                 deposit_transaction,
                 ..

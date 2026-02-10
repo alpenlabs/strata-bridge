@@ -21,7 +21,7 @@ impl DepositSMCtx {
         self.deposit_idx
     }
 
-    /// Returns the outpoint of the deposit request transaction.
+    /// Returns the outpoint of the deposit transaction.
     pub const fn deposit_outpoint(&self) -> OutPoint {
         self.deposit_outpoint
     }
