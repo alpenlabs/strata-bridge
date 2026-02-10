@@ -11,7 +11,7 @@ mod test_timeout_sequence;
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use bitcoin::{Amount, Network, OutPoint, Transaction, relative};
+use bitcoin::{Amount, Network, OutPoint, relative};
 use bitcoin_bosd::Descriptor;
 use musig2::KeyAggContext;
 use proptest::prelude::*;

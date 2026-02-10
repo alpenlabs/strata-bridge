@@ -2270,6 +2270,7 @@ dependencies = [
  "strata-bridge-p2p-types2",
  "strata-bridge-primitives",
  "strata-bridge-sm",
+ "strata-bridge-tx-graph2",
  "terrors",
  "thiserror 2.0.17",
  "tokio",

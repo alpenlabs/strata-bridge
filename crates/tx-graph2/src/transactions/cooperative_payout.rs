@@ -7,6 +7,7 @@ use bitcoin::{
     OutPoint, Psbt, Transaction, TxIn, TxOut,
 };
 use secp256k1::schnorr;
+use serde::{Deserialize, Serialize};
 use strata_bridge_connectors2::{
     prelude::{CpfpConnector, NOfNConnector, NOfNSpend},
     Connector, ParentTx, SigningInfo,
@@ -14,7 +15,7 @@ use strata_bridge_connectors2::{
 use strata_primitives::bitcoin_bosd::Descriptor;
 
 /// Data that is needed to construct a [`CooperativePayoutTx`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CooperativePayoutData {
     /// The outpoint of the deposit UTXO being spent.
     pub deposit_outpoint: OutPoint,
@@ -25,7 +26,7 @@ pub struct CooperativePayoutData {
 /// This transaction spends the deposit UTXO via N-of-N key-path spend
 /// and pays out to the assigned operator's descriptor. It includes a
 /// CPFP anchor output for fee bumping.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CooperativePayoutTx {
     /// The partially signed bitcoin transaction.
     psbt: Psbt,
