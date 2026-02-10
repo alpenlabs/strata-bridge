@@ -65,7 +65,19 @@ pub async fn execute_deposit_duty(
             deposit_idx,
             pov_operator_idx,
         } => request_payout_nonces(&output_handles, *deposit_idx, *pov_operator_idx).await,
-        DepositDuty::PublishPayoutNonce { .. } => publish_payout_nonce().await,
+        DepositDuty::PublishPayoutNonce {
+            deposit_idx,
+            deposit_outpoint,
+            ordered_pubkeys,
+        } => {
+            publish_payout_nonce(
+                &output_handles,
+                *deposit_idx,
+                *deposit_outpoint,
+                ordered_pubkeys,
+            )
+            .await
+        }
         DepositDuty::PublishPayoutPartial { .. } => publish_payout_partial().await,
         DepositDuty::PublishPayout { .. } => publish_payout().await,
     }
@@ -214,8 +226,40 @@ async fn request_payout_nonces(
     Ok(())
 }
 
-async fn publish_payout_nonce() -> Result<(), ExecutorError> {
-    todo!("@mukeshdroid")
+/// Publishes the operator's nonce for the cooperative payout signing session.
+async fn publish_payout_nonce(
+    output_handles: &OutputHandles,
+    deposit_idx: DepositIdx,
+    deposit_outpoint: OutPoint,
+    ordered_pubkeys: &[XOnlyPublicKey],
+) -> Result<(), ExecutorError> {
+    info!(%deposit_outpoint, "executing publish_payout_nonce duty");
+
+    // Create Musig2Params for key-path spend (n-of-n)
+    let params = Musig2Params {
+        ordered_pubkeys: ordered_pubkeys.to_vec(),
+        tweak: TaprootTweak::Key { tweak: None },
+        input: deposit_outpoint,
+    };
+
+    // Generate nonce via secret service
+    let nonce: PubNonce = output_handles
+        .s2_client
+        .musig2_signer()
+        .get_pub_nonce(params)
+        .await?
+        .map_err(|_| ExecutorError::OurPubKeyNotInParams)?;
+
+    // Broadcast via MessageHandler2
+    output_handles
+        .msg_handler2
+        .write()
+        .await
+        .send_payout_nonce(deposit_idx, nonce, None)
+        .await;
+
+    info!(%deposit_outpoint, %deposit_idx, "published payout nonce");
+    Ok(())
 }
 
 async fn publish_payout_partial() -> Result<(), ExecutorError> {
