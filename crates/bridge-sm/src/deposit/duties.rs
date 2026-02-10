@@ -60,12 +60,12 @@ pub enum DepositDuty {
     },
     /// Publish the nonce for spending the deposit UTXO cooperatively.
     PublishPayoutNonce {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
         /// Outpoint referencing the deposit UTXO.
         deposit_outpoint: OutPoint,
-        /// The index of the operator requesting cooperation for payout.
-        operator_idx: OperatorIdx,
-        /// Descriptor of the operator to receive payout.
-        operator_desc: Descriptor,
+        /// Ordered public keys of all operators for MuSig2 signing.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
     /// Publish the partial signature for spending the deposit UTXO cooperatively.
     PublishPayoutPartial {

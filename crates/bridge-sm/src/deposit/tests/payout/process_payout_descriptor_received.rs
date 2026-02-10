@@ -40,9 +40,13 @@ mod tests {
                 payout_nonces: BTreeMap::new(),
             },
             expected_duties: vec![DepositDuty::PublishPayoutNonce {
+                deposit_idx: test_sm_ctx().deposit_idx(),
                 deposit_outpoint: test_sm_ctx().deposit_outpoint(),
-                operator_idx: TEST_ASSIGNEE,
-                operator_desc,
+                ordered_pubkeys: test_operator_table()
+                    .btc_keys()
+                    .into_iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect(),
             }],
             expected_signals: vec![],
         });
