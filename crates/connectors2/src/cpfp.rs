@@ -1,9 +1,10 @@
 //! This module contains the CPFP connector.
 
 use bitcoin::{psbt::Input, Address, Amount, Network, ScriptBuf, TxOut, Witness, WitnessProgram};
+use serde::{Deserialize, Serialize};
 
 /// CPFP connector that uses the P2A locking script.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CpfpConnector {
     network: Network,
     value: Amount,

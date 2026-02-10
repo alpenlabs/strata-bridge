@@ -28,4 +28,8 @@ pub enum ExecutorError {
     /// Wallet-related error.
     #[error("wallet error: {0}")]
     WalletErr(String),
+
+    /// Failed to aggregate partial signatures into final Schnorr signature.
+    #[error("signature aggregation failed: {0}")]
+    SignatureAggregationFailed(String),
 }

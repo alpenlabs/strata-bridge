@@ -17,6 +17,7 @@ strata-bridge-p2p-service.workspace = true
 strata-bridge-p2p-types2.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-sm.workspace = true
+strata-bridge-tx-graph2.workspace = true
 
 bitcoin-bosd.workspace = true
 
