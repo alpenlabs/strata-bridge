@@ -24,11 +24,13 @@ mod tests {
 
         let nonce = generate_pubnonce();
 
+        let cooperative_payout_tx = test_payout_txn(desc.clone());
+
         let state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-            operator_desc: desc.clone(),
+            cooperative_payout_tx: cooperative_payout_tx.clone(),
             payout_nonces: BTreeMap::new(),
         };
 
@@ -45,7 +47,7 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                operator_desc: desc,
+                cooperative_payout_tx,
                 payout_nonces: expected_nonces,
             },
             expected_duties: vec![],
@@ -58,6 +60,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_second_nonce() {
         let desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_payout_txn(desc.clone());
 
         // Generate nonces for all operators except the last one.
         // This ensures collection can never complete in this test.
@@ -79,7 +82,7 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-            operator_desc: desc.clone(),
+            cooperative_payout_tx: cooperative_payout_tx.clone(),
             payout_nonces: initial_nonces,
         };
 
@@ -93,7 +96,7 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                operator_desc: desc,
+                cooperative_payout_tx,
                 payout_nonces: nonces,
             },
             expected_duties: vec![],
@@ -106,6 +109,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_all_collected_pov_is_not_assignee() {
         let desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_payout_txn(desc.clone());
 
         // Generate nonces for all operators
         let num_operators = test_operator_table().cardinality();
@@ -126,12 +130,19 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_NONPOV_IDX,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-            operator_desc: desc.clone(),
+            cooperative_payout_tx: cooperative_payout_tx.clone(),
             payout_nonces: initial_nonces,
         };
 
         // Compute expected aggregated nonce
         let expected_agg_nonce = AggNonce::sum(all_nonces.values().cloned());
+
+        // Get the payout sighash from the cooperative payout tx
+        let payout_sighash = cooperative_payout_tx
+            .signing_info()
+            .first()
+            .expect("cooperative payout transaction must have signing info")
+            .sighash;
 
         test_deposit_transition(DepositTransition {
             from_state: state,
@@ -142,16 +153,22 @@ mod tests {
             expected_state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_NONPOV_IDX,
-                operator_desc: desc,
+                cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: all_nonces,
                 payout_aggregated_nonce: expected_agg_nonce.clone(),
                 payout_partial_signatures: BTreeMap::new(),
             },
             expected_duties: vec![DepositDuty::PublishPayoutPartial {
-                deposit_outpoint: test_deposit_outpoint(),
                 deposit_idx: TEST_DEPOSIT_IDX,
+                deposit_outpoint: test_deposit_outpoint(),
+                payout_sighash,
                 agg_nonce: expected_agg_nonce,
+                ordered_pubkeys: test_operator_table()
+                    .btc_keys()
+                    .into_iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect(),
             }],
             expected_signals: vec![],
         });
@@ -161,6 +178,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_all_collected_pov_is_assignee() {
         let desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_payout_txn(desc.clone());
 
         // Generate nonces for all operators
         let num_operators = test_operator_table().cardinality();
@@ -181,7 +199,7 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_POV_IDX,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-            operator_desc: desc.clone(),
+            cooperative_payout_tx: cooperative_payout_tx.clone(),
             payout_nonces: initial_nonces,
         };
 
@@ -197,7 +215,7 @@ mod tests {
             expected_state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_POV_IDX,
-                operator_desc: desc,
+                cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: all_nonces,
                 payout_aggregated_nonce: expected_agg_nonce,
@@ -212,6 +230,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_duplicate_same_nonce() {
         let desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_payout_txn(desc.clone());
 
         let nonce = generate_pubnonce();
 
@@ -219,7 +238,7 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-            operator_desc: desc,
+            cooperative_payout_tx,
             payout_nonces: BTreeMap::new(),
         };
 
@@ -254,6 +273,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_duplicate_different_nonce() {
         let desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_payout_txn(desc.clone());
 
         let first_nonce = generate_pubnonce();
         let duplicate_nonce = generate_pubnonce();
@@ -262,7 +282,7 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-            operator_desc: desc,
+            cooperative_payout_tx,
             payout_nonces: BTreeMap::new(),
         };
 
@@ -301,12 +321,13 @@ mod tests {
     #[test]
     fn test_invalid_operator_idx_in_payout_nonce_received() {
         let desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_payout_txn(desc.clone());
 
         let initial_state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-            operator_desc: desc,
+            cooperative_payout_tx,
             payout_nonces: BTreeMap::new(),
         };
 
@@ -334,6 +355,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_invalid_from_other_states() {
         let desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_payout_txn(desc.clone());
 
         let nonce = generate_pubnonce();
 
@@ -378,7 +400,7 @@ mod tests {
             DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
-                operator_desc: desc.clone(),
+                cooperative_payout_tx: cooperative_payout_tx.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: BTreeMap::new(),
                 payout_aggregated_nonce: generate_agg_nonce(),

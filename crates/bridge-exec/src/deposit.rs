@@ -78,7 +78,23 @@ pub async fn execute_deposit_duty(
             )
             .await
         }
-        DepositDuty::PublishPayoutPartial { .. } => publish_payout_partial().await,
+        DepositDuty::PublishPayoutPartial {
+            deposit_idx,
+            deposit_outpoint,
+            payout_sighash,
+            agg_nonce,
+            ordered_pubkeys,
+        } => {
+            publish_payout_partial(
+                &output_handles,
+                *deposit_idx,
+                *deposit_outpoint,
+                *payout_sighash,
+                agg_nonce.clone(),
+                ordered_pubkeys,
+            )
+            .await
+        }
         DepositDuty::PublishPayout { .. } => publish_payout().await,
     }
 }
@@ -262,8 +278,49 @@ async fn publish_payout_nonce(
     Ok(())
 }
 
-async fn publish_payout_partial() -> Result<(), ExecutorError> {
-    todo!("@mukeshdroid")
+/// Publishes the operator's partial signature for the cooperative payout signing session.
+///
+/// Only non-assignees execute this duty - the assignee withholds their partial signature
+/// until the final broadcast to prevent payout-tx hostage attacks.
+async fn publish_payout_partial(
+    output_handles: &OutputHandles,
+    deposit_idx: DepositIdx,
+    deposit_outpoint: OutPoint,
+    payout_sighash: Message,
+    payout_agg_nonce: AggNonce,
+    ordered_pubkeys: &[XOnlyPublicKey],
+) -> Result<(), ExecutorError> {
+    info!(%deposit_outpoint, "executing publish_payout_partial duty");
+
+    // Create Musig2Params for key-path spend (n-of-n)
+    // Same params as nonce generation for deterministic nonce recovery
+    let params = Musig2Params {
+        ordered_pubkeys: ordered_pubkeys.to_vec(),
+        tweak: TaprootTweak::Key { tweak: None },
+        input: deposit_outpoint,
+    };
+
+    // Generate partial signature via secret service
+    let partial_sig: PartialSignature = output_handles
+        .s2_client
+        .musig2_signer()
+        .get_our_partial_sig(params, payout_agg_nonce, *payout_sighash.as_ref())
+        .await?
+        .map_err(|e| match e.to_enum() {
+            terrors::E2::A(_) => ExecutorError::OurPubKeyNotInParams,
+            terrors::E2::B(_) => ExecutorError::SelfVerifyFailed,
+        })?;
+
+    // Broadcast via MessageHandler2
+    output_handles
+        .msg_handler2
+        .write()
+        .await
+        .send_payout_partial(deposit_idx, partial_sig, None)
+        .await;
+
+    info!(%deposit_outpoint, %deposit_idx, "published payout partial");
+    Ok(())
 }
 
 async fn publish_payout() -> Result<(), ExecutorError> {
