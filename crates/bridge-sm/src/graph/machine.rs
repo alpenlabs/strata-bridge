@@ -30,26 +30,44 @@ impl StateMachine for DepositSM {
 
     fn process_event(
         &mut self,
-        _cfg: Self::Config,
+        cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
-            GraphEvent::GraphDataProduced(_graph_data) => todo!(),
-            GraphEvent::AdaptorsVerified(_adaptors) => todo!(),
-            GraphEvent::NonceReceived(_nonce_event) => todo!(),
-            GraphEvent::PartialReceived(_partial_event) => todo!(),
-            GraphEvent::WithdrawalAssigned(_assignment) => todo!(),
-            GraphEvent::FulfillmentConfirmed(_fulfillment) => todo!(),
-            GraphEvent::ClaimConfirmed(_claim) => todo!(),
-            GraphEvent::ContestConfirmed(_contest) => todo!(),
-            GraphEvent::BridgeProofConfirmed(_bridge_proof) => todo!(),
-            GraphEvent::BridgeProofTimeoutConfirmed(_timeout) => todo!(),
-            GraphEvent::CounterProofConfirmed(_counterproof) => todo!(),
-            GraphEvent::CounterProofAckConfirmed(_ack) => todo!(),
-            GraphEvent::CounterProofNackConfirmed(_nack) => todo!(),
-            GraphEvent::SlashConfirmed(_slash) => todo!(),
-            GraphEvent::PayoutConfirmed(_payout) => todo!(),
-            GraphEvent::PayoutConnectorSpent(_connector_spent) => todo!(),
+            GraphEvent::GraphDataProduced(graph_data) => self.process_graph_data(graph_data),
+            GraphEvent::AdaptorsVerified(adaptors) => {
+                self.process_adaptors_verification(adaptors)
+            }
+            GraphEvent::NonceReceived(nonce_event) => self.process_nonces(cfg, nonce_event),
+            GraphEvent::PartialReceived(partial_event) => {
+                self.process_partials(cfg, partial_event)
+            }
+            GraphEvent::WithdrawalAssigned(assignment) => self.process_assignment(assignment),
+            GraphEvent::FulfillmentConfirmed(fulfillment) => {
+                self.process_fulfillment(fulfillment)
+            }
+            GraphEvent::ClaimConfirmed(claim) => self.process_claim(claim),
+            GraphEvent::ContestConfirmed(contest) => self.process_contest(contest),
+            GraphEvent::BridgeProofConfirmed(bridge_proof) => {
+                self.process_bridge_proof(bridge_proof)
+            }
+            GraphEvent::BridgeProofTimeoutConfirmed(timeout) => {
+                self.process_bridge_proof_timeout(timeout)
+            }
+            GraphEvent::CounterProofConfirmed(counterproof) => {
+                self.process_counterproof(counterproof)
+            }
+            GraphEvent::CounterProofAckConfirmed(ack) => {
+                self.process_counterproof_ack(ack)
+            }
+            GraphEvent::CounterProofNackConfirmed(nack) => {
+                self.process_counterproof_nack(nack)
+            }
+            GraphEvent::SlashConfirmed(slash) => self.process_slash(slash),
+            GraphEvent::PayoutConfirmed(payout) => self.process_payout(payout),
+            GraphEvent::PayoutConnectorSpent(connector_spent) => {
+                self.process_payout_connector_spent(connector_spent)
+            }
             GraphEvent::NewBlock(_new_block) => todo!(),
         }
     }
@@ -61,3 +79,15 @@ impl StateMachine for DepositSM {
 /// duty and signal types. This ensures that the Graph SM can only emit [`GraphDuty`]
 /// duties and [`GraphSignal`] signals.
 pub type GSMOutput = SMOutput<GraphDuty, GraphSignal>;
+
+impl DepositSM {
+    /// Returns a reference to the current state of the Graph State Machine.
+    pub const fn state(&self) -> &GraphState {
+        &self.state
+    }
+
+    /// Returns a mutable reference to the current state of the Graph State Machine.
+    pub const fn state_mut(&mut self) -> &mut GraphState {
+        &mut self.state
+    }
+}

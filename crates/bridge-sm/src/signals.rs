@@ -40,7 +40,8 @@ impl From<DepositSignal> for Signal {
 pub enum GraphSignal {
     /// Signal to the Deposit State Machine.
     ToDeposit(GraphToDeposit),
-    // Future: Add ToOperator(DepositToOperator), etc.
+    /// Signal to the Operator State Machine.
+    ToOperator(GraphToOperator),
 }
 
 impl From<GraphSignal> for Signal {
@@ -74,6 +75,26 @@ pub enum GraphToDeposit {
         operator_idx: OperatorIdx,
         // add more fields if necessary
     },
+}
+
+/// The signals that need to be sent from the Graph State Machine to the Operator State Machine.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum GraphToOperator {
+    /// Indicates that the operator has been slashed on-chain.
+    OperatorSlashed {
+        /// The index of the operator that was slashed.
+        operator_idx: OperatorIdx,
+    },
+}
+
+impl std::fmt::Display for GraphToOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GraphToOperator::OperatorSlashed { operator_idx } => {
+                write!(f, "OperatorSlashed for operator_idx: {}", operator_idx)
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for GraphToDeposit {

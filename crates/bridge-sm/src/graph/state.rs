@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, fmt::Display};
 
 use bitcoin::{Txid, taproot::Signature};
+use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use strata_bridge_tx_graph2::game_graph::{GameGraph, GameGraphSummary};
@@ -90,6 +91,15 @@ pub enum GraphState {
 
         /// Aggregated final signatures per operator graph
         signature: Signature,
+
+        /// The operator assigned to fulfill the withdrawal.
+        assignee: OperatorIdx,
+
+        /// The block height deadline for the assignment.
+        deadline: BitcoinBlockHeight,
+
+        /// The descriptor of the withdrawal recipient.
+        recipient_desc: Descriptor,
     },
     /// The pegout graph has been activated to initiate reimbursement (this is redundant w.r.t.
     /// to the DSM's `Fulfilled` state, but is included here in order to preserve relative
@@ -121,13 +131,14 @@ pub enum GraphState {
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// The txid of the fulfillment transaction
-        fulfillment_txid: Txid,
+        /// The txid of the fulfillment transaction (None in faulty claim cases).
+        fulfillment_txid: Option<Txid>,
 
-        /// The block height at which the fulfillment transaction was confirmed
-        fulfillment_block_height: BitcoinBlockHeight,
+        /// The block height at which the fulfillment transaction was confirmed (None in faulty
+        /// claim cases).
+        fulfillment_block_height: Option<BitcoinBlockHeight>,
 
-        /// The signature used in the fulfillment transaction
+        /// The block height at which the claim transaction was confirmed.
         claim_block_height: BitcoinBlockHeight,
     },
     /// The contest transaction has been posted on chain
@@ -141,13 +152,14 @@ pub enum GraphState {
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// The txid of the fulfillment transaction
-        fulfillment_txid: Txid,
+        /// The txid of the fulfillment transaction (None in faulty claim cases).
+        fulfillment_txid: Option<Txid>,
 
-        /// The block height at which the fulfillment transaction was confirmed
-        fulfillment_block_height: BitcoinBlockHeight,
+        /// The block height at which the fulfillment transaction was confirmed (None in faulty
+        /// claim cases).
+        fulfillment_block_height: Option<BitcoinBlockHeight>,
 
-        /// The block height at which the contest transaction was confirmed
+        /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
     },
     /// The bridge proof transaction has been posted on chain
@@ -161,14 +173,24 @@ pub enum GraphState {
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// The txid of the fulfillment transaction
-        fulfillment_txid: Txid,
+        /// The txid of the fulfillment transaction (None in faulty claim cases).
+        fulfillment_txid: Option<Txid>,
 
-        /// The block height at which the fulfillment transaction was confirmed
-        fulfillment_block_height: BitcoinBlockHeight,
+        /// The block height at which the fulfillment transaction was confirmed (None in faulty
+        /// claim cases).
+        fulfillment_block_height: Option<BitcoinBlockHeight>,
 
-        /// The block height at which the contest transaction was confirmed
+        /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
+
+        /// The txid of the bridge proof transaction submitted on chain.
+        bridge_proof_txid: Txid,
+
+        /// The block height at which the bridge proof transaction was confirmed.
+        bridge_proof_block_height: BitcoinBlockHeight,
+
+        /// The bridge proof.
+        proof: ProofReceipt,
     },
     /// The bridge proof timeout transaction has been posted on chain
     BridgeProofTimedout {
@@ -181,23 +203,21 @@ pub enum GraphState {
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// The txid of the fulfillment transaction
-        fulfillment_txid: Txid,
+        /// The txid of the fulfillment transaction (None in faulty claim cases).
+        fulfillment_txid: Option<Txid>,
 
-        /// The block height at which the fulfillment transaction was confirmed
-        fulfillment_block_height: BitcoinBlockHeight,
+        /// The block height at which the fulfillment transaction was confirmed (None in faulty
+        /// claim cases).
+        fulfillment_block_height: Option<BitcoinBlockHeight>,
 
-        /// The block height at which the contest transaction was confirmed
+        /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
-        /// The txid of the bridge proof transaction submitted on chain
-        bridge_proof_txid: Txid,
+        /// The txid of the expected slash transaction.
+        expected_slash_txid: Txid,
 
-        /// the block height at which the bridge proof transaction was confirmed
-        bridge_proof_block_height: BitcoinBlockHeight,
-
-        /// The bridge proof
-        proof: ProofReceipt,
+        /// The txid of the claim transaction.
+        claim_txid: Txid,
     },
     /// A counterproof transaction has been posted on chain
     CounterProofPosted {
@@ -255,7 +275,25 @@ pub enum GraphState {
         payout_txid: Txid,
     },
     /// The operator has been slashed on chain
-    Slashed,
+    Slashed {
+        /// The txid of the slash transaction.
+        slash_txid: Txid,
+    },
+    /// The graph has been aborted due to the payout connector being spent
+    Aborted {
+        /// The reason for the abort.
+        reason: AbortReason,
+    },
+}
+
+/// The reason for a graph state machine abort.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AbortReason {
+    /// The payout connector was spent by a transaction other than the expected payout.
+    PayoutConnectorSpent {
+        /// The txid of the transaction that spent the payout connector.
+        spending_txid: Txid,
+    },
 }
 
 impl GraphState {
@@ -285,7 +323,8 @@ impl Display for GraphState {
             GraphState::AllNackd { .. } => "AllNackd",
             GraphState::Acked { .. } => "Acked",
             GraphState::Withdrawn { .. } => "Withdrawn",
-            GraphState::Slashed => "Slashed",
+            GraphState::Slashed { .. } => "Slashed",
+            GraphState::Aborted { .. } => "Aborted",
         };
         write!(f, "{}", display_str)
     }
