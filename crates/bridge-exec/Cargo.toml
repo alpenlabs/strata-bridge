@@ -14,8 +14,11 @@ secret-service-client.workspace = true
 secret-service-proto.workspace = true
 strata-bridge-connectors2.workspace = true
 strata-bridge-p2p-service.workspace = true
+strata-bridge-p2p-types2.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-sm.workspace = true
+
+bitcoin-bosd.workspace = true
 
 bitcoin.workspace = true
 bitcoind-async-client.workspace = true

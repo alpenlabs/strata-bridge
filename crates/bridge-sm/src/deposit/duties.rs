@@ -55,6 +55,8 @@ pub enum DepositDuty {
     RequestPayoutNonces {
         /// The index of the deposit.
         deposit_idx: DepositIdx,
+        /// The index of the point-of-view operator.
+        pov_operator_idx: OperatorIdx,
     },
     /// Publish the nonce for spending the deposit UTXO cooperatively.
     PublishPayoutNonce {

@@ -44,6 +44,7 @@ mod tests {
             },
             expected_duties: vec![DepositDuty::RequestPayoutNonces {
                 deposit_idx: TEST_DEPOSIT_IDX,
+                pov_operator_idx: TEST_POV_IDX,
             }],
             expected_signals: vec![],
         });
