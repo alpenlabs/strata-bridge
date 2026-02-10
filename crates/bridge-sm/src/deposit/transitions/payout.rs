@@ -311,6 +311,16 @@ impl DepositSM {
         // Extract context values before the match to avoid borrow conflicts
         let operator_table_cardinality = self.context.operator_table().cardinality();
         let pov_operator_idx = self.context.operator_table().pov_idx();
+        let deposit_idx = self.context.deposit_idx();
+        let deposit_outpoint = self.context.deposit_outpoint();
+        // Get ordered pubkeys for MuSig2 signing
+        let ordered_pubkeys: Vec<_> = self
+            .context
+            .operator_table()
+            .btc_keys()
+            .into_iter()
+            .map(|pk| pk.x_only_public_key().0)
+            .collect();
         // Generate the key_agg_ctx using the operator table.
         // NOfNConnector uses key-path spend with no script tree, so we use
         // TaprootWitness::Key which applies with_unspendable_taproot_tweak()
@@ -388,10 +398,24 @@ impl DepositSM {
                 // asserts *any* n-1 partials are collected is enough since the assignee should
                 // never send their partials for their own good.
                 if operator_table_cardinality - 1 == payout_partial_signatures.len() {
+                    // Get the sighash from the stored cooperative payout transaction
+                    let payout_sighash = cooperative_payout_tx
+                        .signing_info()
+                        .first()
+                        .expect("cooperative payout transaction must have signing info")
+                        .sighash;
+
                     // Dispatch the duty to publish payout tx if the pov operator is the assignee.
                     if pov_operator_idx == assignee {
                         Ok(DSMOutput::with_duties(vec![DepositDuty::PublishPayout {
-                            payout_tx: cooperative_payout_tx.as_ref().clone(),
+                            deposit_idx,
+                            deposit_outpoint,
+                            payout_sighash,
+                            agg_nonce: payout_aggregated_nonce.clone(),
+                            collected_partials: payout_partial_signatures.clone(),
+                            payout_coop_tx: Box::new(cooperative_payout_tx.clone()),
+                            ordered_pubkeys,
+                            pov_operator_idx,
                         }]))
                     } else {
                         Ok(DSMOutput::new())

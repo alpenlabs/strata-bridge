@@ -1,10 +1,13 @@
 //! The duties that need to be performed in the Deposit State Machine in response to the state
 //! transitions.
 
+use std::collections::BTreeMap;
+
 use bitcoin::{OutPoint, Transaction, secp256k1::XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
-use musig2::{AggNonce, secp256k1::Message};
+use musig2::{AggNonce, PartialSignature, secp256k1::Message};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, OperatorIdx};
+use strata_bridge_tx_graph2::transactions::prelude::CooperativePayoutTx;
 
 /// The duties that need to be performed to drive the Deposit State Machine forward.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,8 +81,22 @@ pub enum DepositDuty {
     /// This duty is also responsible for generating the partial signature by the assignee on the
     /// cooperative payout tx.
     PublishPayout {
-        /// The cooperative payout transaction to publish.
-        payout_tx: Transaction,
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
+        /// Outpoint referencing the deposit UTXO.
+        deposit_outpoint: OutPoint,
+        /// Sighash to be signed for the payout transaction.
+        payout_sighash: Message,
+        /// Aggregated nonce for signature generation.
+        agg_nonce: AggNonce,
+        /// Partial signatures collected from other operators (not including assignee).
+        collected_partials: BTreeMap<OperatorIdx, PartialSignature>,
+        /// The cooperative payout transaction for finalization.
+        payout_coop_tx: Box<CooperativePayoutTx>,
+        /// Ordered public keys of all operators for MuSig2 signing.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
+        /// The index of the point-of-view operator (the assignee).
+        pov_operator_idx: OperatorIdx,
     },
 }
 
