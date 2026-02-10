@@ -337,18 +337,17 @@ impl DepositSM {
                     .expect("partial signatures must be valid");
 
                     // Build deposit transaction with sigs
-                    let deposit_transaction = deposit_tx.finalize(agg_signature);
+                    let signed_deposit_transaction = deposit_tx.finalize(agg_signature);
 
                     // Transition to DepositPartialsCollected state
                     self.state = DepositState::DepositPartialsCollected {
-                        deposit_transaction: deposit_transaction.clone(),
+                        deposit_transaction: signed_deposit_transaction.clone(),
                         last_block_height: blk_height,
                     };
 
                     // Create the duty to publish the deposit transaction
                     let duty = DepositDuty::PublishDeposit {
-                        deposit_transaction,
-                        agg_signature,
+                        signed_deposit_transaction,
                     };
 
                     Ok(DSMOutput::with_duties(vec![duty]))

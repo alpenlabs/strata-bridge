@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use bitcoin::{OutPoint, secp256k1::XOnlyPublicKey};
+use bitcoin::{OutPoint, Transaction, secp256k1::XOnlyPublicKey};
+use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SecretService};
 use strata_bridge_connectors2::SigningInfo;
@@ -51,7 +52,9 @@ pub async fn execute_deposit_duty(
             )
             .await
         }
-        DepositDuty::PublishDeposit { .. } => publish_deposit().await,
+        DepositDuty::PublishDeposit {
+            signed_deposit_transaction,
+        } => publish_deposit(&output_handles, signed_deposit_transaction.clone()).await,
         DepositDuty::FulfillWithdrawal { .. } => fulfill_withdrawal().await,
         DepositDuty::RequestPayoutNonces { .. } => request_payout_nonces().await,
         DepositDuty::PublishPayoutNonce { .. } => publish_payout_nonce().await,
@@ -141,8 +144,23 @@ async fn publish_deposit_partial(
     Ok(())
 }
 
-async fn publish_deposit() -> Result<(), ExecutorError> {
-    todo!("@mukeshdroid")
+/// Publishes the deposit transaction to the Bitcoin network.
+async fn publish_deposit(
+    output_handles: &OutputHandles,
+    signed_deposit_transaction: Transaction,
+) -> Result<(), ExecutorError> {
+    let txid = signed_deposit_transaction.compute_txid();
+    let drt_txid = signed_deposit_transaction.input[0].previous_output.txid;
+    info!(%txid, %drt_txid, "executing publish_deposit duty");
+
+    // Broadcast and wait for burial confirmation
+    output_handles
+        .tx_driver
+        .drive(signed_deposit_transaction, TxStatus::is_buried)
+        .await?;
+
+    info!(%txid, "deposit transaction confirmed");
+    Ok(())
 }
 
 async fn fulfill_withdrawal() -> Result<(), ExecutorError> {

@@ -3,7 +3,7 @@
 
 use bitcoin::{OutPoint, Transaction, secp256k1::XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
-use musig2::{AggNonce, secp256k1::schnorr::Signature};
+use musig2::AggNonce;
 use strata_bridge_connectors2::SigningInfo;
 use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
@@ -39,10 +39,8 @@ pub enum DepositDuty {
     },
     /// Publish the deposit transaction to the Bitcoin network
     PublishDeposit {
-        /// fully constructed deposit transaction
-        deposit_transaction: Transaction,
-        /// aggregate signature combining all partial signatures
-        agg_signature: Signature,
+        /// The fully signed deposit transaction ready to be broadcast.
+        signed_deposit_transaction: Transaction,
     },
     /// Front the user by sending funds to the provided descriptor within the given deadline.
     FulfillWithdrawal {
@@ -102,12 +100,11 @@ impl std::fmt::Display for DepositDuty {
                 format!("PublishDepositPartial (outpoint: {})", drt_outpoint)
             }
             DepositDuty::PublishDeposit {
-                deposit_transaction,
-                ..
+                signed_deposit_transaction,
             } => {
                 format!(
                     "PublishDeposit (txn: {})",
-                    deposit_transaction.compute_txid()
+                    signed_deposit_transaction.compute_txid()
                 )
             }
             DepositDuty::FulfillWithdrawal { .. } => "FulfillWithdrawal".to_string(),
