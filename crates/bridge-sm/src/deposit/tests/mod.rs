@@ -11,7 +11,7 @@ mod test_timeout_sequence;
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use bitcoin::{Amount, Network, OutPoint, Transaction, absolute, relative, transaction::Version};
+use bitcoin::{Amount, Network, OutPoint, Transaction, relative};
 use bitcoin_bosd::Descriptor;
 use musig2::KeyAggContext;
 use proptest::prelude::*;
@@ -332,12 +332,7 @@ impl Arbitrary for DepositState {
             (block_height.clone()).prop_map(|height| {
                 DepositState::DepositPartialsCollected {
                     last_block_height: height,
-                    deposit_transaction: Transaction {
-                        input: vec![],
-                        output: vec![],
-                        version: Version(2),
-                        lock_time: absolute::LockTime::ZERO,
-                    },
+                    deposit_transaction: test_deposit_txn().as_ref().clone(),
                 }
             }),
             block_height.clone().prop_map(|height| {

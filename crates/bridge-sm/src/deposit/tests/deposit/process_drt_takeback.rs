@@ -4,7 +4,6 @@ mod tests {
     use std::str::FromStr;
 
     use bitcoin::OutPoint;
-    use strata_bridge_test_utils::prelude::generate_spending_tx;
 
     use crate::{
         deposit::{
@@ -84,13 +83,14 @@ mod tests {
 
     #[test]
     fn test_wrong_drt_takeback_tx_rejection() {
-        let drt_outpoint = OutPoint::default();
         let initial_state = DepositState::Created {
             deposit_transaction: test_deposit_txn(),
             linked_graphs: Default::default(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
+        // Run STF with a takeback transaction that does not spend the actual deposit request UTXO
+        // (should be rejected)
         let sm = create_sm(initial_state.clone());
         let mut sequence = EventSequence::new(sm, get_state);
 
@@ -103,13 +103,12 @@ mod tests {
 
         sequence.process(test_deposit_sm_cfg(), wrong_tx_event);
 
-        // Create a transaction that spends the outpoint but is not a valid take back transaction
-        let witness_elements = [vec![0u8; 1]]; // HACK: single witness element implies key-spend
-        let wrong_spend_path = generate_spending_tx(drt_outpoint, &witness_elements[..]);
+        // Run STF with a takeback transaction that is identical to the deposit request (should also
+        // be rejected)
+        let duplicate_deposit_txn = test_deposit_txn().as_ref().clone();
         let wrong_spend_path_event = DepositEvent::UserTakeBack(UserTakeBackEvent {
-            tx: wrong_spend_path,
+            tx: duplicate_deposit_txn,
         });
-
         sequence.process(test_deposit_sm_cfg(), wrong_spend_path_event);
 
         sequence.assert_final_state(&initial_state);

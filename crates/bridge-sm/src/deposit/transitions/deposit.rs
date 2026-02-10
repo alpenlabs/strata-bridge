@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use bitcoin::Transaction;
 use musig2::{AggNonce, aggregate_partial_signatures, secp256k1::schnorr, verify_partial};
 use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::prelude::TaprootWitness};
 use strata_bridge_tx_graph2::transactions::PresignedTx;
@@ -28,55 +29,50 @@ impl DepositSM {
         &mut self,
         takeback: UserTakeBackEvent,
     ) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        let deposit_request_outpoint = &self.context().deposit_outpoint();
-        match self.state() {
-            DepositState::Created { .. }
-            | DepositState::GraphGenerated { .. }
-            | DepositState::DepositNoncesCollected { .. }
-            | DepositState::DepositPartialsCollected { .. } => {
-                // FIXME: (@Rajil1213) Check if `txid` is not that of a Deposit Transaction instead
-                if takeback
-                    .tx
-                    .input
-                    .iter()
-                    .find(|input| input.previous_output == *deposit_request_outpoint)
-                    .is_some_and(|input| input.witness.len() > 1)
-                // HACK: (@Rajil1213) `N/N` spend is a keypath spend that only has a single witness
-                // element (the `N/N` signature). If it has more than one element, it implies that
-                // it is not a keypath spend (since there can only be 1 keypath spend for a taproot
-                // output). This implies that if there are more than 1 witness elements, it is not a
-                // Deposit Transaction and so must be a takeback (the script-spend path in the DRT
-                // output).
-                {
-                    // Transition to Aborted state
-                    self.state = DepositState::Aborted;
+        if self.state() == &DepositState::Aborted {
+            return Err(DSMError::duplicate(self.state().clone(), takeback.into()));
+        }
 
-                    // This is a terminal state
-                    Ok(SMOutput {
-                        duties: vec![],
-                        signals: vec![],
-                    })
-                } else {
-                    let txid = takeback.tx.compute_txid();
-                    Err(DSMError::rejected(
-                        self.state().clone(),
-                        takeback.into(),
-                        format!(
-                            "Transaction {} is not a take back transaction for the deposit request outpoint {}",
-                            txid, deposit_request_outpoint
-                        ),
-                    ))
-                }
-            }
-            DepositState::Aborted => {
-                Err(DSMError::duplicate(self.state().clone(), takeback.into()))
-            }
-            _ => Err(DSMError::invalid_event(
+        let Some(deposit_tx) = self.deposit_transaction() else {
+            return Err(DSMError::invalid_event(
                 self.state().clone(),
                 takeback.into(),
-                None,
-            )),
+                Some("Takeback no longer possible: deposit already finalized on chain".to_string()),
+            ));
+        };
+
+        let deposit_request_outpoint = deposit_tx
+            .input
+            .first()
+            .expect("Deposit request transaction must have at least one input")
+            .previous_output;
+
+        let spends_deposit_request = takeback
+            .tx
+            .input
+            .iter()
+            .any(|input| input.previous_output == deposit_request_outpoint);
+
+        let is_different_tx = takeback.tx.compute_txid() != deposit_tx.compute_txid();
+
+        if spends_deposit_request && is_different_tx {
+            self.state = DepositState::Aborted;
+
+            return Ok(SMOutput {
+                duties: vec![],
+                signals: vec![],
+            });
         }
+
+        let txid = takeback.tx.compute_txid();
+        Err(DSMError::rejected(
+            self.state().clone(),
+            takeback.into(),
+            format!(
+                "Transaction {} is not a take back transaction for the deposit request outpoint {}",
+                txid, deposit_request_outpoint
+            ),
+        ))
     }
 
     /// Processes the event where an operator's graph becomes available.
@@ -419,6 +415,32 @@ impl DepositSM {
                 confirmed.into(),
                 None,
             )),
+        }
+    }
+
+    /// Helper function to extract the deposit transaction from the state machine's current
+    /// state.
+    ///
+    /// Returns `None` if deposit transaction has been confirmed on-chain
+    pub(crate) fn deposit_transaction(&self) -> Option<&Transaction> {
+        match self.state() {
+            DepositState::Created {
+                deposit_transaction,
+                ..
+            }
+            | DepositState::GraphGenerated {
+                deposit_transaction,
+                ..
+            }
+            | DepositState::DepositNoncesCollected {
+                deposit_transaction,
+                ..
+            } => Some(deposit_transaction.as_ref()),
+            DepositState::DepositPartialsCollected {
+                deposit_transaction,
+                ..
+            } => Some(deposit_transaction),
+            _ => None,
         }
     }
 }
