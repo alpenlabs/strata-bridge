@@ -3,7 +3,7 @@
 mod tests {
     use std::collections::BTreeSet;
 
-    use bitcoin::{OutPoint, Txid, hashes::Hash};
+    use bitcoin::{Txid, hashes::Hash};
     use musig2::{AggNonce, PubNonce};
 
     use crate::{
@@ -149,7 +149,7 @@ mod tests {
                 payout_partial_signatures: BTreeMap::new(),
             },
             expected_duties: vec![DepositDuty::PublishPayoutPartial {
-                deposit_outpoint: OutPoint::default(),
+                deposit_outpoint: test_deposit_outpoint(),
                 deposit_idx: TEST_DEPOSIT_IDX,
                 agg_nonce: expected_agg_nonce,
             }],

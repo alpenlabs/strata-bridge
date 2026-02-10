@@ -108,8 +108,16 @@ pub(super) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
 pub(super) fn test_sm_ctx() -> DepositSMCtx {
     DepositSMCtx {
         deposit_idx: TEST_DEPOSIT_IDX,
-        deposit_outpoint: OutPoint::default(),
+        deposit_outpoint: test_deposit_outpoint(),
         operator_table: test_operator_table(),
+    }
+}
+
+/// Helper function to get the outpoint of the test deposit transaction.
+pub(super) fn test_deposit_outpoint() -> OutPoint {
+    OutPoint {
+        txid: test_deposit_txn().as_ref().compute_txid(),
+        vout: 0,
     }
 }
 
@@ -233,7 +241,7 @@ pub(super) fn test_payout_txn(operator_desc: Descriptor) -> CooperativePayoutTx 
 
     CooperativePayoutTx::new(
         CooperativePayoutData {
-            deposit_outpoint: OutPoint::default(),
+            deposit_outpoint: test_deposit_outpoint(),
         },
         deposit_connector,
         operator_desc,
