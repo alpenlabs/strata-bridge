@@ -1,26 +1,17 @@
 //! This module contains the withdrawal fulfillment transaction.
 
-use bitcoin::{absolute, transaction::Version, Amount, OutPoint, ScriptBuf, Transaction, TxOut};
+use bitcoin::{absolute, transaction::Version, Amount, ScriptBuf, Transaction, TxOut};
 use strata_asm_txs_bridge_v1::withdrawal_fulfillment::WithdrawalFulfillmentTxHeaderAux;
-use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 use strata_primitives::bitcoin_bosd::Descriptor;
 
-/// Data that is needed to construct a [`WithdrawalFulfillmentTx`].
+/// Data needed to construct an unfunded [`WithdrawalFulfillmentTx`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WithdrawalFulfillmentData {
-    /// Deposit index.
+    /// Deposit index for the SPS-50 header.
     pub deposit_idx: u32,
-    /// Operator-controlled UTXOs that fund the withdrawal fulfillment.
-    ///
-    /// These are the transaction inputs.
-    pub withdrawal_funds: Vec<OutPoint>,
-    /// Sum of input values.
-    pub input_amount: Amount,
-    /// Optional output where the operator receives their change.
-    ///
-    /// The deposit amount is equal to the input value minus the change value.
-    pub change_output: Option<TxOut>,
+    /// Amount to send to the user (after operator fee deduction).
+    pub user_amount: Amount,
     /// Magic bytes that identify the bridge.
     pub magic_bytes: MagicBytes,
 }
@@ -39,6 +30,9 @@ impl WithdrawalFulfillmentData {
 // TODO: (@uncomputable) Check in unit test that withdrawal fulfillment tx can be parsed by ASM code
 // https://github.com/alpenlabs/alpen/blob/b016495114050409e831898436d7d0ac04df8d82/crates/asm/txs/bridge-v1/src/withdrawal_fulfillment/parse.rs#L63
 /// The withdrawal fulfillment transaction.
+///
+/// This is an unfunded transaction with outputs only. The wallet will add
+/// inputs and change during funding.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WithdrawalFulfillmentTx(Transaction);
 
@@ -50,31 +44,28 @@ impl WithdrawalFulfillmentTx {
     /// Index of the change output, if it exists.
     pub const OPTIONAL_CHANGE_VOUT: u32 = 2;
 
-    /// Creates a withdrawal fulfillment transaction.
+    /// Creates an unfunded withdrawal fulfillment transaction.
+    ///
+    /// The transaction has outputs only (header and user payment).
+    /// Inputs and change will be added by the wallet during funding.
     pub fn new(data: WithdrawalFulfillmentData, user_descriptor: Descriptor) -> Self {
         let header_leaf_script = data.header_leaf_script();
-        let input = create_tx_ins(data.withdrawal_funds);
-        let mut output = vec![
+
+        let output = vec![
             TxOut {
                 script_pubkey: header_leaf_script,
                 value: Amount::ZERO,
             },
             TxOut {
                 script_pubkey: user_descriptor.to_script(),
-                value: data.input_amount
-                    - data
-                        .change_output
-                        .as_ref()
-                        .map(|x| x.value)
-                        .unwrap_or_default(),
+                value: data.user_amount,
             },
         ];
-        output.extend(data.change_output);
 
         let tx = Transaction {
             version: Version(3),
             lock_time: absolute::LockTime::ZERO,
-            input,
+            input: vec![],
             output,
         };
 
@@ -83,7 +74,7 @@ impl WithdrawalFulfillmentTx {
 
     /// Returns the inner bitcoin transaction.
     ///
-    /// The transaction needs to be signed before it can be broadcast.
+    /// The transaction needs to be funded and signed before it can be broadcast.
     pub fn into_unsigned_tx(self) -> Transaction {
         self.0
     }
