@@ -1,5 +1,6 @@
 //! Context for the Graph State Machine.
 
+use bitcoin::OutPoint;
 use strata_bridge_primitives::types::OperatorIdx;
 
 /// Execution context for a single instance of the Graph State Machine.

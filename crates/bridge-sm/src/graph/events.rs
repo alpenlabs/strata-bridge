@@ -172,6 +172,7 @@ pub struct NewBlockEvent {
 
 /// The external events that affect the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
 pub enum GraphEvent {
     /// Graph data has been generated for the graph instance.
     GraphDataProduced(GraphDataGeneratedEvent),

@@ -282,7 +282,7 @@ pub enum GraphState {
     /// The graph has been aborted due to the payout connector being spent
     Aborted {
         /// The reason for the abort.
-        reason: AbortReason,
+        reason: String,
     },
 }
 
