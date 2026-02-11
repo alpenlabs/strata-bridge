@@ -40,6 +40,7 @@ mod tests {
                 deposit_idx: TEST_DEPOSIT_IDX,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: desc,
+                deposit_amount: TEST_DEPOSIT_AMOUNT,
             }],
             expected_signals: vec![],
         });
@@ -106,6 +107,7 @@ mod tests {
                 deposit_idx: TEST_DEPOSIT_IDX,
                 deadline: REASSIGNMENT_DEADLINE,
                 recipient_desc: new_desc,
+                deposit_amount: TEST_DEPOSIT_AMOUNT,
             }],
             expected_signals: vec![],
         });

@@ -31,6 +31,7 @@ impl DepositSM {
     /// [`DepositDuty::FulfillWithdrawal`] duty if the local operator is the assignee.
     pub(crate) fn process_assignment(
         &mut self,
+        cfg: Arc<DepositSMCfg>,
         assignment: WithdrawalAssignedEvent,
     ) -> DSMResult<DSMOutput> {
         match self.state() {
@@ -52,6 +53,7 @@ impl DepositSM {
                             deposit_idx: self.context.deposit_idx(),
                             deadline: assignment.deadline,
                             recipient_desc: assignment.recipient_desc,
+                            deposit_amount: cfg.deposit_amount(),
                         },
                     ]))
                 } else {

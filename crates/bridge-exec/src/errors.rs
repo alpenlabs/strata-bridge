@@ -32,4 +32,8 @@ pub enum ExecutorError {
     /// Failed to aggregate partial signatures into final Schnorr signature.
     #[error("signature aggregation failed: {0}")]
     SignatureAggregationFailed(String),
+
+    /// Error from Bitcoin Core RPC.
+    #[error("bitcoin rpc error: {0:?}")]
+    BitcoinRpcErr(#[from] bitcoind_async_client::error::ClientError),
 }
