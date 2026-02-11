@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use bitcoin::{OutPoint, Transaction, secp256k1::XOnlyPublicKey};
+use bitcoin::{Amount, OutPoint, Transaction, secp256k1::XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, secp256k1::Message};
 use strata_bridge_connectors2::SigningInfo;
@@ -53,6 +53,8 @@ pub enum DepositDuty {
         deadline: BitcoinBlockHeight,
         /// The user's descriptor where funds are to be sent by the operator.
         recipient_desc: Descriptor,
+        /// The fixed deposit amount expected by the bridge protocol.
+        deposit_amount: Amount,
     },
     /// Request pubnonces from all operators for cooperative payout.
     RequestPayoutNonces {

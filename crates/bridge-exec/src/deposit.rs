@@ -3,10 +3,12 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{
-    OutPoint, Transaction,
+    Amount, FeeRate, OutPoint, TapSighashType, Transaction,
     secp256k1::{Message, PublicKey, XOnlyPublicKey, schnorr},
+    sighash::{Prevouts, SighashCache},
 };
 use bitcoin_bosd::Descriptor;
+use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
@@ -14,18 +16,20 @@ use strata_bridge_connectors2::SigningInfo;
 use strata_bridge_p2p_types2::PayoutDescriptor;
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
-    scripts::taproot::TaprootTweak,
-    types::{DepositIdx, OperatorIdx},
+    scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
+    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_sm::deposit::duties::DepositDuty;
-use strata_bridge_tx_graph2::transactions::prelude::CooperativePayoutTx;
-use tracing::info;
+use strata_bridge_tx_graph2::transactions::prelude::{
+    CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
+};
+use tracing::{error, info, warn};
 
 use crate::{config::ExecutionConfig, errors::ExecutorError, output_handles::OutputHandles};
 
 /// Executes the given deposit duty.
 pub async fn execute_deposit_duty(
-    _cfg: Arc<ExecutionConfig>,
+    cfg: Arc<ExecutionConfig>,
     output_handles: Arc<OutputHandles>,
     duty: &DepositDuty,
 ) -> Result<(), ExecutorError> {
@@ -65,7 +69,22 @@ pub async fn execute_deposit_duty(
         DepositDuty::PublishDeposit {
             signed_deposit_transaction,
         } => publish_deposit(&output_handles, signed_deposit_transaction.clone()).await,
-        DepositDuty::FulfillWithdrawal { .. } => fulfill_withdrawal().await,
+        DepositDuty::FulfillWithdrawal {
+            deposit_idx,
+            deadline,
+            recipient_desc,
+            deposit_amount,
+        } => {
+            fulfill_withdrawal(
+                &cfg,
+                &output_handles,
+                *deposit_idx,
+                *deadline,
+                recipient_desc.clone(),
+                *deposit_amount,
+            )
+            .await
+        }
         DepositDuty::RequestPayoutNonces {
             deposit_idx,
             pov_operator_idx,
@@ -222,8 +241,132 @@ async fn publish_deposit(
     Ok(())
 }
 
-async fn fulfill_withdrawal() -> Result<(), ExecutorError> {
-    todo!("@mukeshdroid")
+/// Fulfills a withdrawal request by fronting funds to the user.
+///
+/// Only the assignee executes this duty.
+async fn fulfill_withdrawal(
+    cfg: &ExecutionConfig,
+    output_handles: &OutputHandles,
+    deposit_idx: DepositIdx,
+    deadline: BitcoinBlockHeight,
+    recipient_desc: Descriptor,
+    deposit_amount: Amount,
+) -> Result<(), ExecutorError> {
+    info!(%deposit_idx, %deadline, dest=%recipient_desc, "executing fulfill_withdrawal duty");
+
+    // Check if we're within the fulfillment window
+    let fulfillment_window = cfg.min_withdrawal_fulfillment_window;
+    let cur_height = output_handles
+        .bitcoind_rpc_client
+        .get_blockchain_info()
+        .await?
+        .blocks;
+
+    let reached_deadline = (cur_height as u64) >= deadline.saturating_sub(fulfillment_window);
+    if reached_deadline {
+        warn!(
+            %cur_height,
+            %deadline,
+            %fulfillment_window,
+            "current height exceeds deadline minus fulfillment window, skipping"
+        );
+        return Ok(());
+    }
+
+    // Calculate the amount to send to user (deposit_amount - operator_fee)
+    let amount = deposit_amount
+        .checked_sub(cfg.operator_fee)
+        .expect("deposit amount must be greater than operator fee");
+
+    // Get fee rate estimate from bitcoind
+    let fee_rate = output_handles
+        .bitcoind_rpc_client
+        .estimate_smart_fee(1)
+        .await
+        .map_err(|e| ExecutorError::WalletErr(format!("failed to estimate fee: {e}")))?;
+    let fee_rate = FeeRate::from_sat_per_vb(fee_rate).unwrap_or(FeeRate::DUST);
+
+    // Check if fee rate exceeds maximum configured rate
+    if fee_rate > cfg.maximum_fee_rate {
+        warn!(
+            %fee_rate,
+            maximum_fee_rate = %cfg.maximum_fee_rate,
+            "fee rate exceeds maximum, skipping fulfillment"
+        );
+        return Ok(());
+    }
+
+    // Create unfunded WithdrawalFulfillmentTx with outputs only
+    let wft_data = WithdrawalFulfillmentData {
+        deposit_idx,
+        user_amount: amount,
+        magic_bytes: cfg.magic_bytes,
+    };
+    let wft = WithdrawalFulfillmentTx::new(wft_data, recipient_desc);
+    let unfunded_tx = wft.into_unsigned_tx();
+
+    // Fund the transaction via wallet (adds inputs and change)
+    let wft_psbt = {
+        let mut wallet = output_handles.wallet.write().await;
+
+        info!("syncing wallet before funding withdrawal fulfillment tx");
+        if let Err(e) = wallet.sync().await {
+            warn!(?e, "could not sync wallet, continuing anyway");
+        }
+
+        match wallet.fund_v3_transaction(unfunded_tx, fee_rate) {
+            Ok(psbt) => psbt,
+            Err(err) => {
+                error!(%err, "could not fund withdrawal");
+                return Ok(());
+            }
+        }
+    };
+
+    // Sign each input
+    let txid = wft_psbt.unsigned_tx.compute_txid();
+    info!(%txid, "signing withdrawal fulfillment transaction");
+
+    let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
+
+    let prevouts: Vec<_> = wft_psbt
+        .inputs
+        .iter()
+        .filter_map(|input| input.witness_utxo.clone())
+        .collect();
+    let prevouts = Prevouts::All(&prevouts);
+
+    let mut signed_tx = wft_psbt.unsigned_tx.clone();
+    for (input_index, _) in wft_psbt.inputs.iter().enumerate() {
+        let msg = create_message_hash(
+            &mut sighash_cache,
+            prevouts.clone(),
+            &TaprootWitness::Key,
+            TapSighashType::Default,
+            input_index,
+        )
+        .map_err(|e| ExecutorError::WalletErr(format!("sighash error: {e}")))?;
+
+        let signature = output_handles
+            .s2_client
+            .general_wallet_signer()
+            .sign(msg.as_ref(), None)
+            .await?;
+
+        signed_tx.input[input_index]
+            .witness
+            .push(signature.serialize());
+    }
+
+    // Broadcast and wait for confirmation
+    info!(%txid, "submitting withdrawal fulfillment tx to the tx driver");
+    output_handles
+        .tx_driver
+        .drive(signed_tx, TxStatus::is_buried)
+        .await?;
+
+    info!(%txid, %deposit_idx, "withdrawal fulfillment confirmed");
+    Ok(())
 }
 
 /// Initiates the cooperative payout flow by publishing the assignee's payout descriptor.

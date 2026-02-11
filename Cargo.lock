@@ -2271,6 +2271,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-tx-graph2",
+ "strata-l1-txfmt",
  "terrors",
  "thiserror 2.0.17",
  "tokio",

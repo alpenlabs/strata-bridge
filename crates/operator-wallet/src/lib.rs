@@ -6,7 +6,8 @@ use std::{collections::BTreeSet, time::Duration};
 use algebra::predicate;
 use bdk_wallet::{
     bitcoin::{
-        script::PushBytesBuf, Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, XOnlyPublicKey,
+        script::PushBytesBuf, Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, Transaction,
+        XOnlyPublicKey,
     },
     descriptor,
     error::CreateTxError,
@@ -197,6 +198,47 @@ impl OperatorWallet {
         tx_builder.fee_rate(fee_rate);
         tx_builder.add_recipient(user_script_pubkey, amount);
         tx_builder.add_data(&push_data);
+        tx_builder.ordering(TxOrdering::Untouched);
+
+        let psbt = tx_builder.finish()?;
+
+        // Mark the used input(s) as fronted so we can track it later
+        psbt.unsigned_tx.input.iter().for_each(|input| {
+            self.fronting_outpoints.insert(input.previous_output);
+        });
+
+        Ok(psbt)
+    }
+
+    /// Funds an unfunded version 3 transaction by adding inputs and change.
+    ///
+    /// Takes a transaction with outputs only and adds inputs from the general wallet to cover the
+    /// outputs plus fees. Change, if any, is added at the end of vouts.
+    ///
+    /// # Notes
+    ///
+    /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
+    /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
+    pub fn fund_v3_transaction(
+        &mut self,
+        unfunded_tx: Transaction,
+        fee_rate: FeeRate,
+    ) -> Result<Psbt, CreateTxError> {
+        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
+
+        let mut tx_builder = self.general_wallet.build_tx();
+        // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
+        tx_builder.version(3);
+        // DON'T spend any of the anchor outputs or already-used fronting outputs
+        tx_builder.unspendable(anchor_outpoints);
+        tx_builder.unspendable(self.fronting_outpoints.iter().copied().collect());
+        tx_builder.fee_rate(fee_rate);
+
+        // Add all outputs from the unfunded transaction
+        for output in &unfunded_tx.output {
+            tx_builder.add_recipient(output.script_pubkey.clone(), output.value);
+        }
+
         tx_builder.ordering(TxOrdering::Untouched);
 
         let psbt = tx_builder.finish()?;

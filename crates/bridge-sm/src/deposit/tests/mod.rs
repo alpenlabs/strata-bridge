@@ -92,6 +92,8 @@ const TEST_ASSIGNMENT_DEADLINE_OFFSET: u64 = 15;
 const TEST_COOPERATIVE_PAYOUT_TIMELOCK: u64 = 1008;
 /// Deposit index used in tests.
 pub(super) const TEST_DEPOSIT_IDX: u32 = 0;
+/// Deposit amount used in tests.
+pub(super) const TEST_DEPOSIT_AMOUNT: Amount = Amount::from_sat(10_000_000);
 
 // ===== Configuration Helpers =====
 
@@ -100,7 +102,7 @@ pub(super) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
     Arc::new(DepositSMCfg {
         network: Network::Regtest,
         cooperative_payout_timeout_blocks: 144,
-        deposit_amount: Amount::from_sat(10_000_000),
+        deposit_amount: TEST_DEPOSIT_AMOUNT,
     })
 }
 

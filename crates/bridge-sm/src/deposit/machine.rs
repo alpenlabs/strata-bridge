@@ -53,7 +53,9 @@ impl StateMachine for DepositSM {
                 self.process_partial_received(partial_event)
             }
             DepositEvent::DepositConfirmed(confirmed) => self.process_deposit_confirmed(confirmed),
-            DepositEvent::WithdrawalAssigned(assignment) => self.process_assignment(assignment),
+            DepositEvent::WithdrawalAssigned(assignment) => {
+                self.process_assignment(cfg, assignment)
+            }
             DepositEvent::FulfillmentConfirmed(fulfillment) => {
                 self.process_fulfillment(cfg, fulfillment)
             }
