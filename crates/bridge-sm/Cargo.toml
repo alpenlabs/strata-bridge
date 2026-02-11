@@ -16,6 +16,7 @@ bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 musig2.workspace = true
 thiserror.workspace = true
+zkaleido.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true

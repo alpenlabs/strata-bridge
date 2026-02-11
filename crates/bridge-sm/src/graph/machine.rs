@@ -33,7 +33,25 @@ impl StateMachine for DepositSM {
         cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
-        todo!()
+        match event {
+            GraphEvent::GraphDataProduced(_graph_data) => todo!(),
+            GraphEvent::AdaptorsVerified(_adaptors) => todo!(),
+            GraphEvent::NonceReceived(_nonce_event) => todo!(),
+            GraphEvent::PartialReceived(_partial_event) => todo!(),
+            GraphEvent::WithdrawalAssigned(_assignment) => todo!(),
+            GraphEvent::FulfillmentConfirmed(_fulfillment) => todo!(),
+            GraphEvent::ClaimConfirmed(_claim) => todo!(),
+            GraphEvent::ContestConfirmed(_contest) => todo!(),
+            GraphEvent::BridgeProofConfirmed(_bridge_proof) => todo!(),
+            GraphEvent::BridgeProofTimeoutConfirmed(_timeout) => todo!(),
+            GraphEvent::CounterProofConfirmed(_counterproof) => todo!(),
+            GraphEvent::CounterProofAckConfirmed(_ack) => todo!(),
+            GraphEvent::CounterProofNackConfirmed(_nack) => todo!(),
+            GraphEvent::SlashConfirmed(_slash) => todo!(),
+            GraphEvent::PayoutConfirmed(_payout) => todo!(),
+            GraphEvent::PayoutConnectorSpent(_connector_spent) => todo!(),
+            GraphEvent::NewBlock(_new_block) => todo!(),
+        }
     }
 }
 
