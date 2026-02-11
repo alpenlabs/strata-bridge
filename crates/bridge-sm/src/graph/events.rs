@@ -237,3 +237,39 @@ impl Display for GraphEvent {
         write!(f, "{}", display_str)
     }
 }
+
+/// Implements `From<T> for GraphEvent` for leaf event types.
+///
+/// This allows all deposit-related event structs to be ergonomically
+/// converted into `GraphEvent` via `.into()` and used uniformly
+/// by the Graph State Machine.
+macro_rules! impl_into_deposit_event {
+    ($t:ty, $variant:ident) => {
+        impl From<$t> for GraphEvent {
+            fn from(e: $t) -> Self {
+                GraphEvent::$variant(e)
+            }
+        }
+    };
+}
+
+impl_into_deposit_event!(GraphDataGeneratedEvent, GraphDataProduced);
+impl_into_deposit_event!(AdaptorsVerifiedEvent, AdaptorsVerified);
+impl_into_deposit_event!(GraphNonceReceivedEvent, NonceReceived);
+impl_into_deposit_event!(GraphPartialReceivedEvent, PartialReceived);
+impl_into_deposit_event!(WithdrawalAssignedEvent, WithdrawalAssigned);
+impl_into_deposit_event!(FulfillmentConfirmedEvent, FulfillmentConfirmed);
+impl_into_deposit_event!(ClaimConfirmedEvent, ClaimConfirmed);
+impl_into_deposit_event!(ContestConfirmedEvent, ContestConfirmed);
+impl_into_deposit_event!(BridgeProofConfirmedEvent, BridgeProofConfirmed);
+impl_into_deposit_event!(
+    BridgeProofTimeoutConfirmedEvent,
+    BridgeProofTimeoutConfirmed
+);
+impl_into_deposit_event!(CounterProofConfirmedEvent, CounterProofConfirmed);
+impl_into_deposit_event!(CounterProofAckConfirmedEvent, CounterProofAckConfirmed);
+impl_into_deposit_event!(CounterProofNackConfirmedEvent, CounterProofNackConfirmed);
+impl_into_deposit_event!(SlashConfirmedEvent, SlashConfirmed);
+impl_into_deposit_event!(PayoutConfirmedEvent, PayoutConfirmed);
+impl_into_deposit_event!(PayoutConnectorSpentEvent, PayoutConnectorSpent);
+impl_into_deposit_event!(NewBlockEvent, NewBlock);
