@@ -49,20 +49,20 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Aggregated nonce used to validate partial signatures.
-        agg_nonce: AggNonce,
-
-        /// Public nonces provided by each operator for signing.
-        pubnonces: BTreeMap<OperatorIdx, PubNonce>,
-
-        /// Partial signatures from operators for the deposit transaction.
-        partial_signatures: BTreeMap<OperatorIdx, Signature>,
-
         /// Collection of the transactions of a game.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
+
+        /// Public nonces provided by each operator for signing.
+        pubnonces: BTreeMap<OperatorIdx, PubNonce>,
+
+        /// Aggregated nonce used to validate partial signatures.
+        agg_nonce: AggNonce,
+
+        /// Partial signatures from operators for the deposit transaction.
+        partial_signatures: BTreeMap<OperatorIdx, Signature>,
     },
     /// All required aggregate signatures for this pegout graph have been collected
     GraphSigned {
@@ -173,13 +173,6 @@ pub enum GraphState {
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// The txid of the fulfillment transaction (None in faulty claim cases).
-        fulfillment_txid: Option<Txid>,
-
-        /// The block height at which the fulfillment transaction was confirmed (None in faulty
-        /// claim cases).
-        fulfillment_block_height: Option<BitcoinBlockHeight>,
-
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
@@ -202,13 +195,6 @@ pub enum GraphState {
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
-
-        /// The txid of the fulfillment transaction (None in faulty claim cases).
-        fulfillment_txid: Option<Txid>,
-
-        /// The block height at which the fulfillment transaction was confirmed (None in faulty
-        /// claim cases).
-        fulfillment_block_height: Option<BitcoinBlockHeight>,
 
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
