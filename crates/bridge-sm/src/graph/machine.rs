@@ -30,7 +30,7 @@ impl StateMachine for DepositSM {
 
     fn process_event(
         &mut self,
-        cfg: Self::Config,
+        _cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
