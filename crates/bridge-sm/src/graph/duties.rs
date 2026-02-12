@@ -108,3 +108,24 @@ pub enum GraphDuty {
         contested_payout_tx: Transaction,
     },
 }
+
+impl std::fmt::Display for GraphDuty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            GraphDuty::VerifyAdaptors { .. } => "VerifyAdaptors".to_string(),
+            GraphDuty::PublishGraphNonces { .. } => "PublishGraphNonces".to_string(),
+            GraphDuty::PublishGraphPartials { .. } => "PublishGraphPartials".to_string(),
+            GraphDuty::PublishClaim { .. } => "PublishClaim".to_string(),
+            GraphDuty::PublishUncontestedPayout { .. } => "PublishUncontestedPayout".to_string(),
+            GraphDuty::PublishContest { .. } => "PublishContest".to_string(),
+            GraphDuty::PublishBridgeProof { .. } => "PublishBridgeProof".to_string(),
+            GraphDuty::PublishBridgeProofTimeout { .. } => "PublishBridgeProofTimeout".to_string(),
+            GraphDuty::PublishCounterProof { .. } => "PublishCounterProof".to_string(),
+            GraphDuty::PublishCounterProofAck { .. } => "PublishCounterProofAck".to_string(),
+            GraphDuty::PublishCounterProofNack { .. } => "PublishCounterProofNack".to_string(),
+            GraphDuty::PublishSlash { .. } => "PublishSlash".to_string(),
+            GraphDuty::PublishContestedPayout { .. } => "PublishContestedPayout".to_string(),
+        };
+        write!(f, "{s}")
+    }
+}
