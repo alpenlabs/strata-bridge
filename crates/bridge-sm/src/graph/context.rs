@@ -12,7 +12,6 @@ pub struct GraphSMCtx {
     /// The index of the operator this graph belongs to.
     pub operator_idx: OperatorIdx,
 
-    /// The output UTXO of the deposit transaction being tracked in a Graph State
-    /// Machine.
+    /// The deposit UTXO this graph is associated with.
     pub deposit_outpoint: OutPoint,
 }
