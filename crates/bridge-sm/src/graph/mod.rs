@@ -6,7 +6,7 @@ pub mod errors;
 pub mod events;
 pub mod machine;
 pub mod state;
+pub mod transitions;
 
 #[cfg(test)]
 pub mod tests;
-pub mod transitions;

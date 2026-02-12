@@ -11,7 +11,6 @@ use zkaleido::ProofReceipt;
 
 /// The state of a pegout graph associated with a particular deposit.
 /// Each graph is uniquely identified by the two-tuple (depositIdx, operatorIdx)
-#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphState {
     /// A new deposit request has been identified
@@ -24,7 +23,7 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
@@ -35,7 +34,7 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
@@ -49,19 +48,16 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// Public nonces provided by each operator for signing.
-        pubnonces: BTreeMap<OperatorIdx, PubNonce>,
-
         /// Aggregated nonce used to validate partial signatures.
         agg_nonce: AggNonce,
 
-        /// Partial signatures from operators for the deposit transaction.
+        /// Partial signature from each operator.
         partial_signatures: BTreeMap<OperatorIdx, Signature>,
     },
     /// All required aggregate signatures for this pegout graph have been collected
@@ -69,13 +65,13 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// Aggregated final signatures per operator graph
+        /// Aggregated final signatures for the graph
         signature: Signature,
     },
     /// The deposit associated with this pegout graph has been assigned
@@ -83,13 +79,13 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// Aggregated final signatures per operator graph
+        /// Aggregated final signatures for the graph
         signature: Signature,
 
         /// The operator assigned to fulfill the withdrawal.
@@ -108,7 +104,7 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
@@ -125,7 +121,7 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
@@ -146,7 +142,7 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
@@ -167,7 +163,7 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
@@ -190,7 +186,7 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
@@ -210,13 +206,13 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Collection of the transactions of a game.
+        /// Data required to generate the game’s transaction graph.
         graph_data: GameGraph,
 
         /// Collection of the IDs of all transactions of a [`GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// The block height at which the contest transaction was confirmed
+        /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
         /// The txids of the counterproof transactions submitted on chain along with their
@@ -231,13 +227,13 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// The block height at which the contest transaction was confirmed
+        /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
-        /// The txid of the expected contested payout transaction
+        /// The txid of the expected contested payout transaction.
         expected_payout_txid: Txid,
 
-        /// The txid of the possible slash transaction
+        /// The txid of the possible slash transaction.
         possible_slash_txid: Txid,
     },
     /// A counterproof has been ACK'd on chain
@@ -245,7 +241,7 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// The block height at which the contest transaction was confirmed
+        /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
         /// The txid of the expected slash transaction
