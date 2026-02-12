@@ -17,4 +17,5 @@
 
 pub mod config;
 pub mod deposit;
+pub mod graph;
 pub mod output_handles;
