@@ -10,19 +10,11 @@ use bitcoin::Network;
 pub struct GraphSMCfg {
     /// The Bitcoin network (mainnet, testnet, regtest, etc.) used by the bridge.
     pub network: Network,
-
-    /// The number of operators in the bridge.
-    pub num_operators: usize,
 }
 
 impl GraphSMCfg {
     /// Returns the Bitcoin network used by the bridge.
     pub const fn network(&self) -> Network {
         self.network
-    }
-
-    /// Returns the number of operators in the bridge.
-    pub const fn num_operators(&self) -> usize {
-        self.num_operators
     }
 }
