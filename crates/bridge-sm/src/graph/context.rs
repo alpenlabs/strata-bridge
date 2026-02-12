@@ -1,13 +1,16 @@
 //! Context for the Graph State Machine.
 
 use bitcoin::OutPoint;
-use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
+use strata_bridge_primitives::{
+    operator_table::OperatorTable,
+    types::{DepositIdx, OperatorIdx},
+};
 
 /// Execution context for a single instance of the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GraphSMCtx {
     /// The index of the deposit this graph is associated with.
-    pub deposit_idx: u32,
+    pub deposit_idx: DepositIdx,
 
     /// The index of the operator this graph belongs to.
     pub operator_idx: OperatorIdx,
@@ -21,7 +24,7 @@ pub struct GraphSMCtx {
 
 impl GraphSMCtx {
     /// Returns the index of the deposit this graph is associated with.
-    pub const fn deposit_idx(&self) -> u32 {
+    pub const fn deposit_idx(&self) -> DepositIdx {
         self.deposit_idx
     }
 
