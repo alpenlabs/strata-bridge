@@ -20,4 +20,9 @@ impl GraphSMCfg {
     pub const fn network(&self) -> Network {
         self.network
     }
+
+    /// Returns the number of operators in the bridge.
+    pub const fn num_operators(&self) -> usize {
+        self.num_operators
+    }
 }

@@ -14,14 +14,14 @@ use crate::{
 /// The State Machine that tracks the state of a deposit utxo at any given time (including the state
 /// of cooperative payout process)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DepositSM {
+pub struct GraphSM {
     /// Context associated with this Graph State Machine instance.
     pub context: GraphSMCtx,
-    /// The current state of the Deposit State Machine.
+    /// The current state of the Graph State Machine.
     pub state: GraphState,
 }
 
-impl StateMachine for DepositSM {
+impl StateMachine for GraphSM {
     type Config = Arc<GraphSMCfg>;
     type Duty = GraphDuty;
     type OutgoingSignal = GraphSignal;
@@ -62,7 +62,7 @@ impl StateMachine for DepositSM {
 /// duties and [`GraphSignal`] signals.
 pub type GSMOutput = SMOutput<GraphDuty, GraphSignal>;
 
-impl DepositSM {
+impl GraphSM {
     /// Returns a reference to the current state of the Graph State Machine.
     pub const fn state(&self) -> &GraphState {
         &self.state
