@@ -27,7 +27,7 @@ use secret_service_server::{
         ClientConfig, ServerConfig,
     },
 };
-use strata_bridge_primitives::{scripts::taproot::TaprootWitness, secp::EvenSecretKey};
+use strata_bridge_primitives::{scripts::taproot::TaprootTweak, secp::EvenSecretKey};
 
 use crate::seeded_impl::Service;
 
@@ -214,7 +214,7 @@ async fn musig2() {
                 .keypair(SECP256K1)
         })
         .collect::<Vec<_>>();
-    let witness = TaprootWitness::Key;
+    let tweak = TaprootTweak::Key { tweak: None };
 
     let remote_public_key = ms2_signer.pubkey().await.expect("good response");
     let params = Musig2Params {
@@ -227,7 +227,7 @@ async fn musig2() {
             pubkeys.sort();
             pubkeys
         },
-        witness,
+        tweak,
         input: OutPoint::new(Txid::all_zeros(), 0),
     };
 
@@ -240,18 +240,20 @@ async fn musig2() {
             .map(|pk| pk.public_key(Parity::Even)),
     )
     .unwrap();
-    match params.witness {
-        TaprootWitness::Key => {
-            ctx = ctx
-                .with_unspendable_taproot_tweak()
-                .expect("must be able to tweak the key agg context")
-        }
-        TaprootWitness::Tweaked { tweak } => {
-            ctx = ctx
-                .with_taproot_tweak(tweak.as_ref())
-                .expect("must be able to tweak the key agg context")
-        }
-        _ => {}
+    match params.tweak {
+        TaprootTweak::Key { tweak } => match tweak {
+            None => {
+                ctx = ctx
+                    .with_unspendable_taproot_tweak()
+                    .expect("must be able to tweak the key agg context")
+            }
+            Some(val) => {
+                ctx = ctx
+                    .with_taproot_tweak(val.as_ref())
+                    .expect("must be able to tweak the key agg context")
+            }
+        },
+        TaprootTweak::Script => {}
     }
     let agg_pubkey: XOnlyPublicKey = ctx.aggregated_pubkey();
 
