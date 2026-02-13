@@ -15,67 +15,43 @@ pub async fn execute_graph_duty(
     duty: &GraphDuty,
 ) {
     match duty {
-        GraphDuty::VerifyAdaptors(messages) => {
+        GraphDuty::VerifyAdaptors { .. } => {
             todo!("VerifyAdaptors")
         }
-        GraphDuty::PublishGraphNonces {
-            deposit_idx,
-            operator_idx,
-        } => {
+        GraphDuty::PublishGraphNonces { .. } => {
             todo!("PublishGraphNonces")
         }
-        GraphDuty::PublishGraphPartials {
-            deposit_idx,
-            operator_idx,
-            agg_nonce,
-            claim_txid,
-        } => {
+        GraphDuty::PublishGraphPartials { .. } => {
             todo!("PublishGraphPartials")
         }
-        GraphDuty::PublishClaim { claim_txid } => {
+        GraphDuty::PublishClaim { .. } => {
             todo!("PublishClaim")
         }
-        GraphDuty::PublishUncontestedPayout {
-            uncontested_payout_txid,
-        } => {
+        GraphDuty::PublishUncontestedPayout { .. } => {
             todo!("PublishUncontestedPayout")
         }
-        GraphDuty::PublishContest { claim_txid } => {
+        GraphDuty::PublishContest { .. } => {
             todo!("PublishContest")
         }
-        GraphDuty::PublishBridgeProof {
-            deposit_idx,
-            operator_idx,
-        } => {
+        GraphDuty::PublishBridgeProof { .. } => {
             todo!("PublishBridgeProof")
         }
-        GraphDuty::PublishBridgeProofTimeout { timeout_tx } => {
+        GraphDuty::PublishBridgeProofTimeout { .. } => {
             todo!("PublishBridgeProofTimeout")
         }
-        GraphDuty::PublishCounterProof {
-            deposit_idx,
-            operator_idx,
-            proof,
-        } => {
+        GraphDuty::PublishCounterProof { .. } => {
             todo!("PublishCounterProof")
         }
-        GraphDuty::PublishCounterProofAck {
-            counter_proof_ack_tx,
-        } => {
+        GraphDuty::PublishCounterProofAck { .. } => {
             todo!("PublishCounterProofAck")
         }
-        GraphDuty::PublishCounterProofNack {
-            deposit_idx,
-            counter_prover_idx,
-        } => {
+        GraphDuty::PublishCounterProofNack { .. } => {
             todo!("PublishCounterProofNack")
         }
-        GraphDuty::PublishSlash { slash_tx } => {
+        GraphDuty::PublishSlash { .. } => {
             todo!("PublishSlash")
         }
-        GraphDuty::PublishContestedPayout {
-            contested_payout_tx,
-        } => {
+        GraphDuty::PublishContestedPayout { .. } => {
             todo!("PublishContestedPayout")
         }
     }
