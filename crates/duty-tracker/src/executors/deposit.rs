@@ -572,9 +572,10 @@ pub(crate) async fn handle_publish_deposit(
     aggnonce: AggNonce,
 ) -> Result<(), ContractManagerErr> {
     info!(deposit_txid=%deposit_tx.compute_txid(), "executing duty to publish deposit");
-    let witness = &deposit_tx.witnesses()[0];
+    let witness = deposit_tx.witnesses()[0].clone();
 
-    let ctx = create_agg_ctx(musig_pubkeys.into_iter(), witness).expect("must create agg ctx");
+    let ctx =
+        create_agg_ctx(musig_pubkeys.into_iter(), &witness.into()).expect("must create agg ctx");
 
     let sighash = deposit_tx.sighashes()[0];
     let aggregate_sig: schnorr::Signature =

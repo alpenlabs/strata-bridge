@@ -5,7 +5,7 @@ use musig2::{AggNonce, verify_partial};
 use strata_bridge_connectors2::n_of_n::NOfNConnector;
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
-    scripts::prelude::{TaprootWitness, get_aggregated_pubkey},
+    scripts::{prelude::get_aggregated_pubkey, taproot::TaprootTweak},
 };
 use strata_bridge_tx_graph2::transactions::prelude::{CooperativePayoutData, CooperativePayoutTx};
 
@@ -277,10 +277,10 @@ impl DepositSM {
         };
         // Generate the key_agg_ctx using the operator table.
         // NOfNConnector uses key-path spend with no script tree, so we use
-        // TaprootWitness::Key which applies with_unspendable_taproot_tweak()
+        // TaprootTweak::Key which applies with_unspendable_taproot_tweak()
         let key_agg_ctx = create_agg_ctx(
             self.context.operator_table().btc_keys(),
-            &TaprootWitness::Key,
+            &TaprootTweak::Key { tweak: None },
         )
         .expect("must be able to create key aggregation context");
         let operator_pubkey = self

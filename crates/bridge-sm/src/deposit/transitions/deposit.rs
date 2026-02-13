@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use bitcoin::OutPoint;
 use musig2::{AggNonce, aggregate_partial_signatures, secp256k1::schnorr, verify_partial};
-use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::prelude::TaprootWitness};
+use strata_bridge_primitives::key_agg::create_agg_ctx;
 use strata_bridge_tx_graph2::transactions::PresignedTx;
 
 use crate::{
@@ -262,15 +262,9 @@ impl DepositSM {
                     .copied()
                     .expect("deposit transaction must have signing info");
                 let sighash = signing_info.sighash;
-                let tweak = signing_info
-                    .tweak
-                    .expect("DRT->DT key-path spend must include a taproot tweak")
-                    .expect("tweak must be present for deposit transaction");
-
-                let tap_witness = TaprootWitness::Tweaked { tweak };
 
                 // Create key aggregation context once - reused for verification and aggregation
-                let key_agg_ctx = create_agg_ctx(btc_keys, &tap_witness)
+                let key_agg_ctx = create_agg_ctx(btc_keys, &signing_info.tweak)
                     .expect("must be able to create key aggregation context");
 
                 // Verify the partial signature

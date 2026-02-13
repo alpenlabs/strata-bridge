@@ -21,7 +21,7 @@ use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
     operator_table::OperatorTable,
-    scripts::prelude::{TaprootWitness, get_aggregated_pubkey},
+    scripts::{prelude::get_aggregated_pubkey, taproot::TaprootTweak},
     secp::EvenSecretKey,
     types::OperatorIdx,
 };
@@ -176,16 +176,9 @@ pub(super) fn get_deposit_signing_info(
 
     let sighash = info.sighash;
 
-    let tweak = info
-        .tweak
-        .expect("DRT->DT key-path spend must include a taproot tweak")
-        .expect("tweak must be present for deposit transaction");
-
-    let tap_witness = TaprootWitness::Tweaked { tweak };
-
     let btc_keys: Vec<_> = operator_signers.iter().map(|s| s.pubkey()).collect();
 
-    let key_agg_ctx = create_agg_ctx(btc_keys, &tap_witness)
+    let key_agg_ctx = create_agg_ctx(btc_keys, &info.tweak)
         .expect("must be able to create key aggregation context");
 
     (key_agg_ctx, sighash)
@@ -254,8 +247,8 @@ pub(super) fn get_payout_signing_info(
     operator_signers: &[TestMusigSigner],
 ) -> (KeyAggContext, musig2::secp256k1::Message) {
     let btc_keys: Vec<_> = operator_signers.iter().map(|s| s.pubkey()).collect();
-    let key_agg_ctx =
-        create_agg_ctx(btc_keys, &TaprootWitness::Key).expect("must create key agg context");
+    let key_agg_ctx = create_agg_ctx(btc_keys, &TaprootTweak::Key { tweak: None })
+        .expect("must create key agg context");
     let message = payout_tx.signing_info()[0].sighash;
     (key_agg_ctx, message)
 }
