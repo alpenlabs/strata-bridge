@@ -1,16 +1,22 @@
 //! The duties that need to be performed in the Graph State Machine in response to the state
 //! transitions.
 
-use bitcoin::{Transaction, Txid};
+use bitcoin::{OutPoint, Transaction, Txid, taproot::TapNodeHash};
 use musig2::{AggNonce, secp256k1::Message};
-use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    mosiac::Labels,
+    types::{DepositIdx, OperatorIdx},
+};
 use zkaleido::ProofReceipt;
 
 /// The duties that need to be performed to drive the Graph State Machine forward.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphDuty {
     /// Verify the adaptor signatures for the generated graph.
-    VerifyAdaptors(Vec<Message>),
+    VerifyAdaptors {
+        /// Sighashes to verify adaptors against
+        sighashes: Vec<Message>,
+    },
 
     /// Publish nonces for graph signing.
     PublishGraphNonces {
@@ -19,6 +25,12 @@ pub enum GraphDuty {
 
         /// The index of the operator this graph belongs to.
         operator_idx: OperatorIdx,
+
+        /// The inpoints of the graph used to retrieve musig2 session per input being signed.
+        graph_inpoints: Vec<OutPoint>,
+
+        /// The tweak required for taproot spend per input being signed.
+        graph_tweaks: Vec<TapNodeHash>,
     },
 
     /// Publish partial signatures for graph signing.
@@ -29,8 +41,17 @@ pub enum GraphDuty {
         /// The index of the operator this graph belongs to.
         operator_idx: OperatorIdx,
 
-        /// Aggregated nonce to be used for partial signature generation.
-        agg_nonce: AggNonce,
+        /// Aggregated nonces to be used for partial signature generation.
+        agg_nonces: Vec<AggNonce>,
+
+        /// Sighashes to sign.
+        sighashes: Vec<Message>,
+
+        /// The inpoints of the graph used to retrieve musig2 session per input being signed.
+        graph_inpoints: Vec<OutPoint>,
+
+        /// The tweak required for taproot spend per input being signed.
+        graph_tweaks: Vec<TapNodeHash>,
 
         /// The txid of the claim transaction (must not exist on chain before signing).
         claim_txid: Txid,
@@ -38,20 +59,20 @@ pub enum GraphDuty {
 
     /// Publish the claim transaction on-chain.
     PublishClaim {
-        /// The claim transaction to publish.
-        claim_txid: Transaction,
+        /// The signed claim transaction to publish.
+        signed_claim_tx: Transaction,
     },
 
     /// Publish the uncontested payout transaction.
     PublishUncontestedPayout {
-        /// The uncontested payout transaction
-        uncontested_payout_txid: Transaction,
+        /// The signed uncontested payout transaction to publish.
+        signed_uncontested_payout_tx: Transaction,
     },
 
     /// Publish the contest transaction on-chain in response to a faulty claim.
     PublishContest {
-        /// The claim transaction being contested.
-        claim_txid: Transaction,
+        /// The signed contest transaction to publish.
+        signed_contest_tx: Transaction,
     },
 
     /// Publish a bridge proof on-chain to defend against a contest.
@@ -61,12 +82,15 @@ pub enum GraphDuty {
 
         /// The index of the operator this graph belongs to.
         operator_idx: OperatorIdx,
+
+        /// The bridge proof transaction to be published (unsigned).
+        bridge_proof_tx: Transaction,
     },
 
     /// Publish a bridge proof timeout transaction.
     PublishBridgeProofTimeout {
-        /// The bridge proof timeout transaction to be published.
-        timeout_tx: Transaction,
+        /// The signed bridge proof timeout transaction to be published.
+        signed_timeout_tx: Transaction,
     },
 
     /// Publish a counterproof on-chain to challenge a bridge proof.
@@ -77,14 +101,17 @@ pub enum GraphDuty {
         /// The index of the operator this graph belongs to.
         operator_idx: OperatorIdx,
 
+        /// The counterproof transaction to be published (unsigned; signed via adaptors).
+        counterproof_tx: Transaction,
+
         /// The bridge proof to counter.
         proof: ProofReceipt,
     },
 
     /// Publish a counterproof ACK transaction.
     PublishCounterProofAck {
-        /// The counterproof ACK transaction to be published.
-        counter_proof_ack_tx: Transaction,
+        /// The signed counterproof ACK transaction to be published.
+        signed_counter_proof_ack_tx: Transaction,
     },
 
     /// Publish a counterproof NACK on-chain to reject an invalid counterproof.
@@ -94,18 +121,25 @@ pub enum GraphDuty {
 
         /// The index of the operator who submitted the counterproof.
         counter_prover_idx: OperatorIdx,
+
+        /// The counterproof NACK transaction to be published (unsigned; signed by mosaic after GC
+        /// evaluation).
+        counterproof_nack_tx: Transaction,
+
+        /// The labels committed in the counterproof.
+        labels: Vec<Labels>,
     },
 
     /// Publish a slash transaction.
     PublishSlash {
-        /// The slash transaction to be published.
-        slash_tx: Transaction,
+        /// The signed slash transaction to be published.
+        signed_slash_tx: Transaction,
     },
 
     /// Publish a contested payout transaction.
     PublishContestedPayout {
-        /// The contested payout transaction to be published.
-        contested_payout_tx: Transaction,
+        /// The signed contested payout transaction to be published.
+        signed_contested_payout_tx: Transaction,
     },
 }
 
