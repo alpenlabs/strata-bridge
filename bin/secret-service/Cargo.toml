@@ -7,6 +7,9 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+strata-bridge-key-deriv.workspace = true
+strata-bridge-primitives.workspace = true
+
 bitcoin.workspace = true
 bitvm.workspace = true
 cache-advisor = "1.0.16"
@@ -22,19 +25,16 @@ secret-service-proto = { version = "0.1.0", path = "../../crates/secret-service-
 secret-service-server = { version = "0.1.0", path = "../../crates/secret-service-server" }
 serde.workspace = true
 sha2.workspace = true
-strata-bridge-key-deriv.workspace = true
-strata-bridge-primitives.workspace = true
 terrors.workspace = true
 tokio.workspace = true
 toml = "0.8.19"
 tracing.workspace = true
 tracing-subscriber.workspace = true
-wots = { version = "0.1.0", path = "../../crates/wots", features = ["signing"] }
+wots = { workspace = true, features = ["signing"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 memory_pprof = { path = "../../crates/memory_pprof", optional = true }
 tikv-jemallocator = "0.6"
-
 
 [dev-dependencies]
 rcgen = "0.13.2"
