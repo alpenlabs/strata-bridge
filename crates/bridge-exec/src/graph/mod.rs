@@ -8,7 +8,7 @@ use strata_bridge_sm::graph::duties::GraphDuty;
 use crate::{config::ExecutionConfig, output_handles::OutputHandles};
 
 /// Executes the given graph duty.
-#[allow(unused_variables)]
+#[expect(unused_variables)]
 pub async fn execute_graph_duty(
     cfg: Arc<ExecutionConfig>,
     output_handles: Arc<OutputHandles>,
