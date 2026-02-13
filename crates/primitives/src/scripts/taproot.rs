@@ -333,6 +333,33 @@ impl<'a> Arbitrary<'a> for TaprootWitness {
     }
 }
 
+/// The tweak required for a taproot spend.
+///
+/// A keypath spend may involve a tweak if the internal key is tweaked with some known tapnode hash.
+/// A script path spend does not involve any tweak.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TaprootTweak {
+    /// A key path spend which may or may not use a tweak.
+    Key {
+        /// The tweak for the key path spend. If `None`, it means that no tweak is being used. If
+        /// `Some`, it means that the key was tweaked with the given
+        /// [Merkle Root](https://docs.rs/bitcoin/latest/bitcoin/taproot/struct.TaprootSpendInfo.html#method.merkle_root) hash.
+        tweak: Option<TapNodeHash>,
+    },
+    /// A script path spend which does not use any tweak.
+    Script,
+}
+
+impl From<TaprootWitness> for TaprootTweak {
+    fn from(witness: TaprootWitness) -> Self {
+        match witness {
+            TaprootWitness::Script { .. } => TaprootTweak::Script,
+            TaprootWitness::Key => TaprootTweak::Key { tweak: None },
+            TaprootWitness::Tweaked { tweak } => TaprootTweak::Key { tweak: Some(tweak) },
+        }
+    }
+}
+
 /// Get the message hash for signing.
 ///
 /// This hash may be for the key path spend or the script path spend depending upon the
