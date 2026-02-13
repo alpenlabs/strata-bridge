@@ -4,7 +4,7 @@
 use bitcoin::{OutPoint, Transaction, Txid, taproot::TapNodeHash};
 use musig2::{AggNonce, secp256k1::Message};
 use strata_bridge_primitives::{
-    mosiac::Labels,
+    mosaic::Labels,
     types::{DepositIdx, OperatorIdx},
 };
 use zkaleido::ProofReceipt;

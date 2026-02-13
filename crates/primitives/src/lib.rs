@@ -15,7 +15,7 @@ pub mod build_context;
 pub mod constants;
 pub mod errors;
 pub mod key_agg;
-pub mod mosiac;
+pub mod mosaic;
 pub mod operator_table;
 pub mod scripts;
 pub mod secp;
