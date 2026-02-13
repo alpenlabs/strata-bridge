@@ -62,6 +62,24 @@ impl From<Txid> for bitcoin::Txid {
     Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Archive, Serialize, Deserialize,
 )]
 #[repr(transparent)]
+pub struct TapNodeHash([u8; 32]);
+
+impl From<bitcoin::taproot::TapNodeHash> for TapNodeHash {
+    fn from(value: bitcoin::taproot::TapNodeHash) -> Self {
+        Self(value.to_byte_array())
+    }
+}
+
+impl From<TapNodeHash> for bitcoin::taproot::TapNodeHash {
+    fn from(value: TapNodeHash) -> Self {
+        bitcoin::taproot::TapNodeHash::from_byte_array(value.0)
+    }
+}
+
+#[derive(
+    Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Archive, Serialize, Deserialize,
+)]
+#[repr(transparent)]
 #[rkyv(remote = bitcoin::hashes::sha256d::Hash)]
 pub struct Hash(#[rkyv(getter = bitcoin::hashes::sha256d::Hash::as_byte_array)] [u8; 32]);
 

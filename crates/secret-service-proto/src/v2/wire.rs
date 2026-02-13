@@ -2,17 +2,14 @@
 // TODO: change all the hardcoded lengths in here to be calculated at compile time when we upgrade
 // our compiler
 
-use bitcoin::{
-    hashes::Hash,
-    taproot::{ControlBlock, TaprootError},
-    OutPoint, ScriptBuf, TapNodeHash, XOnlyPublicKey,
-};
+use bitcoin::{taproot::TaprootError, OutPoint, XOnlyPublicKey};
 use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 use rkyv::{Archive, Deserialize, Serialize};
-use strata_bridge_primitives::scripts::taproot::TaprootWitness;
+use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 use terrors::OneOf;
 
 use super::traits::{Musig2Params, OurPubKeyIsNotInParams, SelfVerifyFailed};
+use crate::v2::rkyv_wrappers;
 
 /// Various messages the server can send to the client.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
@@ -216,69 +213,33 @@ pub enum ClientMessage {
     },
 }
 
-/// Serializable version of [`TaprootWitness`].
+/// Serializable version of [`TaprootTweak`].
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-pub enum SerializableTaprootWitness {
-    /// Use the keypath spend.
-    ///
-    /// This only requires the signature for the tweaked internal key and nothing else.
-    Key,
-
-    /// Use the script path spend.
-    ///
-    /// This requires the script being spent from as well as the [`ControlBlock`] in addition to
-    /// the elements that fulfill the spending condition in the script.
-    Script {
-        /// Raw bytes of the [`ScriptBuf`].
-        script_buf: Vec<u8>,
-        /// Raw bytes of the [`ControlBlock`].
-        control_block: Vec<u8>,
+pub enum SerializableTaprootTweak {
+    Key {
+        tweak: Option<rkyv_wrappers::TapNodeHash>,
     },
-
-    /// Use the keypath spend tweaked with some known hash.
-    Tweaked {
-        /// Tagged hash used in taproot trees.
-        tweak: [u8; 32],
-    },
+    Script,
 }
 
-impl From<TaprootWitness> for SerializableTaprootWitness {
-    fn from(witness: TaprootWitness) -> Self {
-        match witness {
-            TaprootWitness::Key => SerializableTaprootWitness::Key,
-            TaprootWitness::Script {
-                script_buf,
-                control_block,
-            } => SerializableTaprootWitness::Script {
-                script_buf: script_buf.into_bytes(),
-                control_block: control_block.serialize(),
+impl From<SerializableTaprootTweak> for TaprootTweak {
+    fn from(value: SerializableTaprootTweak) -> Self {
+        match value {
+            SerializableTaprootTweak::Key { tweak } => TaprootTweak::Key {
+                tweak: tweak.map(|t| t.into()),
             },
-            TaprootWitness::Tweaked { tweak } => SerializableTaprootWitness::Tweaked {
-                tweak: tweak.to_raw_hash().to_byte_array(),
-            },
+            SerializableTaprootTweak::Script => TaprootTweak::Script,
         }
     }
 }
 
-impl TryFrom<SerializableTaprootWitness> for TaprootWitness {
-    type Error = TaprootError;
-    fn try_from(value: SerializableTaprootWitness) -> Result<Self, Self::Error> {
+impl From<TaprootTweak> for SerializableTaprootTweak {
+    fn from(value: TaprootTweak) -> Self {
         match value {
-            SerializableTaprootWitness::Key => Ok(TaprootWitness::Key),
-            SerializableTaprootWitness::Script {
-                script_buf,
-                control_block,
-            } => {
-                let script_buf = ScriptBuf::from_bytes(script_buf);
-                let control_block = ControlBlock::decode(&control_block)?;
-                Ok(TaprootWitness::Script {
-                    script_buf,
-                    control_block,
-                })
-            }
-            SerializableTaprootWitness::Tweaked { tweak } => Ok(TaprootWitness::Tweaked {
-                tweak: TapNodeHash::from_byte_array(tweak),
-            }),
+            TaprootTweak::Key { tweak } => SerializableTaprootTweak::Key {
+                tweak: tweak.map(|t| t.into()),
+            },
+            TaprootTweak::Script => SerializableTaprootTweak::Script,
         }
     }
 }
@@ -308,7 +269,7 @@ pub struct WotsKeySpecifier {
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub struct SerializableMusig2Params {
     pub ordered_pubkeys: Vec<[u8; 32]>,
-    pub witness: SerializableTaprootWitness,
+    pub tweak: SerializableTaprootTweak,
     #[rkyv(with = super::rkyv_wrappers::OutPoint)]
     pub input: OutPoint,
 }
@@ -321,7 +282,7 @@ impl From<Musig2Params> for SerializableMusig2Params {
                 .iter()
                 .map(|pk| pk.serialize())
                 .collect(),
-            witness: From::from(value.witness),
+            tweak: From::from(value.tweak),
             input: value.input,
         }
     }
@@ -341,11 +302,9 @@ impl TryFrom<SerializableMusig2Params> for Musig2Params {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| OneOf::new(InvalidPublicKey))?;
 
-        let witness = value.witness.try_into().map_err(OneOf::new)?;
-
         Ok(Self {
             ordered_pubkeys,
-            witness,
+            tweak: value.tweak.into(),
             input: value.input,
         })
     }

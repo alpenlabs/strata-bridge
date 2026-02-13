@@ -345,7 +345,7 @@ pub(crate) async fn handle_send_graph_nonces(
                 .map(|(outpoint, witness)| {
                     let params = Musig2Params {
                         ordered_pubkeys: musig_pubkeys.clone(),
-                        witness,
+                        tweak: witness.into(),
                         input: outpoint,
                     };
                     musig_client
@@ -421,7 +421,7 @@ pub(crate) async fn handle_send_graph_sigs(
 
             let musig_params = Musig2Params {
                 ordered_pubkeys: musig_pubkeys.clone(),
-                witness,
+                tweak: witness.into(),
                 input: outpoint,
             };
 
@@ -473,7 +473,7 @@ pub(crate) async fn handle_send_root_nonce(
 
     let musig2_params = Musig2Params {
         ordered_pubkeys: musig_pubkeys,
-        witness,
+        tweak: witness.into(),
         input: prevout,
     };
 
@@ -536,7 +536,7 @@ pub(crate) async fn handle_send_root_signature(
 
         let params = Musig2Params {
             ordered_pubkeys: musig_pubkeys,
-            witness,
+            tweak: witness.into(),
             input: prevout,
         };
 

@@ -27,7 +27,7 @@ use secret_service_proto::v2::traits::{
 };
 use sha2::Sha256;
 use strata_bridge_key_deriv::{Musig2Keypair, Musig2Keys, Musig2NonceIkm};
-use strata_bridge_primitives::scripts::taproot::TaprootWitness;
+use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 use terrors::OneOf;
 use tokio::sync::Mutex;
 
@@ -117,18 +117,20 @@ impl Ms2Signer {
         )
         .unwrap();
 
-        match params.witness {
-            TaprootWitness::Key => {
-                ctx = ctx
-                    .with_unspendable_taproot_tweak()
-                    .expect("must be able to tweak the key agg context")
-            }
-            TaprootWitness::Tweaked { tweak } => {
-                ctx = ctx
-                    .with_taproot_tweak(tweak.as_ref())
-                    .expect("must be able to tweak the key agg context")
-            }
-            _ => {}
+        match params.tweak {
+            TaprootTweak::Key { tweak } => match tweak {
+                None => {
+                    ctx = ctx
+                        .with_unspendable_taproot_tweak()
+                        .expect("must be able to tweak the key agg context");
+                }
+                Some(val) => {
+                    ctx = ctx
+                        .with_taproot_tweak(val.as_ref())
+                        .expect("must be able to tweak the key agg context");
+                }
+            },
+            TaprootTweak::Script => {}
         }
         ctx
     }

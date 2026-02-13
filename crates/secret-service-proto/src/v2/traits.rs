@@ -8,7 +8,7 @@ use libp2p_identity::ed25519::SecretKey;
 use musig2::{secp256k1::schnorr::Signature, AggNonce, PartialSignature, PubNonce};
 use quinn::{ConnectionError, ReadExactError, WriteError};
 use rkyv::{rancor, Archive, Deserialize, Serialize};
-use strata_bridge_primitives::scripts::taproot::TaprootWitness;
+use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 use terrors::OneOf;
 
 use super::wire::ServerMessage;
@@ -233,7 +233,11 @@ pub trait Musig2Signer<O: Origin>: SchnorrSigner<O> + Send + Sync {
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct Musig2Params {
     pub ordered_pubkeys: Vec<XOnlyPublicKey>,
-    pub witness: TaprootWitness,
+    pub tweak: TaprootTweak,
+    /// The inpoint of a transaction being signed.
+    ///
+    /// This is composed of the [`Txid`] of the transaction being signed and its input index
+    /// (`vout`).
     pub input: OutPoint,
 }
 
