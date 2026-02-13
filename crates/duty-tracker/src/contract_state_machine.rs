@@ -29,7 +29,7 @@ use strata_bridge_primitives::{
     constants::NUM_ASSERT_DATA_TX,
     key_agg::create_agg_ctx,
     operator_table::OperatorTable,
-    scripts::taproot::TaprootWitness,
+    scripts::taproot::{TaprootTweak, TaprootWitness},
     types::{BitcoinBlockHeight, OperatorIdx},
     wots::{self, Groth16Sigs, Wots256Sig},
 };
@@ -2263,9 +2263,10 @@ impl ContractSM {
 
                 let aggnonce = AggNonce::sum(root_nonces.values().cloned());
 
-                let witness = &self.cfg.deposit_tx.witnesses()[0];
-                let key_agg_ctx = create_agg_ctx(self.cfg.operator_table.btc_keys(), witness)
-                    .expect("must be able to create context");
+                let witness = self.cfg.deposit_tx.witnesses()[0].clone();
+                let key_agg_ctx =
+                    create_agg_ctx(self.cfg.operator_table.btc_keys(), &witness.into())
+                        .expect("must be able to create context");
                 let btc_pubkey = self
                     .cfg
                     .operator_table
@@ -3349,7 +3350,7 @@ fn aggregate_partials(
         .into_iter()
         .map(|(claim_txid, aux)| {
             let agg_contexts = aux.witnesses.map(|w| {
-                create_agg_ctx(operator_table.btc_keys(), &w)
+                create_agg_ctx(operator_table.btc_keys(), &w.into())
                     .expect("must be able to create key agg ctx")
             });
             let partials = PogMusigF::sequence_pog_musig_f(
@@ -3430,8 +3431,9 @@ fn verify_partials_from_peer(
     )))?;
 
     let is_invalid = |(pubnonce, message, witness, partial_signature, aggregated_nonce)| {
-        let key_agg_ctx = create_agg_ctx(cfg.operator_table.btc_keys(), &witness)
-            .expect("must be able to create key agg ctx");
+        let key_agg_ctx =
+            create_agg_ctx(cfg.operator_table.btc_keys(), &TaprootTweak::from(witness))
+                .expect("must be able to create key agg ctx");
 
         verify_partial(
                     &key_agg_ctx,
