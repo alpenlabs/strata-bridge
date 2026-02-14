@@ -18,8 +18,7 @@ mod tests {
     };
 
     /// Helper to create test setup for payout partial tests.
-    /// Returns (state, signers, key_agg_ctx, agg_nonce, message, operator_desc,
-    /// expected_payout_tx).
+    /// Returns (state, signers, key_agg_ctx, agg_nonce, message, cooperative_payout_tx).
     fn create_payout_partial_test_setup(
         assignee: OperatorIdx,
     ) -> (
@@ -28,16 +27,14 @@ mod tests {
         musig2::KeyAggContext,
         AggNonce,
         Message,
-        Descriptor,
-        Transaction, // expected payout_tx for PublishPayout duty
+        strata_bridge_tx_graph2::transactions::prelude::CooperativePayoutTx,
     ) {
         let signers = test_operator_signers();
         let operator_desc = random_p2tr_desc();
 
         // Build cooperative payout tx and get signing info
-        let payout_tx = test_payout_txn(operator_desc.clone());
+        let payout_tx = test_payout_txn(operator_desc);
         let (key_agg_ctx, message) = get_payout_signing_info(&payout_tx, &signers);
-        let expected_payout_tx = payout_tx.as_ref().clone();
 
         // Generate nonces (counter=0 for this signing round)
         let agg_pubkey = key_agg_ctx.aggregated_pubkey();
@@ -51,28 +48,20 @@ mod tests {
         let state = DepositState::PayoutNoncesCollected {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee,
-            operator_desc: operator_desc.clone(),
+            cooperative_payout_tx: payout_tx.clone(),
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             payout_nonces: nonces,
             payout_aggregated_nonce: agg_nonce.clone(),
             payout_partial_signatures: BTreeMap::new(),
         };
 
-        (
-            state,
-            signers,
-            key_agg_ctx,
-            agg_nonce,
-            message,
-            operator_desc,
-            expected_payout_tx,
-        )
+        (state, signers, key_agg_ctx, agg_nonce, message, payout_tx)
     }
 
     /// tests partial collection: first partial received, stays in PayoutNoncesCollected state
     #[test]
     fn test_payout_partial_received_partial_collection() {
-        let (state, signers, key_agg_ctx, agg_nonce, message, operator_desc, _) =
+        let (state, signers, key_agg_ctx, agg_nonce, message, cooperative_payout_tx) =
             create_payout_partial_test_setup(TEST_ASSIGNEE);
 
         // Extract nonces from state for expected state construction
@@ -103,7 +92,7 @@ mod tests {
             expected_state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
-                operator_desc,
+                cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: nonces,
                 payout_aggregated_nonce: agg_nonce,
@@ -118,15 +107,8 @@ mod tests {
     /// PublishPayout duty
     #[test]
     fn test_payout_partial_received_all_collected_pov_is_assignee() {
-        let (
-            mut state,
-            signers,
-            key_agg_ctx,
-            agg_nonce,
-            message,
-            operator_desc,
-            expected_payout_tx,
-        ) = create_payout_partial_test_setup(TEST_POV_IDX);
+        let (mut state, signers, key_agg_ctx, agg_nonce, message, cooperative_payout_tx) =
+            create_payout_partial_test_setup(TEST_POV_IDX);
 
         // Extract nonces from state for expected state construction
         let nonces = if let DepositState::PayoutNoncesCollected { payout_nonces, .. } = &state {
@@ -173,14 +155,25 @@ mod tests {
             expected_state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_POV_IDX,
-                operator_desc,
+                cooperative_payout_tx: cooperative_payout_tx.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: nonces,
-                payout_aggregated_nonce: agg_nonce,
-                payout_partial_signatures: all_partials,
+                payout_aggregated_nonce: agg_nonce.clone(),
+                payout_partial_signatures: all_partials.clone(),
             },
             expected_duties: vec![DepositDuty::PublishPayout {
-                payout_tx: expected_payout_tx,
+                deposit_idx: TEST_DEPOSIT_IDX,
+                deposit_outpoint: test_deposit_outpoint(),
+                payout_sighash: message,
+                agg_nonce,
+                collected_partials: all_partials,
+                payout_coop_tx: Box::new(cooperative_payout_tx),
+                ordered_pubkeys: test_operator_table()
+                    .btc_keys()
+                    .into_iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect(),
+                pov_operator_idx: TEST_POV_IDX,
             }],
             expected_signals: vec![],
         });
@@ -190,7 +183,7 @@ mod tests {
     /// emit any duty
     #[test]
     fn test_payout_partial_received_all_collected_pov_is_not_assignee() {
-        let (mut state, signers, key_agg_ctx, agg_nonce, message, operator_desc, _) =
+        let (mut state, signers, key_agg_ctx, agg_nonce, message, cooperative_payout_tx) =
             create_payout_partial_test_setup(TEST_NONPOV_IDX);
 
         // Extract nonces from state for expected state construction
@@ -238,7 +231,7 @@ mod tests {
             expected_state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_NONPOV_IDX,
-                operator_desc,
+                cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: nonces,
                 payout_aggregated_nonce: agg_nonce,
@@ -252,7 +245,7 @@ mod tests {
     /// tests duplicate detection: same operator sends same partial signature twice
     #[test]
     fn test_payout_partial_received_duplicate_same_signature() {
-        let (state, signers, key_agg_ctx, agg_nonce, message, _, _) =
+        let (state, signers, key_agg_ctx, agg_nonce, message, _) =
             create_payout_partial_test_setup(TEST_ASSIGNEE);
 
         let sm = create_sm(state);
@@ -294,7 +287,7 @@ mod tests {
     /// tests duplicate detection: same operator sends different partial signature
     #[test]
     fn test_payout_partial_received_duplicate_different_signature() {
-        let (state, signers, key_agg_ctx, agg_nonce, message, _, _) =
+        let (state, signers, key_agg_ctx, agg_nonce, message, _) =
             create_payout_partial_test_setup(TEST_ASSIGNEE);
 
         let sm = create_sm(state);
@@ -338,7 +331,7 @@ mod tests {
     /// tests that invalid operator index is rejected
     #[test]
     fn test_invalid_operator_idx_in_payout_partial_received() {
-        let (state, _, _, _, _, _, _) = create_payout_partial_test_setup(TEST_ASSIGNEE);
+        let (state, _, _, _, _, _) = create_payout_partial_test_setup(TEST_ASSIGNEE);
 
         let sm = create_sm(state.clone());
         let mut seq = EventSequence::new(sm, get_state);
@@ -362,7 +355,7 @@ mod tests {
     /// tests that invalid partial signature is rejected with Rejected error
     #[test]
     fn test_payout_partial_received_invalid_signature() {
-        let (state, _, _, _, _, _, _) = create_payout_partial_test_setup(TEST_ASSIGNEE);
+        let (state, _, _, _, _, _) = create_payout_partial_test_setup(TEST_ASSIGNEE);
 
         // Generate an invalid/random partial signature
         let invalid_partial = generate_partial_signature();
@@ -387,6 +380,7 @@ mod tests {
     #[test]
     fn test_payout_partial_received_invalid_from_other_states() {
         let desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_payout_txn(desc.clone());
 
         let partial_sig = generate_partial_signature();
 
@@ -432,7 +426,7 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                operator_desc: desc.clone(),
+                cooperative_payout_tx: cooperative_payout_tx.clone(),
                 payout_nonces: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {

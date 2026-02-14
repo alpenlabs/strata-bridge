@@ -9,10 +9,12 @@ pub mod bootstrap;
 pub mod config;
 pub mod constants;
 pub mod message_handler;
+pub mod message_handler2;
 
 pub use bootstrap::bootstrap;
 pub use config::{Configuration, GossipsubScoringPreset};
 pub use message_handler::MessageHandler;
+pub use message_handler2::{MessageHandler as MessageHandler2, OuroborosMessage};
 
 #[cfg(test)]
 mod tests;

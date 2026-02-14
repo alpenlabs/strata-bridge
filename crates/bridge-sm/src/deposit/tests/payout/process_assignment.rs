@@ -40,6 +40,7 @@ mod tests {
                 deposit_idx: TEST_DEPOSIT_IDX,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: desc,
+                deposit_amount: TEST_DEPOSIT_AMOUNT,
             }],
             expected_signals: vec![],
         });
@@ -106,6 +107,7 @@ mod tests {
                 deposit_idx: TEST_DEPOSIT_IDX,
                 deadline: REASSIGNMENT_DEADLINE,
                 recipient_desc: new_desc,
+                deposit_amount: TEST_DEPOSIT_AMOUNT,
             }],
             expected_signals: vec![],
         });
@@ -183,13 +185,13 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                operator_desc: desc.clone(),
+                cooperative_payout_tx: test_payout_txn(desc.clone()),
                 payout_nonces: BTreeMap::new(),
             },
             DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
-                operator_desc: desc.clone(),
+                cooperative_payout_tx: test_payout_txn(desc.clone()),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: BTreeMap::new(),
                 payout_aggregated_nonce: generate_agg_nonce(),

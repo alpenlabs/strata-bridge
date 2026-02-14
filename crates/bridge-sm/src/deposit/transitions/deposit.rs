@@ -112,9 +112,20 @@ impl DepositSM {
                             };
                             self.state = new_state;
 
+                            // Get ordered pubkeys for MuSig2 signing
+                            let ordered_pubkeys = self
+                                .context()
+                                .operator_table()
+                                .btc_keys()
+                                .into_iter()
+                                .map(|pk| pk.x_only_public_key().0)
+                                .collect();
+
                             // Create the duty to publish deposit nonce
                             let duty = DepositDuty::PublishDepositNonce {
+                                deposit_idx: self.context().deposit_idx,
                                 drt_outpoint: deposit_outpoint,
+                                ordered_pubkeys,
                             };
 
                             return Ok(DSMOutput::with_duties(vec![duty]));
@@ -186,11 +197,22 @@ impl DepositSM {
                     };
                     self.state = new_state;
 
+                    // Get ordered pubkeys for MuSig2 signing
+                    let ordered_pubkeys = self
+                        .context()
+                        .operator_table()
+                        .btc_keys()
+                        .into_iter()
+                        .map(|pk| pk.x_only_public_key().0)
+                        .collect();
+
                     // Create the duty to publish deposit partials
                     let duty = DepositDuty::PublishDepositPartial {
+                        deposit_idx: self.context().deposit_idx,
                         drt_outpoint: self.context().deposit_outpoint(),
                         deposit_sighash,
                         deposit_agg_nonce: agg_nonce,
+                        ordered_pubkeys,
                     };
 
                     Ok(DSMOutput::with_duties(vec![duty]))
@@ -313,18 +335,17 @@ impl DepositSM {
                     .expect("partial signatures must be valid");
 
                     // Build deposit transaction with sigs
-                    let deposit_transaction = deposit_tx.finalize(agg_signature);
+                    let signed_deposit_transaction = deposit_tx.finalize(agg_signature);
 
                     // Transition to DepositPartialsCollected state
                     self.state = DepositState::DepositPartialsCollected {
-                        deposit_transaction: deposit_transaction.clone(),
+                        deposit_transaction: signed_deposit_transaction.clone(),
                         last_block_height: blk_height,
                     };
 
                     // Create the duty to publish the deposit transaction
                     let duty = DepositDuty::PublishDeposit {
-                        deposit_transaction,
-                        agg_signature,
+                        signed_deposit_transaction,
                     };
 
                     Ok(DSMOutput::with_duties(vec![duty]))
