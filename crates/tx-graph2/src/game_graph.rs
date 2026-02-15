@@ -59,7 +59,7 @@ pub struct DepositParams {
 ///
 /// These need not be generated/shared just in time when a deposit is observed on chain i.e., these
 /// values can be generated earlier and shared with the relevant parties beforehand.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SetupParams {
     /// Operator index.
     pub operator_index: u32,
@@ -70,11 +70,13 @@ pub struct SetupParams {
 }
 
 /// Collection of all public keys and hash images that are used in the game graph.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct KeyData {
     /// N/N key.
     pub n_of_n_pubkey: XOnlyPublicKey,
-    /// Operator key.
+    /// Operator key that is to be used in the locking script of the contest transaction.
+    ///
+    /// The signatures in the counterproof transactions correspond to this key.
     pub operator_pubkey: XOnlyPublicKey,
     /// For each watchtower, a key to authorize the contest.
     pub watchtower_pubkeys: Vec<XOnlyPublicKey>,
