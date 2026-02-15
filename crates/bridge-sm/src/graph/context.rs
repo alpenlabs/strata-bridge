@@ -3,18 +3,16 @@
 use bitcoin::{OutPoint, hashes::sha256};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
-    types::{DepositIdx, OperatorIdx},
+    types::{DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_tx_graph2::game_graph::{KeyData, SetupParams};
 
 /// Execution context for a single instance of the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GraphSMCtx {
-    /// The index of the deposit this graph is associated with.
-    pub deposit_idx: DepositIdx,
-
-    /// The index of the operator this graph belongs to.
-    pub operator_idx: OperatorIdx,
+    /// The index of the graph represented by the deposit and the operator this graph is associated
+    /// with.
+    pub graph_idx: GraphIdx,
 
     /// The deposit UTXO this graph is associated with.
     pub deposit_outpoint: OutPoint,
@@ -34,12 +32,17 @@ pub struct GraphSMCtx {
 impl GraphSMCtx {
     /// Returns the index of the deposit this graph is associated with.
     pub const fn deposit_idx(&self) -> DepositIdx {
-        self.deposit_idx
+        self.graph_idx.deposit
     }
 
     /// Returns the index of the operator this graph belongs to.
     pub const fn operator_idx(&self) -> OperatorIdx {
-        self.operator_idx
+        self.graph_idx.operator
+    }
+
+    /// Returns the GraphID for this graph.
+    pub const fn graph_idx(&self) -> GraphIdx {
+        self.graph_idx
     }
 
     /// Returns the deposit UTXO this graph is associated with.

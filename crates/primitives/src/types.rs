@@ -14,6 +14,18 @@ pub type OperatorIdx = u32;
 /// The index of a deposit.
 pub type DepositIdx = u32;
 
+/// A struct that represents the index of a peg out graph, which is a combination of a deposit index
+/// and an operator index.
+// NOTE: (@Rajil1213) this uses a struct instead of a tuple struct or newtype for better readability
+// and to avoid confusion about the order of the indices as they're both of the same type (u32).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct GraphIdx {
+    /// The index of the deposit that a peg out graph is associated with.
+    pub deposit: DepositIdx,
+    /// The index of the operator that can initiate unilateral withdrawals using the peg out graph.
+    pub operator: OperatorIdx,
+}
+
 /// The height of a bitcoin block.
 pub type BitcoinBlockHeight = u64;
 
