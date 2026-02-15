@@ -71,4 +71,13 @@ impl GraphSMCtx {
     pub const fn operator_table(&self) -> &OperatorTable {
         &self.operator_table
     }
+
+    /// Generates the [`SetupParams`] required for graph generation.
+    pub const fn generate_setup_params(&self, key_data: KeyData) -> SetupParams {
+        SetupParams {
+            operator_index: self.operator_idx,
+            stake_outpoint: self.stake_outpoint,
+            keys: key_data,
+        }
+    }
 }

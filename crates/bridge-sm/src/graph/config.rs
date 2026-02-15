@@ -2,7 +2,9 @@
 
 use bitcoin::{XOnlyPublicKey, hashes::sha256};
 use bitcoin_bosd::Descriptor;
-use strata_bridge_tx_graph2::game_graph::ProtocolParams;
+use strata_bridge_tx_graph2::game_graph::{KeyData, ProtocolParams, SetupParams};
+
+use crate::graph::context::GraphSMCtx;
 
 /// Bridge-wide configuration shared across all graph state machines.
 ///
