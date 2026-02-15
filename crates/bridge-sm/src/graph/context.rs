@@ -3,7 +3,7 @@
 use bitcoin::{OutPoint, hashes::sha256};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
-    types::{DepositIdx, OperatorIdx},
+    types::{DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_tx_graph2::game_graph::{KeyData, SetupParams};
 
@@ -40,6 +40,14 @@ impl GraphSMCtx {
     /// Returns the index of the operator this graph belongs to.
     pub const fn operator_idx(&self) -> OperatorIdx {
         self.operator_idx
+    }
+
+    /// Returns the GraphID for this graph.
+    pub const fn graph_idx(&self) -> GraphIdx {
+        GraphIdx {
+            deposit: self.deposit_idx,
+            operator: self.operator_idx,
+        }
     }
 
     /// Returns the deposit UTXO this graph is associated with.
