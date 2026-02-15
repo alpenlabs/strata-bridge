@@ -39,28 +39,32 @@ pub struct GameData {
     pub deposit: DepositParams,
 }
 
-/// Parameters that are known at deposit time.
+/// Parameters that are known at deposit time
+/// i.e., these values are only created/known when a deposit is observed on chain.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DepositParams {
+    /// Game index.
+    pub game_index: NonZero<u32>,
     /// UTXO that funds the claim transaction.
+    // NOTE: (@Rajil1213)These funds can be reserved and shared beforehand, however a new funding
+    // UTXO may need to be generated when a new deposit is observed on chain as the reserve may
+    // run out. And so, it is better to treat this as a deposit-time parameter that is
+    // generated/shared just in time when a deposit is observed on chain.
     pub claim_funds: OutPoint,
     /// UTXO that holds the deposit.
     pub deposit_outpoint: OutPoint,
-    /// UTXO that holds the stake.
-    pub stake_outpoint: OutPoint,
 }
 
 /// Parameters that are known at setup time.
+///
+/// These need not be generated/shared just in time when a deposit is observed on chain i.e., these
+/// values can be generated earlier and shared with the relevant parties beforehand.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SetupParams {
-    /// Used bitcoin network.
-    pub network: Network,
-    /// Magic bytes that identify the bridge.
-    pub magic_bytes: MagicBytes,
-    /// Game index.
-    pub game_index: NonZero<u32>,
     /// Operator index.
     pub operator_index: u32,
+    /// UTXO that holds the stake.
+    pub stake_outpoint: OutPoint,
     /// Collection of public keys and hash images.
     pub keys: KeyData,
 }
@@ -91,6 +95,10 @@ pub struct KeyData {
 /// These parameters don't need to be actively shared.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolParams {
+    /// Used bitcoin network.
+    pub network: Network,
+    /// Magic bytes that identify the bridge.
+    pub magic_bytes: MagicBytes,
     /// Timelock for contesting a claim.
     pub contest_timelock: relative::LockTime,
     /// Timelock for submitting a bridge proof.
@@ -220,7 +228,7 @@ impl GameGraph {
             "too many watchtowers"
         );
 
-        let connectors = GameConnectors::new(&protocol, &setup);
+        let connectors = GameConnectors::new(deposit.game_index, &protocol, &setup);
 
         let claim_data = ClaimData {
             claim_funds: deposit.claim_funds,
@@ -315,8 +323,8 @@ impl GameGraph {
         let slash_data = SlashData {
             operator_idx: setup.operator_index,
             contest_txid: contest.as_ref().compute_txid(),
-            stake_outpoint: deposit.stake_outpoint,
-            magic_bytes: setup.magic_bytes,
+            stake_outpoint: setup.stake_outpoint,
+            magic_bytes: protocol.magic_bytes,
         };
         let slash = SlashTx::new(
             slash_data,
@@ -462,7 +470,7 @@ impl GameConnectors {
     /// - The number of watchtower slash descriptors.
     ///
     /// This method also panics if the number of watchtowers is greater than [`u32::MAX`].
-    pub fn new(protocol: &ProtocolParams, setup: &SetupParams) -> Self {
+    pub fn new(game_index: NonZero<u32>, protocol: &ProtocolParams, setup: &SetupParams) -> Self {
         let keys = &setup.keys;
 
         assert_eq!(
@@ -482,35 +490,41 @@ impl GameConnectors {
         );
 
         let claim_contest = ClaimContestConnector::new(
-            setup.network,
+            protocol.network,
             keys.n_of_n_pubkey,
             keys.watchtower_pubkeys.clone(),
             protocol.contest_timelock,
         );
         let claim_payout = ClaimPayoutConnector::new(
-            setup.network,
+            protocol.network,
             keys.n_of_n_pubkey,
             keys.admin_pubkey,
             keys.unstaking_image,
         );
-        let deposit =
-            NOfNConnector::new(setup.network, keys.n_of_n_pubkey, protocol.deposit_amount);
+        let deposit = NOfNConnector::new(
+            protocol.network,
+            keys.n_of_n_pubkey,
+            protocol.deposit_amount,
+        );
         let contest_proof = ContestProofConnector::new(
-            setup.network,
+            protocol.network,
             keys.n_of_n_pubkey,
             keys.operator_pubkey,
-            setup.game_index,
+            game_index,
             protocol.proof_timelock,
         );
-        let contest_payout =
-            ContestPayoutConnector::new(setup.network, keys.n_of_n_pubkey, protocol.ack_timelock);
+        let contest_payout = ContestPayoutConnector::new(
+            protocol.network,
+            keys.n_of_n_pubkey,
+            protocol.ack_timelock,
+        );
         let contest_slash = ContestSlashConnector::new(
-            setup.network,
+            protocol.network,
             keys.n_of_n_pubkey,
             protocol.contested_payout_timelock,
         );
         let contest_counterproof = ContestCounterproofOutput::new(
-            setup.network,
+            protocol.network,
             keys.n_of_n_pubkey,
             keys.operator_pubkey,
             protocol.counterproof_n_bytes,
@@ -521,14 +535,14 @@ impl GameConnectors {
             .copied()
             .map(|wt_fault_pubkey| {
                 CounterproofConnector::new(
-                    setup.network,
+                    protocol.network,
                     keys.n_of_n_pubkey,
                     wt_fault_pubkey,
                     protocol.nack_timelock,
                 )
             })
             .collect();
-        let stake = NOfNConnector::new(setup.network, keys.n_of_n_pubkey, protocol.stake_amount);
+        let stake = NOfNConnector::new(protocol.network, keys.n_of_n_pubkey, protocol.stake_amount);
 
         Self {
             claim_contest,
@@ -599,6 +613,8 @@ mod tests {
 
     fn get_game_data(node: &mut BitcoinNode, signer: &Signer) -> GameData {
         let protocol = ProtocolParams {
+            network: Network::Regtest,
+            magic_bytes: (*b"ALPN").into(),
             contest_timelock: CONTEST_TIMELOCK,
             proof_timelock: PROOF_TIMELOCK,
             ack_timelock: ACK_TIMELOCK,
@@ -627,27 +643,20 @@ mod tests {
             payout_operator_descriptor: wallet_descriptor.clone(),
             slash_watchtower_descriptors: vec![wallet_descriptor; N_WATCHTOWERS],
         };
-        let setup = SetupParams {
-            network: Network::Regtest,
-            magic_bytes: (*b"ALPN").into(),
-            game_index: NonZero::new(1).unwrap(),
-            operator_index: 0,
-            keys,
-        };
-        let keys = &setup.keys;
 
         // FIXME: (@uncomputable) Prevent having to recreate the connectors
         let deposit_connector =
-            NOfNConnector::new(setup.network, keys.n_of_n_pubkey, DEPOSIT_AMOUNT);
-        let stake_connector = NOfNConnector::new(setup.network, keys.n_of_n_pubkey, STAKE_AMOUNT);
+            NOfNConnector::new(protocol.network, keys.n_of_n_pubkey, DEPOSIT_AMOUNT);
+        let stake_connector =
+            NOfNConnector::new(protocol.network, keys.n_of_n_pubkey, STAKE_AMOUNT);
         let claim_contest_connector = ClaimContestConnector::new(
-            setup.network,
+            protocol.network,
             keys.n_of_n_pubkey,
             keys.watchtower_pubkeys.clone(),
             protocol.contest_timelock,
         );
         let claim_payout_connector = ClaimPayoutConnector::new(
-            setup.network,
+            protocol.network,
             keys.n_of_n_pubkey,
             keys.admin_pubkey,
             keys.unstaking_image,
@@ -688,10 +697,20 @@ mod tests {
         let funding_txid = node.sign_and_broadcast(&funding_tx);
         node.mine_blocks(1);
 
+        let setup = SetupParams {
+            operator_index: 0,
+            stake_outpoint: OutPoint {
+                txid: funding_txid,
+                vout: 2,
+            },
+            keys,
+        };
+
         GameData {
             protocol,
             setup,
             deposit: DepositParams {
+                game_index: NonZero::new(1).unwrap(),
                 claim_funds: OutPoint {
                     txid: funding_txid,
                     vout: 0,
@@ -699,10 +718,6 @@ mod tests {
                 deposit_outpoint: OutPoint {
                     txid: funding_txid,
                     vout: 1,
-                },
-                stake_outpoint: OutPoint {
-                    txid: funding_txid,
-                    vout: 2,
                 },
             },
         }
@@ -745,7 +760,7 @@ mod tests {
         let mut node = BitcoinNode::new();
         let signer = Signer::generate();
         let game_data = get_game_data(&mut node, &signer);
-        let game_index = game_data.setup.game_index;
+        let game_index = game_data.deposit.game_index;
         let (game, connectors) = GameGraph::new(game_data);
         let presigned = game
             .musig_signing_info()
