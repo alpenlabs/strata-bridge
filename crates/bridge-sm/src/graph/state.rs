@@ -6,7 +6,7 @@ use bitcoin::{Txid, taproot::Signature};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph2::game_graph::{GameGraph, GameGraphSummary};
+use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
 use zkaleido::ProofReceipt;
 
 /// The state of a pegout graph associated with a particular deposit.
@@ -23,10 +23,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
     },
     /// All adaptors for this pegout graph have been verified.
@@ -34,10 +35,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Public nonces provided by each operator for signing.
@@ -48,10 +50,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Aggregated nonce used to validate partial signatures.
@@ -65,10 +68,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Aggregated final signatures for the graph.
@@ -79,10 +83,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Aggregated final signatures for the graph.
@@ -104,10 +109,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// The txid of the fulfillment transaction.
@@ -121,10 +127,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// The txid of the fulfillment transaction (None in faulty claim cases).
@@ -142,10 +149,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// The txid of the fulfillment transaction (None in faulty claim cases).
@@ -163,10 +171,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// The block height at which the contest transaction was confirmed.
@@ -186,10 +195,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// The block height at which the contest transaction was confirmed.
@@ -206,10 +216,11 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Data required to generate the game’s transaction graph.
-        graph_data: GameGraph,
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
 
-        /// Collection of the IDs of all transactions of a [`GameGraph`].
+        /// Collection of the IDs of all transactions of a
+        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// The block height at which the contest transaction was confirmed.
