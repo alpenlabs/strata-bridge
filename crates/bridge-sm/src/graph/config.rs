@@ -16,6 +16,7 @@ pub struct GraphSMCfg {
     pub game_graph_params: ProtocolParams,
 
     /// Key used in the locking script of a contest transaction.
+    // NOTE: (@Rajil1213) we might need to get this from `Mosaic` per deposit at runtime instead.
     pub operator_adaptor_key: XOnlyPublicKey,
 
     /// Keys used to lock the claim-contest output.
@@ -34,6 +35,7 @@ pub struct GraphSMCfg {
     /// Signature corresponding to this key can be used by an operator to defend against a
     /// counterproof. This signature is produced by Mosaic as a result of a successful GC
     /// evaluation.
+    // NOTE: (@Rail1213) we might need to get this from `Mosaic` per deposit at runtime instead.
     pub watchtower_fault_pubkeys: Vec<XOnlyPublicKey>,
 
     /// Descriptor to which payouts are to be sent in case of a successful peg out.
