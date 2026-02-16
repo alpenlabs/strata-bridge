@@ -15,6 +15,7 @@ strata-bridge-tx-graph2.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 musig2.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 zkaleido.workspace = true
 

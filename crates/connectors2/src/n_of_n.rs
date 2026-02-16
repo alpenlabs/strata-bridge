@@ -2,11 +2,12 @@
 
 use bitcoin::{Amount, Network};
 use secp256k1::{schnorr, XOnlyPublicKey};
+use serde::{Deserialize, Serialize};
 
 use crate::{Connector, TaprootWitness};
 
 /// Generic N/N connector.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NOfNConnector {
     network: Network,
     n_of_n_pubkey: XOnlyPublicKey,

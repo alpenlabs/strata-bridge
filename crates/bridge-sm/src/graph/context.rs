@@ -1,6 +1,7 @@
 //! Context for the Graph State Machine.
 
 use bitcoin::{OutPoint, hashes::sha256};
+use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{DepositIdx, GraphIdx, OperatorIdx},
@@ -8,7 +9,7 @@ use strata_bridge_primitives::{
 use strata_bridge_tx_graph2::game_graph::{KeyData, SetupParams};
 
 /// Execution context for a single instance of the Graph State Machine.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GraphSMCtx {
     /// The index of the graph represented by the deposit and the operator this graph is associated
     /// with.

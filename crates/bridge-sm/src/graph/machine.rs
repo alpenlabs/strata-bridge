@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     graph::{
         config::GraphSMCfg, context::GraphSMCtx, duties::GraphDuty, errors::GSMError,
@@ -13,7 +15,7 @@ use crate::{
 
 /// The State Machine that tracks the state of a deposit utxo at any given time (including the state
 /// of cooperative payout process)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraphSM {
     /// Context associated with this Graph State Machine instance.
     pub context: GraphSMCtx,

@@ -14,12 +14,13 @@ use std::num::NonZero;
 
 use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf, Sequence};
 use secp256k1::{schnorr, Scalar, XOnlyPublicKey, SECP256K1};
+use serde::{Deserialize, Serialize};
 use strata_crypto::keys::constants::UNSPENDABLE_PUBLIC_KEY;
 
 use crate::{Connector, TaprootWitness};
 
 /// Generic timelocked connector.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct TimelockedConnector {
     network: Network,
     internal_key: XOnlyPublicKey,
@@ -105,7 +106,7 @@ macro_rules! impl_timelocked_connector {
         pub struct $name:ident;
     ) => {
         $(#[$struct_attr])*
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
         pub struct $name(TimelockedConnector);
 
         impl Connector for $name {

@@ -1,10 +1,11 @@
 //! Context for the Deposit State Machine.
 
 use bitcoin::OutPoint;
+use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx};
 
 /// Execution context for a single instance of the Deposit State Machine.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DepositSMCtx {
     /// The index of the deposit being tracked in a Deposit State Machine.
     pub deposit_idx: DepositIdx,
