@@ -29,6 +29,8 @@
 //! Subspaces and directories should be mostly created once then reused as they
 //! require database transactions to create or open.
 
+use std::fmt::Display;
+
 use foundationdb::{
     RetryableTransaction,
     directory::{Directory, DirectoryError, DirectoryLayer, DirectoryOutput, DirectorySubspace},
@@ -44,6 +46,15 @@ pub struct Directories {
 
     /// Subspace for storing Schnorr signatures.
     pub signatures: DirectorySubspace,
+
+    /// Subspace for storing Deposit SM states, keyed by `DepositIdx`.
+    pub deposits: DirectorySubspace,
+
+    /// Subspace for storing Graph SM states, keyed by (`DepositIdx`, `OperatorIdx`).
+    pub graphs: DirectorySubspace,
+
+    /// Subspace for storing fund OutPoints, keyed by `Txid`.
+    pub funds: DirectorySubspace,
 }
 
 impl Directories {
@@ -56,17 +67,21 @@ impl Directories {
             .create_or_open(txn, &[root_dir_name.to_string()], None, Some(LAYER_ID))
             .await?
         else {
-            panic!("should receive a subspace")
+            panic!("should receive a root subspace")
         };
 
-        let DirectoryOutput::DirectorySubspace(signatures) = root
-            .create_or_open(txn, &["signatures".to_string()], None, Some(LAYER_ID))
-            .await?
-        else {
-            panic!("should receive a subspace")
-        };
+        let signatures = open_subdir(&root, txn, SubSpaceId::Signatures).await?;
+        let deposits = open_subdir(&root, txn, SubSpaceId::Deposits).await?;
+        let graphs = open_subdir(&root, txn, SubSpaceId::Graphs).await?;
+        let funds = open_subdir(&root, txn, SubSpaceId::Funds).await?;
 
-        Ok(Self { root, signatures })
+        Ok(Self {
+            root,
+            signatures,
+            deposits,
+            graphs,
+            funds,
+        })
     }
 
     /// Clears all data stored in the directories. Only available in test mode.
@@ -74,5 +89,52 @@ impl Directories {
     pub async fn clear(&self, txn: &RetryableTransaction) -> Result<bool, DirectoryError> {
         let dir = DirectoryLayer::default();
         dir.remove_if_exists(txn, self.root.get_path()).await
+    }
+}
+
+/// Opens (or creates) a named subdirectory under `parent`, returning its
+/// [`DirectorySubspace`].
+async fn open_subdir(
+    parent: &DirectorySubspace,
+    txn: &RetryableTransaction,
+    id: SubSpaceId,
+) -> Result<DirectorySubspace, DirectoryError> {
+    let DirectoryOutput::DirectorySubspace(sub) = parent
+        .create_or_open(txn, &[id.to_string()], None, Some(LAYER_ID))
+        .await?
+    else {
+        panic!("should receive a subspace for {id}")
+    };
+    Ok(sub)
+}
+
+/// Identifiers for the different subspaces in the database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SubSpaceId {
+    /// Subspace for storing Schnorr signatures.
+    Signatures,
+    /// Subspace for storing Deposit SM states, keyed by `DepositIdx`.
+    Deposits,
+    /// Subspace for storing Graph SM states, keyed by (`DepositIdx`, `OperatorIdx`).
+    Graphs,
+    /// Subspace for storing fund OutPoints, keyed by `Txid`.
+    Funds,
+}
+
+impl From<SubSpaceId> for &'static str {
+    fn from(value: SubSpaceId) -> Self {
+        match value {
+            SubSpaceId::Signatures => "signatures",
+            SubSpaceId::Deposits => "deposits",
+            SubSpaceId::Graphs => "graphs",
+            SubSpaceId::Funds => "funds",
+        }
+    }
+}
+
+impl Display for SubSpaceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s: &'static str = (*self).into();
+        write!(f, "{}", s)
     }
 }
