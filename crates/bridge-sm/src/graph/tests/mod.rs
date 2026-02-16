@@ -44,7 +44,7 @@ pub(super) const TEST_POV_IDX: OperatorIdx = 0;
 // ===== Configuration Helpers =====
 
 /// Creates a test bridge-wide GSM configuration.
-pub(super) fn test_deposit_sm_cfg() -> Arc<GraphSMCfg> {
+pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
     Arc::new(GraphSMCfg {
         game_graph_params: ProtocolParams {
             network: Network::Regtest,
@@ -143,12 +143,12 @@ pub(super) fn test_graph_transition(transition: GraphTransition) {
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
         create_sm,
         get_state,
-        test_deposit_sm_cfg(),
+        test_graph_sm_cfg(),
         transition,
     );
 }
 
 /// Test an invalid GraphSM transition with pre-configured test helpers.
 pub(super) fn test_graph_invalid_transition(invalid: GraphInvalidTransition) {
-    test_invalid_transition::<GraphSM, _, _, _, _, _, _>(create_sm, test_deposit_sm_cfg(), invalid);
+    test_invalid_transition::<GraphSM, _, _, _, _, _, _>(create_sm, test_graph_sm_cfg(), invalid);
 }
