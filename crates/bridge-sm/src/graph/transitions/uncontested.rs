@@ -282,6 +282,13 @@ impl GraphSM {
                         .map(|m| (m.tweak, m.sighash))
                         .unzip();
 
+                    let ordered_pubkeys = graph_ctx
+                        .operator_table()
+                        .btc_keys()
+                        .into_iter()
+                        .map(|pk| pk.x_only_public_key().0)
+                        .collect();
+
                     // Transition to NoncesCollected state
                     self.state = GraphState::NoncesCollected {
                         last_block_height: *last_block_height,
@@ -300,6 +307,7 @@ impl GraphSM {
                             graph_inpoints,
                             graph_tweaks,
                             claim_txid,
+                            ordered_pubkeys,
                         },
                     ]));
                 }

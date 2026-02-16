@@ -37,8 +37,26 @@ pub async fn execute_graph_duty(
             )
             .await
         }
-        GraphDuty::PublishGraphPartials { .. } => {
-            todo!("PublishGraphPartials")
+        GraphDuty::PublishGraphPartials {
+            graph_idx,
+            agg_nonces,
+            sighashes,
+            graph_inpoints,
+            graph_tweaks,
+            claim_txid,
+            ordered_pubkeys,
+        } => {
+            common::publish_graph_partials(
+                &output_handles,
+                *graph_idx,
+                agg_nonces,
+                sighashes,
+                graph_inpoints,
+                graph_tweaks,
+                *claim_txid,
+                ordered_pubkeys,
+            )
+            .await
         }
         GraphDuty::PublishClaim { .. } => {
             todo!("PublishClaim")
