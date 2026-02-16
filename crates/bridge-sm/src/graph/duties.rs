@@ -5,7 +5,7 @@ use bitcoin::{OutPoint, Transaction, Txid, taproot::TapNodeHash};
 use musig2::{AggNonce, secp256k1::Message};
 use strata_bridge_primitives::{
     mosaic::Labels,
-    types::{DepositIdx, OperatorIdx},
+    types::{DepositIdx, GraphIdx, OperatorIdx},
 };
 use zkaleido::ProofReceipt;
 
@@ -14,6 +14,12 @@ use zkaleido::ProofReceipt;
 pub enum GraphDuty {
     /// Verify the adaptor signatures for the generated graph.
     VerifyAdaptors {
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
+
+        /// Wathchtower index to verify adaptors for.
+        watchtower_idx: OperatorIdx,
+
         /// Sighashes to verify adaptors against
         sighashes: Vec<Message>,
     },

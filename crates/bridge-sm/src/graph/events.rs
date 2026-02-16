@@ -4,20 +4,21 @@
 //! different transitions and emit duties that need to be performed and messages that need to be
 //! propagated.
 
-use std::fmt::Display;
+use std::{fmt::Display, num::NonZero};
 
-use bitcoin::{Txid, taproot::Signature};
+use bitcoin::{OutPoint, Txid, taproot::Signature};
 use bitcoin_bosd::Descriptor;
 use musig2::PubNonce;
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph2::game_graph::GameGraph;
 use zkaleido::ProofReceipt;
 
 /// Event notifying that graph data has been generated for a graph instance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphDataGeneratedEvent {
-    /// The generated pegout graph data.
-    pub graph_data: GameGraph,
+    /// Game index.
+    pub game_index: NonZero<u32>,
+    /// UTXO that funds the claim transaction.
+    pub claim_funds: OutPoint,
 }
 
 /// Event notifying that all adaptors for the graph have been verified.
