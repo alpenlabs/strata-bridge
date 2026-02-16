@@ -24,6 +24,7 @@ bitcoin-bosd.workspace = true
 
 bitcoin.workspace = true
 bitcoind-async-client.workspace = true
+futures.workspace = true
 musig2.workspace = true
 terrors.workspace = true
 thiserror.workspace = true

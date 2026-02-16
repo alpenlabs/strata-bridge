@@ -2261,6 +2261,7 @@ dependencies = [
  "bitcoin-bosd",
  "bitcoind-async-client",
  "btc-tracker",
+ "futures",
  "musig2",
  "operator-wallet",
  "secret-service-client",
