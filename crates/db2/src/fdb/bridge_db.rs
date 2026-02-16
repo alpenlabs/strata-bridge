@@ -5,7 +5,8 @@ use std::fmt::Debug;
 use bitcoin::Txid;
 use foundationdb::FdbBindingError;
 use secp256k1::schnorr::Signature;
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
 use terrors::OneOf;
 
 use crate::{
@@ -92,6 +93,82 @@ impl BridgeDb for FdbClient {
             signature,
         )
         .await
+    }
+
+    async fn get_deposit_state(
+        &self,
+        _deposit_idx: DepositIdx,
+    ) -> Result<Option<DepositSM>, Self::Error> {
+        todo!()
+    }
+
+    async fn set_deposit_state(
+        &self,
+        _deposit_idx: DepositIdx,
+        _state: DepositSM,
+    ) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn get_all_deposit_states(&self) -> Result<Vec<(DepositIdx, DepositSM)>, Self::Error> {
+        todo!()
+    }
+
+    async fn delete_deposit_state(&self, _deposit_idx: DepositIdx) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn get_graph_state(
+        &self,
+        _deposit_idx: DepositIdx,
+        _operator_idx: OperatorIdx,
+    ) -> Result<Option<GraphSM>, Self::Error> {
+        todo!()
+    }
+
+    async fn set_graph_state(
+        &self,
+        _deposit_idx: DepositIdx,
+        _operator_idx: OperatorIdx,
+        _state: GraphSM,
+    ) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn get_all_graph_states(&self) -> Result<Vec<(GraphIdx, GraphSM)>, Self::Error> {
+        todo!()
+    }
+
+    async fn delete_graph_state(
+        &self,
+        _deposit_idx: DepositIdx,
+        _operator_idx: OperatorIdx,
+    ) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn get_funds(&self, _txid: Txid) -> Result<Option<Vec<bitcoin::OutPoint>>, Self::Error> {
+        todo!()
+    }
+
+    async fn set_funds(
+        &self,
+        _txid: Txid,
+        _outpoints: Vec<bitcoin::OutPoint>,
+    ) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn delete_funds(&self, _txid: Txid) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn delete_deposit(&self, _deposit_idx: DepositIdx) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn delete_operator(&self, _operator_idx: OperatorIdx) -> Result<(), Self::Error> {
+        todo!()
     }
 }
 
