@@ -10148,6 +10148,7 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "strata-bridge-primitives",
+ "strata-bridge-sm",
  "terrors",
  "tokio",
 ]
