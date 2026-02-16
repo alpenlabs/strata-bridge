@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_tx_graph2::game_graph::DepositParams;
@@ -7,7 +7,7 @@ use crate::graph::{
     config::GraphSMCfg,
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
-    events::GraphDataGeneratedEvent,
+    events::{AdaptorsVerifiedEvent, GraphDataGeneratedEvent},
     machine::{GSMOutput, GraphSM},
     state::GraphState,
 };
@@ -63,6 +63,49 @@ impl GraphSM {
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 graph_data_event.into(),
+                None,
+            )),
+        }
+    }
+
+    /// Processes the event where all adaptors for the graph have been verified.
+    ///
+    /// Transitions from [`GraphState::GraphGenerated`] to [`GraphState::AdaptorsVerified`].
+    /// Emits a [`GraphDuty::PublishGraphNonces`] duty.
+    pub(crate) fn process_adaptors_verification(
+        &mut self,
+        cfg: Arc<GraphSMCfg>,
+        adaptors: AdaptorsVerifiedEvent,
+    ) -> GSMResult<GSMOutput> {
+        match self.state() {
+            GraphState::GraphGenerated {
+                last_block_height,
+                graph_data,
+                graph_summary,
+            } => {
+                let _game_graph = self.generate_graph(&cfg, *graph_data);
+
+                self.state = GraphState::AdaptorsVerified {
+                    last_block_height: *last_block_height,
+                    graph_data: *graph_data,
+                    graph_summary: graph_summary.clone(),
+                    pubnonces: BTreeMap::new(),
+                };
+
+                Ok(GSMOutput::with_duties(vec![
+                    GraphDuty::PublishGraphNonces {
+                        graph_idx: self.context.graph_idx(),
+                        graph_inpoints: Default::default(),
+                        graph_tweaks: Default::default(),
+                    },
+                ]))
+            }
+            GraphState::AdaptorsVerified { .. } => {
+                Err(GSMError::duplicate(self.state().clone(), adaptors.into()))
+            }
+            _ => Err(GSMError::invalid_event(
+                self.state().clone(),
+                adaptors.into(),
                 None,
             )),
         }
