@@ -1,7 +1,7 @@
 //! The duties that need to be performed in the Graph State Machine in response to the state
 //! transitions.
 
-use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
 use musig2::{AggNonce, secp256k1::Message};
 use strata_bridge_primitives::{
     mosaic::Labels,
@@ -35,6 +35,9 @@ pub enum GraphDuty {
 
         /// The tweak required for taproot spend per input being signed.
         graph_tweaks: Vec<TaprootTweak>,
+
+        /// The ordered public keys of all operators for MuSig2 aggregation.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
 
     /// Publish partial signatures for graph signing.
