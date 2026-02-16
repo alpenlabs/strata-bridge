@@ -21,7 +21,7 @@ pub enum GraphDuty {
         /// Wathchtower index to verify adaptors for.
         watchtower_idx: OperatorIdx,
 
-        /// Sighashes to verify adaptors against
+        /// Sighashes to verify adaptors against.
         sighashes: Vec<Message>,
     },
 
