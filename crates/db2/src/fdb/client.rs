@@ -12,7 +12,7 @@ use crate::fdb::{
     bridge_db::LayerError,
     cfg::Config,
     dirs::Directories,
-    row_spec::{KVRowSpec, PackableKey, SerializableValue},
+    row_spec::kv::{KVRowSpec, PackableKey, SerializableValue},
 };
 
 /// The main entity for interacting with the FoundationDB database.
