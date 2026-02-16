@@ -26,11 +26,8 @@ pub enum GraphDuty {
 
     /// Publish nonces for graph signing.
     PublishGraphNonces {
-        /// The index of the deposit this graph is associated with.
-        deposit_idx: DepositIdx,
-
-        /// The index of the operator this graph belongs to.
-        operator_idx: OperatorIdx,
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
 
         /// The inpoints of the graph used to retrieve musig2 session per input being signed.
         graph_inpoints: Vec<OutPoint>,

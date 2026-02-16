@@ -38,7 +38,9 @@ impl StateMachine for GraphSM {
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
             GraphEvent::GraphDataProduced(graph_data) => self.process_graph_data(cfg, graph_data),
-            GraphEvent::AdaptorsVerified(_adaptors) => todo!(),
+            GraphEvent::AdaptorsVerified(adaptors) => {
+                self.process_adaptors_verification(cfg, adaptors)
+            }
             GraphEvent::NonceReceived(_nonce_event) => todo!(),
             GraphEvent::PartialReceived(_partial_event) => todo!(),
             GraphEvent::WithdrawalAssigned(_assignment) => todo!(),
