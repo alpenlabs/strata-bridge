@@ -65,10 +65,19 @@ impl GraphSM {
                         pubnonces: BTreeMap::new(),
                     };
 
+                    let ordered_pubkeys = self
+                        .context
+                        .operator_table()
+                        .btc_keys()
+                        .into_iter()
+                        .map(|pk| pk.x_only_public_key().0)
+                        .collect();
+
                     let duties = vec![GraphDuty::PublishGraphNonces {
                         graph_idx: self.context.graph_idx(),
                         graph_inpoints,
                         graph_tweaks,
+                        ordered_pubkeys,
                     }];
 
                     Ok(GSMOutput::with_duties(duties))
@@ -160,11 +169,20 @@ impl GraphSM {
                     pubnonces: BTreeMap::new(),
                 };
 
+                let ordered_pubkeys = self
+                    .context
+                    .operator_table()
+                    .btc_keys()
+                    .into_iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect();
+
                 Ok(GSMOutput::with_duties(vec![
                     GraphDuty::PublishGraphNonces {
                         graph_idx: self.context.graph_idx(),
                         graph_inpoints,
                         graph_tweaks,
+                        ordered_pubkeys,
                     },
                 ]))
             }

@@ -22,8 +22,20 @@ pub async fn execute_graph_duty(
             watchtower_idx,
             sighashes,
         } => common::verify_adaptors(*graph_idx, *watchtower_idx, sighashes).await,
-        GraphDuty::PublishGraphNonces { .. } => {
-            todo!("PublishGraphNonces")
+        GraphDuty::PublishGraphNonces {
+            graph_idx,
+            graph_inpoints,
+            graph_tweaks,
+            ordered_pubkeys,
+        } => {
+            common::publish_graph_nonces(
+                &output_handles,
+                *graph_idx,
+                graph_inpoints,
+                graph_tweaks,
+                ordered_pubkeys,
+            )
+            .await
         }
         GraphDuty::PublishGraphPartials { .. } => {
             todo!("PublishGraphPartials")
