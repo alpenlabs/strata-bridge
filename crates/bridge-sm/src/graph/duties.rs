@@ -42,11 +42,8 @@ pub enum GraphDuty {
 
     /// Publish partial signatures for graph signing.
     PublishGraphPartials {
-        /// The index of the deposit this graph is associated with.
-        deposit_idx: DepositIdx,
-
-        /// The index of the operator this graph belongs to.
-        operator_idx: OperatorIdx,
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
 
         /// Aggregated nonces to be used for partial signature generation.
         agg_nonces: Vec<AggNonce>,
@@ -62,6 +59,9 @@ pub enum GraphDuty {
 
         /// The txid of the claim transaction (must not exist on chain before signing).
         claim_txid: Txid,
+
+        /// The ordered public keys of all operators for MuSig2 aggregation.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
 
     /// Publish the claim transaction on-chain.
