@@ -59,6 +59,9 @@ pub enum GraphDuty {
 
         /// The txid of the claim transaction (must not exist on chain before signing).
         claim_txid: Txid,
+
+        /// The ordered public keys of all operators for MuSig2 aggregation.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
 
     /// Publish the claim transaction on-chain.

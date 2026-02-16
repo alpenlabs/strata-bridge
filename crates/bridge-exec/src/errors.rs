@@ -1,5 +1,6 @@
 //! Error types for the bridge-exec executors.
 
+use bitcoin::Txid;
 use thiserror::Error;
 
 /// Errors that can occur during executor operations.
@@ -36,4 +37,8 @@ pub enum ExecutorError {
     /// Error from Bitcoin Core RPC.
     #[error("bitcoin rpc error: {0:?}")]
     BitcoinRpcErr(#[from] bitcoind_async_client::error::ClientError),
+
+    /// The claim transaction already exists on chain.
+    #[error("claim transaction {0} already exists on chain")]
+    ClaimTxAlreadyOnChain(Txid),
 }
