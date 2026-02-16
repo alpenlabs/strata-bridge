@@ -5,13 +5,14 @@ use std::{collections::BTreeMap, fmt::Display};
 use bitcoin::{Txid, taproot::Signature};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PubNonce};
+use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
 use zkaleido::ProofReceipt;
 
 /// The state of a pegout graph associated with a particular deposit.
 /// Each graph is uniquely identified by the two-tuple (depositIdx, operatorIdx).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GraphState {
     /// A new deposit request has been identified.
     Created {

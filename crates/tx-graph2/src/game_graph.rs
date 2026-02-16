@@ -5,6 +5,7 @@ use std::{array, num::NonZero};
 
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
+use serde::{Deserialize, Serialize};
 use strata_bridge_connectors2::{
     prelude::{
         ClaimContestConnector, ClaimPayoutConnector, ContestCounterproofOutput,
@@ -41,7 +42,7 @@ pub struct GameData {
 
 /// Parameters that are known at deposit time
 /// i.e., these values are only created/known when a deposit is observed on chain.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DepositParams {
     /// Game index.
     pub game_index: NonZero<u32>,
@@ -150,7 +151,7 @@ pub struct CounterproofGraph {
 }
 
 /// Collection of the IDs of all transactions of a [`GameGraph`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GameGraphSummary {
     /// ID of the claim transaction.
     pub claim: Txid,
@@ -165,7 +166,7 @@ pub struct GameGraphSummary {
 }
 
 /// Collection of the IDs of all transactions of a [`CounterproofGraph`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CounterproofGraphSummary {
     /// ID of the counterproof transaction.
     pub counterproof: Txid,

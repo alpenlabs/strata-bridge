@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use bitcoin::{XOnlyPublicKey, relative::LockTime};
+use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph2::transactions::prelude::DepositData;
 
@@ -24,7 +25,7 @@ use crate::{
 
 /// The State Machine that tracks the state of a deposit utxo at any given time (including the state
 /// of cooperative payout process)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DepositSM {
     /// Context associated with this Deposit State Machine instance.
     pub context: DepositSMCtx,

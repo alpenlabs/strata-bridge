@@ -7,6 +7,7 @@ use bitcoin::{
     Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut,
 };
 use secp256k1::schnorr;
+use serde::{Deserialize, Serialize};
 use strata_asm_txs_bridge_v1::deposit::DepositTxHeaderAux;
 use strata_bridge_connectors2::{
     prelude::{DepositRequestConnector, NOfNConnector, TimelockedSpendPath, TimelockedWitness},
@@ -41,7 +42,7 @@ impl DepositData {
 // TODO: (@uncomputable) Check in unit test that deposit tx can be parsed by ASM code
 // https://github.com/alpenlabs/alpen/blob/b016495114050409e831898436d7d0ac04df8d82/crates/asm/txs/bridge-v1/src/deposit/parse.rs#L85
 /// The deposit transaction.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DepositTx {
     psbt: Psbt,
     prevouts: [TxOut; Self::N_INPUTS],

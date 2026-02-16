@@ -12,12 +12,13 @@ use std::{
 use bitcoin::{Amount, Network, Transaction, Txid, XOnlyPublicKey, relative::LockTime};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, PubNonce};
+use serde::{Deserialize, Serialize};
 use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use strata_bridge_tx_graph2::transactions::{deposit::DepositTx, prelude::DepositData};
 
 /// The state of a Deposit.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DepositState {
     /// This state represents the initial phase after deposit request confirmation.
     ///
