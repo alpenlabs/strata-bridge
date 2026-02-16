@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use strata_bridge_tx_graph2::game_graph::{DepositParams, GameData, GameGraph};
 
 use crate::{
     graph::{
@@ -32,11 +33,11 @@ impl StateMachine for GraphSM {
 
     fn process_event(
         &mut self,
-        _cfg: Self::Config,
+        cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
-            GraphEvent::GraphDataProduced(_graph_data) => todo!(),
+            GraphEvent::GraphDataProduced(graph_data) => self.process_graph_data(cfg, graph_data),
             GraphEvent::AdaptorsVerified(_adaptors) => todo!(),
             GraphEvent::NonceReceived(_nonce_event) => todo!(),
             GraphEvent::PartialReceived(_partial_event) => todo!(),
@@ -73,5 +74,23 @@ impl GraphSM {
     /// Returns a mutable reference to the current state of the Graph State Machine.
     pub const fn state_mut(&mut self) -> &mut GraphState {
         &mut self.state
+    }
+
+    /// Generates the [`GameGraph`] from the config and deposit params.
+    pub(crate) fn generate_graph(
+        &self,
+        cfg: &GraphSMCfg,
+        deposit_params: DepositParams,
+    ) -> GameGraph {
+        let setup_params = cfg.generate_setup_params(&self.context);
+        let protocol_params = cfg.game_graph_params;
+        let graph_data = GameData {
+            protocol: protocol_params,
+            setup: setup_params,
+            deposit: deposit_params,
+        };
+
+        let (game_graph, _) = GameGraph::new(graph_data);
+        game_graph
     }
 }
