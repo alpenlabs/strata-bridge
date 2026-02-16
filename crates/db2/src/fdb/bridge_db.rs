@@ -1,6 +1,6 @@
 //! Implementation of the [`BridgeDb`] trait for FdbClient.
 
-use bitcoin::Txid;
+use bitcoin::{OutPoint, Txid};
 use foundationdb::FdbBindingError;
 use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
@@ -14,6 +14,7 @@ use crate::{
         row_spec::signatures::{SignatureKey, SignatureRowSpec},
     },
     traits::BridgeDb,
+    types::FundingPurpose,
 };
 
 impl BridgeDb for FdbClient {
@@ -95,27 +96,43 @@ impl BridgeDb for FdbClient {
         todo!()
     }
 
-    async fn delete_graph_state(
+    async fn get_funds(
         &self,
         _deposit_idx: DepositIdx,
         _operator_idx: OperatorIdx,
-    ) -> Result<(), Self::Error> {
-        todo!()
-    }
-
-    async fn get_funds(&self, _txid: Txid) -> Result<Option<Vec<bitcoin::OutPoint>>, Self::Error> {
+        _purpose: FundingPurpose,
+    ) -> Result<Option<Vec<bitcoin::OutPoint>>, Self::Error> {
         todo!()
     }
 
     async fn set_funds(
         &self,
-        _txid: Txid,
+        _deposit_idx: DepositIdx,
+        _operator_idx: OperatorIdx,
+        _purpose: FundingPurpose,
         _outpoints: Vec<bitcoin::OutPoint>,
     ) -> Result<(), Self::Error> {
         todo!()
     }
 
-    async fn delete_funds(&self, _txid: Txid) -> Result<(), Self::Error> {
+    async fn get_all_funds(&self) -> Result<Vec<OutPoint>, Self::Error> {
+        todo!()
+    }
+
+    async fn delete_funds(
+        &self,
+        _deposit_idx: DepositIdx,
+        _operator_idx: OperatorIdx,
+        _purpose: crate::types::FundingPurpose,
+    ) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn delete_graph_state(
+        &self,
+        _deposit_idx: DepositIdx,
+        _operator_idx: OperatorIdx,
+    ) -> Result<(), Self::Error> {
         todo!()
     }
 

@@ -7,6 +7,8 @@ use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
 
+use crate::types::FundingPurpose;
+
 /// Standard persistence interface for a bridge node.
 pub trait BridgeDb {
     /// The error type returned by the database operations.
@@ -89,24 +91,33 @@ pub trait BridgeDb {
 
     // ── Funds ─────────────────────────────────────────────────────────
 
-    /// Gets, if present, the list of [`OutPoint`]s associated with the given funding [`Txid`].
+    /// Gets, if present, the reserved [`OutPoint`]s for the given deposit, operator, and purpose.
     fn get_funds(
         &self,
-        txid: Txid,
-    ) -> impl Future<Output = Result<Option<Vec<OutPoint>>, Self::Error>> + Send + Sync;
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
+        purpose: FundingPurpose,
+    ) -> impl Future<Output = Result<Option<Vec<OutPoint>>, Self::Error>> + Send;
 
-    /// Sets the list of [`OutPoint`]s for the given funding [`Txid`].
+    /// Sets the reserved [`OutPoint`]s for the given deposit, operator, and purpose.
     fn set_funds(
         &self,
-        txid: Txid,
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
+        purpose: FundingPurpose,
         outpoints: Vec<OutPoint>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + Sync;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// Deletes the list of [`OutPoint`]s for the given funding [`Txid`].
+    /// Returns all stored funds entries as funding outpoints.
+    fn get_all_funds(&self) -> impl Future<Output = Result<Vec<OutPoint>, Self::Error>> + Send;
+
+    /// Deletes the reserved [`OutPoint`]s for the given deposit, operator, and purpose. Idempotent.
     fn delete_funds(
         &self,
-        txid: Txid,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + Sync;
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
+        purpose: FundingPurpose,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     // ── Cascade Deletes ─────────────────────────────────────────────
 
