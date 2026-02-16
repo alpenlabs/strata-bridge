@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph2::game_graph::{DepositParams, GameData, GameGraph};
 
 use crate::{
@@ -65,6 +66,17 @@ impl StateMachine for GraphSM {
 pub type GSMOutput = SMOutput<GraphDuty, GraphSignal>;
 
 impl GraphSM {
+    /// Creates a new [`GraphSM`] using the provided context and initial block height.
+    ///
+    /// The state machine starts in [`GraphState::Created`] by constructing the
+    /// initial [`GraphState`] via [`GraphState::new`].
+    pub const fn new(context: GraphSMCtx, block_height: BitcoinBlockHeight) -> Self {
+        Self {
+            context,
+            state: GraphState::new(block_height),
+        }
+    }
+
     /// Returns a reference to the current state of the Graph State Machine.
     pub const fn state(&self) -> &GraphState {
         &self.state
