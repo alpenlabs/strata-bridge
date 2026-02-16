@@ -8,7 +8,7 @@ use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::types::OperatorIdx;
 use terrors::OneOf;
 
-use super::{KVRowSpec, PackableKey, SerializableValue};
+use super::kv::{KVRowSpec, PackableKey, SerializableValue};
 use crate::fdb::dirs::Directories;
 
 /// Key for a Schnorr signature.
