@@ -9,9 +9,9 @@ use foundationdb::{
 use terrors::OneOf;
 
 use crate::fdb::{
-    bridge_db::LayerError,
     cfg::Config,
     dirs::Directories,
+    errors::LayerError,
     row_spec::kv::{KVRowSpec, PackableKey, SerializableValue},
 };
 
