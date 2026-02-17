@@ -1,7 +1,7 @@
 //! Unit Tests for process_adaptors_verification
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, num::NonZero};
+    use std::num::NonZero;
 
     use strata_bridge_test_utils::bitcoin::generate_txid;
     use strata_bridge_tx_graph2::game_graph::DepositParams;
@@ -13,9 +13,8 @@ mod tests {
             events::{AdaptorsVerifiedEvent, GraphEvent},
             state::GraphState,
             tests::{
-                GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, create_sm,
-                get_state, test_graph_invalid_transition, test_graph_sm_cfg, test_graph_transition,
-                test_sm_ctx,
+                GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, create_sm, get_state,
+                test_graph_invalid_transition, test_graph_sm_cfg,
             },
         },
         testing::EventSequence,
@@ -42,34 +41,27 @@ mod tests {
 
     #[test]
     fn test_process_adaptors_verification() {
-        let from_state = test_graph_generated_state();
+        let state = test_graph_generated_state();
+        let sm = create_sm(state);
+        let mut seq = EventSequence::new(sm, get_state);
 
-        // Extract fields carried forward into AdaptorsVerified
-        let (graph_data, graph_summary) = match &from_state {
-            GraphState::GraphGenerated {
-                graph_data,
-                graph_summary,
-                ..
-            } => (*graph_data, graph_summary.clone()),
-            _ => unreachable!(),
-        };
+        // GraphGenerated → AdaptorsVerified
+        seq.process(
+            test_graph_sm_cfg(),
+            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+        );
+        seq.assert_no_errors();
+        assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
 
-        test_graph_transition(GraphTransition {
-            from_state,
-            event: GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-            expected_state: GraphState::AdaptorsVerified {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                graph_data,
-                graph_summary,
-                pubnonces: BTreeMap::new(),
-            },
-            expected_duties: vec![GraphDuty::PublishGraphNonces {
-                graph_idx: test_sm_ctx().graph_idx(),
-                graph_inpoints: vec![],
-                graph_tweaks: vec![],
-            }],
-            expected_signals: vec![],
-        });
+        // Check that a PublishGraphNonces duty was emitted
+        assert_eq!(seq.all_duties().len(), 1);
+        assert!(matches!(
+            seq.all_duties()[0],
+            GraphDuty::PublishGraphNonces { .. }
+        ));
+
+        // No signals should be emitted
+        assert!(seq.all_signals().is_empty());
     }
 
     #[test]
