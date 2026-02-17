@@ -206,12 +206,12 @@ impl BridgeDb for FdbClient {
         .await
     }
 
-    async fn delete_deposit(&self, _deposit_idx: DepositIdx) -> Result<(), Self::Error> {
-        todo!()
+    async fn delete_deposit(&self, deposit_idx: DepositIdx) -> Result<(), Self::Error> {
+        self.delete_deposit_cascade(deposit_idx).await
     }
 
-    async fn delete_operator(&self, _operator_idx: OperatorIdx) -> Result<(), Self::Error> {
-        todo!()
+    async fn delete_operator(&self, operator_idx: OperatorIdx) -> Result<(), Self::Error> {
+        self.delete_operator_cascade(operator_idx).await
     }
 }
 
@@ -711,6 +711,201 @@ mod tests {
                     .await
                     .unwrap();
                 prop_assert_eq!(None, retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: cascade delete removes deposit state and all graph states for
+        /// that deposit, but leaves graph states for other deposits untouched.
+        #[test]
+        fn delete_deposit_cascade_test(
+            deposit_idx in any::<DepositIdx>(),
+            // Use a different deposit_idx for the "survivor" entry.
+            survivor_deposit_idx in any::<DepositIdx>(),
+            operator_a in any::<OperatorIdx>(),
+            operator_b in any::<OperatorIdx>(),
+            last_block_height in any::<u64>(),
+            outpoint_txid in any::<[u8; 32]>(),
+            outpoint_vout in any::<u32>(),
+            operator_table in arb_operator_table(),
+        ) {
+            // Ensure the two deposit indices differ.
+            prop_assume!(deposit_idx != survivor_deposit_idx);
+
+            let deposit_sm = DepositSM {
+                context: DepositSMCtx {
+                    deposit_idx,
+                    deposit_outpoint: OutPoint {
+                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
+                        vout: outpoint_vout,
+                    },
+                    operator_table: operator_table.clone(),
+                },
+                state: DepositState::Deposited { last_block_height },
+            };
+
+            let graph_sm_a = GraphSM {
+                context: GraphSMCtx {
+                    graph_idx: GraphIdx {
+                        deposit: deposit_idx,
+                        operator: operator_a,
+                    },
+                    deposit_outpoint: OutPoint {
+                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
+                        vout: outpoint_vout,
+                    },
+                    stake_outpoint: OutPoint {
+                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
+                        vout: outpoint_vout + 1,
+                    },
+                    unstaking_image: sha256::Hash::from_slice(&outpoint_txid).unwrap(),
+                    operator_table,
+                },
+                state: GraphState::Created { last_block_height },
+            };
+
+            let mut graph_sm_b = graph_sm_a.clone();
+            graph_sm_b.context.graph_idx.operator = operator_b;
+
+            let mut survivor_state = graph_sm_a.clone();
+            survivor_state.context.graph_idx.deposit = survivor_deposit_idx;
+
+            block_on(async {
+                let client = get_client();
+
+                // Set deposit state + two graph states for the target deposit.
+                client
+                    .set_deposit_state(deposit_idx, deposit_sm)
+                    .await
+                    .unwrap();
+                client
+                    .set_graph_state(deposit_idx, operator_a, graph_sm_a)
+                    .await
+                    .unwrap();
+                client
+                    .set_graph_state(deposit_idx, operator_b, graph_sm_b)
+                    .await
+                    .unwrap();
+
+                // Set a graph state for a different deposit (the "survivor").
+                client
+                    .set_graph_state(survivor_deposit_idx, operator_a, survivor_state.clone())
+                    .await
+                    .unwrap();
+
+                // Cascade delete the target deposit.
+                client.delete_deposit(deposit_idx).await.unwrap();
+
+                // All target data should be gone.
+                let dep = client.get_deposit_state(deposit_idx).await.unwrap();
+                prop_assert_eq!(None, dep);
+
+                let gs_a = client
+                    .get_graph_state(deposit_idx, operator_a)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(None, gs_a);
+
+                let gs_b = client
+                    .get_graph_state(deposit_idx, operator_b)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(None, gs_b);
+
+                // Survivor should still be present.
+                let survivor = client
+                    .get_graph_state(survivor_deposit_idx, operator_a)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(Some(survivor_state), survivor);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: operator cascade delete removes all graph states for a given
+        /// operator across multiple deposits, but leaves other operators' data.
+        #[test]
+        fn delete_operator_cascade_test(
+            deposit_a in any::<DepositIdx>(),
+            deposit_b in any::<DepositIdx>(),
+            target_op in any::<OperatorIdx>(),
+            survivor_op in any::<OperatorIdx>(),
+            last_block_height in any::<u64>(),
+            txid in any::<[u8; 32]>(),
+            operator_table in arb_operator_table(),
+        ) {
+            prop_assume!(target_op != survivor_op);
+
+            let graph_sm_a = GraphSM {
+                context: GraphSMCtx {
+                    graph_idx: GraphIdx {
+                        deposit: deposit_a,
+                        operator: target_op,
+                    },
+                    deposit_outpoint: OutPoint {
+                        txid: Txid::from_slice(&txid).unwrap(),
+                        vout: 0,
+                    },
+                    stake_outpoint: OutPoint {
+                        txid: Txid::from_slice(&txid).unwrap(),
+                        vout: 1,
+                    },
+                    unstaking_image: sha256::Hash::from_slice(&txid).unwrap(),
+                    operator_table: operator_table.clone(),
+                },
+                state: GraphState::Created { last_block_height },
+            };
+
+            let mut graph_sm_b = graph_sm_a.clone();
+            graph_sm_b.context.graph_idx.deposit = deposit_b;
+
+            let mut survivor_state = graph_sm_a.clone();
+            survivor_state.context.graph_idx.operator = survivor_op;
+
+
+            block_on(async {
+                let client = get_client();
+
+                // Set graph states for the target operator under two deposits.
+                client
+                    .set_graph_state(deposit_a, target_op, graph_sm_a)
+                    .await
+                    .unwrap();
+                client
+                    .set_graph_state(deposit_b, target_op, graph_sm_b)
+                    .await
+                    .unwrap();
+
+                // Set a graph state for a different operator (the "survivor").
+                client
+                    .set_graph_state(deposit_a, survivor_op, survivor_state.clone())
+                    .await
+                    .unwrap();
+
+                // Cascade delete the target operator.
+                client.delete_operator(target_op).await.unwrap();
+
+                // All target operator data should be gone.
+                let gs_a = client
+                    .get_graph_state(deposit_a, target_op)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(None, gs_a);
+
+                let gs_b = client
+                    .get_graph_state(deposit_b, target_op)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(None, gs_b);
+
+                // Survivor operator's data should still be present.
+                let survivor = client
+                    .get_graph_state(deposit_a, survivor_op)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(Some(survivor_state), survivor);
 
                 Ok(())
             })?;
