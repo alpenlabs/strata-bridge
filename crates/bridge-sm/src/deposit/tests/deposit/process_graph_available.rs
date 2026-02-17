@@ -20,8 +20,6 @@ mod tests {
     #[test]
     fn test_process_graph_available_sequence() {
         let deposit_tx = test_deposit_txn();
-        let operator_table = test_operator_table();
-        let operator_count = operator_table.cardinality() as u32;
 
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
@@ -32,7 +30,7 @@ mod tests {
         let sm = create_sm(initial_state);
         let mut seq = EventSequence::new(sm, get_state);
 
-        for operator_idx in 0..operator_count {
+        for operator_idx in 0..N_TEST_OPERATORS as u32 {
             seq.process(
                 test_deposit_sm_cfg(),
                 DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx }),
@@ -57,8 +55,6 @@ mod tests {
     #[test]
     fn test_duplicate_process_graph_available_sequence() {
         let deposit_tx = test_deposit_txn();
-        let operator_table = test_operator_table();
-        let operator_count = operator_table.cardinality() as u32;
 
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
@@ -70,7 +66,7 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         // Process GraphAvailable messages, all operators except the last one
-        for operator_idx in 0..(operator_count - 1) {
+        for operator_idx in 0..(N_TEST_OPERATORS - 1) as u32 {
             let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx });
             seq.process(test_deposit_sm_cfg(), event.clone());
 
