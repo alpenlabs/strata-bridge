@@ -910,5 +910,88 @@ mod tests {
                 Ok(())
             })?;
         }
+
+        /// Verify that `create_transaction` + `basic_set_in` can batch
+        /// multiple writes into a single atomic transaction.
+        #[test]
+        fn transaction_batch_persist_test(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            last_block_height in any::<u64>(),
+            outpoint_txid in any::<[u8; 32]>(),
+            outpoint_vout in any::<u32>(),
+            operator_table in arb_operator_table(),
+        ) {
+            let deposit_sm = DepositSM {
+                context: DepositSMCtx {
+                    deposit_idx,
+                    deposit_outpoint: OutPoint {
+                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
+                        vout: outpoint_vout,
+                    },
+                    operator_table: operator_table.clone(),
+                },
+                state: DepositState::Deposited { last_block_height },
+            };
+            let graph_sm = GraphSM {
+                context: GraphSMCtx {
+                    graph_idx: GraphIdx {
+                        deposit: deposit_idx,
+                        operator: operator_idx,
+                    },
+                    deposit_outpoint: OutPoint {
+                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
+                        vout: outpoint_vout,
+                    },
+                    stake_outpoint: OutPoint {
+                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
+                        vout: outpoint_vout + 1,
+                    },
+                    unstaking_image: sha256::Hash::from_slice(&outpoint_txid).unwrap(),
+                    operator_table,
+                },
+                state: GraphState::Created { last_block_height },
+            };
+
+            block_on(async {
+                let client = get_client();
+
+                // Write both a deposit state and a graph state in one transaction.
+                let trx = client.create_transaction().unwrap();
+                client
+                    .basic_set_in::<DepositStateRowSpec>(
+                        &trx,
+                        DepositStateKey { deposit_idx },
+                        deposit_sm.clone(),
+                    )
+                    .unwrap();
+                client
+                    .basic_set_in::<GraphStateRowSpec>(
+                        &trx,
+                        GraphStateKey {
+                            deposit_idx,
+                            operator_idx,
+                        },
+                        graph_sm.clone(),
+                    )
+                    .unwrap();
+                trx.commit().await.unwrap();
+
+                // Both should be readable.
+                let retrieved_sm = client
+                    .get_deposit_state(deposit_idx)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(Some(deposit_sm), retrieved_sm);
+
+                let retrieved_gs = client
+                    .get_graph_state(deposit_idx, operator_idx)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(Some(graph_sm), retrieved_gs);
+
+                Ok(())
+            })?;
+        }
     }
 }
