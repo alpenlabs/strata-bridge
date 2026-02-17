@@ -13,6 +13,7 @@ use crate::{
         errors::LayerError,
         row_spec::{
             deposits::{DepositStateKey, DepositStateRowSpec},
+            funds::{FundsKey, FundsRowSpec, FundsValue},
             graphs::{GraphStateKey, GraphStateRowSpec},
             signatures::{SignatureKey, SignatureRowSpec},
         },
@@ -148,36 +149,61 @@ impl BridgeDb for FdbClient {
         .await
     }
 
+    // ── Funds ─────────────────────────────────────────────────────────
+
     async fn get_funds(
         &self,
-        _deposit_idx: DepositIdx,
-        _operator_idx: OperatorIdx,
-        _purpose: FundingPurpose,
-    ) -> Result<Option<Vec<bitcoin::OutPoint>>, Self::Error> {
-        todo!()
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
+        purpose: FundingPurpose,
+    ) -> Result<Option<Vec<OutPoint>>, Self::Error> {
+        let result = self
+            .basic_get::<FundsRowSpec>(FundsKey {
+                deposit_idx,
+                operator_idx,
+                purpose,
+            })
+            .await?;
+        Ok(result.map(|v| v.0))
     }
 
     async fn set_funds(
         &self,
-        _deposit_idx: DepositIdx,
-        _operator_idx: OperatorIdx,
-        _purpose: FundingPurpose,
-        _outpoints: Vec<bitcoin::OutPoint>,
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
+        purpose: FundingPurpose,
+        outpoints: Vec<OutPoint>,
     ) -> Result<(), Self::Error> {
-        todo!()
+        self.basic_set::<FundsRowSpec>(
+            FundsKey {
+                deposit_idx,
+                operator_idx,
+                purpose,
+            },
+            FundsValue(outpoints),
+        )
+        .await
     }
 
     async fn get_all_funds(&self) -> Result<Vec<OutPoint>, Self::Error> {
-        todo!()
+        let pairs = self
+            .basic_get_all::<FundsRowSpec>(|dirs| &dirs.funds)
+            .await?;
+        Ok(pairs.into_iter().flat_map(|(_k, v)| v.0).collect())
     }
 
     async fn delete_funds(
         &self,
-        _deposit_idx: DepositIdx,
-        _operator_idx: OperatorIdx,
-        _purpose: crate::types::FundingPurpose,
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
+        purpose: FundingPurpose,
     ) -> Result<(), Self::Error> {
-        todo!()
+        self.basic_delete::<FundsRowSpec>(FundsKey {
+            deposit_idx,
+            operator_idx,
+            purpose,
+        })
+        .await
     }
 
     async fn delete_deposit(&self, _deposit_idx: DepositIdx) -> Result<(), Self::Error> {
@@ -204,6 +230,7 @@ mod tests {
         deposit::{context::DepositSMCtx, state::DepositState},
         graph::{context::GraphSMCtx, state::GraphState},
     };
+    use strata_bridge_test_utils::arbitrary_generator::arb_outpoints;
 
     use super::*;
     use crate::fdb::{cfg::Config, client::MustDrop};
@@ -582,6 +609,105 @@ mod tests {
 
                 let retrieved = client
                     .get_graph_state(deposit_idx, operator_idx)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(None, retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: any funds stored can be retrieved with the same key.
+        #[test]
+        fn funds_roundtrip(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            purpose in prop_oneof![
+                Just(FundingPurpose::WithdrawalFulfillment),
+                Just(FundingPurpose::Claim),
+            ],
+            outpoints in arb_outpoints(),
+        ) {
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_funds(deposit_idx, operator_idx, purpose, outpoints.clone())
+                    .await
+                    .unwrap();
+
+                let retrieved = client
+                    .get_funds(deposit_idx, operator_idx, purpose)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(Some(outpoints), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: `get_all_funds` returns all previously stored fund entries.
+        #[test]
+        fn get_all_funds_test(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            outpoints_wf in arb_outpoints(),
+            outpoints_claim in arb_outpoints(),
+        ) {
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_funds(deposit_idx, operator_idx, FundingPurpose::WithdrawalFulfillment, outpoints_wf.clone())
+                    .await
+                    .unwrap();
+                client
+                    .set_funds(deposit_idx, operator_idx, FundingPurpose::Claim, outpoints_claim.clone())
+                    .await
+                    .unwrap();
+
+                let all = client.get_all_funds().await.unwrap();
+
+                // Check that all outpoints from both entries are present in the combined list.
+                for op in outpoints_wf {
+                    prop_assert!(all.contains(&op), "get_all_funds missing WithdrawalFulfillment outpoint: {op}");
+                }
+
+                for op in outpoints_claim {
+                    prop_assert!(all.contains(&op), "get_all_funds missing Claim outpoint: {op}");
+                }
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: deleting funds makes them unreadable.
+        #[test]
+        fn delete_funds_roundtrip(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            purpose in prop_oneof![
+                Just(FundingPurpose::WithdrawalFulfillment),
+                Just(FundingPurpose::Claim),
+            ],
+            outpoints in arb_outpoints(),
+        ) {
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_funds(deposit_idx, operator_idx, purpose, outpoints)
+                    .await
+                    .unwrap();
+
+                client
+                    .delete_funds(deposit_idx, operator_idx, purpose)
+                    .await
+                    .unwrap();
+
+                let retrieved = client
+                    .get_funds(deposit_idx, operator_idx, purpose)
                     .await
                     .unwrap();
                 prop_assert_eq!(None, retrieved);

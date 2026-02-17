@@ -25,5 +25,7 @@ default = ["fdb"]
 fdb = ["foundationdb", "serde"]
 
 [dev-dependencies]
+strata-bridge-test-utils.workspace = true
+
 proptest.workspace = true
 tokio.workspace = true
