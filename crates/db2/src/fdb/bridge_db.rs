@@ -275,12 +275,16 @@ impl BridgeDb for FdbClient {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::OnceLock;
+    use std::{collections::BTreeMap, num::NonZero, sync::OnceLock};
 
-    use bitcoin::hashes::{Hash, sha256};
-    use proptest::prelude::*;
+    use bitcoin::{
+        TapSighashType,
+        hashes::{Hash, sha256},
+        taproot,
+    };
+    use proptest::{prelude::*, strategy::ValueTree};
     use secp256k1::{
-        Keypair, Message, Secp256k1,
+        Keypair, Message, SECP256K1,
         rand::{random, thread_rng},
     };
     use strata_bridge_primitives::{
@@ -291,7 +295,13 @@ mod tests {
         deposit::{context::DepositSMCtx, state::DepositState},
         graph::{context::GraphSMCtx, state::GraphState},
     };
-    use strata_bridge_test_utils::arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid};
+    use strata_bridge_test_utils::{
+        arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid},
+        musig2::generate_agg_nonce,
+    };
+    use strata_bridge_tx_graph2::game_graph::{
+        CounterproofGraphSummary, DepositParams, GameGraphSummary,
+    };
 
     use super::*;
     use crate::fdb::{cfg::Config, client::MustDrop};
@@ -338,9 +348,8 @@ mod tests {
     /// Generates an arbitrary valid Schnorr signature.
     fn arb_signature() -> impl Strategy<Value = Signature> {
         any::<[u8; 32]>().prop_map(|msg_bytes| {
-            let secp = Secp256k1::new();
-            let (secret_key, _) = secp.generate_keypair(&mut thread_rng());
-            let keypair = Keypair::from_secret_key(&secp, &secret_key);
+            let (secret_key, _) = SECP256K1.generate_keypair(&mut thread_rng());
+            let keypair = Keypair::from_secret_key(SECP256K1, &secret_key);
             keypair.sign_schnorr(Message::from_digest(msg_bytes))
         })
     }
@@ -939,71 +948,6 @@ mod tests {
             })?;
         }
 
-        /// Verify that `create_transaction` + `basic_set_in` can batch
-        /// multiple writes into a single atomic transaction.
-        #[test]
-        fn transaction_batch_persist_test(
-            deposit_idx in any::<DepositIdx>(),
-            operator_idx in any::<OperatorIdx>(),
-            last_block_height in any::<u64>(),
-            outpoint in arb_outpoint(),
-            operator_table in arb_operator_table(),
-        ) {
-            let deposit_sm = make_deposit_sm(
-                deposit_idx,
-                outpoint,
-                operator_table.clone(),
-                DepositState::Deposited { last_block_height },
-            );
-            let graph_sm = make_graph_sm(
-                deposit_idx,
-                operator_idx,
-                outpoint,
-                operator_table,
-                GraphState::Created { last_block_height },
-            );
-
-            block_on(async {
-                let client = get_client();
-
-                // Write both a deposit state and a graph state in one transaction.
-                let trx = client.create_transaction().unwrap();
-                client
-                    .basic_set_in::<DepositStateRowSpec>(
-                        &trx,
-                        DepositStateKey { deposit_idx },
-                        deposit_sm.clone(),
-                    )
-                    .unwrap();
-                client
-                    .basic_set_in::<GraphStateRowSpec>(
-                        &trx,
-                        GraphStateKey {
-                            deposit_idx,
-                            operator_idx,
-                        },
-                        graph_sm.clone(),
-                    )
-                    .unwrap();
-                trx.commit().await.unwrap();
-
-                // Both should be readable.
-                let retrieved_sm = client
-                    .get_deposit_state(deposit_idx)
-                    .await
-                    .unwrap();
-                prop_assert_eq!(Some(deposit_sm), retrieved_sm);
-
-                let retrieved_gs = client
-                    .get_graph_state(deposit_idx, operator_idx)
-                    .await
-                    .unwrap();
-                prop_assert_eq!(Some(graph_sm), retrieved_gs);
-
-                Ok(())
-            })?;
-        }
-
         /// Property: `persist_batch` correctly writes multiple deposits and
         /// multiple graphs in a single atomic batch.
         #[test]
@@ -1227,6 +1171,7 @@ mod tests {
                 Ok(())
             })?;
         }
+
     }
 
     /// An empty `WriteBatch` should persist without error.
@@ -1236,6 +1181,124 @@ mod tests {
             let client = get_client();
             let batch = WriteBatch::new();
             client.persist_batch(&batch).await.unwrap();
+        });
+    }
+
+    /// Property: `persist_batch` handles a realistic `NoncesCollected` graph
+    /// state with 10 operator entries and a `GameGraphSummary` sized for 10
+    /// watchtowers. Verifies the full FDB write-read roundtrip.
+    #[test]
+    fn persist_batch_realistic_state_test() {
+        let mut runner = proptest::test_runner::TestRunner::default();
+        let operator_table = arb_operator_table()
+            .new_tree(&mut runner)
+            .unwrap()
+            .current();
+        let outpoint = arb_outpoint().new_tree(&mut runner).unwrap().current();
+        let deposit_idx: DepositIdx = random();
+
+        const N_OPERATORS: usize = 10;
+        const N_WATCHTOWERS: usize = 10;
+
+        // get random operator index within bounds for the graph state context.
+        let operator_idx: OperatorIdx = random::<u32>() % N_OPERATORS as u32;
+
+        // generate random Txids for the graph summary by XORing the base Txid with different salts.
+        let derive_txid = |salt: u8| {
+            let base: &[u8] = outpoint.txid.as_ref();
+            let mut bytes = [0u8; 32];
+            for (i, b) in base.iter().enumerate() {
+                bytes[i] = b ^ salt;
+            }
+            Txid::from_slice(&bytes).unwrap()
+        };
+
+        let partial_signatures: BTreeMap<OperatorIdx, taproot::Signature> = (0..N_OPERATORS as u32)
+            .map(|i| {
+                let (secret_key, _) = SECP256K1.generate_keypair(&mut thread_rng());
+                let keypair = Keypair::from_secret_key(SECP256K1, &secret_key);
+                let sig = keypair.sign_schnorr(Message::from_digest([i as u8; 32]));
+                (
+                    i,
+                    taproot::Signature {
+                        signature: sig,
+                        sighash_type: TapSighashType::Default,
+                    },
+                )
+            })
+            .collect();
+
+        let nonces_collected = GraphState::NoncesCollected {
+            last_block_height: 100,
+            graph_data: DepositParams {
+                game_index: NonZero::new(1).unwrap(),
+                claim_funds: OutPoint {
+                    txid: outpoint.txid,
+                    vout: outpoint.vout.wrapping_add(2),
+                },
+                deposit_outpoint: outpoint,
+            },
+            graph_summary: GameGraphSummary {
+                claim: derive_txid(0x01),
+                contest: derive_txid(0x02),
+                bridge_proof_timeout: derive_txid(0x03),
+                counterproofs: (0..N_WATCHTOWERS)
+                    .map(|i| CounterproofGraphSummary {
+                        counterproof: derive_txid((i + 0x10) as u8),
+                        counterproof_ack: derive_txid((i + 0x20) as u8),
+                    })
+                    .collect(),
+                slash: derive_txid(0x04),
+            },
+            agg_nonce: generate_agg_nonce(),
+            partial_signatures,
+        };
+
+        let deposit_sm = make_deposit_sm(
+            deposit_idx,
+            outpoint,
+            operator_table.clone(),
+            DepositState::Deposited {
+                last_block_height: 100,
+            },
+        );
+
+        let graph_sm = make_graph_sm(
+            deposit_idx,
+            operator_idx,
+            outpoint,
+            operator_table,
+            nonces_collected,
+        );
+
+        let graph_sms = (0..N_OPERATORS as u32)
+            .map(|op_idx| {
+                let mut sm = graph_sm.clone();
+                sm.context.graph_idx.operator = op_idx;
+
+                sm
+            })
+            .collect::<Vec<_>>();
+
+        block_on(async {
+            let client = get_client();
+
+            let mut batch = WriteBatch::new();
+            batch.add_deposit(deposit_sm.clone());
+            graph_sms
+                .into_iter()
+                .for_each(|graph_sm| batch.add_graph(graph_sm));
+
+            client.persist_batch(&batch).await.unwrap();
+
+            let retrieved_deposit = client.get_deposit_state(deposit_idx).await.unwrap();
+            assert_eq!(Some(deposit_sm), retrieved_deposit);
+
+            let retrieved_graph = client
+                .get_graph_state(deposit_idx, operator_idx)
+                .await
+                .unwrap();
+            assert_eq!(Some(graph_sm), retrieved_graph);
         });
     }
 }
