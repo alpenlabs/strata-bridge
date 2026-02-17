@@ -21,13 +21,10 @@ use strata_l1_txfmt::MagicBytes;
 
 use crate::{
     graph::{
-        config::GraphSMCfg, context::GraphSMCtx, duties::GraphDuty, errors::GSMError,
-        events::GraphEvent, machine::GraphSM, state::GraphState,
+        config::GraphSMCfg, context::GraphSMCtx, errors::GSMError, events::GraphEvent,
+        machine::GraphSM, state::GraphState,
     },
-    signals::GraphSignal,
-    testing::transition::{
-        InvalidTransition, Transition, test_invalid_transition, test_transition,
-    },
+    testing::transition::{InvalidTransition, test_invalid_transition},
 };
 
 mod uncontested;
@@ -132,21 +129,8 @@ pub(super) const fn get_state(sm: &GraphSM) -> &GraphState {
 
 // ===== Test Transition Helpers =====
 
-/// Type alias for GraphSM transitions.
-pub(super) type GraphTransition = Transition<GraphState, GraphEvent, GraphDuty, GraphSignal>;
-
 /// Type alias for invalid GraphSM transitions.
 pub(super) type GraphInvalidTransition = InvalidTransition<GraphState, GraphEvent, GSMError>;
-
-/// Test a valid GraphSM transition with pre-configured test helpers.
-pub(super) fn test_graph_transition(transition: GraphTransition) {
-    test_transition::<GraphSM, _, _, _, _, _, _, _>(
-        create_sm,
-        get_state,
-        test_graph_sm_cfg(),
-        transition,
-    );
-}
 
 /// Test an invalid GraphSM transition with pre-configured test helpers.
 pub(super) fn test_graph_invalid_transition(invalid: GraphInvalidTransition) {

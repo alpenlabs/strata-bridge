@@ -1,10 +1,11 @@
 //! The duties that need to be performed in the Graph State Machine in response to the state
 //! transitions.
 
-use bitcoin::{OutPoint, Transaction, Txid, taproot::TapNodeHash};
+use bitcoin::{OutPoint, Transaction, Txid};
 use musig2::{AggNonce, secp256k1::Message};
 use strata_bridge_primitives::{
     mosaic::Labels,
+    scripts::taproot::TaprootTweak,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
 use zkaleido::ProofReceipt;
@@ -33,7 +34,7 @@ pub enum GraphDuty {
         graph_inpoints: Vec<OutPoint>,
 
         /// The tweak required for taproot spend per input being signed.
-        graph_tweaks: Vec<TapNodeHash>,
+        graph_tweaks: Vec<TaprootTweak>,
     },
 
     /// Publish partial signatures for graph signing.
@@ -54,7 +55,7 @@ pub enum GraphDuty {
         graph_inpoints: Vec<OutPoint>,
 
         /// The tweak required for taproot spend per input being signed.
-        graph_tweaks: Vec<TapNodeHash>,
+        graph_tweaks: Vec<TaprootTweak>,
 
         /// The txid of the claim transaction (must not exist on chain before signing).
         claim_txid: Txid,

@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::{scripts::taproot::TaprootTweak, types::OperatorIdx};
 use strata_bridge_tx_graph2::game_graph::DepositParams;
 
 use crate::graph::{
@@ -83,7 +83,14 @@ impl GraphSM {
                 graph_data,
                 graph_summary,
             } => {
-                let _game_graph = self.generate_graph(&cfg, *graph_data);
+                let game_graph = self.generate_graph(&cfg, *graph_data);
+                let graph_inpoints = game_graph.musig_inpoints().pack();
+                let graph_tweaks = game_graph
+                    .musig_signing_info()
+                    .pack()
+                    .iter()
+                    .map(|m| m.tweak)
+                    .collect::<Vec<TaprootTweak>>();
 
                 self.state = GraphState::AdaptorsVerified {
                     last_block_height: *last_block_height,
@@ -95,8 +102,8 @@ impl GraphSM {
                 Ok(GSMOutput::with_duties(vec![
                     GraphDuty::PublishGraphNonces {
                         graph_idx: self.context.graph_idx(),
-                        graph_inpoints: Default::default(),
-                        graph_tweaks: Default::default(),
+                        graph_inpoints,
+                        graph_tweaks,
                     },
                 ]))
             }
