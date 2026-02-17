@@ -1,7 +1,7 @@
 //! Base client for interacting with the FoundationDB database.
 
 use foundationdb::{
-    Database, FdbBindingError, FdbError, RetryableTransaction, TransactOption,
+    Database, FdbBindingError, FdbError, RetryableTransaction, TransactOption, Transaction,
     api::{FdbApiBuilder, NetworkAutoStop},
     directory::DirectoryError,
     options::NetworkOption,
@@ -11,8 +11,8 @@ use terrors::OneOf;
 use crate::fdb::{
     cfg::Config,
     dirs::Directories,
-    errors::LayerError,
     row_spec::kv::{KVRowSpec, PackableKey, SerializableValue},
+    errors::{LayerError, TransactionError},
 };
 
 /// The main entity for interacting with the FoundationDB database.
@@ -112,6 +112,43 @@ impl FdbClient {
         self.db
             .run(|trx, _| async move { Ok(self.dirs.clear(&trx).await) })
             .await
+    }
+
+    /// Runs an async closure inside `Database::transact_boxed` with the
+    /// configured retry/timeout options.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let deposit_key = DepositStateKey { deposit_idx: 0 }
+    ///     .pack(client.dirs())
+    ///     .map_err(LayerError::failed_to_pack_key)
+    ///     .map_err(OneOf::new)?;
+    /// let result = client.transact(deposit_key, |trx, data| {
+    ///     Box::pin(async move {
+    ///         let slice: Vec<u8> = trx.get(data.as_ref(), true).await?;
+    ///         Ok(slice.to_vec())
+    ///     })
+    /// }).await?;
+    /// ```
+    async fn transact<D, T>(
+        &self,
+        data: D,
+        txn: impl for<'a> FnMut(
+            &'a Transaction,
+            &'a mut D,
+        ) -> Pin<
+            Box<dyn Future<Output = Result<T, TransactionError>> + Send + 'a>,
+        > + Send,
+    ) -> Result<T, OneOf<(FdbBindingError, LayerError)>>
+    where
+        D: Send,
+        T: Send,
+    {
+        self.db
+            .transact_boxed(data, txn, self.transact_options.clone())
+            .await
+            .map_err(Into::into)
     }
 
     /// Basic generic set operation.
