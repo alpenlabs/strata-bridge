@@ -205,10 +205,16 @@ libp2p = { version = "0.56.0", features = [
 ] }
 libp2p-identity = "0.2.12"
 miniscript = "12.3.0"
-musig2 = { version = "0.1.0", features = [
+# NOTE: (@Rajil1213) Using an alpenlabs fork that bumps serdect 0.2 → 0.3 to fix a
+# serialize/deserialize mismatch in non-human-readable binary formats (e.g.
+# postcard). Upstream musig2 ≥0.3.0 ships serdect 0.3 natively, but requires
+# secp256k1 0.31 which conflicts with bitcoin 0.32's secp256k1 0.29. This fork
+# can be dropped once bitcoin 0.33 (secp256k1 ≥0.31) is released and adopted by
+# the workspace and its transitive dependencies (alpen, BitVM, bdk, etc.).
+musig2 = { git = "https://github.com/alpenlabs/musig2", branch = "fix/deserialization-mismatch", features = [
   "serde",
   "rand",
-] } # can't be updated without updating bitcoin
+] }
 opentelemetry = "0.29.1"
 opentelemetry-otlp = { version = "0.29.0", features = ["grpc-tonic"] }
 opentelemetry_sdk = { version = "0.29.0", features = ["rt-tokio"] }
@@ -261,6 +267,10 @@ tracing = "0.1.40"
 tracing-opentelemetry = "0.30.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 zeroize = { version = "1.8.1", features = ["derive"] }
+
+[patch.crates-io]
+# See NOTE on musig2 in [workspace.dependencies] above.
+musig2 = { git = "https://github.com/alpenlabs/musig2", branch = "fix/deserialization-mismatch" }
 
 # This is needed for custom build of SP1
 [profile.release.build-override]

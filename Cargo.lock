@@ -3184,7 +3184,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 2.0.114",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -3500,7 +3500,7 @@ dependencies = [
  "digest 0.10.7",
  "elliptic-curve",
  "rfc6979",
- "serdect",
+ "serdect 0.2.0",
  "signature",
  "spki",
 ]
@@ -3573,7 +3573,7 @@ dependencies = [
  "pkcs8",
  "rand_core 0.6.4",
  "sec1",
- "serdect",
+ "serdect 0.2.0",
  "subtle",
  "zeroize",
 ]
@@ -5354,7 +5354,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "once_cell",
- "serdect",
+ "serdect 0.2.0",
  "sha2",
  "signature",
 ]
@@ -6199,9 +6199,8 @@ dependencies = [
 
 [[package]]
 name = "musig2"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c89bee285da6010ad76c3467c4de8265bb4fa46fba0017df95ae55cad4436528"
+version = "0.1.1"
+source = "git+https://github.com/alpenlabs/musig2?branch=fix%2Fdeserialization-mismatch#5b8319932ace352f14e08f391cf90929f3d4e53f"
 dependencies = [
  "base16ct",
  "hmac",
@@ -6210,7 +6209,7 @@ dependencies = [
  "secp",
  "secp256k1 0.29.1",
  "serde",
- "serdect",
+ "serdect 0.3.0",
  "sha2",
  "subtle",
 ]
@@ -8466,7 +8465,7 @@ dependencies = [
  "der",
  "generic-array 0.14.7",
  "pkcs8",
- "serdect",
+ "serdect 0.2.0",
  "subtle",
  "zeroize",
 ]
@@ -8482,7 +8481,7 @@ dependencies = [
  "rand 0.8.5",
  "secp256k1 0.29.1",
  "serde",
- "serdect",
+ "serdect 0.2.0",
  "subtle",
 ]
 
@@ -8788,6 +8787,16 @@ name = "serdect"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a84f14a19e9a014bb9f4512488d9829a68e04ecabffb0f9904cd1ace94598177"
+dependencies = [
+ "base16ct",
+ "serde",
+]
+
+[[package]]
+name = "serdect"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f42f67da2385b51a5f9652db9c93d78aeaf7610bf5ec366080b6de810604af53"
 dependencies = [
  "base16ct",
  "serde",
