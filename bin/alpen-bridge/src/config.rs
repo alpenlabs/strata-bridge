@@ -235,6 +235,7 @@ mod tests {
 
             [fdb]
             cluster_file_path = "/etc/foundationdb/fdb.cluster"
+            retry = { retry_limit = 5, timeout = { secs = 5, nanos = 0 } }
 
             [p2p]
             idle_connection_timeout = { secs = 1_000, nanos = 0 }

@@ -69,9 +69,16 @@ class StakeTxConfig:
 
 
 @dataclass
+class FdbRetryConfig:
+    retry_limit: int
+    timeout: Duration
+
+
+@dataclass
 class FdbConfig:
     cluster_file_path: str
     root_directory: str
+    retry: FdbRetryConfig
 
 
 @dataclass

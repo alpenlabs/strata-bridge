@@ -27,6 +27,7 @@ backoff_period = { secs = 1000, nanos = 0 }
 [fdb]
 cluster_file_path = "/var/fdb/fdb.cluster"
 root_directory = "strata-bridge-node-1"
+retry = { retry_limit = 5, timeout = { secs = 5, nanos = 0 } }
 
 [p2p]
 idle_connection_timeout = { secs = 1000, nanos = 0 }
