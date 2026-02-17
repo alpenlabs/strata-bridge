@@ -225,12 +225,15 @@ mod tests {
         Keypair, Message, Secp256k1,
         rand::{random, thread_rng},
     };
-    use strata_bridge_primitives::operator_table::prop_test_generators::arb_operator_table;
+    use strata_bridge_primitives::{
+        operator_table::{OperatorTable, prop_test_generators::arb_operator_table},
+        types::{DepositIdx, OperatorIdx},
+    };
     use strata_bridge_sm::{
         deposit::{context::DepositSMCtx, state::DepositState},
         graph::{context::GraphSMCtx, state::GraphState},
     };
-    use strata_bridge_test_utils::arbitrary_generator::arb_outpoints;
+    use strata_bridge_test_utils::arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid};
 
     use super::*;
     use crate::fdb::{cfg::Config, client::MustDrop};
@@ -284,9 +287,50 @@ mod tests {
         })
     }
 
-    /// Generates an arbitrary Txid.
-    fn arb_txid() -> impl Strategy<Value = Txid> {
-        any::<[u8; 32]>().prop_map(|bytes| Txid::from_slice(&bytes).unwrap())
+    /// Builds a [`DepositSM`] from the given components.
+    fn make_deposit_sm(
+        deposit_idx: DepositIdx,
+        outpoint: OutPoint,
+        operator_table: OperatorTable,
+        state: DepositState,
+    ) -> DepositSM {
+        DepositSM {
+            context: DepositSMCtx {
+                deposit_idx,
+                deposit_outpoint: outpoint,
+                operator_table,
+            },
+            state,
+        }
+    }
+
+    /// Builds a [`GraphSM`] from the given components.
+    ///
+    /// Derives `stake_outpoint` (vout + 1) and `unstaking_image` (from outpoint txid bytes)
+    /// automatically.
+    fn make_graph_sm(
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
+        outpoint: OutPoint,
+        operator_table: OperatorTable,
+        state: GraphState,
+    ) -> GraphSM {
+        GraphSM {
+            context: GraphSMCtx {
+                graph_idx: GraphIdx {
+                    deposit: deposit_idx,
+                    operator: operator_idx,
+                },
+                deposit_outpoint: outpoint,
+                stake_outpoint: OutPoint {
+                    txid: outpoint.txid,
+                    vout: outpoint.vout + 1,
+                },
+                unstaking_image: sha256::Hash::from_slice(outpoint.txid.as_ref()).unwrap(),
+                operator_table,
+            },
+            state,
+        }
     }
 
     proptest! {
@@ -325,8 +369,7 @@ mod tests {
             deposit_idx in any::<DepositIdx>(),
             last_block_height in any::<u64>(),
             variant_selector in 0u8..4,
-            outpoint_txid in any::<[u8; 32]>(),
-            outpoint_vout in any::<u32>(),
+            outpoint in arb_outpoint(),
             operator_table in arb_operator_table(),
         ) {
             // only uses simple variants for testing, as the more complex ones would require constructing valid DepositSMs.
@@ -338,17 +381,7 @@ mod tests {
                 _ => DepositState::Aborted,
             };
 
-            let deposit_sm = DepositSM {
-                context: DepositSMCtx {
-                    deposit_idx,
-                    deposit_outpoint: OutPoint {
-                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
-                        vout: outpoint_vout,
-                    },
-                    operator_table,
-                },
-                state,
-            };
+            let deposit_sm = make_deposit_sm(deposit_idx, outpoint, operator_table, state);
 
             block_on(async {
                 let client = get_client();
@@ -375,26 +408,14 @@ mod tests {
             deposit_idx_a in any::<DepositIdx>(),
             deposit_idx_b in any::<DepositIdx>(),
             last_block_height in any::<u64>(),
-            outpoint_txid in any::<[u8; 32]>(),
-            outpoint_vout in any::<u32>(),
+            outpoint in arb_outpoint(),
             operator_table in arb_operator_table(),
         ) {
             prop_assume!(deposit_idx_a != deposit_idx_b);
 
-            let make_sm = |idx| DepositSM {
-                context: DepositSMCtx {
-                    deposit_idx: idx,
-                    deposit_outpoint: OutPoint {
-                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
-                        vout: outpoint_vout,
-                    },
-                    operator_table: operator_table.clone(),
-                },
-                state: DepositState::Deposited { last_block_height },
-            };
-
-            let sm_a = make_sm(deposit_idx_a);
-            let sm_b = make_sm(deposit_idx_b);
+            let state = DepositState::Deposited { last_block_height };
+            let sm_a = make_deposit_sm(deposit_idx_a, outpoint, operator_table.clone(), state.clone());
+            let sm_b = make_deposit_sm(deposit_idx_b, outpoint, operator_table, state);
 
             block_on(async {
                 let client = get_client();
@@ -419,21 +440,15 @@ mod tests {
         fn delete_deposit_state_roundtrip(
             deposit_idx in any::<DepositIdx>(),
             last_block_height in any::<u64>(),
-            outpoint_txid in any::<[u8; 32]>(),
-            outpoint_vout in any::<u32>(),
+            outpoint in arb_outpoint(),
             operator_table in arb_operator_table(),
         ) {
-            let deposit_sm = DepositSM {
-                context: DepositSMCtx {
-                    deposit_idx,
-                    deposit_outpoint: OutPoint {
-                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
-                        vout: outpoint_vout,
-                    },
-                    operator_table,
-                },
-                state: DepositState::Deposited { last_block_height },
-            };
+            let deposit_sm = make_deposit_sm(
+                deposit_idx,
+                outpoint,
+                operator_table,
+                DepositState::Deposited { last_block_height },
+            );
 
             block_on(async {
                 let client = get_client();
@@ -458,42 +473,21 @@ mod tests {
             deposit_idx in any::<DepositIdx>(),
             operator_idx in any::<OperatorIdx>(),
             block_height in any::<u64>(),
-            txid in any::<[u8; 32]>(),
+            txid in arb_txid(),
             variant_selector in 0u8..4,
             operator_table in arb_operator_table(),
         ) {
-            let test_txid = Txid::from_slice(&txid).unwrap();
-
             // Only includes simple variants for testing, as the more complex ones would require constructing valid GraphSMs.
             // TODO: (@Rajil1213) implement Arbitrary for GraphSM to allow testing of all variants.
             let state = match variant_selector {
                 0 => GraphState::Created { last_block_height: block_height },
-                1 => GraphState::Withdrawn { payout_txid: test_txid },
-                2 => GraphState::Aborted { payout_connector_spend_txid: test_txid, reason: "test".to_string() },
-                _ => GraphState::AllNackd { last_block_height: block_height, contest_block_height: block_height, expected_payout_txid: test_txid, possible_slash_txid: test_txid },
+                1 => GraphState::Withdrawn { payout_txid: txid },
+                2 => GraphState::Aborted { payout_connector_spend_txid: txid, reason: "test".to_string() },
+                _ => GraphState::AllNackd { last_block_height: block_height, contest_block_height: block_height, expected_payout_txid: txid, possible_slash_txid: txid },
             };
 
-            let ctx = GraphSMCtx {
-                graph_idx: GraphIdx {
-                    deposit: deposit_idx,
-                    operator: operator_idx,
-                },
-                deposit_outpoint: OutPoint {
-                    txid: test_txid,
-                    vout: 0,
-                },
-                stake_outpoint: OutPoint {
-                    txid: test_txid,
-                    vout: 1,
-                },
-                unstaking_image: sha256::Hash::from_slice(&txid).unwrap(),
-                operator_table,
-            };
-
-            let graph_sm  = GraphSM {
-                context: ctx,
-                state,
-            };
+            let outpoint = OutPoint { txid, vout: 0 };
+            let graph_sm = make_graph_sm(deposit_idx, operator_idx, outpoint, operator_table, state);
 
             block_on(async {
                 let client = get_client();
@@ -521,30 +515,14 @@ mod tests {
             operator_a in any::<OperatorIdx>(),
             operator_b in any::<OperatorIdx>(),
             last_block_height in any::<u64>(),
-            txid in any::<[u8; 32]>(),
+            outpoint in arb_outpoint(),
             operator_table in arb_operator_table(),
         ) {
             prop_assume!(operator_a != operator_b);
 
-            let make_gs = |op| GraphSM {
-                context: GraphSMCtx {
-                    graph_idx: GraphIdx { deposit: deposit_idx, operator: op },
-                    deposit_outpoint: OutPoint {
-                        txid: Txid::from_slice(&txid).unwrap(),
-                        vout: 0,
-                    },
-                    stake_outpoint: OutPoint {
-                        txid: Txid::from_slice(&txid).unwrap(),
-                        vout: 1,
-                    },
-                    unstaking_image: sha256::Hash::from_slice(&txid).unwrap(),
-                    operator_table: operator_table.clone(),
-                },
-                state: GraphState::Created { last_block_height },
-            };
-
-            let gs_a = make_gs(operator_a);
-            let gs_b = make_gs(operator_b);
+            let state = GraphState::Created { last_block_height };
+            let gs_a = make_graph_sm(deposit_idx, operator_a, outpoint, operator_table.clone(), state.clone());
+            let gs_b = make_graph_sm(deposit_idx, operator_b, outpoint, operator_table, state);
 
             block_on(async {
                 let client = get_client();
@@ -564,35 +542,22 @@ mod tests {
             })?;
         }
 
-
         /// Property: deleting a graph state makes it unreadable.
         #[test]
         fn delete_graph_state_roundtrip(
             deposit_idx in any::<DepositIdx>(),
             operator_idx in any::<OperatorIdx>(),
             last_block_height in any::<u64>(),
-            txid in any::<[u8; 32]>(),
-            operator_table in arb_operator_table()
+            outpoint in arb_outpoint(),
+            operator_table in arb_operator_table(),
         ) {
-            let graph_sm = GraphSM {
-                context: GraphSMCtx {
-                    graph_idx: GraphIdx {
-                        deposit: deposit_idx,
-                        operator: operator_idx,
-                    },
-                    deposit_outpoint: OutPoint {
-                        txid: Txid::from_slice(&txid).unwrap(),
-                        vout: 0,
-                    },
-                    stake_outpoint: OutPoint {
-                        txid: Txid::from_slice(&txid).unwrap(),
-                        vout: 1,
-                    },
-                    unstaking_image: sha256::Hash::from_slice(&txid).unwrap(),
-                    operator_table,
-                },
-                state: GraphState::Created { last_block_height },
-            };
+            let graph_sm = make_graph_sm(
+                deposit_idx,
+                operator_idx,
+                outpoint,
+                operator_table,
+                GraphState::Created { last_block_height },
+            );
 
             block_on(async {
                 let client = get_client();
@@ -726,44 +691,17 @@ mod tests {
             operator_a in any::<OperatorIdx>(),
             operator_b in any::<OperatorIdx>(),
             last_block_height in any::<u64>(),
-            outpoint_txid in any::<[u8; 32]>(),
-            outpoint_vout in any::<u32>(),
+            outpoint in arb_outpoint(),
             operator_table in arb_operator_table(),
         ) {
             // Ensure the two deposit indices differ.
             prop_assume!(deposit_idx != survivor_deposit_idx);
 
-            let deposit_sm = DepositSM {
-                context: DepositSMCtx {
-                    deposit_idx,
-                    deposit_outpoint: OutPoint {
-                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
-                        vout: outpoint_vout,
-                    },
-                    operator_table: operator_table.clone(),
-                },
-                state: DepositState::Deposited { last_block_height },
-            };
+            let state = DepositState::Deposited { last_block_height };
+            let deposit_sm = make_deposit_sm(deposit_idx, outpoint, operator_table.clone(), state);
 
-            let graph_sm_a = GraphSM {
-                context: GraphSMCtx {
-                    graph_idx: GraphIdx {
-                        deposit: deposit_idx,
-                        operator: operator_a,
-                    },
-                    deposit_outpoint: OutPoint {
-                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
-                        vout: outpoint_vout,
-                    },
-                    stake_outpoint: OutPoint {
-                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
-                        vout: outpoint_vout + 1,
-                    },
-                    unstaking_image: sha256::Hash::from_slice(&outpoint_txid).unwrap(),
-                    operator_table,
-                },
-                state: GraphState::Created { last_block_height },
-            };
+            let graph_state = GraphState::Created { last_block_height };
+            let graph_sm_a = make_graph_sm(deposit_idx, operator_a, outpoint, operator_table, graph_state);
 
             let mut graph_sm_b = graph_sm_a.clone();
             graph_sm_b.context.graph_idx.operator = operator_b;
@@ -833,37 +771,19 @@ mod tests {
             target_op in any::<OperatorIdx>(),
             survivor_op in any::<OperatorIdx>(),
             last_block_height in any::<u64>(),
-            txid in any::<[u8; 32]>(),
+            outpoint in arb_outpoint(),
             operator_table in arb_operator_table(),
         ) {
             prop_assume!(target_op != survivor_op);
 
-            let graph_sm_a = GraphSM {
-                context: GraphSMCtx {
-                    graph_idx: GraphIdx {
-                        deposit: deposit_a,
-                        operator: target_op,
-                    },
-                    deposit_outpoint: OutPoint {
-                        txid: Txid::from_slice(&txid).unwrap(),
-                        vout: 0,
-                    },
-                    stake_outpoint: OutPoint {
-                        txid: Txid::from_slice(&txid).unwrap(),
-                        vout: 1,
-                    },
-                    unstaking_image: sha256::Hash::from_slice(&txid).unwrap(),
-                    operator_table: operator_table.clone(),
-                },
-                state: GraphState::Created { last_block_height },
-            };
+            let state = GraphState::Created { last_block_height };
+            let graph_sm_a = make_graph_sm(deposit_a, target_op, outpoint, operator_table, state);
 
             let mut graph_sm_b = graph_sm_a.clone();
             graph_sm_b.context.graph_idx.deposit = deposit_b;
 
             let mut survivor_state = graph_sm_a.clone();
             survivor_state.context.graph_idx.operator = survivor_op;
-
 
             block_on(async {
                 let client = get_client();
@@ -918,40 +838,22 @@ mod tests {
             deposit_idx in any::<DepositIdx>(),
             operator_idx in any::<OperatorIdx>(),
             last_block_height in any::<u64>(),
-            outpoint_txid in any::<[u8; 32]>(),
-            outpoint_vout in any::<u32>(),
+            outpoint in arb_outpoint(),
             operator_table in arb_operator_table(),
         ) {
-            let deposit_sm = DepositSM {
-                context: DepositSMCtx {
-                    deposit_idx,
-                    deposit_outpoint: OutPoint {
-                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
-                        vout: outpoint_vout,
-                    },
-                    operator_table: operator_table.clone(),
-                },
-                state: DepositState::Deposited { last_block_height },
-            };
-            let graph_sm = GraphSM {
-                context: GraphSMCtx {
-                    graph_idx: GraphIdx {
-                        deposit: deposit_idx,
-                        operator: operator_idx,
-                    },
-                    deposit_outpoint: OutPoint {
-                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
-                        vout: outpoint_vout,
-                    },
-                    stake_outpoint: OutPoint {
-                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
-                        vout: outpoint_vout + 1,
-                    },
-                    unstaking_image: sha256::Hash::from_slice(&outpoint_txid).unwrap(),
-                    operator_table,
-                },
-                state: GraphState::Created { last_block_height },
-            };
+            let deposit_sm = make_deposit_sm(
+                deposit_idx,
+                outpoint,
+                operator_table.clone(),
+                DepositState::Deposited { last_block_height },
+            );
+            let graph_sm = make_graph_sm(
+                deposit_idx,
+                operator_idx,
+                outpoint,
+                operator_table,
+                GraphState::Created { last_block_height },
+            );
 
             block_on(async {
                 let client = get_client();
