@@ -11,7 +11,10 @@ use crate::{
     fdb::{
         client::FdbClient,
         errors::LayerError,
-        row_spec::signatures::{SignatureKey, SignatureRowSpec},
+        row_spec::{
+            deposits::{DepositStateKey, DepositStateRowSpec},
+            signatures::{SignatureKey, SignatureRowSpec},
+        },
     },
     traits::BridgeDb,
     types::FundingPurpose,
@@ -52,27 +55,36 @@ impl BridgeDb for FdbClient {
         .await
     }
 
+    // ── Deposit States ───────────────────────────────────────────────
+
     async fn get_deposit_state(
         &self,
-        _deposit_idx: DepositIdx,
+        deposit_idx: DepositIdx,
     ) -> Result<Option<DepositSM>, Self::Error> {
-        todo!()
+        self.basic_get::<DepositStateRowSpec>(DepositStateKey { deposit_idx })
+            .await
     }
 
     async fn set_deposit_state(
         &self,
-        _deposit_idx: DepositIdx,
-        _state: DepositSM,
+        deposit_idx: DepositIdx,
+        state: DepositSM,
     ) -> Result<(), Self::Error> {
-        todo!()
+        self.basic_set::<DepositStateRowSpec>(DepositStateKey { deposit_idx }, state)
+            .await
     }
 
     async fn get_all_deposit_states(&self) -> Result<Vec<(DepositIdx, DepositSM)>, Self::Error> {
-        todo!()
+        let pairs = self
+            .basic_get_all::<DepositStateRowSpec>(|dirs| &dirs.deposits)
+            .await?;
+        Ok(pairs.into_iter().map(|(k, v)| (k.deposit_idx, v)).collect())
     }
 
-    async fn delete_deposit_state(&self, _deposit_idx: DepositIdx) -> Result<(), Self::Error> {
-        todo!()
+    async fn delete_deposit_state(&self, deposit_idx: DepositIdx) -> Result<(), Self::Error> {
+        self.basic_delete::<DepositStateRowSpec>(DepositStateKey { deposit_idx })
+            .await
+    }
     }
 
     async fn get_graph_state(
@@ -155,6 +167,8 @@ mod tests {
         Keypair, Message, Secp256k1,
         rand::{random, thread_rng},
     };
+    use strata_bridge_primitives::operator_table::prop_test_generators::arb_operator_table;
+    use strata_bridge_sm::deposit::{context::DepositSMCtx, state::DepositState};
 
     use super::*;
     use crate::fdb::{cfg::Config, client::MustDrop};
@@ -242,5 +256,139 @@ mod tests {
                 Ok(())
             })?;
         }
+
+        /// Property: any deposit SM stored can be retrieved with the same key.
+        #[test]
+        fn deposit_state_roundtrip(
+            deposit_idx in any::<DepositIdx>(),
+            last_block_height in any::<u64>(),
+            variant_selector in 0u8..4,
+            outpoint_txid in any::<[u8; 32]>(),
+            outpoint_vout in any::<u32>(),
+            operator_table in arb_operator_table(),
+        ) {
+            // only uses simple variants for testing, as the more complex ones would require constructing valid DepositSMs.
+            // TODO: (@Rajil1213) implement Arbitrary for `DepositSM` to allow testing of all variants.
+            let state = match variant_selector {
+                0 => DepositState::Deposited { last_block_height },
+                1 => DepositState::CooperativePathFailed { last_block_height },
+                2 => DepositState::Spent,
+                _ => DepositState::Aborted,
+            };
+
+            let deposit_sm = DepositSM {
+                context: DepositSMCtx {
+                    deposit_idx,
+                    deposit_outpoint: OutPoint {
+                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
+                        vout: outpoint_vout,
+                    },
+                    operator_table,
+                },
+                state,
+            };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_deposit_state(deposit_idx, deposit_sm.clone())
+                    .await
+                    .unwrap();
+
+                let retrieved = client
+                    .get_deposit_state(deposit_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(Some(deposit_sm), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: `get_all_deposit_states` returns all previously stored deposits.
+        #[test]
+        fn get_all_deposit_states_test(
+            deposit_idx_a in any::<DepositIdx>(),
+            deposit_idx_b in any::<DepositIdx>(),
+            last_block_height in any::<u64>(),
+            outpoint_txid in any::<[u8; 32]>(),
+            outpoint_vout in any::<u32>(),
+            operator_table in arb_operator_table(),
+        ) {
+            prop_assume!(deposit_idx_a != deposit_idx_b);
+
+            let make_sm = |idx| DepositSM {
+                context: DepositSMCtx {
+                    deposit_idx: idx,
+                    deposit_outpoint: OutPoint {
+                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
+                        vout: outpoint_vout,
+                    },
+                    operator_table: operator_table.clone(),
+                },
+                state: DepositState::Deposited { last_block_height },
+            };
+
+            let sm_a = make_sm(deposit_idx_a);
+            let sm_b = make_sm(deposit_idx_b);
+
+            block_on(async {
+                let client = get_client();
+
+                client.set_deposit_state(deposit_idx_a, sm_a.clone()).await.unwrap();
+                client.set_deposit_state(deposit_idx_b, sm_b.clone()).await.unwrap();
+
+                let all = client.get_all_deposit_states().await.unwrap();
+
+                let found_a = all.iter().any(|(idx, sm)| *idx == deposit_idx_a && *sm == sm_a);
+                let found_b = all.iter().any(|(idx, sm)| *idx == deposit_idx_b && *sm == sm_b);
+
+                prop_assert!(found_a, "deposit_idx_a not found in get_all_deposit_states");
+                prop_assert!(found_b, "deposit_idx_b not found in get_all_deposit_states");
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: deleting a deposit state makes it unreadable.
+        #[test]
+        fn delete_deposit_state_roundtrip(
+            deposit_idx in any::<DepositIdx>(),
+            last_block_height in any::<u64>(),
+            outpoint_txid in any::<[u8; 32]>(),
+            outpoint_vout in any::<u32>(),
+            operator_table in arb_operator_table(),
+        ) {
+            let deposit_sm = DepositSM {
+                context: DepositSMCtx {
+                    deposit_idx,
+                    deposit_outpoint: OutPoint {
+                        txid: Txid::from_slice(&outpoint_txid).unwrap(),
+                        vout: outpoint_vout,
+                    },
+                    operator_table,
+                },
+                state: DepositState::Deposited { last_block_height },
+            };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_deposit_state(deposit_idx, deposit_sm)
+                    .await
+                    .unwrap();
+
+                client.delete_deposit_state(deposit_idx).await.unwrap();
+
+                let retrieved = client.get_deposit_state(deposit_idx).await.unwrap();
+                prop_assert_eq!(None, retrieved);
+
+                Ok(())
+            })?;
+        }
+
     }
 }
