@@ -8,23 +8,19 @@ use bitcoin::{
     relative,
 };
 use bitcoin_bosd::Descriptor;
-use secp256k1::{SECP256K1, SecretKey};
-use strata_bridge_p2p_types::P2POperatorPubKey;
-use strata_bridge_primitives::{
-    operator_table::OperatorTable,
-    secp::EvenSecretKey,
-    types::{GraphIdx, OperatorIdx},
-};
+use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
 use strata_bridge_test_utils::bitcoin::generate_xonly_pubkey;
 use strata_bridge_tx_graph2::game_graph::ProtocolParams;
-use strata_l1_txfmt::MagicBytes;
 
 use crate::{
     graph::{
         config::GraphSMCfg, context::GraphSMCtx, errors::GSMError, events::GraphEvent,
         machine::GraphSM, state::GraphState,
     },
-    testing::transition::{InvalidTransition, test_invalid_transition},
+    testing::{
+        fixtures::test_operator_table,
+        transition::{InvalidTransition, test_invalid_transition},
+    },
 };
 
 mod uncontested;
@@ -38,29 +34,46 @@ pub(super) const TEST_DEPOSIT_IDX: u32 = 0;
 /// This is the operator running the state machine.
 pub(super) const TEST_POV_IDX: OperatorIdx = 0;
 
+const N_TEST_OPERATORS: usize = 4;
+const CONTEST_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
+const PROOF_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
+const ACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
+const NACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
+const CONTESTED_PAYOUT_TIMELOCK: relative::LockTime = relative::LockTime::from_height(15);
+const DEPOSIT_AMOUNT: Amount = Amount::from_sat(100_000_000);
+const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
+
 // ===== Configuration Helpers =====
 
 /// Creates a test bridge-wide GSM configuration.
 pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
+    let watchtower_pubkeys = (0..N_TEST_OPERATORS)
+        .map(|_| generate_xonly_pubkey())
+        .collect();
+    let watchtower_fault_pubkeys = (0..N_TEST_OPERATORS)
+        .map(|_| generate_xonly_pubkey())
+        .collect();
+    let slash_watchtower_descriptors = (0..N_TEST_OPERATORS).map(|_| random_p2tr_desc()).collect();
+
     Arc::new(GraphSMCfg {
         game_graph_params: ProtocolParams {
             network: Network::Regtest,
-            magic_bytes: MagicBytes::from([0x54, 0x45, 0x53, 0x54]), // "TEST"
-            contest_timelock: relative::LockTime::from_height(10),
-            proof_timelock: relative::LockTime::from_height(5),
-            ack_timelock: relative::LockTime::from_height(10),
-            nack_timelock: relative::LockTime::from_height(5),
-            contested_payout_timelock: relative::LockTime::from_height(15),
+            magic_bytes: (*b"ALPN").into(),
+            contest_timelock: CONTEST_TIMELOCK,
+            proof_timelock: PROOF_TIMELOCK,
+            ack_timelock: ACK_TIMELOCK,
+            nack_timelock: NACK_TIMELOCK,
+            contested_payout_timelock: CONTESTED_PAYOUT_TIMELOCK,
             counterproof_n_bytes: NonZero::new(128).unwrap(),
-            deposit_amount: Amount::from_sat(100_000_000),
-            stake_amount: Amount::from_sat(100_000_000),
+            deposit_amount: DEPOSIT_AMOUNT,
+            stake_amount: STAKE_AMOUNT,
         },
         operator_adaptor_key: generate_xonly_pubkey(),
-        watchtower_pubkeys: vec![generate_xonly_pubkey(), generate_xonly_pubkey()],
+        watchtower_pubkeys,
         admin_pubkey: generate_xonly_pubkey(),
-        watchtower_fault_pubkeys: vec![generate_xonly_pubkey(), generate_xonly_pubkey()],
+        watchtower_fault_pubkeys,
         payout_desc: random_p2tr_desc(),
-        slash_watchtower_descriptors: vec![random_p2tr_desc(), random_p2tr_desc()],
+        slash_watchtower_descriptors,
     })
 }
 
@@ -74,36 +87,8 @@ pub(super) fn test_sm_ctx() -> GraphSMCtx {
         deposit_outpoint: OutPoint::default(),
         stake_outpoint: OutPoint::default(),
         unstaking_image: sha256::Hash::all_zeros(),
-        operator_table: test_operator_table(),
+        operator_table: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
     }
-}
-
-/// Creates a minimal test operator table with 3 operators.
-pub(super) fn test_operator_table() -> OperatorTable {
-    let sk1 = EvenSecretKey::from(SecretKey::from_slice(&[1u8; 32]).unwrap());
-    let sk2 = EvenSecretKey::from(SecretKey::from_slice(&[2u8; 32]).unwrap());
-    let sk3 = EvenSecretKey::from(SecretKey::from_slice(&[3u8; 32]).unwrap());
-
-    let operators = vec![
-        (
-            0,
-            P2POperatorPubKey::from(sk1.public_key(SECP256K1).serialize().to_vec()),
-            sk1.public_key(SECP256K1),
-        ),
-        (
-            1,
-            P2POperatorPubKey::from(sk2.public_key(SECP256K1).serialize().to_vec()),
-            sk2.public_key(SECP256K1),
-        ),
-        (
-            2,
-            P2POperatorPubKey::from(sk3.public_key(SECP256K1).serialize().to_vec()),
-            sk3.public_key(SECP256K1),
-        ),
-    ];
-
-    OperatorTable::new(operators, |entry| entry.0 == TEST_POV_IDX)
-        .expect("Failed to create test operator table")
 }
 
 /// Creates a random P2TR descriptor for use in tests.

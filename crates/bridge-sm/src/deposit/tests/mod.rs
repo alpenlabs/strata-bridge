@@ -15,12 +15,10 @@ use bitcoin::{Amount, Network, OutPoint, Transaction, relative};
 use bitcoin_bosd::Descriptor;
 use musig2::KeyAggContext;
 use proptest::prelude::*;
-use secp256k1::{Message, SECP256K1, SecretKey};
+use secp256k1::{Message, SecretKey};
 use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
-use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
-    operator_table::OperatorTable,
     scripts::{prelude::get_aggregated_pubkey, taproot::TaprootTweak},
     secp::EvenSecretKey,
     types::OperatorIdx,
@@ -51,7 +49,7 @@ use crate::{
     },
     signals::{DepositSignal, GraphToDeposit},
     testing::{
-        fixtures::{test_payout_tx, test_takeback_tx},
+        fixtures::{test_operator_table, test_payout_tx, test_takeback_tx},
         signer::TestMusigSigner,
         transition::{InvalidTransition, Transition, test_invalid_transition, test_transition},
     },
@@ -59,6 +57,8 @@ use crate::{
 
 // ===== Test Constants =====
 
+/// Number of operators in the test operator table.
+pub(super) const N_TEST_OPERATORS: usize = 3;
 /// Block height used as the initial state in tests.
 pub(super) const INITIAL_BLOCK_HEIGHT: u64 = 100;
 /// Block height used to represent a later block in tests.
@@ -109,7 +109,7 @@ pub(super) fn test_sm_ctx() -> DepositSMCtx {
     DepositSMCtx {
         deposit_idx: TEST_DEPOSIT_IDX,
         deposit_outpoint: test_deposit_outpoint(),
-        operator_table: test_operator_table(),
+        operator_table: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
     }
 }
 
@@ -119,34 +119,6 @@ pub(super) fn test_deposit_outpoint() -> OutPoint {
         txid: test_deposit_txn().as_ref().compute_txid(),
         vout: 0,
     }
-}
-
-/// Creates a minimal test operator table with 3 operators.
-pub(super) fn test_operator_table() -> OperatorTable {
-    let sk1 = EvenSecretKey::from(SecretKey::from_slice(&[1u8; 32]).unwrap());
-    let sk2 = EvenSecretKey::from(SecretKey::from_slice(&[2u8; 32]).unwrap());
-    let sk3 = EvenSecretKey::from(SecretKey::from_slice(&[3u8; 32]).unwrap());
-
-    let operators = vec![
-        (
-            0,
-            P2POperatorPubKey::from(sk1.public_key(SECP256K1).serialize().to_vec()),
-            sk1.public_key(SECP256K1),
-        ),
-        (
-            1,
-            P2POperatorPubKey::from(sk2.public_key(SECP256K1).serialize().to_vec()),
-            sk2.public_key(SECP256K1),
-        ),
-        (
-            2,
-            P2POperatorPubKey::from(sk3.public_key(SECP256K1).serialize().to_vec()),
-            sk3.public_key(SECP256K1),
-        ),
-    ];
-
-    OperatorTable::new(operators, |entry| entry.0 == TEST_POV_IDX)
-        .expect("Failed to create test operator table")
 }
 
 // ===== Signer Helpers =====
@@ -186,7 +158,7 @@ pub(super) fn get_deposit_signing_info(
 
 /// Creates a test deposit transaction with deterministic values.
 pub(super) fn test_deposit_txn() -> DepositTx {
-    let operator_table = test_operator_table();
+    let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
 
     let amount = Amount::from_btc(10.0).expect("valid amount");
     let timelock = relative::LockTime::from_height(144);
@@ -224,7 +196,7 @@ pub(super) fn random_p2tr_desc() -> Descriptor {
 
 /// Creates a test cooperative payout transaction with deterministic values.
 pub(super) fn test_payout_txn(operator_desc: Descriptor) -> CooperativePayoutTx {
-    let operator_table = test_operator_table();
+    let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
     let n_of_n_pubkey = get_aggregated_pubkey(operator_table.btc_keys());
     let deposit_connector = NOfNConnector::new(
         Network::Regtest,
@@ -304,7 +276,8 @@ impl Arbitrary for DepositState {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         let block_height = BIP34_MIN_BLOCK_HEIGHT..1000u64;
-        let num_operators = test_operator_table().cardinality() as u32;
+        let num_operators =
+            test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX).cardinality() as u32;
 
         prop_oneof![
             (block_height.clone()).prop_map(|height| {
@@ -400,7 +373,7 @@ impl Arbitrary for DepositEvent {
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         let outpoint = Just(OutPoint::default());
         let block_height = BIP34_MIN_BLOCK_HEIGHT..1000u64;
-        let operator_idx = 0..test_operator_table().cardinality() as u32;
+        let operator_idx = 0..N_TEST_OPERATORS as u32;
 
         prop_oneof![
             Just(DepositEvent::UserTakeBack(UserTakeBackEvent {
@@ -465,7 +438,7 @@ pub(super) fn arb_terminal_state() -> impl Strategy<Value = DepositState> {
 // TODO: (@Rajil1213) remove this after all STFs have been implemented.
 pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
     let outpoint = OutPoint::default();
-    let num_operators = test_operator_table().cardinality() as u32;
+    let num_operators = N_TEST_OPERATORS as u32;
     let operator_idx = 0..num_operators;
 
     prop_oneof![

@@ -61,8 +61,7 @@ mod tests {
 
         // Generate nonces for all operators except the last one.
         // This ensures collection can never complete in this test.
-        let num_operators = test_operator_table().cardinality();
-        let nonces: BTreeMap<OperatorIdx, PubNonce> = (0..num_operators - 1)
+        let nonces: BTreeMap<OperatorIdx, PubNonce> = (0..N_TEST_OPERATORS - 1)
             .map(|idx| (idx as OperatorIdx, generate_pubnonce()))
             .collect();
 
@@ -108,8 +107,7 @@ mod tests {
         let desc = random_p2tr_desc();
 
         // Generate nonces for all operators
-        let num_operators = test_operator_table().cardinality();
-        let all_nonces: BTreeMap<OperatorIdx, PubNonce> = (0..num_operators)
+        let all_nonces: BTreeMap<OperatorIdx, PubNonce> = (0..N_TEST_OPERATORS)
             .map(|idx| (idx as OperatorIdx, generate_pubnonce()))
             .collect();
 
@@ -163,8 +161,7 @@ mod tests {
         let desc = random_p2tr_desc();
 
         // Generate nonces for all operators
-        let num_operators = test_operator_table().cardinality();
-        let all_nonces: BTreeMap<OperatorIdx, PubNonce> = (0..num_operators)
+        let all_nonces: BTreeMap<OperatorIdx, PubNonce> = (0..N_TEST_OPERATORS)
             .map(|idx| (idx as OperatorIdx, generate_pubnonce()))
             .collect();
 

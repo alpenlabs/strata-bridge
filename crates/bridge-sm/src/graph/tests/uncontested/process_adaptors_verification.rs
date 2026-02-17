@@ -54,11 +54,13 @@ mod tests {
         assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
 
         // Check that a PublishGraphNonces duty was emitted
-        assert_eq!(seq.all_duties().len(), 1);
-        assert!(matches!(
-            seq.all_duties()[0],
-            GraphDuty::PublishGraphNonces { .. }
-        ));
+        assert!(
+            matches!(
+                seq.all_duties().as_slice(),
+                [GraphDuty::PublishGraphNonces { .. }]
+            ),
+            "Expected exactly 1 PublishGraphNonces duty to be emitted"
+        );
 
         // No signals should be emitted
         assert!(seq.all_signals().is_empty());
