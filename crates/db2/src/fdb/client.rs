@@ -281,11 +281,74 @@ impl FdbClient {
         .await
     }
 
+    // ── In-transaction primitives ───────────────────────────────────
+    //
+    // These accept a `&Transaction` and operate within it without
+    // creating or committing their own transaction.  Because
+    // `RetryableTransaction` implements `Deref<Target = Transaction>`,
+    // they also accept `&RetryableTransaction`.
+    // Note that the mutation methods are not async because they only perform an in-memory append to
+    // the transaction's mutation buffer, which is a synchronous operation. Any I/O or retry
+    // logic is expected to be handled by the caller using a call to `.commit()` on the
+    // transaction. The get method is async because it performs an actual read from the database
+    // (there is no data in the client to append), which may involve I/O and should be awaited.
+
+    /// Sets a key-value pair within an existing transaction.
+    ///
+    /// This is synchronous because FDB `set` is a void buffered operation.
+    pub fn basic_set_in<RS: KVRowSpec>(
+        &self,
+        trx: &Transaction,
+        key: RS::Key,
+        value: RS::Value,
+    ) -> Result<(), LayerError> {
+        let packed = key
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)?;
+        let serialized = value
+            .serialize()
+            .map_err(LayerError::failed_to_serialize_value)?;
+        trx.set(packed.as_ref(), serialized.as_ref());
+        Ok(())
+    }
+
+    /// Gets a value within an existing transaction.
+    pub async fn basic_get_in<RS: KVRowSpec>(
+        &self,
+        trx: &Transaction,
+        key: RS::Key,
+    ) -> Result<Option<RS::Value>, OneOf<(FdbBindingError, LayerError)>> {
+        let packed = key
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)
+            .map_err(OneOf::new)?;
+        let Some(bytes) = trx
+            .get(packed.as_ref(), true)
+            .await
+            .map_err(FdbBindingError::from)
+            .map_err(OneOf::new)?
+        else {
             return Ok(None);
         };
-        let sig = RS::Value::deserialize(&bytes)
+        let value = RS::Value::deserialize(&bytes)
             .map_err(LayerError::failed_to_deserialize_value)
             .map_err(OneOf::new)?;
-        Ok(Some(sig))
+        Ok(Some(value))
     }
+
+    /// Deletes a key within an existing transaction.
+    ///
+    /// This is synchronous because FDB `clear` is a void buffered operation.
+    pub fn basic_delete_in<RS: KVRowSpec>(
+        &self,
+        trx: &Transaction,
+        key: RS::Key,
+    ) -> Result<(), LayerError> {
+        let packed = key
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)?;
+        trx.clear(packed.as_ref());
+        Ok(())
+    }
+
 }
