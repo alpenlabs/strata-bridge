@@ -1,7 +1,7 @@
 //! Base client for interacting with the FoundationDB database.
 
 use foundationdb::{
-    Database, FdbBindingError, FdbError, RetryableTransaction,
+    Database, FdbBindingError, FdbError, RetryableTransaction, TransactOption,
     api::{FdbApiBuilder, NetworkAutoStop},
     directory::DirectoryError,
     options::NetworkOption,
@@ -19,6 +19,7 @@ use crate::fdb::{
 pub struct FdbClient {
     db: Database,
     dirs: Directories,
+    transact_options: TransactOption,
 }
 
 impl std::fmt::Debug for FdbClient {
@@ -95,7 +96,14 @@ impl FdbClient {
             .await
             .map_err(OneOf::new)?
             .map_err(OneOf::new)?;
-        Ok((Self { db, dirs }, MustDrop(guard)))
+        Ok((
+            Self {
+                db,
+                dirs,
+                transact_options: config.retry.into_transact_options(),
+            },
+            MustDrop(guard),
+        ))
     }
 
     /// Clears the database using the root directory.

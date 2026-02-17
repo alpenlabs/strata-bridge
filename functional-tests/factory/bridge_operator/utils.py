@@ -13,6 +13,7 @@ from .config_cfg import (
     DbConfig,
     Duration,
     FdbConfig,
+    FdbRetryConfig,
     P2pConfig,
     RpcConfig,
     SecretServiceClientConfig,
@@ -68,6 +69,7 @@ def generate_config_toml(
         fdb=FdbConfig(
             cluster_file_path=fdb_props["cluster_file"],
             root_directory=fdb_props["root_directory"],
+            retry=FdbRetryConfig(retry_limit=5, timeout=Duration(secs=5, nanos=0)),
         ),
         p2p=P2pConfig(
             idle_connection_timeout=Duration(secs=1000, nanos=0),
