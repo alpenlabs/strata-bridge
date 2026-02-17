@@ -13,6 +13,7 @@ use crate::{
         errors::LayerError,
         row_spec::{
             deposits::{DepositStateKey, DepositStateRowSpec},
+            graphs::{GraphStateKey, GraphStateRowSpec},
             signatures::{SignatureKey, SignatureRowSpec},
         },
     },
@@ -85,27 +86,66 @@ impl BridgeDb for FdbClient {
         self.basic_delete::<DepositStateRowSpec>(DepositStateKey { deposit_idx })
             .await
     }
-    }
+
+    // ── Graph States ─────────────────────────────────────────────────
 
     async fn get_graph_state(
         &self,
-        _deposit_idx: DepositIdx,
-        _operator_idx: OperatorIdx,
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
     ) -> Result<Option<GraphSM>, Self::Error> {
-        todo!()
+        self.basic_get::<GraphStateRowSpec>(GraphStateKey {
+            deposit_idx,
+            operator_idx,
+        })
+        .await
     }
 
     async fn set_graph_state(
         &self,
-        _deposit_idx: DepositIdx,
-        _operator_idx: OperatorIdx,
-        _state: GraphSM,
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
+        state: GraphSM,
     ) -> Result<(), Self::Error> {
-        todo!()
+        self.basic_set::<GraphStateRowSpec>(
+            GraphStateKey {
+                deposit_idx,
+                operator_idx,
+            },
+            state,
+        )
+        .await
     }
 
     async fn get_all_graph_states(&self) -> Result<Vec<(GraphIdx, GraphSM)>, Self::Error> {
-        todo!()
+        let pairs = self
+            .basic_get_all::<GraphStateRowSpec>(|dirs| &dirs.graphs)
+            .await?;
+
+        Ok(pairs
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    GraphIdx {
+                        deposit: k.deposit_idx,
+                        operator: k.operator_idx,
+                    },
+                    v,
+                )
+            })
+            .collect())
+    }
+
+    async fn delete_graph_state(
+        &self,
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
+    ) -> Result<(), Self::Error> {
+        self.basic_delete::<GraphStateRowSpec>(GraphStateKey {
+            deposit_idx,
+            operator_idx,
+        })
+        .await
     }
 
     async fn get_funds(
@@ -140,14 +180,6 @@ impl BridgeDb for FdbClient {
         todo!()
     }
 
-    async fn delete_graph_state(
-        &self,
-        _deposit_idx: DepositIdx,
-        _operator_idx: OperatorIdx,
-    ) -> Result<(), Self::Error> {
-        todo!()
-    }
-
     async fn delete_deposit(&self, _deposit_idx: DepositIdx) -> Result<(), Self::Error> {
         todo!()
     }
@@ -161,14 +193,17 @@ impl BridgeDb for FdbClient {
 mod tests {
     use std::sync::OnceLock;
 
-    use bitcoin::hashes::Hash;
+    use bitcoin::hashes::{Hash, sha256};
     use proptest::prelude::*;
     use secp256k1::{
         Keypair, Message, Secp256k1,
         rand::{random, thread_rng},
     };
     use strata_bridge_primitives::operator_table::prop_test_generators::arb_operator_table;
-    use strata_bridge_sm::deposit::{context::DepositSMCtx, state::DepositState};
+    use strata_bridge_sm::{
+        deposit::{context::DepositSMCtx, state::DepositState},
+        graph::{context::GraphSMCtx, state::GraphState},
+    };
 
     use super::*;
     use crate::fdb::{cfg::Config, client::MustDrop};
@@ -390,5 +425,169 @@ mod tests {
             })?;
         }
 
+        /// Property: any graph state stored can be retrieved with the same key.
+        #[test]
+        fn graph_state_roundtrip(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            block_height in any::<u64>(),
+            txid in any::<[u8; 32]>(),
+            variant_selector in 0u8..4,
+            operator_table in arb_operator_table(),
+        ) {
+            let test_txid = Txid::from_slice(&txid).unwrap();
+
+            // Only includes simple variants for testing, as the more complex ones would require constructing valid GraphSMs.
+            // TODO: (@Rajil1213) implement Arbitrary for GraphSM to allow testing of all variants.
+            let state = match variant_selector {
+                0 => GraphState::Created { last_block_height: block_height },
+                1 => GraphState::Withdrawn { payout_txid: test_txid },
+                2 => GraphState::Aborted { payout_connector_spend_txid: test_txid, reason: "test".to_string() },
+                _ => GraphState::AllNackd { last_block_height: block_height, contest_block_height: block_height, expected_payout_txid: test_txid, possible_slash_txid: test_txid },
+            };
+
+            let ctx = GraphSMCtx {
+                graph_idx: GraphIdx {
+                    deposit: deposit_idx,
+                    operator: operator_idx,
+                },
+                deposit_outpoint: OutPoint {
+                    txid: test_txid,
+                    vout: 0,
+                },
+                stake_outpoint: OutPoint {
+                    txid: test_txid,
+                    vout: 1,
+                },
+                unstaking_image: sha256::Hash::from_slice(&txid).unwrap(),
+                operator_table,
+            };
+
+            let graph_sm  = GraphSM {
+                context: ctx,
+                state,
+            };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_graph_state(deposit_idx, operator_idx, graph_sm.clone())
+                    .await
+                    .unwrap();
+
+                let retrieved = client
+                    .get_graph_state(deposit_idx, operator_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(Some(graph_sm), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: `get_all_graph_states` returns all previously stored graph states.
+        #[test]
+        fn get_all_graph_states_test(
+            deposit_idx in any::<DepositIdx>(),
+            operator_a in any::<OperatorIdx>(),
+            operator_b in any::<OperatorIdx>(),
+            last_block_height in any::<u64>(),
+            txid in any::<[u8; 32]>(),
+            operator_table in arb_operator_table(),
+        ) {
+            prop_assume!(operator_a != operator_b);
+
+            let make_gs = |op| GraphSM {
+                context: GraphSMCtx {
+                    graph_idx: GraphIdx { deposit: deposit_idx, operator: op },
+                    deposit_outpoint: OutPoint {
+                        txid: Txid::from_slice(&txid).unwrap(),
+                        vout: 0,
+                    },
+                    stake_outpoint: OutPoint {
+                        txid: Txid::from_slice(&txid).unwrap(),
+                        vout: 1,
+                    },
+                    unstaking_image: sha256::Hash::from_slice(&txid).unwrap(),
+                    operator_table: operator_table.clone(),
+                },
+                state: GraphState::Created { last_block_height },
+            };
+
+            let gs_a = make_gs(operator_a);
+            let gs_b = make_gs(operator_b);
+
+            block_on(async {
+                let client = get_client();
+
+                client.set_graph_state(deposit_idx, operator_a, gs_a.clone()).await.unwrap();
+                client.set_graph_state(deposit_idx, operator_b, gs_b.clone()).await.unwrap();
+
+                let all = client.get_all_graph_states().await.unwrap();
+
+                let found_a = all.iter().any(|(idx, gs)| idx.deposit == deposit_idx && idx.operator == operator_a && *gs == gs_a);
+                let found_b = all.iter().any(|(idx, gs)| idx.deposit == deposit_idx && idx.operator == operator_b && *gs == gs_b);
+
+                prop_assert!(found_a, "graph state A not found in get_all_graph_states");
+                prop_assert!(found_b, "graph state B not found in get_all_graph_states");
+
+                Ok(())
+            })?;
+        }
+
+
+        /// Property: deleting a graph state makes it unreadable.
+        #[test]
+        fn delete_graph_state_roundtrip(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            last_block_height in any::<u64>(),
+            txid in any::<[u8; 32]>(),
+            operator_table in arb_operator_table()
+        ) {
+            let graph_sm = GraphSM {
+                context: GraphSMCtx {
+                    graph_idx: GraphIdx {
+                        deposit: deposit_idx,
+                        operator: operator_idx,
+                    },
+                    deposit_outpoint: OutPoint {
+                        txid: Txid::from_slice(&txid).unwrap(),
+                        vout: 0,
+                    },
+                    stake_outpoint: OutPoint {
+                        txid: Txid::from_slice(&txid).unwrap(),
+                        vout: 1,
+                    },
+                    unstaking_image: sha256::Hash::from_slice(&txid).unwrap(),
+                    operator_table,
+                },
+                state: GraphState::Created { last_block_height },
+            };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_graph_state(deposit_idx, operator_idx, graph_sm)
+                    .await
+                    .unwrap();
+
+                client
+                    .delete_graph_state(deposit_idx, operator_idx)
+                    .await
+                    .unwrap();
+
+                let retrieved = client
+                    .get_graph_state(deposit_idx, operator_idx)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(None, retrieved);
+
+                Ok(())
+            })?;
+        }
     }
 }
