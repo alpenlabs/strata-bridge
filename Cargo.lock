@@ -10227,6 +10227,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-test-utils",
+ "strata-bridge-tx-graph2",
  "terrors",
  "tokio",
 ]
