@@ -145,6 +145,12 @@ class FdbFactory(flexitest.Factory):
             log_dir,
             "--listen-address",
             "public",
+            # Set an explicit machine ID so fdbserver does not try to open
+            # POSIX shared memory.  macOS Tahoe 26+ restricts shm_open for
+            # non-launchd processes, causing "Could not open shared memory -
+            # Operation not permitted".
+            "-i",
+            f"fdb-test-{cluster_id}",
         ]
 
         props = {
