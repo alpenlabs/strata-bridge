@@ -1,14 +1,15 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use musig2::{AggNonce, secp256k1::Message};
 use strata_bridge_primitives::{scripts::taproot::TaprootTweak, types::OperatorIdx};
-use strata_bridge_tx_graph2::game_graph::DepositParams;
+use strata_bridge_tx_graph2::{game_graph::DepositParams, musig_functor::GameFunctor};
 
 use crate::graph::{
     config::GraphSMCfg,
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
-    events::{AdaptorsVerifiedEvent, GraphDataGeneratedEvent},
-    machine::{GSMOutput, GraphSM},
+    events::{AdaptorsVerifiedEvent, GraphDataGeneratedEvent, GraphNonceReceivedEvent},
+    machine::{GSMOutput, GraphSM, generate_game_graph},
     state::GraphState,
 };
 
@@ -31,7 +32,7 @@ impl GraphSM {
                     claim_funds: graph_data_event.claim_funds,
                     deposit_outpoint: self.context.deposit_outpoint(),
                 };
-                let game_graph = self.generate_graph(&cfg, deposit_params);
+                let game_graph = generate_game_graph(&cfg, self.context(), deposit_params);
 
                 let cur_operator_idx = self.context.operator_idx();
                 let duties: Vec<_> = game_graph
@@ -83,7 +84,7 @@ impl GraphSM {
                 graph_data,
                 graph_summary,
             } => {
-                let game_graph = self.generate_graph(&cfg, *graph_data);
+                let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
                 let graph_inpoints = game_graph.musig_inpoints().pack();
                 let graph_tweaks = game_graph
                     .musig_signing_info()
@@ -113,6 +114,115 @@ impl GraphSM {
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 adaptors.into(),
+                None,
+            )),
+        }
+    }
+
+    pub(crate) fn process_nonce_received(
+        &mut self,
+        cfg: Arc<GraphSMCfg>,
+        nonce_received_event: GraphNonceReceivedEvent,
+    ) -> GSMResult<GSMOutput> {
+        // Validate operator_idx is in the operator table
+        self.check_operator_idx(nonce_received_event.operator_idx, &nonce_received_event)?;
+
+        let operator_table_cardinality = self.context().operator_table().cardinality();
+        let graph_ctx = self.context().clone();
+        let num_nonces = nonce_received_event.nonces.len();
+
+        match self.state_mut() {
+            GraphState::AdaptorsVerified {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                pubnonces,
+            } => {
+                // Check for duplicate nonce submission
+                if pubnonces.contains_key(&nonce_received_event.operator_idx) {
+                    return Err(GSMError::duplicate(
+                        self.state().clone(),
+                        nonce_received_event.into(),
+                    ));
+                }
+
+                if GameFunctor::unpack(
+                    nonce_received_event.nonces.clone(),
+                    operator_table_cardinality,
+                )
+                .is_none()
+                {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        nonce_received_event.into(),
+                        "Invalid nonces provided by operator".to_string(),
+                    ));
+                }
+
+                // Insert the new nonce into the map
+                pubnonces.insert(
+                    nonce_received_event.operator_idx,
+                    nonce_received_event.nonces,
+                );
+
+                // Check if we have collected all nonces
+                if pubnonces.len() == operator_table_cardinality {
+                    // For each nonce position, collect that nonce from every operator
+                    // and aggregate them into a single `AggNonce`.
+                    let agg_nonces: Vec<_> = (0..num_nonces)
+                        .map(|nonce_idx| {
+                            let nonces_for_agg: Vec<_> = pubnonces
+                                .values()
+                                .map(|nonces| nonces[nonce_idx].clone())
+                                .collect();
+                            AggNonce::sum(nonces_for_agg)
+                        })
+                        .collect();
+
+                    // Generate the game graph to access the infos for duty emission
+                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
+
+                    // Transition to NoncesCollected state
+                    self.state = GraphState::NoncesCollected {
+                        last_block_height: *last_block_height,
+                        graph_data: *graph_data,
+                        graph_summary: graph_summary.clone(),
+                        agg_nonces: agg_nonces.clone(),
+                        partial_signatures: BTreeMap::new(),
+                    };
+
+                    // Emit duties to publish partial signatures
+                    let claim_txid = game_graph.claim.as_ref().compute_txid();
+                    let graph_inpoints = game_graph.musig_inpoints().pack();
+                    let (graph_tweaks, sighashes): (Vec<TaprootTweak>, Vec<Message>) = game_graph
+                        .musig_signing_info()
+                        .pack()
+                        .iter()
+                        .map(|m| (m.tweak, m.sighash))
+                        .unzip();
+
+                    return Ok(GSMOutput::with_duties(vec![
+                        GraphDuty::PublishGraphPartials {
+                            deposit_idx: self.context.deposit_idx(),
+                            operator_idx: self.context.operator_idx(),
+                            agg_nonces,
+                            sighashes,
+                            graph_inpoints,
+                            graph_tweaks,
+                            claim_txid,
+                        },
+                    ]));
+                }
+
+                Ok(GSMOutput::default())
+            }
+            GraphState::NoncesCollected { .. } => Err(GSMError::duplicate(
+                self.state().clone(),
+                nonce_received_event.into(),
+            )),
+            _ => Err(GSMError::invalid_event(
+                self.state().clone(),
+                nonce_received_event.into(),
                 None,
             )),
         }
