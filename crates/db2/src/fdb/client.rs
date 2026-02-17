@@ -8,13 +8,17 @@ use foundationdb::{
     directory::{DirectoryError, DirectorySubspace},
     options::{NetworkOption, StreamingMode},
 };
+use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 use terrors::OneOf;
 
 use crate::fdb::{
     cfg::Config,
     dirs::Directories,
-    row_spec::kv::{KVRowSpec, PackableKey, SerializableValue},
     errors::{LayerError, TransactionError},
+    row_spec::{
+        deposits::DepositStateKey,
+        kv::{KVRowSpec, PackableKey, SerializableValue},
+    },
 };
 
 /// The main entity for interacting with the FoundationDB database.
@@ -351,4 +355,78 @@ impl FdbClient {
         Ok(())
     }
 
+    // ── Cascading delete primitives ───────────────────────────────────
+    // These perform multiple deletes within a single transaction to maintain consistency between
+    // related data. They are expected to be infrequent but may involve large range clears.
+
+    /// Atomically deletes a deposit state and all associated graph states in a
+    /// single FDB transaction.
+    pub async fn delete_deposit_cascade(
+        &self,
+        deposit_idx: DepositIdx,
+    ) -> Result<(), OneOf<(FdbBindingError, LayerError)>> {
+        let deposit_key = DepositStateKey { deposit_idx }
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)
+            .map_err(OneOf::new)?;
+
+        let (graph_begin, graph_end) = self.dirs.graphs.subspace(&(deposit_idx,)).range();
+
+        self.transact((deposit_key, graph_begin, graph_end), |trx, data| {
+            Box::pin(async move {
+                trx.clear(data.0.as_ref());
+                trx.clear_range(&data.1, &data.2);
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    /// Atomically deletes all graph states associated with a particular operator.
+    ///
+    /// Since `operator_idx` is the second tuple element in the graph_states key
+    /// `(deposit_idx, operator_idx)`, this requires a full scan + filter rather
+    /// than a prefix range clear.
+    ///
+    /// This is wasteful but should be infrequent as this should only be invoked for garbage
+    /// collection purposes after an operator is removed.
+    pub async fn delete_operator_cascade(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> Result<(), OneOf<(FdbBindingError, LayerError)>> {
+        let graphs = self.dirs.graphs.clone();
+        let (begin, end) = graphs.range();
+
+        self.transact((begin, end, graphs, operator_idx), |trx, data| {
+            Box::pin(async move {
+                let mut opt = RangeOption::from((data.0.clone(), data.1.clone()));
+                // WantAll is a transfer hint that requests large batches
+                // up-front, but does not guarantee all results in a single
+                // response. We must still paginate via `next_range`.
+                opt.mode = StreamingMode::WantAll;
+                loop {
+                    let result = trx.get_range(&opt, 1, false).await?;
+
+                    for kv in result.iter() {
+                        let (_, op_idx) = data
+                            .2
+                            .unpack::<(u32, u32)>(kv.key())
+                            .map_err(LayerError::failed_to_unpack_key)
+                            .map_err(TransactionError::Layer)?;
+                        if op_idx == data.3 {
+                            trx.clear(kv.key());
+                        }
+                    }
+
+                    match opt.next_range(&result) {
+                        Some(next) => opt = next,
+                        None => break,
+                    }
+                }
+
+                Ok(())
+            })
+        })
+        .await
+    }
 }
