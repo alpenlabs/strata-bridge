@@ -1,7 +1,7 @@
 //! Module to generate arbitrary values for testing.
 
+use ::bitcoin::{hashes::Hash, OutPoint, Txid};
 use arbitrary::{Arbitrary, Unstructured};
-use bitcoin::{hashes::Hash, OutPoint, Txid};
 use proptest::prelude::*;
 use rand_core::{OsRng, TryCryptoRng};
 
@@ -83,10 +83,12 @@ pub fn arb_txid() -> impl Strategy<Value = Txid> {
     any::<[u8; 32]>().prop_map(|bytes| Txid::from_slice(&bytes).unwrap())
 }
 
+/// Generates an arbitrary [`OutPoint`].
+pub fn arb_outpoint() -> impl Strategy<Value = OutPoint> {
+    (arb_txid(), any::<u32>()).prop_map(|(txid, vout)| OutPoint { txid, vout })
+}
+
 /// Generates an arbitrary non-empty `Vec<OutPoint>` (1–10 entries).
 pub fn arb_outpoints() -> impl Strategy<Value = Vec<OutPoint>> {
-    proptest::collection::vec(
-        (arb_txid(), any::<u32>()).prop_map(|(txid, vout)| OutPoint { txid, vout }),
-        1..=10,
-    )
+    proptest::collection::vec(arb_outpoint(), 1..=10)
 }
