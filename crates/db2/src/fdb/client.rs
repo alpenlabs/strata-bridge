@@ -1,10 +1,12 @@
 //! Base client for interacting with the FoundationDB database.
 
+use std::pin::Pin;
+
 use foundationdb::{
-    Database, FdbBindingError, FdbError, RetryableTransaction, TransactOption, Transaction,
+    Database, FdbBindingError, FdbError, RangeOption, TransactOption, Transaction,
     api::{FdbApiBuilder, NetworkAutoStop},
-    directory::DirectoryError,
-    options::NetworkOption,
+    directory::{DirectoryError, DirectorySubspace},
+    options::{NetworkOption, StreamingMode},
 };
 use terrors::OneOf;
 
@@ -114,6 +116,13 @@ impl FdbClient {
             .await
     }
 
+    /// Creates a raw FDB [`Transaction`] for use with `_in` methods.
+    ///
+    /// The caller is responsible for committing (or dropping) the transaction.
+    pub fn create_transaction(&self) -> Result<Transaction, FdbError> {
+        self.db.create_trx()
+    }
+
     /// Runs an async closure inside `Database::transact_boxed` with the
     /// configured retry/timeout options.
     ///
@@ -151,26 +160,30 @@ impl FdbClient {
             .map_err(Into::into)
     }
 
+    // ── Auto-transactional primitives ───────────────────────────────
+
     /// Basic generic set operation.
     pub async fn basic_set<RS: KVRowSpec>(
         &self,
         key: RS::Key,
         value: RS::Value,
     ) -> Result<(), OneOf<(FdbBindingError, LayerError)>> {
-        let key = &key
+        let packed = key
             .pack(&self.dirs)
             .map_err(LayerError::failed_to_pack_key)
             .map_err(OneOf::new)?;
-        let value = &value
+        let serialized = value
             .serialize()
             .map_err(LayerError::failed_to_serialize_value)
             .map_err(OneOf::new)?;
 
-        let trx = |trx: RetryableTransaction, _maybe_committed| async move {
-            trx.set(key.as_ref(), value.as_ref());
-            Ok(())
-        };
-        self.db.run(trx).await.map_err(OneOf::new)
+        self.transact((packed, serialized), |trx, data| {
+            Box::pin(async move {
+                trx.set(data.0.as_ref(), data.1.as_ref());
+                Ok(())
+            })
+        })
+        .await
     }
 
     /// Basic generic get operation.
@@ -178,16 +191,96 @@ impl FdbClient {
         &self,
         key: RS::Key,
     ) -> Result<Option<RS::Value>, OneOf<(FdbBindingError, LayerError)>> {
-        let key = key
+        let packed = key
             .pack(&self.dirs)
             .map_err(LayerError::failed_to_pack_key)
             .map_err(OneOf::new)?;
 
-        let trx = |trx: RetryableTransaction, _maybe_committed| {
-            let key = key.clone();
-            async move { Ok(trx.get(key.as_ref(), true).await?) }
+        let raw = self
+            .transact(packed, |trx, data| {
+                Box::pin(async move {
+                    let slice = trx.get(data.as_ref(), true).await?;
+                    Ok(slice.map(|s| s.to_vec()))
+                })
+            })
+            .await?;
+
+        let Some(bytes) = raw else {
+            return Ok(None);
         };
-        let Some(bytes) = self.db.run(trx).await.map_err(OneOf::new)? else {
+        let value = RS::Value::deserialize(&bytes)
+            .map_err(LayerError::failed_to_deserialize_value)
+            .map_err(OneOf::new)?;
+        Ok(Some(value))
+    }
+
+    /// Basic generic range-scan that returns all key-value pairs in a subspace.
+    pub async fn basic_get_all<RS: KVRowSpec>(
+        &self,
+        subspace_fn: impl Fn(&Directories) -> &DirectorySubspace,
+    ) -> Result<Vec<(RS::Key, RS::Value)>, OneOf<(FdbBindingError, LayerError)>> {
+        let subspace = subspace_fn(&self.dirs);
+        let (begin, end) = subspace.range();
+
+        let raw_kvs = self
+            .transact((begin, end), |trx, data| {
+                Box::pin(async move {
+                    let mut opt = RangeOption::from((data.0.clone(), data.1.clone()));
+                    // WantAll is a transfer hint that requests large batches
+                    // up-front, but does not guarantee all results in a single
+                    // response. We must still paginate via `next_range`.
+                    opt.mode = StreamingMode::WantAll;
+                    let mut kvs = Vec::new();
+                    loop {
+                        let result = trx.get_range(&opt, 1, false).await?;
+                        kvs.extend(
+                            result
+                                .iter()
+                                .map(|kv| (kv.key().to_vec(), kv.value().to_vec())),
+                        );
+                        match opt.next_range(&result) {
+                            Some(next) => opt = next,
+                            None => break,
+                        }
+                    }
+                    Ok(kvs)
+                })
+            })
+            .await?;
+
+        let mut results = Vec::with_capacity(raw_kvs.len());
+        for (key_bytes, value_bytes) in &raw_kvs {
+            let key = RS::Key::unpack(&self.dirs, key_bytes)
+                .map_err(LayerError::failed_to_unpack_key)
+                .map_err(OneOf::new)?;
+            let value = RS::Value::deserialize(value_bytes)
+                .map_err(LayerError::failed_to_deserialize_value)
+                .map_err(OneOf::new)?;
+            results.push((key, value));
+        }
+
+        Ok(results)
+    }
+
+    /// Basic generic delete operation.
+    pub async fn basic_delete<RS: KVRowSpec>(
+        &self,
+        key: RS::Key,
+    ) -> Result<(), OneOf<(FdbBindingError, LayerError)>> {
+        let packed = key
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)
+            .map_err(OneOf::new)?;
+
+        self.transact(packed, |trx, data| {
+            Box::pin(async move {
+                trx.clear(data.as_ref());
+                Ok(())
+            })
+        })
+        .await
+    }
+
             return Ok(None);
         };
         let sig = RS::Value::deserialize(&bytes)
