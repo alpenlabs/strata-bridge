@@ -10217,6 +10217,7 @@ dependencies = [
  "serde",
  "strata-bridge-primitives",
  "strata-bridge-sm",
+ "strata-bridge-test-utils",
  "terrors",
  "tokio",
 ]
@@ -10427,6 +10428,7 @@ dependencies = [
  "corepc-node",
  "hex",
  "musig2",
+ "proptest",
  "rand_core 0.9.3",
  "secp256k1 0.29.1",
  "serde",

@@ -1,6 +1,8 @@
 //! Module to generate arbitrary values for testing.
 
 use arbitrary::{Arbitrary, Unstructured};
+use bitcoin::{hashes::Hash, OutPoint, Txid};
+use proptest::prelude::*;
 use rand_core::{OsRng, TryCryptoRng};
 
 /// The default buffer size for the `ArbitraryGenerator`.
@@ -74,4 +76,17 @@ impl ArbitraryGenerator {
         let mut u = Unstructured::new(&self.buf);
         T::arbitrary(&mut u).expect("Failed to generate arbitrary instance")
     }
+}
+
+/// Generates an arbitrary Txid.
+pub fn arb_txid() -> impl Strategy<Value = Txid> {
+    any::<[u8; 32]>().prop_map(|bytes| Txid::from_slice(&bytes).unwrap())
+}
+
+/// Generates an arbitrary non-empty `Vec<OutPoint>` (1–10 entries).
+pub fn arb_outpoints() -> impl Strategy<Value = Vec<OutPoint>> {
+    proptest::collection::vec(
+        (arb_txid(), any::<u32>()).prop_map(|(txid, vout)| OutPoint { txid, vout }),
+        1..=10,
+    )
 }
