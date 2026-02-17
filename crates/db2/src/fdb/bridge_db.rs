@@ -1,7 +1,7 @@
 //! Implementation of the [`BridgeDb`] trait for FdbClient.
 
 use bitcoin::{OutPoint, Txid};
-use foundationdb::FdbBindingError;
+use foundationdb::{FdbBindingError, options::TransactionOption};
 use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
@@ -19,7 +19,7 @@ use crate::{
         },
     },
     traits::BridgeDb,
-    types::FundingPurpose,
+    types::{FundingPurpose, WriteBatch},
 };
 
 impl BridgeDb for FdbClient {
@@ -205,6 +205,64 @@ impl BridgeDb for FdbClient {
         })
         .await
     }
+
+    // ── Batch Persistence ─────────────────────────────────────────
+
+    async fn persist_batch(&self, batch: &WriteBatch) -> Result<(), Self::Error> {
+        let mut trx = self
+            .create_transaction()
+            .map_err(|e| OneOf::new(FdbBindingError::from(e)))?;
+
+        let opts = self.transact_options();
+        if let Some(limit) = opts.retry_limit {
+            trx.set_option(TransactionOption::RetryLimit(limit as i32))
+                .map_err(|e| OneOf::new(FdbBindingError::from(e)))?;
+        }
+        if let Some(timeout) = &opts.time_out {
+            trx.set_option(TransactionOption::Timeout(timeout.as_millis() as i32))
+                .map_err(|e| OneOf::new(FdbBindingError::from(e)))?;
+        }
+
+        loop {
+            for sm in batch.deposits() {
+                self.basic_set_in::<DepositStateRowSpec>(
+                    &trx,
+                    DepositStateKey {
+                        deposit_idx: sm.context.deposit_idx,
+                    },
+                    sm.clone(),
+                )
+                .map_err(OneOf::new)?;
+            }
+            for sm in batch.graphs() {
+                self.basic_set_in::<GraphStateRowSpec>(
+                    &trx,
+                    GraphStateKey {
+                        deposit_idx: sm.context.graph_idx.deposit,
+                        operator_idx: sm.context.graph_idx.operator,
+                    },
+                    sm.clone(),
+                )
+                .map_err(OneOf::new)?;
+            }
+
+            match trx.commit().await {
+                Ok(_committed) => return Ok(()),
+                Err(commit_err) => {
+                    // on_error() resets the transaction to its initial state
+                    // (mutations cleared, read version cleared) and applies
+                    // exponential backoff. The loop re-applies all writes on
+                    // the now-empty transaction.
+                    trx = commit_err
+                        .on_error()
+                        .await
+                        .map_err(|e| OneOf::new(FdbBindingError::from(e)))?;
+                }
+            }
+        }
+    }
+
+    // ── Cascade Deletes ─────────────────────────────────────────────
 
     async fn delete_deposit(&self, deposit_idx: DepositIdx) -> Result<(), Self::Error> {
         self.delete_deposit_cascade(deposit_idx).await
@@ -831,6 +889,56 @@ mod tests {
             })?;
         }
 
+        /// Property: `persist_batch` atomically writes deposit and
+        /// graph SMs that can be read back individually.
+        #[test]
+        fn persist_batch_test(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            last_block_height in any::<u64>(),
+            outpoint in arb_outpoint(),
+            operator_table in arb_operator_table(),
+        ) {
+            let deposit_sm = make_deposit_sm(
+                deposit_idx,
+                outpoint,
+                operator_table.clone(),
+                DepositState::Deposited { last_block_height },
+            );
+
+            let graph_sm = make_graph_sm(
+                deposit_idx,
+                operator_idx,
+                outpoint,
+                operator_table,
+                GraphState::Created { last_block_height },
+            );
+
+            block_on(async {
+                let client = get_client();
+
+                let mut batch = WriteBatch::new();
+                batch.add_deposit(deposit_sm.clone());
+                batch.add_graph(graph_sm.clone());
+
+                client.persist_batch(&batch).await.unwrap();
+
+                let retrieved_deposit = client
+                    .get_deposit_state(deposit_idx)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(Some(deposit_sm), retrieved_deposit);
+
+                let retrieved_graph = client
+                    .get_graph_state(deposit_idx, operator_idx)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(Some(graph_sm), retrieved_graph);
+
+                Ok(())
+            })?;
+        }
+
         /// Verify that `create_transaction` + `basic_set_in` can batch
         /// multiple writes into a single atomic transaction.
         #[test]
@@ -895,5 +1003,239 @@ mod tests {
                 Ok(())
             })?;
         }
+
+        /// Property: `persist_batch` correctly writes multiple deposits and
+        /// multiple graphs in a single atomic batch.
+        #[test]
+        fn persist_batch_multi_entry_test(
+            deposit_idx_a in any::<DepositIdx>(),
+            deposit_idx_b in any::<DepositIdx>(),
+            operator_idx_a in any::<OperatorIdx>(),
+            operator_idx_b in any::<OperatorIdx>(),
+            last_block_height in any::<u64>(),
+            outpoint in arb_outpoint(),
+            operator_table in arb_operator_table(),
+        ) {
+            prop_assume!(deposit_idx_a != deposit_idx_b);
+
+            let dep_a = make_deposit_sm(
+                deposit_idx_a, outpoint, operator_table.clone(),
+                DepositState::Deposited { last_block_height },
+            );
+            let dep_b = make_deposit_sm(
+                deposit_idx_b, outpoint, operator_table.clone(),
+                DepositState::Deposited { last_block_height },
+            );
+            let graph_a = make_graph_sm(
+                deposit_idx_a, operator_idx_a, outpoint, operator_table.clone(),
+                GraphState::Created { last_block_height },
+            );
+            let graph_b = make_graph_sm(
+                deposit_idx_b, operator_idx_b, outpoint, operator_table,
+                GraphState::Created { last_block_height },
+            );
+
+            block_on(async {
+                let client = get_client();
+
+                let mut batch = WriteBatch::new();
+                batch.add_deposit(dep_a.clone());
+                batch.add_deposit(dep_b.clone());
+                batch.add_graph(graph_a.clone());
+                batch.add_graph(graph_b.clone());
+
+                client.persist_batch(&batch).await.unwrap();
+
+                let ret_dep_a = client.get_deposit_state(deposit_idx_a).await.unwrap();
+                prop_assert_eq!(Some(dep_a), ret_dep_a);
+
+                let ret_dep_b = client.get_deposit_state(deposit_idx_b).await.unwrap();
+                prop_assert_eq!(Some(dep_b), ret_dep_b);
+
+                let ret_graph_a = client.get_graph_state(deposit_idx_a, operator_idx_a).await.unwrap();
+                prop_assert_eq!(Some(graph_a), ret_graph_a);
+
+                let ret_graph_b = client.get_graph_state(deposit_idx_b, operator_idx_b).await.unwrap();
+                prop_assert_eq!(Some(graph_b), ret_graph_b);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: `persist_batch` overwrites previously stored state.
+        #[test]
+        fn persist_batch_overwrite_test(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            old_height in any::<u64>(),
+            new_height in any::<u64>(),
+            outpoint in arb_outpoint(),
+            operator_table in arb_operator_table(),
+        ) {
+            prop_assume!(old_height != new_height);
+
+            let old_deposit = make_deposit_sm(
+                deposit_idx, outpoint, operator_table.clone(),
+                DepositState::Deposited { last_block_height: old_height },
+            );
+            let old_graph = make_graph_sm(
+                deposit_idx, operator_idx, outpoint, operator_table.clone(),
+                GraphState::Created { last_block_height: old_height },
+            );
+            let new_deposit = make_deposit_sm(
+                deposit_idx, outpoint, operator_table.clone(),
+                DepositState::Deposited { last_block_height: new_height },
+            );
+            let new_graph = make_graph_sm(
+                deposit_idx, operator_idx, outpoint, operator_table,
+                GraphState::Created { last_block_height: new_height },
+            );
+
+            block_on(async {
+                let client = get_client();
+
+                // Pre-seed with old state.
+                client.set_deposit_state(deposit_idx, old_deposit).await.unwrap();
+                client.set_graph_state(deposit_idx, operator_idx, old_graph).await.unwrap();
+
+                // Overwrite via batch.
+                let mut batch = WriteBatch::new();
+                batch.add_deposit(new_deposit.clone());
+                batch.add_graph(new_graph.clone());
+                client.persist_batch(&batch).await.unwrap();
+
+                let ret_dep = client.get_deposit_state(deposit_idx).await.unwrap();
+                prop_assert_eq!(Some(new_deposit), ret_dep);
+
+                let ret_graph = client.get_graph_state(deposit_idx, operator_idx).await.unwrap();
+                prop_assert_eq!(Some(new_graph), ret_graph);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: `persist_batch` with only deposits (no graphs) succeeds.
+        #[test]
+        fn persist_batch_deposit_only_test(
+            deposit_idx in any::<DepositIdx>(),
+            last_block_height in any::<u64>(),
+            outpoint in arb_outpoint(),
+            operator_table in arb_operator_table(),
+        ) {
+            let deposit_sm = make_deposit_sm(
+                deposit_idx, outpoint, operator_table,
+                DepositState::Deposited { last_block_height },
+            );
+
+            block_on(async {
+                let client = get_client();
+
+                let mut batch = WriteBatch::new();
+                batch.add_deposit(deposit_sm.clone());
+
+                client.persist_batch(&batch).await.unwrap();
+
+                let retrieved = client.get_deposit_state(deposit_idx).await.unwrap();
+                prop_assert_eq!(Some(deposit_sm), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: `persist_batch` with only graphs (no deposits) succeeds.
+        #[test]
+        fn persist_batch_graph_only_test(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            last_block_height in any::<u64>(),
+            outpoint in arb_outpoint(),
+            operator_table in arb_operator_table(),
+        ) {
+            let graph_sm = make_graph_sm(
+                deposit_idx, operator_idx, outpoint, operator_table,
+                GraphState::Created { last_block_height },
+            );
+
+            block_on(async {
+                let client = get_client();
+
+                let mut batch = WriteBatch::new();
+                batch.add_graph(graph_sm.clone());
+
+                client.persist_batch(&batch).await.unwrap();
+
+                let retrieved = client.get_graph_state(deposit_idx, operator_idx).await.unwrap();
+                prop_assert_eq!(Some(graph_sm), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: after a multi-entry `persist_batch`, `get_all_deposit_states`
+        /// and `get_all_graph_states` contain every batched entry.
+        #[test]
+        fn persist_batch_get_all_consistency_test(
+            deposit_idx_a in any::<DepositIdx>(),
+            deposit_idx_b in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            last_block_height in any::<u64>(),
+            outpoint in arb_outpoint(),
+            operator_table in arb_operator_table(),
+        ) {
+            prop_assume!(deposit_idx_a != deposit_idx_b);
+
+            let dep_a = make_deposit_sm(
+                deposit_idx_a, outpoint, operator_table.clone(),
+                DepositState::Deposited { last_block_height },
+            );
+            let dep_b = make_deposit_sm(
+                deposit_idx_b, outpoint, operator_table.clone(),
+                DepositState::Deposited { last_block_height },
+            );
+            let graph_a = make_graph_sm(
+                deposit_idx_a, operator_idx, outpoint, operator_table.clone(),
+                GraphState::Created { last_block_height },
+            );
+            let graph_b = make_graph_sm(
+                deposit_idx_b, operator_idx, outpoint, operator_table,
+                GraphState::Created { last_block_height },
+            );
+
+            block_on(async {
+                let client = get_client();
+
+                let mut batch = WriteBatch::new();
+                batch.add_deposit(dep_a.clone());
+                batch.add_deposit(dep_b.clone());
+                batch.add_graph(graph_a.clone());
+                batch.add_graph(graph_b.clone());
+
+                client.persist_batch(&batch).await.unwrap();
+
+                let all_deps = client.get_all_deposit_states().await.unwrap();
+                let found_dep_a = all_deps.iter().any(|(idx, sm)| *idx == deposit_idx_a && *sm == dep_a);
+                let found_dep_b = all_deps.iter().any(|(idx, sm)| *idx == deposit_idx_b && *sm == dep_b);
+                prop_assert!(found_dep_a, "deposit A not found in get_all_deposit_states after batch persist");
+                prop_assert!(found_dep_b, "deposit B not found in get_all_deposit_states after batch persist");
+
+                let all_graphs = client.get_all_graph_states().await.unwrap();
+                let found_graph_a = all_graphs.iter().any(|(idx, gs)| idx.deposit == deposit_idx_a && idx.operator == operator_idx && *gs == graph_a);
+                let found_graph_b = all_graphs.iter().any(|(idx, gs)| idx.deposit == deposit_idx_b && idx.operator == operator_idx && *gs == graph_b);
+                prop_assert!(found_graph_a, "graph A not found in get_all_graph_states after batch persist");
+                prop_assert!(found_graph_b, "graph B not found in get_all_graph_states after batch persist");
+
+                Ok(())
+            })?;
+        }
+    }
+
+    /// An empty `WriteBatch` should persist without error.
+    #[test]
+    fn persist_batch_empty_test() {
+        block_on(async {
+            let client = get_client();
+            let batch = WriteBatch::new();
+            client.persist_batch(&batch).await.unwrap();
+        });
     }
 }

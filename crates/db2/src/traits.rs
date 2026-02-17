@@ -7,7 +7,7 @@ use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
 
-use crate::types::FundingPurpose;
+use crate::types::{FundingPurpose, WriteBatch};
 
 /// Standard persistence interface for a bridge node.
 pub trait BridgeDb {
@@ -117,6 +117,16 @@ pub trait BridgeDb {
         deposit_idx: DepositIdx,
         operator_idx: OperatorIdx,
         purpose: FundingPurpose,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    // ── Batch Persistence ─────────────────────────────────────────────
+
+    /// Atomically persists a [`WriteBatch`] of causally-linked state machines
+    /// in a single database transaction. On conflict, the implementation
+    /// retries with back-off.
+    fn persist_batch(
+        &self,
+        batch: &WriteBatch,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     // ── Cascade Deletes ─────────────────────────────────────────────
