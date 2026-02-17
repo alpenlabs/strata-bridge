@@ -127,6 +127,12 @@ impl FdbClient {
         self.db.create_trx()
     }
 
+    /// Returns a reference to the client's [`TransactOption`] configuration, which is used for all
+    /// transactions initiated via `transact` and the auto-transactional primitives.
+    pub const fn transact_options(&self) -> &TransactOption {
+        &self.transact_options
+    }
+
     /// Runs an async closure inside `Database::transact_boxed` with the
     /// configured retry/timeout options.
     ///
