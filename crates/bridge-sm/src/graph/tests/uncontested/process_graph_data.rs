@@ -50,9 +50,13 @@ mod tests {
         assert!(
             matches!(
                 seq.all_duties().as_slice(),
-                [GraphDuty::VerifyAdaptors { .. }]
+                [
+                    GraphDuty::VerifyAdaptors { .. },
+                    GraphDuty::VerifyAdaptors { .. },
+                    GraphDuty::VerifyAdaptors { .. }
+                ]
             ),
-            "Expected exactly 1 VerifyAdaptors duty to be emitted"
+            "Expected exactly 3 VerifyAdaptors duties to be emitted"
         );
     }
 
