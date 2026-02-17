@@ -3,9 +3,12 @@ set -e
 cd $(dirname $(realpath $0))
 source env.bash
 
+# Set an explicit finite limit so bitcoind (and other
+# subprocesses) inherit a sane value.
+ulimit -n 10240
+
 # Move to project root for cargo builds
 pushd .. > /dev/null
-
 
 # Configure build parameters based on environment
 if [ $CI_COVERAGE ]; then
