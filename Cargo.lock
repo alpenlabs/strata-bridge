@@ -10432,6 +10432,8 @@ dependencies = [
  "proptest",
  "secp256k1 0.29.1",
  "serde",
+ "strata-asm-common",
+ "strata-asm-txs-bridge-v1",
  "strata-bridge-connectors2",
  "strata-bridge-p2p-types",
  "strata-bridge-primitives",

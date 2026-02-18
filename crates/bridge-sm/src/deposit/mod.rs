@@ -17,3 +17,4 @@ pub mod state;
 #[cfg(test)]
 pub mod tests;
 pub mod transitions;
+mod tx_classifier;
