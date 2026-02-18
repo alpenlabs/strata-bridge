@@ -12,8 +12,8 @@ mod tests {
             events::{GraphDataGeneratedEvent, GraphEvent},
             state::GraphState,
             tests::{
-                GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, create_sm, get_state,
-                test_graph_invalid_transition, test_graph_sm_cfg,
+                GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, create_nonpov_sm, create_sm,
+                get_state, test_graph_invalid_transition, test_graph_sm_cfg,
             },
         },
         testing::EventSequence,
@@ -28,11 +28,12 @@ mod tests {
     }
 
     #[test]
-    fn test_process_graph_data() {
+    fn test_process_graph_data_pov_no_duties() {
         let initial_state = GraphState::Created {
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
+        // POV operator processing its own graph — no VerifyAdaptors duties expected.
         let sm = create_sm(initial_state);
         let mut seq = EventSequence::new(sm, get_state);
 
@@ -42,21 +43,38 @@ mod tests {
         );
 
         seq.assert_no_errors();
+        assert!(matches!(seq.state(), GraphState::GraphGenerated { .. }));
+        assert!(
+            seq.all_duties().is_empty(),
+            "Expected no duties for POV operator's own graph"
+        );
+    }
 
-        // Should transition to GraphGenerated
+    #[test]
+    fn test_process_graph_data_nonpov_emits_verify_adaptors() {
+        let initial_state = GraphState::Created {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        // Non-POV operator's graph — VerifyAdaptors duties should be emitted.
+        let sm = create_nonpov_sm(initial_state);
+        let mut seq = EventSequence::new(sm, get_state);
+
+        seq.process(
+            test_graph_sm_cfg(),
+            GraphEvent::GraphDataProduced(test_graph_data_event()),
+        );
+
+        seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::GraphGenerated { .. }));
 
         // Check that a VerifyAdaptors duty was emitted
         assert!(
             matches!(
                 seq.all_duties().as_slice(),
-                [
-                    GraphDuty::VerifyAdaptors { .. },
-                    GraphDuty::VerifyAdaptors { .. },
-                    GraphDuty::VerifyAdaptors { .. }
-                ]
+                [GraphDuty::VerifyAdaptors { .. }]
             ),
-            "Expected exactly 3 VerifyAdaptors duties to be emitted"
+            "Expected exactly 1 VerifyAdaptors duty to be emitted"
         );
     }
 

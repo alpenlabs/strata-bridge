@@ -33,8 +33,13 @@ pub(super) const TEST_DEPOSIT_IDX: u32 = 0;
 /// Operator index of the POV (point of view) operator in tests.
 /// This is the operator running the state machine.
 pub(super) const TEST_POV_IDX: OperatorIdx = 0;
+/// Operator index representing a non-POV operator in tests.
+pub(super) const TEST_NONPOV_IDX: OperatorIdx = 1;
+// Compile-time assertion: TEST_NONPOV_IDX must differ from TEST_POV_IDX
+const _: () = assert!(TEST_NONPOV_IDX != TEST_POV_IDX);
 
-const N_TEST_OPERATORS: usize = 4;
+/// Number of operators used in test fixtures.
+pub(super) const N_TEST_OPERATORS: usize = 5;
 const CONTEST_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
 const PROOF_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
 const ACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
@@ -47,13 +52,15 @@ const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
 
 /// Creates a test bridge-wide GSM configuration.
 pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
-    let watchtower_pubkeys = (0..N_TEST_OPERATORS)
+    let watchtower_pubkeys = (0..N_TEST_OPERATORS - 1)
         .map(|_| generate_xonly_pubkey())
         .collect();
-    let watchtower_fault_pubkeys = (0..N_TEST_OPERATORS)
+    let watchtower_fault_pubkeys = (0..N_TEST_OPERATORS - 1)
         .map(|_| generate_xonly_pubkey())
         .collect();
-    let slash_watchtower_descriptors = (0..N_TEST_OPERATORS).map(|_| random_p2tr_desc()).collect();
+    let slash_watchtower_descriptors = (0..N_TEST_OPERATORS - 1)
+        .map(|_| random_p2tr_desc())
+        .collect();
 
     Arc::new(GraphSMCfg {
         game_graph_params: ProtocolParams {
@@ -77,7 +84,7 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
     })
 }
 
-/// Creates a test per-instance context for GraphSM.
+/// Creates a GraphSM for a POV operator.
 pub(super) fn test_sm_ctx() -> GraphSMCtx {
     GraphSMCtx {
         graph_idx: GraphIdx {
@@ -99,10 +106,27 @@ pub(super) fn random_p2tr_desc() -> Descriptor {
 
 // ===== State Machine Helpers =====
 
-/// Creates a GraphSM from a given state.
+/// Creates a GraphSM from a given state for a POV operator.
 pub(super) fn create_sm(state: GraphState) -> GraphSM {
     GraphSM {
         context: test_sm_ctx(),
+        state,
+    }
+}
+
+/// Creates a GraphSM for a non-POV operator
+pub(super) fn create_nonpov_sm(state: GraphState) -> GraphSM {
+    GraphSM {
+        context: GraphSMCtx {
+            graph_idx: GraphIdx {
+                deposit: TEST_DEPOSIT_IDX,
+                operator: TEST_NONPOV_IDX,
+            },
+            deposit_outpoint: OutPoint::default(),
+            stake_outpoint: OutPoint::default(),
+            unstaking_image: sha256::Hash::all_zeros(),
+            operator_table: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+        },
         state,
     }
 }
