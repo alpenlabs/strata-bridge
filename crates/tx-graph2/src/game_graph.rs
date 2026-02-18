@@ -163,6 +163,10 @@ pub struct GameGraphSummary {
     pub counterproofs: Vec<CounterproofGraphSummary>,
     /// ID of the slash transaction.
     pub slash: Txid,
+    /// ID of the uncontested payout transaction.
+    pub uncontested_payout: Txid,
+    /// ID of the contested payout transaction.
+    pub contested_payout: Txid,
 }
 
 /// Collection of the IDs of all transactions of a [`CounterproofGraph`].
@@ -361,6 +365,8 @@ impl GameGraph {
                 .map(CounterproofGraph::summarize)
                 .collect(),
             slash: self.slash.as_ref().compute_txid(),
+            uncontested_payout: self.uncontested_payout.as_ref().compute_txid(),
+            contested_payout: self.contested_payout.as_ref().compute_txid(),
         }
     }
 
