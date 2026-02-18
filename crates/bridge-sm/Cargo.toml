@@ -12,6 +12,8 @@ strata-bridge-connectors2.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-tx-graph2.workspace = true
 
+strata-l1-txfmt.workspace = true
+
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 musig2.workspace = true

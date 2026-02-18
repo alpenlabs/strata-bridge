@@ -1,6 +1,6 @@
 //! Configuration shared across all graph state machines.
 
-use bitcoin::{XOnlyPublicKey, hashes::sha256};
+use bitcoin::{Amount, XOnlyPublicKey, hashes::sha256};
 use bitcoin_bosd::Descriptor;
 use strata_bridge_tx_graph2::game_graph::{KeyData, ProtocolParams, SetupParams};
 
@@ -14,6 +14,9 @@ use crate::graph::context::GraphSMCtx;
 pub struct GraphSMCfg {
     /// Parameters of the Game Graph that are inherent to the protocol.
     pub game_graph_params: ProtocolParams,
+
+    /// Fees paid to the operator for fronting a user.
+    pub operator_fee: Amount,
 
     /// Key used in the locking script of a contest transaction.
     // NOTE: (@Rajil1213) we might need to get this from `Mosaic` per deposit at runtime instead.

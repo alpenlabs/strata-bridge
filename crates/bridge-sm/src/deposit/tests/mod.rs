@@ -92,17 +92,25 @@ const TEST_ASSIGNMENT_DEADLINE_OFFSET: u64 = 15;
 const TEST_COOPERATIVE_PAYOUT_TIMELOCK: u64 = 1008;
 /// Deposit index used in tests.
 pub(super) const TEST_DEPOSIT_IDX: u32 = 0;
+/// Magic bytes used in tests.
+pub(super) const TEST_MAGIC_BYTES: [u8; 4] = [0x54, 0x45, 0x53, 0x54]; // "TEST"
 /// Deposit amount used in tests.
 pub(super) const TEST_DEPOSIT_AMOUNT: Amount = Amount::from_sat(10_000_000);
+/// Operator fee used in tests.
+pub(super) const TEST_OPERATOR_FEE: Amount = Amount::from_sat(10_000);
 
 // ===== Configuration Helpers =====
 
 /// Creates a test bridge-wide configuration.
 pub(super) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
+    let magic_bytes: MagicBytes = MagicBytes::from([0x54, 0x45, 0x53, 0x54]); // "TEST"
+
     Arc::new(DepositSMCfg {
         network: Network::Regtest,
         cooperative_payout_timeout_blocks: 144,
         deposit_amount: TEST_DEPOSIT_AMOUNT,
+        operator_fee: TEST_OPERATOR_FEE,
+        magic_bytes,
     })
 }
 
