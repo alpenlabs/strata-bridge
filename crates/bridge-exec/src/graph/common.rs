@@ -1,7 +1,7 @@
 //! Executors for uncontested payout graph duties.
 
 use bitcoin::{
-    OutPoint, TapSighashType, Txid, XOnlyPublicKey,
+    OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
     sighash::{Prevouts, SighashCache},
 };
 use bitcoind_async_client::traits::Reader;
@@ -195,7 +195,7 @@ pub(super) async fn publish_claim(
         "signing claim transaction"
     );
 
-    // TODO: (mukeshdroid) Currently, we need to fetch the prevouts form the bitcoind
+    // TODO: (mukeshdroid) Currently, we need to fetch the prevouts from bitcoind
     // since the ClaimTx doesn't contain this info. Updating ClaimTx and adding signing_info
     // method would simplify the executor.
     let prevout_futures = unsigned_claim_tx.input.iter().map(|input| {
@@ -239,7 +239,7 @@ pub(super) async fn publish_claim(
         // TODO: (mukeshdroid) We want to ensure the funding UTXO for the claim to be preserved.
         // This means that we should not use the general_wallet. Stakechain_signer wallet
         // has been used as a placeholder for non-general wallet. This implies that the funding
-        // outputs should also be generated fromt the stakechain_signer wallet.
+        // outputs should also be generated from the stakechain_signer wallet.
         let signature = output_handles
             .s2_client
             .stakechain_wallet_signer()
@@ -270,5 +270,26 @@ pub(super) async fn publish_claim(
         })?;
 
     info!(%claim_txid, "claim transaction confirmed");
+    Ok(())
+}
+
+/// Publishes the signed uncontested payout transaction to Bitcoin.
+pub(super) async fn publish_uncontested_payout(
+    output_handles: &OutputHandles,
+    signed_uncontested_payout_tx: &Transaction,
+) -> Result<(), ExecutorError> {
+    let payout_txid = signed_uncontested_payout_tx.compute_txid();
+    info!(%payout_txid, "publishing uncontested payout transaction");
+
+    output_handles
+        .tx_driver
+        .drive(signed_uncontested_payout_tx.clone(), TxStatus::is_buried)
+        .await
+        .map_err(|e| {
+            warn!(%payout_txid, ?e, "failed to publish uncontested payout transaction");
+            ExecutorError::TxDriverErr(e)
+        })?;
+
+    info!(%payout_txid, "uncontested payout confirmed");
     Ok(())
 }
