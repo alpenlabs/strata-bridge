@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use strata_bridge_primitives::{scripts::taproot::TaprootTweak, types::OperatorIdx};
+use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 use strata_bridge_tx_graph2::game_graph::DepositParams;
 
 use crate::graph::{
@@ -33,27 +33,45 @@ impl GraphSM {
                 };
                 let game_graph = self.generate_graph(&cfg, deposit_params);
 
-                let cur_operator_idx = self.context.operator_idx();
-                let duties: Vec<_> = game_graph
-                    .counterproofs
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, counterproof_graph)| {
-                        let watchtower_idx = i as OperatorIdx;
-                        (watchtower_idx != cur_operator_idx).then(|| GraphDuty::VerifyAdaptors {
-                            graph_idx: self.context.graph_idx(),
-                            watchtower_idx,
-                            sighashes: counterproof_graph.counterproof.sighashes(),
-                        })
-                    })
-                    .collect();
-
                 self.state = GraphState::GraphGenerated {
                     last_block_height: *last_block_height,
                     graph_data: deposit_params,
                     graph_summary: game_graph.summarize(),
                 };
 
+                // Only verify adaptors for other operators; skip our own graph.
+                let pov_operator_idx = self.context.operator_table().pov_idx();
+
+                let duties: Vec<_> = if self.context.operator_idx() == pov_operator_idx {
+                    Vec::new()
+                } else {
+                    // The graph owner's counterproof is excluded, so indices
+                    // after it are shifted by one. Adjust the pov counterproof index accordingly.
+                    let pov_counterproof_idx = if self.context.operator_idx() <= pov_operator_idx {
+                        pov_operator_idx - 1
+                    } else {
+                        pov_operator_idx
+                    };
+
+                    let pov_counterproof_graph = game_graph
+                        .counterproofs
+                        .get(pov_counterproof_idx as usize)
+                        .ok_or_else(|| {
+                            GSMError::invalid_event(
+                                self.state().clone(),
+                                graph_data_event.into(),
+                                Some(format!(
+                                    "Missing counterproof for watchtower {pov_operator_idx}"
+                                )),
+                            )
+                        })?;
+
+                    vec![GraphDuty::VerifyAdaptors {
+                        graph_idx: self.context.graph_idx(),
+                        watchtower_idx: pov_operator_idx,
+                        sighashes: pov_counterproof_graph.counterproof.sighashes(),
+                    }]
+                };
                 Ok(GSMOutput::with_duties(duties))
             }
             GraphState::GraphGenerated { .. } => Err(GSMError::duplicate(
