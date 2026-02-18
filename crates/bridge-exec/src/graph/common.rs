@@ -1,14 +1,19 @@
 //! Executors for uncontested payout graph duties.
 
-use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{
+    OutPoint, TapSighashType, Txid, XOnlyPublicKey,
+    sighash::{Prevouts, SighashCache},
+};
 use bitcoind_async_client::traits::Reader;
+use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
-use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SecretService};
+use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_primitives::{
-    scripts::taproot::TaprootTweak,
+    scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{GraphIdx, OperatorIdx},
 };
+use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
 use tracing::{info, warn};
 
 use crate::{errors::ExecutorError, output_handles::OutputHandles};
@@ -31,7 +36,7 @@ pub(super) async fn verify_adaptors(
         "verifying adaptor signatures"
     );
 
-    // TODO (mukeshdroid): Integrate with mosaic service for adaptor verification
+    // TODO: (mukeshdroid) Integrate with mosaic service for adaptor verification
 
     info!(
         ?graph_idx,
@@ -175,5 +180,95 @@ pub(super) async fn publish_graph_partials(
         .await;
 
     info!(?graph_idx, "graph partials published");
+    Ok(())
+}
+
+/// Publishes the claim transaction to Bitcoin.
+pub(super) async fn publish_claim(
+    output_handles: &OutputHandles,
+    claim_tx: &ClaimTx,
+) -> Result<(), ExecutorError> {
+    let unsigned_claim_tx = claim_tx.as_ref().clone();
+    let claim_txid = unsigned_claim_tx.compute_txid();
+    info!(
+        %claim_txid,
+        "signing claim transaction"
+    );
+
+    // TODO: (mukeshdroid) Currently, we need to fetch the prevouts form the bitcoind
+    // since the ClaimTx doesn't contain this info. Updating ClaimTx and adding signing_info
+    // method would simplify the executor.
+    let prevout_futures = unsigned_claim_tx.input.iter().map(|input| {
+        output_handles.bitcoind_rpc_client.get_tx_out(
+            &input.previous_output.txid,
+            input.previous_output.vout,
+            true,
+        )
+    });
+    let prevouts = try_join_all(prevout_futures)
+        .await
+        .map_err(|e| {
+            warn!(%claim_txid, ?e, "failed to fetch claim input prevouts");
+            ExecutorError::BitcoinRpcErr(e)
+        })?
+        .into_iter()
+        .map(|utxo| utxo.tx_out)
+        .collect::<Vec<_>>();
+    let prevouts = Prevouts::All(&prevouts);
+
+    let mut sighash_cache = SighashCache::new(&unsigned_claim_tx);
+    let mut signed_claim_tx = unsigned_claim_tx.clone();
+    for (input_index, _) in unsigned_claim_tx.input.iter().enumerate() {
+        let msg = create_message_hash(
+            &mut sighash_cache,
+            prevouts.clone(),
+            &TaprootWitness::Key,
+            TapSighashType::Default,
+            input_index,
+        )
+        .map_err(|e| {
+            warn!(
+                %claim_txid,
+                input_index,
+                %e,
+                "failed to create claim input sighash"
+            );
+            ExecutorError::WalletErr(format!("sighash error: {e}"))
+        })?;
+
+        // TODO: (mukeshdroid) We want to ensure the funding UTXO for the claim to be preserved.
+        // This means that we should not use the general_wallet. Stakechain_signer wallet
+        // has been used as a placeholder for non-general wallet. This implies that the funding
+        // outputs should also be generated fromt the stakechain_signer wallet.
+        let signature = output_handles
+            .s2_client
+            .stakechain_wallet_signer()
+            .sign(msg.as_ref(), None)
+            .await
+            .map_err(|e| {
+                warn!(
+                    %claim_txid,
+                    input_index,
+                    ?e,
+                    "failed to sign claim input"
+                );
+                ExecutorError::SecretServiceErr(e)
+            })?;
+        signed_claim_tx.input[input_index]
+            .witness
+            .push(signature.serialize());
+    }
+
+    info!(%claim_txid, "Publishing claim transaction");
+    output_handles
+        .tx_driver
+        .drive(signed_claim_tx, TxStatus::is_buried)
+        .await
+        .map_err(|e| {
+            warn!(%claim_txid, ?e, "failed to publish claim transaction");
+            ExecutorError::TxDriverErr(e)
+        })?;
+
+    info!(%claim_txid, "claim transaction confirmed");
     Ok(())
 }
