@@ -61,8 +61,11 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishClaim { signed_claim_tx } => {
             uncontested::publish_claim(&output_handles, signed_claim_tx).await
         }
-        GraphDuty::PublishUncontestedPayout { .. } => {
-            todo!("PublishUncontestedPayout")
+        GraphDuty::PublishUncontestedPayout {
+            signed_uncontested_payout_tx,
+        } => {
+            uncontested::publish_uncontested_payout(&output_handles, signed_uncontested_payout_tx)
+                .await
         }
         GraphDuty::PublishContest { .. } => {
             todo!("PublishContest")
