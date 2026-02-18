@@ -1,4 +1,5 @@
 //! Testing utilities specific to the Graph State Machine.
+mod uncontested;
 
 use std::{num::NonZero, sync::Arc};
 
@@ -23,8 +24,6 @@ use crate::{
     },
 };
 
-mod uncontested;
-
 // ===== Test Constants =====
 /// Block height used as the initial state in tests.
 pub(super) const INITIAL_BLOCK_HEIGHT: u64 = 100;
@@ -37,6 +36,10 @@ pub(super) const TEST_POV_IDX: OperatorIdx = 0;
 pub(super) const TEST_NONPOV_IDX: OperatorIdx = 1;
 // Compile-time assertion: TEST_NONPOV_IDX must differ from TEST_POV_IDX
 const _: () = assert!(TEST_NONPOV_IDX != TEST_POV_IDX);
+/// Deposit amount used in test fixtures.
+pub(super) const TEST_DEPOSIT_AMOUNT: Amount = Amount::from_sat(10_000_000);
+/// Operator fee used in test fixtures.
+pub(super) const TEST_OPERATOR_FEE: Amount = Amount::from_sat(10_000);
 
 /// Number of operators used in test fixtures.
 pub(super) const N_TEST_OPERATORS: usize = 5;
@@ -45,7 +48,6 @@ const PROOF_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
 const ACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
 const NACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
 const CONTESTED_PAYOUT_TIMELOCK: relative::LockTime = relative::LockTime::from_height(15);
-const DEPOSIT_AMOUNT: Amount = Amount::from_sat(100_000_000);
 const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
 
 // ===== Configuration Helpers =====
@@ -72,12 +74,13 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             nack_timelock: NACK_TIMELOCK,
             contested_payout_timelock: CONTESTED_PAYOUT_TIMELOCK,
             counterproof_n_bytes: NonZero::new(128).unwrap(),
-            deposit_amount: DEPOSIT_AMOUNT,
+            deposit_amount: TEST_DEPOSIT_AMOUNT,
             stake_amount: STAKE_AMOUNT,
         },
         operator_adaptor_key: generate_xonly_pubkey(),
         watchtower_pubkeys,
         admin_pubkey: generate_xonly_pubkey(),
+        operator_fee: TEST_OPERATOR_FEE,
         watchtower_fault_pubkeys,
         payout_desc: random_p2tr_desc(),
         slash_watchtower_descriptors,
