@@ -7,6 +7,7 @@ pub mod events;
 pub mod machine;
 pub mod state;
 pub mod transitions;
+pub mod tx_classifier;
 
 #[cfg(test)]
 pub mod tests;
