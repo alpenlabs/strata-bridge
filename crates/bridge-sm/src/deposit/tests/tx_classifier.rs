@@ -90,9 +90,9 @@ mod tests {
     /// States that expect a payout (deposit spend).
     fn payout_pending_states() -> Vec<DepositState> {
         let h = LATER_BLOCK_HEIGHT;
-        let num_operators = test_operator_table().cardinality() as u32;
+        let num_operators = N_TEST_OPERATORS;
         let nonces: BTreeMap<_, _> = (0..num_operators)
-            .map(|idx| (idx, generate_pubnonce()))
+            .map(|idx| (idx as OperatorIdx, generate_pubnonce()))
             .collect();
         let agg_nonce = musig2::AggNonce::sum(nonces.values().cloned());
 
@@ -100,11 +100,11 @@ mod tests {
             DepositState::PayoutNoncesCollected {
                 last_block_height: h,
                 assignee: TEST_ASSIGNEE,
-                operator_desc: random_p2tr_desc(),
                 cooperative_payment_deadline: h + 1008,
                 payout_nonces: nonces,
                 payout_aggregated_nonce: agg_nonce,
                 payout_partial_signatures: BTreeMap::new(),
+                cooperative_payout_tx: test_cooperative_payout_txn(test_recipient_desc()),
             },
             DepositState::CooperativePathFailed {
                 last_block_height: h,
@@ -131,7 +131,9 @@ mod tests {
             last_block_height: h,
             assignee: TEST_ASSIGNEE,
             cooperative_payment_deadline: h + 1008,
-            operator_desc: random_p2tr_desc(),
+            cooperative_payout_tx: test_cooperative_payout_txn(
+                Descriptor::new_op_return(&[0u8; 32]).unwrap(),
+            ),
             payout_nonces: BTreeMap::new(),
         });
         states.extend(payout_pending_states());
@@ -176,7 +178,7 @@ mod tests {
     fn classify_tx_recognizes_fulfillment() {
         let cfg = test_deposit_sm_cfg();
         let sm = create_sm(assigned_state());
-        let result = sm.classify_tx(&cfg, &test_fulfillment_txn(), LATER_BLOCK_HEIGHT);
+        let result = sm.classify_tx(&cfg, &test_fulfillment_tx(), LATER_BLOCK_HEIGHT);
         assert!(
             matches!(result, Some(DepositEvent::FulfillmentConfirmed(_))),
             "expected Some(FulfillmentConfirmed) but got {result:?}"
@@ -220,7 +222,7 @@ mod tests {
         let cfg = test_deposit_sm_cfg();
         let terminal = [DepositState::Spent, DepositState::Aborted];
         let deposit_tx = test_deposit_txn().as_ref().clone();
-        let fulfillment_tx = test_fulfillment_txn();
+        let fulfillment_tx = test_fulfillment_tx();
 
         for state in terminal {
             let sm = create_sm(state);
@@ -266,9 +268,7 @@ mod tests {
 
         let data = WithdrawalFulfillmentData {
             deposit_idx: TEST_DEPOSIT_IDX + 1,
-            withdrawal_funds: vec![OutPoint::default()],
-            input_amount: Amount::from_sat(10_000_000),
-            change_output: None,
+            user_amount: TEST_DEPOSIT_AMOUNT - TEST_OPERATOR_FEE,
             magic_bytes: TEST_MAGIC_BYTES.into(),
         };
         let wrong_fulfillment =

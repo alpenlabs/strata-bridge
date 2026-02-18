@@ -8,14 +8,68 @@ use bitcoin::{
     TxIn, TxMerkleNode, Witness, XOnlyPublicKey, block, blockdata, hashes::Hash, relative,
     script::Builder, transaction,
 };
+use bitcoin_bosd::Descriptor;
 use secp256k1::{Keypair, SECP256K1, SecretKey};
 use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
     operator_table::OperatorTable, secp::EvenSecretKey, types::OperatorIdx,
 };
-use strata_bridge_test_utils::bitcoin::generate_spending_tx;
-use strata_bridge_tx_graph2::transactions::deposit::{DepositData, DepositTx};
+use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_xonly_pubkey};
+use strata_bridge_tx_graph2::transactions::{
+    deposit::{DepositData, DepositTx},
+    prelude::{WithdrawalFulfillmentData, WithdrawalFulfillmentTx},
+};
 use strata_l1_txfmt::MagicBytes;
+
+// ===== Shared Test Constants =====
+
+/// Block height used to represent a later block in tests.
+pub const LATER_BLOCK_HEIGHT: u64 = 150;
+/// Deposit index used in tests.
+pub const TEST_DEPOSIT_IDX: u32 = 0;
+/// Operator index of the POV (point of view) operator in tests.
+pub const TEST_POV_IDX: OperatorIdx = 0;
+/// Operator index used as the assignee in tests.
+pub const TEST_ASSIGNEE: OperatorIdx = 2;
+/// Magic bytes used in tests.
+pub const TEST_MAGIC_BYTES: [u8; 4] = [0x54, 0x45, 0x53, 0x54]; // "TEST"
+/// Deposit amount used in tests.
+pub const TEST_DEPOSIT_AMOUNT: Amount = Amount::from_sat(10_000_000);
+/// Operator fee used in tests.
+pub const TEST_OPERATOR_FEE: Amount = Amount::from_sat(10_000);
+
+// ===== Shared Test Helpers =====
+
+/// Creates a random P2TR descriptor for use in tests.
+pub fn random_p2tr_desc() -> Descriptor {
+    Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+        .expect("Failed to generate descriptor")
+}
+
+/// Returns a deterministic P2TR descriptor for use in fulfillment tests.
+///
+/// Both [`test_fulfillment_tx`] and the `Assigned` state in TxClassifier tests must use the same
+/// recipient descriptor so that [`is_fulfillment`](crate::tx_classifier::is_fulfillment) can match
+/// the transaction against the state.
+pub fn test_recipient_desc() -> Descriptor {
+    let sk = SecretKey::from_slice(&[42u8; 32]).unwrap();
+    let pk = sk.public_key(SECP256K1).x_only_public_key().0;
+    Descriptor::new_p2tr(&pk.serialize()).expect("valid descriptor")
+}
+
+/// Creates a test withdrawal fulfillment transaction with the test deposit index and magic bytes.
+///
+/// This constructs a properly formatted SPS-50 transaction that the classifier can parse.
+pub fn test_fulfillment_tx() -> Transaction {
+    let data = WithdrawalFulfillmentData {
+        deposit_idx: TEST_DEPOSIT_IDX,
+        user_amount: TEST_DEPOSIT_AMOUNT - TEST_OPERATOR_FEE,
+        magic_bytes: TEST_MAGIC_BYTES.into(),
+    };
+    WithdrawalFulfillmentTx::new(data, test_recipient_desc()).into_unsigned_tx()
+}
+
+// ===== Transaction Fixtures =====
 
 /// Creates a takeback transaction (script-spend with multiple witness elements).
 ///

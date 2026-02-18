@@ -25,7 +25,7 @@ use strata_bridge_primitives::{
     types::OperatorIdx,
 };
 use strata_bridge_test_utils::{
-    bitcoin::{generate_spending_tx, generate_txid, generate_xonly_pubkey},
+    bitcoin::{generate_spending_tx, generate_txid},
     musig2::{generate_agg_nonce, generate_partial_signature, generate_pubnonce},
 };
 use strata_bridge_tx_graph2::transactions::{
@@ -53,7 +53,12 @@ use crate::{
     },
     signals::{DepositSignal, GraphToDeposit},
     testing::{
-        fixtures::{test_operator_table, test_payout_tx, test_takeback_tx},
+        fixtures::{
+            LATER_BLOCK_HEIGHT, TEST_ASSIGNEE, TEST_DEPOSIT_AMOUNT, TEST_DEPOSIT_IDX,
+            TEST_MAGIC_BYTES, TEST_OPERATOR_FEE, TEST_POV_IDX, random_p2tr_desc,
+            test_fulfillment_tx, test_operator_table, test_payout_tx, test_recipient_desc,
+            test_takeback_tx,
+        },
         signer::TestMusigSigner,
         transition::{InvalidTransition, Transition, test_invalid_transition, test_transition},
     },
@@ -65,15 +70,8 @@ use crate::{
 pub(super) const N_TEST_OPERATORS: usize = 3;
 /// Block height used as the initial state in tests.
 pub(super) const INITIAL_BLOCK_HEIGHT: u64 = 100;
-/// Block height used to represent a later block in tests.
-pub(super) const LATER_BLOCK_HEIGHT: u64 = 150;
 /// Block height used to represent a re-assignment deadline in tests.
 pub(super) const REASSIGNMENT_DEADLINE: u64 = LATER_BLOCK_HEIGHT + 50;
-/// Operator index used as the assignee in tests.
-pub(super) const TEST_ASSIGNEE: OperatorIdx = 2;
-/// Operator index of the POV (point of view) operator in tests.
-/// This is the operator running the state machine.
-pub(super) const TEST_POV_IDX: OperatorIdx = 0;
 /// Operator index representing a non-POV operator in tests.
 /// Used when testing scenarios where POV is not the assignee.
 pub(super) const TEST_NONPOV_IDX: OperatorIdx = 1;
@@ -94,14 +92,6 @@ const BIP34_MIN_BLOCK_HEIGHT: u64 = 17;
 const TEST_ASSIGNMENT_DEADLINE_OFFSET: u64 = 15;
 /// Cooperative payout timelock (in blocks) used for tests.
 const TEST_COOPERATIVE_PAYOUT_TIMELOCK: u64 = 1008;
-/// Deposit index used in tests.
-pub(super) const TEST_DEPOSIT_IDX: u32 = 0;
-/// Magic bytes used in tests.
-pub(super) const TEST_MAGIC_BYTES: [u8; 4] = [0x54, 0x45, 0x53, 0x54]; // "TEST"
-/// Deposit amount used in tests.
-pub(super) const TEST_DEPOSIT_AMOUNT: Amount = Amount::from_sat(10_000_000);
-/// Operator fee used in tests.
-pub(super) const TEST_OPERATOR_FEE: Amount = Amount::from_sat(10_000);
 
 // ===== Configuration Helpers =====
 
@@ -202,25 +192,8 @@ pub(super) fn test_deposit_txn() -> DepositTx {
 
 // ===== Payout Transaction Helpers =====
 
-/// Creates a random P2TR descriptor for use in tests.
-pub(super) fn random_p2tr_desc() -> Descriptor {
-    Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
-        .expect("Failed to generate descriptor")
-}
-
-/// Returns a deterministic P2TR descriptor for use in fulfillment tests.
-///
-/// Both [`test_fulfillment_txn`] and the `Assigned` state in TxClassifier tests must use the same
-/// recipient descriptor so that [`is_fulfillment`](crate::tx_classifier::is_fulfillment) can match
-/// the transaction against the state.
-pub(super) fn test_recipient_desc() -> Descriptor {
-    let sk = SecretKey::from_slice(&[42u8; 32]).unwrap();
-    let pk = sk.public_key(SECP256K1).x_only_public_key().0;
-    Descriptor::new_p2tr(&pk.serialize()).expect("valid descriptor")
-}
-
 /// Creates a test cooperative payout transaction with deterministic values.
-pub(super) fn test_payout_txn(operator_desc: Descriptor) -> CooperativePayoutTx {
+pub(super) fn test_cooperative_payout_txn(operator_desc: Descriptor) -> CooperativePayoutTx {
     let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
     let n_of_n_pubkey = get_aggregated_pubkey(operator_table.btc_keys());
     let deposit_connector = NOfNConnector::new(
@@ -362,7 +335,7 @@ impl Arbitrary for DepositState {
                     last_block_height: height,
                     assignee: TEST_ASSIGNEE,
                     cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
-                    cooperative_payout_tx: test_payout_txn(operator_desc),
+                    cooperative_payout_tx: test_cooperative_payout_txn(operator_desc),
                     payout_nonces: BTreeMap::new(),
                 }
             }),
@@ -376,7 +349,7 @@ impl Arbitrary for DepositState {
                 DepositState::PayoutNoncesCollected {
                     last_block_height: height,
                     assignee: TEST_ASSIGNEE,
-                    cooperative_payout_tx: test_payout_txn(operator_desc),
+                    cooperative_payout_tx: test_cooperative_payout_txn(operator_desc),
                     cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
                     payout_nonces: nonces,
                     payout_aggregated_nonce: agg_nonce,
@@ -456,21 +429,7 @@ impl Arbitrary for DepositEvent {
     }
 }
 
-// ===== TxClassifier Test Helpers =====
-
-/// Creates a test withdrawal fulfillment transaction with the test deposit index and magic bytes.
-///
-/// This constructs a properly formatted SPS-50 transaction that the classifier can parse.
-pub(super) fn test_fulfillment_txn() -> Transaction {
-    let data = WithdrawalFulfillmentData {
-        deposit_idx: TEST_DEPOSIT_IDX,
-        withdrawal_funds: vec![OutPoint::default()],
-        input_amount: Amount::from_sat(10_000_000),
-        change_output: None,
-        magic_bytes: TEST_MAGIC_BYTES.into(),
-    };
-    WithdrawalFulfillmentTx::new(data, test_recipient_desc()).into_unsigned_tx()
-}
+// ===== Strategy Helpers =====
 
 /// Strategy for generating only terminal states.
 pub(super) fn arb_terminal_state() -> impl Strategy<Value = DepositState> {

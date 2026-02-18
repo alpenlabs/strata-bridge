@@ -36,7 +36,7 @@ mod tests {
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT
                     + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
-                cooperative_payout_tx: test_payout_txn(operator_desc),
+                cooperative_payout_tx: test_cooperative_payout_txn(operator_desc),
                 payout_nonces: BTreeMap::new(),
             },
             expected_duties: vec![DepositDuty::PublishPayoutNonce {
@@ -93,13 +93,13 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                cooperative_payout_tx: test_payout_txn(desc.clone()),
+                cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
                 payout_nonces: BTreeMap::new(),
             },
             DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
-                cooperative_payout_tx: test_payout_txn(desc.clone()),
+                cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: BTreeMap::new(),
                 payout_aggregated_nonce: generate_agg_nonce(),
