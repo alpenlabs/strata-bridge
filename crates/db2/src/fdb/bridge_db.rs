@@ -1213,6 +1213,8 @@ mod tests {
                     })
                     .collect(),
                 slash: derive_txid(0x04),
+                uncontested_payout: derive_txid(0x05),
+                contested_payout: derive_txid(0x06),
             },
             agg_nonce: generate_agg_nonce(),
             partial_signatures,
