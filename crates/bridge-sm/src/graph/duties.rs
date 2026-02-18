@@ -8,6 +8,7 @@ use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
+use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
 use zkaleido::ProofReceipt;
 
 /// The duties that need to be performed to drive the Graph State Machine forward.
@@ -64,10 +65,10 @@ pub enum GraphDuty {
         ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
 
-    /// Publish the claim transaction on-chain.
+    /// Sign and Publish the claim transaction on-chain.
     PublishClaim {
-        /// The signed claim transaction to publish.
-        signed_claim_tx: Transaction,
+        /// The unsigned claim transaction to publish.
+        claim_tx: ClaimTx,
     },
 
     /// Publish the uncontested payout transaction.
