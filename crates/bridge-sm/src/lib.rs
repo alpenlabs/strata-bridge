@@ -11,6 +11,7 @@ pub mod errors;
 pub mod graph;
 pub mod signals;
 pub mod state_machine;
+pub mod tx_classifier;
 
 #[cfg(test)]
 pub(crate) mod testing;
