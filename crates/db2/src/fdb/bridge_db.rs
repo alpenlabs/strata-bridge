@@ -14,7 +14,7 @@ use crate::{
         row_spec::{
             deposits::{DepositStateKey, DepositStateRowSpec},
             funds::{FundsKey, FundsRowSpec, FundsValue},
-            graphs::{GraphStateKey, GraphStateRowSpec},
+            graphs::GraphStateRowSpec,
             signatures::{SignatureKey, SignatureRowSpec},
         },
     },
@@ -90,32 +90,17 @@ impl BridgeDb for FdbClient {
 
     // ── Graph States ─────────────────────────────────────────────────
 
-    async fn get_graph_state(
-        &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
-    ) -> Result<Option<GraphSM>, Self::Error> {
-        self.basic_get::<GraphStateRowSpec>(GraphStateKey {
-            deposit_idx,
-            operator_idx,
-        })
-        .await
+    async fn get_graph_state(&self, graph_idx: GraphIdx) -> Result<Option<GraphSM>, Self::Error> {
+        self.basic_get::<GraphStateRowSpec>(graph_idx.into()).await
     }
 
     async fn set_graph_state(
         &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
         state: GraphSM,
     ) -> Result<(), Self::Error> {
-        self.basic_set::<GraphStateRowSpec>(
-            GraphStateKey {
-                deposit_idx,
-                operator_idx,
-            },
-            state,
-        )
-        .await
+        self.basic_set::<GraphStateRowSpec>(graph_idx.into(), state)
+            .await
     }
 
     async fn get_all_graph_states(&self) -> Result<Vec<(GraphIdx, GraphSM)>, Self::Error> {
@@ -123,44 +108,25 @@ impl BridgeDb for FdbClient {
             .basic_get_all::<GraphStateRowSpec>(|dirs| &dirs.graphs)
             .await?;
 
-        Ok(pairs
-            .into_iter()
-            .map(|(k, v)| {
-                (
-                    GraphIdx {
-                        deposit: k.deposit_idx,
-                        operator: k.operator_idx,
-                    },
-                    v,
-                )
-            })
-            .collect())
+        Ok(pairs.into_iter().map(|(k, v)| (k.into(), v)).collect())
     }
 
-    async fn delete_graph_state(
-        &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
-    ) -> Result<(), Self::Error> {
-        self.basic_delete::<GraphStateRowSpec>(GraphStateKey {
-            deposit_idx,
-            operator_idx,
-        })
-        .await
+    async fn delete_graph_state(&self, graph_idx: GraphIdx) -> Result<(), Self::Error> {
+        self.basic_delete::<GraphStateRowSpec>(graph_idx.into())
+            .await
     }
 
     // ── Funds ─────────────────────────────────────────────────────────
 
     async fn get_funds(
         &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
         purpose: FundingPurpose,
     ) -> Result<Option<Vec<OutPoint>>, Self::Error> {
         let result = self
             .basic_get::<FundsRowSpec>(FundsKey {
-                deposit_idx,
-                operator_idx,
+                deposit_idx: graph_idx.deposit,
+                operator_idx: graph_idx.operator,
                 purpose,
             })
             .await?;
@@ -169,15 +135,14 @@ impl BridgeDb for FdbClient {
 
     async fn set_funds(
         &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
         purpose: FundingPurpose,
         outpoints: Vec<OutPoint>,
     ) -> Result<(), Self::Error> {
         self.basic_set::<FundsRowSpec>(
             FundsKey {
-                deposit_idx,
-                operator_idx,
+                deposit_idx: graph_idx.deposit,
+                operator_idx: graph_idx.operator,
                 purpose,
             },
             FundsValue(outpoints),
@@ -194,13 +159,12 @@ impl BridgeDb for FdbClient {
 
     async fn delete_funds(
         &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
         purpose: FundingPurpose,
     ) -> Result<(), Self::Error> {
         self.basic_delete::<FundsRowSpec>(FundsKey {
-            deposit_idx,
-            operator_idx,
+            deposit_idx: graph_idx.deposit,
+            operator_idx: graph_idx.operator,
             purpose,
         })
         .await
@@ -237,10 +201,11 @@ impl BridgeDb for FdbClient {
             for sm in batch.graphs() {
                 self.basic_set_in::<GraphStateRowSpec>(
                     &trx,
-                    GraphStateKey {
-                        deposit_idx: sm.context.graph_idx.deposit,
-                        operator_idx: sm.context.graph_idx.operator,
-                    },
+                    GraphIdx {
+                        deposit: sm.context.graph_idx.deposit,
+                        operator: sm.context.graph_idx.operator,
+                    }
+                    .into(),
                     sm.clone(),
                 )
                 .map_err(OneOf::new)?;
@@ -376,12 +341,16 @@ mod tests {
     /// Derives `stake_outpoint` (vout + 1) and `unstaking_image` (from outpoint txid bytes)
     /// automatically.
     fn make_graph_sm(
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
         outpoint: OutPoint,
         operator_table: OperatorTable,
         state: GraphState,
     ) -> GraphSM {
+        let GraphIdx {
+            deposit: deposit_idx,
+            operator: operator_idx,
+        } = graph_idx;
+
         GraphSM {
             context: GraphSMCtx {
                 graph_idx: GraphIdx {
@@ -554,18 +523,18 @@ mod tests {
             };
 
             let outpoint = OutPoint { txid, vout: 0 };
-            let graph_sm = make_graph_sm(deposit_idx, operator_idx, outpoint, operator_table, state);
+            let graph_sm = make_graph_sm(GraphIdx { deposit: deposit_idx, operator: operator_idx }, outpoint, operator_table, state);
 
             block_on(async {
                 let client = get_client();
 
                 client
-                    .set_graph_state(deposit_idx, operator_idx, graph_sm.clone())
+                    .set_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_idx }, graph_sm.clone())
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_graph_state(deposit_idx, operator_idx)
+                    .get_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_idx })
                     .await
                     .unwrap();
 
@@ -588,14 +557,15 @@ mod tests {
             prop_assume!(operator_a != operator_b);
 
             let state = GraphState::Created { last_block_height };
-            let gs_a = make_graph_sm(deposit_idx, operator_a, outpoint, operator_table.clone(), state.clone());
-            let gs_b = make_graph_sm(deposit_idx, operator_b, outpoint, operator_table, state);
+            let gs_a = make_graph_sm(GraphIdx { deposit: deposit_idx, operator: operator_a }, outpoint, operator_table.clone(), state.clone());
+
+            let gs_b = make_graph_sm(GraphIdx { deposit: deposit_idx, operator: operator_b }, outpoint, operator_table, state);
 
             block_on(async {
                 let client = get_client();
 
-                client.set_graph_state(deposit_idx, operator_a, gs_a.clone()).await.unwrap();
-                client.set_graph_state(deposit_idx, operator_b, gs_b.clone()).await.unwrap();
+                client.set_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_a }, gs_a.clone()).await.unwrap();
+                client.set_graph_state(GraphIdx{ deposit: deposit_idx, operator: operator_b }, gs_b.clone()).await.unwrap();
 
                 let all = client.get_all_graph_states().await.unwrap();
 
@@ -619,8 +589,8 @@ mod tests {
             operator_table in arb_operator_table(),
         ) {
             let graph_sm = make_graph_sm(
-                deposit_idx,
-                operator_idx,
+                GraphIdx { deposit: deposit_idx,
+                operator: operator_idx},
                 outpoint,
                 operator_table,
                 GraphState::Created { last_block_height },
@@ -630,17 +600,17 @@ mod tests {
                 let client = get_client();
 
                 client
-                    .set_graph_state(deposit_idx, operator_idx, graph_sm)
+                    .set_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_idx }, graph_sm)
                     .await
                     .unwrap();
 
                 client
-                    .delete_graph_state(deposit_idx, operator_idx)
+                    .delete_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_idx })
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_graph_state(deposit_idx, operator_idx)
+                    .get_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_idx })
                     .await
                     .unwrap();
                 prop_assert_eq!(None, retrieved);
@@ -664,12 +634,12 @@ mod tests {
                 let client = get_client();
 
                 client
-                    .set_funds(deposit_idx, operator_idx, purpose, outpoints.clone())
+                    .set_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, purpose, outpoints.clone())
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_funds(deposit_idx, operator_idx, purpose)
+                    .get_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, purpose)
                     .await
                     .unwrap();
 
@@ -691,11 +661,11 @@ mod tests {
                 let client = get_client();
 
                 client
-                    .set_funds(deposit_idx, operator_idx, FundingPurpose::WithdrawalFulfillment, outpoints_wf.clone())
+                    .set_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, FundingPurpose::WithdrawalFulfillment, outpoints_wf.clone())
                     .await
                     .unwrap();
                 client
-                    .set_funds(deposit_idx, operator_idx, FundingPurpose::Claim, outpoints_claim.clone())
+                    .set_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, FundingPurpose::Claim, outpoints_claim.clone())
                     .await
                     .unwrap();
 
@@ -729,17 +699,17 @@ mod tests {
                 let client = get_client();
 
                 client
-                    .set_funds(deposit_idx, operator_idx, purpose, outpoints)
+                    .set_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, purpose, outpoints)
                     .await
                     .unwrap();
 
                 client
-                    .delete_funds(deposit_idx, operator_idx, purpose)
+                    .delete_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, purpose)
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_funds(deposit_idx, operator_idx, purpose)
+                    .get_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, purpose)
                     .await
                     .unwrap();
                 prop_assert_eq!(None, retrieved);
@@ -768,7 +738,7 @@ mod tests {
             let deposit_sm = make_deposit_sm(deposit_idx, outpoint, operator_table.clone(), state);
 
             let graph_state = GraphState::Created { last_block_height };
-            let graph_sm_a = make_graph_sm(deposit_idx, operator_a, outpoint, operator_table, graph_state);
+            let graph_sm_a = make_graph_sm(GraphIdx{ deposit: deposit_idx, operator: operator_a }, outpoint, operator_table, graph_state);
 
             let mut graph_sm_b = graph_sm_a.clone();
             graph_sm_b.context.graph_idx.operator = operator_b;
@@ -785,17 +755,17 @@ mod tests {
                     .await
                     .unwrap();
                 client
-                    .set_graph_state(deposit_idx, operator_a, graph_sm_a)
+                    .set_graph_state(GraphIdx{deposit: deposit_idx, operator: operator_a }, graph_sm_a)
                     .await
                     .unwrap();
                 client
-                    .set_graph_state(deposit_idx, operator_b, graph_sm_b)
+                    .set_graph_state(GraphIdx{deposit: deposit_idx, operator: operator_b }, graph_sm_b)
                     .await
                     .unwrap();
 
                 // Set a graph state for a different deposit (the "survivor").
                 client
-                    .set_graph_state(survivor_deposit_idx, operator_a, survivor_state.clone())
+                    .set_graph_state(GraphIdx{ deposit: survivor_deposit_idx, operator: operator_a }, survivor_state.clone())
                     .await
                     .unwrap();
 
@@ -807,20 +777,16 @@ mod tests {
                 prop_assert_eq!(None, dep);
 
                 let gs_a = client
-                    .get_graph_state(deposit_idx, operator_a)
-                    .await
-                    .unwrap();
+                    .get_graph_state(GraphIdx{deposit: deposit_idx, operator: operator_a }).await.unwrap();
                 prop_assert_eq!(None, gs_a);
 
                 let gs_b = client
-                    .get_graph_state(deposit_idx, operator_b)
-                    .await
-                    .unwrap();
+                    .get_graph_state(GraphIdx{deposit: deposit_idx, operator: operator_b }).await.unwrap();
                 prop_assert_eq!(None, gs_b);
 
                 // Survivor should still be present.
                 let survivor = client
-                    .get_graph_state(survivor_deposit_idx, operator_a)
+                    .get_graph_state(GraphIdx{deposit: survivor_deposit_idx, operator: operator_a })
                     .await
                     .unwrap();
                 prop_assert_eq!(Some(survivor_state), survivor);
@@ -844,7 +810,7 @@ mod tests {
             prop_assume!(target_op != survivor_op);
 
             let state = GraphState::Created { last_block_height };
-            let graph_sm_a = make_graph_sm(deposit_a, target_op, outpoint, operator_table, state);
+            let graph_sm_a = make_graph_sm(GraphIdx{deposit: deposit_a, operator: target_op }, outpoint, operator_table, state);
 
             let mut graph_sm_b = graph_sm_a.clone();
             graph_sm_b.context.graph_idx.deposit = deposit_b;
@@ -857,17 +823,17 @@ mod tests {
 
                 // Set graph states for the target operator under two deposits.
                 client
-                    .set_graph_state(deposit_a, target_op, graph_sm_a)
+                    .set_graph_state(GraphIdx{ deposit: deposit_a, operator: target_op }, graph_sm_a)
                     .await
                     .unwrap();
                 client
-                    .set_graph_state(deposit_b, target_op, graph_sm_b)
+                    .set_graph_state(GraphIdx{deposit: deposit_b, operator: target_op }, graph_sm_b)
                     .await
                     .unwrap();
 
                 // Set a graph state for a different operator (the "survivor").
                 client
-                    .set_graph_state(deposit_a, survivor_op, survivor_state.clone())
+                    .set_graph_state(GraphIdx{deposit: deposit_a, operator: survivor_op }, survivor_state.clone())
                     .await
                     .unwrap();
 
@@ -876,20 +842,18 @@ mod tests {
 
                 // All target operator data should be gone.
                 let gs_a = client
-                    .get_graph_state(deposit_a, target_op)
-                    .await
-                    .unwrap();
+                    .get_graph_state(GraphIdx{deposit: deposit_a, operator: target_op }).await.unwrap();
                 prop_assert_eq!(None, gs_a);
 
                 let gs_b = client
-                    .get_graph_state(deposit_b, target_op)
+                    .get_graph_state(GraphIdx{deposit: deposit_b, operator: target_op })
                     .await
                     .unwrap();
                 prop_assert_eq!(None, gs_b);
 
                 // Survivor operator's data should still be present.
                 let survivor = client
-                    .get_graph_state(deposit_a, survivor_op)
+                    .get_graph_state(GraphIdx{deposit: deposit_a, operator: survivor_op })
                     .await
                     .unwrap();
                 prop_assert_eq!(Some(survivor_state), survivor);
@@ -916,8 +880,8 @@ mod tests {
             );
 
             let graph_sm = make_graph_sm(
-                deposit_idx,
-                operator_idx,
+                GraphIdx { deposit: deposit_idx,
+                operator: operator_idx},
                 outpoint,
                 operator_table,
                 GraphState::Created { last_block_height },
@@ -939,7 +903,7 @@ mod tests {
                 prop_assert_eq!(Some(deposit_sm), retrieved_deposit);
 
                 let retrieved_graph = client
-                    .get_graph_state(deposit_idx, operator_idx)
+                    .get_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_idx })
                     .await
                     .unwrap();
                 prop_assert_eq!(Some(graph_sm), retrieved_graph);
@@ -971,11 +935,11 @@ mod tests {
                 DepositState::Deposited { last_block_height },
             );
             let graph_a = make_graph_sm(
-                deposit_idx_a, operator_idx_a, outpoint, operator_table.clone(),
+                GraphIdx { deposit: deposit_idx_a, operator:  operator_idx_a}, outpoint, operator_table.clone(),
                 GraphState::Created { last_block_height },
             );
             let graph_b = make_graph_sm(
-                deposit_idx_b, operator_idx_b, outpoint, operator_table,
+                GraphIdx { deposit: deposit_idx_b, operator:  operator_idx_b}, outpoint, operator_table,
                 GraphState::Created { last_block_height },
             );
 
@@ -996,10 +960,10 @@ mod tests {
                 let ret_dep_b = client.get_deposit_state(deposit_idx_b).await.unwrap();
                 prop_assert_eq!(Some(dep_b), ret_dep_b);
 
-                let ret_graph_a = client.get_graph_state(deposit_idx_a, operator_idx_a).await.unwrap();
+                let ret_graph_a = client.get_graph_state(GraphIdx{deposit: deposit_idx_a, operator: operator_idx_a }).await.unwrap();
                 prop_assert_eq!(Some(graph_a), ret_graph_a);
 
-                let ret_graph_b = client.get_graph_state(deposit_idx_b, operator_idx_b).await.unwrap();
+                let ret_graph_b = client.get_graph_state(GraphIdx{deposit: deposit_idx_b, operator: operator_idx_b }).await.unwrap();
                 prop_assert_eq!(Some(graph_b), ret_graph_b);
 
                 Ok(())
@@ -1023,7 +987,7 @@ mod tests {
                 DepositState::Deposited { last_block_height: old_height },
             );
             let old_graph = make_graph_sm(
-                deposit_idx, operator_idx, outpoint, operator_table.clone(),
+                GraphIdx { deposit: deposit_idx, operator: operator_idx }, outpoint, operator_table.clone(),
                 GraphState::Created { last_block_height: old_height },
             );
             let new_deposit = make_deposit_sm(
@@ -1031,7 +995,7 @@ mod tests {
                 DepositState::Deposited { last_block_height: new_height },
             );
             let new_graph = make_graph_sm(
-                deposit_idx, operator_idx, outpoint, operator_table,
+                GraphIdx { deposit: deposit_idx, operator: operator_idx }, outpoint, operator_table,
                 GraphState::Created { last_block_height: new_height },
             );
 
@@ -1040,7 +1004,7 @@ mod tests {
 
                 // Pre-seed with old state.
                 client.set_deposit_state(deposit_idx, old_deposit).await.unwrap();
-                client.set_graph_state(deposit_idx, operator_idx, old_graph).await.unwrap();
+                client.set_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_idx }, old_graph).await.unwrap();
 
                 // Overwrite via batch.
                 let mut batch = WriteBatch::new();
@@ -1051,7 +1015,7 @@ mod tests {
                 let ret_dep = client.get_deposit_state(deposit_idx).await.unwrap();
                 prop_assert_eq!(Some(new_deposit), ret_dep);
 
-                let ret_graph = client.get_graph_state(deposit_idx, operator_idx).await.unwrap();
+                let ret_graph = client.get_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_idx }).await.unwrap();
                 prop_assert_eq!(Some(new_graph), ret_graph);
 
                 Ok(())
@@ -1096,7 +1060,7 @@ mod tests {
             operator_table in arb_operator_table(),
         ) {
             let graph_sm = make_graph_sm(
-                deposit_idx, operator_idx, outpoint, operator_table,
+                GraphIdx { deposit: deposit_idx, operator: operator_idx }, outpoint, operator_table,
                 GraphState::Created { last_block_height },
             );
 
@@ -1108,7 +1072,7 @@ mod tests {
 
                 client.persist_batch(&batch).await.unwrap();
 
-                let retrieved = client.get_graph_state(deposit_idx, operator_idx).await.unwrap();
+                let retrieved = client.get_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_idx }).await.unwrap();
                 prop_assert_eq!(Some(graph_sm), retrieved);
 
                 Ok(())
@@ -1137,11 +1101,11 @@ mod tests {
                 DepositState::Deposited { last_block_height },
             );
             let graph_a = make_graph_sm(
-                deposit_idx_a, operator_idx, outpoint, operator_table.clone(),
+                GraphIdx{ deposit:deposit_idx_a, operator: operator_idx}, outpoint, operator_table.clone(),
                 GraphState::Created { last_block_height },
             );
             let graph_b = make_graph_sm(
-                deposit_idx_b, operator_idx, outpoint, operator_table,
+                GraphIdx { deposit: deposit_idx_b, operator: operator_idx}, outpoint, operator_table,
                 GraphState::Created { last_block_height },
             );
 
@@ -1264,8 +1228,10 @@ mod tests {
         );
 
         let graph_sm = make_graph_sm(
-            deposit_idx,
-            operator_idx,
+            GraphIdx {
+                deposit: deposit_idx,
+                operator: operator_idx,
+            },
             outpoint,
             operator_table,
             nonces_collected,
@@ -1295,7 +1261,10 @@ mod tests {
             assert_eq!(Some(deposit_sm), retrieved_deposit);
 
             let retrieved_graph = client
-                .get_graph_state(deposit_idx, operator_idx)
+                .get_graph_state(GraphIdx {
+                    deposit: deposit_idx,
+                    operator: operator_idx,
+                })
                 .await
                 .unwrap();
             assert_eq!(Some(graph_sm), retrieved_graph);

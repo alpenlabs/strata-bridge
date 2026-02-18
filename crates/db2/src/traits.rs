@@ -65,45 +65,40 @@ pub trait BridgeDb {
     /// `(DepositIdx, OperatorIdx)` pair.
     fn get_graph_state(
         &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
     ) -> impl Future<Output = Result<Option<GraphSM>, Self::Error>> + Send;
 
-    /// Sets the serialized graph state for the given `(DepositIdx, OperatorIdx)` pair.
+    /// Sets the serialized graph state for the given `GraphIdx`.
     fn set_graph_state(
         &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
         state: GraphSM,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// Returns all stored graph states as `(DepositIdx, OperatorIdx, bytes)` triples.
+    /// Returns all stored graph states as `(GraphIdx, GraphSM)` triples.
     fn get_all_graph_states(
         &self,
     ) -> impl Future<Output = Result<Vec<(GraphIdx, GraphSM)>, Self::Error>> + Send;
 
-    /// Deletes the serialized graph state for the given `(DepositIdx, OperatorIdx)` pair.
+    /// Deletes the serialized graph state for the given `GraphIdx`.
     fn delete_graph_state(
         &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     // ── Funds ─────────────────────────────────────────────────────────
 
-    /// Gets, if present, the reserved [`OutPoint`]s for the given deposit, operator, and purpose.
+    /// Gets, if present, the reserved [`OutPoint`]s for the given graph and purpose.
     fn get_funds(
         &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
         purpose: FundingPurpose,
     ) -> impl Future<Output = Result<Option<Vec<OutPoint>>, Self::Error>> + Send;
 
-    /// Sets the reserved [`OutPoint`]s for the given deposit, operator, and purpose.
+    /// Sets the reserved [`OutPoint`]s for the given graph and purpose.
     fn set_funds(
         &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
         purpose: FundingPurpose,
         outpoints: Vec<OutPoint>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
@@ -111,11 +106,10 @@ pub trait BridgeDb {
     /// Returns all stored funds entries as funding outpoints.
     fn get_all_funds(&self) -> impl Future<Output = Result<Vec<OutPoint>, Self::Error>> + Send;
 
-    /// Deletes the reserved [`OutPoint`]s for the given deposit, operator, and purpose. Idempotent.
+    /// Deletes the reserved [`OutPoint`]s for the given graph and purpose.
     fn delete_funds(
         &self,
-        deposit_idx: DepositIdx,
-        operator_idx: OperatorIdx,
+        graph_idx: GraphIdx,
         purpose: FundingPurpose,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
