@@ -1,34 +1,52 @@
 //! Testing utilities specific to the Graph State Machine.
 mod uncontested;
 
+mod tx_classifier;
+
 use std::{num::NonZero, sync::Arc};
 
 use bitcoin::{
-    Amount, Network, OutPoint,
+    Amount, Network, OutPoint, ScriptBuf, Transaction,
     hashes::{Hash, sha256},
     relative,
+    taproot::Signature as TaprootSignature,
 };
-use bitcoin_bosd::Descriptor;
 use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
-use strata_bridge_test_utils::bitcoin::generate_xonly_pubkey;
-use strata_bridge_tx_graph2::game_graph::ProtocolParams;
+use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_xonly_pubkey};
+use strata_bridge_tx_graph2::{
+    game_graph::{CounterproofGraphSummary, DepositParams, GameGraphSummary, ProtocolParams},
+    transactions::prelude::{ClaimTx, ContestTx, CounterproofTx},
+};
+use zkaleido::{Proof, ProofReceipt, PublicValues};
 
+pub(super) use crate::testing::fixtures::{
+    LATER_BLOCK_HEIGHT, TEST_ASSIGNEE, TEST_DEPOSIT_AMOUNT, TEST_DEPOSIT_IDX, TEST_OPERATOR_FEE,
+    random_p2tr_desc, test_fulfillment_tx, test_operator_table, test_recipient_desc,
+};
 use crate::{
     graph::{
         config::GraphSMCfg, context::GraphSMCtx, errors::GSMError, events::GraphEvent,
         machine::GraphSM, state::GraphState,
     },
     testing::{
-        fixtures::test_operator_table,
+        fixtures::TEST_MAGIC_BYTES,
         transition::{InvalidTransition, test_invalid_transition},
     },
 };
 
+// ===== Dummy Values =====
+
+pub(super) fn dummy_taproot_signature() -> TaprootSignature {
+    TaprootSignature::from_slice(&[1u8; 64]).expect("64 bytes is valid for taproot signature")
+}
+
+pub(super) fn dummy_proof_receipt() -> ProofReceipt {
+    ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]))
+}
+
 // ===== Test Constants =====
 /// Block height used as the initial state in tests.
 pub(super) const INITIAL_BLOCK_HEIGHT: u64 = 100;
-/// Deposit index used in tests.
-pub(super) const TEST_DEPOSIT_IDX: u32 = 0;
 /// Operator index of the POV (point of view) operator in tests.
 /// This is the operator running the state machine.
 pub(super) const TEST_POV_IDX: OperatorIdx = 0;
@@ -36,10 +54,6 @@ pub(super) const TEST_POV_IDX: OperatorIdx = 0;
 pub(super) const TEST_NONPOV_IDX: OperatorIdx = 1;
 // Compile-time assertion: TEST_NONPOV_IDX must differ from TEST_POV_IDX
 const _: () = assert!(TEST_NONPOV_IDX != TEST_POV_IDX);
-/// Deposit amount used in test fixtures.
-pub(super) const TEST_DEPOSIT_AMOUNT: Amount = Amount::from_sat(10_000_000);
-/// Operator fee used in test fixtures.
-pub(super) const TEST_OPERATOR_FEE: Amount = Amount::from_sat(10_000);
 
 /// Number of operators used in test fixtures.
 pub(super) const N_TEST_OPERATORS: usize = 5;
@@ -67,7 +81,7 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
     Arc::new(GraphSMCfg {
         game_graph_params: ProtocolParams {
             network: Network::Regtest,
-            magic_bytes: (*b"ALPN").into(),
+            magic_bytes: TEST_MAGIC_BYTES.into(),
             contest_timelock: CONTEST_TIMELOCK,
             proof_timelock: PROOF_TIMELOCK,
             ack_timelock: ACK_TIMELOCK,
@@ -88,7 +102,7 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
 }
 
 /// Creates a GraphSM for a POV operator.
-pub(super) fn test_sm_ctx() -> GraphSMCtx {
+pub(super) fn test_graph_sm_ctx() -> GraphSMCtx {
     GraphSMCtx {
         graph_idx: GraphIdx {
             deposit: TEST_DEPOSIT_IDX,
@@ -101,10 +115,124 @@ pub(super) fn test_sm_ctx() -> GraphSMCtx {
     }
 }
 
-/// Creates a random P2TR descriptor for use in tests.
-pub(super) fn random_p2tr_desc() -> Descriptor {
-    Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
-        .expect("Failed to generate descriptor")
+// ===== Context =====
+
+pub(super) fn test_deposit_outpoint() -> OutPoint {
+    OutPoint {
+        vout: 100,
+        ..OutPoint::default()
+    }
+}
+
+// ===== Graph Data =====
+
+pub(super) fn test_deposit_params() -> DepositParams {
+    DepositParams {
+        game_index: NonZero::new(1u32).unwrap(),
+        claim_funds: OutPoint::default(),
+        deposit_outpoint: test_deposit_outpoint(),
+    }
+}
+
+fn make_deterministic_tx(discriminator: u32) -> Transaction {
+    generate_spending_tx(
+        OutPoint {
+            vout: discriminator,
+            ..OutPoint::default()
+        },
+        &[],
+    )
+}
+
+pub(super) fn test_graph_summary() -> GameGraphSummary {
+    GameGraphSummary {
+        claim: test_claim_tx().compute_txid(),
+        contest: test_contest_tx().compute_txid(),
+        bridge_proof_timeout: test_bridge_proof_timeout_tx().compute_txid(),
+        counterproofs: vec![CounterproofGraphSummary {
+            counterproof: test_counterproof_tx().compute_txid(),
+            counterproof_ack: test_counterproof_ack_tx().compute_txid(),
+        }],
+        slash: test_slash_tx().compute_txid(),
+        uncontested_payout: test_uncontested_payout_tx().compute_txid(),
+        contested_payout: test_contested_payout_tx().compute_txid(),
+    }
+}
+
+// ===== Test Transactions =====
+
+pub(super) fn test_claim_tx() -> Transaction {
+    make_deterministic_tx(0)
+}
+
+pub(super) fn test_contest_tx() -> Transaction {
+    make_deterministic_tx(1)
+}
+
+pub(super) fn test_bridge_proof_timeout_tx() -> Transaction {
+    make_deterministic_tx(2)
+}
+
+pub(super) fn test_counterproof_tx() -> Transaction {
+    make_deterministic_tx(3)
+}
+
+pub(super) fn test_counterproof_ack_tx() -> Transaction {
+    make_deterministic_tx(4)
+}
+
+pub(super) fn test_slash_tx() -> Transaction {
+    make_deterministic_tx(5)
+}
+
+pub(super) fn test_uncontested_payout_tx() -> Transaction {
+    make_deterministic_tx(6)
+}
+
+pub(super) fn test_contested_payout_tx() -> Transaction {
+    make_deterministic_tx(7)
+}
+
+pub(super) fn test_bridge_proof_tx() -> Transaction {
+    let mut tx = generate_spending_tx(
+        OutPoint {
+            txid: test_graph_summary().contest,
+            vout: ContestTx::PROOF_VOUT,
+        },
+        &[],
+    );
+
+    let proof_output = ScriptBuf::new_op_return([0x01; 10]);
+    tx.output.push(bitcoin::TxOut {
+        value: Amount::from_sat(0),
+        script_pubkey: proof_output,
+    });
+
+    tx
+}
+
+pub(super) fn test_counterproof_nack_tx() -> Transaction {
+    generate_spending_tx(
+        OutPoint {
+            txid: test_graph_summary().counterproofs[0].counterproof,
+            vout: CounterproofTx::ACK_NACK_VOUT,
+        },
+        &[],
+    )
+}
+
+pub(super) fn test_deposit_spend_tx() -> Transaction {
+    generate_spending_tx(test_deposit_outpoint(), &[])
+}
+
+pub(super) fn test_payout_connector_spent_tx() -> Transaction {
+    generate_spending_tx(
+        OutPoint {
+            txid: test_graph_summary().claim,
+            vout: ClaimTx::PAYOUT_VOUT,
+        },
+        &[],
+    )
 }
 
 // ===== State Machine Helpers =====
@@ -112,7 +240,7 @@ pub(super) fn random_p2tr_desc() -> Descriptor {
 /// Creates a GraphSM from a given state for a POV operator.
 pub(super) fn create_sm(state: GraphState) -> GraphSM {
     GraphSM {
-        context: test_sm_ctx(),
+        context: test_graph_sm_ctx(),
         state,
     }
 }
