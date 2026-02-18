@@ -42,6 +42,7 @@ pub fn is_fulfillment(
     magic_bytes: MagicBytes,
     deposit_idx: DepositIdx,
     deposit_amount: Amount,
+    operator_fee: Amount,
     recipient: &Descriptor,
     tx: &Transaction,
 ) -> bool {
@@ -50,7 +51,7 @@ pub fn is_fulfillment(
         let tx_input_ref = TxInputRef::new(tx, tag_data);
 
         parse_withdrawal_fulfillment_tx(&tx_input_ref).is_ok_and(|fulfillment_info| {
-            Amount::from(fulfillment_info.withdrawal_amount()) == deposit_amount
+            Amount::from(fulfillment_info.withdrawal_amount()) == deposit_amount - operator_fee
                 && *fulfillment_info.withdrawal_destination() == recipient.to_script()
                 && fulfillment_info.header_aux().deposit_idx() == deposit_idx
         })

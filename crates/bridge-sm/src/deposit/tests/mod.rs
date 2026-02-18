@@ -208,6 +208,17 @@ pub(super) fn random_p2tr_desc() -> Descriptor {
         .expect("Failed to generate descriptor")
 }
 
+/// Returns a deterministic P2TR descriptor for use in fulfillment tests.
+///
+/// Both [`test_fulfillment_txn`] and the `Assigned` state in TxClassifier tests must use the same
+/// recipient descriptor so that [`is_fulfillment`](crate::tx_classifier::is_fulfillment) can match
+/// the transaction against the state.
+pub(super) fn test_recipient_desc() -> Descriptor {
+    let sk = SecretKey::from_slice(&[42u8; 32]).unwrap();
+    let pk = sk.public_key(SECP256K1).x_only_public_key().0;
+    Descriptor::new_p2tr(&pk.serialize()).expect("valid descriptor")
+}
+
 /// Creates a test cooperative payout transaction with deterministic values.
 pub(super) fn test_payout_txn(operator_desc: Descriptor) -> CooperativePayoutTx {
     let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
@@ -458,7 +469,7 @@ pub(super) fn test_fulfillment_txn() -> Transaction {
         change_output: None,
         magic_bytes: TEST_MAGIC_BYTES.into(),
     };
-    WithdrawalFulfillmentTx::new(data, random_p2tr_desc()).into_unsigned_tx()
+    WithdrawalFulfillmentTx::new(data, test_recipient_desc()).into_unsigned_tx()
 }
 
 /// Strategy for generating only terminal states.

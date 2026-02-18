@@ -83,7 +83,7 @@ mod tests {
             last_block_height: LATER_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             deadline: LATER_BLOCK_HEIGHT + 15,
-            recipient_desc: random_p2tr_desc(),
+            recipient_desc: test_recipient_desc(),
         }
     }
 

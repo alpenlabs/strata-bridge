@@ -32,7 +32,7 @@ impl TxClassifier for GraphSM {
 
         match self.state() {
             GraphState::Created { .. } => None, // does not expect any txs
-            //
+
             // might see claim if an operator is malicious
             GraphState::GraphGenerated { graph_summary, .. }
             | GraphState::AdaptorsVerified { graph_summary, .. }
@@ -56,6 +56,7 @@ impl TxClassifier for GraphSM {
                     config.game_graph_params.magic_bytes,
                     self.context.deposit_idx(),
                     config.game_graph_params.deposit_amount,
+                    config.operator_fee,
                     recipient_desc,
                     tx,
                 ) {

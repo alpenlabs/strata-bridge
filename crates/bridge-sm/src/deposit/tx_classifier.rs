@@ -57,6 +57,7 @@ impl TxClassifier for DepositSM {
                     config.magic_bytes,
                     self.context().deposit_idx,
                     config.deposit_amount(),
+                    config.operator_fee,
                     recipient_desc,
                     tx,
                 ) =>
