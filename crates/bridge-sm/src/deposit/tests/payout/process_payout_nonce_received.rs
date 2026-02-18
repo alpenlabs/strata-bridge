@@ -24,7 +24,7 @@ mod tests {
 
         let nonce = generate_pubnonce();
 
-        let cooperative_payout_tx = test_payout_txn(desc.clone());
+        let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         let state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_second_nonce() {
         let desc = random_p2tr_desc();
-        let cooperative_payout_tx = test_payout_txn(desc.clone());
+        let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         // Generate nonces for all operators except the last one.
         // This ensures collection can never complete in this test.
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_all_collected_pov_is_not_assignee() {
         let desc = random_p2tr_desc();
-        let cooperative_payout_tx = test_payout_txn(desc.clone());
+        let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         // Generate nonces for all operators
         let all_nonces: BTreeMap<OperatorIdx, PubNonce> = (0..N_TEST_OPERATORS)
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_all_collected_pov_is_assignee() {
         let desc = random_p2tr_desc();
-        let cooperative_payout_tx = test_payout_txn(desc.clone());
+        let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         // Generate nonces for all operators
         let all_nonces: BTreeMap<OperatorIdx, PubNonce> = (0..N_TEST_OPERATORS)
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_duplicate_same_nonce() {
         let desc = random_p2tr_desc();
-        let cooperative_payout_tx = test_payout_txn(desc.clone());
+        let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         let nonce = generate_pubnonce();
 
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_duplicate_different_nonce() {
         let desc = random_p2tr_desc();
-        let cooperative_payout_tx = test_payout_txn(desc.clone());
+        let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         let first_nonce = generate_pubnonce();
         let duplicate_nonce = generate_pubnonce();
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn test_invalid_operator_idx_in_payout_nonce_received() {
         let desc = random_p2tr_desc();
-        let cooperative_payout_tx = test_payout_txn(desc.clone());
+        let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         let initial_state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_invalid_from_other_states() {
         let desc = random_p2tr_desc();
-        let cooperative_payout_tx = test_payout_txn(desc.clone());
+        let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         let nonce = generate_pubnonce();
 

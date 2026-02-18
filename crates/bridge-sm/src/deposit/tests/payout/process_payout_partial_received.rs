@@ -33,7 +33,7 @@ mod tests {
         let operator_desc = random_p2tr_desc();
 
         // Build cooperative payout tx and get signing info
-        let payout_tx = test_payout_txn(operator_desc);
+        let payout_tx = test_cooperative_payout_txn(operator_desc);
         let (key_agg_ctx, message) = get_payout_signing_info(&payout_tx, &signers);
 
         // Generate nonces (counter=0 for this signing round)
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn test_payout_partial_received_invalid_from_other_states() {
         let desc = random_p2tr_desc();
-        let cooperative_payout_tx = test_payout_txn(desc.clone());
+        let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         let partial_sig = generate_partial_signature();
 

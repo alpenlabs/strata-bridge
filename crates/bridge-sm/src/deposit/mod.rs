@@ -14,7 +14,8 @@ pub mod errors;
 pub mod events;
 pub mod machine;
 pub mod state;
-#[cfg(test)]
-pub mod tests;
 pub mod transitions;
 mod tx_classifier;
+
+#[cfg(test)]
+pub mod tests;

@@ -139,8 +139,6 @@ pub(super) const fn get_state(sm: &GraphSM) -> &GraphState {
     sm.state()
 }
 
-// ===== Test Transition Helpers =====
-
 /// Type alias for invalid GraphSM transitions.
 pub(super) type GraphInvalidTransition = InvalidTransition<GraphState, GraphEvent, GSMError>;
 
