@@ -58,8 +58,8 @@ pub async fn execute_graph_duty(
             )
             .await
         }
-        GraphDuty::PublishClaim { .. } => {
-            todo!("PublishClaim")
+        GraphDuty::PublishClaim { claim_tx } => {
+            common::publish_claim(&output_handles, claim_tx).await
         }
         GraphDuty::PublishUncontestedPayout { .. } => {
             todo!("PublishUncontestedPayout")
