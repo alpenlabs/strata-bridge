@@ -8,6 +8,7 @@ mod payout;
 mod prop_tests;
 mod test_new_blocks;
 mod test_timeout_sequence;
+mod tx_classifier;
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -29,7 +30,10 @@ use strata_bridge_test_utils::{
 };
 use strata_bridge_tx_graph2::transactions::{
     PresignedTx,
-    prelude::{CooperativePayoutData, CooperativePayoutTx, DepositData, DepositTx},
+    prelude::{
+        CooperativePayoutData, CooperativePayoutTx, DepositData, DepositTx,
+        WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
+    },
 };
 use strata_l1_txfmt::MagicBytes;
 
@@ -103,7 +107,7 @@ pub(super) const TEST_OPERATOR_FEE: Amount = Amount::from_sat(10_000);
 
 /// Creates a test bridge-wide configuration.
 pub(super) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
-    let magic_bytes: MagicBytes = MagicBytes::from([0x54, 0x45, 0x53, 0x54]); // "TEST"
+    let magic_bytes: MagicBytes = TEST_MAGIC_BYTES.into();
 
     Arc::new(DepositSMCfg {
         network: Network::Regtest,
@@ -179,7 +183,7 @@ pub(super) fn test_deposit_txn() -> DepositTx {
     let data = DepositData {
         deposit_idx: 0,
         deposit_request_outpoint: OutPoint::default(),
-        magic_bytes: MagicBytes::from([0x54, 0x45, 0x53, 0x54]), // "TEST"
+        magic_bytes: TEST_MAGIC_BYTES.into(),
     };
 
     // Create connectors with matching network, internal_key, and value
@@ -439,6 +443,22 @@ impl Arbitrary for DepositEvent {
         ]
         .boxed()
     }
+}
+
+// ===== TxClassifier Test Helpers =====
+
+/// Creates a test withdrawal fulfillment transaction with the test deposit index and magic bytes.
+///
+/// This constructs a properly formatted SPS-50 transaction that the classifier can parse.
+pub(super) fn test_fulfillment_txn() -> Transaction {
+    let data = WithdrawalFulfillmentData {
+        deposit_idx: TEST_DEPOSIT_IDX,
+        withdrawal_funds: vec![OutPoint::default()],
+        input_amount: Amount::from_sat(10_000_000),
+        change_output: None,
+        magic_bytes: TEST_MAGIC_BYTES.into(),
+    };
+    WithdrawalFulfillmentTx::new(data, random_p2tr_desc()).into_unsigned_tx()
 }
 
 /// Strategy for generating only terminal states.
