@@ -1,10 +1,7 @@
 //! [`TxClassifier`] implementation for [`DepositSM`].
 
 use bitcoin::Transaction;
-use strata_asm_common::TxInputRef;
-use strata_asm_txs_bridge_v1::withdrawal_fulfillment::parse_withdrawal_fulfillment_tx;
 use strata_bridge_primitives::types::BitcoinBlockHeight;
-use strata_l1_txfmt::ParseConfig;
 
 use crate::{
     deposit::{
@@ -15,7 +12,7 @@ use crate::{
         machine::DepositSM,
         state::DepositState,
     },
-    tx_classifier::TxClassifier,
+    tx_classifier::{TxClassifier, is_deposit_spend, is_fulfillment},
 };
 
 impl TxClassifier for DepositSM {
@@ -28,12 +25,9 @@ impl TxClassifier for DepositSM {
         let txid = tx.compute_txid();
         let dt_txid = self.context().deposit_outpoint().txid;
 
-        let is_drt_spend = self.deposit_request_outpoint().is_some_and(|drt_outpoint| {
-            tx.input.iter().any(|input| {
-                input.previous_output == drt_outpoint // spends DRT
-                    && txid != dt_txid // but is not DT
-            })
-        });
+        let is_drt_spend = self
+            .deposit_request_outpoint()
+            .is_some_and(|drt_outpoint| is_deposit_spend(drt_outpoint, tx) && txid != dt_txid);
         if is_drt_spend {
             return Some(DepositEvent::UserTakeBack(UserTakeBackEvent {
                 tx: tx.clone(),
@@ -58,27 +52,21 @@ impl TxClassifier for DepositSM {
             DepositState::Deposited { .. } => None, // does not expect any txs
 
             // expects fulfillment
-            DepositState::Assigned { .. } => {
-                let parser = ParseConfig::new(config.magic_bytes);
-                let tag_data = parser.try_parse_tx(tx).ok()?;
-                let tx_input_ref = TxInputRef::new(tx, tag_data);
-
-                parse_withdrawal_fulfillment_tx(&tx_input_ref)
-                    .ok()
-                    .and_then(|fulfillment_info| {
-                        if fulfillment_info.header_aux().deposit_idx()
-                            == self.context().deposit_idx()
-                        {
-                            Some(DepositEvent::FulfillmentConfirmed(
-                                FulfillmentConfirmedEvent {
-                                    fulfillment_transaction: tx.clone(),
-                                    fulfillment_height: height,
-                                },
-                            ))
-                        } else {
-                            None
-                        }
-                    })
+            DepositState::Assigned { recipient_desc, .. }
+                if is_fulfillment(
+                    config.magic_bytes,
+                    self.context().deposit_idx,
+                    config.deposit_amount(),
+                    recipient_desc,
+                    tx,
+                ) =>
+            {
+                Some(DepositEvent::FulfillmentConfirmed(
+                    FulfillmentConfirmedEvent {
+                        fulfillment_transaction: tx.clone(),
+                        fulfillment_height: height,
+                    },
+                ))
             }
 
             DepositState::Fulfilled { .. } => None, // does not expect any txs
@@ -87,10 +75,7 @@ impl TxClassifier for DepositSM {
             // expect payout
             DepositState::PayoutNoncesCollected { .. }
             | DepositState::CooperativePathFailed { .. }
-                if tx
-                    .input
-                    .iter()
-                    .any(|input| input.previous_output == self.context().deposit_outpoint()) =>
+                if is_deposit_spend(self.context().deposit_outpoint, tx) =>
             {
                 Some(DepositEvent::PayoutConfirmed(PayoutConfirmedEvent {
                     tx: tx.clone(),
