@@ -46,7 +46,9 @@ impl StateMachine for GraphSM {
                 self.process_adaptors_verification(cfg, adaptors)
             }
             GraphEvent::NonceReceived(nonce_event) => self.process_nonce_received(cfg, nonce_event),
-            GraphEvent::PartialReceived(_partial_event) => todo!(),
+            GraphEvent::PartialReceived(partial_event) => {
+                self.process_partial_received(cfg, partial_event)
+            }
             GraphEvent::WithdrawalAssigned(_assignment) => todo!(),
             GraphEvent::FulfillmentConfirmed(_fulfillment) => todo!(),
             GraphEvent::ClaimConfirmed(_claim) => todo!(),

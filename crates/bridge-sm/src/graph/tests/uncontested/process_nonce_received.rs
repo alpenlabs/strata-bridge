@@ -5,10 +5,7 @@ mod tests {
 
     use musig2::{AggNonce, PubNonce};
     use strata_bridge_primitives::types::OperatorIdx;
-    use strata_bridge_test_utils::{
-        bitcoin::generate_txid,
-        musig2::generate_pubnonce,
-    };
+    use strata_bridge_test_utils::{bitcoin::generate_txid, musig2::generate_pubnonce};
     use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraph};
 
     use crate::{
@@ -141,6 +138,7 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             graph_data: deposit_params,
             graph_summary,
+            pubnonces: all_nonces.clone(),
             agg_nonces: agg_nonces.clone(),
             partial_signatures: BTreeMap::new(),
         };

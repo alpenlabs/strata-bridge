@@ -6,9 +6,9 @@
 
 use std::{fmt::Display, num::NonZero};
 
-use bitcoin::{OutPoint, Txid, taproot::Signature};
+use bitcoin::{OutPoint, Txid};
 use bitcoin_bosd::Descriptor;
-use musig2::PubNonce;
+use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use zkaleido::ProofReceipt;
 
@@ -42,8 +42,8 @@ pub struct GraphPartialReceivedEvent {
     /// The index of the operator who sent the partial signature.
     pub operator_idx: OperatorIdx,
 
-    /// The partial signature from this operator.
-    pub partial_sig: Signature,
+    /// The partial signatures from this operator.
+    pub partial_sigs: Vec<PartialSignature>,
 }
 
 /// Event notifying that a withdrawal has been assigned/reassigned (for this graph).
