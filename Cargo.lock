@@ -10276,6 +10276,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-p2p",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
 ]
