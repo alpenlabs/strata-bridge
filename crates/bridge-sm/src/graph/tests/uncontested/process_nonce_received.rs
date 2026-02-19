@@ -7,7 +7,7 @@ mod tests {
         graph::{
             duties::GraphDuty,
             errors::GSMError,
-            events::{GraphEvent, GraphNonceReceivedEvent},
+            events::{GraphEvent, GraphNoncesReceivedEvent},
             state::GraphState,
             tests::{
                 GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, TEST_POV_IDX,
@@ -39,7 +39,7 @@ mod tests {
 
         test_graph_transition(GraphTransition {
             from_state: state,
-            event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
+            event: GraphEvent::NoncesReceived(GraphNoncesReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 pubnonces: operator_nonces,
             }),
@@ -74,7 +74,7 @@ mod tests {
                 .clone();
             seq.process(
                 cfg.clone(),
-                GraphEvent::NonceReceived(GraphNonceReceivedEvent {
+                GraphEvent::NoncesReceived(GraphNoncesReceivedEvent {
                     operator_idx: signer.operator_idx(),
                     pubnonces: nonces,
                 }),
@@ -118,7 +118,7 @@ mod tests {
 
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
-            event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
+            event: GraphEvent::NoncesReceived(GraphNoncesReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 pubnonces: operator_nonces,
             }),
@@ -143,7 +143,7 @@ mod tests {
 
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
-            event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
+            event: GraphEvent::NoncesReceived(GraphNoncesReceivedEvent {
                 operator_idx: u32::MAX,
                 pubnonces: operator_nonces,
             }),
@@ -170,7 +170,7 @@ mod tests {
         // Empty nonces
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state.clone(),
-            event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
+            event: GraphEvent::NoncesReceived(GraphNoncesReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 pubnonces: vec![],
             }),
@@ -180,7 +180,7 @@ mod tests {
         // Missing one nonce
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
-            event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
+            event: GraphEvent::NoncesReceived(GraphNoncesReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 pubnonces: operator_nonces,
             }),
@@ -212,7 +212,7 @@ mod tests {
 
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
-            event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
+            event: GraphEvent::NoncesReceived(GraphNoncesReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 pubnonces: operator_nonces,
             }),

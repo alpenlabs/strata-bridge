@@ -15,7 +15,7 @@ use crate::{
         errors::{GSMError, GSMResult},
         events::{
             AdaptorsVerifiedEvent, ClaimConfirmedEvent, FulfillmentConfirmedEvent,
-            GraphDataGeneratedEvent, GraphNonceReceivedEvent, GraphPartialReceivedEvent,
+            GraphDataGeneratedEvent, GraphNoncesReceivedEvent, GraphPartialsReceivedEvent,
             WithdrawalAssignedEvent,
         },
         machine::{GSMOutput, GraphSM, generate_game_graph},
@@ -209,10 +209,10 @@ impl GraphSM {
     pub(crate) fn process_nonce_received(
         &mut self,
         cfg: Arc<GraphSMCfg>,
-        nonce_received_event: GraphNonceReceivedEvent,
+        nonces_received_event: GraphNoncesReceivedEvent,
     ) -> GSMResult<GSMOutput> {
         // Validate operator_idx is in the operator table
-        self.check_operator_idx(nonce_received_event.operator_idx, &nonce_received_event)?;
+        self.check_operator_idx(nonces_received_event.operator_idx, &nonces_received_event)?;
 
         // Extract context values before the match to avoid borrow conflicts
         let graph_ctx = self.context().clone();
@@ -226,31 +226,31 @@ impl GraphSM {
                 pubnonces,
             } => {
                 // Check for duplicate nonce submission
-                if pubnonces.contains_key(&nonce_received_event.operator_idx) {
+                if pubnonces.contains_key(&nonces_received_event.operator_idx) {
                     return Err(GSMError::duplicate(
                         self.state().clone(),
-                        nonce_received_event.into(),
+                        nonces_received_event.into(),
                     ));
                 }
 
                 // Validate that the provided nonces correctly fill the game graph for this context.
                 if GameFunctor::unpack(
-                    nonce_received_event.pubnonces.clone(),
+                    nonces_received_event.pubnonces.clone(),
                     cfg.watchtower_pubkeys.len(),
                 )
                 .is_none()
                 {
                     return Err(GSMError::rejected(
                         self.state().clone(),
-                        nonce_received_event.into(),
+                        nonces_received_event.into(),
                         "Invalid nonces sizes provided by operator".to_string(),
                     ));
                 }
 
                 // Insert the new nonce into the map
                 pubnonces.insert(
-                    nonce_received_event.operator_idx,
-                    nonce_received_event.pubnonces,
+                    nonces_received_event.operator_idx,
+                    nonces_received_event.pubnonces,
                 );
 
                 // Check if we have collected all nonces
@@ -317,11 +317,11 @@ impl GraphSM {
             }
             GraphState::NoncesCollected { .. } => Err(GSMError::duplicate(
                 self.state().clone(),
-                nonce_received_event.into(),
+                nonces_received_event.into(),
             )),
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
-                nonce_received_event.into(),
+                nonces_received_event.into(),
                 None,
             )),
         }
@@ -335,10 +335,13 @@ impl GraphSM {
     pub(crate) fn process_partial_received(
         &mut self,
         cfg: Arc<GraphSMCfg>,
-        partial_received_event: GraphPartialReceivedEvent,
+        partials_received_event: GraphPartialsReceivedEvent,
     ) -> GSMResult<GSMOutput> {
         // Validate operator_idx is in the operator table
-        self.check_operator_idx(partial_received_event.operator_idx, &partial_received_event)?;
+        self.check_operator_idx(
+            partials_received_event.operator_idx,
+            &partials_received_event,
+        )?;
 
         // Extract context values before the match to avoid borrow conflicts
         let operator_table_cardinality = self.context().operator_table().cardinality();
@@ -348,7 +351,7 @@ impl GraphSM {
         let operator_pubkey = self
             .context()
             .operator_table
-            .idx_to_btc_key(&partial_received_event.operator_idx)
+            .idx_to_btc_key(&partials_received_event.operator_idx)
             .expect("validated above");
 
         match self.state_mut() {
@@ -361,24 +364,24 @@ impl GraphSM {
                 partial_signatures,
             } => {
                 // Check for duplicate signature submission
-                if partial_signatures.contains_key(&partial_received_event.operator_idx) {
+                if partial_signatures.contains_key(&partials_received_event.operator_idx) {
                     return Err(GSMError::duplicate(
                         self.state().clone(),
-                        partial_received_event.into(),
+                        partials_received_event.into(),
                     ));
                 }
 
                 // Validate that the provided partial signatures correctly fill the game graph for
                 // this context.
                 if GameFunctor::unpack(
-                    partial_received_event.partial_signatures.clone(),
+                    partials_received_event.partial_signatures.clone(),
                     cfg.watchtower_pubkeys.len(),
                 )
                 .is_none()
                 {
                     return Err(GSMError::rejected(
                         self.state().clone(),
-                        partial_received_event.into(),
+                        partials_received_event.into(),
                         "Invalid partial signature sizes provided by operator".to_string(),
                     ));
                 }
@@ -388,7 +391,7 @@ impl GraphSM {
                 let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
                 let signing_infos = game_graph.musig_signing_info().pack();
                 let operator_pubnonces = pubnonces
-                    .get(&partial_received_event.operator_idx)
+                    .get(&partials_received_event.operator_idx)
                     .expect("all operator must have submitted the pub nonce");
                 let btc_keys: Vec<_> = graph_ctx.operator_table().btc_keys().into_iter().collect();
                 let n_watchtowers = cfg.watchtower_pubkeys.len();
@@ -396,7 +399,7 @@ impl GraphSM {
                     GameFunctor::unpack(signing_infos.iter().collect::<Vec<_>>(), n_watchtowers)
                         .expect("signing infos are generated from game graph"),
                     GameFunctor::unpack(
-                        partial_received_event
+                        partials_received_event
                             .partial_signatures
                             .iter()
                             .collect::<Vec<_>>(),
@@ -430,7 +433,7 @@ impl GraphSM {
                     {
                         return Err(GSMError::rejected(
                             self.state().clone(),
-                            partial_received_event.into(),
+                            partials_received_event.into(),
                             format!("Partial signature verification failed at index {i}"),
                         ));
                     }
@@ -438,8 +441,8 @@ impl GraphSM {
 
                 // Collect the verified partial signatures
                 partial_signatures.insert(
-                    partial_received_event.operator_idx,
-                    partial_received_event.partial_signatures,
+                    partials_received_event.operator_idx,
+                    partials_received_event.partial_signatures,
                 );
 
                 // Check if we have collected all partial signatures
@@ -485,11 +488,11 @@ impl GraphSM {
             }
             GraphState::GraphSigned { .. } => Err(GSMError::duplicate(
                 self.state().clone(),
-                partial_received_event.into(),
+                partials_received_event.into(),
             )),
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
-                partial_received_event.into(),
+                partials_received_event.into(),
                 None,
             )),
         }

@@ -6,7 +6,7 @@ mod tests {
     use crate::{
         graph::{
             errors::GSMError,
-            events::{GraphEvent, GraphPartialReceivedEvent},
+            events::{GraphEvent, GraphPartialsReceivedEvent},
             state::GraphState,
             tests::{
                 GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, TEST_POV_IDX, create_sm, get_state,
@@ -46,7 +46,7 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
         seq.process(
             cfg,
-            GraphEvent::PartialReceived(GraphPartialReceivedEvent {
+            GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 partial_signatures: operator_partials,
             }),
@@ -92,7 +92,7 @@ mod tests {
                 .clone();
             seq.process(
                 cfg.clone(),
-                GraphEvent::PartialReceived(GraphPartialReceivedEvent {
+                GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                     operator_idx: signer.operator_idx(),
                     partial_signatures: sigs,
                 }),
@@ -142,7 +142,7 @@ mod tests {
                 .clone();
             seq.process(
                 cfg.clone(),
-                GraphEvent::PartialReceived(GraphPartialReceivedEvent {
+                GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                     operator_idx: signer.operator_idx(),
                     partial_signatures: sigs,
                 }),
@@ -201,7 +201,7 @@ mod tests {
 
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
-            event: GraphEvent::PartialReceived(GraphPartialReceivedEvent {
+            event: GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 partial_signatures: operator_partials,
             }),
@@ -232,7 +232,7 @@ mod tests {
 
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
-            event: GraphEvent::PartialReceived(GraphPartialReceivedEvent {
+            event: GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                 operator_idx: u32::MAX,
                 partial_signatures: operator_partials,
             }),
@@ -265,7 +265,7 @@ mod tests {
         // Empty partials
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state.clone(),
-            event: GraphEvent::PartialReceived(GraphPartialReceivedEvent {
+            event: GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 partial_signatures: vec![],
             }),
@@ -275,7 +275,7 @@ mod tests {
         // Missing one partials
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
-            event: GraphEvent::PartialReceived(GraphPartialReceivedEvent {
+            event: GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 partial_signatures: operator_partials,
             }),

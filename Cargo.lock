@@ -10333,6 +10333,7 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "serde_json",
+ "strata-bridge-p2p-types",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
 ]
