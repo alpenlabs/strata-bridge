@@ -10271,6 +10271,7 @@ dependencies = [
  "strata-asm-proto-bridge-v1",
  "strata-bridge-p2p-wire",
  "strata-bridge-primitives",
+ "strata-bridge-sm",
  "strata-p2p",
  "tokio",
  "tracing",
