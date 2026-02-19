@@ -1,95 +1,36 @@
-//! This component tracks all the state machines in `strata-bridge`.
+//! The state machine registry: stores all active state machines and provides methods for
+//! querying, resolving operators, and driving state transitions.
 
-use std::{
-    collections::BTreeMap,
-    ops::{Deref, DerefMut},
+use std::{collections::BTreeMap, sync::Arc};
+
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use strata_bridge_sm::{
+    deposit::{config::DepositSMCfg, machine::DepositSM},
+    errors::BridgeSMError,
+    graph::{config::GraphSMCfg, machine::GraphSM},
+    state_machine::{SMOutput, StateMachine},
 };
 
-use strata_bridge_p2p_types2::P2POperatorPubKey;
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
-use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
+use crate::{
+    errors::{ProcessError, ProcessResult},
+    events_classifier::SMEvent,
+    sm_types::{OperatorKey, SMId, UnifiedDuty},
+};
 
-/// The unique identifier for a state machine in `strata-bridge`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SMId {
-    /// IDs the state machine responsible for processing a deposit with the given index.
-    Deposit(DepositIdx),
-    /// IDs the state machine responsible for processing a graph with the given index.
-    Graph(GraphIdx),
-}
-
-impl From<DepositIdx> for SMId {
-    fn from(deposit_idx: DepositIdx) -> Self {
-        SMId::Deposit(deposit_idx)
-    }
-}
-
-impl From<GraphIdx> for SMId {
-    fn from(graph_idx: GraphIdx) -> Self {
-        SMId::Graph(graph_idx)
-    }
-}
-
-/// An immutable reference to a state machine in the registry.
+/// Static configuration shared by all state machines.
 #[derive(Debug, Clone)]
-pub enum SMRef<'sm> {
-    /// A reference to the state machine responsible for processing a deposit.
-    Deposit(&'sm DepositSM),
-    /// A reference to the state machine responsible for processing a graph.
-    Graph(&'sm GraphSM),
-}
-
-impl Deref for SMRef<'_> {
-    type Target = dyn std::fmt::Debug;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            SMRef::Deposit(sm) => *sm,
-            SMRef::Graph(sm) => *sm,
-        }
-    }
-}
-
-/// A mutable reference to a state machine in the registry.
-#[derive(Debug)]
-pub enum SMRefMut<'sm> {
-    /// A mutable reference to the state machine responsible for processing a deposit.
-    Deposit(&'sm mut DepositSM),
-    /// A mutable reference to the state machine responsible for processing a graph.
-    Graph(&'sm mut GraphSM),
-}
-
-impl Deref for SMRefMut<'_> {
-    type Target = dyn std::fmt::Debug;
-    fn deref(&self) -> &Self::Target {
-        match self {
-            SMRefMut::Deposit(sm) => *sm,
-            SMRefMut::Graph(sm) => *sm,
-        }
-    }
-}
-
-impl DerefMut for SMRefMut<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            SMRefMut::Deposit(sm) => *sm,
-            SMRefMut::Graph(sm) => *sm,
-        }
-    }
-}
-
-/// Identifies which operator to resolve from a state machine's operator table.
-#[derive(Debug)]
-pub enum OperatorKey<'a> {
-    /// Our own operator (point-of-view).
-    Pov,
-    /// An operator identified by their peer P2P public key.
-    Peer(&'a P2POperatorPubKey),
+pub struct SMConfig {
+    /// Static configuration for all deposit state machines.
+    pub deposit: Arc<DepositSMCfg>,
+    /// Static configuration for all graph state machines.
+    pub graph: Arc<GraphSMCfg>,
 }
 
 /// The registry that holds all the active state machines in `strata-bridge`.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct SMRegistry {
+    /// Static configuration shared by all state machines.
+    cfg: SMConfig,
     /// The state machines responsible for processing deposits, indexed by their deposit index.
     deposits: BTreeMap<DepositIdx, DepositSM>,
     /// The state machines responsible for processing graphs, indexed by their graph index.
@@ -100,25 +41,12 @@ pub struct SMRegistry {
 }
 
 impl SMRegistry {
-    /// Creates a new empty registry.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Gets a reference to the state machine with the given ID, if it exists in the registry.
-    pub fn get(&self, id: &SMId) -> Option<SMRef<'_>> {
-        match id {
-            SMId::Deposit(deposit_idx) => self.deposits.get(deposit_idx).map(SMRef::Deposit),
-            SMId::Graph(graph_idx) => self.graphs.get(graph_idx).map(SMRef::Graph),
-        }
-    }
-
-    /// Gets a mutable reference to the state machine with the given ID, if it exists in the
-    /// registry.
-    pub fn get_mut(&mut self, id: &SMId) -> Option<SMRefMut<'_>> {
-        match id {
-            SMId::Deposit(deposit_idx) => self.deposits.get_mut(deposit_idx).map(SMRefMut::Deposit),
-            SMId::Graph(graph_idx) => self.graphs.get_mut(graph_idx).map(SMRefMut::Graph),
+    /// Creates a new empty registry with the given configuration.
+    pub const fn new(cfg: SMConfig) -> Self {
+        Self {
+            cfg,
+            deposits: BTreeMap::new(),
+            graphs: BTreeMap::new(),
         }
     }
 
@@ -149,21 +77,6 @@ impl SMRegistry {
         }
     }
 
-    /// Looks up the state machine identified by `id` and resolves the operator index using the
-    /// given [`OperatorKey`].
-    ///
-    /// Returns `None` if the SM is not in the registry or the operator key cannot be resolved.
-    pub fn lookup_operator(&self, id: &SMId, key: &OperatorKey<'_>) -> Option<OperatorIdx> {
-        let table = match self.get(id)? {
-            SMRef::Deposit(sm) => sm.context().operator_table(),
-            SMRef::Graph(sm) => sm.context().operator_table(),
-        };
-        match key {
-            OperatorKey::Pov => Some(table.pov_idx()),
-            OperatorKey::Peer(p2p_key) => table.p2p_key_to_idx(&(*p2p_key).clone().into()),
-        }
-    }
-
     /// Inserts a new deposit state machine into the registry with the given deposit index.
     ///
     /// If a state machine with the same [`DepositIdx`] already exists, it will be overwritten.
@@ -176,5 +89,76 @@ impl SMRegistry {
     /// If a state machine with the same [`GraphIdx`] already exists, it will be overwritten.
     pub fn insert_graph(&mut self, graph_idx: GraphIdx, sm: GraphSM) {
         self.graphs.insert(graph_idx, sm);
+    }
+
+    /// Looks up the state machine identified by `id` and resolves the operator index using the
+    /// given [`OperatorKey`].
+    ///
+    /// Returns `None` if the SM is not in the registry or the operator key cannot be resolved.
+    pub fn lookup_operator(&self, id: &SMId, key: &OperatorKey<'_>) -> Option<OperatorIdx> {
+        let table = match id {
+            SMId::Deposit(idx) => self.deposits.get(idx)?.context().operator_table(),
+            SMId::Graph(idx) => self.graphs.get(idx)?.context().operator_table(),
+        };
+        match key {
+            OperatorKey::Pov => Some(table.pov_idx()),
+            OperatorKey::Peer(p2p_key) => table.p2p_key_to_idx(&(*p2p_key).clone().into()),
+        }
+    }
+
+    /// Processes an event through the state machine identified by `id`.
+    ///
+    /// Looks up the SM, matches it against the event variant, runs the state transition, and
+    /// returns unified output. The caller does not need to know the concrete SM type.
+    pub fn process_event(&mut self, id: &SMId, event: SMEvent) -> ProcessResult {
+        match (id, event) {
+            (SMId::Deposit(idx), SMEvent::Deposit(deposit_event)) => {
+                let sm = self
+                    .deposits
+                    .get_mut(idx)
+                    .ok_or(ProcessError::SMNotFound(*id))?;
+                let event = SMEvent::Deposit(deposit_event.clone());
+                sm.process_event(self.cfg.deposit.clone(), *deposit_event)
+                    .map(|out| SMOutput {
+                        duties: out.duties.into_iter().map(UnifiedDuty::Deposit).collect(),
+                        signals: out.signals.into_iter().map(Into::into).collect(),
+                    })
+                    .map_err(|err| sm_to_process_err(id, event, err))
+            }
+
+            (SMId::Graph(idx), SMEvent::Graph(graph_event)) => {
+                let sm = self
+                    .graphs
+                    .get_mut(idx)
+                    .ok_or(ProcessError::SMNotFound(*id))?;
+                let event = SMEvent::Graph(graph_event.clone());
+                sm.process_event(self.cfg.graph.clone(), *graph_event)
+                    .map(|out| SMOutput {
+                        duties: out.duties.into_iter().map(UnifiedDuty::Graph).collect(),
+                        signals: out.signals.into_iter().map(Into::into).collect(),
+                    })
+                    .map_err(|err| sm_to_process_err(id, event, err))
+            }
+
+            (id, event) => Err(ProcessError::InvalidInvocation(*id, event)),
+        }
+    }
+}
+
+fn sm_to_process_err<S, E>(id: &SMId, event: SMEvent, err: BridgeSMError<S, E>) -> ProcessError
+where
+    S: std::fmt::Display + std::fmt::Debug,
+    E: std::fmt::Display + std::fmt::Debug,
+{
+    match err {
+        BridgeSMError::InvalidEvent { reason, .. } => ProcessError::InvariantViolation(
+            *id,
+            event.clone(),
+            reason.unwrap_or_else(|| "invalid event".to_string()),
+        ),
+        BridgeSMError::Duplicate { .. } => ProcessError::DuplicateEvent(*id, event.clone()),
+        BridgeSMError::Rejected { reason, .. } => {
+            ProcessError::EventRejected(*id, event.clone(), reason)
+        }
     }
 }
