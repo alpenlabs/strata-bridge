@@ -29,7 +29,7 @@ pub struct AdaptorsVerifiedEvent {}
 
 /// Event notifying that a nonce bundle for the graph has been received from an operator.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GraphNonceReceivedEvent {
+pub struct GraphNoncesReceivedEvent {
     /// The index of the operator who sent the nonce.
     pub operator_idx: OperatorIdx,
 
@@ -40,7 +40,7 @@ pub struct GraphNonceReceivedEvent {
 /// Event notifying that a partial-signature bundle for the graph has been received from an
 /// operator.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GraphPartialReceivedEvent {
+pub struct GraphPartialsReceivedEvent {
     /// The index of the operator who sent the partial signature.
     pub operator_idx: OperatorIdx,
 
@@ -175,7 +175,6 @@ pub struct NewBlockEvent {
 
 /// The external events that affect the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(clippy::large_enum_variant)]
 pub enum GraphEvent {
     /// Graph data has been generated for the graph instance.
     GraphDataProduced(GraphDataGeneratedEvent),
@@ -184,9 +183,9 @@ pub enum GraphEvent {
     /// All adaptors for the graph have been verified.
     AdaptorsVerified(AdaptorsVerifiedEvent),
     /// Nonce bundle for the graph received from an operator.
-    NonceReceived(GraphNonceReceivedEvent),
+    NoncesReceived(GraphNoncesReceivedEvent),
     /// Partial-signature bundle for the graph received from an operator.
-    PartialReceived(GraphPartialReceivedEvent),
+    PartialsReceived(GraphPartialsReceivedEvent),
     /// Withdrawal assigned/reassigned for this graph.
     WithdrawalAssigned(WithdrawalAssignedEvent),
     /// Fulfillment transaction confirmed on-chain.
@@ -224,8 +223,8 @@ impl Display for GraphEvent {
             GraphEvent::GraphDataProduced(_) => "GraphDataProduced",
             GraphEvent::DepositMessage(_) => "DepositMessage",
             GraphEvent::AdaptorsVerified(_) => "AdaptorsVerified",
-            GraphEvent::NonceReceived(_) => "NonceReceived",
-            GraphEvent::PartialReceived(_) => "PartialReceived",
+            GraphEvent::NoncesReceived(_) => "NonceReceived",
+            GraphEvent::PartialsReceived(_) => "PartialReceived",
             GraphEvent::WithdrawalAssigned(_) => "WithdrawalAssigned",
             GraphEvent::FulfillmentConfirmed(_) => "FulfillmentConfirmed",
             GraphEvent::ClaimConfirmed(_) => "ClaimConfirmed",
@@ -262,8 +261,8 @@ macro_rules! impl_into_graph_event {
 impl_into_graph_event!(GraphDataGeneratedEvent, GraphDataProduced);
 impl_into_graph_event!(DepositToGraph, DepositMessage);
 impl_into_graph_event!(AdaptorsVerifiedEvent, AdaptorsVerified);
-impl_into_graph_event!(GraphNonceReceivedEvent, NonceReceived);
-impl_into_graph_event!(GraphPartialReceivedEvent, PartialReceived);
+impl_into_graph_event!(GraphNoncesReceivedEvent, NoncesReceived);
+impl_into_graph_event!(GraphPartialsReceivedEvent, PartialsReceived);
 impl_into_graph_event!(WithdrawalAssignedEvent, WithdrawalAssigned);
 impl_into_graph_event!(FulfillmentConfirmedEvent, FulfillmentConfirmed);
 impl_into_graph_event!(ClaimConfirmedEvent, ClaimConfirmed);
