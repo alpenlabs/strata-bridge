@@ -15,8 +15,10 @@ use crate::graph::{
 impl GraphSM {
     /// Processes the event where graph data has been produced for this graph instance.
     ///
-    /// Transitions from [`GraphState::Created`] to [`GraphState::GraphGenerated`].
-    /// Emits a [`GraphDuty::VerifyAdaptors`] duty.
+    /// If the PoV operator owns this graph, transitions to
+    /// [`GraphState::AdaptorsVerified`] and emits [`GraphDuty::PublishGraphNonces`].
+    /// Otherwise, transitions to [`GraphState::GraphGenerated`] and emits
+    /// [`GraphDuty::VerifyAdaptors`].
     pub(crate) fn process_graph_data(
         &mut self,
         cfg: Arc<GraphSMCfg>,
