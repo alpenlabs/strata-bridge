@@ -6,6 +6,7 @@ use musig2::{
     AggNonce, KeyAggContext, PartialSignature, PubNonce, SecNonce, SecNonceSpices, sign_partial,
 };
 use secp256k1::{Message, PublicKey, SECP256K1, SecretKey};
+use strata_bridge_primitives::secp::EvenSecretKey;
 
 /// Test-only MuSig2 signer supporting multiple signing rounds.
 ///
@@ -81,6 +82,18 @@ impl TestMusigSigner {
     pub fn pubkey(&self) -> PublicKey {
         self.public_key
     }
+}
+
+/// Creates deterministic test signers for a given operator count.
+pub fn test_operator_signers(operator_count: usize) -> Vec<TestMusigSigner> {
+    (0..operator_count)
+        .map(|idx| {
+            let byte =
+                u8::try_from(idx + 1).expect("operator index too large for test key derivation");
+            let sk = EvenSecretKey::from(SecretKey::from_slice(&[byte; 32]).unwrap());
+            TestMusigSigner::new(idx as u32, *sk)
+        })
+        .collect()
 }
 
 #[cfg(test)]
