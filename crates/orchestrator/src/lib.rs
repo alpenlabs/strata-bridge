@@ -14,4 +14,5 @@
 //! - Providing a channel of communication between the various state machines in the bridge.
 
 pub mod events_mux;
+pub mod events_router;
 pub mod sm_registry;
