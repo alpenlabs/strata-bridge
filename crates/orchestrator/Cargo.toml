@@ -16,7 +16,9 @@ strata-bridge-sm.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-p2p.workspace = true
 
+bitcoin-bosd.workspace = true
 futures.workspace = true
+musig2.workspace = true
 rkyv.workspace = true
 tokio.workspace = true
 tracing.workspace = true
