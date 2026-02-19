@@ -10263,8 +10263,10 @@ dependencies = [
 name = "strata-bridge-orchestrator"
 version = "0.1.0"
 dependencies = [
+ "bitcoin-bosd",
  "btc-tracker",
  "futures",
+ "musig2",
  "rkyv",
  "strata-asm-proto-bridge-v1",
  "strata-bridge-p2p-types2",
