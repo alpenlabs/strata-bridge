@@ -5,7 +5,8 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
+use strata_bridge_p2p_types2::P2POperatorPubKey;
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
 
 /// The unique identifier for a state machine in `strata-bridge`.
@@ -15,6 +16,18 @@ pub enum SMId {
     Deposit(DepositIdx),
     /// IDs the state machine responsible for processing a graph with the given index.
     Graph(GraphIdx),
+}
+
+impl From<DepositIdx> for SMId {
+    fn from(deposit_idx: DepositIdx) -> Self {
+        SMId::Deposit(deposit_idx)
+    }
+}
+
+impl From<GraphIdx> for SMId {
+    fn from(graph_idx: GraphIdx) -> Self {
+        SMId::Graph(graph_idx)
+    }
 }
 
 /// An immutable reference to a state machine in the registry.
@@ -65,6 +78,15 @@ impl DerefMut for SMRefMut<'_> {
     }
 }
 
+/// Identifies which operator to resolve from a state machine's operator table.
+#[derive(Debug)]
+pub enum OperatorKey<'a> {
+    /// Our own operator (point-of-view).
+    Pov,
+    /// An operator identified by their peer P2P public key.
+    Peer(&'a P2POperatorPubKey),
+}
+
 /// The registry that holds all the active state machines in `strata-bridge`.
 #[derive(Debug, Default, Clone)]
 pub struct SMRegistry {
@@ -111,6 +133,21 @@ impl SMRegistry {
         match id {
             SMId::Deposit(deposit_idx) => self.deposits.contains_key(deposit_idx),
             SMId::Graph(graph_idx) => self.graphs.contains_key(graph_idx),
+        }
+    }
+
+    /// Looks up the state machine identified by `id` and resolves the operator index using the
+    /// given [`OperatorKey`].
+    ///
+    /// Returns `None` if the SM is not in the registry or the operator key cannot be resolved.
+    pub fn lookup_operator(&self, id: &SMId, key: &OperatorKey<'_>) -> Option<OperatorIdx> {
+        let table = match self.get(id)? {
+            SMRef::Deposit(sm) => sm.context().operator_table(),
+            SMRef::Graph(sm) => sm.context().operator_table(),
+        };
+        match key {
+            OperatorKey::Pov => Some(table.pov_idx()),
+            OperatorKey::Peer(p2p_key) => table.p2p_key_to_idx(&(*p2p_key).clone().into()),
         }
     }
 

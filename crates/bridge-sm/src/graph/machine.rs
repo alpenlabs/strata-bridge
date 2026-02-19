@@ -65,6 +65,11 @@ impl StateMachine for GraphSM {
 pub type GSMOutput = SMOutput<GraphDuty, GraphSignal>;
 
 impl GraphSM {
+    /// Returns a reference to the context of the Graph State Machine.
+    pub const fn context(&self) -> &GraphSMCtx {
+        &self.context
+    }
+
     /// Returns a reference to the current state of the Graph State Machine.
     pub const fn state(&self) -> &GraphState {
         &self.state
