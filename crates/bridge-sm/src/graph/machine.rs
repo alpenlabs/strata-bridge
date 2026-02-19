@@ -91,7 +91,7 @@ impl GraphSM {
         }
     }
 
-    /// Returns a reference to the Graph State Machine params.
+    /// Returns a reference to the context of the Graph State Machine.
     pub const fn context(&self) -> &GraphSMCtx {
         &self.context
     }
