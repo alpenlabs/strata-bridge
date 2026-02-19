@@ -132,8 +132,9 @@ mod tests {
         GraphState::AllNackd {
             last_block_height: LATER_BLOCK_HEIGHT,
             contest_block_height: LATER_BLOCK_HEIGHT,
-            expected_payout_txid: test_contested_payout_tx().compute_txid(),
-            possible_slash_txid: test_slash_tx().compute_txid(),
+            expected_payout_txid: Transaction::from(TestGraphTxKind::ContestedPayout)
+                .compute_txid(),
+            possible_slash_txid: Transaction::from(TestGraphTxKind::Slash).compute_txid(),
         }
     }
 
@@ -141,7 +142,7 @@ mod tests {
         GraphState::Acked {
             last_block_height: LATER_BLOCK_HEIGHT,
             contest_block_height: LATER_BLOCK_HEIGHT,
-            expected_slash_txid: test_slash_tx().compute_txid(),
+            expected_slash_txid: Transaction::from(TestGraphTxKind::Slash).compute_txid(),
             claim_txid: generate_txid(),
         }
     }
@@ -222,7 +223,7 @@ mod tests {
     #[test]
     fn classify_tx_recognizes_claim() {
         let cfg = test_graph_sm_cfg();
-        let claim_tx = test_claim_tx();
+        let claim_tx = TestGraphTxKind::Claim.into();
         for state in claim_detecting_states() {
             let sm = create_sm(state);
             let result = sm.classify_tx(&cfg, &claim_tx, LATER_BLOCK_HEIGHT);
@@ -248,7 +249,7 @@ mod tests {
     fn classify_tx_recognizes_contest_in_claimed() {
         let cfg = test_graph_sm_cfg();
         let sm = create_sm(claimed_state());
-        let result = sm.classify_tx(&cfg, &test_contest_tx(), LATER_BLOCK_HEIGHT);
+        let result = sm.classify_tx(&cfg, &TestGraphTxKind::Contest.into(), LATER_BLOCK_HEIGHT);
         assert!(
             matches!(result, Some(GraphEvent::ContestConfirmed(_))),
             "expected Some(ContestConfirmed) but got {result:?}"
@@ -271,7 +272,11 @@ mod tests {
         let cfg = test_graph_sm_cfg();
         for state in counterproof_detecting_states() {
             let sm = create_sm(state);
-            let result = sm.classify_tx(&cfg, &test_counterproof_tx(), LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(
+                &cfg,
+                &TestGraphTxKind::Counterproof.into(),
+                LATER_BLOCK_HEIGHT,
+            );
             assert!(
                 matches!(result, Some(GraphEvent::CounterProofConfirmed(_))),
                 "expected Some(CounterProofConfirmed) but got {result:?}"
@@ -284,7 +289,11 @@ mod tests {
         let cfg = test_graph_sm_cfg();
         for state in uncontested_payout_detecting_states() {
             let sm = create_sm(state);
-            let result = sm.classify_tx(&cfg, &test_uncontested_payout_tx(), LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(
+                &cfg,
+                &TestGraphTxKind::UncontestedPayout.into(),
+                LATER_BLOCK_HEIGHT,
+            );
             assert!(
                 matches!(result, Some(GraphEvent::PayoutConfirmed(_))),
                 "expected Some(PayoutConfirmed) but got {result:?}"
@@ -297,7 +306,11 @@ mod tests {
         let cfg = test_graph_sm_cfg();
         for state in contested_payout_detecting_states() {
             let sm = create_sm(state);
-            let result = sm.classify_tx(&cfg, &test_contested_payout_tx(), LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(
+                &cfg,
+                &TestGraphTxKind::ContestedPayout.into(),
+                LATER_BLOCK_HEIGHT,
+            );
             assert!(
                 matches!(result, Some(GraphEvent::PayoutConfirmed(_))),
                 "expected Some(PayoutConfirmed) but got {result:?}"
@@ -309,7 +322,11 @@ mod tests {
     fn classify_tx_recognizes_bridge_proof_timeout() {
         let cfg = test_graph_sm_cfg();
         let sm = create_sm(bridge_proof_timedout_state());
-        let result = sm.classify_tx(&cfg, &test_bridge_proof_timeout_tx(), LATER_BLOCK_HEIGHT);
+        let result = sm.classify_tx(
+            &cfg,
+            &TestGraphTxKind::BridgeProofTimeout.into(),
+            LATER_BLOCK_HEIGHT,
+        );
         assert!(
             matches!(result, Some(GraphEvent::BridgeProofTimeoutConfirmed(_))),
             "expected Some(BridgeProofTimeoutConfirmed) but got {result:?}"
@@ -320,7 +337,11 @@ mod tests {
     fn classify_tx_recognizes_counterproof_ack() {
         let cfg = test_graph_sm_cfg();
         let sm = create_sm(counter_proof_posted_state());
-        let result = sm.classify_tx(&cfg, &test_counterproof_ack_tx(), LATER_BLOCK_HEIGHT);
+        let result = sm.classify_tx(
+            &cfg,
+            &TestGraphTxKind::CounterproofAck.into(),
+            LATER_BLOCK_HEIGHT,
+        );
         assert!(
             matches!(result, Some(GraphEvent::CounterProofAckConfirmed(_))),
             "expected Some(CounterProofAckConfirmed) but got {result:?}"
@@ -341,7 +362,7 @@ mod tests {
     #[test]
     fn classify_tx_recognizes_slash_in_all_nackd_and_acked() {
         let cfg = test_graph_sm_cfg();
-        let slash_tx = test_slash_tx();
+        let slash_tx = TestGraphTxKind::Slash.into();
 
         let sm = create_sm(all_nackd_state());
         let result = sm.classify_tx(&cfg, &slash_tx, LATER_BLOCK_HEIGHT);
@@ -395,7 +416,7 @@ mod tests {
     #[test]
     fn classify_tx_returns_none_in_terminal_states() {
         let cfg = test_graph_sm_cfg();
-        let claim_tx = test_claim_tx();
+        let claim_tx = TestGraphTxKind::Claim.into();
         let deposit_spend_tx = test_deposit_spend_tx();
         let payout_connector_tx = test_payout_connector_spent_tx();
 
@@ -430,7 +451,7 @@ mod tests {
             last_block_height: LATER_BLOCK_HEIGHT,
         });
 
-        let result = sm.classify_tx(&cfg, &test_claim_tx(), LATER_BLOCK_HEIGHT);
+        let result = sm.classify_tx(&cfg, &TestGraphTxKind::Claim.into(), LATER_BLOCK_HEIGHT);
         assert!(
             result.is_none(),
             "expected None for claim tx but got {:?}",
