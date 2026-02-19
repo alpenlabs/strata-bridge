@@ -9,6 +9,9 @@ workspace = true
 [dependencies]
 strata-bridge-primitives.workspace = true
 
+# TODO: (@Rajil1213) temporarily added for convenience, remove once this crate is removed
+strata-bridge-p2p-types.workspace = true
+
 bitcoin-bosd.workspace = true
 hex.workspace = true
 libp2p-identity.workspace = true
