@@ -12,10 +12,7 @@ use strata_bridge_sm::{
 };
 use tracing::warn;
 
-use crate::{
-    events_mux::UnifiedEvent,
-    sm_registry::{OperatorKey, SMRegistry},
-};
+use crate::{events_mux::UnifiedEvent, sm_registry::SMRegistry, sm_types::OperatorKey};
 
 /// Wrapper for state-machine-specific events.
 #[derive(Debug, Clone)]

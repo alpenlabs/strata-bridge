@@ -20,5 +20,6 @@ bitcoin-bosd.workspace = true
 futures.workspace = true
 musig2.workspace = true
 rkyv.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
