@@ -38,8 +38,8 @@ impl StateMachine for GraphSM {
         match event {
             GraphEvent::GraphDataProduced(_graph_data) => todo!(),
             GraphEvent::AdaptorsVerified(_adaptors) => todo!(),
-            GraphEvent::NonceReceived(_nonce_event) => todo!(),
-            GraphEvent::PartialReceived(_partial_event) => todo!(),
+            GraphEvent::NoncesReceived(_nonce_event) => todo!(),
+            GraphEvent::PartialsReceived(_partial_event) => todo!(),
             GraphEvent::WithdrawalAssigned(_assignment) => todo!(),
             GraphEvent::FulfillmentConfirmed(_fulfillment) => todo!(),
             GraphEvent::ClaimConfirmed(_claim) => todo!(),
