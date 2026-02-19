@@ -120,12 +120,12 @@ pub(super) fn create_nonpov_sm(state: GraphState) -> GraphSM {
         context: GraphSMCtx {
             graph_idx: GraphIdx {
                 deposit: TEST_DEPOSIT_IDX,
-                operator: TEST_NONPOV_IDX,
+                operator: TEST_POV_IDX,
             },
             deposit_outpoint: OutPoint::default(),
             stake_outpoint: OutPoint::default(),
             unstaking_image: sha256::Hash::all_zeros(),
-            operator_table: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+            operator_table: test_operator_table(N_TEST_OPERATORS, TEST_NONPOV_IDX),
         },
         state,
     }

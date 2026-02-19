@@ -33,17 +33,32 @@ impl GraphSM {
                 };
                 let game_graph = self.generate_graph(&cfg, deposit_params);
 
-                self.state = GraphState::GraphGenerated {
-                    last_block_height: *last_block_height,
-                    graph_data: deposit_params,
-                    graph_summary: game_graph.summarize(),
-                };
-
-                // Only verify adaptors for other operators; skip our own graph.
+                // As the operator who owns this graph, we do not need to verify adaptor
+                // signatures. Transition directly to `AdaptorsVerified` state
                 let pov_operator_idx = self.context.operator_table().pov_idx();
+                if self.context.operator_idx() == pov_operator_idx {
+                    let graph_inpoints = game_graph.musig_inpoints().pack();
+                    let graph_tweaks = game_graph
+                        .musig_signing_info()
+                        .pack()
+                        .iter()
+                        .map(|m| m.tweak)
+                        .collect::<Vec<TaprootTweak>>();
 
-                let duties: Vec<_> = if self.context.operator_idx() == pov_operator_idx {
-                    Vec::new()
+                    self.state = GraphState::AdaptorsVerified {
+                        last_block_height: *last_block_height,
+                        graph_data: deposit_params,
+                        graph_summary: game_graph.summarize(),
+                        pubnonces: BTreeMap::new(),
+                    };
+
+                    let duties = vec![GraphDuty::PublishGraphNonces {
+                        graph_idx: self.context.graph_idx(),
+                        graph_inpoints,
+                        graph_tweaks,
+                    }];
+
+                    Ok(GSMOutput::with_duties(duties))
                 } else {
                     // The graph owner's counterproof is excluded, so indices
                     // after it are shifted by one. Adjust the pov counterproof index accordingly.
@@ -66,13 +81,20 @@ impl GraphSM {
                             )
                         })?;
 
-                    vec![GraphDuty::VerifyAdaptors {
+                    self.state = GraphState::GraphGenerated {
+                        last_block_height: *last_block_height,
+                        graph_data: deposit_params,
+                        graph_summary: game_graph.summarize(),
+                    };
+
+                    let duties = vec![GraphDuty::VerifyAdaptors {
                         graph_idx: self.context.graph_idx(),
                         watchtower_idx: pov_operator_idx,
                         sighashes: pov_counterproof_graph.counterproof.sighashes(),
-                    }]
-                };
-                Ok(GSMOutput::with_duties(duties))
+                    }];
+
+                    Ok(GSMOutput::with_duties(duties))
+                }
             }
             GraphState::GraphGenerated { .. } => Err(GSMError::duplicate(
                 self.state().clone(),
