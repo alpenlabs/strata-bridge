@@ -6,10 +6,7 @@
 use strata_bridge_p2p_types2::{MuSig2Nonce, MuSig2Partial, UnsignedGossipsubMsg};
 use strata_bridge_p2p_wire::p2p::v1::GetMessageRequest;
 
-use crate::{
-    events_mux::UnifiedEvent,
-    sm_registry::{SMId, SMRegistry},
-};
+use crate::{events_mux::UnifiedEvent, sm_registry::SMRegistry, sm_types::SMId};
 
 /// Routes all self-contained events to a target state machine based on message content and context.
 /// This is the single entrypoint for the `events_router` component.
