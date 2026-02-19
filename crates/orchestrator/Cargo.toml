@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 btc-tracker.workspace = true
+strata-bridge-p2p-types2.workspace = true
 strata-bridge-p2p-wire.workspace = true
 strata-bridge-primitives = { workspace = true, features = ["async"] }
 strata-bridge-sm.workspace = true
