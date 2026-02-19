@@ -51,6 +51,18 @@ impl From<P2POperatorPubKey> for Vec<u8> {
     }
 }
 
+impl From<strata_bridge_p2p_types::P2POperatorPubKey> for P2POperatorPubKey {
+    fn from(value: strata_bridge_p2p_types::P2POperatorPubKey) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<P2POperatorPubKey> for strata_bridge_p2p_types::P2POperatorPubKey {
+    fn from(value: P2POperatorPubKey) -> Self {
+        Self::from(Vec::from(value))
+    }
+}
+
 impl From<PublicKey> for P2POperatorPubKey {
     fn from(value: PublicKey) -> Self {
         Self(value.to_bytes().to_vec())
