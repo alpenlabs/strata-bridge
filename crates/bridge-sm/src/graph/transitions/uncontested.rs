@@ -1,6 +1,10 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use musig2::{AggNonce, secp256k1::Message, verify_partial};
+use musig2::{
+    AggNonce, aggregate_partial_signatures,
+    secp256k1::{Message, schnorr},
+    verify_partial,
+};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx, scripts::taproot::TaprootTweak, types::OperatorIdx,
 };
@@ -242,6 +246,7 @@ impl GraphSM {
         self.check_operator_idx(partial_received_event.operator_idx, &partial_received_event)?;
         let operator_table_cardinality = self.context().operator_table().cardinality();
         let graph_ctx = self.context().clone();
+        let num_sigs = partial_received_event.partial_sigs.len();
 
         let btc_keys: Vec<_> = self
             .context()
@@ -323,7 +328,44 @@ impl GraphSM {
                     }
                 }
 
-                todo!()
+                // Collect the verified partial signatures
+                partial_signatures.insert(
+                    partial_received_event.operator_idx,
+                    partial_received_event.partial_sigs,
+                );
+
+                // Check if we have collected all partial signatures
+                if partial_signatures.len() == operator_table_cardinality {
+                    // For each nonce position, collect that nonce from every operator
+                    // and aggregate them into a single `AggNonce`.
+                    let agg_sigs: Vec<schnorr::Signature> = (0..num_sigs)
+                        .map(|sig_idx| {
+                            let key_agg_ctx = create_agg_ctx(
+                                btc_keys.iter().copied(),
+                                &signing_infos[sig_idx].tweak,
+                            )
+                            .expect("must be able to create key aggregation context");
+
+                            aggregate_partial_signatures(
+                                &key_agg_ctx,
+                                &agg_nonces[sig_idx],
+                                partial_signatures.values().map(|sigs| sigs[sig_idx]),
+                                signing_infos[sig_idx].sighash.as_ref(),
+                            )
+                            .expect("partial signatures must be valid")
+                        })
+                        .collect();
+
+                    // Transition to GraphSigned state
+                    self.state = GraphState::GraphSigned {
+                        last_block_height: *last_block_height,
+                        graph_data: *graph_data,
+                        graph_summary: graph_summary.clone(),
+                        signatures: agg_sigs.clone(),
+                    }
+                }
+
+                Ok(GSMOutput::default())
             }
             GraphState::GraphSigned { .. } => Err(GSMError::duplicate(
                 self.state().clone(),

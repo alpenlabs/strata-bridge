@@ -2,9 +2,9 @@
 
 use std::{collections::BTreeMap, fmt::Display};
 
-use bitcoin::{Txid, taproot::Signature};
+use bitcoin::Txid;
 use bitcoin_bosd::Descriptor;
-use musig2::{AggNonce, PartialSignature, PubNonce};
+use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
 use zkaleido::ProofReceipt;
@@ -79,7 +79,7 @@ pub enum GraphState {
         graph_summary: GameGraphSummary,
 
         /// Aggregated final signatures for the graph.
-        signature: Signature,
+        signatures: Vec<Signature>,
     },
     /// The deposit associated with this pegout graph has been assigned.
     Assigned {
