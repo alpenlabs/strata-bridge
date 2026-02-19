@@ -10262,6 +10262,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-orchestrator"
+version = "0.1.0"
+dependencies = [
+ "btc-tracker",
+ "futures",
+ "rkyv",
+ "strata-asm-proto-bridge-v1",
+ "strata-bridge-p2p-wire",
+ "strata-bridge-primitives",
+ "strata-p2p",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "strata-bridge-p2p-service"
 version = "0.1.0"
 dependencies = [

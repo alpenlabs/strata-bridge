@@ -1,0 +1,20 @@
+[package]
+name = "strata-bridge-orchestrator"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+btc-tracker.workspace = true
+strata-bridge-p2p-wire.workspace = true
+strata-bridge-primitives = { workspace = true, features = ["async"] }
+
+strata-asm-proto-bridge-v1.workspace = true
+strata-p2p.workspace = true
+
+futures.workspace = true
+rkyv.workspace = true
+tokio.workspace = true
+tracing.workspace = true
