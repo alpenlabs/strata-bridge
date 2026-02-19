@@ -134,64 +134,45 @@ pub(super) fn test_deposit_params() -> DepositParams {
     }
 }
 
-fn make_deterministic_tx(discriminator: u32) -> Transaction {
-    generate_spending_tx(
-        OutPoint {
-            vout: discriminator,
-            ..OutPoint::default()
-        },
-        &[],
-    )
+pub(super) enum TestGraphTxKind {
+    Claim = 0,
+    Contest = 1,
+    BridgeProofTimeout = 2,
+    Counterproof = 3,
+    CounterproofAck = 4,
+    Slash = 5,
+    UncontestedPayout = 6,
+    ContestedPayout = 7,
+}
+
+impl From<TestGraphTxKind> for Transaction {
+    fn from(kind: TestGraphTxKind) -> Self {
+        generate_spending_tx(
+            OutPoint {
+                vout: kind as u32,
+                ..OutPoint::default()
+            },
+            &[],
+        )
+    }
 }
 
 pub(super) fn test_graph_summary() -> GameGraphSummary {
     GameGraphSummary {
-        claim: test_claim_tx().compute_txid(),
-        contest: test_contest_tx().compute_txid(),
-        bridge_proof_timeout: test_bridge_proof_timeout_tx().compute_txid(),
+        claim: Transaction::from(TestGraphTxKind::Claim).compute_txid(),
+        contest: Transaction::from(TestGraphTxKind::Contest).compute_txid(),
+        bridge_proof_timeout: Transaction::from(TestGraphTxKind::BridgeProofTimeout).compute_txid(),
         counterproofs: vec![CounterproofGraphSummary {
-            counterproof: test_counterproof_tx().compute_txid(),
-            counterproof_ack: test_counterproof_ack_tx().compute_txid(),
+            counterproof: Transaction::from(TestGraphTxKind::Counterproof).compute_txid(),
+            counterproof_ack: Transaction::from(TestGraphTxKind::CounterproofAck).compute_txid(),
         }],
-        slash: test_slash_tx().compute_txid(),
-        uncontested_payout: test_uncontested_payout_tx().compute_txid(),
-        contested_payout: test_contested_payout_tx().compute_txid(),
+        slash: Transaction::from(TestGraphTxKind::Slash).compute_txid(),
+        uncontested_payout: Transaction::from(TestGraphTxKind::UncontestedPayout).compute_txid(),
+        contested_payout: Transaction::from(TestGraphTxKind::ContestedPayout).compute_txid(),
     }
 }
 
 // ===== Test Transactions =====
-
-pub(super) fn test_claim_tx() -> Transaction {
-    make_deterministic_tx(0)
-}
-
-pub(super) fn test_contest_tx() -> Transaction {
-    make_deterministic_tx(1)
-}
-
-pub(super) fn test_bridge_proof_timeout_tx() -> Transaction {
-    make_deterministic_tx(2)
-}
-
-pub(super) fn test_counterproof_tx() -> Transaction {
-    make_deterministic_tx(3)
-}
-
-pub(super) fn test_counterproof_ack_tx() -> Transaction {
-    make_deterministic_tx(4)
-}
-
-pub(super) fn test_slash_tx() -> Transaction {
-    make_deterministic_tx(5)
-}
-
-pub(super) fn test_uncontested_payout_tx() -> Transaction {
-    make_deterministic_tx(6)
-}
-
-pub(super) fn test_contested_payout_tx() -> Transaction {
-    make_deterministic_tx(7)
-}
 
 pub(super) fn test_bridge_proof_tx() -> Transaction {
     let mut tx = generate_spending_tx(
