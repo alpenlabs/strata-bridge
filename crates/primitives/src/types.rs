@@ -1,6 +1,6 @@
 //! Types that are used across the bridge.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 
 use bitcoin::XOnlyPublicKey;
 use musig2::{errors::KeyAggError, KeyAggContext};
@@ -42,6 +42,16 @@ pub struct GraphIdx {
     pub deposit: DepositIdx,
     /// The index of the operator that can initiate unilateral withdrawals using the peg out graph.
     pub operator: OperatorIdx,
+}
+
+impl Display for GraphIdx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "GraphIdx(deposit: {}, operator: {})",
+            self.deposit, self.operator
+        )
+    }
 }
 
 /// The height of a bitcoin block.
