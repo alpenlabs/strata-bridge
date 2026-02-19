@@ -12,8 +12,8 @@ mod tests {
             events::{GraphDataGeneratedEvent, GraphEvent},
             state::GraphState,
             tests::{
-                GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, create_nonpov_sm, create_sm,
-                get_state, test_graph_invalid_transition, test_graph_sm_cfg,
+                GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, TEST_NONPOV_IDX, create_nonpov_sm,
+                create_sm, get_state, test_graph_invalid_transition, test_graph_sm_cfg,
             },
         },
         testing::EventSequence,
@@ -28,7 +28,7 @@ mod tests {
     }
 
     #[test]
-    fn test_process_graph_data_pov_no_duties() {
+    fn test_process_graph_data_pov_operator() {
         let initial_state = GraphState::Created {
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };
@@ -43,15 +43,18 @@ mod tests {
         );
 
         seq.assert_no_errors();
-        assert!(matches!(seq.state(), GraphState::GraphGenerated { .. }));
+        assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
         assert!(
-            seq.all_duties().is_empty(),
-            "Expected no duties for POV operator's own graph"
+            matches!(
+                seq.all_duties().as_slice(),
+                [GraphDuty::PublishGraphNonces { .. }]
+            ),
+            "Expected exactly 1 PublishGraphNonces duty to be emitted"
         );
     }
 
     #[test]
-    fn test_process_graph_data_nonpov_emits_verify_adaptors() {
+    fn test_process_graph_data_nonpov_operator() {
         let initial_state = GraphState::Created {
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };
@@ -68,13 +71,13 @@ mod tests {
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::GraphGenerated { .. }));
 
-        // Check that a VerifyAdaptors duty was emitted
+        // Check that a VerifyAdaptors duty was emitted with the correct watchtower index
         assert!(
             matches!(
                 seq.all_duties().as_slice(),
-                [GraphDuty::VerifyAdaptors { .. }]
+                [GraphDuty::VerifyAdaptors { watchtower_idx, .. }] if *watchtower_idx == TEST_NONPOV_IDX
             ),
-            "Expected exactly 1 VerifyAdaptors duty to be emitted"
+            "Expected exactly 1 VerifyAdaptors duty with watchtower_idx == TEST_NONPOV_IDX"
         );
     }
 
@@ -84,7 +87,7 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 
-        let sm = create_sm(initial_state);
+        let sm = create_nonpov_sm(initial_state);
         let mut seq = EventSequence::new(sm, get_state);
 
         // First event should succeed: Created → GraphGenerated
