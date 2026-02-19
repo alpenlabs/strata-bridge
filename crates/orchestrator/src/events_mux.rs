@@ -5,7 +5,10 @@ use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
 use rkyv::rancor;
 use strata_asm_proto_bridge_v1::AssignmentEntry;
-use strata_bridge_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
+use strata_bridge_p2p_types2::{GossipsubMsg, UnsignedGossipsubMsg};
+use strata_bridge_p2p_wire::p2p::v1::GetMessageRequest; /* FIXME: (@Rajil1213) this is
+                                                          * temporary until we have it in
+                                                          * `p2p_types2`. */
 use strata_bridge_primitives::subscription::Subscription;
 use strata_p2p::{
     events::{GossipEvent, ReqRespEvent},
