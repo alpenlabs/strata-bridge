@@ -20,6 +20,7 @@ members = [
   "crates/key-deriv",
   "crates/memory_pprof",
   "crates/operator-wallet",
+  "crates/orchestrator",
   "crates/p2p-service",
   "crates/p2p-types",
   "crates/p2p-types2",
@@ -88,6 +89,7 @@ strata-bridge-db2 = { path = "crates/db2" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
 strata-bridge-key-deriv = { path = "crates/key-deriv" }
+strata-bridge-orchestartor = { path = "crates/orchestrator" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
 strata-bridge-p2p-types = { path = "crates/p2p-types" }
 strata-bridge-p2p-types2 = { path = "crates/p2p-types2" }
