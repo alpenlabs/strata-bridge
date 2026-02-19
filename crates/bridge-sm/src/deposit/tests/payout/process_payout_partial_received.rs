@@ -166,7 +166,7 @@ mod tests {
                 agg_nonce,
                 collected_partials: all_partials,
                 payout_coop_tx: Box::new(cooperative_payout_tx),
-                ordered_pubkeys: test_operator_table()
+                ordered_pubkeys: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX)
                     .btc_keys()
                     .into_iter()
                     .map(|pk| pk.x_only_public_key().0)

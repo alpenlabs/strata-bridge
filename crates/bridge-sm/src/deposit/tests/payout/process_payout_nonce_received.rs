@@ -162,7 +162,7 @@ mod tests {
                 deposit_outpoint: test_deposit_outpoint(),
                 payout_sighash,
                 agg_nonce: expected_agg_nonce,
-                ordered_pubkeys: test_operator_table()
+                ordered_pubkeys: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX)
                     .btc_keys()
                     .into_iter()
                     .map(|pk| pk.x_only_public_key().0)
