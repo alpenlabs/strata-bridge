@@ -82,7 +82,32 @@ mod tests {
     }
 
     #[test]
-    fn test_duplicate_process_graph_data() {
+    fn test_duplicate_process_pov_graph_data() {
+        let initial_state = GraphState::Created {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        let sm = create_sm(initial_state);
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // First event should succeed: Created → AdaptorsVerified
+        seq.process(
+            test_graph_sm_cfg(),
+            GraphEvent::GraphDataProduced(test_graph_data_event()),
+        );
+        seq.assert_no_errors();
+        assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
+
+        // Duplicate event from GraphGenerated should produce a Duplicate error
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: seq.state().clone(),
+            event: GraphEvent::GraphDataProduced(test_graph_data_event()),
+            expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
+        });
+    }
+
+    #[test]
+    fn test_duplicate_process_nonpov_graph_data() {
         let initial_state = GraphState::Created {
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };

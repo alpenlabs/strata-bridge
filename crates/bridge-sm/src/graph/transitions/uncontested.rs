@@ -102,6 +102,14 @@ impl GraphSM {
                 self.state().clone(),
                 graph_data_event.into(),
             )),
+            GraphState::AdaptorsVerified { .. }
+                if self.context.operator_idx() == self.context.operator_table().pov_idx() =>
+            {
+                Err(GSMError::duplicate(
+                    self.state().clone(),
+                    graph_data_event.into(),
+                ))
+            }
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 graph_data_event.into(),
@@ -149,7 +157,9 @@ impl GraphSM {
                     },
                 ]))
             }
-            GraphState::AdaptorsVerified { .. } => {
+            GraphState::AdaptorsVerified { .. }
+                if self.context.operator_idx() != self.context.operator_table().pov_idx() =>
+            {
                 Err(GSMError::duplicate(self.state().clone(), adaptors.into()))
             }
             _ => Err(GSMError::invalid_event(

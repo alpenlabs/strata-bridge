@@ -13,8 +13,8 @@ mod tests {
             events::{AdaptorsVerifiedEvent, GraphEvent},
             state::GraphState,
             tests::{
-                GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, create_sm, get_state,
-                test_graph_invalid_transition, test_graph_sm_cfg,
+                GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, create_nonpov_sm, create_sm,
+                get_state, test_graph_invalid_transition, test_graph_sm_cfg,
             },
         },
         testing::EventSequence,
@@ -23,7 +23,7 @@ mod tests {
     /// Constructs a valid `GraphGenerated` state directly by generating the graph.
     fn test_graph_generated_state() -> GraphState {
         let cfg = test_graph_sm_cfg();
-        let sm = create_sm(GraphState::new(INITIAL_BLOCK_HEIGHT));
+        let sm = create_nonpov_sm(GraphState::new(INITIAL_BLOCK_HEIGHT));
 
         let deposit_params = DepositParams {
             game_index: NonZero::new(1).unwrap(),
@@ -42,7 +42,7 @@ mod tests {
     #[test]
     fn test_process_adaptors_verification() {
         let state = test_graph_generated_state();
-        let sm = create_sm(state);
+        let sm = create_nonpov_sm(state);
         let mut seq = EventSequence::new(sm, get_state);
 
         // GraphGenerated → AdaptorsVerified
@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn test_duplicate_process_adaptors_verification() {
+    fn test_duplicate_process_pov_adaptors_verification() {
         let sm = create_sm(test_graph_generated_state());
         let mut seq = EventSequence::new(sm, get_state);
 
@@ -83,8 +83,33 @@ mod tests {
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: seq.state().clone(),
             event: GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-            expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
+            expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
         });
+    }
+
+    #[test]
+    fn test_duplicate_process_nonpov_adaptors_verification() {
+        let sm = create_nonpov_sm(test_graph_generated_state());
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // First event should succeed: GraphGenerated → AdaptorsVerified
+        seq.process(
+            test_graph_sm_cfg(),
+            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+        );
+        seq.assert_no_errors();
+        assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
+
+        // Duplicate event from AdaptorsVerified should produce a Duplicate error
+        seq.process(
+            test_graph_sm_cfg(),
+            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+        );
+        // Check that a duplicate error was raised
+        assert!(
+            matches!(seq.all_errors().as_slice(), [GSMError::Duplicate { .. }]),
+            "GSMError::Duplicate to be raised"
+        );
     }
 
     #[test]
