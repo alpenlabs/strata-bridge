@@ -36,6 +36,7 @@ mod tests {
                 DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
                     claim_txid: generate_txid(),
                     operator_idx,
+                    deposit_idx: TEST_DEPOSIT_IDX,
                 }),
             );
         }
@@ -69,10 +70,11 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         // Process GraphAvailable messages, all operators except the last one
-        for operator_idx in 0..(N_TEST_OPERATORS - 1) as u32 {
+        for operator_idx in 0..(N_TEST_OPERATORS - 1) as OperatorIdx {
             let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
                 claim_txid: generate_txid(),
                 operator_idx,
+                deposit_idx: TEST_DEPOSIT_IDX,
             });
             seq.process(test_deposit_sm_cfg(), event.clone());
 
@@ -143,12 +145,39 @@ mod tests {
         let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
             claim_txid: generate_txid(),
             operator_idx: u32::MAX,
+            deposit_idx: TEST_DEPOSIT_IDX,
         });
         seq.process(test_deposit_sm_cfg(), event.clone());
 
         // Process the same event again to simulate duplicate
         test_deposit_invalid_transition(DepositInvalidTransition {
             from_state: seq.state().clone(),
+            event,
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
+    }
+
+    /// tests that a GraphAvailable event with an invalid deposit_idx is rejected from the Created
+    /// state.
+    #[test]
+    fn test_invalid_deposit_idx_in_process_graph_available() {
+        let deposit_tx = test_deposit_txn();
+        let linked_graphs = BTreeSet::new();
+        let initial_state = DepositState::Created {
+            deposit_transaction: deposit_tx,
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            linked_graphs,
+        };
+
+        let invalid_deposit_idx = TEST_DEPOSIT_IDX + 1;
+        let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
+            claim_txid: generate_txid(),
+            operator_idx: TEST_ASSIGNEE,
+            deposit_idx: invalid_deposit_idx,
+        });
+
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: initial_state,
             event,
             expected_error: |e| matches!(e, DSMError::Rejected { .. }),
         });

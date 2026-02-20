@@ -383,6 +383,7 @@ impl Arbitrary for DepositEvent {
                 DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
                     claim_txid: generate_txid(),
                     operator_idx: idx,
+                    deposit_idx: TEST_DEPOSIT_IDX,
                 })
             }),
             operator_idx.clone().prop_map(|idx| {
@@ -454,6 +455,7 @@ pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
             DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
                 claim_txid: generate_txid(),
                 operator_idx: idx,
+                deposit_idx: TEST_DEPOSIT_IDX,
             })
         }),
         operator_idx.clone().prop_map(|idx| {
