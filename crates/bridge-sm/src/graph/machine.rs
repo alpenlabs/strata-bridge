@@ -46,6 +46,7 @@ impl StateMachine for GraphSM {
             GraphEvent::PartialsReceived(_partial_event) => todo!(),
             GraphEvent::WithdrawalAssigned(_assignment) => todo!(),
             GraphEvent::FulfillmentConfirmed(_fulfillment) => todo!(),
+            GraphEvent::DepositMessage(_msg) => todo!(),
             GraphEvent::ClaimConfirmed(_claim) => todo!(),
             GraphEvent::ContestConfirmed(_contest) => todo!(),
             GraphEvent::BridgeProofConfirmed(_bridge_proof) => todo!(),
