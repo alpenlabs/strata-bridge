@@ -480,6 +480,7 @@ impl GraphSM {
                         GraphToDeposit::GraphAvailable {
                             claim_txid: game_graph.claim.as_ref().compute_txid(),
                             operator_idx: graph_ctx.operator_idx(),
+                            deposit_idx: graph_ctx.deposit_idx(),
                         },
                     )]));
                 }

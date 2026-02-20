@@ -1,7 +1,7 @@
 //! Messages that need to be transferred between different state machines in the bridge.
 
 use bitcoin::Txid;
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 
 /// The signals that need to be sent across different state machines in the bridge.
 ///
@@ -76,6 +76,9 @@ pub enum GraphToDeposit {
         claim_txid: Txid,
         /// The index of the operator for whom the graph is available.
         operator_idx: OperatorIdx,
+        /// The index of the deposit for which the graph is available. This is needed to route the
+        /// signal to the correct deposit state machine.
+        deposit_idx: DepositIdx,
     },
 }
 
@@ -83,13 +86,14 @@ impl std::fmt::Display for GraphToDeposit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GraphToDeposit::GraphAvailable {
-                claim_txid,
                 operator_idx,
+                deposit_idx,
+                claim_txid,
             } => {
                 write!(
                     f,
-                    "GraphAvailable for operator_idx: {}, claim_txid: {}",
-                    operator_idx, claim_txid
+                    "GraphAvailable for operator_idx: {} for deposit: {} with claim: {}",
+                    operator_idx, deposit_idx, claim_txid
                 )
             }
         }
