@@ -380,7 +380,10 @@ impl Arbitrary for DepositEvent {
                 tx: test_takeback_tx(OutPoint::default()),
             })),
             operator_idx.clone().prop_map(|idx| {
-                DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx: idx })
+                DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
+                    operator_idx: idx,
+                    deposit_idx: TEST_DEPOSIT_IDX,
+                })
             }),
             operator_idx.clone().prop_map(|idx| {
                 DepositEvent::NonceReceived(NonceReceivedEvent {
@@ -448,7 +451,10 @@ pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
             tx: test_takeback_tx(outpoint)
         })),
         operator_idx.clone().prop_map(|idx| {
-            DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx: idx })
+            DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
+                operator_idx: idx,
+                deposit_idx: TEST_DEPOSIT_IDX,
+            })
         }),
         operator_idx.clone().prop_map(|idx| {
             DepositEvent::NonceReceived(NonceReceivedEvent {
