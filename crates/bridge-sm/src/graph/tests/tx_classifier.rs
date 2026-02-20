@@ -56,7 +56,7 @@ mod tests {
             signatures: Default::default(),
             assignee: TEST_ASSIGNEE,
             deadline: LATER_BLOCK_HEIGHT + 15,
-            recipient_desc: test_recipient_desc(),
+            recipient_desc: test_recipient_desc(1),
         }
     }
 

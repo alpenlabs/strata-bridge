@@ -83,7 +83,7 @@ mod tests {
             last_block_height: LATER_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             deadline: LATER_BLOCK_HEIGHT + 15,
-            recipient_desc: test_recipient_desc(),
+            recipient_desc: test_recipient_desc(1),
         }
     }
 
@@ -104,7 +104,7 @@ mod tests {
                 payout_nonces: nonces,
                 payout_aggregated_nonce: agg_nonce,
                 payout_partial_signatures: BTreeMap::new(),
-                cooperative_payout_tx: test_cooperative_payout_txn(test_recipient_desc()),
+                cooperative_payout_tx: test_cooperative_payout_txn(test_recipient_desc(1)),
             },
             DepositState::CooperativePathFailed {
                 last_block_height: h,
