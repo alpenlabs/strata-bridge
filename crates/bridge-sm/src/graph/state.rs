@@ -2,9 +2,9 @@
 
 use std::{collections::BTreeMap, fmt::Display};
 
-use bitcoin::{Txid, taproot::Signature};
+use bitcoin::Txid;
 use bitcoin_bosd::Descriptor;
-use musig2::{AggNonce, PubNonce};
+use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
@@ -44,7 +44,7 @@ pub enum GraphState {
         graph_summary: GameGraphSummary,
 
         /// Public nonces provided by each operator for signing.
-        pubnonces: BTreeMap<OperatorIdx, PubNonce>,
+        pubnonces: BTreeMap<OperatorIdx, Vec<PubNonce>>,
     },
     /// All required nonces for this pegout graph have been collected.
     NoncesCollected {
@@ -58,11 +58,14 @@ pub enum GraphState {
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// Aggregated nonce used to validate partial signatures.
-        agg_nonce: AggNonce,
+        /// Public nonces provided by each operator for signing.
+        pubnonces: BTreeMap<OperatorIdx, Vec<PubNonce>>,
+
+        /// Aggregated nonces used to validate partial signatures.
+        agg_nonces: Vec<AggNonce>,
 
         /// Partial signature from each operator.
-        partial_signatures: BTreeMap<OperatorIdx, Signature>,
+        partial_signatures: BTreeMap<OperatorIdx, Vec<PartialSignature>>,
     },
     /// All required aggregate signatures for this pegout graph have been collected.
     GraphSigned {
@@ -77,7 +80,7 @@ pub enum GraphState {
         graph_summary: GameGraphSummary,
 
         /// Aggregated final signatures for the graph.
-        signature: Signature,
+        signatures: Vec<Signature>,
     },
     /// The deposit associated with this pegout graph has been assigned.
     Assigned {
@@ -92,7 +95,7 @@ pub enum GraphState {
         graph_summary: GameGraphSummary,
 
         /// Aggregated final signatures for the graph.
-        signature: Signature,
+        signatures: Vec<Signature>,
 
         /// The operator assigned to fulfill the withdrawal.
         assignee: OperatorIdx,
