@@ -1,5 +1,6 @@
 //! Testing utilities specific to the Graph State Machine.
 mod uncontested;
+pub(super) mod utils;
 
 mod tx_classifier;
 
@@ -10,10 +11,16 @@ use bitcoin::{
     hashes::{Hash, sha256},
     relative,
 };
-use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
+use secp256k1::SecretKey;
+use strata_bridge_primitives::{
+    secp::EvenSecretKey,
+    types::{GraphIdx, OperatorIdx},
+};
 use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_xonly_pubkey};
 use strata_bridge_tx_graph2::{
-    game_graph::{CounterproofGraphSummary, DepositParams, GameGraphSummary, ProtocolParams},
+    game_graph::{
+        CounterproofGraphSummary, DepositParams, GameGraph, GameGraphSummary, ProtocolParams,
+    },
     transactions::prelude::{ClaimTx, ContestTx, CounterproofTx},
 };
 use zkaleido::{Proof, ProofReceipt, PublicValues};
@@ -24,16 +31,26 @@ pub(super) use crate::testing::fixtures::{
 };
 use crate::{
     graph::{
-        config::GraphSMCfg, context::GraphSMCtx, errors::GSMError, events::GraphEvent,
-        machine::GraphSM, state::GraphState,
+        config::GraphSMCfg,
+        context::GraphSMCtx,
+        duties::GraphDuty,
+        errors::GSMError,
+        events::GraphEvent,
+        machine::{self, GraphSM},
+        state::GraphState,
     },
+    signals::GraphSignal,
     testing::{
+        Transition,
         fixtures::TEST_MAGIC_BYTES,
+        signer::TestMusigSigner,
+        test_transition,
         transition::{InvalidTransition, test_invalid_transition},
     },
 };
 
 // ===== Dummy Values =====
+
 pub(super) fn dummy_proof_receipt() -> ProofReceipt {
     ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]))
 }
@@ -126,6 +143,15 @@ pub(super) fn test_deposit_params() -> DepositParams {
         claim_funds: OutPoint::default(),
         deposit_outpoint: test_deposit_outpoint(),
     }
+}
+
+pub(super) fn test_graph_data(cfg: &Arc<GraphSMCfg>) -> (DepositParams, GameGraph) {
+    let ctx = test_graph_sm_ctx();
+    let deposit_params = test_deposit_params();
+
+    let graph = machine::generate_game_graph(cfg, &ctx, deposit_params);
+
+    (deposit_params, graph)
 }
 
 pub(super) enum TestGraphTxKind {
@@ -242,10 +268,33 @@ pub(super) const fn get_state(sm: &GraphSM) -> &GraphState {
     sm.state()
 }
 
+/// Type alias for GraphSM transitions.
+pub(super) type GraphTransition = Transition<GraphState, GraphEvent, GraphDuty, GraphSignal>;
+
+/// Test a valid GraphSM transition with pre-configured test helpers.
+pub(super) fn test_graph_transition(transition: GraphTransition) {
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
+        create_sm,
+        get_state,
+        test_graph_sm_cfg(),
+        transition,
+    );
+}
+
 /// Type alias for invalid GraphSM transitions.
 pub(super) type GraphInvalidTransition = InvalidTransition<GraphState, GraphEvent, GSMError>;
 
 /// Test an invalid GraphSM transition with pre-configured test helpers.
 pub(super) fn test_graph_invalid_transition(invalid: GraphInvalidTransition) {
     test_invalid_transition::<GraphSM, _, _, _, _, _, _>(create_sm, test_graph_sm_cfg(), invalid);
+}
+
+/// Creates test musig signers for the operators.
+pub(super) fn test_operator_signers(num_signers: usize) -> Vec<TestMusigSigner> {
+    (0..num_signers)
+        .map(|i| {
+            let sk = EvenSecretKey::from(SecretKey::from_slice(&[(i + 1) as u8; 32]).unwrap());
+            TestMusigSigner::new((i) as u32, *sk)
+        })
+        .collect()
 }

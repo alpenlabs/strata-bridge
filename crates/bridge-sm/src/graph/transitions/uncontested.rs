@@ -347,7 +347,7 @@ impl GraphSM {
                     return Err(GSMError::rejected(
                         self.state().clone(),
                         partial_received_event.into(),
-                        "Invalid partial singature sizes provided by operator".to_string(),
+                        "Invalid partial signature sizes provided by operator".to_string(),
                     ));
                 }
 
