@@ -83,11 +83,23 @@ impl DepositSM {
 
         match graph_msg {
             GraphToDeposit::GraphAvailable {
-                claim_txid: _,
                 operator_idx,
+                deposit_idx,
+                ..
             } => {
                 // Validate operator_idx is in the operator table
                 self.check_operator_idx(operator_idx, &graph_msg)?;
+                if self.context().deposit_idx != deposit_idx {
+                    return Err(DSMError::rejected(
+                        self.state().clone(),
+                        graph_msg.clone().into(),
+                        format!(
+                            "Graph message for deposit idx {} does not match context deposit idx {}",
+                            deposit_idx,
+                            self.context().deposit_idx
+                        ),
+                    ));
+                }
 
                 match self.state_mut() {
                     DepositState::Created {
