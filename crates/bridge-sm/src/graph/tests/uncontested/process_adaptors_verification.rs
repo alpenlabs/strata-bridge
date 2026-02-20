@@ -11,6 +11,7 @@ mod tests {
             duties::GraphDuty,
             errors::GSMError,
             events::{AdaptorsVerifiedEvent, GraphEvent},
+            machine::generate_game_graph,
             state::GraphState,
             tests::{
                 GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, create_nonpov_sm, create_sm,
@@ -30,7 +31,7 @@ mod tests {
             claim_funds: Default::default(),
             deposit_outpoint: sm.context.deposit_outpoint(),
         };
-        let graph = sm.generate_graph(&cfg, deposit_params);
+        let graph = generate_game_graph(&cfg, sm.context(), deposit_params);
 
         GraphState::GraphGenerated {
             last_block_height: INITIAL_BLOCK_HEIGHT,
