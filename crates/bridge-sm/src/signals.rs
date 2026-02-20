@@ -1,6 +1,6 @@
 //! Messages that need to be transferred between different state machines in the bridge.
 
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 
 /// The signals that need to be sent across different state machines in the bridge.
 ///
@@ -72,15 +72,24 @@ pub enum GraphToDeposit {
     GraphAvailable {
         /// The index of the operator for whom the graph is available.
         operator_idx: OperatorIdx,
-        // add more fields if necessary
+        /// The index of the deposit for which the graph is available. This is needed to route the
+        /// signal to the correct deposit state machine.
+        deposit_idx: DepositIdx,
     },
 }
 
 impl std::fmt::Display for GraphToDeposit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GraphToDeposit::GraphAvailable { operator_idx } => {
-                write!(f, "GraphAvailable for operator_idx: {}", operator_idx)
+            GraphToDeposit::GraphAvailable {
+                operator_idx,
+                deposit_idx,
+            } => {
+                write!(
+                    f,
+                    "GraphAvailable for operator_idx: {} for deposit: {}",
+                    operator_idx, deposit_idx
+                )
             }
         }
     }
