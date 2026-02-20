@@ -1,14 +1,21 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use musig2::{AggNonce, secp256k1::Message};
-use strata_bridge_primitives::scripts::taproot::TaprootTweak;
+use musig2::{
+    AggNonce, aggregate_partial_signatures,
+    secp256k1::{Message, schnorr},
+    verify_partial,
+};
+use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootTweak};
 use strata_bridge_tx_graph2::{game_graph::DepositParams, musig_functor::GameFunctor};
 
 use crate::graph::{
     config::GraphSMCfg,
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
-    events::{AdaptorsVerifiedEvent, GraphDataGeneratedEvent, GraphNonceReceivedEvent},
+    events::{
+        AdaptorsVerifiedEvent, GraphDataGeneratedEvent, GraphNonceReceivedEvent,
+        GraphPartialReceivedEvent,
+    },
     machine::{GSMOutput, GraphSM, generate_game_graph},
     state::GraphState,
 };
@@ -283,6 +290,152 @@ impl GraphSM {
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 nonce_received_event.into(),
+                None,
+            )),
+        }
+    }
+
+    /// Processes the event triggered when an operator's partial signature is received.
+    ///
+    /// Collects partial signatures from the operators required for the graph-signing process.
+    /// Once all operators have submitted their partial signatures, transitions to the
+    /// [`GraphState::GraphSigned`] state.
+    pub(crate) fn process_partial_received(
+        &mut self,
+        cfg: Arc<GraphSMCfg>,
+        partial_received_event: GraphPartialReceivedEvent,
+    ) -> GSMResult<GSMOutput> {
+        // Validate operator_idx is in the operator table
+        self.check_operator_idx(partial_received_event.operator_idx, &partial_received_event)?;
+
+        // Extract context values before the match to avoid borrow conflicts
+        let operator_table_cardinality = self.context().operator_table().cardinality();
+        let graph_ctx = self.context().clone();
+
+        // Get the operator pubkey
+        let operator_pubkey = self
+            .context()
+            .operator_table
+            .idx_to_btc_key(&partial_received_event.operator_idx)
+            .expect("validated above");
+
+        match self.state_mut() {
+            GraphState::NoncesCollected {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                pubnonces,
+                agg_nonces,
+                partial_signatures,
+            } => {
+                // Check for duplicate signature submission
+                if partial_signatures.contains_key(&partial_received_event.operator_idx) {
+                    return Err(GSMError::duplicate(
+                        self.state().clone(),
+                        partial_received_event.into(),
+                    ));
+                }
+
+                // Validate that the provided partial signatures correctly fill the game graph for
+                // this context.
+                if GameFunctor::unpack(
+                    partial_received_event.partial_sigs.clone(),
+                    cfg.watchtower_pubkeys.len(),
+                )
+                .is_none()
+                {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        partial_received_event.into(),
+                        "Invalid partial singature sizes provided by operator".to_string(),
+                    ));
+                }
+
+                // Validate the individual partial sigs
+                // Generate the game graph to access signing infos for verification
+                let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
+                let signing_infos = game_graph.musig_signing_info().pack();
+
+                let operator_pubnonces = pubnonces
+                    .get(&partial_received_event.operator_idx)
+                    .expect("all operator must have submitted the pub nonce");
+
+                let btc_keys: Vec<_> = graph_ctx.operator_table().btc_keys().into_iter().collect();
+                for (i, (((signing_info, partial_sig), agg_nonce), op_pubnonce)) in signing_infos
+                    .iter()
+                    .zip(partial_received_event.partial_sigs.iter())
+                    .zip(agg_nonces.iter())
+                    .zip(operator_pubnonces.iter())
+                    .enumerate()
+                {
+                    let key_agg_ctx = create_agg_ctx(btc_keys.iter().copied(), &signing_info.tweak)
+                        .expect("must be able to create key aggregation context");
+
+                    if verify_partial(
+                        &key_agg_ctx,
+                        *partial_sig,
+                        agg_nonce,
+                        operator_pubkey,
+                        op_pubnonce,
+                        signing_info.sighash.as_ref(),
+                    )
+                    .is_err()
+                    {
+                        return Err(GSMError::rejected(
+                            self.state().clone(),
+                            partial_received_event.into(),
+                            format!("Partial signature verification failed at index {i}"),
+                        ));
+                    }
+                }
+
+                // Collect the verified partial signatures
+                partial_signatures.insert(
+                    partial_received_event.operator_idx,
+                    partial_received_event.partial_sigs,
+                );
+
+                // Check if we have collected all partial signatures
+                if partial_signatures.len() == operator_table_cardinality {
+                    // For each nonce position, collect that nonce from every operator
+                    // and aggregate them into a single `AggNonce`.
+                    let agg_sigs: Vec<schnorr::Signature> = signing_infos
+                        .iter()
+                        .zip(agg_nonces.iter())
+                        .enumerate()
+                        .map(|(sig_idx, (signing_info, agg_nonce))| {
+                            let key_agg_ctx =
+                                create_agg_ctx(btc_keys.iter().copied(), &signing_info.tweak)
+                                    .expect("must be able to create key aggregation context");
+
+                            aggregate_partial_signatures(
+                                &key_agg_ctx,
+                                agg_nonce,
+                                partial_signatures.values().map(|sigs| sigs[sig_idx]),
+                                signing_info.sighash.as_ref(),
+                            )
+                            .expect("partial signatures must be valid")
+                        })
+                        .collect();
+
+                    // Transition to GraphSigned state
+                    self.state = GraphState::GraphSigned {
+                        last_block_height: *last_block_height,
+                        graph_data: *graph_data,
+                        graph_summary: graph_summary.clone(),
+                        signatures: agg_sigs.clone(),
+                    }
+                }
+
+                Ok(GSMOutput::default())
+            }
+            GraphState::GraphSigned { .. } => Err(GSMError::duplicate(
+                self.state().clone(),
+                partial_received_event.into(),
+            )),
+            _ => Err(GSMError::invalid_event(
+                self.state().clone(),
+                partial_received_event.into(),
                 None,
             )),
         }
