@@ -39,11 +39,8 @@ pub enum GraphDuty {
 
     /// Publish partial signatures for graph signing.
     PublishGraphPartials {
-        /// The index of the deposit this graph is associated with.
-        deposit_idx: DepositIdx,
-
-        /// The index of the operator this graph belongs to.
-        operator_idx: OperatorIdx,
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
 
         /// Aggregated nonces to be used for partial signature generation.
         agg_nonces: Vec<AggNonce>,
@@ -81,11 +78,8 @@ pub enum GraphDuty {
 
     /// Publish a bridge proof on-chain to defend against a contest.
     PublishBridgeProof {
-        /// The index of the deposit this graph is associated with.
-        deposit_idx: DepositIdx,
-
-        /// The index of the operator this graph belongs to.
-        operator_idx: OperatorIdx,
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
 
         /// The bridge proof transaction to be published (unsigned).
         bridge_proof_tx: Transaction,
@@ -99,11 +93,8 @@ pub enum GraphDuty {
 
     /// Publish a counterproof on-chain to challenge a bridge proof.
     PublishCounterProof {
-        /// The index of the deposit this graph is associated with.
-        deposit_idx: u32,
-
-        /// The index of the operator this graph belongs to.
-        operator_idx: OperatorIdx,
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
 
         /// The counterproof transaction to be published (unsigned; signed via adaptors).
         counterproof_tx: Transaction,

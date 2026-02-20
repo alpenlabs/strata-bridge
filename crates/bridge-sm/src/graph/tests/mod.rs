@@ -35,11 +35,6 @@ use crate::{
 };
 
 // ===== Dummy Values =====
-
-pub(super) fn dummy_taproot_signature() -> TaprootSignature {
-    TaprootSignature::from_slice(&[1u8; 64]).expect("64 bytes is valid for taproot signature")
-}
-
 pub(super) fn dummy_proof_receipt() -> ProofReceipt {
     ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]))
 }

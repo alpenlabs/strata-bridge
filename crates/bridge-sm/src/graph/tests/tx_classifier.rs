@@ -8,10 +8,7 @@
 mod tests {
     use std::collections::BTreeMap;
 
-    use strata_bridge_test_utils::{
-        bitcoin::{generate_spending_tx, generate_txid},
-        musig2::generate_agg_nonce,
-    };
+    use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_txid};
 
     use crate::{graph::tests::*, tx_classifier::TxClassifier};
 
@@ -38,14 +35,15 @@ mod tests {
                 last_block_height: LATER_BLOCK_HEIGHT,
                 graph_data: params,
                 graph_summary: summary.clone(),
-                agg_nonce: generate_agg_nonce(),
+                pubnonces: Default::default(),
+                agg_nonces: Default::default(),
                 partial_signatures: Default::default(),
             },
             GraphState::GraphSigned {
                 last_block_height: LATER_BLOCK_HEIGHT,
                 graph_data: params,
                 graph_summary: summary,
-                signature: dummy_taproot_signature(),
+                signatures: Default::default(),
             },
         ]
     }
@@ -55,7 +53,7 @@ mod tests {
             last_block_height: LATER_BLOCK_HEIGHT,
             graph_data: test_deposit_params(),
             graph_summary: test_graph_summary(),
-            signature: dummy_taproot_signature(),
+            signatures: Default::default(),
             assignee: TEST_ASSIGNEE,
             deadline: LATER_BLOCK_HEIGHT + 15,
             recipient_desc: test_recipient_desc(),

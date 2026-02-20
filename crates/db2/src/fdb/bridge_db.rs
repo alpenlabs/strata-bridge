@@ -260,10 +260,7 @@ mod tests {
         deposit::{context::DepositSMCtx, state::DepositState},
         graph::{context::GraphSMCtx, state::GraphState},
     };
-    use strata_bridge_test_utils::{
-        arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid},
-        musig2::generate_agg_nonce,
-    };
+    use strata_bridge_test_utils::arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid};
     use strata_bridge_tx_graph2::game_graph::{
         CounterproofGraphSummary, DepositParams, GameGraphSummary,
     };
@@ -1216,8 +1213,9 @@ mod tests {
                 uncontested_payout: derive_txid(0x05),
                 contested_payout: derive_txid(0x06),
             },
-            agg_nonce: generate_agg_nonce(),
-            partial_signatures,
+            pubnonces: Default::default(),
+            agg_nonces: Default::default(),
+            partial_signatures: Default::default(),
         };
 
         let deposit_sm = make_deposit_sm(
