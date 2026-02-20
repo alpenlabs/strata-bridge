@@ -46,7 +46,7 @@ impl StateMachine for GraphSM {
             GraphEvent::AdaptorsVerified(adaptors) => {
                 self.process_adaptors_verification(cfg, adaptors)
             }
-            GraphEvent::NonceReceived(_nonce_event) => todo!(),
+            GraphEvent::NonceReceived(nonce_event) => self.process_nonce_received(cfg, nonce_event),
             GraphEvent::PartialReceived(_partial_event) => todo!(),
             GraphEvent::WithdrawalAssigned(_assignment) => todo!(),
             GraphEvent::FulfillmentConfirmed(_fulfillment) => todo!(),
@@ -99,24 +99,6 @@ impl GraphSM {
         &mut self.state
     }
 
-    /// Generates the [`GameGraph`] from the config and deposit params.
-    pub(crate) fn generate_graph(
-        &self,
-        cfg: &GraphSMCfg,
-        deposit_params: DepositParams,
-    ) -> GameGraph {
-        let setup_params = cfg.generate_setup_params(&self.context);
-        let protocol_params = cfg.game_graph_params;
-        let graph_data = GameData {
-            protocol: protocol_params,
-            setup: setup_params,
-            deposit: deposit_params,
-        };
-
-        let (game_graph, _) = GameGraph::new(graph_data);
-        game_graph
-    }
-
     /// Checks that the operator index exists, otherwise returns `GSMError::Rejected`.
     pub(super) fn check_operator_idx<E>(&self, operator_idx: u32, inner_event: &E) -> GSMResult<()>
     where
@@ -132,4 +114,22 @@ impl GraphSM {
             ))
         }
     }
+}
+
+/// Generates the [`GameGraph`] from the [`GraphSM`] config and deposit params.
+pub(crate) fn generate_game_graph(
+    cfg: &GraphSMCfg,
+    ctx: &GraphSMCtx,
+    deposit_params: DepositParams,
+) -> GameGraph {
+    let setup_params = cfg.generate_setup_params(ctx);
+    let protocol_params = cfg.game_graph_params;
+    let graph_data = GameData {
+        protocol: protocol_params,
+        setup: setup_params,
+        deposit: deposit_params,
+    };
+
+    let (game_graph, _) = GameGraph::new(graph_data);
+    game_graph
 }
