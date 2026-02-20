@@ -15,7 +15,7 @@ use crate::{
         errors::{GSMError, GSMResult},
         events::{
             AdaptorsVerifiedEvent, GraphDataGeneratedEvent, GraphNonceReceivedEvent,
-            GraphPartialReceivedEvent,
+            GraphPartialReceivedEvent, WithdrawalAssignedEvent,
         },
         machine::{GSMOutput, GraphSM, generate_game_graph},
         state::GraphState,
@@ -463,6 +463,98 @@ impl GraphSM {
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 partial_received_event.into(),
+                None,
+            )),
+        }
+    }
+
+    /// Processes the event where a withdrawal has been assigned for this graph.
+    ///
+    /// Transitions from [`GraphState::GraphSigned`] to [`GraphState::Assigned`].
+    ///
+    /// Reassignment from [`GraphState::Assigned`]:
+    /// - Same assignee, changed deadline/recipient: updates the assignment in place.
+    /// - Different assignee: reverts to [`GraphState::GraphSigned`].
+    ///
+    /// Emits no duties or signals.
+    pub(crate) fn process_assignment(
+        &mut self,
+        assignment_event: WithdrawalAssignedEvent,
+    ) -> GSMResult<GSMOutput> {
+        match self.state() {
+            GraphState::GraphSigned {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+            } => {
+                self.state = GraphState::Assigned {
+                    last_block_height: *last_block_height,
+                    graph_data: *graph_data,
+                    graph_summary: graph_summary.clone(),
+                    signatures: signatures.clone(),
+                    assignee: assignment_event.assignee,
+                    deadline: assignment_event.deadline,
+                    recipient_desc: assignment_event.recipient_desc,
+                };
+
+                Ok(GSMOutput::default())
+            }
+
+            // Same assignee, updated deadline or recipient.
+            GraphState::Assigned {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                assignee,
+                deadline,
+                recipient_desc,
+            } if *assignee == assignment_event.assignee
+                && (*deadline != assignment_event.deadline
+                    || *recipient_desc != assignment_event.recipient_desc) =>
+            {
+                self.state = GraphState::Assigned {
+                    last_block_height: *last_block_height,
+                    graph_data: *graph_data,
+                    graph_summary: graph_summary.clone(),
+                    signatures: signatures.clone(),
+                    assignee: assignment_event.assignee,
+                    deadline: assignment_event.deadline,
+                    recipient_desc: assignment_event.recipient_desc,
+                };
+
+                Ok(GSMOutput::default())
+            }
+
+            // Different assignee: revert to GraphSigned.
+            GraphState::Assigned {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                assignee,
+                ..
+            } if *assignee != assignment_event.assignee => {
+                self.state = GraphState::GraphSigned {
+                    last_block_height: *last_block_height,
+                    graph_data: *graph_data,
+                    graph_summary: graph_summary.clone(),
+                    signatures: signatures.clone(),
+                };
+
+                Ok(GSMOutput::default())
+            }
+
+            // Identical assignment event (same assignee, deadline, and recipient).
+            GraphState::Assigned { .. } => Err(GSMError::duplicate(
+                self.state().clone(),
+                assignment_event.into(),
+            )),
+
+            _ => Err(GSMError::invalid_event(
+                self.state().clone(),
+                assignment_event.into(),
                 None,
             )),
         }

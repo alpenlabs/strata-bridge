@@ -50,7 +50,7 @@ impl StateMachine for GraphSM {
             GraphEvent::PartialReceived(partial_event) => {
                 self.process_partial_received(cfg, partial_event)
             }
-            GraphEvent::WithdrawalAssigned(_assignment) => todo!(),
+            GraphEvent::WithdrawalAssigned(assignment) => self.process_assignment(assignment),
             GraphEvent::FulfillmentConfirmed(_fulfillment) => todo!(),
             GraphEvent::ClaimConfirmed(_claim) => todo!(),
             GraphEvent::ContestConfirmed(_contest) => todo!(),
