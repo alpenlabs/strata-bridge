@@ -47,6 +47,16 @@ impl SMRegistry {
         }
     }
 
+    /// Gets a list of IDs of all deposit state machines currently in the registry.
+    pub fn get_deposit_ids(&self) -> Vec<DepositIdx> {
+        self.deposits.keys().copied().collect()
+    }
+
+    /// Gets a list of IDs of all graph state machines currently in the registry.
+    pub fn get_graph_ids(&self) -> Vec<GraphIdx> {
+        self.graphs.keys().copied().collect()
+    }
+
     /// Gets the IDs of all the state machines currently in the registry.
     pub fn get_all_ids(&self) -> Vec<SMId> {
         self.deposits
