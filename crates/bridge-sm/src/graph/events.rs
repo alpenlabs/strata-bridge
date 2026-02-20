@@ -13,6 +13,8 @@ use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use strata_bridge_tx_graph2::game_graph::GameGraph;
 use zkaleido::ProofReceipt;
 
+use crate::signals::DepositToGraph;
+
 /// Event notifying that graph data has been generated for a graph instance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphDataGeneratedEvent {
@@ -172,7 +174,7 @@ pub struct NewBlockEvent {
 
 /// The external events that affect the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(clippy::large_enum_variant)]
+#[expect(clippy::large_enum_variant)]
 pub enum GraphEvent {
     /// Graph data has been generated for the graph instance.
     GraphDataProduced(GraphDataGeneratedEvent),
@@ -186,6 +188,8 @@ pub enum GraphEvent {
     WithdrawalAssigned(WithdrawalAssignedEvent),
     /// Fulfillment transaction confirmed on-chain.
     FulfillmentConfirmed(FulfillmentConfirmedEvent),
+    /// Message received from the Graph State Machine.
+    DepositMessage(DepositToGraph),
     /// Claim transaction confirmed on-chain.
     ClaimConfirmed(ClaimConfirmedEvent),
     /// Contest transaction confirmed on-chain.
@@ -222,6 +226,7 @@ impl Display for GraphEvent {
             GraphEvent::PartialsReceived(_) => "PartialReceived",
             GraphEvent::WithdrawalAssigned(_) => "WithdrawalAssigned",
             GraphEvent::FulfillmentConfirmed(_) => "FulfillmentConfirmed",
+            GraphEvent::DepositMessage(_) => "DepositMessage",
             GraphEvent::ClaimConfirmed(_) => "ClaimConfirmed",
             GraphEvent::ContestConfirmed(_) => "ContestConfirmed",
             GraphEvent::BridgeProofConfirmed(_) => "BridgeProofConfirmed",
