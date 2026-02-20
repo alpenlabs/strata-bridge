@@ -31,8 +31,8 @@ pub struct GraphNonceReceivedEvent {
     /// The index of the operator who sent the nonce.
     pub operator_idx: OperatorIdx,
 
-    /// The public nonce from this operator.
-    pub nonce: PubNonce,
+    /// The public nonces from this operator.
+    pub nonces: Vec<PubNonce>,
 }
 
 /// Event notifying that a partial-signature bundle for the graph has been received from an
@@ -42,8 +42,8 @@ pub struct GraphPartialReceivedEvent {
     /// The index of the operator who sent the partial signature.
     pub operator_idx: OperatorIdx,
 
-    /// The partial signature from this operator.
-    pub partial_sig: Signature,
+    /// The partial signatures from this operator.
+    pub partial_sigs: Vec<Signature>,
 }
 
 /// Event notifying that a withdrawal has been assigned/reassigned (for this graph).

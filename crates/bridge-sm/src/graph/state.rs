@@ -44,7 +44,7 @@ pub enum GraphState {
         graph_summary: GameGraphSummary,
 
         /// Public nonces provided by each operator for signing.
-        pubnonces: BTreeMap<OperatorIdx, PubNonce>,
+        pubnonces: BTreeMap<OperatorIdx, Vec<PubNonce>>,
     },
     /// All required nonces for this pegout graph have been collected.
     NoncesCollected {
@@ -58,11 +58,14 @@ pub enum GraphState {
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
-        /// Aggregated nonce used to validate partial signatures.
-        agg_nonce: AggNonce,
+        /// Public nonces provided by each operator for signing.
+        pubnonces: BTreeMap<OperatorIdx, Vec<PubNonce>>,
+
+        /// Aggregated nonces used to validate partial signatures.
+        agg_nonces: Vec<AggNonce>,
 
         /// Partial signature from each operator.
-        partial_signatures: BTreeMap<OperatorIdx, Signature>,
+        partial_signatures: BTreeMap<OperatorIdx, Vec<Signature>>,
     },
     /// All required aggregate signatures for this pegout graph have been collected.
     GraphSigned {

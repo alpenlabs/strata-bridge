@@ -8,8 +8,12 @@ use strata_bridge_tx_graph2::game_graph::{DepositParams, GameData, GameGraph};
 
 use crate::{
     graph::{
-        config::GraphSMCfg, context::GraphSMCtx, duties::GraphDuty, errors::GSMError,
-        events::GraphEvent, state::GraphState,
+        config::GraphSMCfg,
+        context::GraphSMCtx,
+        duties::GraphDuty,
+        errors::{GSMError, GSMResult},
+        events::GraphEvent,
+        state::GraphState,
     },
     signals::GraphSignal,
     state_machine::{SMOutput, StateMachine},
@@ -80,6 +84,11 @@ impl GraphSM {
         }
     }
 
+    /// Returns a reference to the Graph State Machine params.
+    pub const fn context(&self) -> &GraphSMCtx {
+        &self.context
+    }
+
     /// Returns a reference to the current state of the Graph State Machine.
     pub const fn state(&self) -> &GraphState {
         &self.state
@@ -106,5 +115,21 @@ impl GraphSM {
 
         let (game_graph, _) = GameGraph::new(graph_data);
         game_graph
+    }
+
+    /// Checks that the operator index exists, otherwise returns `GSMError::Rejected`.
+    pub(super) fn check_operator_idx<E>(&self, operator_idx: u32, inner_event: &E) -> GSMResult<()>
+    where
+        E: Clone + Into<GraphEvent>,
+    {
+        if self.context().operator_table().contains_idx(&operator_idx) {
+            Ok(())
+        } else {
+            Err(GSMError::rejected(
+                self.state().clone(),
+                inner_event.clone().into(),
+                format!("Operator index {} not in operator table", operator_idx),
+            ))
+        }
     }
 }
