@@ -51,8 +51,8 @@ pub fn random_p2tr_desc() -> Descriptor {
 /// Both [`test_fulfillment_tx`] and the `Assigned` state in TxClassifier tests must use the same
 /// recipient descriptor so that [`is_fulfillment`](crate::tx_classifier::is_fulfillment) can match
 /// the transaction against the state.
-pub fn test_recipient_desc() -> Descriptor {
-    let sk = SecretKey::from_slice(&[42u8; 32]).unwrap();
+pub fn test_recipient_desc(key_byte: u8) -> Descriptor {
+    let sk = SecretKey::from_slice(&[key_byte; 32]).unwrap();
     let pk = sk.public_key(SECP256K1).x_only_public_key().0;
     Descriptor::new_p2tr(&pk.serialize()).expect("valid descriptor")
 }
@@ -66,7 +66,7 @@ pub fn test_fulfillment_tx() -> Transaction {
         user_amount: TEST_DEPOSIT_AMOUNT - TEST_OPERATOR_FEE,
         magic_bytes: TEST_MAGIC_BYTES.into(),
     };
-    WithdrawalFulfillmentTx::new(data, test_recipient_desc()).into_unsigned_tx()
+    WithdrawalFulfillmentTx::new(data, test_recipient_desc(1)).into_unsigned_tx()
 }
 
 // ===== Transaction Fixtures =====
