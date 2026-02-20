@@ -17,6 +17,7 @@ pub mod errors;
 pub mod events_classifier;
 pub mod events_mux;
 pub mod events_router;
+pub mod persister;
 pub mod signals_router;
 pub mod sm_registry;
 pub mod sm_types;

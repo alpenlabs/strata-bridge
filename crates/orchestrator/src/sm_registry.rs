@@ -69,6 +69,18 @@ impl SMRegistry {
             .collect()
     }
 
+    /// Gets a reference to the deposit state machine identified by `id`, if it exists in the
+    /// registry.
+    pub fn get_deposit(&self, deposit_idx: &DepositIdx) -> Option<&DepositSM> {
+        self.deposits.get(deposit_idx)
+    }
+
+    /// Gets a reference to the graph state machine identified by `id`, if it exists in the
+    /// registry.
+    pub fn get_graph(&self, graph_idx: &GraphIdx) -> Option<&GraphSM> {
+        self.graphs.get(graph_idx)
+    }
+
     /// Checks if an ID is present in the registry.
     pub fn contains_id(&self, id: &SMId) -> bool {
         match id {
