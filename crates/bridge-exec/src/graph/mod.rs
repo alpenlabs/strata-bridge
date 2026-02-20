@@ -1,11 +1,13 @@
 //! This module contains the executors for performing duties emitted in the Graph State Machine
 //! transitions.
 
+mod uncontested;
+
 use std::sync::Arc;
 
 use strata_bridge_sm::graph::duties::GraphDuty;
 
-use crate::{config::ExecutionConfig, output_handles::OutputHandles};
+use crate::{config::ExecutionConfig, errors::ExecutorError, output_handles::OutputHandles};
 
 /// Executes the given graph duty.
 #[expect(unused_variables)]
@@ -13,22 +15,57 @@ pub async fn execute_graph_duty(
     cfg: Arc<ExecutionConfig>,
     output_handles: Arc<OutputHandles>,
     duty: &GraphDuty,
-) {
+) -> Result<(), ExecutorError> {
     match duty {
-        GraphDuty::VerifyAdaptors { .. } => {
-            todo!("VerifyAdaptors")
+        GraphDuty::VerifyAdaptors {
+            graph_idx,
+            watchtower_idx,
+            sighashes,
+        } => uncontested::verify_adaptors(*graph_idx, *watchtower_idx, sighashes).await,
+        GraphDuty::PublishGraphNonces {
+            graph_idx,
+            graph_inpoints,
+            graph_tweaks,
+            ordered_pubkeys,
+        } => {
+            uncontested::publish_graph_nonces(
+                &output_handles,
+                *graph_idx,
+                graph_inpoints,
+                graph_tweaks,
+                ordered_pubkeys,
+            )
+            .await
         }
-        GraphDuty::PublishGraphNonces { .. } => {
-            todo!("PublishGraphNonces")
+        GraphDuty::PublishGraphPartials {
+            graph_idx,
+            agg_nonces,
+            sighashes,
+            graph_inpoints,
+            graph_tweaks,
+            claim_txid,
+            ordered_pubkeys,
+        } => {
+            uncontested::publish_graph_partials(
+                &output_handles,
+                *graph_idx,
+                agg_nonces,
+                sighashes,
+                graph_inpoints,
+                graph_tweaks,
+                *claim_txid,
+                ordered_pubkeys,
+            )
+            .await
         }
-        GraphDuty::PublishGraphPartials { .. } => {
-            todo!("PublishGraphPartials")
+        GraphDuty::PublishClaim { signed_claim_tx } => {
+            uncontested::publish_claim(&output_handles, signed_claim_tx).await
         }
-        GraphDuty::PublishClaim { .. } => {
-            todo!("PublishClaim")
-        }
-        GraphDuty::PublishUncontestedPayout { .. } => {
-            todo!("PublishUncontestedPayout")
+        GraphDuty::PublishUncontestedPayout {
+            signed_uncontested_payout_tx,
+        } => {
+            uncontested::publish_uncontested_payout(&output_handles, signed_uncontested_payout_tx)
+                .await
         }
         GraphDuty::PublishContest { .. } => {
             todo!("PublishContest")

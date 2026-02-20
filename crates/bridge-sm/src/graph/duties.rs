@@ -1,7 +1,7 @@
 //! The duties that need to be performed in the Graph State Machine in response to the state
 //! transitions.
 
-use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
 use musig2::{AggNonce, secp256k1::Message};
 use strata_bridge_primitives::{
     mosaic::Labels,
@@ -21,7 +21,7 @@ pub enum GraphDuty {
         /// Wathchtower index to verify adaptors for.
         watchtower_idx: OperatorIdx,
 
-        /// Sighashes to verify adaptors against
+        /// Sighashes to verify adaptors against.
         sighashes: Vec<Message>,
     },
 
@@ -35,15 +35,15 @@ pub enum GraphDuty {
 
         /// The tweak required for taproot spend per input being signed.
         graph_tweaks: Vec<TaprootTweak>,
+
+        /// The ordered public keys of all operators for MuSig2 aggregation.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
 
     /// Publish partial signatures for graph signing.
     PublishGraphPartials {
-        /// The index of the deposit this graph is associated with.
-        deposit_idx: DepositIdx,
-
-        /// The index of the operator this graph belongs to.
-        operator_idx: OperatorIdx,
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
 
         /// Aggregated nonces to be used for partial signature generation.
         agg_nonces: Vec<AggNonce>,
@@ -59,6 +59,9 @@ pub enum GraphDuty {
 
         /// The txid of the claim transaction (must not exist on chain before signing).
         claim_txid: Txid,
+
+        /// The ordered public keys of all operators for MuSig2 aggregation.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
 
     /// Publish the claim transaction on-chain.
