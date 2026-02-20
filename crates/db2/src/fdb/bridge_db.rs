@@ -1174,7 +1174,8 @@ mod tests {
             Txid::from_slice(&bytes).unwrap()
         };
 
-        let partial_signatures: BTreeMap<OperatorIdx, taproot::Signature> = (0..N_OPERATORS as u32)
+        let _partial_signatures: BTreeMap<OperatorIdx, taproot::Signature> = (0..N_OPERATORS
+            as u32)
             .map(|i| {
                 let (secret_key, _) = SECP256K1.generate_keypair(&mut thread_rng());
                 let keypair = Keypair::from_secret_key(SECP256K1, &secret_key);

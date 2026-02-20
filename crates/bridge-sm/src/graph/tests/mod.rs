@@ -9,7 +9,6 @@ use bitcoin::{
     Amount, Network, OutPoint, ScriptBuf, Transaction,
     hashes::{Hash, sha256},
     relative,
-    taproot::Signature as TaprootSignature,
 };
 use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
 use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_xonly_pubkey};
