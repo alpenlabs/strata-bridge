@@ -14,8 +14,8 @@ use crate::{
         duties::GraphDuty,
         errors::{GSMError, GSMResult},
         events::{
-            AdaptorsVerifiedEvent, GraphDataGeneratedEvent, GraphNonceReceivedEvent,
-            GraphPartialReceivedEvent, WithdrawalAssignedEvent,
+            AdaptorsVerifiedEvent, FulfillmentConfirmedEvent, GraphDataGeneratedEvent,
+            GraphNonceReceivedEvent, GraphPartialReceivedEvent, WithdrawalAssignedEvent,
         },
         machine::{GSMOutput, GraphSM, generate_game_graph},
         state::GraphState,
@@ -592,6 +592,49 @@ impl GraphSM {
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 assignment_event.into(),
+                None,
+            )),
+        }
+    }
+
+    /// Processes the event where a fulfillment transaction has been confirmed on-chain.
+    ///
+    /// Transitions from [`GraphState::Assigned`] to [`GraphState::Fulfilled`].
+    /// Emits a [`GraphDuty::PublishClaim`] duty.
+    pub(crate) fn process_fulfillment(
+        &mut self,
+        cfg: Arc<GraphSMCfg>,
+        fulfillment: FulfillmentConfirmedEvent,
+    ) -> GSMResult<GSMOutput> {
+        match self.state() {
+            GraphState::Assigned {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                ..
+            } => {
+                // Generate the game graph to access the infos for duty emission
+                let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
+
+                self.state = GraphState::Fulfilled {
+                    last_block_height: *last_block_height,
+                    graph_data: *graph_data,
+                    graph_summary: graph_summary.clone(),
+                    fulfillment_txid: fulfillment.fulfillment_txid,
+                    fulfillment_block_height: fulfillment.fulfillment_block_height,
+                };
+
+                Ok(GSMOutput::with_duties(vec![GraphDuty::PublishClaim {
+                    claim_tx: game_graph.claim,
+                }]))
+            }
+            GraphState::Fulfilled { .. } => Err(GSMError::duplicate(
+                self.state().clone(),
+                fulfillment.into(),
+            )),
+            _ => Err(GSMError::invalid_event(
+                self.state().clone(),
+                fulfillment.into(),
                 None,
             )),
         }
