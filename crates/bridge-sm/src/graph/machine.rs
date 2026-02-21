@@ -54,7 +54,7 @@ impl StateMachine for GraphSM {
             GraphEvent::FulfillmentConfirmed(fulfillment) => {
                 self.process_fulfillment(cfg, fulfillment)
             }
-            GraphEvent::ClaimConfirmed(_claim) => todo!(),
+            GraphEvent::ClaimConfirmed(claim) => self.process_claim(claim),
             GraphEvent::ContestConfirmed(_contest) => todo!(),
             GraphEvent::BridgeProofConfirmed(_bridge_proof) => todo!(),
             GraphEvent::BridgeProofTimeoutConfirmed(_timeout) => todo!(),

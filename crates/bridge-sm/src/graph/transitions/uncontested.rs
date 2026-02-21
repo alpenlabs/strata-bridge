@@ -14,8 +14,9 @@ use crate::{
         duties::GraphDuty,
         errors::{GSMError, GSMResult},
         events::{
-            AdaptorsVerifiedEvent, FulfillmentConfirmedEvent, GraphDataGeneratedEvent,
-            GraphNonceReceivedEvent, GraphPartialReceivedEvent, WithdrawalAssignedEvent,
+            AdaptorsVerifiedEvent, ClaimConfirmedEvent, FulfillmentConfirmedEvent,
+            GraphDataGeneratedEvent, GraphNonceReceivedEvent, GraphPartialReceivedEvent,
+            WithdrawalAssignedEvent,
         },
         machine::{GSMOutput, GraphSM, generate_game_graph},
         state::GraphState,
@@ -635,6 +636,53 @@ impl GraphSM {
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 fulfillment.into(),
+                None,
+            )),
+        }
+    }
+
+    /// Processes the event where a claim transaction has been confirmed on-chain.
+    pub(crate) fn process_claim(&mut self, claim: ClaimConfirmedEvent) -> GSMResult<GSMOutput> {
+        match self.state() {
+            // Claim after fulfillment
+            GraphState::Fulfilled {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                fulfillment_txid,
+                fulfillment_block_height,
+            } => {
+                if claim.claim_txid != graph_summary.claim {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        claim.into(),
+                        "Invalid claim transaction",
+                    ));
+                }
+
+                self.state = GraphState::Claimed {
+                    last_block_height: *last_block_height,
+                    graph_data: *graph_data,
+                    graph_summary: graph_summary.clone(),
+                    fulfillment_txid: Some(*fulfillment_txid),
+                    fulfillment_block_height: Some(*fulfillment_block_height),
+                    claim_block_height: claim.claim_block_height,
+                };
+
+                Ok(GSMOutput::new())
+            }
+            // TODO: Faulty cases: claim without fulfillment
+            GraphState::Assigned { .. }
+            | GraphState::GraphSigned { .. }
+            | GraphState::NoncesCollected { .. } => {
+                todo!("STR-2192")
+            }
+            GraphState::Claimed { .. } => {
+                Err(GSMError::duplicate(self.state().clone(), claim.into()))
+            }
+            _ => Err(GSMError::invalid_event(
+                self.state().clone(),
+                claim.into(),
                 None,
             )),
         }
