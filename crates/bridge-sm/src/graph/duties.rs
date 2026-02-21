@@ -60,8 +60,8 @@ pub enum GraphDuty {
 
     /// Publish the claim transaction on-chain.
     PublishClaim {
-        /// The signed claim transaction to publish.
-        signed_claim_tx: Transaction,
+        /// The unsigned claim transaction to publish.
+        claim_tx: Transaction,
     },
 
     /// Publish the uncontested payout transaction.
