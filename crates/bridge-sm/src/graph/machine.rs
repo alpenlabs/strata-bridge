@@ -84,11 +84,18 @@ impl GraphSM {
     ///
     /// The state machine starts in [`GraphState::Created`] by constructing the
     /// initial [`GraphState`] via [`GraphState::new`].
-    pub const fn new(context: GraphSMCtx, block_height: BitcoinBlockHeight) -> Self {
-        Self {
+    pub fn new(context: GraphSMCtx, block_height: BitcoinBlockHeight) -> (Self, Option<GraphDuty>) {
+        let sm = Self {
             context,
             state: GraphState::new(block_height),
-        }
+        };
+
+        let is_mine = sm.context().operator_table().pov_idx() == sm.context().operator_idx();
+        let duty = is_mine.then(|| GraphDuty::GenerateGraphData {
+            graph_idx: sm.context().graph_idx(),
+        });
+
+        (sm, duty)
     }
 
     /// Returns a reference to the context of the Graph State Machine.
