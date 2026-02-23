@@ -2,6 +2,7 @@
 mod uncontested;
 pub(super) mod utils;
 
+mod notify_new_block;
 mod tx_classifier;
 
 use std::{num::NonZero, sync::Arc};
@@ -68,7 +69,12 @@ const _: () = assert!(TEST_NONPOV_IDX != TEST_POV_IDX);
 
 /// Number of operators used in test fixtures.
 pub(super) const N_TEST_OPERATORS: usize = 5;
-const CONTEST_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
+/// Block height at which the claim transaction was confirmed in tests.
+pub(super) const CLAIM_BLOCK_HEIGHT: u64 = 150;
+/// Contest timelock value in blocks.
+pub(super) const CONTEST_TIMELOCK_BLOCKS: u64 = 10;
+const CONTEST_TIMELOCK: relative::LockTime =
+    relative::LockTime::from_height(CONTEST_TIMELOCK_BLOCKS as u16);
 const PROOF_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
 const ACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
 const NACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
