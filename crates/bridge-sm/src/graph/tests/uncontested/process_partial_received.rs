@@ -16,6 +16,7 @@ mod tests {
                 utils::{NonceContext, build_nonce_context, build_partial_signatures},
             },
         },
+        signals::{GraphSignal, GraphToDeposit},
         testing::transition::EventSequence,
     };
 
@@ -122,7 +123,12 @@ mod tests {
         }
 
         assert!(seq.all_duties().is_empty());
-        assert!(seq.all_signals().is_empty());
+        assert!(matches!(
+            seq.all_signals().as_slice(),
+            [GraphSignal::ToDeposit(
+                GraphToDeposit::GraphAvailable { .. }
+            )]
+        ));
     }
 
     #[test]

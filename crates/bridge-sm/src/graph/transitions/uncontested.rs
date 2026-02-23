@@ -8,16 +8,19 @@ use musig2::{
 use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootTweak};
 use strata_bridge_tx_graph2::{game_graph::DepositParams, musig_functor::GameFunctor};
 
-use crate::graph::{
-    config::GraphSMCfg,
-    duties::GraphDuty,
-    errors::{GSMError, GSMResult},
-    events::{
-        AdaptorsVerifiedEvent, GraphDataGeneratedEvent, GraphNonceReceivedEvent,
-        GraphPartialReceivedEvent,
+use crate::{
+    graph::{
+        config::GraphSMCfg,
+        duties::GraphDuty,
+        errors::{GSMError, GSMResult},
+        events::{
+            AdaptorsVerifiedEvent, GraphDataGeneratedEvent, GraphNonceReceivedEvent,
+            GraphPartialReceivedEvent,
+        },
+        machine::{GSMOutput, GraphSM, generate_game_graph},
+        state::GraphState,
     },
-    machine::{GSMOutput, GraphSM, generate_game_graph},
-    state::GraphState,
+    signals::{GraphSignal, GraphToDeposit},
 };
 
 impl GraphSM {
@@ -441,7 +444,13 @@ impl GraphSM {
                         graph_data: *graph_data,
                         graph_summary: graph_summary.clone(),
                         signatures: agg_sigs.clone(),
-                    }
+                    };
+
+                    return Ok(GSMOutput::with_signals(vec![GraphSignal::ToDeposit(
+                        GraphToDeposit::GraphAvailable {
+                            operator_idx: graph_ctx.operator_idx(),
+                        },
+                    )]));
                 }
 
                 Ok(GSMOutput::default())
