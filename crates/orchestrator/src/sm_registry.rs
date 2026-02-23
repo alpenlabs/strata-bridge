@@ -49,6 +49,15 @@ impl SMRegistry {
         }
     }
 
+    /// Gets a reference to the registry configuration.
+    pub const fn cfg(&self) -> &SMConfig {
+        &self.cfg
+    }
+
+    /// Gets the total number of deposit state machines currently in the registry.
+    pub fn num_deposits(&self) -> usize {
+        self.deposits.len()
+    }
     /// Gets a list of IDs of all deposit state machines currently in the registry.
     pub fn get_deposit_ids(&self) -> Vec<DepositIdx> {
         self.deposits.keys().copied().collect()
@@ -78,6 +87,16 @@ impl SMRegistry {
     /// registry.
     pub fn get_graph(&self, graph_idx: &GraphIdx) -> Option<&GraphSM> {
         self.graphs.get(graph_idx)
+    }
+
+    /// Returns an iterator over all deposit state machines and their indices.
+    pub fn deposits(&self) -> impl Iterator<Item = (&DepositIdx, &DepositSM)> {
+        self.deposits.iter()
+    }
+
+    /// Returns an iterator over all graph state machines and their indices.
+    pub fn graphs(&self) -> impl Iterator<Item = (&GraphIdx, &GraphSM)> {
+        self.graphs.iter()
     }
 
     /// Checks if an ID is present in the registry.

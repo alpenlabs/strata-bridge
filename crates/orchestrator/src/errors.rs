@@ -1,5 +1,6 @@
 //! Error types for the orchestrator crate.
 
+use strata_bridge_db2::traits::BridgeDb;
 use strata_bridge_sm::{signals::Signal, state_machine::SMOutput};
 use thiserror::Error;
 
@@ -33,6 +34,18 @@ pub enum ProcessError {
     /// longer relevant.
     #[error("Event {1} was rejected by state machine with id {0}: {2}")]
     EventRejected(SMId, SMEvent, String),
+}
+
+/// Fatal error from the pipeline main loop.
+#[derive(Debug, Error)]
+pub enum PipelineError<Db: BridgeDb> {
+    /// A fatal error occurred while processing an event through a state machine.
+    #[error("process error: {0}")]
+    Process(#[from] ProcessError),
+
+    /// A fatal error occurred while persisting state to disk.
+    #[error("persist error: {0}")]
+    Persist(#[from] PersistError<Db>),
 }
 
 /// Unified output from processing an event through any state machine.
