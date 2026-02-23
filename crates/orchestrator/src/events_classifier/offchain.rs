@@ -1,6 +1,5 @@
-//! This component classifies external events into those expected by specific state machines.
-
-use std::{fmt::Display, ops::Deref};
+//! Classification of off-chain events (P2P gossip, requests, assignments) into state-machine-
+//! specific events.
 
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
@@ -12,78 +11,45 @@ use strata_bridge_sm::{
 };
 use tracing::warn;
 
-use crate::{events_mux::UnifiedEvent, sm_registry::SMRegistry, sm_types::OperatorKey};
+use crate::{
+    events_mux::UnifiedEvent,
+    sm_registry::SMRegistry,
+    sm_types::{OperatorKey, SMEvent, SMId},
+};
 
-/// Wrapper for state-machine-specific events.
-#[derive(Debug, Clone)]
-pub enum SMEvent {
-    /// An event related to the deposit state machine.
-    Deposit(Box<DepositEvent>),
-    /// An event related to the graph state machine.
-    Graph(Box<GraphEvent>),
-}
-
-impl Deref for SMEvent {
-    type Target = dyn std::fmt::Debug;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            SMEvent::Deposit(event) => event,
-            SMEvent::Graph(event) => event,
-        }
-    }
-}
-
-impl Display for SMEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SMEvent::Deposit(event) => write!(f, "DepositEvent({event})"),
-            SMEvent::Graph(event) => write!(f, "GraphEvent({event})"),
-        }
-    }
-}
-
-impl From<DepositEvent> for SMEvent {
-    fn from(event: DepositEvent) -> Self {
-        SMEvent::Deposit(Box::new(event))
-    }
-}
-
-impl From<GraphEvent> for SMEvent {
-    fn from(event: GraphEvent) -> Self {
-        SMEvent::Graph(Box::new(event))
-    }
-}
-
-/// Classifies the unified event into events specific to the state machines, if applicable.
-#[expect(dead_code)]
-fn classify(event: &UnifiedEvent, sm_registry: &SMRegistry) -> Vec<SMEvent> {
+/// Classifies a unified event into the typed event for a specific state machine.
+///
+/// Returns `None` if the event is not applicable to the given SM (e.g., wrong SM type, or the
+/// event doesn't carry data for this SM's deposit/graph index).
+pub(crate) fn classify(
+    sm_id: &SMId,
+    event: &UnifiedEvent,
+    sm_registry: &SMRegistry,
+) -> Option<SMEvent> {
     match event {
         UnifiedEvent::OuroborosMessage(msg) => {
             classify_unsigned_gossip(sm_registry, &OperatorKey::Pov, msg)
+                .into_iter()
+                .next()
         }
-
-        UnifiedEvent::OuroborosRequest(_p2p_request) => unimplemented!("see STR-2329"),
-
-        UnifiedEvent::Shutdown(_sender) => vec![], // not state-machine related
-
-        UnifiedEvent::Block(_block_event) => vec![], // classified via `TxClassifier`
-
-        UnifiedEvent::Assignment(entries) => classify_assignments(entries),
 
         UnifiedEvent::GossipMessage(gossipsub_msg) => classify_unsigned_gossip(
             sm_registry,
             &OperatorKey::Peer(&gossipsub_msg.key),
             &gossipsub_msg.unsigned,
-        ),
+        )
+        .into_iter()
+        .next(),
 
-        UnifiedEvent::ReqRespRequest {
-            request: _,
-            peer: _,
-        } => unimplemented!("see STR-2329"),
+        // technically an on-chain event but classified here since it's emitted by the ASM and
+        // consumed by the SMs without any direct on-chain interaction
+        UnifiedEvent::Assignment(entries) => classify_assignment(sm_id, entries),
 
+        UnifiedEvent::Block(_) | UnifiedEvent::Shutdown(_) => None,
+
+        UnifiedEvent::OuroborosRequest(_) => unimplemented!("see STR-2329"),
+        UnifiedEvent::ReqRespRequest { .. } => unimplemented!("see STR-2329"),
         UnifiedEvent::NagTick => unimplemented!("see STR-2329"),
-
         UnifiedEvent::RetryTick => unimplemented!("see STR-2329"),
     }
 }
@@ -92,7 +58,7 @@ fn classify(event: &UnifiedEvent, sm_registry: &SMRegistry) -> Vec<SMEvent> {
 ///
 /// Both the ouroboros (self-published) and gossip (peer-received) paths use this function,
 /// differing only in how the operator is identified via [`OperatorKey`].
-fn classify_unsigned_gossip(
+pub(crate) fn classify_unsigned_gossip(
     sm_registry: &SMRegistry,
     key: &OperatorKey<'_>,
     msg: &UnsignedGossipsubMsg,
@@ -277,28 +243,31 @@ fn classify_unsigned_gossip(
     }
 }
 
-/// Classifies assignment entries into state-machine-specific events.
-fn classify_assignments(entries: &[AssignmentEntry]) -> Vec<SMEvent> {
-    entries
-        .iter()
-        .map::<(SMEvent, SMEvent), _>(|entry| {
-            // assignments are relevant to both the deposit and graph state machines, so we emit
-            // events for both
-            (
+/// Classifies an assignment entry into the typed event for a specific SM.
+///
+/// Each assignment is relevant to both the deposit and graph SMs, but this function returns only
+/// the event matching `sm_id`'s type, paired with the entry whose `deposit_idx` matches.
+fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEvent> {
+    match sm_id {
+        SMId::Deposit(deposit_idx) => entries.iter().find_map(|entry| {
+            (entry.deposit_idx() == *deposit_idx).then(|| {
                 DepositEvent::WithdrawalAssigned(DepositEvents::WithdrawalAssignedEvent {
                     assignee: entry.current_assignee(),
                     deadline: entry.fulfillment_deadline(),
                     recipient_desc: entry.withdrawal_command().destination().clone(),
                 })
-                .into(),
+                .into()
+            })
+        }),
+        SMId::Graph(graph_idx) => entries.iter().find_map(|entry| {
+            (entry.deposit_idx() == graph_idx.deposit).then(|| {
                 GraphEvent::WithdrawalAssigned(GraphEvents::WithdrawalAssignedEvent {
                     assignee: entry.current_assignee(),
                     deadline: entry.fulfillment_deadline(),
                     recipient_desc: entry.withdrawal_command().destination().clone(),
                 })
-                .into(),
-            )
-        })
-        .flat_map(|(deposit_event, graph_event)| vec![deposit_event, graph_event])
-        .collect()
+                .into()
+            })
+        }),
+    }
 }
