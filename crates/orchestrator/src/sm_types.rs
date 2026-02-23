@@ -91,3 +91,14 @@ pub enum UnifiedDuty {
     /// A duty related to the game graph.
     Graph(GraphDuty),
 }
+
+impl From<DepositDuty> for UnifiedDuty {
+    fn from(duty: DepositDuty) -> Self {
+        UnifiedDuty::Deposit(duty)
+    }
+}
+impl From<GraphDuty> for UnifiedDuty {
+    fn from(duty: GraphDuty) -> Self {
+        UnifiedDuty::Graph(duty)
+    }
+}

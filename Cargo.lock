@@ -10265,18 +10265,21 @@ dependencies = [
 name = "strata-bridge-orchestrator"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "bitcoin-bosd",
  "btc-tracker",
  "futures",
  "musig2",
  "rkyv",
  "strata-asm-proto-bridge-v1",
+ "strata-asm-txs-bridge-v1",
  "strata-bridge-db2",
  "strata-bridge-exec",
  "strata-bridge-p2p-types2",
  "strata-bridge-p2p-wire",
  "strata-bridge-primitives",
  "strata-bridge-sm",
+ "strata-bridge-tx-graph2",
  "strata-p2p",
  "thiserror 2.0.17",
  "tokio",
