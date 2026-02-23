@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bitcoin::relative;
+use bitcoin::relative::LockTime;
 use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph2::musig_functor::GameFunctor;
 
@@ -72,8 +72,8 @@ impl GraphSM {
                 *last_block_height = new_block_event.block_height;
 
                 let contest_timeout = match cfg.game_graph_params.contest_timelock {
-                    relative::LockTime::Blocks(h) => h.value() as BitcoinBlockHeight,
-                    relative::LockTime::Time(_) => {
+                    LockTime::Blocks(h) => h.value() as BitcoinBlockHeight,
+                    LockTime::Time(_) => {
                         return Err(GSMError::rejected(
                             self.state().clone(),
                             new_block_event.into(),
@@ -84,12 +84,10 @@ impl GraphSM {
 
                 if new_block_event.block_height > claim_height + contest_timeout {
                     let game_graph = generate_game_graph(&cfg, &graph_ctx, graph_data);
-                    let uncontested_signatures = GameFunctor::unpack(
-                        signatures.clone(),
-                        graph_ctx.operator_table().cardinality(),
-                    )
-                    .expect("Failed to retrieve uncontested payout signatures")
-                    .uncontested_payout;
+                    let uncontested_signatures =
+                        GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+                            .expect("Failed to retrieve uncontested payout signatures")
+                            .uncontested_payout;
 
                     let signed_uncontested_payout_tx = game_graph
                         .uncontested_payout
