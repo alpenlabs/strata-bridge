@@ -54,7 +54,7 @@ mod tests {
             from_state: state,
             event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
                 operator_idx: TEST_POV_IDX,
-                nonces: operator_nonces,
+                pubnonces: operator_nonces,
             }),
             expected_state: GraphState::AdaptorsVerified {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -89,7 +89,7 @@ mod tests {
                 cfg.clone(),
                 GraphEvent::NonceReceived(GraphNonceReceivedEvent {
                     operator_idx: signer.operator_idx(),
-                    nonces,
+                    pubnonces: nonces,
                 }),
             );
         }
@@ -133,7 +133,7 @@ mod tests {
             from_state: state,
             event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
                 operator_idx: TEST_POV_IDX,
-                nonces: operator_nonces,
+                pubnonces: operator_nonces,
             }),
             expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
         });
@@ -158,7 +158,7 @@ mod tests {
             from_state: state,
             event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
                 operator_idx: u32::MAX,
-                nonces: operator_nonces,
+                pubnonces: operator_nonces,
             }),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
@@ -185,7 +185,7 @@ mod tests {
             from_state: state.clone(),
             event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
                 operator_idx: TEST_POV_IDX,
-                nonces: vec![],
+                pubnonces: vec![],
             }),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
@@ -195,7 +195,7 @@ mod tests {
             from_state: state,
             event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
                 operator_idx: TEST_POV_IDX,
-                nonces: operator_nonces,
+                pubnonces: operator_nonces,
             }),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
@@ -227,7 +227,7 @@ mod tests {
             from_state: state,
             event: GraphEvent::NonceReceived(GraphNonceReceivedEvent {
                 operator_idx: TEST_POV_IDX,
-                nonces: operator_nonces,
+                pubnonces: operator_nonces,
             }),
             expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
         });
