@@ -2254,32 +2254,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bridge-exec"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "bitcoin-bosd",
- "bitcoind-async-client",
- "btc-tracker",
- "futures",
- "musig2",
- "operator-wallet",
- "secret-service-client",
- "secret-service-proto",
- "strata-bridge-connectors2",
- "strata-bridge-p2p-service",
- "strata-bridge-p2p-types2",
- "strata-bridge-primitives",
- "strata-bridge-sm",
- "strata-bridge-tx-graph2",
- "strata-l1-txfmt",
- "terrors",
- "thiserror 2.0.17",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "bs58"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10243,6 +10217,32 @@ dependencies = [
  "strata-bridge-tx-graph2",
  "terrors",
  "tokio",
+]
+
+[[package]]
+name = "strata-bridge-exec"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "bitcoin-bosd",
+ "bitcoind-async-client",
+ "btc-tracker",
+ "futures",
+ "musig2",
+ "operator-wallet",
+ "secret-service-client",
+ "secret-service-proto",
+ "strata-bridge-connectors2",
+ "strata-bridge-p2p-service",
+ "strata-bridge-p2p-types2",
+ "strata-bridge-primitives",
+ "strata-bridge-sm",
+ "strata-bridge-tx-graph2",
+ "strata-l1-txfmt",
+ "terrors",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
