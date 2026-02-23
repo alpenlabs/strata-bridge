@@ -25,23 +25,7 @@ The following is the transaction graph that has been implemented in this reposit
 
 ### Prerequisites
 
--   [cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html).
--   [SP1 Toolchain](https://docs.succinct.xyz/docs/sp1/getting-started/install) and associated [linkers](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/tag/v14.2.0-2).
-    -   Install the SP1 toolchain: `curl -L https://sp1up.succinct.xyz | bash`
-    -   After installation, run `sp1up` to complete the setup
--   Credentials to connect to SP1's [infra](https://explorer.succinct.xyz).
--   [Docker](https://docs.docker.com/get-docker/).
--   [`sqlx-cli`](https://lib.rs/crates/sqlx-cli) to run database migrations.
--   [`bitcoind`](https://bitcoin.org/en/download) to run the unit tests.
--   [`just`](https://just.systems/) to run the commands in this repository.
-
-We also provide a [`flake.nix`](flake.nix) with a `devShell` with all the dependencies
-necessary for local development.
-Install [Nix](https://nixos.org) and run:
-
-```sh
-nix develop
-```
+See [`CONTRIBUTING.md`](/CONTRIBUTING.md#development-tools).
 
 ### Running
 
