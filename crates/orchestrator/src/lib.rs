@@ -13,6 +13,7 @@
 //! - Driving state machines that implement the core business-logic of the bridge.
 //! - Providing a channel of communication between the various state machines in the bridge.
 
+pub mod duty_dispatcher;
 pub mod errors;
 pub mod events_classifier;
 pub mod events_mux;
