@@ -13,8 +13,7 @@ use strata_bridge_sm::{
 
 use crate::{
     errors::{ProcessError, ProcessResult},
-    events_classifier::SMEvent,
-    sm_types::{OperatorKey, SMId, UnifiedDuty},
+    sm_types::{OperatorKey, SMEvent, SMId, UnifiedDuty},
 };
 
 /// Static configuration shared by all state machines.

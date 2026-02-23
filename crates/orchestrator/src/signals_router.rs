@@ -6,7 +6,7 @@ use strata_bridge_sm::{
     signals::{DepositSignal, DepositToGraph, GraphSignal, GraphToDeposit, Signal},
 };
 
-use crate::{events_classifier::SMEvent, sm_registry::SMRegistry, sm_types::SMId};
+use crate::{sm_registry::SMRegistry, sm_types::{SMEvent, SMId}};
 
 /// Routes a given signal to the appropriate state machine(s) based on the provided registry and
 /// returns a mapping of state machine IDs to the events that should be processed by those state

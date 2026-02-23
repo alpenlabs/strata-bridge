@@ -4,8 +4,8 @@ use strata_bridge_sm::{signals::Signal, state_machine::SMOutput};
 use thiserror::Error;
 
 use crate::{
-    events_classifier::SMEvent,
-    sm_types::{SMId, UnifiedDuty},
+    persister::PersistError,
+    sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
 /// Error emitted when processing events for a state machine.
