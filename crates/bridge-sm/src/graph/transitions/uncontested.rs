@@ -195,7 +195,6 @@ impl GraphSM {
         // Extract context values before the match to avoid borrow conflicts
         let graph_ctx = self.context().clone();
         let operator_table_cardinality = self.context().operator_table().cardinality();
-        let num_nonces = nonce_received_event.nonces.len();
 
         match self.state_mut() {
             GraphState::AdaptorsVerified {
@@ -234,17 +233,20 @@ impl GraphSM {
 
                 // Check if we have collected all nonces
                 if pubnonces.len() == operator_table_cardinality {
-                    // For each nonce position, collect that nonce from every operator
-                    // and aggregate them into a single `AggNonce`.
-                    let agg_nonces: Vec<_> = (0..num_nonces)
-                        .map(|nonce_idx| {
-                            let nonces_for_agg: Vec<_> = pubnonces
-                                .values()
-                                .map(|nonces| nonces[nonce_idx].clone())
-                                .collect();
-                            AggNonce::sum(nonces_for_agg)
-                        })
-                        .collect();
+                    // Convert each operator's packed nonce vector into a game-shaped functor,
+                    // then aggregate nonces per signing position.
+                    let agg_nonces: Vec<AggNonce> = GameFunctor::sequence_functor(
+                        pubnonces
+                            .values()
+                            .cloned()
+                            .map(|nonces| {
+                                GameFunctor::unpack(nonces, cfg.watchtower_pubkeys.len())
+                                    .expect("nonces were validated on insert")
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .map(AggNonce::sum)
+                    .pack();
 
                     // Generate the game graph to access the infos for duty emission
                     let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
@@ -339,7 +341,7 @@ impl GraphSM {
                 // Validate that the provided partial signatures correctly fill the game graph for
                 // this context.
                 if GameFunctor::unpack(
-                    partial_received_event.partial_sigs.clone(),
+                    partial_received_event.partial_signatures.clone(),
                     cfg.watchtower_pubkeys.len(),
                 )
                 .is_none()
@@ -355,18 +357,33 @@ impl GraphSM {
                 // Generate the game graph to access signing infos for verification
                 let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
                 let signing_infos = game_graph.musig_signing_info().pack();
-
                 let operator_pubnonces = pubnonces
                     .get(&partial_received_event.operator_idx)
                     .expect("all operator must have submitted the pub nonce");
-
                 let btc_keys: Vec<_> = graph_ctx.operator_table().btc_keys().into_iter().collect();
-                for (i, (((signing_info, partial_sig), agg_nonce), op_pubnonce)) in signing_infos
-                    .iter()
-                    .zip(partial_received_event.partial_sigs.iter())
-                    .zip(agg_nonces.iter())
-                    .zip(operator_pubnonces.iter())
-                    .enumerate()
+                let n_watchtowers = cfg.watchtower_pubkeys.len();
+                for (i, (signing_info, partial_sig, agg_nonce, op_pubnonce)) in GameFunctor::zip4(
+                    GameFunctor::unpack(signing_infos.iter().collect::<Vec<_>>(), n_watchtowers)
+                        .expect("signing infos are generated from game graph"),
+                    GameFunctor::unpack(
+                        partial_received_event
+                            .partial_signatures
+                            .iter()
+                            .collect::<Vec<_>>(),
+                        n_watchtowers,
+                    )
+                    .expect("validated above"),
+                    GameFunctor::unpack(agg_nonces.iter().collect::<Vec<_>>(), n_watchtowers)
+                        .expect("agg nonces are derived from valid operator nonces"),
+                    GameFunctor::unpack(
+                        operator_pubnonces.iter().collect::<Vec<_>>(),
+                        n_watchtowers,
+                    )
+                    .expect("nonces were validated on insert"),
+                )
+                .pack()
+                .into_iter()
+                .enumerate()
                 {
                     let key_agg_ctx = create_agg_ctx(btc_keys.iter().copied(), &signing_info.tweak)
                         .expect("must be able to create key aggregation context");
@@ -392,7 +409,7 @@ impl GraphSM {
                 // Collect the verified partial signatures
                 partial_signatures.insert(
                     partial_received_event.operator_idx,
-                    partial_received_event.partial_sigs,
+                    partial_received_event.partial_signatures,
                 );
 
                 // Check if we have collected all partial signatures
