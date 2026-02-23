@@ -104,16 +104,22 @@ they may help you effectively contribute.
 Please install the following tools in your development environment to make sure that
 you can run the basic CI checks in your local environment:
 
+- [cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html).
+- [SP1 Toolchain](https://docs.succinct.xyz/docs/sp1/getting-started/install) and associated [linkers](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/tag/v14.2.0-2).
+    - Install the SP1 toolchain: `curl -L https://sp1up.succinct.xyz | bash`
+    - After installation, run `sp1up` to complete the setup
 - [`taplo`](https://taplo.tamasfe.dev/cli/installation/binary.html):
   used to lint and format `TOML` files.
 - [`codespell`](https://github.com/codespell-project/codespell):
   used to check for common misspellings in code.
-- [`just`](https://just.systems):
-  RIP `Makefile`s.
+- [`just`](https://just.systems) to run the commands in this repository.
 - [`cargo-nextest`](https://nexte.st):
   modern test runner for Rust.
 - [`cargo-audit`](https://docs.rs/cargo-audit/latest/cargo_audit/):
   tool to check `Cargo.lock` files for security vulnerabilities.
+- [Docker](https://docs.docker.com/get-docker/).
+- [`sqlx-cli`](https://lib.rs/crates/sqlx-cli) to run database migrations.
+- [`bitcoind`](https://bitcoin.org/en/download) to run the unit tests.
 
 ### FoundationDB
 
@@ -123,6 +129,8 @@ The `db2` crate requires [FoundationDB](https://apple.github.io/foundationdb/):
   for connecting to the database.
 - **Server**: Required at runtime. A FoundationDB server must be available to connect to
   (either locally or remotely).
+
+FoundationDB is not available in package managers. You have to do a manual install.
 
 **Client Package** (required for compilation and runtime):
 
