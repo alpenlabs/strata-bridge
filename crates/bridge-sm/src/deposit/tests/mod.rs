@@ -92,6 +92,8 @@ const BIP34_MIN_BLOCK_HEIGHT: u64 = 17;
 const TEST_ASSIGNMENT_DEADLINE_OFFSET: u64 = 15;
 /// Cooperative payout timelock (in blocks) used for tests.
 const TEST_COOPERATIVE_PAYOUT_TIMELOCK: u64 = 1008;
+/// Recovery delay (in blocks) used in tests.
+pub(super) const TEST_RECOVERY_DELAY: u16 = 1008;
 
 // ===== Configuration Helpers =====
 
@@ -105,6 +107,7 @@ pub(super) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
         deposit_amount: TEST_DEPOSIT_AMOUNT,
         operator_fee: TEST_OPERATOR_FEE,
         magic_bytes,
+        recovery_delay: TEST_RECOVERY_DELAY,
     })
 }
 
