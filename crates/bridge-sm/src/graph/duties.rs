@@ -14,6 +14,14 @@ use zkaleido::ProofReceipt;
 /// The duties that need to be performed to drive the Graph State Machine forward.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphDuty {
+    /// Generate the data required to generate the graph.
+    ///
+    /// Generation of these data require communicating with external service in an effectful way.
+    GenerateGraphData {
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
+    },
+
     /// Verify the adaptor signatures for the generated graph.
     VerifyAdaptors {
         /// The index of the graph this duty is associated with.
@@ -148,6 +156,7 @@ pub enum GraphDuty {
 impl std::fmt::Display for GraphDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
+            GraphDuty::GenerateGraphData { .. } => "GenerateGraphData".to_string(),
             GraphDuty::VerifyAdaptors { .. } => "VerifyAdaptors".to_string(),
             GraphDuty::PublishGraphNonces { .. } => "PublishGraphNonces".to_string(),
             GraphDuty::PublishGraphPartials { .. } => "PublishGraphPartials".to_string(),
