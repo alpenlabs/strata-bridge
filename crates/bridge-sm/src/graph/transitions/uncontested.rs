@@ -216,7 +216,7 @@ impl GraphSM {
 
                 // Validate that the provided nonces correctly fill the game graph for this context.
                 if GameFunctor::unpack(
-                    nonce_received_event.nonces.clone(),
+                    nonce_received_event.pubnonces.clone(),
                     cfg.watchtower_pubkeys.len(),
                 )
                 .is_none()
@@ -231,7 +231,7 @@ impl GraphSM {
                 // Insert the new nonce into the map
                 pubnonces.insert(
                     nonce_received_event.operator_idx,
-                    nonce_received_event.nonces,
+                    nonce_received_event.pubnonces,
                 );
 
                 // Check if we have collected all nonces

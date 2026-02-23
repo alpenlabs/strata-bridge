@@ -32,7 +32,7 @@ pub struct GraphNonceReceivedEvent {
     pub operator_idx: OperatorIdx,
 
     /// The public nonces from this operator.
-    pub nonces: Vec<PubNonce>,
+    pub pubnonces: Vec<PubNonce>,
 }
 
 /// Event notifying that a partial-signature bundle for the graph has been received from an
