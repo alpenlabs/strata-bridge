@@ -62,7 +62,7 @@ impl StateMachine for GraphSM {
             GraphEvent::CounterProofAckConfirmed(_ack) => todo!(),
             GraphEvent::CounterProofNackConfirmed(_nack) => todo!(),
             GraphEvent::SlashConfirmed(_slash) => todo!(),
-            GraphEvent::PayoutConfirmed(_payout) => todo!(),
+            GraphEvent::PayoutConfirmed(payout) => self.process_payout(payout),
             GraphEvent::PayoutConnectorSpent(_connector_spent) => todo!(),
             GraphEvent::NewBlock(new_block) => self.notify_new_block(cfg, new_block),
         }
