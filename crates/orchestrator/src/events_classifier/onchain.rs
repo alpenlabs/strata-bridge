@@ -194,7 +194,8 @@ fn classify_tx_for_all_sms(
             sm.classify_tx(deposit_cfg, tx, height)
                 .map(|ev| (deposit_idx.into(), ev.into()))
         })
-        .chain(registry.graphs().filter_map(|(&graph_idx, sm)| {
+        .chain(registry.graphs().filter_map(|sm| {
+            let graph_idx = sm.context().graph_idx();
             sm.classify_tx(graph_cfg, tx, height)
                 .map(|ev| (graph_idx.into(), ev.into()))
         }))

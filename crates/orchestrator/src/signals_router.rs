@@ -22,10 +22,9 @@ pub fn route_signal(registry: &SMRegistry, signal: Signal) -> Vec<(SMId, SMEvent
                     let event: SMEvent = GraphEvent::DepositMessage(msg).into();
 
                     registry
-                        .get_graph_ids()
+                        .get_graphs_by_deposit(&deposit_idx)
                         .into_iter()
-                        .filter(|graph_id| graph_id.deposit == deposit_idx)
-                        .map(|graph_id| (graph_id.into(), event.clone()))
+                        .map(|gsm| (gsm.context().graph_idx().into(), event.clone()))
                         .collect()
                 }
             },
@@ -37,10 +36,9 @@ pub fn route_signal(registry: &SMRegistry, signal: Signal) -> Vec<(SMId, SMEvent
                     let event: SMEvent = DepositEvent::GraphMessage(msg).into();
 
                     registry
-                        .get_deposit_ids()
+                        .get_deposit(&deposit_idx)
+                        .map(|dsm| (dsm.context().deposit_idx().into(), event.clone()))
                         .into_iter()
-                        .filter(|idx| *idx == deposit_idx)
-                        .map(|deposit_id| (deposit_id.into(), event.clone()))
                         .collect()
                 }
             },

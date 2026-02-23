@@ -33,7 +33,7 @@ pub struct SMRegistry {
     /// The state machines responsible for processing deposits, indexed by their deposit index.
     deposits: BTreeMap<DepositIdx, DepositSM>,
     /// The state machines responsible for processing graphs, indexed by their graph index.
-    graphs: BTreeMap<GraphIdx, GraphSM>,
+    graphs: BTreeMap<DepositIdx, BTreeMap<OperatorIdx, GraphSM>>,
 }
 
 impl SMRegistry {
@@ -61,9 +61,27 @@ impl SMRegistry {
         self.deposits.keys().copied().collect()
     }
 
+    /// Gets a list of IDs of all operator graph state machines currently in the registry by their
+    /// [`DepositIdx`].
+    pub fn get_graphs_by_deposit(&self, deposit_idx: &DepositIdx) -> Vec<&GraphSM> {
+        self.graphs
+            .get(deposit_idx)
+            .into_iter()
+            .flat_map(|operator_map| operator_map.values())
+            .collect()
+    }
+
     /// Gets a list of IDs of all graph state machines currently in the registry.
     pub fn get_graph_ids(&self) -> Vec<GraphIdx> {
-        self.graphs.keys().copied().collect()
+        self.graphs
+            .iter()
+            .flat_map(|(deposit_idx, operator_map)| {
+                operator_map.keys().map(move |operator_idx| GraphIdx {
+                    deposit: *deposit_idx,
+                    operator: *operator_idx,
+                })
+            })
+            .collect()
     }
 
     /// Gets the IDs of all the state machines currently in the registry.
@@ -71,7 +89,14 @@ impl SMRegistry {
         self.deposits
             .keys()
             .map(|deposit_idx| SMId::Deposit(*deposit_idx))
-            .chain(self.graphs.keys().map(|graph_idx| SMId::Graph(*graph_idx)))
+            .chain(self.graphs.iter().flat_map(|(deposit_idx, operator_map)| {
+                operator_map.keys().map(move |operator_idx| {
+                    SMId::Graph(GraphIdx {
+                        deposit: *deposit_idx,
+                        operator: *operator_idx,
+                    })
+                })
+            }))
             .collect()
     }
 
@@ -84,7 +109,9 @@ impl SMRegistry {
     /// Gets a reference to the graph state machine identified by `id`, if it exists in the
     /// registry.
     pub fn get_graph(&self, graph_idx: &GraphIdx) -> Option<&GraphSM> {
-        self.graphs.get(graph_idx)
+        self.graphs
+            .get(&graph_idx.deposit)?
+            .get(&graph_idx.operator)
     }
 
     /// Returns an iterator over all deposit state machines and their indices.
@@ -93,15 +120,20 @@ impl SMRegistry {
     }
 
     /// Returns an iterator over all graph state machines and their indices.
-    pub fn graphs(&self) -> impl Iterator<Item = (&GraphIdx, &GraphSM)> {
-        self.graphs.iter()
+    pub fn graphs(&self) -> impl Iterator<Item = &GraphSM> {
+        self.graphs
+            .values()
+            .flat_map(|operator_map| operator_map.values())
     }
 
     /// Checks if an ID is present in the registry.
     pub fn contains_id(&self, id: &SMId) -> bool {
         match id {
             SMId::Deposit(deposit_idx) => self.deposits.contains_key(deposit_idx),
-            SMId::Graph(graph_idx) => self.graphs.contains_key(graph_idx),
+            SMId::Graph(graph_idx) => self
+                .graphs
+                .get(&graph_idx.deposit)
+                .is_some_and(|operator_map| operator_map.contains_key(&graph_idx.operator)),
         }
     }
 
@@ -116,7 +148,10 @@ impl SMRegistry {
     ///
     /// If a state machine with the same [`GraphIdx`] already exists, it will be overwritten.
     pub fn insert_graph(&mut self, graph_idx: GraphIdx, sm: GraphSM) {
-        self.graphs.insert(graph_idx, sm);
+        self.graphs
+            .entry(graph_idx.deposit)
+            .or_default()
+            .insert(graph_idx.operator, sm);
     }
 
     /// Looks up the state machine identified by `id` and resolves the operator index using the
@@ -126,7 +161,12 @@ impl SMRegistry {
     pub fn lookup_operator(&self, id: &SMId, key: &OperatorKey<'_>) -> Option<OperatorIdx> {
         let table = match id {
             SMId::Deposit(idx) => self.deposits.get(idx)?.context().operator_table(),
-            SMId::Graph(idx) => self.graphs.get(idx)?.context().operator_table(),
+            SMId::Graph(idx) => self
+                .graphs
+                .get(&idx.deposit)?
+                .get(&idx.operator)?
+                .context()
+                .operator_table(),
         };
         match key {
             OperatorKey::Pov => Some(table.pov_idx()),
@@ -157,9 +197,13 @@ impl SMRegistry {
             (SMId::Graph(idx), SMEvent::Graph(graph_event)) => {
                 let sm = self
                     .graphs
-                    .get_mut(idx)
+                    .get_mut(&idx.deposit)
+                    .ok_or(ProcessError::SMNotFound(*id))?
+                    .get_mut(&idx.operator)
                     .ok_or(ProcessError::SMNotFound(*id))?;
+
                 let event = SMEvent::Graph(graph_event.clone());
+
                 sm.process_event(self.cfg.graph.clone(), *graph_event)
                     .map(|out| SMOutput {
                         duties: out.duties.into_iter().map(UnifiedDuty::Graph).collect(),
