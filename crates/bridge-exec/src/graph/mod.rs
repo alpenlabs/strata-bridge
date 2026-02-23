@@ -15,6 +15,9 @@ pub async fn execute_graph_duty(
     duty: &GraphDuty,
 ) -> Result<(), ExecutorError> {
     match duty {
+        GraphDuty::GenerateGraphData { .. } => {
+            todo!("GenerateGraphData")
+        }
         GraphDuty::VerifyAdaptors { .. } => {
             todo!("VerifyAdaptors")
         }
