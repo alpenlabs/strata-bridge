@@ -10271,7 +10271,6 @@ dependencies = [
  "rkyv",
  "strata-asm-proto-bridge-v1",
  "strata-asm-txs-bridge-v1",
- "strata-bridge-connectors2",
  "strata-bridge-db2",
  "strata-bridge-exec",
  "strata-bridge-p2p-types2",
