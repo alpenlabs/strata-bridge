@@ -612,6 +612,7 @@ impl GraphSM {
                 last_block_height,
                 graph_data,
                 graph_summary,
+                signatures,
                 ..
             } => {
                 // Generate the game graph to access the infos for duty emission
@@ -621,6 +622,7 @@ impl GraphSM {
                     last_block_height: *last_block_height,
                     graph_data: *graph_data,
                     graph_summary: graph_summary.clone(),
+                    signatures: signatures.clone(),
                     fulfillment_txid: fulfillment.fulfillment_txid,
                     fulfillment_block_height: fulfillment.fulfillment_block_height,
                 };
@@ -649,6 +651,7 @@ impl GraphSM {
                 last_block_height,
                 graph_data,
                 graph_summary,
+                signatures,
                 fulfillment_txid,
                 fulfillment_block_height,
             } => {
@@ -664,6 +667,7 @@ impl GraphSM {
                     last_block_height: *last_block_height,
                     graph_data: *graph_data,
                     graph_summary: graph_summary.clone(),
+                    signatures: signatures.clone(),
                     fulfillment_txid: Some(*fulfillment_txid),
                     fulfillment_block_height: Some(*fulfillment_block_height),
                     claim_block_height: claim.claim_block_height,

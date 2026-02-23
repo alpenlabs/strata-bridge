@@ -120,6 +120,9 @@ pub enum GraphState {
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
+        /// Aggregated final signatures for the graph.
+        signatures: Vec<Signature>,
+
         /// The txid of the fulfillment transaction.
         fulfillment_txid: Txid,
 
@@ -137,6 +140,9 @@ pub enum GraphState {
         /// Collection of the IDs of all transactions of a
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
+
+        /// Aggregated final signatures for the graph.
+        signatures: Vec<Signature>,
 
         /// The txid of the fulfillment transaction (None in faulty claim cases).
         fulfillment_txid: Option<Txid>,
@@ -160,6 +166,9 @@ pub enum GraphState {
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
+        /// Aggregated final signatures for the graph.
+        signatures: Vec<Signature>,
+
         /// The txid of the fulfillment transaction (None in faulty claim cases).
         fulfillment_txid: Option<Txid>,
 
@@ -181,6 +190,9 @@ pub enum GraphState {
         /// Collection of the IDs of all transactions of a
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
+
+        /// Aggregated final signatures for the graph.
+        signatures: Vec<Signature>,
 
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
@@ -206,6 +218,9 @@ pub enum GraphState {
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
+        /// Aggregated final signatures for the graph.
+        signatures: Vec<Signature>,
+
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
@@ -226,6 +241,9 @@ pub enum GraphState {
         /// Collection of the IDs of all transactions of a
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
+
+        /// Aggregated final signatures for the graph.
+        signatures: Vec<Signature>,
 
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
@@ -317,5 +335,75 @@ impl Display for GraphState {
             GraphState::Aborted { .. } => "Aborted",
         };
         write!(f, "{}", display_str)
+    }
+}
+
+impl GraphState {
+    /// Returns the height of the last processed Bitcoin block for this graph state.
+    pub const fn last_processed_block_height(&self) -> Option<&BitcoinBlockHeight> {
+        match self {
+            GraphState::Created {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::GraphGenerated {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::AdaptorsVerified {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::NoncesCollected {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::GraphSigned {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::Assigned {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::Fulfilled {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::Claimed {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::Contested {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::BridgeProofPosted {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::BridgeProofTimedout {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::CounterProofPosted {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::AllNackd {
+                last_block_height: block_height,
+                ..
+            }
+            | GraphState::Acked {
+                last_block_height: block_height,
+                ..
+            } => Some(block_height),
+            GraphState::Withdrawn { .. }
+            | GraphState::Slashed { .. }
+            | GraphState::Aborted { .. } => {
+                // Terminal states do not track block height
+                None
+            }
+        }
     }
 }
