@@ -43,7 +43,7 @@ pub struct GraphPartialReceivedEvent {
     pub operator_idx: OperatorIdx,
 
     /// The partial signatures from this operator.
-    pub partial_sigs: Vec<PartialSignature>,
+    pub partial_signatures: Vec<PartialSignature>,
 }
 
 /// Event notifying that a withdrawal has been assigned/reassigned (for this graph).

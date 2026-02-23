@@ -63,7 +63,7 @@ mod tests {
             cfg,
             GraphEvent::PartialReceived(GraphPartialReceivedEvent {
                 operator_idx: TEST_POV_IDX,
-                partial_sigs: operator_partials,
+                partial_signatures: operator_partials,
             }),
         );
 
@@ -109,7 +109,7 @@ mod tests {
                 cfg.clone(),
                 GraphEvent::PartialReceived(GraphPartialReceivedEvent {
                     operator_idx: signer.operator_idx(),
-                    partial_sigs: sigs,
+                    partial_signatures: sigs,
                 }),
             );
         }
@@ -154,7 +154,7 @@ mod tests {
                 cfg.clone(),
                 GraphEvent::PartialReceived(GraphPartialReceivedEvent {
                     operator_idx: signer.operator_idx(),
-                    partial_sigs: sigs,
+                    partial_signatures: sigs,
                 }),
             );
         }
@@ -213,7 +213,7 @@ mod tests {
             from_state: state,
             event: GraphEvent::PartialReceived(GraphPartialReceivedEvent {
                 operator_idx: TEST_POV_IDX,
-                partial_sigs: operator_partials,
+                partial_signatures: operator_partials,
             }),
             expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
         });
@@ -244,7 +244,7 @@ mod tests {
             from_state: state,
             event: GraphEvent::PartialReceived(GraphPartialReceivedEvent {
                 operator_idx: u32::MAX,
-                partial_sigs: operator_partials,
+                partial_signatures: operator_partials,
             }),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
@@ -277,7 +277,7 @@ mod tests {
             from_state: state.clone(),
             event: GraphEvent::PartialReceived(GraphPartialReceivedEvent {
                 operator_idx: TEST_POV_IDX,
-                partial_sigs: vec![],
+                partial_signatures: vec![],
             }),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
@@ -287,7 +287,7 @@ mod tests {
             from_state: state,
             event: GraphEvent::PartialReceived(GraphPartialReceivedEvent {
                 operator_idx: TEST_POV_IDX,
-                partial_sigs: operator_partials,
+                partial_signatures: operator_partials,
             }),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
