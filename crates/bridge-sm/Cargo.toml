@@ -28,8 +28,6 @@ zkaleido.workspace = true
 strata-bridge-test-utils.workspace = true
 strata-bridge-p2p-types.workspace = true
 
-strata-l1-txfmt.workspace = true
-
 musig2.workspace = true
 proptest.workspace = true
 secp256k1.workspace = true
