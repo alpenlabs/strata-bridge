@@ -32,9 +32,23 @@ impl GraphSM {
             GraphState::BridgeProofPosted { .. } => {
                 todo!()
             }
-            // TODO: STR-2196
-            GraphState::AllNackd { .. } => {
-                todo!()
+            GraphState::AllNackd {
+                expected_payout_txid,
+                ..
+            } => {
+                if payout_event.payout_txid != *expected_payout_txid {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        payout_event.into(),
+                        "Invalid contested payout transaction",
+                    ));
+                }
+
+                self.state = GraphState::Withdrawn {
+                    payout_txid: payout_event.payout_txid,
+                };
+
+                Ok(GSMOutput::new())
             }
             GraphState::Withdrawn { .. } => Err(GSMError::duplicate(
                 self.state().clone(),
