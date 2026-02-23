@@ -21,6 +21,8 @@ pub struct DepositSMCfg {
     /// The "magic bytes" used in the OP_RETURN of the transactions to identify it as relevant to
     /// the bridge.
     pub magic_bytes: MagicBytes,
+    /// The number of blocks after which the user can take back their deposit request.
+    pub recovery_delay: u16,
 }
 
 impl DepositSMCfg {

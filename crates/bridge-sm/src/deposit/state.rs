@@ -9,16 +9,12 @@ use std::{
     fmt::Display,
 };
 
-use bitcoin::{Amount, Network, Transaction, Txid, XOnlyPublicKey, relative::LockTime};
+use bitcoin::{Transaction, Txid};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use serde::{Deserialize, Serialize};
-use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph2::transactions::{
-    deposit::DepositTx,
-    prelude::{CooperativePayoutTx, DepositData},
-};
+use strata_bridge_tx_graph2::transactions::{deposit::DepositTx, prelude::CooperativePayoutTx};
 
 /// The state of a Deposit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,27 +181,7 @@ impl DepositState {
     ///
     /// Initializes the required connectors and builds the deposit transaction from the provided
     /// deposit parameters, recording the current `block_height`.
-    pub fn new(
-        deposit_ammount: Amount,
-        deposit_time_lock: LockTime,
-        network: Network,
-        deposit_data: DepositData,
-        depositor_pubkey: XOnlyPublicKey,
-        n_of_n_pubkey: XOnlyPublicKey,
-        block_height: BitcoinBlockHeight,
-    ) -> Self {
-        let deposit_request_connetor = DepositRequestConnector::new(
-            network,
-            n_of_n_pubkey,
-            depositor_pubkey,
-            deposit_time_lock,
-            deposit_ammount,
-        );
-        let non_connector = NOfNConnector::new(network, n_of_n_pubkey, deposit_ammount);
-
-        let deposit_transaction =
-            DepositTx::new(deposit_data, non_connector, deposit_request_connetor);
-
+    pub const fn new(deposit_transaction: DepositTx, block_height: BitcoinBlockHeight) -> Self {
         DepositState::Created {
             deposit_transaction,
             last_block_height: block_height,
