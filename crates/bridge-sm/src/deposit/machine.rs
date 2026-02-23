@@ -5,10 +5,11 @@
 
 use std::sync::Arc;
 
-use bitcoin::{XOnlyPublicKey, relative::LockTime};
+use bitcoin::{OutPoint, XOnlyPublicKey, relative};
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::types::BitcoinBlockHeight;
-use strata_bridge_tx_graph2::transactions::prelude::DepositData;
+use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
+use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
+use strata_bridge_tx_graph2::transactions::prelude::{DepositData, DepositTx};
 
 use crate::{
     deposit::{
@@ -89,25 +90,39 @@ impl DepositSM {
     /// The state machine starts in [`DepositState::Created`] by constructing an initial
     /// [`DepositState`] via [`DepositState::new`].
     pub fn new(
-        bridge_cfg: DepositSMCfg,
-        context: DepositSMCtx,
-        deposit_time_lock: LockTime,
+        bridge_cfg: Arc<DepositSMCfg>,
+        operator_table: OperatorTable,
         deposit_data: DepositData,
         depositor_pubkey: XOnlyPublicKey,
-        n_of_n_pubkey: XOnlyPublicKey,
         block_height: BitcoinBlockHeight,
     ) -> Self {
+        let network = bridge_cfg.network();
+        let deposit_amount = bridge_cfg.deposit_amount();
+        let deposit_time_lock = relative::LockTime::from_height(bridge_cfg.recovery_delay);
+        let n_of_n_pubkey = operator_table.aggregated_btc_key().x_only_public_key().0;
+
+        let deposit_request_connetor = DepositRequestConnector::new(
+            bridge_cfg.network,
+            n_of_n_pubkey,
+            depositor_pubkey,
+            deposit_time_lock,
+            deposit_amount,
+        );
+        let non_connector = NOfNConnector::new(network, n_of_n_pubkey, deposit_amount);
+
+        let deposit_idx = deposit_data.deposit_idx;
+        let deposit_tx = DepositTx::new(deposit_data, non_connector, deposit_request_connetor);
+
+        let deposit_outpoint = OutPoint::new(deposit_tx.as_ref().compute_txid(), 0); // always the first output (for now)
+        let context = DepositSMCtx {
+            deposit_idx,
+            deposit_outpoint,
+            operator_table,
+        };
+
         DepositSM {
             context,
-            state: DepositState::new(
-                bridge_cfg.deposit_amount(),
-                deposit_time_lock,
-                bridge_cfg.network(),
-                deposit_data,
-                depositor_pubkey,
-                n_of_n_pubkey,
-                block_height,
-            ),
+            state: DepositState::new(deposit_tx, block_height),
         }
     }
 
