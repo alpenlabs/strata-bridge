@@ -41,9 +41,14 @@ use strata_bridge_tx_graph2::transactions::prelude::DepositData;
 use tracing::error;
 
 use crate::{
+    errors::ProcessError,
     sm_registry::SMRegistry,
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
+
+type EventsMap = Vec<(SMId, SMEvent)>;
+type InitialDuties = Vec<UnifiedDuty>;
+type ClassifiedBlock = (EventsMap, InitialDuties);
 
 /// Classifies a buried block into a list of ([`SMId`], [`SMEvent`]) targets and a list of new
 /// [`UnifiedDuty`]'s.
@@ -51,7 +56,7 @@ pub(crate) fn classify_block(
     initial_operator_table: &OperatorTable,
     registry: &mut SMRegistry,
     block_event: &BlockEvent,
-) -> (Vec<(SMId, SMEvent)>, Vec<UnifiedDuty>) {
+) -> Result<ClassifiedBlock, ProcessError> {
     let (cur_stakes, cur_unstaking_images) = get_mocked_stake_data(initial_operator_table);
 
     let deposit_cfg = registry.cfg().deposit.clone();
@@ -79,7 +84,7 @@ pub(crate) fn classify_block(
             registry,
             tx,
             height,
-        ));
+        )?);
 
         // Classify this tx against every active SM via TxClassifier
         // PERF: (@Rajil1213) this needs benchmarking to make sure that classifying every tx against
@@ -105,7 +110,7 @@ pub(crate) fn classify_block(
         height,
     ));
 
-    (targets, initial_duties)
+    Ok((targets, initial_duties))
 }
 
 /// Generates mocked stake data for the given operator table.
@@ -136,7 +141,7 @@ fn get_mocked_stake_data(
 /// [`GraphSM`]s into the registry.
 ///
 /// Returns initial duties emitted by [`GraphSM`] constructors (e.g., `GenerateGraphData`).
-/// Returns an empty vec if the transaction is not a DRT.
+/// Returns `Ok(Vec::new())` if the transaction is not a DRT.
 fn try_register_deposit(
     deposit_cfg: &Arc<DepositSMCfg>,
     cur_operator_table: &OperatorTable,
@@ -145,15 +150,15 @@ fn try_register_deposit(
     registry: &mut SMRegistry,
     tx: &Transaction,
     height: BitcoinBlockHeight,
-) -> Vec<UnifiedDuty> {
+) -> Result<Vec<UnifiedDuty>, ProcessError> {
     let Ok(drt_info) = parse_drt(tx) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
 
     let depositor_pubkey = drt_info.header_aux().recovery_pk();
     let Ok(depositor_pubkey) = XOnlyPublicKey::from_slice(depositor_pubkey) else {
         error!(pk=%depositor_pubkey.to_lower_hex_string(), "invalid depositor pubkey in DRT, ignoring");
-        return Vec::new();
+        return Ok(Vec::new());
     };
 
     let drt_txid = tx.compute_txid();
@@ -178,7 +183,7 @@ fn try_register_deposit(
     );
 
     let deposit_outpoint = dsm.context().deposit_outpoint();
-    registry.insert_deposit(deposit_idx_offset, dsm);
+    registry.insert_deposit(deposit_idx_offset, dsm)?;
 
     // Register one GraphSM per operator, collecting initial duties
     let mut duties = Vec::new();
@@ -206,13 +211,13 @@ fn try_register_deposit(
 
         let (gsm, duty) = GraphSM::new(gsm_ctx, height);
 
-        registry.insert_graph(gsm.context().graph_idx(), gsm);
+        registry.insert_graph(gsm.context().graph_idx(), gsm)?;
         if let Some(duty) = duty {
             duties.push(duty.into());
         }
     }
 
-    duties
+    Ok(duties)
 }
 
 /// Runs [`TxClassifier::classify_tx()`] on every active SM for a single transaction.
@@ -394,7 +399,8 @@ mod tests {
             &mut registry,
             &random_tx,
             100,
-        );
+        )
+        .expect("non-DRT path should not fail");
 
         assert!(duties.is_empty());
         assert_eq!(registry.num_deposits(), 0);

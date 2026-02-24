@@ -1,7 +1,10 @@
 //! The state machine registry: stores all active state machines and provides methods for
 //! querying, resolving operators, and driving state transitions.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, btree_map::Entry},
+    sync::Arc,
+};
 
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
@@ -10,6 +13,7 @@ use strata_bridge_sm::{
     graph::{config::GraphSMCfg, machine::GraphSM},
     state_machine::{SMOutput, StateMachine},
 };
+use thiserror::Error;
 use tracing::error;
 
 use crate::{
@@ -38,6 +42,20 @@ pub struct SMRegistry {
     // deposit index, change this to a `BTreeMap<DepositIdx, BTreeMap<OperatorIdx, GraphSM>>` or
     // maintain a separate index for that mapping.
     graphs: BTreeMap<GraphIdx, GraphSM>,
+}
+
+/// Invariant errors when inserting state machines into the registry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum RegistryInsertError {
+    /// A deposit SM already exists at this key.
+    #[error("deposit state machine already exists at index {0}")]
+    DepositAlreadyExists(DepositIdx),
+    /// A graph SM already exists at this key.
+    #[error("graph state machine already exists at index {0:?}")]
+    GraphAlreadyExists(GraphIdx),
+    /// The maximum deposit index has been reached.
+    #[error("deposit index exhausted at {0}; cannot allocate a new deposit index")]
+    DepositIdxExhausted(DepositIdx),
 }
 
 impl SMRegistry {
@@ -123,19 +141,47 @@ impl SMRegistry {
 
     /// Inserts a new deposit state machine into the registry with the given deposit index.
     ///
-    /// If a state machine with the same [`DepositIdx`] already exists, it will be overwritten.
-    pub fn insert_deposit(&mut self, deposit_idx: DepositIdx, sm: DepositSM) {
-        if self.deposits.insert(deposit_idx, sm).is_some() {
-            error!("Overwriting existing DepositSM with index {}", deposit_idx);
+    /// Returns an error if a state machine with the same [`DepositIdx`] already exists.
+    pub fn insert_deposit(
+        &mut self,
+        deposit_idx: DepositIdx,
+        sm: DepositSM,
+    ) -> Result<(), RegistryInsertError> {
+        match self.deposits.entry(deposit_idx) {
+            Entry::Vacant(entry) => {
+                entry.insert(sm);
+                Ok(())
+            }
+            Entry::Occupied(_) => {
+                error!(
+                    "Duplicate DepositSM insertion attempted for index {}",
+                    deposit_idx
+                );
+                Err(RegistryInsertError::DepositAlreadyExists(deposit_idx))
+            }
         }
     }
 
     /// Inserts a new graph state machine into the registry with the given graph index.
     ///
-    /// If a state machine with the same [`GraphIdx`] already exists, it will be overwritten.
-    pub fn insert_graph(&mut self, graph_idx: GraphIdx, sm: GraphSM) {
-        if self.graphs.insert(graph_idx, sm).is_some() {
-            error!("Overwriting existing GraphSM with index {:?}", graph_idx);
+    /// Returns an error if a state machine with the same [`GraphIdx`] already exists.
+    pub fn insert_graph(
+        &mut self,
+        graph_idx: GraphIdx,
+        sm: GraphSM,
+    ) -> Result<(), RegistryInsertError> {
+        match self.graphs.entry(graph_idx) {
+            Entry::Vacant(entry) => {
+                entry.insert(sm);
+                Ok(())
+            }
+            Entry::Occupied(_) => {
+                error!(
+                    "Duplicate GraphSM insertion attempted for index {:?}",
+                    graph_idx
+                );
+                Err(RegistryInsertError::GraphAlreadyExists(graph_idx))
+            }
         }
     }
 
@@ -257,6 +303,38 @@ mod tests {
             deposit: 0,
             operator: 0,
         };
+        assert!(registry.get_graph(&gidx).is_some());
+    }
+
+    #[test]
+    fn insert_deposit_duplicate_returns_error_and_preserves_original() {
+        let mut registry = test_populated_registry(1);
+        let duplicate = registry
+            .get_deposit(&0)
+            .expect("fixture must contain deposit 0")
+            .clone();
+
+        let result = registry.insert_deposit(0, duplicate);
+        assert_eq!(result, Err(RegistryInsertError::DepositAlreadyExists(0)));
+        assert_eq!(registry.num_deposits(), 1);
+        assert!(registry.get_deposit(&0).is_some());
+    }
+
+    #[test]
+    fn insert_graph_duplicate_returns_error_and_preserves_original() {
+        let mut registry = test_populated_registry(1);
+        let gidx = GraphIdx {
+            deposit: 0,
+            operator: 0,
+        };
+        let duplicate = registry
+            .get_graph(&gidx)
+            .expect("fixture must contain graph (0, 0)")
+            .clone();
+
+        let result = registry.insert_graph(gidx, duplicate);
+        assert_eq!(result, Err(RegistryInsertError::GraphAlreadyExists(gidx)));
+        assert_eq!(registry.get_graph_ids().len(), N_TEST_OPERATORS);
         assert!(registry.get_graph(&gidx).is_some());
     }
 

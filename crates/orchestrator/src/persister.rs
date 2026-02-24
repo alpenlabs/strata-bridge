@@ -7,7 +7,7 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::{
-    sm_registry::{SMConfig, SMRegistry},
+    sm_registry::{RegistryInsertError, SMConfig, SMRegistry},
     sm_types::SMId,
 };
 
@@ -157,23 +157,23 @@ impl<Db: BridgeDb> Persister<Db> {
     pub async fn recover_registry(&self, config: SMConfig) -> Result<SMRegistry, PersistError<Db>> {
         let mut registry = SMRegistry::new(config);
 
-        self.db
+        for (deposit_idx, deposit_sm) in self
+            .db
             .get_all_deposit_states()
             .await
             .map_err(PersistError::DbErr)?
-            .into_iter()
-            .for_each(|(deposit_idx, deposit_sm)| {
-                registry.insert_deposit(deposit_idx, deposit_sm);
-            });
+        {
+            registry.insert_deposit(deposit_idx, deposit_sm)?;
+        }
 
-        self.db
+        for (graph_idx, graph_sm) in self
+            .db
             .get_all_graph_states()
             .await
             .map_err(PersistError::DbErr)?
-            .into_iter()
-            .for_each(|(graph_idx, graph_sm)| {
-                registry.insert_graph(graph_idx, graph_sm);
-            });
+        {
+            registry.insert_graph(graph_idx, graph_sm)?;
+        }
 
         Ok(registry)
     }
@@ -185,6 +185,10 @@ pub enum PersistError<Db: BridgeDb> {
     /// Error indicating a failure to persist a batch of state machines to disk.
     #[error("persistence error: {0}")]
     DbErr(Db::Error),
+
+    /// Error indicating duplicate or invalid registry state during recovery.
+    #[error("registry invariant violation: {0}")]
+    RegistryInvariant(#[from] RegistryInsertError),
 }
 
 #[cfg(test)]
