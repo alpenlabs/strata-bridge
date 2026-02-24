@@ -1,8 +1,8 @@
 //! Shared test helpers for the orchestrator crate.
 //!
-//! Mirrors bridge-sm's per-SM test helpers (which are `pub(super)` and behind `#[cfg(test)]`)
-//! so that orchestrator tests can construct registries, configs, and state machines without
-//! depending on crate-private items.
+//! Crate-agnostic fixtures (operator tables, descriptors, shared constants) are imported from
+//! [`strata_bridge_test_utils::bridge_fixtures`]. This module adds orchestrator-specific SM config
+//! construction and registry helpers on top.
 
 use std::{num::NonZero, sync::Arc};
 
@@ -11,17 +11,19 @@ use bitcoin::{
     hashes::{Hash, sha256},
     relative,
 };
-use bitcoin_bosd::Descriptor;
-use secp256k1::{SECP256K1, SecretKey};
-use strata_bridge_primitives::{
-    secp::EvenSecretKey,
-    types::{DepositIdx, GraphIdx, OperatorIdx},
-};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, machine::DepositSM},
     graph::{config::GraphSMCfg, context::GraphSMCtx, machine::GraphSM},
 };
-use strata_bridge_test_utils::bitcoin::generate_xonly_pubkey;
+// Re-export shared bridge fixtures so other test modules in this crate can use them.
+pub(crate) use strata_bridge_test_utils::bridge_fixtures::{
+    TEST_DEPOSIT_AMOUNT, TEST_MAGIC_BYTES, TEST_OPERATOR_FEE, TEST_POV_IDX, random_p2tr_desc,
+    test_operator_table,
+};
+use strata_bridge_test_utils::{
+    bitcoin::generate_xonly_pubkey, bridge_fixtures::TEST_RECOVERY_DELAY,
+};
 use strata_bridge_tx_graph2::{game_graph::ProtocolParams, transactions::prelude::DepositData};
 
 use crate::sm_registry::{SMConfig, SMRegistry};
@@ -29,55 +31,8 @@ use crate::sm_registry::{SMConfig, SMRegistry};
 /// Number of operators used in orchestrator test fixtures.
 pub(crate) const N_TEST_OPERATORS: usize = 3;
 
-/// Operator index of the POV (point-of-view) operator in tests.
-pub(crate) const TEST_POV_IDX: OperatorIdx = 0;
-
 /// Initial block height used when constructing test SMs.
 pub(crate) const INITIAL_BLOCK_HEIGHT: u64 = 100;
-
-/// Magic bytes used in tests.
-pub(crate) const TEST_MAGIC_BYTES: [u8; 4] = [0x54, 0x45, 0x53, 0x54]; // "TEST"
-
-/// Deposit amount used in tests.
-pub(crate) const TEST_DEPOSIT_AMOUNT: Amount = Amount::from_sat(10_000_000);
-
-/// Operator fee used in tests.
-pub(crate) const TEST_OPERATOR_FEE: Amount = Amount::from_sat(10_000);
-
-/// Recovery delay (in blocks) used in tests.
-const TEST_RECOVERY_DELAY: u16 = 1008;
-
-// ===== Helpers =====
-
-/// Creates a random P2TR descriptor for use in tests.
-pub(crate) fn random_p2tr_desc() -> Descriptor {
-    Descriptor::new_p2tr(&generate_xonly_pubkey().serialize()).expect("valid descriptor")
-}
-
-/// Creates a deterministic test operator table with `n` operators, marking `pov_idx` as POV.
-pub(crate) fn test_operator_table(
-    n: usize,
-    pov_idx: OperatorIdx,
-) -> strata_bridge_primitives::operator_table::OperatorTable {
-    use strata_bridge_p2p_types::P2POperatorPubKey;
-
-    let operators = (0..n as OperatorIdx)
-        .map(|idx| {
-            let byte =
-                u8::try_from(idx + 1).expect("operator index too large for test key derivation");
-            let sk = EvenSecretKey::from(SecretKey::from_slice(&[byte; 32]).unwrap());
-            let pk = sk.public_key(SECP256K1);
-            let p2p = P2POperatorPubKey::from(pk.serialize().to_vec());
-
-            (idx, p2p, pk)
-        })
-        .collect();
-
-    strata_bridge_primitives::operator_table::OperatorTable::new(operators, move |entry| {
-        entry.0 == pov_idx
-    })
-    .expect("Failed to create test operator table")
-}
 
 // ===== Config helpers =====
 
