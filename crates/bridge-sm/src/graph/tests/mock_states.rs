@@ -12,7 +12,8 @@ use super::{
 };
 use crate::graph::{machine::generate_game_graph, state::GraphState};
 
-static TEST_GRAPH_SUMMARY: LazyLock<GameGraphSummary> = LazyLock::new(test_graph_summary);
+pub(super) static TEST_GRAPH_SUMMARY: LazyLock<GameGraphSummary> =
+    LazyLock::new(test_graph_summary);
 
 /// Builds a mock `GraphSigned` state.
 pub(super) fn graph_signed_state() -> GraphState {

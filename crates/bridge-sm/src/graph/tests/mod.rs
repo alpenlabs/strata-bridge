@@ -1,4 +1,5 @@
 //! Testing utilities specific to the Graph State Machine.
+mod contested;
 pub(super) mod mock_states;
 mod uncontested;
 pub(super) mod utils;
