@@ -10,6 +10,7 @@ mod tests {
             errors::GSMError,
             events::{GraphEvent, NewBlockEvent},
             machine::{GraphSM, generate_game_graph},
+            state::GraphState,
             tests::{
                 CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS, GraphInvalidTransition,
                 GraphTransition, INITIAL_BLOCK_HEIGHT, create_sm, get_state, mock_game_signatures,
@@ -82,28 +83,59 @@ mod tests {
     }
 
     #[test]
-    fn test_new_block_claimed_already_processed() {
-        let fulfillment_txid = generate_txid();
+    fn test_new_block_already_processed() {
+        let states = [
+            GraphState::Created {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            claimed_state(INITIAL_BLOCK_HEIGHT, generate_txid(), Default::default()),
+        ];
 
-        test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: claimed_state(INITIAL_BLOCK_HEIGHT, fulfillment_txid, Default::default()),
+        for from_state in states {
+            test_graph_invalid_transition(GraphInvalidTransition {
+                from_state,
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: INITIAL_BLOCK_HEIGHT,
+                }),
+                expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+            });
+        }
+    }
+
+    #[test]
+    fn test_new_block_accepted() {
+        test_graph_transition(GraphTransition {
+            from_state: GraphState::Created {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+            },
             event: GraphEvent::NewBlock(NewBlockEvent {
-                block_height: INITIAL_BLOCK_HEIGHT,
+                block_height: INITIAL_BLOCK_HEIGHT + 1,
             }),
-            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+            expected_state: GraphState::Created {
+                last_block_height: INITIAL_BLOCK_HEIGHT + 1,
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
         });
     }
 
     #[test]
-    fn test_new_block_claimed_earlier_block_rejected() {
-        let fulfillment_txid = generate_txid();
+    fn test_new_block_earlier_block_rejected() {
+        let states = [
+            GraphState::Created {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            claimed_state(INITIAL_BLOCK_HEIGHT, generate_txid(), Default::default()),
+        ];
 
-        test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: claimed_state(INITIAL_BLOCK_HEIGHT, fulfillment_txid, Default::default()),
-            event: GraphEvent::NewBlock(NewBlockEvent {
-                block_height: INITIAL_BLOCK_HEIGHT - 1,
-            }),
-            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
-        });
+        for from_state in states {
+            test_graph_invalid_transition(GraphInvalidTransition {
+                from_state,
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: INITIAL_BLOCK_HEIGHT - 1,
+                }),
+                expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+            });
+        }
     }
 }
