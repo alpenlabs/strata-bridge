@@ -481,17 +481,6 @@ impl GraphSM {
         &mut self,
         assignment_event: WithdrawalAssignedEvent,
     ) -> GSMResult<GSMOutput> {
-        if assignment_event.assignee != self.context().operator_idx() {
-            return Err(GSMError::rejected(
-                self.state().clone(),
-                assignment_event.clone().into(),
-                format!(
-                    "withdrawal assigned to operator {} but this graph belongs to operator {}",
-                    assignment_event.assignee,
-                    self.context().operator_idx()
-                ),
-            ));
-        }
         match self.state() {
             GraphState::GraphSigned {
                 last_block_height,
@@ -499,6 +488,18 @@ impl GraphSM {
                 graph_summary,
                 signatures,
             } => {
+                if assignment_event.assignee != self.context().operator_idx() {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        assignment_event.clone().into(),
+                        format!(
+                            "withdrawal assigned to operator {} but this graph belongs to operator {}",
+                            assignment_event.assignee,
+                            self.context().operator_idx()
+                        ),
+                    ));
+                }
+
                 self.state = GraphState::Assigned {
                     last_block_height: *last_block_height,
                     graph_data: *graph_data,
@@ -530,12 +531,17 @@ impl GraphSM {
                     ));
                 }
 
-                // Reassignment: same assignee with an updated deadline.
-                let is_same_assignee = *assignee == assignment_event.assignee;
-                let is_new_deadline = *deadline != assignment_event.deadline;
-                let is_reassignment = is_same_assignee && is_new_deadline;
+                // Assignment deadline must not be smaller than the existing deadline.
+                if assignment_event.deadline < *deadline {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        assignment_event.into(),
+                        "assignment deadline must not be smaller than the existing deadline",
+                    ));
+                }
 
-                if is_reassignment {
+                let is_same_assignee = *assignee == assignment_event.assignee;
+                if is_same_assignee {
                     self.state = GraphState::Assigned {
                         last_block_height: *last_block_height,
                         graph_data: *graph_data,
@@ -545,9 +551,7 @@ impl GraphSM {
                         deadline: assignment_event.deadline,
                         recipient_desc: assignment_event.recipient_desc,
                     };
-
-                    Ok(GSMOutput::default())
-                } else if !is_same_assignee {
+                } else {
                     // Different assignee: revert to GraphSigned.
                     self.state = GraphState::GraphSigned {
                         last_block_height: *last_block_height,
@@ -555,14 +559,8 @@ impl GraphSM {
                         graph_summary: graph_summary.clone(),
                         signatures: signatures.clone(),
                     };
-
-                    Ok(GSMOutput::default())
-                } else {
-                    Err(GSMError::duplicate(
-                        self.state().clone(),
-                        assignment_event.into(),
-                    ))
                 }
+                Ok(GSMOutput::default())
             }
 
             _ => Err(GSMError::invalid_event(
