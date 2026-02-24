@@ -23,3 +23,6 @@ pub mod pipeline;
 pub mod signals_router;
 pub mod sm_registry;
 pub mod sm_types;
+
+#[cfg(test)]
+mod testing;
