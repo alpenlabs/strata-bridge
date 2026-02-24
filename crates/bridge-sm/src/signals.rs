@@ -1,5 +1,6 @@
 //! Messages that need to be transferred between different state machines in the bridge.
 
+use bitcoin::Txid;
 use strata_bridge_primitives::types::OperatorIdx;
 
 /// The signals that need to be sent across different state machines in the bridge.
@@ -68,19 +69,28 @@ pub enum DepositToGraph {
 /// Machine](crate::deposit::machine::DepositSM).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GraphToDeposit {
-    /// Indicates that the pegout graph has been generated and signed.
+    /// Signifies that the graph is fully signed and available for use for unilateral
+    /// reimbursement using the given claim txid.
     GraphAvailable {
+        /// The txid of the claim transaction.
+        claim_txid: Txid,
         /// The index of the operator for whom the graph is available.
         operator_idx: OperatorIdx,
-        // add more fields if necessary
     },
 }
 
 impl std::fmt::Display for GraphToDeposit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GraphToDeposit::GraphAvailable { operator_idx } => {
-                write!(f, "GraphAvailable for operator_idx: {}", operator_idx)
+            GraphToDeposit::GraphAvailable {
+                claim_txid,
+                operator_idx,
+            } => {
+                write!(
+                    f,
+                    "GraphAvailable for operator_idx: {}, claim_txid: {}",
+                    operator_idx, claim_txid
+                )
             }
         }
     }
