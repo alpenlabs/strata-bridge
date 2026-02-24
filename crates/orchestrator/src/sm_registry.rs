@@ -10,6 +10,7 @@ use strata_bridge_sm::{
     graph::{config::GraphSMCfg, machine::GraphSM},
     state_machine::{SMOutput, StateMachine},
 };
+use tracing::error;
 
 use crate::{
     errors::{ProcessError, ProcessResult},
@@ -111,14 +112,18 @@ impl SMRegistry {
     ///
     /// If a state machine with the same [`DepositIdx`] already exists, it will be overwritten.
     pub fn insert_deposit(&mut self, deposit_idx: DepositIdx, sm: DepositSM) {
-        self.deposits.insert(deposit_idx, sm);
+        if self.deposits.insert(deposit_idx, sm).is_some() {
+            error!("Overwriting existing DepositSM with index {}", deposit_idx);
+        }
     }
 
     /// Inserts a new graph state machine into the registry with the given graph index.
     ///
     /// If a state machine with the same [`GraphIdx`] already exists, it will be overwritten.
     pub fn insert_graph(&mut self, graph_idx: GraphIdx, sm: GraphSM) {
-        self.graphs.insert(graph_idx, sm);
+        if self.graphs.insert(graph_idx, sm).is_some() {
+            error!("Overwriting existing GraphSM with index {:?}", graph_idx);
+        }
     }
 
     /// Looks up the state machine identified by `id` and resolves the operator index using the
