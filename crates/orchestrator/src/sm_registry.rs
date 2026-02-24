@@ -17,7 +17,7 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::{
-    errors::{ProcessError, ProcessResult},
+    errors::{ProcessError, ProcessOutput},
     sm_types::{OperatorKey, SMEvent, SMId, UnifiedDuty},
 };
 
@@ -56,6 +56,31 @@ pub enum RegistryInsertError {
     /// The maximum deposit index has been reached.
     #[error("deposit index exhausted at {0}; cannot allocate a new deposit index")]
     DepositIdxExhausted(DepositIdx),
+}
+
+/// Reason why a state machine event was ignored as non-fatal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IgnoredEventReason {
+    /// The event was a duplicate of previously-processed input.
+    Duplicate,
+    /// The event was rejected because it is no longer relevant.
+    Rejected(String),
+}
+
+/// Outcome from processing an event through a state machine.
+#[derive(Debug, Clone)]
+pub enum ProcessOutcome {
+    /// The event was applied successfully and produced output.
+    Applied(ProcessOutput),
+    /// The event was ignored as a known non-fatal condition.
+    Ignored {
+        /// The state machine that received the ignored event.
+        id: SMId,
+        /// The event that was ignored.
+        event: SMEvent,
+        /// Why the event was ignored.
+        reason: IgnoredEventReason,
+    },
 }
 
 impl SMRegistry {
@@ -204,7 +229,11 @@ impl SMRegistry {
     ///
     /// Looks up the SM, matches it against the event variant, runs the state transition, and
     /// returns unified output. The caller does not need to know the concrete SM type.
-    pub fn process_event(&mut self, id: &SMId, event: SMEvent) -> ProcessResult {
+    pub fn process_event(
+        &mut self,
+        id: &SMId,
+        event: SMEvent,
+    ) -> Result<ProcessOutcome, ProcessError> {
         match (id, event) {
             (SMId::Deposit(idx), SMEvent::Deposit(deposit_event)) => {
                 let sm = self
@@ -213,11 +242,13 @@ impl SMRegistry {
                     .ok_or(ProcessError::SMNotFound(*id))?;
                 let event = SMEvent::Deposit(deposit_event.clone());
                 sm.process_event(self.cfg.deposit.clone(), *deposit_event)
-                    .map(|out| SMOutput {
-                        duties: out.duties.into_iter().map(UnifiedDuty::Deposit).collect(),
-                        signals: out.signals.into_iter().map(Into::into).collect(),
+                    .map(|out| {
+                        ProcessOutcome::Applied(SMOutput {
+                            duties: out.duties.into_iter().map(UnifiedDuty::Deposit).collect(),
+                            signals: out.signals.into_iter().map(Into::into).collect(),
+                        })
                     })
-                    .map_err(|err| sm_to_process_err(id, event, err))
+                    .or_else(|err| sm_to_process_result(id, event, err))
             }
 
             (SMId::Graph(idx), SMEvent::Graph(graph_event)) => {
@@ -227,11 +258,13 @@ impl SMRegistry {
                     .ok_or(ProcessError::SMNotFound(*id))?;
                 let event = SMEvent::Graph(graph_event.clone());
                 sm.process_event(self.cfg.graph.clone(), *graph_event)
-                    .map(|out| SMOutput {
-                        duties: out.duties.into_iter().map(UnifiedDuty::Graph).collect(),
-                        signals: out.signals.into_iter().map(Into::into).collect(),
+                    .map(|out| {
+                        ProcessOutcome::Applied(SMOutput {
+                            duties: out.duties.into_iter().map(UnifiedDuty::Graph).collect(),
+                            signals: out.signals.into_iter().map(Into::into).collect(),
+                        })
                     })
-                    .map_err(|err| sm_to_process_err(id, event, err))
+                    .or_else(|err| sm_to_process_result(id, event, err))
             }
 
             (id, event) => Err(ProcessError::InvalidInvocation(*id, event)),
@@ -239,21 +272,31 @@ impl SMRegistry {
     }
 }
 
-fn sm_to_process_err<S, E>(id: &SMId, event: SMEvent, err: BridgeSMError<S, E>) -> ProcessError
+fn sm_to_process_result<S, E>(
+    id: &SMId,
+    event: SMEvent,
+    err: BridgeSMError<S, E>,
+) -> Result<ProcessOutcome, ProcessError>
 where
     S: std::fmt::Display + std::fmt::Debug,
     E: std::fmt::Display + std::fmt::Debug,
 {
     match err {
-        BridgeSMError::InvalidEvent { reason, .. } => ProcessError::InvariantViolation(
+        BridgeSMError::InvalidEvent { reason, .. } => Err(ProcessError::InvariantViolation(
             *id,
-            event.clone(),
+            event,
             reason.unwrap_or_else(|| "invalid event".to_string()),
-        ),
-        BridgeSMError::Duplicate { .. } => ProcessError::DuplicateEvent(*id, event.clone()),
-        BridgeSMError::Rejected { reason, .. } => {
-            ProcessError::EventRejected(*id, event.clone(), reason)
-        }
+        )),
+        BridgeSMError::Duplicate { .. } => Ok(ProcessOutcome::Ignored {
+            id: *id,
+            event,
+            reason: IgnoredEventReason::Duplicate,
+        }),
+        BridgeSMError::Rejected { reason, .. } => Ok(ProcessOutcome::Ignored {
+            id: *id,
+            event,
+            reason: IgnoredEventReason::Rejected(reason),
+        }),
     }
 }
 
@@ -473,5 +516,84 @@ mod tests {
 
         let result = registry.process_event(&deposit_id, graph_event);
         assert!(matches!(result, Err(ProcessError::InvalidInvocation(_, _))));
+    }
+
+    #[test]
+    fn sm_error_duplicate_maps_to_ignored_outcome() {
+        let id = SMId::Deposit(7);
+        let event = SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
+            block_height: 200,
+        })));
+
+        let result = sm_to_process_result(
+            &id,
+            event,
+            BridgeSMError::Duplicate {
+                state: Box::new("state".to_string()),
+                event: Box::new("event".to_string()),
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Ok(ProcessOutcome::Ignored {
+                id: SMId::Deposit(7),
+                event: SMEvent::Deposit(_),
+                reason: IgnoredEventReason::Duplicate,
+            })
+        ));
+    }
+
+    #[test]
+    fn sm_error_rejected_maps_to_ignored_outcome() {
+        let id = SMId::Deposit(8);
+        let event = SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
+            block_height: 210,
+        })));
+        let reason = "stale event".to_string();
+
+        let result = sm_to_process_result(
+            &id,
+            event,
+            BridgeSMError::Rejected {
+                state: Box::new("state".to_string()),
+                reason: reason.clone(),
+                event: Box::new("event".to_string()),
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Ok(ProcessOutcome::Ignored {
+                id: SMId::Deposit(8),
+                event: SMEvent::Deposit(_),
+                reason: IgnoredEventReason::Rejected(reject_reason),
+            }) if reject_reason == reason
+        ));
+    }
+
+    #[test]
+    fn sm_error_invalid_event_maps_to_fatal_process_error() {
+        let id = SMId::Deposit(9);
+        let event = SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
+            block_height: 220,
+        })));
+        let reason = "invalid transition".to_string();
+
+        let result = sm_to_process_result(
+            &id,
+            event,
+            BridgeSMError::InvalidEvent {
+                state: Box::new("state".to_string()),
+                event: Box::new("event".to_string()),
+                reason: Some(reason.clone()),
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(ProcessError::InvariantViolation(SMId::Deposit(9), SMEvent::Deposit(_), err_reason))
+                if err_reason == reason
+        ));
     }
 }
