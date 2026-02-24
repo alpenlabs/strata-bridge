@@ -512,7 +512,6 @@ impl GraphSM {
                 Ok(GSMOutput::default())
             }
 
-            // Same assignee, updated deadline or recipient.
             GraphState::Assigned {
                 last_block_height,
                 graph_data,
@@ -521,47 +520,41 @@ impl GraphSM {
                 assignee,
                 deadline,
                 recipient_desc,
-            } if *assignee == assignment_event.assignee
-                && (*deadline != assignment_event.deadline
-                    || *recipient_desc != assignment_event.recipient_desc) =>
-            {
-                self.state = GraphState::Assigned {
-                    last_block_height: *last_block_height,
-                    graph_data: *graph_data,
-                    graph_summary: graph_summary.clone(),
-                    signatures: signatures.clone(),
-                    assignee: assignment_event.assignee,
-                    deadline: assignment_event.deadline,
-                    recipient_desc: assignment_event.recipient_desc,
-                };
+            } => {
+                let is_same_assignee = *assignee == assignment_event.assignee;
+                let is_new_deadline = *deadline != assignment_event.deadline;
+                let is_new_recipient = *recipient_desc != assignment_event.recipient_desc;
+                let is_reassignment = is_same_assignee && (is_new_deadline || is_new_recipient);
 
-                Ok(GSMOutput::default())
+                if is_reassignment {
+                    self.state = GraphState::Assigned {
+                        last_block_height: *last_block_height,
+                        graph_data: *graph_data,
+                        graph_summary: graph_summary.clone(),
+                        signatures: signatures.clone(),
+                        assignee: assignment_event.assignee,
+                        deadline: assignment_event.deadline,
+                        recipient_desc: assignment_event.recipient_desc,
+                    };
+
+                    Ok(GSMOutput::default())
+                } else if !is_same_assignee {
+                    // Different assignee: revert to GraphSigned.
+                    self.state = GraphState::GraphSigned {
+                        last_block_height: *last_block_height,
+                        graph_data: *graph_data,
+                        graph_summary: graph_summary.clone(),
+                        signatures: signatures.clone(),
+                    };
+
+                    Ok(GSMOutput::default())
+                } else {
+                    Err(GSMError::duplicate(
+                        self.state().clone(),
+                        assignment_event.into(),
+                    ))
+                }
             }
-
-            // Different assignee: revert to GraphSigned.
-            GraphState::Assigned {
-                last_block_height,
-                graph_data,
-                graph_summary,
-                signatures,
-                assignee,
-                ..
-            } if *assignee != assignment_event.assignee => {
-                self.state = GraphState::GraphSigned {
-                    last_block_height: *last_block_height,
-                    graph_data: *graph_data,
-                    graph_summary: graph_summary.clone(),
-                    signatures: signatures.clone(),
-                };
-
-                Ok(GSMOutput::default())
-            }
-
-            // Identical assignment event (same assignee, deadline, and recipient).
-            GraphState::Assigned { .. } => Err(GSMError::duplicate(
-                self.state().clone(),
-                assignment_event.into(),
-            )),
 
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
