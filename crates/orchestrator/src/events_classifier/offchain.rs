@@ -271,3 +271,129 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
         }),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use strata_bridge_primitives::types::GraphIdx;
+
+    use super::*;
+    use crate::testing::test_empty_registry;
+
+    // ===== classify_assignment tests =====
+
+    /// Helper: generate an `AssignmentEntry` using the arbitrary crate and return it alongside its
+    /// observed `deposit_idx`.
+    fn arb_entry() -> (AssignmentEntry, u32) {
+        let mut arb = strata_bridge_test_utils::arbitrary_generator::ArbitraryGenerator::new();
+        let entry: AssignmentEntry = arb.generate();
+        let idx = entry.deposit_idx();
+        (entry, idx)
+    }
+
+    #[test]
+    fn classify_assignment_deposit_matching() {
+        let (entry, dep_idx) = arb_entry();
+        let sm_id = SMId::Deposit(dep_idx);
+
+        let result = classify_assignment(&sm_id, &[entry]);
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), SMEvent::Deposit(_)));
+    }
+
+    #[test]
+    fn classify_assignment_deposit_no_match() {
+        let (entry, dep_idx) = arb_entry();
+        // Use a different deposit index that won't match
+        let sm_id = SMId::Deposit(dep_idx.wrapping_add(1));
+
+        let result = classify_assignment(&sm_id, &[entry]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn classify_assignment_graph_matching() {
+        let (entry, dep_idx) = arb_entry();
+        let sm_id = SMId::Graph(GraphIdx {
+            deposit: dep_idx,
+            operator: 0,
+        });
+
+        let result = classify_assignment(&sm_id, &[entry]);
+        assert!(result.is_some());
+        assert!(matches!(result.unwrap(), SMEvent::Graph(_)));
+    }
+
+    #[test]
+    fn classify_assignment_graph_no_match() {
+        let (entry, dep_idx) = arb_entry();
+        let sm_id = SMId::Graph(GraphIdx {
+            deposit: dep_idx.wrapping_add(1),
+            operator: 0,
+        });
+
+        let result = classify_assignment(&sm_id, &[entry]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn classify_assignment_correct_fields() {
+        let (entry, dep_idx) = arb_entry();
+        let expected_assignee = entry.current_assignee();
+        let expected_deadline = entry.fulfillment_deadline();
+        let expected_desc = entry.withdrawal_command().destination().clone();
+
+        let sm_id = SMId::Deposit(dep_idx);
+        let result = classify_assignment(&sm_id, &[entry]).unwrap();
+
+        match result {
+            SMEvent::Deposit(boxed) => match *boxed {
+                DepositEvent::WithdrawalAssigned(ref evt) => {
+                    assert_eq!(evt.assignee, expected_assignee);
+                    assert_eq!(evt.deadline, expected_deadline);
+                    assert_eq!(evt.recipient_desc, expected_desc);
+                }
+                other => panic!("expected WithdrawalAssigned, got {other}"),
+            },
+            _ => panic!("expected Deposit event"),
+        }
+    }
+
+    // ===== classify() top-level routing tests =====
+
+    #[test]
+    fn classify_block_returns_none() {
+        use bitcoin::hashes::Hash;
+
+        let registry = test_empty_registry();
+        let block_event = btc_tracker::event::BlockEvent {
+            block: bitcoin::Block {
+                header: bitcoin::block::Header {
+                    version: bitcoin::block::Version::ONE,
+                    prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                    merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                    time: 0,
+                    bits: bitcoin::CompactTarget::from_consensus(0),
+                    nonce: 0,
+                },
+                txdata: vec![],
+            },
+            status: btc_tracker::event::BlockStatus::Buried,
+        };
+        let event = UnifiedEvent::Block(block_event);
+        let sm_id = SMId::Deposit(0);
+
+        let result = classify(&sm_id, &event, &registry);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn classify_shutdown_returns_none() {
+        let registry = test_empty_registry();
+        let (tx, _rx) = tokio::sync::oneshot::channel::<()>();
+        let event = UnifiedEvent::Shutdown(tx);
+        let sm_id = SMId::Deposit(0);
+
+        let result = classify(&sm_id, &event, &registry);
+        assert!(result.is_none());
+    }
+}

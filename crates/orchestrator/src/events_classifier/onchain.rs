@@ -1,5 +1,6 @@
 //! Classification of on-chain events (buried blocks) into state-machine-specific events.
 //!
+//!
 //! This module handles:
 //! - Detecting new deposit requests and spawning SMs
 //! - Running [`TxClassifier::classify_tx()`] per SM per transaction
@@ -225,4 +226,141 @@ fn new_block_events(
                 .map(|&idx| (idx.into(), graph_event.clone().into())),
         )
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use bitcoin::{Amount, Network, absolute, transaction};
+    use strata_bridge_test_utils::bridge_fixtures::{TEST_MAGIC_BYTES, TEST_RECOVERY_DELAY};
+
+    use super::*;
+    use crate::testing::{
+        N_TEST_OPERATORS, TEST_POV_IDX, test_operator_table, test_populated_registry,
+    };
+
+    const TEST_HEIGHT: BitcoinBlockHeight = 200;
+
+    // ===== new_block_events tests =====
+
+    #[test]
+    fn new_block_events_empty_ids() {
+        let events = new_block_events(&[], &[], TEST_HEIGHT);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn new_block_events_deposits_only() {
+        let deposit_ids = vec![0u32, 1, 2];
+        let events = new_block_events(&deposit_ids, &[], TEST_HEIGHT);
+
+        assert_eq!(events.len(), 3);
+        for (id, _event) in &events {
+            assert!(matches!(id, SMId::Deposit(_)));
+        }
+    }
+
+    #[test]
+    fn new_block_events_graphs_only() {
+        let graph_ids = vec![
+            GraphIdx {
+                deposit: 0,
+                operator: 0,
+            },
+            GraphIdx {
+                deposit: 0,
+                operator: 1,
+            },
+        ];
+        let events = new_block_events(&[], &graph_ids, TEST_HEIGHT);
+
+        assert_eq!(events.len(), 2);
+        for (id, _event) in &events {
+            assert!(matches!(id, SMId::Graph(_)));
+        }
+    }
+
+    #[test]
+    fn new_block_events_mixed() {
+        let deposit_ids = vec![0u32, 1];
+        let graph_ids = vec![
+            GraphIdx {
+                deposit: 0,
+                operator: 0,
+            },
+            GraphIdx {
+                deposit: 1,
+                operator: 0,
+            },
+            GraphIdx {
+                deposit: 1,
+                operator: 1,
+            },
+        ];
+        let events = new_block_events(&deposit_ids, &graph_ids, TEST_HEIGHT);
+
+        assert_eq!(events.len(), 5);
+    }
+
+    #[test]
+    fn new_block_events_correct_height() {
+        let deposit_ids = vec![0u32];
+        let graph_ids = vec![GraphIdx {
+            deposit: 0,
+            operator: 0,
+        }];
+        let events = new_block_events(&deposit_ids, &graph_ids, TEST_HEIGHT);
+
+        for (_id, event) in events {
+            match event {
+                SMEvent::Deposit(boxed) => match *boxed {
+                    DepositEvent::NewBlock(ref nb) => assert_eq!(nb.block_height, TEST_HEIGHT),
+                    other => panic!("expected NewBlock, got {other}"),
+                },
+                SMEvent::Graph(boxed) => match *boxed {
+                    GraphEvent::NewBlock(ref nb) => assert_eq!(nb.block_height, TEST_HEIGHT),
+                    other => panic!("expected NewBlock, got {other}"),
+                },
+            }
+        }
+    }
+
+    // ===== try_register_deposit tests =====
+
+    #[test]
+    fn try_register_deposit_non_drt() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let deposit_cfg = Arc::new(DepositSMCfg {
+            network: Network::Regtest,
+            cooperative_payout_timeout_blocks: 144,
+            deposit_amount: Amount::from_sat(10_000_000),
+            operator_fee: Amount::from_sat(10_000),
+            magic_bytes: TEST_MAGIC_BYTES.into(),
+            recovery_delay: TEST_RECOVERY_DELAY,
+        });
+
+        let mut registry = test_populated_registry(0);
+
+        // A random transaction that is not a DRT
+        let random_tx = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+
+        let duties = try_register_deposit(
+            &deposit_cfg,
+            &operator_table,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &mut registry,
+            &random_tx,
+            100,
+        );
+
+        assert!(duties.is_empty());
+        assert_eq!(registry.num_deposits(), 0);
+    }
 }
