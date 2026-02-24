@@ -63,6 +63,21 @@ mod tests {
     }
 
     #[test]
+    fn test_assignment_from_graph_signed_rejected_for_non_pov_operator() {
+        let desc = random_p2tr_desc();
+
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: graph_signed_state(),
+            event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_NONPOV_IDX,
+                deadline: REASSIGNMENT_DEADLINE,
+                recipient_desc: desc,
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    #[test]
     fn test_reassignment_same_assignee_different_deadline() {
         let desc = random_p2tr_desc();
 
@@ -89,7 +104,7 @@ mod tests {
             from_state: assigned_state(TEST_POV_IDX, REASSIGNMENT_DEADLINE, old_desc),
             event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_POV_IDX,
-                deadline: REASSIGNMENT_DEADLINE,
+                deadline: UPDATED_REASSIGNMENT_DEADLINE,
                 recipient_desc: new_desc,
             }),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
@@ -114,14 +129,14 @@ mod tests {
     }
 
     #[test]
-    fn test_assignment_rejected_when_not_assigned_to_this_operator() {
+    fn test_reassignment_rejected_when_invalid_deadline() {
         let desc = random_p2tr_desc();
 
         test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: graph_signed_state(),
+            from_state: assigned_state(TEST_POV_IDX, REASSIGNMENT_DEADLINE, desc.clone()),
             event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
-                assignee: TEST_NONPOV_IDX,
-                deadline: REASSIGNMENT_DEADLINE,
+                assignee: TEST_POV_IDX,
+                deadline: REASSIGNMENT_DEADLINE - 50,
                 recipient_desc: desc,
             }),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
@@ -129,17 +144,17 @@ mod tests {
     }
 
     #[test]
-    fn test_duplicate_assignment() {
-        let desc = random_p2tr_desc();
+    fn test_reassignment_different_assignee_rejected_when_invalid_deadline() {
+        let desc = test_recipient_desc(1);
 
         test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: assigned_state(TEST_POV_IDX, REASSIGNMENT_DEADLINE, desc.clone()),
+            from_state: assigned_state(TEST_NONPOV_IDX, REASSIGNMENT_DEADLINE, desc.clone()),
             event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_POV_IDX,
-                deadline: REASSIGNMENT_DEADLINE,
+                deadline: REASSIGNMENT_DEADLINE - 50,
                 recipient_desc: desc,
             }),
-            expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
     }
 
