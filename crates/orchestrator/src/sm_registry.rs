@@ -108,6 +108,19 @@ impl SMRegistry {
         }
     }
 
+    /// Returns the next available deposit index (`max(existing) + 1`).
+    pub fn next_deposit_idx(&self) -> Result<DepositIdx, RegistryInsertError> {
+        self.deposits
+            .keys()
+            .next_back() // works because this is a BTreeMap sorted by keys
+            .copied()
+            .map_or(Ok(0), |max_idx| {
+                max_idx
+                    .checked_add(1)
+                    .ok_or(RegistryInsertError::DepositIdxExhausted(max_idx))
+            })
+    }
+
     /// Inserts a new deposit state machine into the registry with the given deposit index.
     ///
     /// If a state machine with the same [`DepositIdx`] already exists, it will be overwritten.
@@ -200,6 +213,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::key::rand;
     use strata_bridge_primitives::types::GraphIdx;
     use strata_bridge_sm::{
         deposit::events::{DepositEvent, NewBlockEvent as DepositNewBlock},
@@ -210,8 +224,8 @@ mod tests {
     use crate::{
         sm_types::OperatorKey,
         testing::{
-            N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table,
-            test_populated_registry,
+            N_TEST_OPERATORS, TEST_POV_IDX, insert_deposit_with_graphs, test_empty_registry,
+            test_operator_table, test_populated_registry,
         },
     };
 
@@ -222,6 +236,12 @@ mod tests {
         let registry = test_empty_registry();
         assert_eq!(registry.num_deposits(), 0);
         assert!(registry.get_all_ids().is_empty());
+    }
+
+    #[test]
+    fn next_deposit_idx_empty_is_zero() {
+        let registry = test_empty_registry();
+        assert_eq!(registry.next_deposit_idx(), Ok(0));
     }
 
     #[test]
@@ -238,6 +258,34 @@ mod tests {
             operator: 0,
         };
         assert!(registry.get_graph(&gidx).is_some());
+    }
+
+    #[test]
+    fn next_deposit_idx_non_empty_is_max_plus_one() {
+        let registry = test_populated_registry(3);
+        assert_eq!(registry.next_deposit_idx(), Ok(3));
+    }
+
+    #[test]
+    fn next_deposit_idx_sparse_keys_returns_max_plus_one() {
+        let mut registry = test_empty_registry();
+        const MAX_IDX: DepositIdx = 9;
+        let min_idx = rand::random::<DepositIdx>() % MAX_IDX;
+        insert_deposit_with_graphs(&mut registry, min_idx);
+        insert_deposit_with_graphs(&mut registry, MAX_IDX);
+
+        assert_eq!(registry.next_deposit_idx(), Ok(MAX_IDX + 1));
+    }
+
+    #[test]
+    fn next_deposit_idx_overflow_errors() {
+        let mut registry = test_empty_registry();
+        insert_deposit_with_graphs(&mut registry, DepositIdx::MAX);
+
+        assert_eq!(
+            registry.next_deposit_idx(),
+            Err(RegistryInsertError::DepositIdxExhausted(DepositIdx::MAX))
+        );
     }
 
     #[test]
