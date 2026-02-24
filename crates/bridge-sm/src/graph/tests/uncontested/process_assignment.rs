@@ -80,35 +80,32 @@ mod tests {
     }
 
     #[test]
-    fn test_reassignment_same_assignee_different_recipient() {
+    fn test_reassignment_rejected_when_recipient_changes() {
         let old_desc = random_p2tr_desc();
         let new_desc = random_p2tr_desc();
         assert_ne!(old_desc, new_desc, "descriptors must differ");
 
-        test_graph_transition(GraphTransition {
+        test_graph_invalid_transition(GraphInvalidTransition {
             from_state: assigned_state(TEST_POV_IDX, REASSIGNMENT_DEADLINE, old_desc),
             event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_POV_IDX,
                 deadline: REASSIGNMENT_DEADLINE,
-                recipient_desc: new_desc.clone(),
+                recipient_desc: new_desc,
             }),
-            expected_state: assigned_state(TEST_POV_IDX, REASSIGNMENT_DEADLINE, new_desc),
-            expected_duties: vec![],
-            expected_signals: vec![],
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
     }
 
     #[test]
     fn test_reassignment_different_assignee_reverts_to_graph_signed() {
-        let old_desc = test_recipient_desc(1);
-        let new_desc = test_recipient_desc(2);
+        let desc = test_recipient_desc(1);
 
         test_graph_transition(GraphTransition {
-            from_state: assigned_state(TEST_NONPOV_IDX, REASSIGNMENT_DEADLINE, old_desc),
+            from_state: assigned_state(TEST_NONPOV_IDX, REASSIGNMENT_DEADLINE, desc.clone()),
             event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_POV_IDX,
                 deadline: UPDATED_REASSIGNMENT_DEADLINE,
-                recipient_desc: new_desc,
+                recipient_desc: desc,
             }),
             expected_state: graph_signed_state(),
             expected_duties: vec![],
