@@ -448,6 +448,7 @@ impl GraphSM {
 
                     return Ok(GSMOutput::with_signals(vec![GraphSignal::ToDeposit(
                         GraphToDeposit::GraphAvailable {
+                            claim_txid: game_graph.claim.as_ref().compute_txid(),
                             operator_idx: graph_ctx.operator_idx(),
                         },
                     )]));
