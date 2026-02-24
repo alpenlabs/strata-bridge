@@ -481,6 +481,17 @@ impl GraphSM {
         &mut self,
         assignment_event: WithdrawalAssignedEvent,
     ) -> GSMResult<GSMOutput> {
+        if assignment_event.assignee != self.context().operator_idx() {
+            return Err(GSMError::rejected(
+                self.state().clone(),
+                assignment_event.clone().into(),
+                format!(
+                    "withdrawal assigned to operator {} but this graph belongs to operator {}",
+                    assignment_event.assignee,
+                    self.context().operator_idx()
+                ),
+            ));
+        }
         match self.state() {
             GraphState::GraphSigned {
                 last_block_height,

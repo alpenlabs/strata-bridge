@@ -117,6 +117,21 @@ mod tests {
     }
 
     #[test]
+    fn test_assignment_rejected_when_not_assigned_to_this_operator() {
+        let desc = random_p2tr_desc();
+
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: graph_signed_state(),
+            event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_NONPOV_IDX,
+                deadline: REASSIGNMENT_DEADLINE,
+                recipient_desc: desc,
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    #[test]
     fn test_duplicate_assignment() {
         let desc = random_p2tr_desc();
 
