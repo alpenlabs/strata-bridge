@@ -1,12 +1,8 @@
 //! The main event loop that wires all pipeline stages together:
 //! `EventsMux` → classify → process → signal cascade → persist → dispatch.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 
-use bitcoin::{
-    OutPoint,
-    hashes::{Hash, sha256},
-};
 use strata_bridge_db2::traits::BridgeDb;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use tracing::{info, warn};
@@ -55,6 +51,10 @@ impl<Db: BridgeDb> Pipeline<Db> {
     /// Runs the main event loop until shutdown.
     ///
     /// On shutdown, sends the signal through the oneshot channel and returns.
+    ///
+    /// The `initial_operator_table` needs to be constructed from a params file or similar source of
+    /// truth for now. Eventually, this will be queried from the Operator State Machine in the
+    /// registry.
     pub async fn run(
         mut self,
         initial_operator_table: OperatorTable,
@@ -75,15 +75,10 @@ impl<Db: BridgeDb> Pipeline<Db> {
                 routable => routable,
             };
 
-            let (stake_outpoints, unstaking_images) =
-                get_mocked_stake_data(&initial_operator_table);
-
             // Stage 2: Classification
             let (targets, new_duties): (Vec<(SMId, SMEvent)>, Vec<UnifiedDuty>) = match &event {
                 UnifiedEvent::Block(block_event) => onchain::classify_block(
                     &initial_operator_table,
-                    stake_outpoints,
-                    unstaking_images,
                     &mut self.registry,
                     block_event,
                 ),
@@ -200,28 +195,4 @@ impl<Db: BridgeDb> Pipeline<Db> {
             Err(e) => Err(e.into()),
         }
     }
-}
-
-/// Generates mocked stake data for the given operator table.
-fn get_mocked_stake_data(
-    initial_operator_table: &OperatorTable,
-) -> (BTreeMap<u32, OutPoint>, BTreeMap<u32, sha256::Hash>) {
-    // TODO: (@Rajil1213) query Operator and Stake SMs for operator table and stake data
-    // For now, use static values.
-
-    let mock_outpoint = OutPoint::default(); // dummy outpoint
-    let stake_outpoints = initial_operator_table
-        .operator_idxs()
-        .into_iter()
-        .map(|idx| (idx, mock_outpoint))
-        .collect();
-
-    let mock_hash = sha256::Hash::from_slice(&[0u8; 32]).expect("dummy hash must be valid");
-    let unstaking_images = initial_operator_table
-        .operator_idxs()
-        .into_iter()
-        .map(|idx| (idx, mock_hash))
-        .collect();
-    // dummy stake images
-    (stake_outpoints, unstaking_images)
 }

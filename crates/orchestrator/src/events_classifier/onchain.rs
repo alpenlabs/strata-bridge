@@ -10,7 +10,12 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use bitcoin::{OutPoint, Transaction, hashes::sha256, hex::DisplayHex, secp256k1::XOnlyPublicKey};
+use bitcoin::{
+    OutPoint, Transaction,
+    hashes::{Hash, sha256},
+    hex::DisplayHex,
+    secp256k1::XOnlyPublicKey,
+};
 use btc_tracker::event::BlockEvent;
 use strata_asm_txs_bridge_v1::deposit_request::parse_drt;
 use strata_bridge_p2p_types2::GraphIdx;
@@ -43,12 +48,12 @@ use crate::{
 /// Classifies a buried block into a list of ([`SMId`], [`SMEvent`]) targets and a list of new
 /// [`UnifiedDuty`]'s.
 pub(crate) fn classify_block(
-    cur_operator_table: &OperatorTable,
-    cur_stakes: BTreeMap<OperatorIdx, OutPoint>,
-    cur_unstaking_images: BTreeMap<OperatorIdx, sha256::Hash>,
+    initial_operator_table: &OperatorTable,
     registry: &mut SMRegistry,
     block_event: &BlockEvent,
 ) -> (Vec<(SMId, SMEvent)>, Vec<UnifiedDuty>) {
+    let (cur_stakes, cur_unstaking_images) = get_mocked_stake_data(initial_operator_table);
+
     let deposit_cfg = registry.cfg().deposit.clone();
     let graph_cfg = registry.cfg().graph.clone();
     let height = block_event
@@ -68,7 +73,7 @@ pub(crate) fn classify_block(
         // If this tx is a DRT, register new DepositSM + per-operator GraphSMs
         initial_duties.extend(try_register_deposit(
             &deposit_cfg,
-            cur_operator_table,
+            initial_operator_table,
             &cur_stakes,
             &cur_unstaking_images,
             registry,
@@ -94,6 +99,30 @@ pub(crate) fn classify_block(
     ));
 
     (targets, initial_duties)
+}
+
+/// Generates mocked stake data for the given operator table.
+fn get_mocked_stake_data(
+    initial_operator_table: &OperatorTable,
+) -> (BTreeMap<u32, OutPoint>, BTreeMap<u32, sha256::Hash>) {
+    // TODO: (@Rajil1213) query Operator and Stake SMs for operator table and stake data
+    // For now, use static values.
+
+    let mock_outpoint = OutPoint::default(); // dummy outpoint
+    let stake_outpoints = initial_operator_table
+        .operator_idxs()
+        .into_iter()
+        .map(|idx| (idx, mock_outpoint))
+        .collect();
+
+    let mock_hash = sha256::Hash::from_slice(&[0u8; 32]).expect("dummy hash must be valid");
+    let unstaking_images = initial_operator_table
+        .operator_idxs()
+        .into_iter()
+        .map(|idx| (idx, mock_hash))
+        .collect();
+    // dummy stake images
+    (stake_outpoints, unstaking_images)
 }
 
 /// If `tx` is a valid deposit request transaction, registers a [`DepositSM`] and per-operator
