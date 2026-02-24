@@ -7,6 +7,8 @@ use rand_core::{OsRng, TryCryptoRng};
 
 /// The default buffer size for the `ArbitraryGenerator`.
 const ARB_GEN_LEN: usize = 1024;
+/// Maximum number of times to retry arbitrary generation before panicking.
+const ARB_GEN_MAX_ATTEMPTS: usize = 128;
 
 /// A generator for producing arbitrary data based on a persistent buffer.
 #[derive(Debug)]
@@ -49,9 +51,9 @@ impl ArbitraryGenerator {
     /// # Returns
     ///
     /// An arbitrary instance of type `T`.
-    pub fn generate<'a, T>(&'a mut self) -> T
+    pub fn generate<T>(&mut self) -> T
     where
-        T: Arbitrary<'a> + Clone,
+        T: for<'a> Arbitrary<'a> + Clone,
     {
         self.generate_with_rng::<T, OsRng>(&mut OsRng)
     }
@@ -66,15 +68,29 @@ impl ArbitraryGenerator {
     /// # Returns
     ///
     /// An arbitrary instance of type `T`.
-    pub fn generate_with_rng<'a, T, R>(&'a mut self, rng: &mut R) -> T
+    pub fn generate_with_rng<T, R>(&mut self, rng: &mut R) -> T
     where
-        T: Arbitrary<'a> + Clone,
+        T: for<'a> Arbitrary<'a> + Clone,
         R: TryCryptoRng,
     {
-        rng.try_fill_bytes(&mut self.buf)
-            .expect("must be able to generate random bytes");
-        let mut u = Unstructured::new(&self.buf);
-        T::arbitrary(&mut u).expect("Failed to generate arbitrary instance")
+        let mut last_err = None;
+
+        for _attempt in 0..ARB_GEN_MAX_ATTEMPTS {
+            rng.try_fill_bytes(&mut self.buf)
+                .expect("must be able to generate random bytes");
+            let mut u = Unstructured::new(&self.buf);
+            match T::arbitrary(&mut u) {
+                Ok(value) => return value,
+                Err(err) => {
+                    last_err = Some(err);
+                }
+            }
+        }
+
+        panic!(
+            "Failed to generate arbitrary instance after {ARB_GEN_MAX_ATTEMPTS} attempts: {:?}",
+            last_err
+        );
     }
 }
 
