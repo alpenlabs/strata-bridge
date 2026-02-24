@@ -9,13 +9,13 @@ use tracing::{info, warn};
 
 use crate::{
     duty_dispatcher::DutyDispatcher,
-    errors::{PipelineError, ProcessError},
+    errors::PipelineError,
     events_classifier::{offchain, onchain},
     events_mux::{EventsMux, UnifiedEvent},
     events_router,
     persister::{PersistenceTracker, Persister},
     signals_router,
-    sm_registry::SMRegistry,
+    sm_registry::{IgnoredEventReason, ProcessOutcome, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
@@ -129,7 +129,7 @@ impl<Db: BridgeDb> Pipeline<Db> {
 
         // Process initial targets
         for (sm_id, sm_event) in targets {
-            self.process_signal(
+            self.process_event(
                 sm_id,
                 sm_event,
                 &mut all_duties,
@@ -140,7 +140,7 @@ impl<Db: BridgeDb> Pipeline<Db> {
 
         // Signal cascade: process signals until the queue is drained
         while let Some((sm_id, sm_event)) = signal_queue.pop_front() {
-            self.process_signal(
+            self.process_event(
                 sm_id,
                 sm_event,
                 &mut all_duties,
@@ -155,8 +155,8 @@ impl<Db: BridgeDb> Pipeline<Db> {
     /// Processes a single (SMId, SMEvent) pair through the registry's STF.
     ///
     /// On success, accumulates duties and enqueues any signal-derived events.
-    /// `DuplicateEvent` errors are non-fatal (logged and skipped). All other errors are fatal.
-    fn process_signal(
+    /// Ignored outcomes are non-fatal (logged and skipped). Fatal errors are propagated.
+    fn process_event(
         &mut self,
         sm_id: SMId,
         sm_event: SMEvent,
@@ -165,7 +165,7 @@ impl<Db: BridgeDb> Pipeline<Db> {
         tracker: &mut PersistenceTracker,
     ) -> Result<(), PipelineError<Db>> {
         match self.registry.process_event(&sm_id, sm_event) {
-            Ok(output) => {
+            Ok(ProcessOutcome::Applied(output)) => {
                 all_duties.extend(output.duties);
                 tracker.record(sm_id);
 
@@ -180,18 +180,17 @@ impl<Db: BridgeDb> Pipeline<Db> {
 
                 Ok(())
             }
-            // Duplicate events are non-fatal (can happen due to network retransmission)
-            Err(ProcessError::DuplicateEvent(id, event)) => {
-                warn!(?id, %event, "duplicate event, skipping");
+            Ok(ProcessOutcome::Ignored { id, event, reason }) => {
+                match reason {
+                    IgnoredEventReason::Duplicate => {
+                        warn!(?id, %event, "duplicate event, skipping");
+                    }
+                    IgnoredEventReason::Rejected(rejected_reason) => {
+                        warn!(?id, %event, %rejected_reason, "event rejected by state machine, skipping");
+                    }
+                }
                 Ok(())
             }
-            // Event rejections are non-fatal (can happen if the event is no longer relevant, e.g.
-            // due to another input beating it to the punch)
-            Err(ProcessError::EventRejected(id, event, reason)) => {
-                warn!(?id, %event, %reason, "event rejected by state machine, skipping");
-                Ok(())
-            }
-            // All other processing errors are fatal
             Err(e) => Err(e.into()),
         }
     }
