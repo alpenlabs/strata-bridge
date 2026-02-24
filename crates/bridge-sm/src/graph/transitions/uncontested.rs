@@ -521,10 +521,19 @@ impl GraphSM {
                 deadline,
                 recipient_desc,
             } => {
+                // Recipient descriptor cannot be changed once assigned.
+                if *recipient_desc != assignment_event.recipient_desc {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        assignment_event.into(),
+                        "recipient descriptor cannot be changed for an existing assignment",
+                    ));
+                }
+
+                // Reassignment: same assignee with an updated deadline.
                 let is_same_assignee = *assignee == assignment_event.assignee;
                 let is_new_deadline = *deadline != assignment_event.deadline;
-                let is_new_recipient = *recipient_desc != assignment_event.recipient_desc;
-                let is_reassignment = is_same_assignee && (is_new_deadline || is_new_recipient);
+                let is_reassignment = is_same_assignee && is_new_deadline;
 
                 if is_reassignment {
                     self.state = GraphState::Assigned {
