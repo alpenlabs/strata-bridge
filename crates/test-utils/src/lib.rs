@@ -12,6 +12,7 @@
 pub mod arbitrary_generator;
 pub mod bitcoin;
 pub mod bitcoin_rpc;
+pub mod bridge_fixtures;
 pub mod deposit;
 pub mod musig2;
 pub mod prelude;

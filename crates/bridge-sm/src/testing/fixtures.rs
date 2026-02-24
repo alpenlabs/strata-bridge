@@ -1,50 +1,30 @@
 //! Universal test fixtures usable by any state machine.
 //!
-//! This module provides helpers for creating common test data structures
-//! like blocks and transactions that are used across multiple state machines.
+//! Crate-agnostic helpers (operator tables, descriptors, shared constants) live in
+//! [`strata_bridge_test_utils::bridge_fixtures`] and are re-exported here for convenience.
+//! This file adds bridge-sm–specific fixtures on top.
 
-use bitcoin::{
-    Amount, Block, BlockHash, CompactTarget, Network, OutPoint, ScriptBuf, Sequence, Transaction,
-    TxIn, TxMerkleNode, Witness, XOnlyPublicKey, block, blockdata, hashes::Hash, relative,
-    script::Builder, transaction,
-};
+use bitcoin::{OutPoint, Transaction};
 use bitcoin_bosd::Descriptor;
-use secp256k1::{Keypair, SECP256K1, SecretKey};
-use strata_bridge_p2p_types::P2POperatorPubKey;
-use strata_bridge_primitives::{
-    operator_table::OperatorTable, secp::EvenSecretKey, types::OperatorIdx,
+use secp256k1::{SECP256K1, SecretKey};
+use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_test_utils::bitcoin::generate_spending_tx;
+// Re-export shared bridge fixtures (constants + helpers) from the central location.
+pub use strata_bridge_test_utils::bridge_fixtures::*;
+use strata_bridge_tx_graph2::transactions::prelude::{
+    WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
 };
-use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_xonly_pubkey};
-use strata_bridge_tx_graph2::transactions::{
-    deposit::{DepositData, DepositTx},
-    prelude::{WithdrawalFulfillmentData, WithdrawalFulfillmentTx},
-};
-use strata_l1_txfmt::MagicBytes;
 
-// ===== Shared Test Constants =====
+// ===== bridge-sm–specific Constants =====
 
 /// Block height used to represent a later block in tests.
 pub const LATER_BLOCK_HEIGHT: u64 = 150;
 /// Deposit index used in tests.
 pub const TEST_DEPOSIT_IDX: u32 = 0;
-/// Operator index of the POV (point of view) operator in tests.
-pub const TEST_POV_IDX: OperatorIdx = 0;
 /// Operator index used as the assignee in tests.
 pub const TEST_ASSIGNEE: OperatorIdx = 2;
-/// Magic bytes used in tests.
-pub const TEST_MAGIC_BYTES: [u8; 4] = [0x54, 0x45, 0x53, 0x54]; // "TEST"
-/// Deposit amount used in tests.
-pub const TEST_DEPOSIT_AMOUNT: Amount = Amount::from_sat(10_000_000);
-/// Operator fee used in tests.
-pub const TEST_OPERATOR_FEE: Amount = Amount::from_sat(10_000);
 
-// ===== Shared Test Helpers =====
-
-/// Creates a random P2TR descriptor for use in tests.
-pub fn random_p2tr_desc() -> Descriptor {
-    Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
-        .expect("Failed to generate descriptor")
-}
+// ===== bridge-sm–specific Helpers =====
 
 /// Returns a deterministic P2TR descriptor for use in fulfillment tests.
 ///
@@ -84,23 +64,4 @@ pub fn test_takeback_tx(outpoint: OutPoint) -> Transaction {
 /// Payout transactions use key-path spending and have minimal witness data.
 pub fn test_payout_tx(outpoint: OutPoint) -> Transaction {
     generate_spending_tx(outpoint, &[])
-}
-
-/// Creates a deterministic test operator table with `n` operators,
-/// and marks `pov_idx` as the POV operator.
-pub fn test_operator_table(n: usize, pov_idx: OperatorIdx) -> OperatorTable {
-    let operators = (0..n as OperatorIdx)
-        .map(|idx| {
-            let byte =
-                u8::try_from(idx + 1).expect("operator index too large for test key derivation");
-            let sk = EvenSecretKey::from(SecretKey::from_slice(&[byte; 32]).unwrap());
-            let pk = sk.public_key(SECP256K1);
-            let p2p = P2POperatorPubKey::from(pk.serialize().to_vec());
-
-            (idx, p2p, pk)
-        })
-        .collect();
-
-    OperatorTable::new(operators, move |entry| entry.0 == pov_idx)
-        .expect("Failed to create test operator table")
 }

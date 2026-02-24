@@ -26,6 +26,7 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_test_utils::{
     bitcoin::{generate_spending_tx, generate_txid},
+    bridge_fixtures::TEST_RECOVERY_DELAY,
     musig2::{generate_agg_nonce, generate_partial_signature, generate_pubnonce},
 };
 use strata_bridge_tx_graph2::transactions::{
@@ -92,8 +93,6 @@ const BIP34_MIN_BLOCK_HEIGHT: u64 = 17;
 const TEST_ASSIGNMENT_DEADLINE_OFFSET: u64 = 15;
 /// Cooperative payout timelock (in blocks) used for tests.
 const TEST_COOPERATIVE_PAYOUT_TIMELOCK: u64 = 1008;
-/// Recovery delay (in blocks) used in tests.
-pub(super) const TEST_RECOVERY_DELAY: u16 = 1008;
 
 // ===== Configuration Helpers =====
 

@@ -30,7 +30,4 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-strata-bridge-p2p-types.workspace = true
 strata-bridge-test-utils.workspace = true
-
-secp256k1.workspace = true
