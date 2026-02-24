@@ -81,7 +81,7 @@ impl<Db: BridgeDb> Pipeline<Db> {
                     &initial_operator_table,
                     &mut self.registry,
                     block_event,
-                ),
+                )?,
 
                 _ => {
                     // P2P / assignment / ticks: route to SM ids, then classify each

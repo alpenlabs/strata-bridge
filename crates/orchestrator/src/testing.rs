@@ -119,7 +119,9 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
     );
     let deposit_outpoint = dsm.context().deposit_outpoint();
 
-    registry.insert_deposit(deposit_idx, dsm);
+    registry
+        .insert_deposit(deposit_idx, dsm)
+        .expect("test helper must not insert duplicate deposit index");
 
     // Insert one GraphSM per operator
     for op_idx in 0..N_TEST_OPERATORS as OperatorIdx {
@@ -135,7 +137,9 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
             operator_table: operator_table.clone(),
         };
         let (gsm, _duty) = GraphSM::new(gsm_ctx, INITIAL_BLOCK_HEIGHT);
-        registry.insert_graph(graph_idx, gsm);
+        registry
+            .insert_graph(graph_idx, gsm)
+            .expect("test helper must not insert duplicate graph index");
     }
 }
 

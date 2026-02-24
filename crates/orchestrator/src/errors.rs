@@ -6,6 +6,7 @@ use thiserror::Error;
 
 use crate::{
     persister::PersistError,
+    sm_registry::RegistryInsertError,
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
@@ -34,6 +35,10 @@ pub enum ProcessError {
     /// longer relevant.
     #[error("Event {1} was rejected by state machine with id {0}: {2}")]
     EventRejected(SMId, SMEvent, String),
+
+    /// A duplicate or invalid registry insertion was attempted.
+    #[error("Registry insertion error: {0}")]
+    RegistryInsert(#[from] RegistryInsertError),
 }
 
 /// Fatal error from the pipeline main loop.
