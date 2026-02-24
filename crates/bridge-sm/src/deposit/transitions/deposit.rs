@@ -82,7 +82,10 @@ impl DepositSM {
         let deposit_outpoint = self.context().deposit_outpoint();
 
         match graph_msg {
-            GraphToDeposit::GraphAvailable { operator_idx } => {
+            GraphToDeposit::GraphAvailable {
+                claim_txid: _,
+                operator_idx,
+            } => {
                 // Validate operator_idx is in the operator table
                 self.check_operator_idx(operator_idx, &graph_msg)?;
 
