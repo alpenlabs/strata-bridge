@@ -192,3 +192,155 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use strata_bridge_primitives::types::GraphIdx;
+    use strata_bridge_sm::{
+        deposit::events::{DepositEvent, NewBlockEvent as DepositNewBlock},
+        graph::events::{GraphEvent, NewBlockEvent as GraphNewBlock},
+    };
+
+    use super::*;
+    use crate::{
+        sm_types::OperatorKey,
+        testing::{
+            N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table,
+            test_populated_registry,
+        },
+    };
+
+    // ===== Basic CRUD tests =====
+
+    #[test]
+    fn new_registry_is_empty() {
+        let registry = test_empty_registry();
+        assert_eq!(registry.num_deposits(), 0);
+        assert!(registry.get_all_ids().is_empty());
+    }
+
+    #[test]
+    fn insert_and_get_deposit() {
+        let registry = test_populated_registry(1);
+        assert!(registry.get_deposit(&0).is_some());
+    }
+
+    #[test]
+    fn insert_and_get_graph() {
+        let registry = test_populated_registry(1);
+        let gidx = GraphIdx {
+            deposit: 0,
+            operator: 0,
+        };
+        assert!(registry.get_graph(&gidx).is_some());
+    }
+
+    #[test]
+    fn contains_id_true_for_existing() {
+        let registry = test_populated_registry(1);
+
+        assert!(registry.contains_id(&SMId::Deposit(0)));
+        assert!(registry.contains_id(&SMId::Graph(GraphIdx {
+            deposit: 0,
+            operator: 1,
+        })));
+    }
+
+    #[test]
+    fn contains_id_false_for_missing() {
+        let registry = test_populated_registry(1);
+
+        assert!(!registry.contains_id(&SMId::Deposit(99)));
+        assert!(!registry.contains_id(&SMId::Graph(GraphIdx {
+            deposit: 99,
+            operator: 0,
+        })));
+    }
+
+    #[test]
+    fn get_all_ids_both_types() {
+        let registry = test_populated_registry(1);
+        let ids = registry.get_all_ids();
+
+        // 1 deposit + N_TEST_OPERATORS graphs
+        assert_eq!(ids.len(), 1 + N_TEST_OPERATORS);
+
+        let has_deposit = ids.iter().any(|id| matches!(id, SMId::Deposit(0)));
+        let graph_count = ids.iter().filter(|id| matches!(id, SMId::Graph(_))).count();
+
+        assert!(has_deposit);
+        assert_eq!(graph_count, N_TEST_OPERATORS);
+    }
+
+    // ===== lookup_operator tests =====
+
+    #[test]
+    fn lookup_operator_pov() {
+        let registry = test_populated_registry(1);
+        let id = SMId::Deposit(0);
+
+        let op_idx = registry.lookup_operator(&id, &OperatorKey::Pov);
+        assert_eq!(op_idx, Some(TEST_POV_IDX));
+    }
+
+    #[test]
+    fn lookup_operator_peer_known() {
+        let registry = test_populated_registry(1);
+        let id = SMId::Deposit(0);
+
+        // Get the P2P key of operator 1 from the operator table used to construct the SM
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let p2p_key = table.idx_to_p2p_key(&1).unwrap().clone();
+
+        let op_idx = registry.lookup_operator(&id, &OperatorKey::Peer(&p2p_key.into()));
+        assert_eq!(op_idx, Some(1));
+    }
+
+    #[test]
+    fn lookup_operator_peer_unknown() {
+        let registry = test_populated_registry(1);
+        let id = SMId::Deposit(0);
+
+        // A P2P key that doesn't belong to any operator
+        let unknown_key = strata_bridge_p2p_types2::P2POperatorPubKey::from(vec![0xFFu8; 33]);
+        let op_idx = registry.lookup_operator(&id, &OperatorKey::Peer(&unknown_key));
+        assert!(op_idx.is_none());
+    }
+
+    #[test]
+    fn lookup_operator_missing_sm() {
+        let registry = test_populated_registry(1);
+        let id = SMId::Deposit(99);
+
+        let op_idx = registry.lookup_operator(&id, &OperatorKey::Pov);
+        assert!(op_idx.is_none());
+    }
+
+    // ===== process_event error tests =====
+
+    #[test]
+    fn process_event_sm_not_found() {
+        let mut registry = test_populated_registry(1);
+        let missing_id = SMId::Deposit(99);
+        let event = SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
+            block_height: 200,
+        })));
+
+        let result = registry.process_event(&missing_id, event);
+        assert!(matches!(result, Err(ProcessError::SMNotFound(_))));
+    }
+
+    #[test]
+    fn process_event_type_mismatch() {
+        let mut registry = test_populated_registry(1);
+
+        // Send a graph event to a deposit SM ID → InvalidInvocation
+        let deposit_id = SMId::Deposit(0);
+        let graph_event = SMEvent::Graph(Box::new(GraphEvent::NewBlock(GraphNewBlock {
+            block_height: 200,
+        })));
+
+        let result = registry.process_event(&deposit_id, graph_event);
+        assert!(matches!(result, Err(ProcessError::InvalidInvocation(_, _))));
+    }
+}
