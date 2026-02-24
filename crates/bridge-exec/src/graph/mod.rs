@@ -2,6 +2,7 @@
 //! transitions.
 
 mod common;
+mod contested;
 
 use std::sync::Arc;
 
@@ -72,8 +73,9 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishBridgeProof { .. } => {
             todo!("PublishBridgeProof")
         }
-        GraphDuty::PublishBridgeProofTimeout { .. } => {
-            todo!("PublishBridgeProofTimeout")
+        GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx } => {
+            contested::publish_bridge_proof_timeout(&output_handles, signed_timeout_tx.clone())
+                .await
         }
         GraphDuty::PublishCounterProof { .. } => {
             todo!("PublishCounterProof")
