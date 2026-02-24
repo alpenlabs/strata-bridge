@@ -159,13 +159,12 @@ fn try_register_deposit(
     let drt_txid = tx.compute_txid();
     let magic_bytes = deposit_cfg.magic_bytes;
 
-    // cast safety: number of deposits will always be < u32::MAX
-    let deposit_idx = registry.num_deposits() as DepositIdx;
+    let deposit_idx_offset = registry.next_deposit_idx()?;
 
     // always second output for now
     let deposit_request_outpoint = OutPoint::new(drt_txid, 1);
     let deposit_data = DepositData {
-        deposit_idx,
+        deposit_idx: deposit_idx_offset,
         deposit_request_outpoint,
         magic_bytes,
     };
@@ -179,40 +178,41 @@ fn try_register_deposit(
     );
 
     let deposit_outpoint = dsm.context().deposit_outpoint();
-    registry.insert_deposit(deposit_idx, dsm);
+    registry.insert_deposit(deposit_idx_offset, dsm);
 
     // Register one GraphSM per operator, collecting initial duties
-    cur_operator_table
-        .operator_idxs()
-        .iter()
-        .filter_map(|&op_idx| {
-            let graph_idx = GraphIdx {
-                deposit: deposit_idx,
-                operator: op_idx,
-            };
+    let mut duties = Vec::new();
+    for &op_idx in cur_operator_table.operator_idxs().iter() {
+        let graph_idx = GraphIdx {
+            deposit: deposit_idx_offset,
+            operator: op_idx,
+        };
 
-            let stake_outpoint = *cur_stakes
-                .get(&op_idx)
-                .expect("must have stake for operator idx");
+        let stake_outpoint = *cur_stakes
+            .get(&op_idx)
+            .expect("must have stake for operator idx");
 
-            let unstaking_image = *cur_unstaking_images
-                .get(&op_idx)
-                .expect("must have unstaking image for operator idx");
+        let unstaking_image = *cur_unstaking_images
+            .get(&op_idx)
+            .expect("must have unstaking image for operator idx");
 
-            let gsm_ctx = GraphSMCtx {
-                graph_idx,
-                deposit_outpoint,
-                stake_outpoint,
-                unstaking_image,
-                operator_table: cur_operator_table.clone(),
-            };
+        let gsm_ctx = GraphSMCtx {
+            graph_idx,
+            deposit_outpoint,
+            stake_outpoint,
+            unstaking_image,
+            operator_table: cur_operator_table.clone(),
+        };
 
-            let (gsm, duty) = GraphSM::new(gsm_ctx, height);
-            registry.insert_graph(gsm.context().graph_idx(), gsm);
+        let (gsm, duty) = GraphSM::new(gsm_ctx, height);
 
-            duty.map(UnifiedDuty::from)
-        })
-        .collect()
+        registry.insert_graph(gsm.context().graph_idx(), gsm);
+        if let Some(duty) = duty {
+            duties.push(duty.into());
+        }
+    }
+
+    duties
 }
 
 /// Runs [`TxClassifier::classify_tx()`] on every active SM for a single transaction.
