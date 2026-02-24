@@ -186,3 +186,161 @@ pub enum PersistError<Db: BridgeDb> {
     #[error("persistence error: {0}")]
     DbErr(Db::Error),
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use strata_bridge_primitives::types::GraphIdx;
+
+    use super::*;
+
+    fn deposit(idx: u32) -> SMId {
+        SMId::Deposit(idx)
+    }
+
+    fn graph(deposit: u32, operator: u32) -> SMId {
+        SMId::Graph(GraphIdx { deposit, operator })
+    }
+
+    /// Helper: collect all SM IDs from all batches into a single sorted set.
+    fn all_ids(batches: &[BTreeSet<SMId>]) -> BTreeSet<SMId> {
+        batches.iter().flat_map(|b| b.iter().copied()).collect()
+    }
+
+    #[test]
+    fn record_creates_singleton_group() {
+        let mut tracker = PersistenceTracker::new();
+        tracker.record(deposit(0));
+
+        let batches = tracker.into_batches();
+        assert_eq!(batches.len(), 1);
+        assert!(batches[0].contains(&deposit(0)));
+    }
+
+    #[test]
+    fn record_multiple_creates_separate_groups() {
+        let mut tracker = PersistenceTracker::new();
+        tracker.record(deposit(0));
+        tracker.record(deposit(1));
+
+        let batches = tracker.into_batches();
+        assert_eq!(batches.len(), 2);
+    }
+
+    #[test]
+    fn record_duplicate_is_noop() {
+        let mut tracker = PersistenceTracker::new();
+        tracker.record(deposit(0));
+        tracker.record(deposit(0));
+
+        let batches = tracker.into_batches();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].len(), 1);
+    }
+
+    #[test]
+    fn link_merges_two_groups() {
+        let mut tracker = PersistenceTracker::new();
+        tracker.record(deposit(0));
+        tracker.record(deposit(1));
+        tracker.link(deposit(0), deposit(1));
+
+        let batches = tracker.into_batches();
+        assert_eq!(batches.len(), 1);
+        assert!(batches[0].contains(&deposit(0)));
+        assert!(batches[0].contains(&deposit(1)));
+    }
+
+    #[test]
+    fn link_unrecorded_source_auto_records() {
+        let mut tracker = PersistenceTracker::new();
+        // Neither A nor B recorded yet.
+        tracker.link(deposit(0), deposit(1));
+
+        let batches = tracker.into_batches();
+        assert_eq!(batches.len(), 1);
+        assert!(batches[0].contains(&deposit(0)));
+        assert!(batches[0].contains(&deposit(1)));
+    }
+
+    #[test]
+    fn link_unrecorded_target_joins_source_group() {
+        let mut tracker = PersistenceTracker::new();
+        tracker.record(deposit(0));
+        tracker.link(deposit(0), deposit(1));
+
+        let batches = tracker.into_batches();
+        assert_eq!(batches.len(), 1);
+        assert!(batches[0].contains(&deposit(0)));
+        assert!(batches[0].contains(&deposit(1)));
+    }
+
+    #[test]
+    fn link_same_group_is_noop() {
+        let mut tracker = PersistenceTracker::new();
+        tracker.record(deposit(0));
+        tracker.record(deposit(1));
+        tracker.link(deposit(0), deposit(1));
+        // Linking again within the same group should not duplicate.
+        tracker.link(deposit(0), deposit(1));
+
+        let batches = tracker.into_batches();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].len(), 2);
+    }
+
+    #[test]
+    fn link_transitive_merge() {
+        let mut tracker = PersistenceTracker::new();
+        tracker.record(deposit(0));
+        tracker.record(deposit(1));
+        tracker.record(deposit(2));
+
+        tracker.link(deposit(0), deposit(1));
+        tracker.link(deposit(1), deposit(2));
+
+        let batches = tracker.into_batches();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].len(), 3);
+    }
+
+    #[test]
+    fn link_mixed_sm_types() {
+        let mut tracker = PersistenceTracker::new();
+        let d = deposit(0);
+        let g = graph(0, 1);
+
+        tracker.record(d);
+        tracker.record(g);
+        tracker.link(d, g);
+
+        let batches = tracker.into_batches();
+        assert_eq!(batches.len(), 1);
+        assert!(batches[0].contains(&d));
+        assert!(batches[0].contains(&g));
+    }
+
+    #[test]
+    fn into_batches_empty_returns_empty() {
+        let tracker = PersistenceTracker::new();
+        let batches = tracker.into_batches();
+        assert!(batches.is_empty());
+    }
+
+    #[test]
+    fn into_batches_preserves_all_sms() {
+        let mut tracker = PersistenceTracker::new();
+        let ids = vec![deposit(0), deposit(1), graph(0, 0), graph(1, 0)];
+        for &id in &ids {
+            tracker.record(id);
+        }
+        // Link some together.
+        tracker.link(deposit(0), graph(0, 0));
+
+        let batches = tracker.into_batches();
+        let collected = all_ids(&batches);
+        let expected: BTreeSet<SMId> = ids.into_iter().collect();
+        assert_eq!(collected, expected);
+    }
+}
