@@ -89,7 +89,16 @@ def generate_mtls_credentials(gen_script_path: str, datadir_root: str, operator_
     bridge_node_path = os.path.abspath(os.path.join(operator_dir, "bridge_node"))
     secret_service_path = os.path.abspath(os.path.join(operator_dir, "secret_service"))
     cmd = ["bash", gen_script_path, bridge_node_path, secret_service_path, "127.0.0.1"]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if result.returncode != 0:
+        logging.error(
+            "Failed to generate MTLS credentials for operator %s with command: %s",
+            operator_index,
+            " ".join(cmd),
+        )
+        logging.error("gen_s2_tls.sh stdout:\n%s", result.stdout)
+        logging.error("gen_s2_tls.sh stderr:\n%s", result.stderr)
+        raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
 
 
 def migrate_migrations(root_dir: str) -> None:
