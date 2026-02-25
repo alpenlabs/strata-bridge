@@ -5,11 +5,13 @@
 
 mod bitcoin;
 mod descriptor;
+mod graph_data;
 mod messages;
 mod operator;
 
 pub use bitcoin::{PartialSignature, PubNonce};
 pub use descriptor::PayoutDescriptor;
+pub use graph_data::ClaimInput;
 pub use messages::{
     GossipsubMsg, MuSig2Nonce, MuSig2Partial, NagRequest, NagRequestPayload, UnsignedGossipsubMsg,
 };
