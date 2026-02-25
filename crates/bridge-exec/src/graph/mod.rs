@@ -4,6 +4,7 @@
 mod common;
 mod contested;
 mod payout;
+mod utils;
 
 use std::sync::Arc;
 
