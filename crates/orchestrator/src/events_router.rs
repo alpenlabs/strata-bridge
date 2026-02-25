@@ -58,6 +58,7 @@ fn route_gossipsub_msg(
     unsigned_gossip_msg: &UnsignedGossipsubMsg,
 ) -> Vec<SMId> {
     let sm_id = match unsigned_gossip_msg {
+        UnsignedGossipsubMsg::GraphDataExchange { .. } => todo!(),
         UnsignedGossipsubMsg::PayoutDescriptorExchange { deposit_idx, .. } => {
             SMId::Deposit(*deposit_idx)
         }

@@ -66,6 +66,7 @@ pub(crate) fn classify_unsigned_gossip(
     msg: &UnsignedGossipsubMsg,
 ) -> Vec<SMEvent> {
     match msg {
+        UnsignedGossipsubMsg::GraphDataExchange { .. } => todo!(),
         UnsignedGossipsubMsg::PayoutDescriptorExchange {
             operator_desc,
             operator_idx,
@@ -89,7 +90,6 @@ pub(crate) fn classify_unsigned_gossip(
                 vec![]
             }
         }
-
         UnsignedGossipsubMsg::Musig2NoncesExchange(musig2_nonce) => match musig2_nonce {
             MuSig2Nonce::Deposit { deposit_idx, nonce } => sm_registry
                 .lookup_operator(&(*deposit_idx).into(), key)
@@ -162,7 +162,6 @@ pub(crate) fn classify_unsigned_gossip(
                 })
                 .collect(),
         },
-
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => {
             match musig2_partial {
                 MuSig2Partial::Deposit {
