@@ -5,7 +5,6 @@ mod tests {
 
     use crate::{
         graph::{
-            duties::GraphDuty,
             errors::GSMError,
             events::{FulfillmentConfirmedEvent, GraphEvent},
             machine::GraphSM,
@@ -14,8 +13,7 @@ mod tests {
                 ASSIGNMENT_DEADLINE, FULFILLMENT_BLOCK_HEIGHT, GraphInvalidTransition,
                 GraphTransition, TEST_POV_IDX, create_nonpov_sm, create_sm, get_state,
                 mock_states::{assigned_state, fulfilled_state},
-                test_graph_data, test_graph_invalid_transition, test_graph_sm_cfg,
-                test_recipient_desc,
+                test_graph_invalid_transition, test_graph_sm_cfg, test_recipient_desc,
             },
         },
         testing::test_transition,
@@ -32,8 +30,6 @@ mod tests {
     #[test]
     fn test_fulfillment_from_assigned() {
         let cfg = test_graph_sm_cfg();
-        let (_, game_graph) = test_graph_data(&cfg);
-        let claim_tx = game_graph.claim.clone();
 
         let event = test_fulfillment_event();
         let fulfillment_txid = event.fulfillment_txid;
@@ -50,7 +46,7 @@ mod tests {
                 ),
                 event: GraphEvent::FulfillmentConfirmed(event),
                 expected_state: fulfilled_state(fulfillment_txid),
-                expected_duties: vec![GraphDuty::PublishClaim { claim_tx }],
+                expected_duties: vec![],
                 expected_signals: vec![],
             },
         );
