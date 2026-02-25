@@ -42,7 +42,6 @@ pub(crate) async fn publish_signed_transaction(
 /// by signing all inputs using the general wallet signer in the secret service, submit the
 /// finalized transaction to the tx driver for broadcasting and then wait for the transaction to
 /// appear in the mempool.
-#[expect(dead_code)]
 pub(super) async fn finalize_claim_funding_tx(
     s2_client: &SecretServiceClient,
     tx_driver: &TxDriver,
