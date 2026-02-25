@@ -1,5 +1,6 @@
 //! Error types for the bridge-exec executors.
 
+use bdk_wallet::error::CreateTxError;
 use bitcoin::Txid;
 use thiserror::Error;
 
@@ -30,6 +31,10 @@ pub enum ExecutorError {
     #[error("wallet error: {0}")]
     WalletErr(String),
 
+    /// Error related to creation of Psbt.
+    #[error("psbt error: {0}")]
+    PsbtErr(#[from] CreateTxError),
+
     /// Failed to aggregate partial signatures into final Schnorr signature.
     #[error("signature aggregation failed: {0}")]
     SignatureAggregationFailed(String),
@@ -41,4 +46,8 @@ pub enum ExecutorError {
     /// The claim transaction already exists on chain.
     #[error("claim transaction {0} already exists on chain")]
     ClaimTxAlreadyOnChain(Txid),
+
+    /// Error interacting with the database.
+    #[error("database error: {0}")]
+    DatabaseErr(String),
 }

@@ -14,6 +14,7 @@ operator-wallet.workspace = true
 secret-service-client.workspace = true
 secret-service-proto.workspace = true
 strata-bridge-connectors2.workspace = true
+strata-bridge-db2.workspace = true
 strata-bridge-p2p-service.workspace = true
 strata-bridge-p2p-types2.workspace = true
 strata-bridge-primitives.workspace = true
@@ -23,8 +24,8 @@ strata-bridge-tx-graph2.workspace = true
 strata-l1-txfmt.workspace = true
 
 bdk_wallet.workspace = true
-bitcoin-bosd.workspace = true
 bitcoin.workspace = true
+bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
 futures.workspace = true
 musig2.workspace = true

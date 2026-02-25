@@ -1,7 +1,8 @@
 //! Executors for uncontested payout graph duties.
 
+use algebra::predicate;
 use bitcoin::{
-    OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
+    FeeRate, OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
     sighash::{Prevouts, SighashCache},
 };
 use bitcoind_async_client::traits::Reader;
@@ -9,14 +10,131 @@ use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
+use strata_bridge_db2::{traits::BridgeDb, types::FundingPurpose};
 use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{GraphIdx, OperatorIdx},
 };
 use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
-use crate::{errors::ExecutorError, output_handles::OutputHandles};
+use crate::{
+    config::ExecutionConfig, errors::ExecutorError, graph::utils::finalize_claim_funding_tx,
+    output_handles::OutputHandles,
+};
+
+pub(super) async fn generate_graph_data(
+    cfg: &ExecutionConfig,
+    output_handles: &OutputHandles,
+    graph_idx: GraphIdx,
+) -> Result<(), ExecutorError> {
+    info!(?graph_idx, "generating graph data");
+    let OutputHandles {
+        wallet,
+        db,
+        msg_handler2,
+        s2_client,
+        tx_driver,
+        ..
+    } = output_handles;
+
+    info!(?graph_idx, "checking if data already exists in disk");
+    if let Ok(Some(funding_outpoints)) = db.get_funds(graph_idx, FundingPurpose::Claim).await {
+        info!(
+            ?graph_idx,
+            ?funding_outpoints,
+            "graph data already exists in disk, skipping generation"
+        );
+
+        // FIXME: (@Rajil1213) Make this a compile-time check by having a separate FDB subspace for
+        // claim funding outpoints that holds a single outpoint instead of a vec. For now, we just
+        // check that there's exactly one claim input for the graph.
+        assert!(
+            funding_outpoints.len() == 1,
+            "expected exactly one claim input for graph, found {}",
+            funding_outpoints.len()
+        );
+
+        msg_handler2
+            .write()
+            .await
+            .send_graph_data(graph_idx, funding_outpoints[0], None)
+            .await;
+    }
+
+    info!(?graph_idx, "fetching funding outpoint from wallet");
+
+    let (funding_outpoint, _remaining) = {
+        let mut wallet = wallet.write().await;
+
+        match wallet.sync().await {
+            Ok(()) => info!("synced wallet successfully"),
+            Err(e) => error!(
+                ?e,
+                "could not sync wallet before fetching claim funding utxo" /* still safe to
+                                                                            * continue
+                                                                            * though */
+            ),
+        }
+
+        let (funding_outpoint, remaining) = wallet.claim_funding_utxo(predicate::never);
+        match funding_outpoint {
+            Some(outpoint) => (outpoint, remaining),
+            None => {
+                warn!("could not acquire claim funding utxo. attempting refill...");
+                // The first time we run the node, it may be the case that the wallet starts off
+                // empty.
+                let psbt = wallet.refill_claim_funding_utxos(
+                    FeeRate::BROADCAST_MIN,
+                    cfg.funding_uxto_pool_size,
+                )?;
+
+                // we only wait till the claim funding tx is in the mempool so it is fine to hold
+                // the `wallet` lock till that happens.
+                finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt)
+                    .await?;
+
+                wallet.sync().await.map_err(|e| {
+                    error!(?e, "could not sync wallet after refilling funding utxos");
+
+                    ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
+                })?;
+
+                let (funding_op, remaining) = wallet.claim_funding_utxo(predicate::never);
+
+                (
+                    funding_op.expect("funding utxos must be available after refill"),
+                    remaining,
+                )
+            }
+        }
+    };
+
+    info!(?graph_idx, %funding_outpoint, "fetched funding outpoint from wallet, saving to disk");
+    db.set_funds(graph_idx, FundingPurpose::Claim, vec![funding_outpoint])
+        .await
+        .map_err(|e| {
+            warn!(?e, "failed to save claim funding outpoint to disk");
+            // at this point, it's not safe to broadcast the funding outpoint to other operators, so
+            // we return an error and abort the execution.
+            match e.to_enum() {
+                terrors::E2::A(binding_err) => {
+                    ExecutorError::DatabaseErr(format!("fdb binding error: {binding_err:?}"))
+                }
+                terrors::E2::B(layer_err) => {
+                    ExecutorError::DatabaseErr(format!("fdb layer error: {layer_err:?}"))
+                }
+            }
+        })?;
+
+    msg_handler2
+        .write()
+        .await
+        .send_graph_data(graph_idx, funding_outpoint, None)
+        .await;
+
+    Ok(())
+}
 
 /// Verifies adaptor signatures for the generated graph from a particular watchtower.
 ///

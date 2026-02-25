@@ -12,14 +12,15 @@ use strata_bridge_sm::graph::duties::GraphDuty;
 use crate::{config::ExecutionConfig, errors::ExecutorError, output_handles::OutputHandles};
 
 /// Executes the given graph duty.
-#[expect(unused_variables)]
 pub async fn execute_graph_duty(
     cfg: Arc<ExecutionConfig>,
     output_handles: Arc<OutputHandles>,
     duty: &GraphDuty,
 ) -> Result<(), ExecutorError> {
     match duty {
-        GraphDuty::GenerateGraphData { .. } => todo!(),
+        GraphDuty::GenerateGraphData { graph_idx } => {
+            common::generate_graph_data(&cfg, &output_handles, *graph_idx).await
+        }
         GraphDuty::VerifyAdaptors {
             graph_idx,
             watchtower_idx,

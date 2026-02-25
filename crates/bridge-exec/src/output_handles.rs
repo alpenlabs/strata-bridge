@@ -4,6 +4,7 @@ use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
+use strata_bridge_db2::fdb::client::FdbClient;
 use strata_bridge_p2p_service::{MessageHandler, MessageHandler2};
 use tokio::sync::RwLock;
 
@@ -15,6 +16,10 @@ use tokio::sync::RwLock;
 pub struct OutputHandles {
     /// Handle for accessing operator funds.
     pub wallet: RwLock<OperatorWallet>,
+
+    /// Handle for accessing the database.
+    // TODO: (@Rajil1213) make this generic on `BridgeDb` instead of being tied to `FdbClient`.
+    pub db: FdbClient,
 
     /// Handle for broadcasting P2P messages.
     pub msg_handler: MessageHandler,

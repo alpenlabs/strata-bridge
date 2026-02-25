@@ -2269,6 +2269,7 @@ dependencies = [
  "secret-service-client",
  "secret-service-proto",
  "strata-bridge-connectors2",
+ "strata-bridge-db2",
  "strata-bridge-p2p-service",
  "strata-bridge-p2p-types2",
  "strata-bridge-primitives",
