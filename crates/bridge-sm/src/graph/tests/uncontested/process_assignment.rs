@@ -8,42 +8,16 @@ mod tests {
         events::{GraphEvent, WithdrawalAssignedEvent},
         state::GraphState,
         tests::{
-            GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, TEST_NONPOV_IDX,
-            TEST_POV_IDX, random_p2tr_desc, test_deposit_params, test_graph_invalid_transition,
-            test_graph_summary, test_graph_transition, test_recipient_desc,
+            GraphInvalidTransition, GraphTransition, TEST_NONPOV_IDX, TEST_POV_IDX,
+            mock_states::{assigned_state, graph_signed_state},
+            random_p2tr_desc, test_graph_invalid_transition, test_graph_transition,
+            test_recipient_desc,
         },
     };
 
     /// A block height used for reassignment deadlines.
     const REASSIGNMENT_DEADLINE: u64 = 200;
     const UPDATED_REASSIGNMENT_DEADLINE: u64 = REASSIGNMENT_DEADLINE + 50;
-
-    /// Builds a mock `GraphSigned` state.
-    fn graph_signed_state() -> GraphState {
-        GraphState::GraphSigned {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-        }
-    }
-
-    /// Builds a mock `Assigned` state with the given assignment fields.
-    fn assigned_state(
-        assignee: u32,
-        deadline: u64,
-        recipient_desc: bitcoin_bosd::Descriptor,
-    ) -> GraphState {
-        GraphState::Assigned {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            assignee,
-            deadline,
-            recipient_desc,
-        }
-    }
 
     #[test]
     fn test_assignment_from_graph_signed() {

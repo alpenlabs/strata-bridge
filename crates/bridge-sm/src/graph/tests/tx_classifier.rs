@@ -6,221 +6,12 @@
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_txid};
 
-    use crate::{graph::tests::*, tx_classifier::TxClassifier};
-
-    // --- State constructors ---
-
-    /// States that can detect a malicious claim (pre-signing states with a graph_summary).
-    fn pre_signing_states() -> Vec<GraphState> {
-        let summary = test_graph_summary();
-        let params = test_deposit_params();
-
-        vec![
-            GraphState::GraphGenerated {
-                last_block_height: LATER_BLOCK_HEIGHT,
-                graph_data: params,
-                graph_summary: summary.clone(),
-            },
-            GraphState::AdaptorsVerified {
-                last_block_height: LATER_BLOCK_HEIGHT,
-                graph_data: params,
-                graph_summary: summary.clone(),
-                pubnonces: Default::default(),
-            },
-            GraphState::NoncesCollected {
-                last_block_height: LATER_BLOCK_HEIGHT,
-                graph_data: params,
-                graph_summary: summary.clone(),
-                pubnonces: Default::default(),
-                agg_nonces: Default::default(),
-                partial_signatures: Default::default(),
-            },
-            GraphState::GraphSigned {
-                last_block_height: LATER_BLOCK_HEIGHT,
-                graph_data: params,
-                graph_summary: summary,
-                signatures: Default::default(),
-            },
-        ]
-    }
-
-    fn assigned_state() -> GraphState {
-        GraphState::Assigned {
-            last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            assignee: TEST_ASSIGNEE,
-            deadline: LATER_BLOCK_HEIGHT + 15,
-            recipient_desc: test_recipient_desc(1),
-        }
-    }
-
-    fn fulfilled_state() -> GraphState {
-        GraphState::Fulfilled {
-            last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            fulfillment_txid: generate_txid(),
-            fulfillment_block_height: LATER_BLOCK_HEIGHT,
-        }
-    }
-
-    fn claimed_state() -> GraphState {
-        GraphState::Claimed {
-            last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            fulfillment_txid: Some(generate_txid()),
-            fulfillment_block_height: Some(LATER_BLOCK_HEIGHT),
-            claim_block_height: LATER_BLOCK_HEIGHT,
-        }
-    }
-
-    fn contested_state() -> GraphState {
-        GraphState::Contested {
-            last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            fulfillment_txid: Some(generate_txid()),
-            fulfillment_block_height: Some(LATER_BLOCK_HEIGHT),
-            contest_block_height: LATER_BLOCK_HEIGHT,
-        }
-    }
-
-    fn bridge_proof_posted_state() -> GraphState {
-        GraphState::BridgeProofPosted {
-            last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            contest_block_height: LATER_BLOCK_HEIGHT,
-            bridge_proof_txid: generate_txid(),
-            bridge_proof_block_height: LATER_BLOCK_HEIGHT,
-            proof: dummy_proof_receipt(),
-        }
-    }
-
-    fn bridge_proof_timedout_state() -> GraphState {
-        GraphState::BridgeProofTimedout {
-            last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            contest_block_height: LATER_BLOCK_HEIGHT,
-            expected_slash_txid: generate_txid(),
-            claim_txid: generate_txid(),
-        }
-    }
-
-    fn counter_proof_posted_state() -> GraphState {
-        GraphState::CounterProofPosted {
-            last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            contest_block_height: LATER_BLOCK_HEIGHT,
-            counterproofs_and_confs: BTreeMap::new(),
-            counterproof_nacks: BTreeMap::new(),
-        }
-    }
-
-    fn all_nackd_state() -> GraphState {
-        GraphState::AllNackd {
-            last_block_height: LATER_BLOCK_HEIGHT,
-            contest_block_height: LATER_BLOCK_HEIGHT,
-            expected_payout_txid: Transaction::from(TestGraphTxKind::ContestedPayout)
-                .compute_txid(),
-            possible_slash_txid: Transaction::from(TestGraphTxKind::Slash).compute_txid(),
-        }
-    }
-
-    fn acked_state() -> GraphState {
-        GraphState::Acked {
-            last_block_height: LATER_BLOCK_HEIGHT,
-            contest_block_height: LATER_BLOCK_HEIGHT,
-            expected_slash_txid: Transaction::from(TestGraphTxKind::Slash).compute_txid(),
-            claim_txid: generate_txid(),
-        }
-    }
-
-    /// States that may observe a claim tx.
-    fn claim_detecting_states() -> Vec<GraphState> {
-        let mut states = pre_signing_states();
-        states.push(assigned_state());
-        states.push(fulfilled_state());
-        states
-    }
-
-    /// States that expect payout via deposit spend.
-    fn uncontested_payout_detecting_states() -> Vec<GraphState> {
-        vec![claimed_state()]
-    }
-
-    /// States that expect payout via deposit spend.
-    fn contested_payout_detecting_states() -> Vec<GraphState> {
-        vec![bridge_proof_posted_state(), all_nackd_state()]
-    }
-
-    /// States that detect counterproof txids.
-    fn counterproof_detecting_states() -> Vec<GraphState> {
-        vec![contested_state(), bridge_proof_posted_state()]
-    }
-
-    /// States that detect a payout connector spend (via admin or unstaking burn txs).
-    ///
-    /// These states use `graph_summary.claim` or `claim_txid` to identify the payout
-    /// connector outpoint.
-    fn payout_connector_spent_states() -> Vec<GraphState> {
-        vec![
-            claimed_state(),
-            contested_state(),
-            bridge_proof_posted_state(),
-            bridge_proof_timedout_state(),
-            counter_proof_posted_state(),
-        ]
-    }
-
-    fn terminal_states() -> Vec<GraphState> {
-        vec![
-            GraphState::Withdrawn {
-                payout_txid: generate_txid(),
-            },
-            GraphState::Slashed {
-                slash_txid: generate_txid(),
-            },
-            GraphState::Aborted {
-                payout_connector_spend_txid: generate_txid(),
-                reason: "test".to_string(),
-            },
-        ]
-    }
-
-    /// One representative of every state variant.
-    fn all_state_variants() -> Vec<GraphState> {
-        let mut states = vec![GraphState::Created {
-            last_block_height: LATER_BLOCK_HEIGHT,
-        }];
-        states.extend(pre_signing_states());
-        states.push(assigned_state());
-        states.push(fulfilled_state());
-        states.push(claimed_state());
-        states.push(contested_state());
-        states.push(bridge_proof_posted_state());
-        states.push(bridge_proof_timedout_state());
-        states.push(counter_proof_posted_state());
-        states.push(all_nackd_state());
-        states.push(acked_state());
-        states.extend(terminal_states());
-        states
-    }
+    use crate::{
+        graph::tests::{mock_states::*, *},
+        tx_classifier::TxClassifier,
+    };
 
     // --- Positive tests: classify_tx returns the correct event ---
 
@@ -241,7 +32,11 @@ mod tests {
     #[test]
     fn classify_tx_recognizes_fulfillment_in_assigned() {
         let cfg = test_graph_sm_cfg();
-        let sm = create_sm(assigned_state());
+        let sm = create_sm(assigned_state(
+            TEST_ASSIGNEE,
+            LATER_BLOCK_HEIGHT + 15,
+            test_recipient_desc(1),
+        ));
         let result = sm.classify_tx(&cfg, &test_fulfillment_tx(), LATER_BLOCK_HEIGHT);
         assert!(
             matches!(result, Some(GraphEvent::FulfillmentConfirmed(_))),
@@ -252,7 +47,11 @@ mod tests {
     #[test]
     fn classify_tx_recognizes_contest_in_claimed() {
         let cfg = test_graph_sm_cfg();
-        let sm = create_sm(claimed_state());
+        let sm = create_sm(claimed_state(
+            LATER_BLOCK_HEIGHT,
+            generate_txid(),
+            Default::default(),
+        ));
         let result = sm.classify_tx(&cfg, &TestGraphTxKind::Contest.into(), LATER_BLOCK_HEIGHT);
         assert!(
             matches!(result, Some(GraphEvent::ContestConfirmed(_))),
