@@ -63,7 +63,7 @@ jobs:
     timeout-minutes: 60
     env:
       OPENSSL_VERSION: "3.5.0"
-      OPENSSL_CACHE_VERSION: "v1" # update this to refresh cache
+      OPENSSL_CACHE_VERSION: "v2" # update this to refresh cache
       OPENSSL_INSTALL_DIR: ${{ github.workspace }}/.cache/openssl-3.5.0
 
     steps:
@@ -79,7 +79,7 @@ jobs:
           path: ${{ env.OPENSSL_INSTALL_DIR }}
           key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VERSION }}-${{ env.OPENSSL_CACHE_VERSION }}
 
-      - name: Download and build OpenSSL 3.5.0
+      - name: Download and build OpenSSL
         if: steps.cache-openssl.outputs.cache-hit != 'true'
         run: |
           curl -fsSLO "https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz"
@@ -87,7 +87,7 @@ jobs:
           cd "openssl-$OPENSSL_VERSION"
           ./config --prefix="$OPENSSL_INSTALL_DIR" --openssldir="$OPENSSL_INSTALL_DIR"
           make -j"$(nproc)"
-          make install_sw
+          make install_sw install_ssldirs
 
       - name: Configure OpenSSL environment
         run: |
@@ -98,8 +98,8 @@ jobs:
           {
             echo "OPENSSL_ROOT_DIR=$OPENSSL_INSTALL_DIR"
             echo "OPENSSL_DIR=$OPENSSL_INSTALL_DIR"
-            echo "PKG_CONFIG_PATH=$OPENSSL_LIB_DIR/pkgconfig:$PKG_CONFIG_PATH"
-            echo "LD_LIBRARY_PATH=$OPENSSL_LIB_DIR:$LD_LIBRARY_PATH"
+            echo "PKG_CONFIG_PATH=$OPENSSL_LIB_DIR/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+            echo "LD_LIBRARY_PATH=$OPENSSL_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           } >> "$GITHUB_ENV"
           echo "$OPENSSL_INSTALL_DIR/bin" >> "$GITHUB_PATH"
 
