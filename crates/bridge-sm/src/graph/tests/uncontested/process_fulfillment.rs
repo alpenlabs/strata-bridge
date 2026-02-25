@@ -11,47 +11,18 @@ mod tests {
             machine::GraphSM,
             state::GraphState,
             tests::{
-                GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, TEST_POV_IDX,
-                create_nonpov_sm, create_sm, get_state, test_deposit_params, test_graph_data,
-                test_graph_invalid_transition, test_graph_sm_cfg, test_graph_summary,
+                ASSIGNMENT_DEADLINE, FULFILLMENT_BLOCK_HEIGHT, GraphInvalidTransition,
+                GraphTransition, TEST_POV_IDX, create_nonpov_sm, create_sm, get_state,
+                mock_states::{assigned_state, fulfilled_state},
+                test_graph_data, test_graph_invalid_transition, test_graph_sm_cfg,
                 test_recipient_desc,
             },
         },
         testing::test_transition,
     };
 
-    /// Block height at which the fulfillment transaction was confirmed.
-    const FULFILLMENT_BLOCK_HEIGHT: u64 = 150;
-    /// A block height used for assignment deadlines.
-    const ASSIGNMENT_DEADLINE: u64 = 200;
-
-    /// Builds a mock `Assigned` state with default test values.
-    fn assigned_state() -> GraphState {
-        GraphState::Assigned {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            assignee: TEST_POV_IDX,
-            deadline: ASSIGNMENT_DEADLINE,
-            recipient_desc: test_recipient_desc(1),
-        }
-    }
-
-    /// Builds a mock `Fulfilled` state with default test values.
-    fn fulfilled_state(fulfillment_txid: bitcoin::Txid) -> GraphState {
-        GraphState::Fulfilled {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            fulfillment_txid,
-            fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
-        }
-    }
-
     /// Creates a test [`FulfillmentConfirmedEvent`].
-    fn test_fulfillment_event() -> FulfillmentConfirmedEvent {
+    pub(super) fn test_fulfillment_event() -> FulfillmentConfirmedEvent {
         FulfillmentConfirmedEvent {
             fulfillment_txid: generate_txid(),
             fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
@@ -72,7 +43,11 @@ mod tests {
             get_state,
             cfg,
             GraphTransition {
-                from_state: assigned_state(),
+                from_state: assigned_state(
+                    TEST_POV_IDX,
+                    ASSIGNMENT_DEADLINE,
+                    test_recipient_desc(1),
+                ),
                 event: GraphEvent::FulfillmentConfirmed(event),
                 expected_state: fulfilled_state(fulfillment_txid),
                 expected_duties: vec![GraphDuty::PublishClaim { claim_tx }],
@@ -93,7 +68,11 @@ mod tests {
             get_state,
             cfg,
             GraphTransition {
-                from_state: assigned_state(),
+                from_state: assigned_state(
+                    TEST_POV_IDX,
+                    ASSIGNMENT_DEADLINE,
+                    test_recipient_desc(1),
+                ),
                 event: GraphEvent::FulfillmentConfirmed(event),
                 expected_state: fulfilled_state(fulfillment_txid),
                 expected_duties: vec![],

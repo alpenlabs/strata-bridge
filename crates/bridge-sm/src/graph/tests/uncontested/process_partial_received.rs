@@ -3,8 +3,6 @@
 mod tests {
     use std::collections::BTreeMap;
 
-    use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
-
     use crate::{
         graph::{
             errors::GSMError,
@@ -12,28 +10,14 @@ mod tests {
             state::GraphState,
             tests::{
                 GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, TEST_POV_IDX, create_sm, get_state,
+                mock_states::nonces_collected_state,
                 test_graph_data, test_graph_invalid_transition, test_graph_sm_cfg,
-                utils::{NonceContext, build_nonce_context, build_partial_signatures},
+                utils::{build_nonce_context, build_partial_signatures},
             },
         },
         signals::{GraphSignal, GraphToDeposit},
         testing::transition::EventSequence,
     };
-
-    fn nonces_collected_state(
-        nonce_ctx: &NonceContext,
-        deposit_params: DepositParams,
-        graph_summary: GameGraphSummary,
-    ) -> GraphState {
-        GraphState::NoncesCollected {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: deposit_params,
-            graph_summary,
-            pubnonces: nonce_ctx.pubnonces.clone(),
-            agg_nonces: nonce_ctx.agg_nonces.clone(),
-            partial_signatures: BTreeMap::new(),
-        }
-    }
 
     #[test]
     fn test_process_partial_received_partial_collection() {
