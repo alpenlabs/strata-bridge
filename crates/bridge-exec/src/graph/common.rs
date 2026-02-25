@@ -1,7 +1,7 @@
 //! Executors for uncontested payout graph duties.
 
 use bitcoin::{
-    OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
+    OutPoint, TapSighashType, Txid, XOnlyPublicKey,
     sighash::{Prevouts, SighashCache},
 };
 use bitcoind_async_client::traits::Reader;
@@ -273,23 +273,3 @@ pub(super) async fn publish_claim(
     Ok(())
 }
 
-/// Publishes the signed uncontested payout transaction to Bitcoin.
-pub(super) async fn publish_uncontested_payout(
-    output_handles: &OutputHandles,
-    signed_uncontested_payout_tx: &Transaction,
-) -> Result<(), ExecutorError> {
-    let payout_txid = signed_uncontested_payout_tx.compute_txid();
-    info!(%payout_txid, "publishing uncontested payout transaction");
-
-    output_handles
-        .tx_driver
-        .drive(signed_uncontested_payout_tx.clone(), TxStatus::is_buried)
-        .await
-        .map_err(|e| {
-            warn!(%payout_txid, ?e, "failed to publish uncontested payout transaction");
-            ExecutorError::TxDriverErr(e)
-        })?;
-
-    info!(%payout_txid, "uncontested payout confirmed");
-    Ok(())
-}
