@@ -10306,6 +10306,7 @@ dependencies = [
 name = "strata-bridge-p2p-types2"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "bitcoin-bosd",
  "hex",
  "libp2p-identity",
