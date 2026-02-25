@@ -120,6 +120,9 @@ pub enum GraphState {
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
+        /// Whether the cooperative payout has failed and the unilateral claim path is activated.
+        coop_payout_failed: bool,
+
         /// Aggregated final signatures for the graph.
         signatures: Vec<Signature>,
 

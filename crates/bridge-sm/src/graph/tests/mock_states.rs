@@ -47,6 +47,7 @@ pub(super) fn fulfilled_state(fulfillment_txid: bitcoin::Txid) -> GraphState {
         last_block_height: INITIAL_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
         graph_summary: test_graph_summary(),
+        coop_payout_failed: false,
         signatures: Default::default(),
         fulfillment_txid,
         fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,

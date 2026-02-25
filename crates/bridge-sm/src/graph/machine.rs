@@ -52,7 +52,7 @@ impl StateMachine for GraphSM {
             }
             GraphEvent::WithdrawalAssigned(assignment) => self.process_assignment(assignment),
             GraphEvent::FulfillmentConfirmed(fulfillment) => {
-                self.process_fulfillment(cfg, fulfillment)
+                self.process_fulfillment(fulfillment)
             }
             GraphEvent::ClaimConfirmed(claim) => self.process_claim(claim),
             GraphEvent::ContestConfirmed(_contest) => todo!(),

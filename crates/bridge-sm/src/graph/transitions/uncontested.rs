@@ -601,10 +601,8 @@ impl GraphSM {
     /// Processes the event where a fulfillment transaction has been confirmed on-chain.
     ///
     /// Transitions from [`GraphState::Assigned`] to [`GraphState::Fulfilled`].
-    /// Emits a [`GraphDuty::PublishClaim`] duty.
     pub(crate) fn process_fulfillment(
         &mut self,
-        cfg: Arc<GraphSMCfg>,
         fulfillment: FulfillmentConfirmedEvent,
     ) -> GSMResult<GSMOutput> {
         match self.state() {
@@ -615,30 +613,17 @@ impl GraphSM {
                 signatures,
                 ..
             } => {
-                // Generate the game graph to access the infos for duty emission
-                let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
-
                 self.state = GraphState::Fulfilled {
                     last_block_height: *last_block_height,
                     graph_data: *graph_data,
                     graph_summary: graph_summary.clone(),
+                    coop_payout_failed: false,
                     signatures: signatures.clone(),
                     fulfillment_txid: fulfillment.fulfillment_txid,
                     fulfillment_block_height: fulfillment.fulfillment_block_height,
                 };
 
-                // Emit publish claim duty only if the PoV operator owns this graph.
-                // TODO:(MdTeach) Publish claim iff co-operative path failed
-                let duties =
-                    if self.context().operator_idx() == self.context().operator_table().pov_idx() {
-                        vec![GraphDuty::PublishClaim {
-                            claim_tx: game_graph.claim,
-                        }]
-                    } else {
-                        Default::default()
-                    };
-
-                Ok(GSMOutput::with_duties(duties))
+                Ok(GSMOutput::default())
             }
             GraphState::Fulfilled { .. } => Err(GSMError::duplicate(
                 self.state().clone(),
@@ -663,6 +648,7 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 fulfillment_block_height,
+                ..
             } => {
                 if claim.claim_txid != graph_summary.claim {
                     return Err(GSMError::rejected(
