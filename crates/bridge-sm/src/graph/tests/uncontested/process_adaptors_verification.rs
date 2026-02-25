@@ -1,44 +1,22 @@
 //! Unit Tests for process_adaptors_verification
 #[cfg(test)]
 mod tests {
-    use std::num::NonZero;
-
     use strata_bridge_test_utils::bitcoin::generate_txid;
-    use strata_bridge_tx_graph2::game_graph::DepositParams;
 
     use crate::{
         graph::{
             duties::GraphDuty,
             errors::GSMError,
             events::{AdaptorsVerifiedEvent, GraphEvent},
-            machine::generate_game_graph,
             state::GraphState,
             tests::{
-                GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, create_nonpov_sm, create_sm,
-                get_state, test_graph_invalid_transition, test_graph_sm_cfg,
+                GraphInvalidTransition, create_nonpov_sm, create_sm, get_state,
+                mock_states::test_graph_generated_state, test_graph_invalid_transition,
+                test_graph_sm_cfg,
             },
         },
         testing::EventSequence,
     };
-
-    /// Constructs a valid `GraphGenerated` state directly by generating the graph.
-    fn test_graph_generated_state() -> GraphState {
-        let cfg = test_graph_sm_cfg();
-        let sm = create_nonpov_sm(GraphState::new(INITIAL_BLOCK_HEIGHT));
-
-        let deposit_params = DepositParams {
-            game_index: NonZero::new(1).unwrap(),
-            claim_funds: Default::default(),
-            deposit_outpoint: sm.context.deposit_outpoint(),
-        };
-        let graph = generate_game_graph(&cfg, sm.context(), deposit_params);
-
-        GraphState::GraphGenerated {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: deposit_params,
-            graph_summary: graph.summarize(),
-        }
-    }
 
     #[test]
     fn test_process_adaptors_verification() {

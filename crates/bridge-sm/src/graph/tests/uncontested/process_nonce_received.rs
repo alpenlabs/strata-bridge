@@ -3,8 +3,6 @@
 mod tests {
     use std::collections::BTreeMap;
 
-    use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
-
     use crate::{
         graph::{
             duties::GraphDuty,
@@ -13,25 +11,14 @@ mod tests {
             state::GraphState,
             tests::{
                 GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, TEST_POV_IDX,
-                create_sm, get_state, test_graph_data, test_graph_invalid_transition,
-                test_graph_sm_cfg, test_graph_transition, utils::build_nonce_context,
+                create_sm, get_state, mock_states::adaptors_verified_state, test_graph_data,
+                test_graph_invalid_transition, test_graph_sm_cfg, test_graph_transition,
+                utils::build_nonce_context,
             },
         },
         signals::GraphSignal,
         testing::transition::EventSequence,
     };
-
-    fn adaptors_verified_state(
-        deposit_params: DepositParams,
-        graph_summary: GameGraphSummary,
-    ) -> GraphState {
-        GraphState::AdaptorsVerified {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: deposit_params,
-            graph_summary,
-            pubnonces: BTreeMap::new(),
-        }
-    }
 
     #[test]
     fn test_process_nonce_received_partial_collection() {

@@ -1,9 +1,8 @@
 //! Unit Tests for notify_new_block in Claimed state
 #[cfg(test)]
 mod tests {
-    use musig2::secp256k1::schnorr::Signature;
-    use strata_bridge_test_utils::{bitcoin::generate_txid, prelude::generate_signature};
-    use strata_bridge_tx_graph2::{game_graph::GameGraph, musig_functor::GameFunctor};
+    use strata_bridge_test_utils::bitcoin::generate_txid;
+    use strata_bridge_tx_graph2::musig_functor::GameFunctor;
 
     use crate::{
         graph::{
@@ -11,42 +10,15 @@ mod tests {
             errors::GSMError,
             events::{GraphEvent, NewBlockEvent},
             machine::{GraphSM, generate_game_graph},
-            state::GraphState,
             tests::{
                 CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS, GraphInvalidTransition,
-                GraphTransition, INITIAL_BLOCK_HEIGHT, create_sm, get_state, test_deposit_params,
-                test_graph_invalid_transition, test_graph_sm_cfg, test_graph_sm_ctx,
-                test_graph_summary, test_graph_transition,
+                GraphTransition, INITIAL_BLOCK_HEIGHT, create_sm, get_state, mock_game_signatures,
+                mock_states::claimed_state, test_deposit_params, test_graph_invalid_transition,
+                test_graph_sm_cfg, test_graph_sm_ctx, test_graph_transition,
             },
         },
         testing::test_transition,
     };
-
-    /// Creates a packed vector of mock signatures whose layout matches
-    /// the game graph's signing info structure.
-    fn mock_game_signatures(game_graph: &GameGraph) -> Vec<Signature> {
-        game_graph
-            .musig_signing_info()
-            .map(|_| generate_signature())
-            .pack()
-    }
-
-    /// Builds a mock `Claimed` state with the given parameters.
-    fn claimed_state(
-        last_block_height: u64,
-        fulfillment_txid: bitcoin::Txid,
-        signatures: Vec<Signature>,
-    ) -> GraphState {
-        GraphState::Claimed {
-            last_block_height,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures,
-            fulfillment_txid: Some(fulfillment_txid),
-            fulfillment_block_height: Some(140),
-            claim_block_height: CLAIM_BLOCK_HEIGHT,
-        }
-    }
 
     // TODO:(@MdTeach): Add proptest that asserts `NewBlock` events with
     // `block_height <= last_processed_block_height` are always rejected,

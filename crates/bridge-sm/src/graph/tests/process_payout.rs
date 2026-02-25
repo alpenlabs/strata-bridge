@@ -9,23 +9,12 @@ mod tests {
         state::GraphState,
         tests::{
             ASSIGNMENT_DEADLINE, CLAIM_BLOCK_HEIGHT, GraphInvalidTransition, GraphTransition,
-            INITIAL_BLOCK_HEIGHT, TEST_POV_IDX, test_deposit_params, test_graph_invalid_transition,
-            test_graph_summary, test_graph_transition, test_recipient_desc,
+            INITIAL_BLOCK_HEIGHT, TEST_POV_IDX,
+            mock_states::{assigned_state, claimed_state},
+            test_deposit_params, test_graph_invalid_transition, test_graph_summary,
+            test_graph_transition, test_recipient_desc,
         },
     };
-
-    /// Builds a mock `Claimed` state with default test values.
-    fn claimed_state() -> GraphState {
-        GraphState::Claimed {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            fulfillment_txid: Some(generate_txid()),
-            fulfillment_block_height: Some(INITIAL_BLOCK_HEIGHT),
-            claim_block_height: CLAIM_BLOCK_HEIGHT,
-        }
-    }
 
     #[test]
     fn test_payout_from_claimed() {
@@ -52,7 +41,7 @@ mod tests {
     #[test]
     fn test_payout_rejected_invalid_txid() {
         test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: claimed_state(),
+            from_state: claimed_state(INITIAL_BLOCK_HEIGHT, generate_txid(), Default::default()),
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent {
                 payout_txid: generate_txid(),
             }),
@@ -73,15 +62,7 @@ mod tests {
 
     #[test]
     fn test_payout_from_invalid_state() {
-        let state = GraphState::Assigned {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            assignee: TEST_POV_IDX,
-            deadline: ASSIGNMENT_DEADLINE,
-            recipient_desc: test_recipient_desc(1),
-        };
+        let state = assigned_state(TEST_POV_IDX, ASSIGNMENT_DEADLINE, test_recipient_desc(1));
 
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,

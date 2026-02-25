@@ -1,4 +1,5 @@
 //! Testing utilities specific to the Graph State Machine.
+pub(super) mod mock_states;
 mod uncontested;
 pub(super) mod utils;
 
@@ -13,12 +14,16 @@ use bitcoin::{
     hashes::{Hash, sha256},
     relative,
 };
+use musig2::secp256k1::schnorr::Signature;
 use secp256k1::SecretKey;
 use strata_bridge_primitives::{
     secp::EvenSecretKey,
     types::{GraphIdx, OperatorIdx},
 };
-use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_xonly_pubkey};
+use strata_bridge_test_utils::{
+    bitcoin::{generate_spending_tx, generate_xonly_pubkey},
+    prelude::generate_signature,
+};
 use strata_bridge_tx_graph2::{
     game_graph::{
         CounterproofGraphSummary, DepositParams, GameGraph, GameGraphSummary, ProtocolParams,
@@ -72,6 +77,8 @@ const _: () = assert!(TEST_NONPOV_IDX != TEST_POV_IDX);
 pub(super) const N_TEST_OPERATORS: usize = 5;
 /// Block height at which the claim transaction was confirmed in tests.
 pub(super) const CLAIM_BLOCK_HEIGHT: u64 = 150;
+/// Block height at which the fulfillment transaction was confirmed in tests.
+pub(super) const FULFILLMENT_BLOCK_HEIGHT: u64 = 150;
 /// A block height used for assignment deadlines in tests.
 pub(super) const ASSIGNMENT_DEADLINE: u64 = 200;
 /// Contest timelock value in blocks.
@@ -296,6 +303,15 @@ pub(super) type GraphInvalidTransition = InvalidTransition<GraphState, GraphEven
 /// Test an invalid GraphSM transition with pre-configured test helpers.
 pub(super) fn test_graph_invalid_transition(invalid: GraphInvalidTransition) {
     test_invalid_transition::<GraphSM, _, _, _, _, _, _>(create_sm, test_graph_sm_cfg(), invalid);
+}
+
+/// Creates a packed vector of mock signatures whose layout matches
+/// the game graph's signing info structure.
+pub(super) fn mock_game_signatures(game_graph: &GameGraph) -> Vec<Signature> {
+    game_graph
+        .musig_signing_info()
+        .map(|_| generate_signature())
+        .pack()
 }
 
 /// Creates test musig signers for the operators.

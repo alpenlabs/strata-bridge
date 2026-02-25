@@ -8,27 +8,14 @@ mod tests {
         events::{ClaimConfirmedEvent, GraphEvent},
         state::GraphState,
         tests::{
-            GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, test_deposit_params,
+            FULFILLMENT_BLOCK_HEIGHT, GraphInvalidTransition, GraphTransition,
+            INITIAL_BLOCK_HEIGHT, mock_states::fulfilled_state, test_deposit_params,
             test_graph_invalid_transition, test_graph_summary, test_graph_transition,
         },
     };
 
-    /// Block height at which the fulfillment transaction was confirmed.
-    const FULFILLMENT_BLOCK_HEIGHT: u64 = 150;
     /// Block height at which the claim transaction was confirmed.
     const CLAIM_BLOCK_HEIGHT: u64 = 160;
-
-    /// Builds a mock `Fulfilled` state with default test values.
-    fn fulfilled_state(fulfillment_txid: bitcoin::Txid) -> GraphState {
-        GraphState::Fulfilled {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            signatures: Default::default(),
-            fulfillment_txid,
-            fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
-        }
-    }
 
     /// Builds a mock `Claimed` state with fulfillment data.
     fn claimed_state(fulfillment_txid: bitcoin::Txid, claim_block_height: u64) -> GraphState {
