@@ -642,7 +642,11 @@ impl GraphSM {
     }
 
     /// Processes the event where a claim transaction has been confirmed on-chain.
-    pub(crate) fn process_claim(&mut self, claim: ClaimConfirmedEvent) -> GSMResult<GSMOutput> {
+    pub(crate) fn process_claim(
+        &mut self,
+        cfg: Arc<GraphSMCfg>,
+        claim: ClaimConfirmedEvent,
+    ) -> GSMResult<GSMOutput> {
         match self.state() {
             // Claim after fulfillment
             GraphState::Fulfilled {
@@ -674,9 +678,54 @@ impl GraphSM {
 
                 Ok(GSMOutput::new())
             }
-            // TODO: Faulty cases: claim without fulfillment
-            GraphState::Assigned { .. } | GraphState::GraphSigned { .. } => {
-                todo!("STR-2192")
+            // Faulty cases: claim without fulfillment
+            GraphState::Assigned {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                ..
+            }
+            | GraphState::GraphSigned {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                ..
+            } => {
+                if claim.claim_txid != graph_summary.claim {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        claim.into(),
+                        "Invalid claim transaction",
+                    ));
+                }
+
+                // Generate the game graph to access the infos for duty emission
+                let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
+
+                // Finalize the uncontested payout transaction with collected signatures
+                let contest_tx_signatures =
+                    GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+                        .expect("Failed to retrieve contest transaction signatures")
+                        .uncontested_payout;
+                let signed_contest_tx = game_graph
+                    .uncontested_payout
+                    .finalize(contest_tx_signatures);
+
+                self.state = GraphState::Claimed {
+                    last_block_height: *last_block_height,
+                    graph_data: *graph_data,
+                    graph_summary: graph_summary.clone(),
+                    signatures: signatures.clone(),
+                    fulfillment_txid: None,
+                    fulfillment_block_height: None,
+                    claim_block_height: claim.claim_block_height,
+                };
+
+                Ok(GSMOutput::with_duties(vec![GraphDuty::PublishContest {
+                    signed_contest_tx,
+                }]))
             }
             GraphState::Claimed { .. } => {
                 Err(GSMError::duplicate(self.state().clone(), claim.into()))

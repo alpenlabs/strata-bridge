@@ -57,7 +57,7 @@ impl StateMachine for GraphSM {
             GraphEvent::DepositMessage(deposit_message) => {
                 self.process_deposit_signal(cfg, deposit_message)
             }
-            GraphEvent::ClaimConfirmed(claim) => self.process_claim(claim),
+            GraphEvent::ClaimConfirmed(claim) => self.process_claim(cfg, claim),
             GraphEvent::ContestConfirmed(_contest) => todo!(),
             GraphEvent::BridgeProofConfirmed(_bridge_proof) => todo!(),
             GraphEvent::BridgeProofTimeoutConfirmed(_timeout) => todo!(),
