@@ -5,7 +5,6 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
 };
 use bitcoind_async_client::traits::Reader;
-use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
@@ -16,7 +15,9 @@ use strata_bridge_primitives::{
 use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
 use tracing::{info, warn};
 
-use crate::{errors::ExecutorError, output_handles::OutputHandles};
+use crate::{
+    errors::ExecutorError, graph::utils::publish_singned_transaction, output_handles::OutputHandles,
+};
 
 /// Verifies adaptor signatures for the generated graph from a particular watchtower.
 ///
@@ -259,17 +260,5 @@ pub(super) async fn publish_claim(
             .push(signature.serialize());
     }
 
-    info!(%claim_txid, "Publishing claim transaction");
-    output_handles
-        .tx_driver
-        .drive(signed_claim_tx, TxStatus::is_buried)
-        .await
-        .map_err(|e| {
-            warn!(%claim_txid, ?e, "failed to publish claim transaction");
-            ExecutorError::TxDriverErr(e)
-        })?;
-
-    info!(%claim_txid, "claim transaction confirmed");
-    Ok(())
+    publish_singned_transaction(output_handles, &signed_claim_tx, "claim").await
 }
-
