@@ -1,5 +1,4 @@
-//! Legacy bridge-in handler. Will be removed after the new bridge binary is deployed.
-//! Use `bridge_in_v2` instead.
+//! New bridge-in handler. This replaces the legacy `bridge_in` module.
 
 use std::str::FromStr;
 
@@ -13,7 +12,7 @@ use secp256k1::{Keypair, Parity, XOnlyPublicKey, SECP256K1};
 use tracing::info;
 
 use crate::{
-    cli::BridgeInArgs,
+    cli::BridgeInV2Args,
     handlers::{
         rpc,
         wallet::{self, PsbtWallet},
@@ -21,8 +20,8 @@ use crate::{
     params::Params,
 };
 
-pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
-    let BridgeInArgs {
+pub(crate) fn handle_bridge_in_v2(args: BridgeInV2Args) -> Result<()> {
+    let BridgeInV2Args {
         btc_args,
         ee_address,
         params,
@@ -32,7 +31,7 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
 
     let psbt_wallet = wallet::BitcoinRpcWallet::new(rpc_client);
 
-    info!(action = "Initiating bridge-in", %ee_address);
+    info!(action = "Initiating bridge-in v2", %ee_address);
 
     let ee_address = EvmAddress::from_str(&ee_address)?;
     let recovery_pubkey = get_recovery_pubkey();
@@ -51,7 +50,7 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
     let taproot_address = generate_taproot_address(params.network, timelock_script, agg_key);
 
     let deposit_fees = Amount::from_sat(1_000);
-    let psbt = psbt_wallet.create_legacy_drt_psbt(
+    let psbt = psbt_wallet.create_drt_psbt(
         params.deposit_amount + deposit_fees,
         &taproot_address,
         metadata,

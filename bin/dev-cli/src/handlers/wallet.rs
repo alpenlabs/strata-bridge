@@ -11,6 +11,14 @@ use bitcoincore_rpc::{
 use tracing::{debug, info};
 
 pub(crate) trait PsbtWallet {
+    fn create_legacy_drt_psbt(
+        &self,
+        deposit_amount: Amount,
+        destination_address: &Address,
+        metadata: Vec<u8>,
+        network: &Network,
+    ) -> Result<String>;
+
     fn create_drt_psbt(
         &self,
         deposit_amount: Amount,
@@ -33,7 +41,7 @@ impl BitcoinRpcWallet {
 }
 
 impl PsbtWallet for BitcoinRpcWallet {
-    fn create_drt_psbt(
+    fn create_legacy_drt_psbt(
         &self,
         amount: Amount,
         destination_address: &Address,
@@ -77,6 +85,16 @@ impl PsbtWallet for BitcoinRpcWallet {
         let psbt: WalletCreateFundedPsbtResult =
             self.client.call("walletcreatefundedpsbt", &args)?;
         Ok(psbt.psbt)
+    }
+
+    fn create_drt_psbt(
+        &self,
+        amount: Amount,
+        destination_address: &Address,
+        metadata: Vec<u8>,
+        network: &Network,
+    ) -> Result<String> {
+        todo!()
     }
 
     fn sign_and_broadcast_psbt(&self, psbt: &str) -> Result<()> {
