@@ -12,6 +12,8 @@ use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use zkaleido::ProofReceipt;
 
+use crate::signals::DepositToGraph;
+
 /// Event notifying that graph data has been generated for a graph instance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphDataGeneratedEvent {
@@ -177,6 +179,8 @@ pub struct NewBlockEvent {
 pub enum GraphEvent {
     /// Graph data has been generated for the graph instance.
     GraphDataProduced(GraphDataGeneratedEvent),
+    /// Message received from the Deposit State Machine.
+    DepositMessage(DepositToGraph),
     /// All adaptors for the graph have been verified.
     AdaptorsVerified(AdaptorsVerifiedEvent),
     /// Nonce bundle for the graph received from an operator.
@@ -218,6 +222,7 @@ impl Display for GraphEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display_str = match self {
             GraphEvent::GraphDataProduced(_) => "GraphDataProduced",
+            GraphEvent::DepositMessage(_) => "DepositMessage",
             GraphEvent::AdaptorsVerified(_) => "AdaptorsVerified",
             GraphEvent::NonceReceived(_) => "NonceReceived",
             GraphEvent::PartialReceived(_) => "PartialReceived",
@@ -255,6 +260,7 @@ macro_rules! impl_into_graph_event {
 }
 
 impl_into_graph_event!(GraphDataGeneratedEvent, GraphDataProduced);
+impl_into_graph_event!(DepositToGraph, DepositMessage);
 impl_into_graph_event!(AdaptorsVerifiedEvent, AdaptorsVerified);
 impl_into_graph_event!(GraphNonceReceivedEvent, NonceReceived);
 impl_into_graph_event!(GraphPartialReceivedEvent, PartialReceived);
