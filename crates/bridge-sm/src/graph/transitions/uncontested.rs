@@ -685,9 +685,7 @@ impl GraphSM {
                 Ok(GSMOutput::new())
             }
             // TODO: Faulty cases: claim without fulfillment
-            GraphState::Assigned { .. }
-            | GraphState::GraphSigned { .. }
-            | GraphState::NoncesCollected { .. } => {
+            GraphState::Assigned { .. } | GraphState::GraphSigned { .. } => {
                 todo!("STR-2192")
             }
             GraphState::Claimed { .. } => {
