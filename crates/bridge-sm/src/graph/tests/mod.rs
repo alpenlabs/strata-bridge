@@ -3,6 +3,7 @@ pub(super) mod mock_states;
 mod uncontested;
 pub(super) mod utils;
 
+mod deposit_signal;
 mod notify_new_block;
 mod process_payout;
 mod tx_classifier;
