@@ -627,9 +627,18 @@ impl GraphSM {
                     fulfillment_block_height: fulfillment.fulfillment_block_height,
                 };
 
-                Ok(GSMOutput::with_duties(vec![GraphDuty::PublishClaim {
-                    claim_tx: game_graph.claim,
-                }]))
+                // Emit publish claim duty only if the PoV operator owns this graph.
+                // TODO:(MdTeach) Publish claim iff co-operative path failed
+                let duties =
+                    if self.context().operator_idx() == self.context().operator_table().pov_idx() {
+                        vec![GraphDuty::PublishClaim {
+                            claim_tx: game_graph.claim,
+                        }]
+                    } else {
+                        Default::default()
+                    };
+
+                Ok(GSMOutput::with_duties(duties))
             }
             GraphState::Fulfilled { .. } => Err(GSMError::duplicate(
                 self.state().clone(),

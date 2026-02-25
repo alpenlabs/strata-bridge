@@ -1,3 +1,5 @@
+use tracing::warn;
+
 use crate::graph::{
     errors::{GSMError, GSMResult},
     events::PayoutConfirmedEvent,
@@ -43,6 +45,12 @@ impl GraphSM {
                         "Invalid contested payout transaction",
                     ));
                 }
+
+                warn!(
+                    graph_idx = ?self.context().graph_idx(),
+                    payout_txid = %payout_event.payout_txid,
+                    "payout posted after all counterproofs were Nack'd"
+                );
 
                 self.state = GraphState::Withdrawn {
                     payout_txid: payout_event.payout_txid,
