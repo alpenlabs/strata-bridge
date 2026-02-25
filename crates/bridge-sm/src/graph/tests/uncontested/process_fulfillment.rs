@@ -12,7 +12,7 @@ mod tests {
             state::GraphState,
             tests::{
                 GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, TEST_POV_IDX,
-                create_sm, get_state, test_deposit_params, test_graph_data,
+                create_nonpov_sm, create_sm, get_state, test_deposit_params, test_graph_data,
                 test_graph_invalid_transition, test_graph_sm_cfg, test_graph_summary,
                 test_recipient_desc,
             },
@@ -62,7 +62,7 @@ mod tests {
     fn test_fulfillment_from_assigned() {
         let cfg = test_graph_sm_cfg();
         let (_, game_graph) = test_graph_data(&cfg);
-        let claim_tx = game_graph.claim.as_ref().clone();
+        let claim_tx = game_graph.claim.clone();
 
         let event = test_fulfillment_event();
         let fulfillment_txid = event.fulfillment_txid;
@@ -76,6 +76,27 @@ mod tests {
                 event: GraphEvent::FulfillmentConfirmed(event),
                 expected_state: fulfilled_state(fulfillment_txid),
                 expected_duties: vec![GraphDuty::PublishClaim { claim_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn test_fulfillment_from_assigned_nonpov_no_duty() {
+        let cfg = test_graph_sm_cfg();
+
+        let event = test_fulfillment_event();
+        let fulfillment_txid = event.fulfillment_txid;
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: assigned_state(),
+                event: GraphEvent::FulfillmentConfirmed(event),
+                expected_state: fulfilled_state(fulfillment_txid),
+                expected_duties: vec![],
                 expected_signals: vec![],
             },
         );
