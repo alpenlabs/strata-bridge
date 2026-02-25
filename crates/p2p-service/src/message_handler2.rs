@@ -1,5 +1,6 @@
 //! Message handler for the Strata Bridge P2P v2 with combined dispatch pattern.
 
+use bitcoin::OutPoint;
 use libp2p::futures::SinkExt;
 use libp2p_identity::ed25519::Keypair;
 use musig2::{PartialSignature, PubNonce};
@@ -61,6 +62,23 @@ impl MessageHandler {
             operator_desc,
         };
         self.dispatch(msg, peer, "payout descriptor exchange").await;
+    }
+
+    /// Sends the deposit-time data required to generate a graph.
+    ///
+    /// If `peer` is `Some`, sends directly to that peer. If `None`, broadcasts to all.
+    pub async fn send_graph_data(
+        &mut self,
+        graph_idx: GraphIdx,
+        funding_outpoint: OutPoint,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
+    ) {
+        let msg = UnsignedGossipsubMsg::GraphDataExchange {
+            graph_idx,
+            claim_input: funding_outpoint.into(),
+        };
+
+        self.dispatch(msg, peer, "graph data exchange").await;
     }
 
     /// Sends a nonce for signing the deposit transaction.
