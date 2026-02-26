@@ -85,12 +85,12 @@ pub(super) const FULFILLMENT_BLOCK_HEIGHT: u64 = 150;
 pub(super) const ASSIGNMENT_DEADLINE: u64 = 200;
 /// Contest timelock value in blocks.
 pub(super) const CONTEST_TIMELOCK_BLOCKS: u64 = 10;
-const CONTEST_TIMELOCK: relative::LockTime =
-    relative::LockTime::from_height(CONTEST_TIMELOCK_BLOCKS as u16);
-const PROOF_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
-const ACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
-const NACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
-const CONTESTED_PAYOUT_TIMELOCK: relative::LockTime = relative::LockTime::from_height(15);
+const CONTEST_TIMELOCK: relative::Height =
+    relative::Height::from_height(CONTEST_TIMELOCK_BLOCKS as u16);
+const PROOF_TIMELOCK: relative::Height = relative::Height::from_height(5);
+const ACK_TIMELOCK: relative::Height = relative::Height::from_height(10);
+const NACK_TIMELOCK: relative::Height = relative::Height::from_height(5);
+const CONTESTED_PAYOUT_TIMELOCK: relative::Height = relative::Height::from_height(15);
 const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
 
 // ===== Configuration Helpers =====

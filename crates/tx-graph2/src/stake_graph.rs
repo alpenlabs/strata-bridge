@@ -53,7 +53,7 @@ pub struct SetupParams {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ProtocolParams {
     /// Timelock for the entire game.
-    pub game_timelock: relative::LockTime,
+    pub game_timelock: relative::Height,
     /// Stake amount.
     pub stake_amount: Amount,
 }
@@ -163,7 +163,7 @@ mod tests {
 
     use super::*;
 
-    const GAME_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
+    const GAME_TIMELOCK: relative::Height = relative::Height::from_height(10);
     const FEE_AMOUNT: Amount = Amount::from_sat(1_000);
 
     #[derive(Debug)]

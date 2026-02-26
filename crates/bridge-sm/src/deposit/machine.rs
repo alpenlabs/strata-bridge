@@ -98,7 +98,7 @@ impl DepositSM {
     ) -> Self {
         let network = bridge_cfg.network();
         let deposit_amount = bridge_cfg.deposit_amount();
-        let deposit_time_lock = relative::LockTime::from_height(bridge_cfg.recovery_delay);
+        let deposit_time_lock = relative::Height::from_height(bridge_cfg.recovery_delay);
         let n_of_n_pubkey = operator_table.aggregated_btc_key().x_only_public_key().0;
 
         let deposit_request_connetor = DepositRequestConnector::new(

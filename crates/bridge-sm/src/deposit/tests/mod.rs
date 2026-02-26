@@ -167,7 +167,7 @@ pub(super) fn test_deposit_txn() -> DepositTx {
     let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
 
     let amount = Amount::from_btc(10.0).expect("valid amount");
-    let timelock = relative::LockTime::from_height(144);
+    let timelock = relative::Height::from_height(144);
     let n_of_n_pubkey = operator_table.aggregated_btc_key().x_only_public_key().0;
     let depositor_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
 

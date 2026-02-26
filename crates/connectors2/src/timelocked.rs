@@ -25,7 +25,7 @@ struct TimelockedConnector {
     network: Network,
     internal_key: XOnlyPublicKey,
     timelocked_key: XOnlyPublicKey,
-    timelock: relative::LockTime,
+    timelock: relative::Height,
     value: Amount,
 }
 
@@ -47,7 +47,7 @@ impl Connector for TimelockedConnector {
         let payout_script = script::Builder::new()
             .push_slice(self.timelocked_key.serialize())
             .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
-            .push_sequence(self.timelock.to_sequence())
+            .push_sequence(Sequence::from_height(self.timelock.value()))
             .push_opcode(opcodes::all::OP_CSV)
             .into_script();
         scripts.push(payout_script);
@@ -68,7 +68,7 @@ impl Connector for TimelockedConnector {
 
     fn sequence(&self, spend_path: Self::SpendPath) -> Sequence {
         match spend_path {
-            TimelockedSpendPath::Timeout => self.timelock.to_sequence(),
+            TimelockedSpendPath::Timeout => Sequence::from_height(self.timelock.value()),
             _ => Sequence::MAX,
         }
     }
@@ -170,7 +170,7 @@ impl ContestProofConnector {
         n_of_n_pubkey: XOnlyPublicKey,
         operator_pubkey: XOnlyPublicKey,
         game_index: NonZero<u32>,
-        proof_timelock: relative::LockTime,
+        proof_timelock: relative::Height,
     ) -> Self {
         let operator_key_tweak = Self::operator_key_tweak(game_index);
         // This can only fail if the private key of operator_pubkey equals
@@ -216,7 +216,7 @@ impl ContestPayoutConnector {
     pub fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
-        ack_timelock: relative::LockTime,
+        ack_timelock: relative::Height,
     ) -> Self {
         let mut inner = TimelockedConnector {
             network,
@@ -245,7 +245,7 @@ impl ContestSlashConnector {
     pub fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
-        contested_payout_timelock: relative::LockTime,
+        contested_payout_timelock: relative::Height,
     ) -> Self {
         let mut inner = TimelockedConnector {
             network,
@@ -275,7 +275,7 @@ impl CounterproofConnector {
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
         wt_i_fault_pubkey: XOnlyPublicKey,
-        nack_timelock: relative::LockTime,
+        nack_timelock: relative::Height,
     ) -> Self {
         let mut inner = TimelockedConnector {
             network,
@@ -305,7 +305,7 @@ impl DepositRequestConnector {
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
         depositor_pubkey: XOnlyPublicKey,
-        deposit_timelock: relative::LockTime,
+        deposit_timelock: relative::Height,
         deposit_amount: Amount,
     ) -> Self {
         Self(TimelockedConnector {
@@ -331,7 +331,7 @@ impl UnstakingOutput {
     pub fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
-        game_timelock: relative::LockTime,
+        game_timelock: relative::Height,
     ) -> Self {
         let mut inner = TimelockedConnector {
             network,
@@ -386,7 +386,7 @@ mod tests {
     use super::*;
     use crate::{test_utils::Signer, SigningInfo};
 
-    const TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
+    const TIMELOCK: relative::Height = relative::Height::from_height(10);
 
     struct TimelockedNOfNSigner {
         internal_keypair: Keypair,
