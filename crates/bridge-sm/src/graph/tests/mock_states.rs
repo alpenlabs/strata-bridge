@@ -6,9 +6,9 @@ use musig2::secp256k1::schnorr::Signature;
 use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
 
 use super::{
-    create_nonpov_sm, dummy_proof_receipt, test_deposit_params, test_graph_sm_cfg,
-    test_graph_summary, test_recipient_desc, utils::NonceContext, CLAIM_BLOCK_HEIGHT,
-    FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_ASSIGNEE,
+    CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
+    TEST_ASSIGNEE, create_nonpov_sm, dummy_proof_receipt, test_deposit_params, test_graph_sm_cfg,
+    test_graph_summary, test_recipient_desc, utils::NonceContext,
 };
 use crate::graph::{machine::generate_game_graph, state::GraphState};
 
