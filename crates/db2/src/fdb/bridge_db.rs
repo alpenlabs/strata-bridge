@@ -13,13 +13,16 @@ use crate::{
         errors::LayerError,
         row_spec::{
             deposits::{DepositStateKey, DepositStateRowSpec},
-            funds::{FundsKey, FundsRowSpec, FundsValue},
+            funds::{
+                ClaimFundingKey, ClaimFundingRowSpec, ClaimFundingValue, WithdrawalFundingKey,
+                WithdrawalFundingRowSpec, WithdrawalFundingValue,
+            },
             graphs::GraphStateRowSpec,
             signatures::{SignatureKey, SignatureRowSpec},
         },
     },
     traits::BridgeDb,
-    types::{FundingPurpose, WriteBatch},
+    types::WriteBatch,
 };
 
 impl BridgeDb for FdbClient {
@@ -118,54 +121,90 @@ impl BridgeDb for FdbClient {
 
     // ── Funds ─────────────────────────────────────────────────────────
 
-    async fn get_funds(
+    async fn get_claim_funding_outpoint(
         &self,
         graph_idx: GraphIdx,
-        purpose: FundingPurpose,
-    ) -> Result<Option<Vec<OutPoint>>, Self::Error> {
+    ) -> Result<Option<OutPoint>, Self::Error> {
         let result = self
-            .basic_get::<FundsRowSpec>(FundsKey {
+            .basic_get::<ClaimFundingRowSpec>(ClaimFundingKey {
                 deposit_idx: graph_idx.deposit,
                 operator_idx: graph_idx.operator,
-                purpose,
             })
             .await?;
         Ok(result.map(|v| v.0))
     }
 
-    async fn set_funds(
+    async fn set_claim_funding_outpoint(
         &self,
         graph_idx: GraphIdx,
-        purpose: FundingPurpose,
-        outpoints: Vec<OutPoint>,
+        outpoint: OutPoint,
     ) -> Result<(), Self::Error> {
-        self.basic_set::<FundsRowSpec>(
-            FundsKey {
+        self.basic_set::<ClaimFundingRowSpec>(
+            ClaimFundingKey {
                 deposit_idx: graph_idx.deposit,
                 operator_idx: graph_idx.operator,
-                purpose,
             },
-            FundsValue(outpoints),
+            ClaimFundingValue(outpoint),
+        )
+        .await
+    }
+
+    async fn get_withdrawal_funding_outpoints(
+        &self,
+        deposit_idx: DepositIdx,
+    ) -> Result<Option<Vec<OutPoint>>, Self::Error> {
+        let result = self
+            .basic_get::<WithdrawalFundingRowSpec>(WithdrawalFundingKey { deposit_idx })
+            .await?;
+        Ok(result.map(|v| v.0))
+    }
+
+    async fn set_withdrawal_funding_outpoints(
+        &self,
+        deposit_idx: DepositIdx,
+        outpoints: Vec<OutPoint>,
+    ) -> Result<(), Self::Error> {
+        self.basic_set::<WithdrawalFundingRowSpec>(
+            WithdrawalFundingKey { deposit_idx },
+            WithdrawalFundingValue(outpoints),
         )
         .await
     }
 
     async fn get_all_funds(&self) -> Result<Vec<OutPoint>, Self::Error> {
-        let pairs = self
-            .basic_get_all::<FundsRowSpec>(|dirs| &dirs.funds)
+        let claim_pairs = self
+            .basic_get_all::<ClaimFundingRowSpec>(|dirs| &dirs.claim_funds)
             .await?;
-        Ok(pairs.into_iter().flat_map(|(_k, v)| v.0).collect())
+        let withdrawal_pairs = self
+            .basic_get_all::<WithdrawalFundingRowSpec>(|dirs| &dirs.fulfillment_funds)
+            .await?;
+
+        let mut funds = Vec::with_capacity(
+            claim_pairs.len()
+                + withdrawal_pairs
+                    .iter()
+                    .map(|(_, v)| v.0.len())
+                    .sum::<usize>(),
+        );
+        funds.extend(claim_pairs.into_iter().map(|(_, v)| v.0));
+        funds.extend(withdrawal_pairs.into_iter().flat_map(|(_, v)| v.0));
+        Ok(funds)
     }
 
-    async fn delete_funds(
-        &self,
-        graph_idx: GraphIdx,
-        purpose: FundingPurpose,
-    ) -> Result<(), Self::Error> {
-        self.basic_delete::<FundsRowSpec>(FundsKey {
+    async fn delete_claim_funding_outpoint(&self, graph_idx: GraphIdx) -> Result<(), Self::Error> {
+        self.basic_delete::<ClaimFundingRowSpec>(ClaimFundingKey {
             deposit_idx: graph_idx.deposit,
             operator_idx: graph_idx.operator,
-            purpose,
+        })
+        .await
+    }
+
+    async fn delete_withdrawal_funding_outpoints(
+        &self,
+        graph_idx: GraphIdx,
+    ) -> Result<(), Self::Error> {
+        self.basic_delete::<WithdrawalFundingRowSpec>(WithdrawalFundingKey {
+            deposit_idx: graph_idx.deposit,
         })
         .await
     }
@@ -616,27 +655,50 @@ mod tests {
             })?;
         }
 
-        /// Property: any funds stored can be retrieved with the same key.
+        /// Property: claim funding outpoint can be stored/retrieved with the same graph key.
         #[test]
-        fn funds_roundtrip(
+        fn claim_funding_outpoint_roundtrip(
             deposit_idx in any::<DepositIdx>(),
             operator_idx in any::<OperatorIdx>(),
-            purpose in prop_oneof![
-                Just(FundingPurpose::WithdrawalFulfillment),
-                Just(FundingPurpose::Claim),
-            ],
+            outpoint in arb_outpoint(),
+        ) {
+            let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_claim_funding_outpoint(graph_idx, outpoint)
+                    .await
+                    .unwrap();
+
+                let retrieved = client
+                    .get_claim_funding_outpoint(graph_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(Some(outpoint), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: withdrawal funding outpoints can be stored/retrieved with the same deposit key.
+        #[test]
+        fn withdrawal_funding_outpoints_roundtrip(
+            deposit_idx in any::<DepositIdx>(),
             outpoints in arb_outpoints(),
         ) {
             block_on(async {
                 let client = get_client();
 
                 client
-                    .set_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, purpose, outpoints.clone())
+                    .set_withdrawal_funding_outpoints(deposit_idx, outpoints.clone())
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, purpose)
+                    .get_withdrawal_funding_outpoints(deposit_idx)
                     .await
                     .unwrap();
 
@@ -646,67 +708,95 @@ mod tests {
             })?;
         }
 
-        /// Property: `get_all_funds` returns all previously stored fund entries.
+        /// Property: `get_all_funds` returns both claim and withdrawal funding entries.
         #[test]
         fn get_all_funds_test(
             deposit_idx in any::<DepositIdx>(),
             operator_idx in any::<OperatorIdx>(),
+            outpoint_claim in arb_outpoint(),
             outpoints_wf in arb_outpoints(),
-            outpoints_claim in arb_outpoints(),
         ) {
+            let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
+
             block_on(async {
                 let client = get_client();
 
                 client
-                    .set_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, FundingPurpose::WithdrawalFulfillment, outpoints_wf.clone())
+                    .set_claim_funding_outpoint(graph_idx, outpoint_claim)
                     .await
                     .unwrap();
                 client
-                    .set_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, FundingPurpose::Claim, outpoints_claim.clone())
+                    .set_withdrawal_funding_outpoints(deposit_idx, outpoints_wf.clone())
                     .await
                     .unwrap();
 
                 let all = client.get_all_funds().await.unwrap();
 
-                // Check that all outpoints from both entries are present in the combined list.
+                prop_assert!(all.contains(&outpoint_claim), "get_all_funds missing claim outpoint: {outpoint_claim}");
                 for op in outpoints_wf {
-                    prop_assert!(all.contains(&op), "get_all_funds missing WithdrawalFulfillment outpoint: {op}");
-                }
-
-                for op in outpoints_claim {
-                    prop_assert!(all.contains(&op), "get_all_funds missing Claim outpoint: {op}");
+                    prop_assert!(all.contains(&op), "get_all_funds missing withdrawal outpoint: {op}");
                 }
 
                 Ok(())
             })?;
         }
 
-        /// Property: deleting funds makes them unreadable.
+        /// Property: deleting claim funding outpoint makes it unreadable.
         #[test]
-        fn delete_funds_roundtrip(
+        fn delete_claim_funding_outpoint_roundtrip(
             deposit_idx in any::<DepositIdx>(),
             operator_idx in any::<OperatorIdx>(),
-            purpose in prop_oneof![
-                Just(FundingPurpose::WithdrawalFulfillment),
-                Just(FundingPurpose::Claim),
-            ],
-            outpoints in arb_outpoints(),
+            outpoint in arb_outpoint(),
         ) {
+            let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
+
             block_on(async {
                 let client = get_client();
 
                 client
-                    .set_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, purpose, outpoints)
+                    .set_claim_funding_outpoint(graph_idx, outpoint)
                     .await
                     .unwrap();
 
                 client
-                    .delete_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, purpose)
+                    .delete_claim_funding_outpoint(graph_idx)
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_funds(GraphIdx { deposit: deposit_idx, operator: operator_idx }, purpose)
+                    .get_claim_funding_outpoint(graph_idx)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(None, retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: deleting withdrawal funding outpoints makes them unreadable.
+        #[test]
+        fn delete_withdrawal_funding_outpoints_roundtrip(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            outpoints in arb_outpoints(),
+        ) {
+            let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_withdrawal_funding_outpoints(deposit_idx, outpoints)
+                    .await
+                    .unwrap();
+
+                client
+                    .delete_withdrawal_funding_outpoints(graph_idx)
+                    .await
+                    .unwrap();
+
+                let retrieved = client
+                    .get_withdrawal_funding_outpoints(deposit_idx)
                     .await
                     .unwrap();
                 prop_assert_eq!(None, retrieved);

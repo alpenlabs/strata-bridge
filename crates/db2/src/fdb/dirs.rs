@@ -53,8 +53,11 @@ pub struct Directories {
     /// Subspace for storing Graph SM states, keyed by (`DepositIdx`, `OperatorIdx`).
     pub graphs: DirectorySubspace,
 
-    /// Subspace for storing fund OutPoints, keyed by `Txid`.
-    pub funds: DirectorySubspace,
+    /// Subspace for storing claim-funding outpoints, keyed by `(DepositIdx, OperatorIdx)`.
+    pub claim_funds: DirectorySubspace,
+
+    /// Subspace for storing withdrawal-funding outpoints, keyed by `DepositIdx`.
+    pub fulfillment_funds: DirectorySubspace,
 }
 
 impl Directories {
@@ -73,14 +76,17 @@ impl Directories {
         let signatures = open_subdir(&root, txn, SubSpaceId::Signatures).await?;
         let deposits = open_subdir(&root, txn, SubSpaceId::Deposits).await?;
         let graphs = open_subdir(&root, txn, SubSpaceId::Graphs).await?;
-        let funds = open_subdir(&root, txn, SubSpaceId::Funds).await?;
+        let claim_funding_outpoints = open_subdir(&root, txn, SubSpaceId::ClaimFunds).await?;
+        let withdrawal_funding_outpoints =
+            open_subdir(&root, txn, SubSpaceId::FulfillmentFunds).await?;
 
         Ok(Self {
             root,
             signatures,
             deposits,
             graphs,
-            funds,
+            claim_funds: claim_funding_outpoints,
+            fulfillment_funds: withdrawal_funding_outpoints,
         })
     }
 
@@ -117,8 +123,10 @@ pub enum SubSpaceId {
     Deposits,
     /// Subspace for storing Graph SM states, keyed by (`DepositIdx`, `OperatorIdx`).
     Graphs,
-    /// Subspace for storing fund OutPoints, keyed by `Txid`.
-    Funds,
+    /// Subspace for storing claim-funding outpoints.
+    ClaimFunds,
+    /// Subspace for storing withdrawal-funding outpoints.
+    FulfillmentFunds,
 }
 
 impl From<SubSpaceId> for &'static str {
@@ -127,7 +135,8 @@ impl From<SubSpaceId> for &'static str {
             SubSpaceId::Signatures => "signatures",
             SubSpaceId::Deposits => "deposits",
             SubSpaceId::Graphs => "graphs",
-            SubSpaceId::Funds => "funds",
+            SubSpaceId::ClaimFunds => "claim_funds",
+            SubSpaceId::FulfillmentFunds => "fulfillment_funds",
         }
     }
 }
