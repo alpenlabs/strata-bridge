@@ -314,7 +314,7 @@ async fn fulfill_withdrawal(
             warn!(?e, "could not sync wallet, continuing anyway");
         }
 
-        match wallet.fund_v3_transaction(unfunded_tx, fee_rate) {
+        match wallet.fund_v3_transaction(deposit_idx, unfunded_tx, fee_rate) {
             Ok(psbt) => psbt,
             Err(err) => {
                 error!(%err, "could not fund withdrawal");
