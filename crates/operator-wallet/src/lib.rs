@@ -1,7 +1,10 @@
 //! Operator wallet
 pub mod sync;
 
-use std::{collections::BTreeSet, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use algebra::predicate;
 use bdk_wallet::{
@@ -62,6 +65,10 @@ impl OperatorWalletConfig {
     }
 }
 
+/// Type alias for the ID of fronting transactions. This is used to track which outpoints are being
+/// used for fronting withdrawals and to avoid double-spends.
+pub type FrontingOutPointId = u32;
+
 /// The [`OperatorWallet`] is responsible for managing an operator's L1 funds, split into a general
 /// wallet and a dedicated stakechain wallet.
 #[derive(Debug)]
@@ -79,7 +86,7 @@ pub struct OperatorWallet {
     /// not end up acquiring the same funding utxo and failing due to double-spend. It is assumed
     /// that the [`OperatorWallet`] itself is accessed via a mutually exclusive lock and so
     /// this [`BTreeSet`] is not behind another lock.
-    fronting_outpoints: BTreeSet<OutPoint>,
+    fronting_outpoints: BTreeMap<FrontingOutPointId, Vec<OutPoint>>,
 }
 
 impl OperatorWallet {
@@ -116,7 +123,7 @@ impl OperatorWallet {
             general_wallet,
             stakechain_wallet,
             sync_backend,
-            fronting_outpoints: BTreeSet::new(),
+            fronting_outpoints: BTreeMap::new(),
             leased_outpoints,
         }
     }
@@ -194,7 +201,14 @@ impl OperatorWallet {
         tx_builder.version(3);
         // DON'T spend any of the anchor outputs
         tx_builder.unspendable(anchor_outpoints);
-        tx_builder.unspendable(self.fronting_outpoints.iter().copied().collect());
+
+        tx_builder.unspendable(
+            self.fronting_outpoints
+                .values()
+                .flatten()
+                .cloned()
+                .collect(),
+        );
         tx_builder.fee_rate(fee_rate);
         tx_builder.add_recipient(user_script_pubkey, amount);
         tx_builder.add_data(&push_data);
@@ -204,7 +218,11 @@ impl OperatorWallet {
 
         // Mark the used input(s) as fronted so we can track it later
         psbt.unsigned_tx.input.iter().for_each(|input| {
-            self.fronting_outpoints.insert(input.previous_output);
+            let stub_id = 0;
+            self.fronting_outpoints
+                .entry(stub_id)
+                .or_default()
+                .push(input.previous_output);
         });
 
         Ok(psbt)
@@ -215,12 +233,19 @@ impl OperatorWallet {
     /// Takes a transaction with outputs only and adds inputs from the general wallet to cover the
     /// outputs plus fees. Change, if any, is added at the end of vouts.
     ///
+    /// The used input UTXOs are marked as reserved so that two different executors do not end up
+    /// using the same UTXOs and failing due to double-spend.
+    ///
+    /// The `id` is used to identify the transaction being funded. If one already exists, the same
+    /// UTXO as reserved earlier will be used for it.
+    ///
     /// # Notes
     ///
     /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
     /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
     pub fn fund_v3_transaction(
         &mut self,
+        id: u32,
         unfunded_tx: Transaction,
         fee_rate: FeeRate,
     ) -> Result<Psbt, CreateTxError> {
@@ -231,7 +256,29 @@ impl OperatorWallet {
         tx_builder.version(3);
         // DON'T spend any of the anchor outputs or already-used fronting outputs
         tx_builder.unspendable(anchor_outpoints);
-        tx_builder.unspendable(self.fronting_outpoints.iter().copied().collect());
+        if let Some(reserved_outpoints) = self.fronting_outpoints.get(&id) {
+            reserved_outpoints.iter().for_each(|reserved_outpoint| {
+                tx_builder
+                    .add_utxo(*reserved_outpoint)
+                    .expect("reserved outpoint must be known to the wallet");
+            });
+
+            // do not add any more than the ones already selected from the reserve
+            // NOTE: (@Rajil1213) if there is a fee-rate spike, these inputs might not have enough
+            // funds to cover the outputs + fees. In that case, the transaction in the mempool can
+            // be CPFP'd by the user or the operator.
+            tx_builder.manually_selected_only();
+        }
+        // added utxo takes priority over unspendable, so we add the reserved utxo first and then
+        // mark all fronting outpoints as unspendable to avoid accidentally using another one of
+        // them.
+        tx_builder.unspendable(
+            self.fronting_outpoints
+                .values()
+                .flatten()
+                .cloned()
+                .collect(),
+        );
         tx_builder.fee_rate(fee_rate);
 
         // Add all outputs from the unfunded transaction
@@ -245,7 +292,10 @@ impl OperatorWallet {
 
         // Mark the used input(s) as fronted so we can track it later
         psbt.unsigned_tx.input.iter().for_each(|input| {
-            self.fronting_outpoints.insert(input.previous_output);
+            self.fronting_outpoints
+                .entry(id)
+                .or_default()
+                .push(input.previous_output);
         });
 
         Ok(psbt)

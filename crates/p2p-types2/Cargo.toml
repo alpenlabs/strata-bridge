@@ -9,6 +9,7 @@ workspace = true
 [dependencies]
 strata-bridge-primitives.workspace = true
 
+bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 hex.workspace = true
 libp2p-identity.workspace = true

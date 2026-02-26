@@ -1,7 +1,8 @@
 //! Executors for uncontested payout graph duties.
 
+use algebra::predicate;
 use bitcoin::{
-    OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
+    FeeRate, OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
     sighash::{Prevouts, SighashCache},
 };
 use bitcoind_async_client::traits::Reader;
@@ -9,14 +10,111 @@ use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
+use strata_bridge_db2::traits::BridgeDb;
 use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{GraphIdx, OperatorIdx},
 };
 use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
-use crate::{errors::ExecutorError, output_handles::OutputHandles};
+use crate::{
+    config::ExecutionConfig, errors::ExecutorError, graph::utils::finalize_claim_funding_tx,
+    output_handles::OutputHandles,
+};
+
+pub(super) async fn generate_graph_data(
+    cfg: &ExecutionConfig,
+    output_handles: &OutputHandles,
+    graph_idx: GraphIdx,
+) -> Result<(), ExecutorError> {
+    info!(?graph_idx, "generating graph data");
+    let OutputHandles {
+        wallet,
+        db,
+        msg_handler2,
+        s2_client,
+        tx_driver,
+        ..
+    } = output_handles;
+
+    info!(?graph_idx, "checking if data already exists in disk");
+    if let Ok(Some(funding_outpoint)) = db.get_claim_funding_outpoint(graph_idx).await {
+        info!(
+            ?graph_idx,
+            ?funding_outpoint,
+            "graph data already exists in disk, skipping generation"
+        );
+
+        msg_handler2
+            .write()
+            .await
+            .send_graph_data(graph_idx, funding_outpoint, None)
+            .await;
+
+        return Ok(());
+    }
+
+    info!(?graph_idx, "fetching funding outpoint from wallet");
+
+    let (funding_outpoint, _remaining) = {
+        let mut wallet = wallet.write().await;
+
+        match wallet.sync().await {
+            Ok(()) => info!("synced wallet successfully"),
+            Err(e) => error!(
+                ?e,
+                "could not sync wallet before fetching claim funding utxo" /* still safe to
+                                                                            * continue
+                                                                            * though */
+            ),
+        }
+
+        let (funding_outpoint, remaining) = wallet.claim_funding_utxo(predicate::never);
+        match funding_outpoint {
+            Some(outpoint) => (outpoint, remaining),
+            None => {
+                warn!("could not acquire claim funding utxo. attempting refill...");
+                // The first time we run the node, it may be the case that the wallet starts off
+                // empty.
+                let psbt = wallet.refill_claim_funding_utxos(
+                    FeeRate::BROADCAST_MIN,
+                    cfg.funding_uxto_pool_size,
+                )?;
+
+                // we only wait till the claim funding tx is in the mempool so it is fine to hold
+                // the `wallet` lock till that happens.
+                finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt)
+                    .await?;
+
+                wallet.sync().await.map_err(|e| {
+                    error!(?e, "could not sync wallet after refilling funding utxos");
+
+                    ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
+                })?;
+
+                let (funding_op, remaining) = wallet.claim_funding_utxo(predicate::never);
+
+                (
+                    funding_op.expect("funding utxos must be available after refill"),
+                    remaining,
+                )
+            }
+        }
+    };
+
+    info!(?graph_idx, %funding_outpoint, "fetched funding outpoint from wallet, saving to disk");
+    db.set_claim_funding_outpoint(graph_idx, funding_outpoint)
+        .await?;
+
+    msg_handler2
+        .write()
+        .await
+        .send_graph_data(graph_idx, funding_outpoint, None)
+        .await;
+
+    Ok(())
+}
 
 /// Verifies adaptor signatures for the generated graph from a particular watchtower.
 ///
@@ -195,26 +293,16 @@ pub(super) async fn publish_claim(
         "signing claim transaction"
     );
 
-    // TODO: (mukeshdroid) Currently, we need to fetch the prevouts from bitcoind
-    // since the ClaimTx doesn't contain this info. Updating ClaimTx and adding signing_info
-    // method would simplify the executor.
-    let prevout_futures = unsigned_claim_tx.input.iter().map(|input| {
-        output_handles.bitcoind_rpc_client.get_tx_out(
-            &input.previous_output.txid,
-            input.previous_output.vout,
-            true,
-        )
-    });
-    let prevouts = try_join_all(prevout_futures)
-        .await
-        .map_err(|e| {
-            warn!(%claim_txid, ?e, "failed to fetch claim input prevouts");
-            ExecutorError::BitcoinRpcErr(e)
-        })?
-        .into_iter()
-        .map(|utxo| utxo.tx_out)
-        .collect::<Vec<_>>();
-    let prevouts = Prevouts::All(&prevouts);
+    let claim_prevout = {
+        let wallet = output_handles.wallet.read().await;
+        wallet
+            .claim_funding_outputs()
+            .find(|utxo| utxo.outpoint == claim_tx.as_ref().input[0].previous_output)
+            .expect("claim funding outpoint not found in wallet")
+            .txout
+    };
+
+    let prevouts = Prevouts::All(&[claim_prevout]);
 
     let mut sighash_cache = SighashCache::new(&unsigned_claim_tx);
     let mut signed_claim_tx = unsigned_claim_tx.clone();

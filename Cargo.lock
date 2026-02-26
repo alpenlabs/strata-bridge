@@ -2257,16 +2257,20 @@ dependencies = [
 name = "bridge-exec"
 version = "0.1.0"
 dependencies = [
+ "algebra",
+ "bdk_wallet",
  "bitcoin",
  "bitcoin-bosd",
  "bitcoind-async-client",
  "btc-tracker",
+ "foundationdb",
  "futures",
  "musig2",
  "operator-wallet",
  "secret-service-client",
  "secret-service-proto",
  "strata-bridge-connectors2",
+ "strata-bridge-db2",
  "strata-bridge-p2p-service",
  "strata-bridge-p2p-types2",
  "strata-bridge-primitives",
@@ -10306,6 +10310,7 @@ dependencies = [
 name = "strata-bridge-p2p-types2"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "bitcoin-bosd",
  "hex",
  "libp2p-identity",

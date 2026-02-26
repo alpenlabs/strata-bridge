@@ -13,6 +13,7 @@ use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors2::SigningInfo;
+use strata_bridge_db2::traits::BridgeDb;
 use strata_bridge_p2p_types2::PayoutDescriptor;
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
@@ -314,7 +315,7 @@ async fn fulfill_withdrawal(
             warn!(?e, "could not sync wallet, continuing anyway");
         }
 
-        match wallet.fund_v3_transaction(unfunded_tx, fee_rate) {
+        match wallet.fund_v3_transaction(deposit_idx, unfunded_tx, fee_rate) {
             Ok(psbt) => psbt,
             Err(err) => {
                 error!(%err, "could not fund withdrawal");
@@ -357,6 +358,19 @@ async fn fulfill_withdrawal(
             .witness
             .push(signature.serialize());
     }
+
+    // save the retrieved funding outpoints in db.
+    output_handles
+        .db
+        .set_withdrawal_funding_outpoints(
+            deposit_idx,
+            signed_tx
+                .input
+                .iter()
+                .map(|input| input.previous_output)
+                .collect(),
+        )
+        .await?;
 
     // Broadcast and wait for confirmation
     info!(%txid, "submitting withdrawal fulfillment tx to the tx driver");

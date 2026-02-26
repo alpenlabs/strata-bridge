@@ -2,12 +2,15 @@
 
 use std::fmt;
 
+use bitcoin::hashes::Hash;
 use libp2p_identity::ed25519;
 use proptest_derive::Arbitrary;
 use rkyv::{Archive, Deserialize, Serialize};
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 
-use crate::{GraphIdx, P2POperatorPubKey, PartialSignature, PayoutDescriptor, PubNonce};
+use crate::{
+    ClaimInput, GraphIdx, P2POperatorPubKey, PartialSignature, PayoutDescriptor, PubNonce,
+};
 
 /// Signing context discriminator for cryptographic domain separation.
 ///
@@ -35,6 +38,8 @@ enum GossipsubMsgKind {
     Musig2Nonces = 0x01,
     /// MuSig2 partial signatures exchange.
     Musig2Signatures = 0x02,
+    /// Graph data exchange.
+    GraphDataExchange = 0x03,
 }
 
 /// MuSig2 nonce variants for different signing contexts.
@@ -220,6 +225,15 @@ pub enum UnsignedGossipsubMsg {
         operator_desc: PayoutDescriptor,
     },
 
+    /// Graph data exchange.
+    GraphDataExchange {
+        /// The graph index to identify the instance of the graph.
+        graph_idx: GraphIdx,
+
+        /// The input to the claim transaction.
+        claim_input: ClaimInput,
+    },
+
     /// MuSig2 nonces exchange.
     Musig2NoncesExchange(MuSig2Nonce),
 
@@ -244,6 +258,17 @@ impl UnsignedGossipsubMsg {
                 buf.extend(deposit_idx.to_le_bytes());
                 buf.extend(operator_idx.to_le_bytes());
                 buf.extend(operator_desc.content_bytes());
+            }
+            Self::GraphDataExchange {
+                graph_idx,
+                claim_input,
+            } => {
+                let outpoint = claim_input.inner();
+                buf.push(GossipsubMsgKind::GraphDataExchange as u8);
+                buf.extend(graph_idx.deposit.to_le_bytes());
+                buf.extend(graph_idx.operator.to_le_bytes());
+                buf.extend(outpoint.txid.to_raw_hash().to_byte_array()); // txid
+                buf.extend(outpoint.vout.to_le_bytes()); // vout
             }
             Self::Musig2NoncesExchange(nonce) => {
                 buf.push(GossipsubMsgKind::Musig2Nonces as u8);
@@ -281,6 +306,16 @@ impl fmt::Debug for UnsignedGossipsubMsg {
                 write!(
                     f,
                     "PayoutDescriptorExchange(deposit_idx: {deposit_idx}, operator: {operator_idx}, desc: {operator_desc})"
+                )
+            }
+            Self::GraphDataExchange {
+                graph_idx,
+                claim_input,
+            } => {
+                write!(
+                    f,
+                    "GraphDataExchange(graph_idx: {:?}, claim_input: {:?})",
+                    graph_idx, claim_input
                 )
             }
             Self::Musig2NoncesExchange(nonce) => {

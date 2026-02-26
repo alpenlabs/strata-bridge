@@ -187,6 +187,10 @@ esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default
   "async-https-rustls",
 ] }
 ethnum = "1.5.0"
+# TODO: (@Zk2u) switch to fdb 0.11.0 once released
+foundationdb = { git = "https://github.com/foundationdb-rs/foundationdb-rs", rev = "7e02f866ff08153f4309a429fc74515c77ea8f07", features = [
+  "fdb-7_3",
+] }
 futures = "0.3.31"
 hex = { version = "0.4.3", features = ["serde"] }
 indexmap = "2.8.0"
