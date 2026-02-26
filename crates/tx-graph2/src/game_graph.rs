@@ -104,15 +104,15 @@ pub struct ProtocolParams {
     /// Magic bytes that identify the bridge.
     pub magic_bytes: MagicBytes,
     /// Timelock for contesting a claim.
-    pub contest_timelock: relative::LockTime,
+    pub contest_timelock: relative::Height,
     /// Timelock for submitting a bridge proof.
-    pub proof_timelock: relative::LockTime,
+    pub proof_timelock: relative::Height,
     /// Timelock for ACK-ing a counterproof.
-    pub ack_timelock: relative::LockTime,
+    pub ack_timelock: relative::Height,
     /// Timelock for NACK-ing a counterproof.
-    pub nack_timelock: relative::LockTime,
+    pub nack_timelock: relative::Height,
     /// Timelock for submitting a contested payout.
-    pub contested_payout_timelock: relative::LockTime,
+    pub contested_payout_timelock: relative::Height,
     /// Number of bytes for the serialized counterproof (including public values).
     pub counterproof_n_bytes: NonZero<usize>,
     /// Deposit amount.
@@ -592,13 +592,13 @@ mod tests {
     const N_WATCHTOWERS: usize = 10;
     const CONTESTING_WATCHTOWER_IDX: u32 = 0;
     // From claim tx
-    const CONTEST_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
+    const CONTEST_TIMELOCK: relative::Height = relative::Height::from_height(10);
     // From contest tx
-    const PROOF_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
-    const ACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
-    const CONTESTED_PAYOUT_TIMELOCK: relative::LockTime = relative::LockTime::from_height(15);
+    const PROOF_TIMELOCK: relative::Height = relative::Height::from_height(5);
+    const ACK_TIMELOCK: relative::Height = relative::Height::from_height(10);
+    const CONTESTED_PAYOUT_TIMELOCK: relative::Height = relative::Height::from_height(15);
     // From counterproof tx
-    const NACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
+    const NACK_TIMELOCK: relative::Height = relative::Height::from_height(5);
     const DEPOSIT_AMOUNT: Amount = Amount::from_sat(100_000_000);
     const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
     const FEE: Amount = Amount::from_sat(1_000);
@@ -895,7 +895,7 @@ mod tests {
             // ┌───────────────────────────────────────────────────────────────┐
             // │                     Bridge Proof Timeout                      │
             // └───────────────────────────────────────────────────────────────┘
-            let n_blocks = PROOF_TIMELOCK.to_consensus_u32() as usize - 1;
+            let n_blocks = usize::from(PROOF_TIMELOCK.value()) - 1;
             node.mine_blocks(n_blocks);
             since_contest += n_blocks;
 
@@ -915,9 +915,7 @@ mod tests {
             // ┌───────────────────────────────────────────────────────────────┐
             // │                            Slash                              │
             // └───────────────────────────────────────────────────────────────┘
-            node.mine_blocks(
-                CONTESTED_PAYOUT_TIMELOCK.to_consensus_u32() as usize - since_contest - 1,
-            );
+            node.mine_blocks(usize::from(CONTESTED_PAYOUT_TIMELOCK.value()) - since_contest - 1);
 
             let child = node.create_cpfp_child(&game.slash, FEE * 2);
             assert_eq!(child.version, Version(3));
@@ -1028,7 +1026,7 @@ mod tests {
             // ┌───────────────────────────────────────────────────────────────┐
             // │                       Counterproof ACK                        │
             // └───────────────────────────────────────────────────────────────┘
-            let n_blocks = NACK_TIMELOCK.to_consensus_u32() as usize - 1;
+            let n_blocks = usize::from(NACK_TIMELOCK.value()) - 1;
             node.mine_blocks(n_blocks);
             since_contest += n_blocks;
 
@@ -1049,9 +1047,7 @@ mod tests {
             // ┌───────────────────────────────────────────────────────────────┐
             // │                            Slash                              │
             // └───────────────────────────────────────────────────────────────┘
-            node.mine_blocks(
-                CONTESTED_PAYOUT_TIMELOCK.to_consensus_u32() as usize - since_contest - 1,
-            );
+            node.mine_blocks(usize::from(CONTESTED_PAYOUT_TIMELOCK.value()) - since_contest - 1);
 
             let child = node.create_cpfp_child(&game.slash, FEE * 2);
             assert_eq!(child.version, Version(3));
@@ -1068,7 +1064,7 @@ mod tests {
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                        Contested Payout                           │
         // └───────────────────────────────────────────────────────────────────┘
-        node.mine_blocks(ACK_TIMELOCK.to_consensus_u32() as usize - since_contest - 1);
+        node.mine_blocks(usize::from(ACK_TIMELOCK.value()) - since_contest - 1);
 
         let child = node.create_cpfp_child(&game.contested_payout, FEE * 2);
         assert_eq!(child.version, Version(3));

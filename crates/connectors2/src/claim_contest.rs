@@ -17,7 +17,7 @@ pub struct ClaimContestConnector {
     n_of_n_pubkey: XOnlyPublicKey,
     // invariant: watchtower_pubkeys.len() <= u32::MAX
     watchtower_pubkeys: Vec<XOnlyPublicKey>,
-    contest_timelock: relative::LockTime,
+    contest_timelock: relative::Height,
 }
 
 impl ClaimContestConnector {
@@ -30,7 +30,7 @@ impl ClaimContestConnector {
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
         watchtower_pubkeys: Vec<XOnlyPublicKey>,
-        contest_timelock: relative::LockTime,
+        contest_timelock: relative::Height,
     ) -> Self {
         assert!(
             watchtower_pubkeys.len() <= u32::MAX as usize,
@@ -52,7 +52,7 @@ impl ClaimContestConnector {
     }
 
     /// Returns the relative contest timelock of the connector.
-    pub const fn contest_timelock(&self) -> relative::LockTime {
+    pub const fn contest_timelock(&self) -> relative::Height {
         self.contest_timelock
     }
 }
@@ -81,7 +81,7 @@ impl Connector for ClaimContestConnector {
         let uncontested_payout_script = script::Builder::new()
             .push_slice(self.n_of_n_pubkey.serialize())
             .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
-            .push_sequence(self.contest_timelock.to_sequence())
+            .push_sequence(Sequence::from_height(self.contest_timelock.value()))
             .push_opcode(opcodes::all::OP_CSV)
             .into_script();
         scripts.push(uncontested_payout_script);
@@ -112,7 +112,9 @@ impl Connector for ClaimContestConnector {
 
     fn sequence(&self, spend_path: Self::SpendPath) -> Sequence {
         match spend_path {
-            ClaimContestSpendPath::Uncontested => self.contest_timelock.to_sequence(),
+            ClaimContestSpendPath::Uncontested => {
+                Sequence::from_height(self.contest_timelock.value())
+            }
             _ => Sequence::MAX,
         }
     }
@@ -188,7 +190,7 @@ mod tests {
     use crate::{test_utils::Signer, SigningInfo};
 
     const N_WATCHTOWERS: usize = 10;
-    const DELTA_CONTEST: relative::LockTime = relative::LockTime::from_height(10);
+    const DELTA_CONTEST: relative::Height = relative::Height::from_height(10);
 
     struct ClaimContestSigner {
         n_of_n_keypair: Keypair,
