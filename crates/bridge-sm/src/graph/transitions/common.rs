@@ -54,6 +54,12 @@ impl GraphSM {
             }
             | GraphState::Fulfilled {
                 last_block_height, ..
+            }
+            | GraphState::Contested {
+                last_block_height, ..
+            }
+            | GraphState::BridgeProofTimedout {
+                last_block_height, ..
             } => {
                 *last_block_height = new_block_event.block_height;
                 Ok(GSMOutput::new())
@@ -103,16 +109,8 @@ impl GraphSM {
                 }
             }
 
-            // TODO: STR-2194
-            GraphState::Contested { .. } => {
-                todo!("")
-            }
-
             // TODO: STR-2340
             GraphState::BridgeProofPosted { .. } => todo!(""),
-
-            // TODO: STR-2194
-            GraphState::BridgeProofTimedout { .. } => todo!(""),
 
             // TODO: STR-2196
             GraphState::CounterProofPosted { .. } => todo!(""),

@@ -1,25 +1,26 @@
 //! Reusable mock [`GraphState`] constructors for graph SM tests.
 
-use std::{collections::BTreeMap, num::NonZero};
+use std::{collections::BTreeMap, num::NonZero, sync::LazyLock};
 
-use bitcoin::Transaction;
 use musig2::secp256k1::schnorr::Signature;
-use strata_bridge_test_utils::bitcoin::generate_txid;
 use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
 
 use super::{
     CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
-    TEST_ASSIGNEE, TestGraphTxKind, create_nonpov_sm, dummy_proof_receipt, test_deposit_params,
-    test_graph_sm_cfg, test_graph_summary, test_recipient_desc, utils::NonceContext,
+    TEST_ASSIGNEE, create_nonpov_sm, dummy_proof_receipt, test_deposit_params, test_graph_sm_cfg,
+    test_graph_summary, test_recipient_desc, utils::NonceContext,
 };
 use crate::graph::{machine::generate_game_graph, state::GraphState};
+
+pub(super) static TEST_GRAPH_SUMMARY: LazyLock<GameGraphSummary> =
+    LazyLock::new(test_graph_summary);
 
 /// Builds a mock `GraphSigned` state.
 pub(super) fn graph_signed_state() -> GraphState {
     GraphState::GraphSigned {
         last_block_height: INITIAL_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
-        graph_summary: test_graph_summary(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
         signatures: Default::default(),
     }
 }
@@ -33,7 +34,7 @@ pub(super) fn assigned_state(
     GraphState::Assigned {
         last_block_height: INITIAL_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
-        graph_summary: test_graph_summary(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
         signatures: Default::default(),
         assignee,
         deadline,
@@ -93,7 +94,7 @@ pub(super) fn claimed_state(
     GraphState::Claimed {
         last_block_height,
         graph_data: test_deposit_params(),
-        graph_summary: test_graph_summary(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
         signatures,
         fulfillment_txid: Some(fulfillment_txid),
         fulfillment_block_height: Some(140),
@@ -103,12 +104,13 @@ pub(super) fn claimed_state(
 
 /// Builds a mock `Contested` state with default test values.
 pub(super) fn contested_state() -> GraphState {
+    let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::Contested {
         last_block_height: LATER_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
-        graph_summary: test_graph_summary(),
+        graph_summary: graph_summary.clone(),
         signatures: Default::default(),
-        fulfillment_txid: Some(generate_txid()),
+        fulfillment_txid: Some(graph_summary.claim),
         fulfillment_block_height: Some(LATER_BLOCK_HEIGHT),
         contest_block_height: LATER_BLOCK_HEIGHT,
     }
@@ -116,13 +118,14 @@ pub(super) fn contested_state() -> GraphState {
 
 /// Builds a mock `BridgeProofPosted` state with default test values.
 pub(super) fn bridge_proof_posted_state() -> GraphState {
+    let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::BridgeProofPosted {
         last_block_height: LATER_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
-        graph_summary: test_graph_summary(),
+        graph_summary: graph_summary.clone(),
         signatures: Default::default(),
         contest_block_height: LATER_BLOCK_HEIGHT,
-        bridge_proof_txid: generate_txid(),
+        bridge_proof_txid: graph_summary.bridge_proof_timeout,
         bridge_proof_block_height: LATER_BLOCK_HEIGHT,
         proof: dummy_proof_receipt(),
     }
@@ -130,14 +133,15 @@ pub(super) fn bridge_proof_posted_state() -> GraphState {
 
 /// Builds a mock `BridgeProofTimedout` state with default test values.
 pub(super) fn bridge_proof_timedout_state() -> GraphState {
+    let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::BridgeProofTimedout {
         last_block_height: LATER_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
-        graph_summary: test_graph_summary(),
+        graph_summary: graph_summary.clone(),
         signatures: Default::default(),
         contest_block_height: LATER_BLOCK_HEIGHT,
-        expected_slash_txid: generate_txid(),
-        claim_txid: generate_txid(),
+        expected_slash_txid: graph_summary.slash,
+        claim_txid: graph_summary.claim,
     }
 }
 
@@ -146,7 +150,7 @@ pub(super) fn counter_proof_posted_state() -> GraphState {
     GraphState::CounterProofPosted {
         last_block_height: LATER_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
-        graph_summary: test_graph_summary(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
         signatures: Default::default(),
         contest_block_height: LATER_BLOCK_HEIGHT,
         counterproofs_and_confs: BTreeMap::new(),
@@ -156,27 +160,29 @@ pub(super) fn counter_proof_posted_state() -> GraphState {
 
 /// Builds a mock `AllNackd` state with default test values.
 pub(super) fn all_nackd_state() -> GraphState {
+    let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::AllNackd {
         last_block_height: LATER_BLOCK_HEIGHT,
         contest_block_height: LATER_BLOCK_HEIGHT,
-        expected_payout_txid: Transaction::from(TestGraphTxKind::ContestedPayout).compute_txid(),
-        possible_slash_txid: Transaction::from(TestGraphTxKind::Slash).compute_txid(),
+        expected_payout_txid: graph_summary.contested_payout,
+        possible_slash_txid: graph_summary.slash,
     }
 }
 
 /// Builds a mock `Acked` state with default test values.
 pub(super) fn acked_state() -> GraphState {
+    let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::Acked {
         last_block_height: LATER_BLOCK_HEIGHT,
         contest_block_height: LATER_BLOCK_HEIGHT,
-        expected_slash_txid: Transaction::from(TestGraphTxKind::Slash).compute_txid(),
-        claim_txid: generate_txid(),
+        expected_slash_txid: graph_summary.slash,
+        claim_txid: graph_summary.claim,
     }
 }
 
 /// States that can detect a malicious claim (pre-signing states with a graph_summary).
 pub(super) fn pre_signing_states() -> Vec<GraphState> {
-    let summary = test_graph_summary();
+    let summary = TEST_GRAPH_SUMMARY.clone();
     let params = test_deposit_params();
 
     vec![
@@ -210,15 +216,16 @@ pub(super) fn pre_signing_states() -> Vec<GraphState> {
 
 /// Terminal states (Withdrawn, Slashed, Aborted).
 pub(super) fn terminal_states() -> Vec<GraphState> {
+    let graph_summary = TEST_GRAPH_SUMMARY.clone();
     vec![
         GraphState::Withdrawn {
-            payout_txid: generate_txid(),
+            payout_txid: graph_summary.uncontested_payout,
         },
         GraphState::Slashed {
-            slash_txid: generate_txid(),
+            slash_txid: graph_summary.slash,
         },
         GraphState::Aborted {
-            payout_connector_spend_txid: generate_txid(),
+            payout_connector_spend_txid: graph_summary.contested_payout,
             reason: "test".to_string(),
         },
     ]
@@ -227,12 +234,13 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
 /// States that may observe a claim tx.
 pub(super) fn claim_detecting_states() -> Vec<GraphState> {
     let mut states = pre_signing_states();
+    let graph_summary = TEST_GRAPH_SUMMARY.clone();
     states.push(assigned_state(
         TEST_ASSIGNEE,
         LATER_BLOCK_HEIGHT + 15,
         test_recipient_desc(1),
     ));
-    states.push(fulfilled_state(generate_txid()));
+    states.push(fulfilled_state(graph_summary.claim));
     states
 }
 
@@ -240,7 +248,7 @@ pub(super) fn claim_detecting_states() -> Vec<GraphState> {
 pub(super) fn uncontested_payout_detecting_states() -> Vec<GraphState> {
     vec![claimed_state(
         LATER_BLOCK_HEIGHT,
-        generate_txid(),
+        TEST_GRAPH_SUMMARY.claim,
         Default::default(),
     )]
 }
@@ -261,7 +269,11 @@ pub(super) fn counterproof_detecting_states() -> Vec<GraphState> {
 /// connector outpoint.
 pub(super) fn payout_connector_spent_states() -> Vec<GraphState> {
     vec![
-        claimed_state(LATER_BLOCK_HEIGHT, generate_txid(), Default::default()),
+        claimed_state(
+            LATER_BLOCK_HEIGHT,
+            TEST_GRAPH_SUMMARY.claim,
+            Default::default(),
+        ),
         contested_state(),
         bridge_proof_posted_state(),
         bridge_proof_timedout_state(),
@@ -271,6 +283,7 @@ pub(super) fn payout_connector_spent_states() -> Vec<GraphState> {
 
 /// One representative of every state variant.
 pub(super) fn all_state_variants() -> Vec<GraphState> {
+    let graph_summary = TEST_GRAPH_SUMMARY.clone();
     let mut states = vec![GraphState::Created {
         last_block_height: LATER_BLOCK_HEIGHT,
     }];
@@ -280,10 +293,10 @@ pub(super) fn all_state_variants() -> Vec<GraphState> {
         LATER_BLOCK_HEIGHT + 15,
         test_recipient_desc(1),
     ));
-    states.push(fulfilled_state(generate_txid()));
+    states.push(fulfilled_state(graph_summary.claim));
     states.push(claimed_state(
         LATER_BLOCK_HEIGHT,
-        generate_txid(),
+        graph_summary.claim,
         Default::default(),
     ));
     states.push(contested_state());
