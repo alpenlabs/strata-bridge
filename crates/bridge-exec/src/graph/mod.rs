@@ -3,6 +3,7 @@
 
 mod common;
 mod contested;
+mod utils;
 
 use std::sync::Arc;
 
@@ -18,6 +19,7 @@ pub async fn execute_graph_duty(
     duty: &GraphDuty,
 ) -> Result<(), ExecutorError> {
     match duty {
+        GraphDuty::GenerateGraphData { .. } => todo!(),
         GraphDuty::VerifyAdaptors {
             graph_idx,
             watchtower_idx,

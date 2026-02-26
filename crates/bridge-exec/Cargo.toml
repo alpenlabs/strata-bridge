@@ -8,6 +8,7 @@ description = "Executors for the Strata Bridge"
 workspace = true
 
 [dependencies]
+algebra.workspace = true
 btc-tracker.workspace = true
 operator-wallet.workspace = true
 secret-service-client.workspace = true
@@ -18,10 +19,11 @@ strata-bridge-p2p-types2.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-sm.workspace = true
 strata-bridge-tx-graph2.workspace = true
+
 strata-l1-txfmt.workspace = true
 
+bdk_wallet.workspace = true
 bitcoin-bosd.workspace = true
-
 bitcoin.workspace = true
 bitcoind-async-client.workspace = true
 futures.workspace = true

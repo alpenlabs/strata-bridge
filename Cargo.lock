@@ -2257,6 +2257,8 @@ dependencies = [
 name = "bridge-exec"
 version = "0.1.0"
 dependencies = [
+ "algebra",
+ "bdk_wallet",
  "bitcoin",
  "bitcoin-bosd",
  "bitcoind-async-client",
