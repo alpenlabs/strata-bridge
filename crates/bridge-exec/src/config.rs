@@ -22,4 +22,7 @@ pub struct ExecutionConfig {
 
     /// The fee charged by an operator for processing a withdrawal.
     pub operator_fee: Amount,
+
+    /// The number of claim funding utxos to generate at any given time when the pool is exhausted.
+    pub funding_uxto_pool_size: usize,
 }
