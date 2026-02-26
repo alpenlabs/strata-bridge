@@ -105,20 +105,7 @@ pub(super) async fn generate_graph_data(
 
     info!(?graph_idx, %funding_outpoint, "fetched funding outpoint from wallet, saving to disk");
     db.set_claim_funding_outpoint(graph_idx, funding_outpoint)
-        .await
-        .map_err(|e| {
-            warn!(?e, "failed to save claim funding outpoint to disk");
-            // at this point, it's not safe to broadcast the funding outpoint to other operators, so
-            // we return an error and abort the execution.
-            match e.to_enum() {
-                terrors::E2::A(binding_err) => {
-                    ExecutorError::DatabaseErr(format!("fdb binding error: {binding_err:?}"))
-                }
-                terrors::E2::B(layer_err) => {
-                    ExecutorError::DatabaseErr(format!("fdb layer error: {layer_err:?}"))
-                }
-            }
-        })?;
+        .await?;
 
     msg_handler2
         .write()

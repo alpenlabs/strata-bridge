@@ -2,6 +2,9 @@
 
 use bdk_wallet::error::CreateTxError;
 use bitcoin::Txid;
+use foundationdb::FdbBindingError;
+use strata_bridge_db2::fdb::errors::LayerError;
+use terrors::OneOf;
 use thiserror::Error;
 
 /// Errors that can occur during executor operations.
@@ -48,6 +51,12 @@ pub enum ExecutorError {
     ClaimTxAlreadyOnChain(Txid),
 
     /// Error interacting with the database.
-    #[error("database error: {0}")]
-    DatabaseErr(String),
+    #[error("database error: {0:?}")]
+    DatabaseErr(OneOf<(FdbBindingError, LayerError)>),
+}
+
+impl From<OneOf<(FdbBindingError, LayerError)>> for ExecutorError {
+    fn from(err: OneOf<(FdbBindingError, LayerError)>) -> Self {
+        ExecutorError::DatabaseErr(err)
+    }
 }

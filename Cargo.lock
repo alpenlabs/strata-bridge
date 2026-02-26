@@ -2263,6 +2263,7 @@ dependencies = [
  "bitcoin-bosd",
  "bitcoind-async-client",
  "btc-tracker",
+ "foundationdb",
  "futures",
  "musig2",
  "operator-wallet",

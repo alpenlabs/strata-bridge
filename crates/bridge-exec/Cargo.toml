@@ -27,6 +27,7 @@ bdk_wallet.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
+foundationdb.workspace = true
 futures.workspace = true
 musig2.workspace = true
 terrors.workspace = true
