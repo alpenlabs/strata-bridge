@@ -215,6 +215,9 @@ impl OperatorWallet {
     /// Takes a transaction with outputs only and adds inputs from the general wallet to cover the
     /// outputs plus fees. Change, if any, is added at the end of vouts.
     ///
+    /// The used UTXOs are marked as reserved so that two different executors do not end up using
+    /// the same UTXOs and failing due to double-spend.
+    ///
     /// # Notes
     ///
     /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
