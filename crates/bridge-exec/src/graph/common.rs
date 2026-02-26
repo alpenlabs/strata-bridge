@@ -10,7 +10,7 @@ use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
-use strata_bridge_db2::{traits::BridgeDb, types::FundingPurpose};
+use strata_bridge_db2::traits::BridgeDb;
 use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{GraphIdx, OperatorIdx},
@@ -39,27 +39,20 @@ pub(super) async fn generate_graph_data(
     } = output_handles;
 
     info!(?graph_idx, "checking if data already exists in disk");
-    if let Ok(Some(funding_outpoints)) = db.get_funds(graph_idx, FundingPurpose::Claim).await {
+    if let Ok(Some(funding_outpoint)) = db.get_claim_funding_outpoint(graph_idx).await {
         info!(
             ?graph_idx,
-            ?funding_outpoints,
+            ?funding_outpoint,
             "graph data already exists in disk, skipping generation"
-        );
-
-        // FIXME: (@Rajil1213) Make this a compile-time check by having a separate FDB subspace for
-        // claim funding outpoints that holds a single outpoint instead of a vec. For now, we just
-        // check that there's exactly one claim input for the graph.
-        assert!(
-            funding_outpoints.len() == 1,
-            "expected exactly one claim input for graph, found {}",
-            funding_outpoints.len()
         );
 
         msg_handler2
             .write()
             .await
-            .send_graph_data(graph_idx, funding_outpoints[0], None)
+            .send_graph_data(graph_idx, funding_outpoint, None)
             .await;
+
+        return Ok(());
     }
 
     info!(?graph_idx, "fetching funding outpoint from wallet");
@@ -111,7 +104,7 @@ pub(super) async fn generate_graph_data(
     };
 
     info!(?graph_idx, %funding_outpoint, "fetched funding outpoint from wallet, saving to disk");
-    db.set_funds(graph_idx, FundingPurpose::Claim, vec![funding_outpoint])
+    db.set_claim_funding_outpoint(graph_idx, funding_outpoint)
         .await
         .map_err(|e| {
             warn!(?e, "failed to save claim funding outpoint to disk");

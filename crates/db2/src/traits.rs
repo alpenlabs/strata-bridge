@@ -7,7 +7,7 @@ use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
 
-use crate::types::{FundingPurpose, WriteBatch};
+use crate::types::WriteBatch;
 
 /// Standard persistence interface for a bridge node.
 pub trait BridgeDb {
@@ -88,29 +88,47 @@ pub trait BridgeDb {
 
     // ── Funds ─────────────────────────────────────────────────────────
 
-    /// Gets, if present, the reserved [`OutPoint`]s for the given graph and purpose.
-    fn get_funds(
+    /// Gets, if present, the reserved [`OutPoint`] used to fund the claim transaction (and
+    /// subsequently the entire graph).
+    fn get_claim_funding_outpoint(
         &self,
         graph_idx: GraphIdx,
-        purpose: FundingPurpose,
+    ) -> impl Future<Output = Result<Option<OutPoint>, Self::Error>> + Send;
+
+    /// Sets the reserved [`OutPoint`] used to fund the claim transaction (and subsequently the
+    /// entire graph).
+    fn set_claim_funding_outpoint(
+        &self,
+        graph_idx: GraphIdx,
+        outpoint: OutPoint,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Gets, if present, the reserved [`OutPoint`]s for fulfilling withdrawals requests.
+    fn get_withdrawal_funding_outpoints(
+        &self,
+        deposit_idx: DepositIdx,
     ) -> impl Future<Output = Result<Option<Vec<OutPoint>>, Self::Error>> + Send;
 
-    /// Sets the reserved [`OutPoint`]s for the given graph and purpose.
-    fn set_funds(
+    /// Sets the reserved [`OutPoint`]s for fulfilling withdrawals requests.
+    fn set_withdrawal_funding_outpoints(
         &self,
-        graph_idx: GraphIdx,
-        purpose: FundingPurpose,
+        deposit_idx: DepositIdx,
         outpoints: Vec<OutPoint>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// Returns all stored funds entries as funding outpoints.
+    /// Returns all stored funds entries as funding outpoints (including those used for funding both
+    /// claim and withdrawal fulfillment transactions).
     fn get_all_funds(&self) -> impl Future<Output = Result<Vec<OutPoint>, Self::Error>> + Send;
 
     /// Deletes the reserved [`OutPoint`]s for the given graph and purpose.
-    fn delete_funds(
+    fn delete_claim_funding_outpoint(
         &self,
         graph_idx: GraphIdx,
-        purpose: FundingPurpose,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    /// Deletes the reserved [`OutPoint`]s for the given graph and purpose.
+    fn delete_withdrawal_funding_outpoints(
+        &self,
+        graph_idx: GraphIdx,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     // ── Batch Persistence ─────────────────────────────────────────────
