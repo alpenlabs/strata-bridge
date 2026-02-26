@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use bitcoin::relative::LockTime;
-use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph2::musig_functor::GameFunctor;
 
 use crate::graph::{
@@ -71,16 +69,7 @@ impl GraphSM {
                 let claim_height = *claim_block_height;
                 *last_block_height = new_block_event.block_height;
 
-                let contest_timeout = match cfg.game_graph_params.contest_timelock {
-                    LockTime::Blocks(h) => h.value() as BitcoinBlockHeight,
-                    LockTime::Time(_) => {
-                        return Err(GSMError::rejected(
-                            self.state().clone(),
-                            new_block_event.into(),
-                            "Contest timelock must be height-based".to_string(),
-                        ));
-                    }
-                };
+                let contest_timeout = u64::from(cfg.game_graph_params.contest_timelock.value());
 
                 if new_block_event.block_height > claim_height + contest_timeout {
                     let game_graph = generate_game_graph(&cfg, &graph_ctx, graph_data);
