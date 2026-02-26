@@ -31,9 +31,7 @@ pub async fn execute_graph_duty(
     duty: &GraphDuty,
 ) -> Result<(), ExecutorError> {
     match duty {
-        GraphDuty::GenerateGraphData { .. } => {
-            todo!("GenerateGraphData")
-        }
+        GraphDuty::GenerateGraphData { .. } => todo!(),
         GraphDuty::VerifyAdaptors {
             graph_idx,
             watchtower_idx,
