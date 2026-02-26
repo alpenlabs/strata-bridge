@@ -313,26 +313,16 @@ pub(super) async fn publish_claim(
         "signing claim transaction"
     );
 
-    // TODO: (mukeshdroid) Currently, we need to fetch the prevouts from bitcoind
-    // since the ClaimTx doesn't contain this info. Updating ClaimTx and adding signing_info
-    // method would simplify the executor.
-    let prevout_futures = unsigned_claim_tx.input.iter().map(|input| {
-        output_handles.bitcoind_rpc_client.get_tx_out(
-            &input.previous_output.txid,
-            input.previous_output.vout,
-            true,
-        )
-    });
-    let prevouts = try_join_all(prevout_futures)
-        .await
-        .map_err(|e| {
-            warn!(%claim_txid, ?e, "failed to fetch claim input prevouts");
-            ExecutorError::BitcoinRpcErr(e)
-        })?
-        .into_iter()
-        .map(|utxo| utxo.tx_out)
-        .collect::<Vec<_>>();
-    let prevouts = Prevouts::All(&prevouts);
+    let claim_prevout = {
+        let wallet = output_handles.wallet.read().await;
+        wallet
+            .claim_funding_outputs()
+            .find(|utxo| utxo.outpoint == claim_tx.as_ref().input[0].previous_output)
+            .expect("claim funding outpoint not found in wallet")
+            .txout
+    };
+
+    let prevouts = Prevouts::All(&[claim_prevout]);
 
     let mut sighash_cache = SighashCache::new(&unsigned_claim_tx);
     let mut signed_claim_tx = unsigned_claim_tx.clone();
