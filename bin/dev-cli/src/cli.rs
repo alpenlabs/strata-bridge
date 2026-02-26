@@ -16,7 +16,11 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug, Clone)]
 pub(crate) enum Commands {
+    /// Legacy bridge-in command. Will be removed after the new bridge binary is deployed.
     BridgeIn(BridgeInArgs),
+
+    /// New bridge-in command that replaces `BridgeIn`.
+    BridgeInV2(BridgeInV2Args),
 
     BridgeOut(BridgeOutArgs),
 
@@ -43,9 +47,23 @@ pub(crate) struct DeriveKeysArgs {
     pub(crate) network: Network,
 }
 
+/// Legacy bridge-in args. Will be removed after the new bridge binary is deployed.
 #[derive(Parser, Debug, Clone)]
-#[command(about = "Send the deposit request on bitcoin", version)]
+#[command(about = "Send the deposit request on bitcoin (legacy)", version)]
 pub(crate) struct BridgeInArgs {
+    #[arg(long, help = "execution environment address to mint funds to")]
+    pub(crate) ee_address: String,
+
+    #[arg(long, help = "the path to the params file")]
+    pub(crate) params: PathBuf,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(about = "Send the deposit request on bitcoin (new)", version)]
+pub(crate) struct BridgeInV2Args {
     #[arg(long, help = "execution environment address to mint funds to")]
     pub(crate) ee_address: String,
 

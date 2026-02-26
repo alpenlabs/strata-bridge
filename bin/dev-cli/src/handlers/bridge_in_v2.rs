@@ -1,19 +1,20 @@
-//! Legacy bridge-in handler. Will be removed after the new bridge binary is deployed.
-//! Use `bridge_in_v2` instead.
+//! New bridge-in handler. This replaces the legacy `bridge_in` module.
 
 use std::str::FromStr;
 
 use alloy::primitives::Address as EvmAddress;
-use alpen_bridge_params::types::Tag;
 use anyhow::Result;
 use bitcoin::{hex::DisplayHex, taproot::TaprootBuilder, Address, Amount, Network, ScriptBuf};
 use miniscript::Miniscript;
 use musig2::KeyAggContext;
 use secp256k1::{Keypair, Parity, XOnlyPublicKey, SECP256K1};
+use strata_asm_txs_bridge_v1::deposit_request::DrtHeaderAux;
+use strata_identifiers::{AccountSerial, DepositDescriptor, SubjectIdBytes};
+use strata_l1_txfmt::{MagicBytes, ParseConfig};
 use tracing::info;
 
 use crate::{
-    cli::BridgeInArgs,
+    cli::BridgeInV2Args,
     handlers::{
         rpc,
         wallet::{self, PsbtWallet},
@@ -21,8 +22,8 @@ use crate::{
     params::Params,
 };
 
-pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
-    let BridgeInArgs {
+pub(crate) fn handle_bridge_in_v2(args: BridgeInV2Args) -> Result<()> {
+    let BridgeInV2Args {
         btc_args,
         ee_address,
         params,
@@ -32,11 +33,12 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
 
     let psbt_wallet = wallet::BitcoinRpcWallet::new(rpc_client);
 
-    info!(action = "Initiating bridge-in", %ee_address);
+    info!(action = "Initiating bridge-in v2", %ee_address);
 
     let ee_address = EvmAddress::from_str(&ee_address)?;
     let recovery_pubkey = get_recovery_pubkey();
-    let metadata = build_op_return_script(params.tag, &ee_address, &recovery_pubkey);
+
+    let metadata = build_sps50_metadata(&params.tag.to_string(), &ee_address, &recovery_pubkey)?;
 
     let timelock_script = build_timelock_miniscript(params.refund_delay, recovery_pubkey);
 
@@ -51,7 +53,7 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
     let taproot_address = generate_taproot_address(params.network, timelock_script, agg_key);
 
     let deposit_fees = Amount::from_sat(1_000);
-    let psbt = psbt_wallet.create_legacy_drt_psbt(
+    let psbt = psbt_wallet.create_drt_psbt(
         params.deposit_amount + deposit_fees,
         &taproot_address,
         metadata,
@@ -60,6 +62,33 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
     psbt_wallet.sign_and_broadcast_psbt(&psbt)?;
 
     Ok(())
+}
+
+/// Builds the SPS-50 OP_RETURN metadata for the deposit request transaction.
+///
+/// Format: `magic(4) + subprotocol(1) + tx_type(1) + recovery_pk(32) + destination(variable)`
+fn build_sps50_metadata(
+    magic: &str,
+    ee_address: &EvmAddress,
+    recovery_pubkey: &XOnlyPublicKey,
+) -> Result<Vec<u8>> {
+    let alpen_subject_bytes =
+        SubjectIdBytes::try_new(ee_address.to_vec()).expect("must be valid subject bytes");
+    let deposit_descriptor = DepositDescriptor::new(AccountSerial::zero(), alpen_subject_bytes)
+        .expect("AccountSerial::zero() is always within valid range");
+
+    let header_aux = DrtHeaderAux::new(
+        recovery_pubkey.serialize(),
+        deposit_descriptor.encode_to_varvec(),
+    )
+    .expect("header aux creation should succeed");
+
+    let tag_data = header_aux.build_tag_data();
+    let magic_bytes: MagicBytes = magic.parse()?;
+    let config = ParseConfig::new(magic_bytes);
+    let encoded = config.encode_tag_buf(&tag_data.as_ref())?;
+
+    Ok(encoded)
 }
 
 fn generate_taproot_address(
@@ -84,18 +113,6 @@ fn build_timelock_miniscript(
     let script = format!("and_v(v:pk({recovery_xonly_pubkey}),older({refund_delay}))");
     let miniscript = Miniscript::<XOnlyPublicKey, miniscript::Tap>::from_str(&script).unwrap();
     miniscript.encode()
-}
-
-fn build_op_return_script(
-    tag: Tag,
-    evm_address: &EvmAddress,
-    take_back_key: &XOnlyPublicKey,
-) -> Vec<u8> {
-    let mut data: Vec<u8> = tag.as_bytes().to_vec();
-    data.extend(take_back_key.serialize());
-    data.extend(evm_address.as_slice());
-
-    data
 }
 
 fn get_recovery_pubkey() -> XOnlyPublicKey {
