@@ -701,17 +701,28 @@ impl GraphSM {
                     ));
                 }
 
-                // Generate the game graph to access the infos for duty emission
-                let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
+                // Only watchtowers (non-PoV operators) emit the contest duty
+                let duties =
+                    if self.context().operator_idx() != self.context().operator_table().pov_idx() {
+                        // Generate the game graph to access the infos for duty emission
+                        let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
 
-                // Finalize the uncontested payout transaction with collected signatures
-                let contest_tx_signatures =
-                    GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
-                        .expect("Failed to retrieve contest transaction signatures")
-                        .uncontested_payout;
-                let signed_contest_tx = game_graph
-                    .uncontested_payout
-                    .finalize(contest_tx_signatures);
+                        let contest_tx = game_graph.contest;
+                        let watchtower_index = self.context().operator_table().pov_idx();
+                        let n_of_n_signature =
+                            GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+                                .expect("Failed to retrieve contest transaction N/N signatures")
+                                .watchtowers[watchtower_index as usize]
+                                .contest[0];
+
+                        vec![GraphDuty::PublishContest {
+                            contest_tx,
+                            n_of_n_signature,
+                            watchtower_index,
+                        }]
+                    } else {
+                        Default::default()
+                    };
 
                 self.state = GraphState::Claimed {
                     last_block_height: *last_block_height,
@@ -723,9 +734,7 @@ impl GraphSM {
                     claim_block_height: claim.claim_block_height,
                 };
 
-                Ok(GSMOutput::with_duties(vec![GraphDuty::PublishContest {
-                    signed_contest_tx,
-                }]))
+                Ok(GSMOutput::with_duties(duties))
             }
             GraphState::Claimed { .. } => {
                 Err(GSMError::duplicate(self.state().clone(), claim.into()))

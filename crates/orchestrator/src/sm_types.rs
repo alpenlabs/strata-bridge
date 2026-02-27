@@ -85,6 +85,7 @@ impl From<GraphEvent> for SMEvent {
 /// A wrapper for holding all the different types of duties that a state machine can emit after a
 /// successful STF.
 #[derive(Debug, Clone)]
+#[expect(clippy::large_enum_variant)]
 pub enum UnifiedDuty {
     /// A duty related to a deposit.
     Deposit(DepositDuty),
