@@ -16,7 +16,7 @@ use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
 use tracing::{info, warn};
 
 use crate::{
-    errors::ExecutorError, graph::utils::publish_singned_transaction, output_handles::OutputHandles,
+    errors::ExecutorError, graph::utils::publish_signed_transaction, output_handles::OutputHandles,
 };
 
 /// Verifies adaptor signatures for the generated graph from a particular watchtower.
@@ -260,5 +260,5 @@ pub(super) async fn publish_claim(
             .push(signature.serialize());
     }
 
-    publish_singned_transaction(output_handles, &signed_claim_tx, "claim").await
+    publish_signed_transaction(output_handles, &signed_claim_tx, "claim").await
 }

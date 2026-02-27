@@ -3,7 +3,7 @@
 
 mod common;
 mod contested;
-mod payout;
+mod uncontested;
 mod utils;
 
 use std::sync::Arc;
@@ -15,7 +15,8 @@ use crate::{
     errors::ExecutorError,
     graph::{
         common::{publish_claim, publish_graph_nonces, publish_graph_partials, verify_adaptors},
-        payout::{publish_contested_payout, publish_uncontested_payout},
+        contested::{publish_bridge_proof_timeout, publish_contested_payout},
+        uncontested::publish_uncontested_payout,
     },
     output_handles::OutputHandles,
 };
@@ -83,8 +84,7 @@ pub async fn execute_graph_duty(
             todo!("PublishBridgeProof")
         }
         GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx } => {
-            contested::publish_bridge_proof_timeout(&output_handles, signed_timeout_tx.clone())
-                .await
+            publish_bridge_proof_timeout(&output_handles, signed_timeout_tx).await
         }
         GraphDuty::PublishCounterProof { .. } => {
             todo!("PublishCounterProof")
