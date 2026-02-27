@@ -642,7 +642,11 @@ impl GraphSM {
     }
 
     /// Processes the event where a claim transaction has been confirmed on-chain.
-    pub(crate) fn process_claim(&mut self, claim: ClaimConfirmedEvent) -> GSMResult<GSMOutput> {
+    pub(crate) fn process_claim(
+        &mut self,
+        cfg: Arc<GraphSMCfg>,
+        claim: ClaimConfirmedEvent,
+    ) -> GSMResult<GSMOutput> {
         match self.state() {
             // Claim after fulfillment
             GraphState::Fulfilled {
@@ -674,9 +678,63 @@ impl GraphSM {
 
                 Ok(GSMOutput::new())
             }
-            // TODO: Faulty cases: claim without fulfillment
-            GraphState::Assigned { .. } | GraphState::GraphSigned { .. } => {
-                todo!("STR-2192")
+            // Faulty cases: claim without fulfillment
+            GraphState::Assigned {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                ..
+            }
+            | GraphState::GraphSigned {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                ..
+            } => {
+                if claim.claim_txid != graph_summary.claim {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        claim.into(),
+                        "Invalid claim transaction",
+                    ));
+                }
+
+                // Only watchtowers (non-PoV operators) emit the contest duty
+                let duties =
+                    if self.context().operator_idx() != self.context().operator_table().pov_idx() {
+                        // Generate the game graph to access the infos for duty emission
+                        let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
+
+                        let contest_tx = game_graph.contest;
+                        let watchtower_index = self.context().operator_table().pov_idx();
+                        let n_of_n_signature =
+                            GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+                                .expect("Failed to retrieve contest transaction N/N signatures")
+                                .watchtowers[watchtower_index as usize]
+                                .contest[0];
+
+                        vec![GraphDuty::PublishContest {
+                            contest_tx,
+                            n_of_n_signature,
+                            watchtower_index,
+                        }]
+                    } else {
+                        Default::default()
+                    };
+
+                self.state = GraphState::Claimed {
+                    last_block_height: *last_block_height,
+                    graph_data: *graph_data,
+                    graph_summary: graph_summary.clone(),
+                    signatures: signatures.clone(),
+                    fulfillment_txid: None,
+                    fulfillment_block_height: None,
+                    claim_block_height: claim.claim_block_height,
+                };
+
+                Ok(GSMOutput::with_duties(duties))
             }
             GraphState::Claimed { .. } => {
                 Err(GSMError::duplicate(self.state().clone(), claim.into()))
