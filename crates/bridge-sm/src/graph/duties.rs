@@ -2,17 +2,21 @@
 //! transitions.
 
 use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
-use musig2::{AggNonce, secp256k1::Message};
+use musig2::{
+    AggNonce,
+    secp256k1::{Message, schnorr::Signature},
+};
 use strata_bridge_primitives::{
     mosaic::Labels,
     scripts::taproot::TaprootTweak,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
-use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
+use strata_bridge_tx_graph2::transactions::{claim::ClaimTx, prelude::ContestTx};
 use zkaleido::ProofReceipt;
 
 /// The duties that need to be performed to drive the Graph State Machine forward.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(clippy::large_enum_variant)]
 pub enum GraphDuty {
     /// Generate the data required to generate the graph.
     ///
@@ -87,8 +91,14 @@ pub enum GraphDuty {
 
     /// Publish the contest transaction on-chain in response to a faulty claim.
     PublishContest {
-        /// The signed contest transaction to publish.
-        signed_contest_tx: Transaction,
+        /// The unsigned contest transaction.
+        contest_tx: ContestTx,
+
+        /// The aggregated n-of-n signature.
+        n_of_n_signature: Signature,
+
+        /// The index of the watchtower that will finalize the transaction.
+        watchtower_index: OperatorIdx,
     },
 
     /// Publish a bridge proof on-chain to defend against a contest.
