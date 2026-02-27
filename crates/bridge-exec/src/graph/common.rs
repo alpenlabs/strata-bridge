@@ -1,11 +1,10 @@
 //! Executors for uncontested payout graph duties.
 
 use bitcoin::{
-    OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
+    OutPoint, TapSighashType, Txid, XOnlyPublicKey,
     sighash::{Prevouts, SighashCache},
 };
 use bitcoind_async_client::traits::Reader;
-use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
@@ -16,7 +15,9 @@ use strata_bridge_primitives::{
 use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
 use tracing::{info, warn};
 
-use crate::{errors::ExecutorError, output_handles::OutputHandles};
+use crate::{
+    errors::ExecutorError, graph::utils::publish_signed_transaction, output_handles::OutputHandles,
+};
 
 /// Verifies adaptor signatures for the generated graph from a particular watchtower.
 ///
@@ -259,37 +260,5 @@ pub(super) async fn publish_claim(
             .push(signature.serialize());
     }
 
-    info!(%claim_txid, "Publishing claim transaction");
-    output_handles
-        .tx_driver
-        .drive(signed_claim_tx, TxStatus::is_buried)
-        .await
-        .map_err(|e| {
-            warn!(%claim_txid, ?e, "failed to publish claim transaction");
-            ExecutorError::TxDriverErr(e)
-        })?;
-
-    info!(%claim_txid, "claim transaction confirmed");
-    Ok(())
-}
-
-/// Publishes the signed uncontested payout transaction to Bitcoin.
-pub(super) async fn publish_uncontested_payout(
-    output_handles: &OutputHandles,
-    signed_uncontested_payout_tx: &Transaction,
-) -> Result<(), ExecutorError> {
-    let payout_txid = signed_uncontested_payout_tx.compute_txid();
-    info!(%payout_txid, "publishing uncontested payout transaction");
-
-    output_handles
-        .tx_driver
-        .drive(signed_uncontested_payout_tx.clone(), TxStatus::is_buried)
-        .await
-        .map_err(|e| {
-            warn!(%payout_txid, ?e, "failed to publish uncontested payout transaction");
-            ExecutorError::TxDriverErr(e)
-        })?;
-
-    info!(%payout_txid, "uncontested payout confirmed");
-    Ok(())
+    publish_signed_transaction(output_handles, &signed_claim_tx, "claim").await
 }

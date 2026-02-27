@@ -3,12 +3,23 @@
 
 mod common;
 mod contested;
+mod uncontested;
+mod utils;
 
 use std::sync::Arc;
 
 use strata_bridge_sm::graph::duties::GraphDuty;
 
-use crate::{config::ExecutionConfig, errors::ExecutorError, output_handles::OutputHandles};
+use crate::{
+    config::ExecutionConfig,
+    errors::ExecutorError,
+    graph::{
+        common::{publish_claim, publish_graph_nonces, publish_graph_partials, verify_adaptors},
+        contested::{publish_bridge_proof_timeout, publish_contested_payout},
+        uncontested::publish_uncontested_payout,
+    },
+    output_handles::OutputHandles,
+};
 
 /// Executes the given graph duty.
 #[expect(unused_variables)]
@@ -25,14 +36,14 @@ pub async fn execute_graph_duty(
             graph_idx,
             watchtower_idx,
             sighashes,
-        } => common::verify_adaptors(*graph_idx, *watchtower_idx, sighashes).await,
+        } => verify_adaptors(*graph_idx, *watchtower_idx, sighashes).await,
         GraphDuty::PublishGraphNonces {
             graph_idx,
             graph_inpoints,
             graph_tweaks,
             ordered_pubkeys,
         } => {
-            common::publish_graph_nonces(
+            publish_graph_nonces(
                 &output_handles,
                 *graph_idx,
                 graph_inpoints,
@@ -50,7 +61,7 @@ pub async fn execute_graph_duty(
             claim_txid,
             ordered_pubkeys,
         } => {
-            common::publish_graph_partials(
+            publish_graph_partials(
                 &output_handles,
                 *graph_idx,
                 agg_nonces,
@@ -62,14 +73,10 @@ pub async fn execute_graph_duty(
             )
             .await
         }
-        GraphDuty::PublishClaim { claim_tx } => {
-            common::publish_claim(&output_handles, claim_tx).await
-        }
+        GraphDuty::PublishClaim { claim_tx } => publish_claim(&output_handles, claim_tx).await,
         GraphDuty::PublishUncontestedPayout {
             signed_uncontested_payout_tx,
-        } => {
-            common::publish_uncontested_payout(&output_handles, signed_uncontested_payout_tx).await
-        }
+        } => publish_uncontested_payout(&output_handles, signed_uncontested_payout_tx).await,
         GraphDuty::PublishContest { .. } => {
             todo!("PublishContest")
         }
@@ -77,8 +84,7 @@ pub async fn execute_graph_duty(
             todo!("PublishBridgeProof")
         }
         GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx } => {
-            contested::publish_bridge_proof_timeout(&output_handles, signed_timeout_tx.clone())
-                .await
+            publish_bridge_proof_timeout(&output_handles, signed_timeout_tx).await
         }
         GraphDuty::PublishCounterProof { .. } => {
             todo!("PublishCounterProof")
@@ -92,8 +98,8 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishSlash { .. } => {
             todo!("PublishSlash")
         }
-        GraphDuty::PublishContestedPayout { .. } => {
-            todo!("PublishContestedPayout")
-        }
+        GraphDuty::PublishContestedPayout {
+            signed_contested_payout_tx,
+        } => publish_contested_payout(&output_handles, signed_contested_payout_tx).await,
     }
 }

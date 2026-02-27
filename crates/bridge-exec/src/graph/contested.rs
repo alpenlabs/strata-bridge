@@ -1,21 +1,26 @@
-use btc_tracker::event::TxStatus;
-use tracing::info;
+use bitcoin::Transaction;
 
-use crate::{errors::ExecutorError, output_handles::OutputHandles};
+use crate::{
+    errors::ExecutorError, graph::utils::publish_signed_transaction, output_handles::OutputHandles,
+};
 
 /// Publishes the bridge proof timeout transaction to the Bitcoin network.
 pub(super) async fn publish_bridge_proof_timeout(
     output_handles: &OutputHandles,
-    signed_timeout_tx: bitcoin::Transaction,
+    signed_timeout_tx: &Transaction,
 ) -> Result<(), ExecutorError> {
-    let txid = signed_timeout_tx.compute_txid();
-    info!(%txid, "publishing the bridge proof timeout transaction");
+    publish_signed_transaction(output_handles, signed_timeout_tx, "bridge proof timeout").await
+}
 
-    output_handles
-        .tx_driver
-        .drive(signed_timeout_tx, TxStatus::is_buried)
-        .await?;
-
-    info!(%txid, "bridge proof timeout transaction is confirmed");
-    Ok(())
+/// Publishes the signed contested payout transaction to Bitcoin.
+pub(super) async fn publish_contested_payout(
+    output_handles: &OutputHandles,
+    signed_contested_payout_tx: &Transaction,
+) -> Result<(), ExecutorError> {
+    publish_signed_transaction(
+        output_handles,
+        signed_contested_payout_tx,
+        "contested payout",
+    )
+    .await
 }
