@@ -7,7 +7,7 @@ use tracing::{info, warn};
 use crate::{errors::ExecutorError, output_handles::OutputHandles};
 
 /// Publishes a signed transaction to Bitcoin and waits for confirmation.
-pub(crate) async fn publish_singned_transaction(
+pub(crate) async fn publish_signed_transaction(
     output_handles: &OutputHandles,
     signed_tx: &Transaction,
     label: &str,
