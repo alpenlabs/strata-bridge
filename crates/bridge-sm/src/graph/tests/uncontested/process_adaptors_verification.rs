@@ -1,107 +1,105 @@
 //! Unit Tests for process_adaptors_verification
-#[cfg(test)]
-mod tests {
-    use strata_bridge_test_utils::bitcoin::generate_txid;
 
-    use crate::{
-        graph::{
-            duties::GraphDuty,
-            errors::GSMError,
-            events::{AdaptorsVerifiedEvent, GraphEvent},
-            state::GraphState,
-            tests::{
-                GraphInvalidTransition, create_nonpov_sm, create_sm, get_state,
-                mock_states::test_graph_generated_state, test_graph_invalid_transition,
-                test_graph_sm_cfg,
-            },
+use strata_bridge_test_utils::bitcoin::generate_txid;
+
+use crate::{
+    graph::{
+        duties::GraphDuty,
+        errors::GSMError,
+        events::{AdaptorsVerifiedEvent, GraphEvent},
+        state::GraphState,
+        tests::{
+            GraphInvalidTransition, create_nonpov_sm, create_sm, get_state,
+            mock_states::test_graph_generated_state, test_graph_invalid_transition,
+            test_graph_sm_cfg,
         },
-        testing::EventSequence,
+    },
+    testing::EventSequence,
+};
+
+#[test]
+fn test_process_adaptors_verification() {
+    let state = test_graph_generated_state();
+    let sm = create_nonpov_sm(state);
+    let mut seq = EventSequence::new(sm, get_state);
+
+    // GraphGenerated → AdaptorsVerified
+    seq.process(
+        test_graph_sm_cfg(),
+        GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+    );
+    seq.assert_no_errors();
+    assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
+
+    // Check that a PublishGraphNonces duty was emitted
+    assert!(
+        matches!(
+            seq.all_duties().as_slice(),
+            [GraphDuty::PublishGraphNonces { .. }]
+        ),
+        "Expected exactly 1 PublishGraphNonces duty to be emitted"
+    );
+
+    // No signals should be emitted
+    assert!(seq.all_signals().is_empty());
+}
+
+#[test]
+fn test_duplicate_process_pov_adaptors_verification() {
+    let sm = create_sm(test_graph_generated_state());
+    let mut seq = EventSequence::new(sm, get_state);
+
+    // First event should succeed: GraphGenerated → AdaptorsVerified
+    seq.process(
+        test_graph_sm_cfg(),
+        GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+    );
+    seq.assert_no_errors();
+    assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
+
+    // Duplicate event from AdaptorsVerified should produce a Duplicate error
+    test_graph_invalid_transition(GraphInvalidTransition {
+        from_state: seq.state().clone(),
+        event: GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+        expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+    });
+}
+
+#[test]
+fn test_duplicate_process_nonpov_adaptors_verification() {
+    let sm = create_nonpov_sm(test_graph_generated_state());
+    let mut seq = EventSequence::new(sm, get_state);
+
+    // First event should succeed: GraphGenerated → AdaptorsVerified
+    seq.process(
+        test_graph_sm_cfg(),
+        GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+    );
+    seq.assert_no_errors();
+    assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
+
+    // Duplicate event from AdaptorsVerified should produce a Duplicate error
+    seq.process(
+        test_graph_sm_cfg(),
+        GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+    );
+    // Check that a duplicate error was raised
+    assert!(
+        matches!(seq.all_errors().as_slice(), [GSMError::Duplicate { .. }]),
+        "GSMError::Duplicate to be raised"
+    );
+}
+
+#[test]
+fn test_invalid_process_adaptors_verification_from_withdrawn() {
+    // AdaptorsVerified is only valid in GraphGenerated; any other state should be InvalidEvent
+    let state = GraphState::Withdrawn {
+        payout_txid: generate_txid(),
     };
 
-    #[test]
-    fn test_process_adaptors_verification() {
-        let state = test_graph_generated_state();
-        let sm = create_nonpov_sm(state);
-        let mut seq = EventSequence::new(sm, get_state);
-
-        // GraphGenerated → AdaptorsVerified
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-        );
-        seq.assert_no_errors();
-        assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
-
-        // Check that a PublishGraphNonces duty was emitted
-        assert!(
-            matches!(
-                seq.all_duties().as_slice(),
-                [GraphDuty::PublishGraphNonces { .. }]
-            ),
-            "Expected exactly 1 PublishGraphNonces duty to be emitted"
-        );
-
-        // No signals should be emitted
-        assert!(seq.all_signals().is_empty());
-    }
-
-    #[test]
-    fn test_duplicate_process_pov_adaptors_verification() {
-        let sm = create_sm(test_graph_generated_state());
-        let mut seq = EventSequence::new(sm, get_state);
-
-        // First event should succeed: GraphGenerated → AdaptorsVerified
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-        );
-        seq.assert_no_errors();
-        assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
-
-        // Duplicate event from AdaptorsVerified should produce a Duplicate error
-        test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: seq.state().clone(),
-            event: GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-            expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
-        });
-    }
-
-    #[test]
-    fn test_duplicate_process_nonpov_adaptors_verification() {
-        let sm = create_nonpov_sm(test_graph_generated_state());
-        let mut seq = EventSequence::new(sm, get_state);
-
-        // First event should succeed: GraphGenerated → AdaptorsVerified
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-        );
-        seq.assert_no_errors();
-        assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
-
-        // Duplicate event from AdaptorsVerified should produce a Duplicate error
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-        );
-        // Check that a duplicate error was raised
-        assert!(
-            matches!(seq.all_errors().as_slice(), [GSMError::Duplicate { .. }]),
-            "GSMError::Duplicate to be raised"
-        );
-    }
-
-    #[test]
-    fn test_invalid_process_adaptors_verification_from_withdrawn() {
-        // AdaptorsVerified is only valid in GraphGenerated; any other state should be InvalidEvent
-        let state = GraphState::Withdrawn {
-            payout_txid: generate_txid(),
-        };
-
-        test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: state,
-            event: GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-            expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
-        });
-    }
+    test_graph_invalid_transition(GraphInvalidTransition {
+        from_state: state,
+        event: GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+        expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+    });
 }
