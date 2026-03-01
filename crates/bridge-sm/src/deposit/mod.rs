@@ -12,6 +12,7 @@ pub mod context;
 pub mod duties;
 pub mod errors;
 pub mod events;
+mod handlers;
 pub mod machine;
 pub mod state;
 pub mod transitions;

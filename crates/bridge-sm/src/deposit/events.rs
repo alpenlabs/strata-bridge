@@ -107,6 +107,10 @@ pub struct NewBlockEvent {
     pub block_height: BitcoinBlockHeight,
 }
 
+/// Event signalling a retry tick has occurred.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetryTickEvent;
+
 /// The external events that affect the Deposit State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositEvent {
@@ -142,6 +146,8 @@ pub enum DepositEvent {
     /// This is required to deal with timelocks in various states and to track the last observed
     /// block.
     NewBlock(NewBlockEvent),
+    /// Event signalling that retriable duties should be emitted again for the current state.
+    RetryTick(RetryTickEvent),
 }
 
 impl std::fmt::Display for DepositEvent {
@@ -159,6 +165,7 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::PayoutPartialReceived(event) => write!(f, "{}", event),
             DepositEvent::PayoutConfirmed(event) => write!(f, "{}", event),
             DepositEvent::NewBlock(event) => write!(f, "{}", event),
+            DepositEvent::RetryTick(event) => write!(f, "{}", event),
         }
     }
 }
@@ -233,6 +240,12 @@ impl std::fmt::Display for NewBlockEvent {
     }
 }
 
+impl std::fmt::Display for RetryTickEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RetryTick")
+    }
+}
+
 /// Implements `From<T> for DepositEvent` for leaf event types.
 ///
 /// This allows all deposit-related event structs to be ergonomically
@@ -260,3 +273,4 @@ impl_into_deposit_event!(PayoutNonceReceivedEvent, PayoutNonceReceived);
 impl_into_deposit_event!(PayoutPartialReceivedEvent, PayoutPartialReceived);
 impl_into_deposit_event!(PayoutConfirmedEvent, PayoutConfirmed);
 impl_into_deposit_event!(NewBlockEvent, NewBlock);
+impl_into_deposit_event!(RetryTickEvent, RetryTick);
