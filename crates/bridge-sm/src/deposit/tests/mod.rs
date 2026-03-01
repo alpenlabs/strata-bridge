@@ -4,6 +4,7 @@
 //! the DepositSM across multiple state transition functions.
 
 mod deposit;
+mod handlers;
 mod payout;
 mod prop_tests;
 mod test_new_blocks;
@@ -47,7 +48,7 @@ use crate::{
         events::{
             DepositConfirmedEvent, DepositEvent, FulfillmentConfirmedEvent, NewBlockEvent,
             NonceReceivedEvent, PayoutConfirmedEvent, PayoutNonceReceivedEvent,
-            PayoutPartialReceivedEvent, UserTakeBackEvent, WithdrawalAssignedEvent,
+            PayoutPartialReceivedEvent, RetryTickEvent, UserTakeBackEvent, WithdrawalAssignedEvent,
         },
         machine::DepositSM,
         state::DepositState,
@@ -268,6 +269,29 @@ pub(super) fn test_deposit_invalid_transition(invalid: DepositInvalidTransition)
     );
 }
 
+/// Configuration for testing handlers that don't mutate state.
+/// Unlike transitions, handlers only emit duties without changing state.
+pub(super) struct DepositHandlerOutput {
+    /// The state (remains unchanged after handler execution)
+    pub state: DepositState,
+    /// The event that triggers the handler
+    pub event: DepositEvent,
+    /// The expected duties emitted by the handler
+    pub expected_duties: Vec<DepositDuty>,
+}
+
+/// Helper for testing handlers that don't mutate state.
+/// Unlike transitions, handlers only emit duties without changing state.
+pub(super) fn test_handler_output(output: DepositHandlerOutput) {
+    test_deposit_transition(DepositTransition {
+        from_state: output.state.clone(),
+        event: output.event,
+        expected_state: output.state,
+        expected_duties: output.expected_duties,
+        expected_signals: vec![],
+    });
+}
+
 // ===== Arbitrary Implementations =====
 
 impl Arbitrary for DepositState {
@@ -430,6 +454,7 @@ impl Arbitrary for DepositEvent {
             block_height.prop_map(|height| DepositEvent::NewBlock(NewBlockEvent {
                 block_height: height
             })),
+            Just(DepositEvent::RetryTick(RetryTickEvent)),
         ]
         .boxed()
     }

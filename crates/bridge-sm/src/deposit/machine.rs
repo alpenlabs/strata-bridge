@@ -73,6 +73,7 @@ impl StateMachine for DepositSM {
                 self.process_payout_confirmed(&payout_confirmed)
             }
             DepositEvent::NewBlock(new_block) => self.process_new_block(new_block),
+            DepositEvent::RetryTick(_) => self.process_retry_tick(cfg),
         }
     }
 }
