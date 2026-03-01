@@ -7,11 +7,96 @@ use bitcoin::{Amount, OutPoint, Transaction, secp256k1::XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, secp256k1::Message};
 use strata_bridge_connectors2::SigningInfo;
+use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_tx_graph2::transactions::prelude::CooperativePayoutTx;
+
+/// The nag duties that can be emitted to remind operators of missing data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NagDuty {
+    /// Nag an operator for their missing deposit nonce.
+    NagDepositNonce {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
+        /// The index of the operator to nag.
+        operator_idx: OperatorIdx,
+        /// The P2P public key of the operator to nag.
+        operator_pubkey: P2POperatorPubKey,
+    },
+    /// Nag an operator for their missing deposit partial signature.
+    NagDepositPartial {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
+        /// The index of the operator to nag.
+        operator_idx: OperatorIdx,
+        /// The P2P public key of the operator to nag.
+        operator_pubkey: P2POperatorPubKey,
+    },
+    /// Nag an operator for their missing payout nonce.
+    NagPayoutNonce {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
+        /// The index of the operator to nag.
+        operator_idx: OperatorIdx,
+        /// The P2P public key of the operator to nag.
+        operator_pubkey: P2POperatorPubKey,
+    },
+    /// Nag an operator for their missing payout partial signature.
+    NagPayoutPartial {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
+        /// The index of the operator to nag.
+        operator_idx: OperatorIdx,
+        /// The P2P public key of the operator to nag.
+        operator_pubkey: P2POperatorPubKey,
+    },
+}
+
+impl std::fmt::Display for NagDuty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NagDuty::NagDepositNonce {
+                deposit_idx,
+                operator_idx,
+                ..
+            } => write!(
+                f,
+                "NagDepositNonce (deposit_idx: {}, operator_idx: {})",
+                deposit_idx, operator_idx
+            ),
+            NagDuty::NagDepositPartial {
+                deposit_idx,
+                operator_idx,
+                ..
+            } => write!(
+                f,
+                "NagDepositPartial (deposit_idx: {}, operator_idx: {})",
+                deposit_idx, operator_idx
+            ),
+            NagDuty::NagPayoutNonce {
+                deposit_idx,
+                operator_idx,
+                ..
+            } => write!(
+                f,
+                "NagPayoutNonce (deposit_idx: {}, operator_idx: {})",
+                deposit_idx, operator_idx
+            ),
+            NagDuty::NagPayoutPartial {
+                deposit_idx,
+                operator_idx,
+                ..
+            } => write!(
+                f,
+                "NagPayoutPartial (deposit_idx: {}, operator_idx: {})",
+                deposit_idx, operator_idx
+            ),
+        }
+    }
+}
 
 /// The duties that need to be performed to drive the Deposit State Machine forward.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +187,11 @@ pub enum DepositDuty {
         /// The index of the point-of-view operator (the assignee).
         pov_operator_idx: OperatorIdx,
     },
+    /// Nag other operators for missing information.
+    Nag {
+        /// The specific nag duty to perform.
+        duty: NagDuty,
+    },
 }
 
 impl std::fmt::Display for DepositDuty {
@@ -133,6 +223,7 @@ impl std::fmt::Display for DepositDuty {
             DepositDuty::PublishPayoutNonce { .. } => "PublishPayoutNonce".to_string(),
             DepositDuty::PublishPayoutPartial { .. } => "PublishPayoutPartial".to_string(),
             DepositDuty::PublishPayout { .. } => "PublishPayout".to_string(),
+            DepositDuty::Nag { duty } => format!("Nag({})", duty),
         };
         write!(f, "{}", display_str)
     }
