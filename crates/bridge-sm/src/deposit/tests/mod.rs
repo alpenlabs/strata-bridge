@@ -46,8 +46,8 @@ use crate::{
         duties::DepositDuty,
         errors::DSMError,
         events::{
-            DepositConfirmedEvent, DepositEvent, FulfillmentConfirmedEvent, NewBlockEvent,
-            NonceReceivedEvent, PayoutConfirmedEvent, PayoutNonceReceivedEvent,
+            DepositConfirmedEvent, DepositEvent, FulfillmentConfirmedEvent, NagTickEvent,
+            NewBlockEvent, NonceReceivedEvent, PayoutConfirmedEvent, PayoutNonceReceivedEvent,
             PayoutPartialReceivedEvent, RetryTickEvent, UserTakeBackEvent, WithdrawalAssignedEvent,
         },
         machine::DepositSM,
@@ -455,6 +455,7 @@ impl Arbitrary for DepositEvent {
                 block_height: height
             })),
             Just(DepositEvent::RetryTick(RetryTickEvent)),
+            Just(DepositEvent::NagTick(NagTickEvent)),
         ]
         .boxed()
     }

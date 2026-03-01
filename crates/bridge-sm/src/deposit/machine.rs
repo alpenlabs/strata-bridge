@@ -74,6 +74,7 @@ impl StateMachine for DepositSM {
             }
             DepositEvent::NewBlock(new_block) => self.process_new_block(new_block),
             DepositEvent::RetryTick(_) => self.process_retry_tick(cfg),
+            DepositEvent::NagTick(_) => self.process_nag_tick(cfg),
         }
     }
 }

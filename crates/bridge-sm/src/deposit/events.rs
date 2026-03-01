@@ -111,6 +111,10 @@ pub struct NewBlockEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetryTickEvent;
 
+/// Event signalling a nag tick has occurred.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NagTickEvent;
+
 /// The external events that affect the Deposit State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositEvent {
@@ -148,6 +152,8 @@ pub enum DepositEvent {
     NewBlock(NewBlockEvent),
     /// Event signalling that retriable duties should be emitted again for the current state.
     RetryTick(RetryTickEvent),
+    /// Event signalling that nag duties should be emitted for missing operator data.
+    NagTick(NagTickEvent),
 }
 
 impl std::fmt::Display for DepositEvent {
@@ -166,6 +172,7 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::PayoutConfirmed(event) => write!(f, "{}", event),
             DepositEvent::NewBlock(event) => write!(f, "{}", event),
             DepositEvent::RetryTick(event) => write!(f, "{}", event),
+            DepositEvent::NagTick(event) => write!(f, "{}", event),
         }
     }
 }
@@ -246,6 +253,12 @@ impl std::fmt::Display for RetryTickEvent {
     }
 }
 
+impl std::fmt::Display for NagTickEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NagTick")
+    }
+}
+
 /// Implements `From<T> for DepositEvent` for leaf event types.
 ///
 /// This allows all deposit-related event structs to be ergonomically
@@ -274,3 +287,4 @@ impl_into_deposit_event!(PayoutPartialReceivedEvent, PayoutPartialReceived);
 impl_into_deposit_event!(PayoutConfirmedEvent, PayoutConfirmed);
 impl_into_deposit_event!(NewBlockEvent, NewBlock);
 impl_into_deposit_event!(RetryTickEvent, RetryTick);
+impl_into_deposit_event!(NagTickEvent, NagTick);

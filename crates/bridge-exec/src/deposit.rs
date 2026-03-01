@@ -138,6 +138,10 @@ pub async fn execute_deposit_duty(
             )
             .await
         }
+        DepositDuty::Nag { .. } => {
+            // TODO: (mukeshdroid) implement executor for Nag duty
+            todo!()
+        }
     }
 }
 
