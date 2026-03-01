@@ -240,6 +240,9 @@ pub(crate) fn classify_unsigned_gossip(
                     .collect(),
             }
         }
+
+        // TODO: (mukeshdroid) Handle NagRequestExchange
+        UnsignedGossipsubMsg::NagRequestExchange(_) => todo!(),
     }
 }
 

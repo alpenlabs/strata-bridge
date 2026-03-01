@@ -3,7 +3,9 @@
 //!
 //! [`EventsMux`]: crate::events_mux::EventsMux
 
-use strata_bridge_p2p_types2::{MuSig2Nonce, MuSig2Partial, UnsignedGossipsubMsg};
+use strata_bridge_p2p_types2::{
+    MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
+};
 use strata_bridge_p2p_wire::p2p::v1::GetMessageRequest;
 
 use crate::{events_mux::UnifiedEvent, sm_registry::SMRegistry, sm_types::SMId};
@@ -68,6 +70,12 @@ fn route_gossipsub_msg(
             MuSig2Partial::Deposit { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Partial::Payout { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Partial::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
+        },
+        UnsignedGossipsubMsg::NagRequestExchange(nag_request) => match &nag_request.payload {
+            NagRequestPayload::DepositNonce { deposit_idx }
+            | NagRequestPayload::DepositPartial { deposit_idx }
+            | NagRequestPayload::PayoutNonce { deposit_idx }
+            | NagRequestPayload::PayoutPartial { deposit_idx } => SMId::Deposit(*deposit_idx),
         },
     };
 
