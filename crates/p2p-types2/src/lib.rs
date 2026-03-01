@@ -10,6 +10,8 @@ mod operator;
 
 pub use bitcoin::{PartialSignature, PubNonce};
 pub use descriptor::PayoutDescriptor;
-pub use messages::{GossipsubMsg, MuSig2Nonce, MuSig2Partial, UnsignedGossipsubMsg};
+pub use messages::{
+    GossipsubMsg, MuSig2Nonce, MuSig2Partial, NagRequest, NagRequestPayload, UnsignedGossipsubMsg,
+};
 pub use operator::P2POperatorPubKey;
 pub use strata_bridge_primitives::types::GraphIdx;

@@ -35,6 +35,24 @@ enum GossipsubMsgKind {
     Musig2Nonces = 0x01,
     /// MuSig2 partial signatures exchange.
     Musig2Signatures = 0x02,
+    /// Nag request exchange.
+    NagRequest = 0x03,
+}
+
+/// Nag request payload discriminator for cryptographic domain separation.
+///
+/// Used by [`NagRequestPayload`] to bind signatures to their intended
+/// nag request type.
+#[repr(u8)]
+enum NagPayloadKind {
+    /// Request missing deposit nonce.
+    DepositNonce = 0x00,
+    /// Request missing deposit partial signature.
+    DepositPartial = 0x01,
+    /// Request missing payout nonce.
+    PayoutNonce = 0x02,
+    /// Request missing payout partial signature.
+    PayoutPartial = 0x03,
 }
 
 /// MuSig2 nonce variants for different signing contexts.
@@ -207,6 +225,122 @@ impl fmt::Debug for MuSig2Partial {
     }
 }
 
+/// Nag request payload for describing type of data requested.
+#[derive(Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Arbitrary)]
+pub enum NagRequestPayload {
+    /// Request missing deposit nonce.
+    DepositNonce {
+        /// The deposit index for identifying the deposit.
+        deposit_idx: DepositIdx,
+    },
+    /// Request missing deposit partial signature.
+    DepositPartial {
+        /// The deposit index for identifying the deposit.
+        deposit_idx: DepositIdx,
+    },
+    /// Request missing payout nonce.
+    PayoutNonce {
+        /// The deposit index for identifying the payout.
+        deposit_idx: DepositIdx,
+    },
+    /// Request missing payout partial signature.
+    PayoutPartial {
+        /// The deposit index for identifying the payout.
+        deposit_idx: DepositIdx,
+    },
+}
+
+impl NagRequestPayload {
+    /// Returns the content bytes for signing.
+    ///
+    /// Includes a single-byte discriminator to cryptographically bind the signature
+    /// to the nag request type, providing domain separation between variants.
+    pub fn content_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        match self {
+            Self::DepositNonce { deposit_idx } => {
+                buf.push(NagPayloadKind::DepositNonce as u8);
+                buf.extend(deposit_idx.to_le_bytes());
+            }
+            Self::DepositPartial { deposit_idx } => {
+                buf.push(NagPayloadKind::DepositPartial as u8);
+                buf.extend(deposit_idx.to_le_bytes());
+            }
+            Self::PayoutNonce { deposit_idx } => {
+                buf.push(NagPayloadKind::PayoutNonce as u8);
+                buf.extend(deposit_idx.to_le_bytes());
+            }
+            Self::PayoutPartial { deposit_idx } => {
+                buf.push(NagPayloadKind::PayoutPartial as u8);
+                buf.extend(deposit_idx.to_le_bytes());
+            }
+        }
+        buf
+    }
+}
+
+impl fmt::Debug for NagRequestPayload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DepositNonce { deposit_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::DepositNonce(deposit_idx: {deposit_idx})"
+                )
+            }
+            Self::DepositPartial { deposit_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::DepositPartial(deposit_idx: {deposit_idx})"
+                )
+            }
+            Self::PayoutNonce { deposit_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::PayoutNonce(deposit_idx: {deposit_idx})"
+                )
+            }
+            Self::PayoutPartial { deposit_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::PayoutPartial(deposit_idx: {deposit_idx})"
+                )
+            }
+        }
+    }
+}
+
+/// Nag request message for requesting missing data from peers.
+#[derive(Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Arbitrary)]
+pub struct NagRequest {
+    /// The intended recipient of this nag request.
+    pub recipient: P2POperatorPubKey,
+    /// The payload describing what data is being requested.
+    pub payload: NagRequestPayload,
+}
+
+impl NagRequest {
+    /// Returns the content bytes for signing.
+    ///
+    /// Includes the recipient public key followed by the payload content bytes.
+    pub fn content_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend(self.recipient.as_ref());
+        buf.extend(self.payload.content_bytes());
+        buf
+    }
+}
+
+impl fmt::Debug for NagRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "NagRequest(recipient: {}, payload: {:?})",
+            self.recipient, self.payload
+        )
+    }
+}
+
 /// Unsigned gossipsub messages.
 #[derive(Clone, Archive, Serialize, Deserialize, Arbitrary)]
 pub enum UnsignedGossipsubMsg {
@@ -225,6 +359,9 @@ pub enum UnsignedGossipsubMsg {
 
     /// MuSig2 partial signatures exchange.
     Musig2SignaturesExchange(MuSig2Partial),
+
+    /// Nag request exchange.
+    NagRequestExchange(NagRequest),
 }
 
 impl UnsignedGossipsubMsg {
@@ -252,6 +389,10 @@ impl UnsignedGossipsubMsg {
             Self::Musig2SignaturesExchange(partial) => {
                 buf.push(GossipsubMsgKind::Musig2Signatures as u8);
                 buf.extend(partial.content_bytes());
+            }
+            Self::NagRequestExchange(nag) => {
+                buf.push(GossipsubMsgKind::NagRequest as u8);
+                buf.extend(nag.content_bytes());
             }
         }
         buf
@@ -288,6 +429,9 @@ impl fmt::Debug for UnsignedGossipsubMsg {
             }
             Self::Musig2SignaturesExchange(partial) => {
                 write!(f, "Musig2SignaturesExchange({partial:?})")
+            }
+            Self::NagRequestExchange(nag) => {
+                write!(f, "NagRequestExchange({nag:?})")
             }
         }
     }
@@ -489,6 +633,52 @@ mod tests {
         );
     }
 
+    // Verifies NagRequestExchange uses discriminator 0x03.
+    #[test]
+    fn unsigned_msg_nag_request_has_correct_prefix() {
+        let msg = UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+            recipient: P2POperatorPubKey::from(vec![0u8; 32]),
+            payload: NagRequestPayload::DepositNonce { deposit_idx: 1 },
+        });
+        let content = msg.content_bytes();
+        assert_eq!(
+            content[0], 0x03,
+            "NagRequestExchange should have prefix 0x03"
+        );
+    }
+
+    // Verifies NagRequestPayload::DepositNonce uses discriminator 0x00.
+    #[test]
+    fn nag_payload_deposit_nonce_has_correct_prefix() {
+        let payload = NagRequestPayload::DepositNonce { deposit_idx: 42 };
+        let content = payload.content_bytes();
+        assert_eq!(content[0], 0x00, "DepositNonce should have prefix 0x00");
+    }
+
+    // Verifies NagRequestPayload::DepositPartial uses discriminator 0x01.
+    #[test]
+    fn nag_payload_deposit_partial_has_correct_prefix() {
+        let payload = NagRequestPayload::DepositPartial { deposit_idx: 42 };
+        let content = payload.content_bytes();
+        assert_eq!(content[0], 0x01, "DepositPartial should have prefix 0x01");
+    }
+
+    // Verifies NagRequestPayload::PayoutNonce uses discriminator 0x02.
+    #[test]
+    fn nag_payload_payout_nonce_has_correct_prefix() {
+        let payload = NagRequestPayload::PayoutNonce { deposit_idx: 42 };
+        let content = payload.content_bytes();
+        assert_eq!(content[0], 0x02, "PayoutNonce should have prefix 0x02");
+    }
+
+    // Verifies NagRequestPayload::PayoutPartial uses discriminator 0x03.
+    #[test]
+    fn nag_payload_payout_partial_has_correct_prefix() {
+        let payload = NagRequestPayload::PayoutPartial { deposit_idx: 42 };
+        let content = payload.content_bytes();
+        assert_eq!(content[0], 0x03, "PayoutPartial should have prefix 0x03");
+    }
+
     // ==================== Content Serialization Tests ====================
 
     // Verifies MuSig2Nonce::Deposit serializes with correct byte layout.
@@ -595,6 +785,35 @@ mod tests {
         );
     }
 
+    // Verifies NagRequestPayload::DepositNonce serializes with correct byte layout.
+    #[test]
+    fn nag_payload_deposit_nonce_serializes_correctly() {
+        let payload = NagRequestPayload::DepositNonce { deposit_idx: 42 };
+        let content = payload.content_bytes();
+
+        // Check structure: discriminator (1) + deposit_idx (4)
+        assert_eq!(content.len(), 1 + 4);
+        assert_eq!(content[0], 0x00);
+        assert_eq!(&content[1..5], &42u32.to_le_bytes());
+    }
+
+    // Verifies NagRequest serializes with correct byte layout.
+    #[test]
+    fn nag_request_serializes_correctly() {
+        let recipient_bytes = vec![0xABu8; 32];
+        let nag = NagRequest {
+            recipient: P2POperatorPubKey::from(recipient_bytes.clone()),
+            payload: NagRequestPayload::DepositNonce { deposit_idx: 42 },
+        };
+        let content = nag.content_bytes();
+
+        // Check structure: recipient (32) + payload content_bytes (1 + 4)
+        assert_eq!(content.len(), 32 + 1 + 4);
+        assert_eq!(&content[0..32], &recipient_bytes[..]);
+        assert_eq!(content[32], 0x00); // payload discriminator
+        assert_eq!(&content[33..37], &42u32.to_le_bytes());
+    }
+
     mod proptests {
         use proptest::prelude::*;
         use rkyv::{from_bytes, rancor::Error, to_bytes};
@@ -629,6 +848,22 @@ mod tests {
                 let recovered: UnsignedGossipsubMsg = from_bytes::<UnsignedGossipsubMsg, Error>(&bytes).expect("deserialize");
                 // Compare content since UnsignedGossipsubMsg doesn't derive PartialEq
                 prop_assert_eq!(msg.content_bytes(), recovered.content_bytes());
+            }
+
+            // Verifies rkyv serialization roundtrip for random NagRequestPayload values.
+            #[test]
+            fn nag_request_payload_rkyv_roundtrip(payload: NagRequestPayload) {
+                let bytes = to_bytes::<Error>(&payload).expect("serialize");
+                let recovered: NagRequestPayload = from_bytes::<NagRequestPayload, Error>(&bytes).expect("deserialize");
+                prop_assert_eq!(payload, recovered);
+            }
+
+            // Verifies rkyv serialization roundtrip for random NagRequest values.
+            #[test]
+            fn nag_request_rkyv_roundtrip(nag: NagRequest) {
+                let bytes = to_bytes::<Error>(&nag).expect("serialize");
+                let recovered: NagRequest = from_bytes::<NagRequest, Error>(&bytes).expect("deserialize");
+                prop_assert_eq!(nag, recovered);
             }
         }
     }
