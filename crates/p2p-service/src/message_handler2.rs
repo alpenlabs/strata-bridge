@@ -4,7 +4,7 @@ use libp2p::futures::SinkExt;
 use libp2p_identity::ed25519::Keypair;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_p2p_types2::{
-    GraphIdx, MuSig2Nonce, MuSig2Partial, PayoutDescriptor, UnsignedGossipsubMsg,
+    GraphIdx, MuSig2Nonce, MuSig2Partial, NagRequest, PayoutDescriptor, UnsignedGossipsubMsg,
 };
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 use strata_p2p::{commands::GossipCommand, swarm::handle::GossipHandle};
@@ -125,6 +125,18 @@ impl MessageHandler {
             partial: partial.into(),
         });
         self.dispatch(msg, peer, "payout partial").await;
+    }
+
+    /// Sends a nag request for missing data.
+    ///
+    /// If `peer` is `Some`, sends directly to that peer. If `None`, broadcasts to all.
+    pub async fn send_nag_request(
+        &mut self,
+        nag_request: NagRequest,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
+    ) {
+        let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
+        self.dispatch(msg, peer, "nag request").await;
     }
 
     // --- Graph context (Vec of nonces/partials) ---
