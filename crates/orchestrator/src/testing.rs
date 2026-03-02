@@ -31,6 +31,9 @@ use crate::sm_registry::{SMConfig, SMRegistry};
 /// Number of operators used in orchestrator test fixtures.
 pub(crate) const N_TEST_OPERATORS: usize = 3;
 
+/// Operator index of a non-POV operator used in orchestrator test fixtures.
+pub(crate) const TEST_NONPOV: OperatorIdx = 1;
+
 /// Initial block height used when constructing test SMs.
 pub(crate) const INITIAL_BLOCK_HEIGHT: u64 = 100;
 

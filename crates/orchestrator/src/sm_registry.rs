@@ -303,9 +303,10 @@ where
 #[cfg(test)]
 mod tests {
     use bitcoin::key::rand;
+    use strata_bridge_p2p_types2::NagRequestPayload;
     use strata_bridge_primitives::types::GraphIdx;
     use strata_bridge_sm::{
-        deposit::events::{DepositEvent, NewBlockEvent as DepositNewBlock},
+        deposit::events::{DepositEvent, NagReceivedEvent, NewBlockEvent as DepositNewBlock},
         graph::events::{GraphEvent, NewBlockEvent as GraphNewBlock},
     };
 
@@ -516,6 +517,29 @@ mod tests {
 
         let result = registry.process_event(&deposit_id, graph_event);
         assert!(matches!(result, Err(ProcessError::InvalidInvocation(_, _))));
+    }
+
+    #[test]
+    fn inapplicable_nag_received_maps_to_ignored_outcome() {
+        let mut registry = test_populated_registry(1);
+        let deposit_id = SMId::Deposit(0);
+        let event = SMEvent::Deposit(Box::new(DepositEvent::NagReceived(NagReceivedEvent {
+            payload: NagRequestPayload::DepositNonce { deposit_idx: 0 },
+            sender_operator_idx: 1,
+        })));
+
+        let result = registry.process_event(&deposit_id, event);
+
+        assert!(matches!(
+            result,
+            Ok(ProcessOutcome::Ignored {
+                id: SMId::Deposit(0),
+                event: SMEvent::Deposit(_),
+                reason: IgnoredEventReason::Rejected(reason),
+            }) if reason.contains("Inapplicable DepositNonce nag")
+                && reason.contains("expected state(s): GraphGenerated | DepositNoncesCollected")
+                && reason.contains("payload=NagRequestPayload::DepositNonce")
+        ));
     }
 
     #[test]
