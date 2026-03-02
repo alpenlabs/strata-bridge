@@ -13,13 +13,13 @@ use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors2::SigningInfo;
-use strata_bridge_p2p_types2::PayoutDescriptor;
+use strata_bridge_p2p_types2::{NagRequest, NagRequestPayload, PayoutDescriptor};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
-use strata_bridge_sm::deposit::duties::DepositDuty;
+use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
 use strata_bridge_tx_graph2::transactions::prelude::{
     CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
 };
@@ -138,9 +138,77 @@ pub async fn execute_deposit_duty(
             )
             .await
         }
-        DepositDuty::Nag { .. } => {
-            // TODO: (mukeshdroid) implement executor for Nag duty
-            todo!()
+        DepositDuty::Nag { duty } => {
+            let (deposit_idx, operator_idx, nag_request) = match duty {
+                NagDuty::NagDepositNonce {
+                    deposit_idx,
+                    operator_idx,
+                    operator_pubkey,
+                } => (
+                    *deposit_idx,
+                    *operator_idx,
+                    NagRequest {
+                        recipient: operator_pubkey.clone().into(),
+                        payload: NagRequestPayload::DepositNonce {
+                            deposit_idx: *deposit_idx,
+                        },
+                    },
+                ),
+                NagDuty::NagDepositPartial {
+                    deposit_idx,
+                    operator_idx,
+                    operator_pubkey,
+                } => (
+                    *deposit_idx,
+                    *operator_idx,
+                    NagRequest {
+                        recipient: operator_pubkey.clone().into(),
+                        payload: NagRequestPayload::DepositPartial {
+                            deposit_idx: *deposit_idx,
+                        },
+                    },
+                ),
+                NagDuty::NagPayoutNonce {
+                    deposit_idx,
+                    operator_idx,
+                    operator_pubkey,
+                } => (
+                    *deposit_idx,
+                    *operator_idx,
+                    NagRequest {
+                        recipient: operator_pubkey.clone().into(),
+                        payload: NagRequestPayload::PayoutNonce {
+                            deposit_idx: *deposit_idx,
+                        },
+                    },
+                ),
+                NagDuty::NagPayoutPartial {
+                    deposit_idx,
+                    operator_idx,
+                    operator_pubkey,
+                } => (
+                    *deposit_idx,
+                    *operator_idx,
+                    NagRequest {
+                        recipient: operator_pubkey.clone().into(),
+                        payload: NagRequestPayload::PayoutPartial {
+                            deposit_idx: *deposit_idx,
+                        },
+                    },
+                ),
+            };
+
+            info!(%deposit_idx, %operator_idx, payload = ?nag_request.payload, "executing nag duty to request missing peer data");
+
+            output_handles
+                .msg_handler2
+                .write()
+                .await
+                .send_nag_request(nag_request, None)
+                .await;
+
+            info!(%deposit_idx, %operator_idx, "published nag request");
+            Ok(())
         }
     }
 }
