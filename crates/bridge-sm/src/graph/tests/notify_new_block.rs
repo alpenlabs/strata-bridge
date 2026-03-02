@@ -13,9 +13,13 @@ mod tests {
             state::GraphState,
             tests::{
                 CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS, GraphInvalidTransition,
-                GraphTransition, INITIAL_BLOCK_HEIGHT, create_sm, get_state, mock_game_signatures,
-                mock_states::claimed_state, test_deposit_params, test_graph_invalid_transition,
-                test_graph_sm_cfg, test_graph_sm_ctx, test_graph_transition,
+                GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, create_sm, get_state,
+                mock_game_signatures,
+                mock_states::{
+                    bridge_proof_timedout_state_with, claimed_state, contested_state_with,
+                },
+                test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
+                test_graph_sm_ctx, test_graph_transition,
             },
         },
         testing::test_transition,
@@ -123,5 +127,137 @@ mod tests {
             expected_duties: vec![],
             expected_signals: vec![],
         });
+    }
+
+    #[test]
+    fn contested_simple_update() {
+        let cfg = test_graph_sm_cfg();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
+        let new_height = contest_height + proof_timelock;
+
+        test_graph_transition(GraphTransition {
+            from_state: contested_state_with(contest_height, vec![]),
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: new_height,
+            }),
+            expected_state: contested_state_with(new_height, vec![]),
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
+    #[test]
+    fn contested_proof_timelock() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
+        let new_height = contest_height + proof_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let bridge_proof_timeout_sigs =
+            GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+                .expect("Failed to unpack signatures")
+                .bridge_proof_timeout;
+        let signed_timeout_tx = game_graph
+            .bridge_proof_timeout
+            .finalize(bridge_proof_timeout_sigs);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: contested_state_with(contest_height, signatures.clone()),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: contested_state_with(new_height, signatures),
+                expected_duties: vec![GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn contested_payout_timeout() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let slash_sigs = GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+            .expect("Failed to unpack signatures")
+            .bridge_proof_timeout;
+        let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: contested_state_with(contest_height, signatures.clone()),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: contested_state_with(new_height, signatures),
+                expected_duties: vec![GraphDuty::PublishSlash { signed_slash_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn bridge_proof_timedout_simple_update() {
+        let cfg = test_graph_sm_cfg();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock;
+
+        test_graph_transition(GraphTransition {
+            from_state: bridge_proof_timedout_state_with(contest_height, vec![]),
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: new_height,
+            }),
+            expected_state: bridge_proof_timedout_state_with(new_height, vec![]),
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
+    #[test]
+    fn bridge_proof_timedout_payout_timeout() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let slash_sigs = GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+            .expect("Failed to unpack signatures")
+            .bridge_proof_timeout;
+        let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: bridge_proof_timedout_state_with(contest_height, signatures.clone()),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: bridge_proof_timedout_state_with(new_height, signatures),
+                expected_duties: vec![GraphDuty::PublishSlash { signed_slash_tx }],
+                expected_signals: vec![],
+            },
+        );
     }
 }
