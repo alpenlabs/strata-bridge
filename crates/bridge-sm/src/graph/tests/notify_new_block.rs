@@ -10,6 +10,7 @@ mod tests {
             errors::GSMError,
             events::{GraphEvent, NewBlockEvent},
             machine::{GraphSM, generate_game_graph},
+            state::GraphState,
             tests::{
                 CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS, GraphInvalidTransition,
                 GraphTransition, INITIAL_BLOCK_HEIGHT, create_sm, get_state, mock_game_signatures,
@@ -104,6 +105,23 @@ mod tests {
                 block_height: INITIAL_BLOCK_HEIGHT - 1,
             }),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    #[test]
+    fn test_new_block_created_accepted() {
+        test_graph_transition(GraphTransition {
+            from_state: GraphState::Created {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: INITIAL_BLOCK_HEIGHT + 1,
+            }),
+            expected_state: GraphState::Created {
+                last_block_height: INITIAL_BLOCK_HEIGHT + 1,
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
         });
     }
 }
