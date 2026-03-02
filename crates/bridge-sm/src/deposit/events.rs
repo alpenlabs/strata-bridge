@@ -7,6 +7,7 @@
 use bitcoin::Transaction;
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
+use strata_bridge_p2p_types2::NagRequestPayload;
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 
 use crate::signals::GraphToDeposit;
@@ -115,6 +116,15 @@ pub struct RetryTickEvent;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NagTickEvent;
 
+/// Event received when another operator nags us for missing data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NagReceivedEvent {
+    /// The nag payload describing what's being requested.
+    pub payload: NagRequestPayload,
+    /// The operator index of the sender.
+    pub sender_operator_idx: OperatorIdx,
+}
+
 /// The external events that affect the Deposit State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositEvent {
@@ -154,6 +164,8 @@ pub enum DepositEvent {
     RetryTick(RetryTickEvent),
     /// Event signalling that nag duties should be emitted for missing operator data.
     NagTick(NagTickEvent),
+    /// Event received when another operator nags us for missing data.
+    NagReceived(NagReceivedEvent),
 }
 
 impl std::fmt::Display for DepositEvent {
@@ -173,6 +185,7 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::NewBlock(event) => write!(f, "{}", event),
             DepositEvent::RetryTick(event) => write!(f, "{}", event),
             DepositEvent::NagTick(event) => write!(f, "{}", event),
+            DepositEvent::NagReceived(event) => write!(f, "{}", event),
         }
     }
 }
@@ -259,6 +272,16 @@ impl std::fmt::Display for NagTickEvent {
     }
 }
 
+impl std::fmt::Display for NagReceivedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "NagReceived(payload: {:?}, sender: {})",
+            self.payload, self.sender_operator_idx
+        )
+    }
+}
+
 /// Implements `From<T> for DepositEvent` for leaf event types.
 ///
 /// This allows all deposit-related event structs to be ergonomically
@@ -288,3 +311,4 @@ impl_into_deposit_event!(PayoutConfirmedEvent, PayoutConfirmed);
 impl_into_deposit_event!(NewBlockEvent, NewBlock);
 impl_into_deposit_event!(RetryTickEvent, RetryTick);
 impl_into_deposit_event!(NagTickEvent, NagTick);
+impl_into_deposit_event!(NagReceivedEvent, NagReceived);
