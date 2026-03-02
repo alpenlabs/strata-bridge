@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, num::NonZero, sync::LazyLock};
 
 use musig2::secp256k1::schnorr::Signature;
+use secp256k1::schnorr;
 use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
 
 use super::{
@@ -104,13 +105,20 @@ pub(super) fn claimed_state(
 
 /// Builds a mock `Contested` state with default test values.
 pub(super) fn contested_state() -> GraphState {
-    let graph_summary = TEST_GRAPH_SUMMARY.clone();
+    contested_state_with(LATER_BLOCK_HEIGHT, vec![])
+}
+
+/// Builds a mock `Contested` state with the given parameters.
+pub(super) fn contested_state_with(
+    last_block_height: u64,
+    signatures: Vec<schnorr::Signature>,
+) -> GraphState {
     GraphState::Contested {
-        last_block_height: LATER_BLOCK_HEIGHT,
+        last_block_height,
         graph_data: test_deposit_params(),
-        graph_summary: graph_summary.clone(),
-        signatures: Default::default(),
-        fulfillment_txid: Some(graph_summary.claim),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        signatures,
+        fulfillment_txid: Some(TEST_GRAPH_SUMMARY.claim),
         fulfillment_block_height: Some(LATER_BLOCK_HEIGHT),
         contest_block_height: LATER_BLOCK_HEIGHT,
     }
@@ -133,15 +141,22 @@ pub(super) fn bridge_proof_posted_state() -> GraphState {
 
 /// Builds a mock `BridgeProofTimedout` state with default test values.
 pub(super) fn bridge_proof_timedout_state() -> GraphState {
-    let graph_summary = TEST_GRAPH_SUMMARY.clone();
+    bridge_proof_timedout_state_with(LATER_BLOCK_HEIGHT, vec![])
+}
+
+/// Builds a mock `BridgeProofTimedout` state with the given parameters.
+pub(super) fn bridge_proof_timedout_state_with(
+    last_block_height: u64,
+    signatures: Vec<schnorr::Signature>,
+) -> GraphState {
     GraphState::BridgeProofTimedout {
-        last_block_height: LATER_BLOCK_HEIGHT,
+        last_block_height,
         graph_data: test_deposit_params(),
-        graph_summary: graph_summary.clone(),
-        signatures: Default::default(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        signatures,
         contest_block_height: LATER_BLOCK_HEIGHT,
-        expected_slash_txid: graph_summary.slash,
-        claim_txid: graph_summary.claim,
+        expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
+        claim_txid: TEST_GRAPH_SUMMARY.claim,
     }
 }
 
