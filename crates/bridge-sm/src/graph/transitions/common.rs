@@ -82,26 +82,88 @@ impl GraphSM {
                         .uncontested_payout
                         .finalize(uncontested_signatures);
 
-                    Ok(GSMOutput::with_duties(vec![
+                    return Ok(GSMOutput::with_duties(vec![
                         GraphDuty::PublishUncontestedPayout {
                             signed_uncontested_payout_tx,
                         },
-                    ]))
-                } else {
-                    Ok(GSMOutput::new())
+                    ]));
                 }
+
+                Ok(GSMOutput::new())
             }
 
-            // TODO: STR-2194
-            GraphState::Contested { .. } => {
-                todo!("")
+            GraphState::Contested {
+                last_block_height,
+                contest_block_height,
+                graph_data,
+                signatures,
+                ..
+            } => {
+                *last_block_height = new_block_event.block_height;
+                let payout_timelock =
+                    u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+                let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
+
+                if new_block_event.block_height > *contest_block_height + payout_timelock {
+                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
+                    let slash_signatures =
+                        GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+                            .expect("Number of signatures is consistent with number of watchtowers")
+                            .bridge_proof_timeout;
+                    let signed_slash_tx = game_graph.slash.finalize(slash_signatures);
+
+                    return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
+                        signed_slash_tx,
+                    }]));
+                }
+
+                if new_block_event.block_height > *contest_block_height + proof_timelock {
+                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
+                    let bridge_proof_timeout_signatures =
+                        GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+                            .expect("Number of signatures is consistent with number of watchtowers")
+                            .bridge_proof_timeout;
+                    let signed_timeout_tx = game_graph
+                        .bridge_proof_timeout
+                        .finalize(bridge_proof_timeout_signatures);
+
+                    return Ok(GSMOutput::with_duties(vec![
+                        GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx },
+                    ]));
+                }
+
+                Ok(GSMOutput::new())
             }
 
             // TODO: STR-2340
             GraphState::BridgeProofPosted { .. } => todo!(""),
 
-            // TODO: STR-2194
-            GraphState::BridgeProofTimedout { .. } => todo!(""),
+            GraphState::BridgeProofTimedout {
+                last_block_height,
+                contest_block_height,
+                graph_data,
+                signatures,
+                ..
+            } => {
+                *last_block_height = new_block_event.block_height;
+                let payout_timelock =
+                    u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+
+                if new_block_event.block_height > *contest_block_height + payout_timelock {
+                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
+                    let slash_signatures =
+                        GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+                            .expect("Number of signatures is consistent with number of watchtowers")
+                            .bridge_proof_timeout;
+                    let signed_slash_tx = game_graph.slash.finalize(slash_signatures);
+
+                    return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
+                        signed_slash_tx,
+                    }]));
+                }
+
+                Ok(GSMOutput::new())
+            }
 
             // TODO: STR-2196
             GraphState::CounterProofPosted { .. } => todo!(""),
