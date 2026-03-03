@@ -13,7 +13,8 @@ use crate::{
         btc_client::{init_btc_rpc_client, init_zmq_client},
         operator_table::init_operator_table,
         operator_wallet::init_operator_wallet,
-        p2p_handles::init_p2p_handles,
+        orchestrator::init_orchestrator,
+        p2p_handles::{P2PHandles, init_p2p_handles},
         secret_service::init_secret_service_client,
     },
     params::Params,
@@ -45,7 +46,7 @@ pub(crate) async fn bootstrap(
     info!(%pov_idx, %pov_p2p_key, %pov_btc_key, %agg_key, "operator table initialized");
 
     debug!("initializing operator wallet");
-    let _operator_wallet = init_operator_wallet(&config, &params, &s2_client, &db).await?;
+    let operator_wallet = init_operator_wallet(&config, &params, &s2_client, &db).await?;
     info!("operator wallet initialized");
 
     debug!("initializing bitcoin client");
@@ -59,8 +60,30 @@ pub(crate) async fn bootstrap(
     info!(%start_height, "btc zmq client initialized and subscribed to bitcoin node");
 
     debug!("initializing p2p client");
-    let _p2p_handles = init_p2p_handles(&config, &params, &s2_client, &executor).await?;
+    let P2PHandles {
+        command_handle: _command_handle, // NOTE: (@Rajil1213) will be used in rpc
+        gossip_handle,
+        req_resp_handle,
+        keypair,
+    } = init_p2p_handles(&config, &params, &s2_client, &executor).await?;
     info!("p2p client initialized, connected to swarm and listening");
 
+    debug!("starting orchestrator pipeline");
+    init_orchestrator(
+        &params,
+        &config,
+        operator_table,
+        &s2_client,
+        gossip_handle,
+        req_resp_handle,
+        keypair,
+        operator_wallet,
+        btc_rpc_client,
+        db.clone(),
+        &executor,
+    )
+    .await?;
+
+    debug!("node bootstrapping complete, all services started");
     Ok(())
 }

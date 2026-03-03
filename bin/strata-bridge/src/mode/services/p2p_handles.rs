@@ -24,17 +24,13 @@ use crate::{
 #[derive(Debug)]
 pub(in crate::mode) struct P2PHandles {
     /// Handle to send commands to the P2P swarm.
-    #[expect(unused)]
-    command_handle: CommandHandle,
+    pub(in crate::mode) command_handle: CommandHandle,
     /// Handle to the gossip subsystem.
-    #[expect(unused)]
-    gossip_handle: GossipHandle,
+    pub(in crate::mode) gossip_handle: GossipHandle,
     /// Handle to the request-response subsystem.
-    #[expect(unused)]
-    req_resp_handle: ReqRespHandle,
+    pub(in crate::mode) req_resp_handle: ReqRespHandle,
     /// [`Keypair`] used as [`PeerId`].
-    #[expect(unused)]
-    keypair: Keypair,
+    pub(in crate::mode) keypair: Keypair,
 }
 
 /// Initializes the p2p handles based on the provided configuration and parameters.
