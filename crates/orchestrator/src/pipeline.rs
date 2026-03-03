@@ -3,7 +3,6 @@
 
 use std::collections::VecDeque;
 
-use strata_bridge_db2::traits::BridgeDb;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use tracing::{info, warn};
 
@@ -25,19 +24,19 @@ use crate::{
 /// processes them through the STF, cascades any resulting signals, persists state changes, and
 /// dispatches duties to executors.
 #[expect(missing_debug_implementations)]
-pub struct Pipeline<Db: BridgeDb> {
+pub struct Pipeline {
     event_mux: EventsMux,
     registry: SMRegistry,
-    persister: Persister<Db>,
+    persister: Persister,
     dispatcher: DutyDispatcher,
 }
 
-impl<Db: BridgeDb> Pipeline<Db> {
+impl Pipeline {
     /// Creates a new pipeline with all required components.
     pub const fn new(
         event_mux: EventsMux,
         registry: SMRegistry,
-        persister: Persister<Db>,
+        persister: Persister,
         dispatcher: DutyDispatcher,
     ) -> Self {
         Self {
@@ -55,10 +54,7 @@ impl<Db: BridgeDb> Pipeline<Db> {
     /// The `initial_operator_table` needs to be constructed from a params file or similar source of
     /// truth for now. Eventually, this will be queried from the Operator State Machine in the
     /// registry.
-    pub async fn run(
-        mut self,
-        initial_operator_table: OperatorTable,
-    ) -> Result<(), PipelineError<Db>> {
+    pub async fn run(mut self, initial_operator_table: OperatorTable) -> Result<(), PipelineError> {
         loop {
             // Stage 1: Multiplex event streams
             let event = self.event_mux.next().await;
@@ -122,7 +118,7 @@ impl<Db: BridgeDb> Pipeline<Db> {
     fn process_and_cascade(
         &mut self,
         targets: Vec<(SMId, SMEvent)>,
-    ) -> Result<(Vec<crate::sm_types::UnifiedDuty>, PersistenceTracker), PipelineError<Db>> {
+    ) -> Result<(Vec<crate::sm_types::UnifiedDuty>, PersistenceTracker), PipelineError> {
         let mut all_duties = Vec::new();
         let mut signal_queue: VecDeque<(SMId, SMEvent)> = VecDeque::new();
         let mut tracker = PersistenceTracker::new();
@@ -163,7 +159,7 @@ impl<Db: BridgeDb> Pipeline<Db> {
         all_duties: &mut Vec<crate::sm_types::UnifiedDuty>,
         signal_queue: &mut VecDeque<(SMId, SMEvent)>,
         tracker: &mut PersistenceTracker,
-    ) -> Result<(), PipelineError<Db>> {
+    ) -> Result<(), PipelineError> {
         match self.registry.process_event(&sm_id, sm_event) {
             Ok(ProcessOutcome::Applied(output)) => {
                 all_duties.extend(output.duties);
