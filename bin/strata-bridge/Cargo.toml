@@ -21,6 +21,7 @@ strata-bridge-p2p-types.workspace = true
 strata-bridge-primitives.workspace = true
 
 strata-l1-txfmt.workspace = true
+strata-p2p.workspace = true
 strata-tasks.workspace = true
 
 anyhow.workspace = true
@@ -30,8 +31,10 @@ bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
 clap.workspace = true
+ed25519-dalek.workspace = true
 hex.workspace = true
 libp2p.workspace = true
+libp2p-identity.workspace = true
 rustls-pemfile.workspace = true
 secp256k1.workspace = true
 serde.workspace = true
