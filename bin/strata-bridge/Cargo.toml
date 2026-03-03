@@ -9,10 +9,13 @@ workspace = true
 [dependencies]
 btc-tracker.workspace = true
 secret-service-client.workspace = true
+secret-service-proto.workspace = true
 strata-bridge-asm-events.workspace = true
 strata-bridge-common.workspace = true
 strata-bridge-db2.workspace = true
 strata-bridge-p2p-service.workspace = true
+strata-bridge-p2p-types.workspace = true
+strata-bridge-primitives.workspace = true
 
 strata-l1-txfmt.workspace = true
 strata-tasks.workspace = true
