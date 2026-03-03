@@ -13,6 +13,7 @@ use crate::{
         btc_client::{init_btc_rpc_client, init_zmq_client},
         operator_table::init_operator_table,
         operator_wallet::init_operator_wallet,
+        p2p_handles::{P2PHandles, init_p2p_handles},
         secret_service::init_secret_service_client,
     },
     params::Params,
@@ -22,7 +23,7 @@ pub(crate) async fn bootstrap(
     params: Params,
     config: Config,
     db: Arc<FdbClient>,
-    _executor: TaskExecutor,
+    executor: TaskExecutor,
 ) -> anyhow::Result<()> {
     info!("starting operator loop");
     debug!(
@@ -56,6 +57,11 @@ pub(crate) async fn bootstrap(
     let zmq_client = init_zmq_client(&config, params.genesis_height).await?;
     let start_height = zmq_client.start_height();
     info!(%start_height, "btc zmq client initialized and subscribed to bitcoin node");
+
+    debug!("initializing p2p client");
+    let p2p_handles = init_p2p_handles(&config, &params, &s2_client, &executor).await?;
+    info!("p2p client initialized, connected to swarm and listening");
+
 
     Ok(())
 }
