@@ -38,6 +38,7 @@ members = [
 
   # binaries listed separately
   "bin/alpen-bridge",
+  "bin/strata-bridge",
   "bin/asm-runner",
   "bin/assert-splitter",
   "bin/dev-cli",
@@ -52,6 +53,7 @@ members = [
 
 default-members = [
   "bin/alpen-bridge",
+  "bin/strata-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/asm-runner",
@@ -74,6 +76,7 @@ algebra = { path = "crates/algebra" }
 alpen-bridge-params = { path = "crates/params" }
 btc-tracker = { path = "crates/btc-tracker" }
 duty-tracker = { path = "crates/duty-tracker" }
+memory_pprof = { path = "crates/memory_pprof" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
