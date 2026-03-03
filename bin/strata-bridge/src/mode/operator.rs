@@ -6,7 +6,9 @@ use strata_bridge_db2::fdb::client::FdbClient;
 use strata_tasks::TaskExecutor;
 use tracing::{debug, info};
 
-use crate::{config::Config, params::Params};
+use crate::{
+    config::Config, mode::services::secret_service::init_secret_service_client, params::Params,
+};
 
 pub(crate) async fn bootstrap(
     params: Params,
@@ -20,6 +22,9 @@ pub(crate) async fn bootstrap(
         ?config,
         "starting operator loop with provided params and config"
     );
+
+    debug!(config=?config.secret_service_client, "initializing secret service client");
+    let _s2_client = init_secret_service_client(&config.secret_service_client).await;
 
     Ok(())
 }
