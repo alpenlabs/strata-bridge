@@ -1,17 +1,19 @@
 //! The handles for external services that need to be accessed by the executors.
 
+use std::sync::Arc;
+
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db2::fdb::client::FdbClient;
-use strata_bridge_p2p_service::{MessageHandler, MessageHandler2};
+use strata_bridge_p2p_service::MessageHandler2;
 use tokio::sync::RwLock;
 
 /// The handles for external services that need to be accessed by the executors.
 ///
 /// If this needs to be shared across multiple executors, it should be wrapped in an
-/// [`Arc`](std::sync::Arc).
+/// [`Arc`].
 #[derive(Debug)]
 pub struct OutputHandles {
     /// Handle for accessing operator funds.
@@ -19,10 +21,7 @@ pub struct OutputHandles {
 
     /// Handle for accessing the database.
     // TODO: (@Rajil1213) make this generic on `BridgeDb` instead of being tied to `FdbClient`.
-    pub db: FdbClient,
-
-    /// Handle for broadcasting P2P messages.
-    pub msg_handler: MessageHandler,
+    pub db: Arc<FdbClient>,
 
     /// Handle for broadcasting P2P messages
     pub msg_handler2: RwLock<MessageHandler2>,
