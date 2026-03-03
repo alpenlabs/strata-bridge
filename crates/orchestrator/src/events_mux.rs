@@ -26,7 +26,7 @@ pub enum UnifiedEvent {
     /// Priority 1: Self-published nag requests.
     OuroborosRequest(GetMessageRequest),
     /// Priority 2: Graceful shutdown request.
-    Shutdown(tokio::sync::oneshot::Sender<()>),
+    Shutdown,
     /// Priority 3: Buried bitcoin blocks from ZMQ.
     Block(BlockEvent),
     /// Priority 4: Assignment entries identified by the ASM runner.
@@ -57,7 +57,7 @@ pub struct EventsMux {
     pub ouroboros_req_rx: tokio::sync::mpsc::UnboundedReceiver<GetMessageRequest>,
 
     /// Shutdown signal receiver.
-    pub shutdown_rx: Option<tokio::sync::oneshot::Receiver<tokio::sync::oneshot::Sender<()>>>,
+    pub shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
 
     /// Bitcoin block event stream.
     pub block_sub: Subscription<BlockEvent>,
@@ -94,14 +94,14 @@ impl EventsMux {
 
                 // Only now, we handle shutdown signals
                 // so that we don't shutdown before our own messages and requests are processed.
-                Ok(shutdown_sender) = async {
+                Ok(()) = async {
                     match self.shutdown_rx.as_mut() {
                         Some(rx) => rx.await,
                         None => std::future::pending().await, // If we've already processed a shutdown, we should never receive another one, so we can just await forever.
                     }
                 } => {
                     self.shutdown_rx = None; // Ensure we only process shutdown once.
-                    return UnifiedEvent::Shutdown(shutdown_sender);
+                    return UnifiedEvent::Shutdown;
                 }
 
                 // Now, we handle external event streams starting with buried bitcoin blocks.
