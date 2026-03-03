@@ -17,6 +17,7 @@ mod args;
 mod config;
 mod constants;
 mod mode;
+mod params;
 
 /// The default glibc malloc was observed to be responsible for bad memory fragmentation during
 /// deposits which led to out-of-memory issues. [`Jemalloc`] is a general purpose malloc(3)
@@ -24,6 +25,8 @@ mod mode;
 /// It reduces the fragmentation so avoids overutilizing system memory
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
+
+use crate::params::Params;
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
@@ -46,6 +49,7 @@ fn main() {
     info!(mode = %cli.mode, "starting bridge node");
 
     let config = parse_toml::<Config>(cli.config);
+    let params = parse_toml::<Params>(cli.params);
     let shutdown_timeout = config.shutdown_timeout;
 
     let runtime = runtime::Builder::new_multi_thread()
@@ -85,7 +89,7 @@ fn main() {
                 .spawn_critical_async("operator", async move {
                     #[cfg(feature = "memory_profiling")]
                     memory_pprof::setup_memory_profiling(3_000);
-                    operator::bootstrap(config, fdb, executor.clone()).await
+                    operator::bootstrap(params, config, fdb, executor.clone()).await
                 });
         }
         OperationMode::Watchtower => {
@@ -94,7 +98,7 @@ fn main() {
                 .spawn_critical_async("watchtower", async move {
                     #[cfg(feature = "memory_profiling")]
                     memory_pprof::setup_memory_profiling(3_000);
-                    watchtower::bootstrap(config, executor.clone()).await
+                    watchtower::bootstrap(params, config, executor.clone()).await
                 });
         }
     }
