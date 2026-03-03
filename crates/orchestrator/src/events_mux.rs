@@ -5,7 +5,8 @@ use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
 use rkyv::rancor;
 use strata_asm_proto_bridge_v1::AssignmentEntry;
-use strata_bridge_p2p_types2::{GossipsubMsg, UnsignedGossipsubMsg};
+use strata_bridge_p2p_service::message_handler2::OuroborosMessage;
+use strata_bridge_p2p_types2::GossipsubMsg;
 use strata_bridge_p2p_wire::p2p::v1::GetMessageRequest; /* FIXME: (@Rajil1213) this is
                                                           * temporary until we have it in
                                                           * `p2p_types2`. */
@@ -22,7 +23,7 @@ use tracing::warn;
 #[derive(Debug)]
 pub enum UnifiedEvent {
     /// Priority 0: Self-published gossip messages for consistent state.
-    OuroborosMessage(UnsignedGossipsubMsg),
+    OuroborosMessage(OuroborosMessage),
     /// Priority 1: Self-published nag requests.
     OuroborosRequest(GetMessageRequest),
     /// Priority 2: Graceful shutdown request.
@@ -51,7 +52,7 @@ pub enum UnifiedEvent {
 #[derive(Debug)]
 pub struct EventsMux {
     /// Ouroboros channel for gossip messages.
-    pub ouroboros_msg_rx: tokio::sync::mpsc::UnboundedReceiver<UnsignedGossipsubMsg>,
+    pub ouroboros_msg_rx: tokio::sync::mpsc::UnboundedReceiver<OuroborosMessage>,
 
     /// Ouroboros channel for nag requests.
     pub ouroboros_req_rx: tokio::sync::mpsc::UnboundedReceiver<GetMessageRequest>,

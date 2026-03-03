@@ -42,9 +42,7 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
             })
             .collect(),
 
-        UnifiedEvent::OuroborosMessage(unsigned_gossipsub_msg) => {
-            route_gossipsub_msg(registry, unsigned_gossipsub_msg)
-        }
+        UnifiedEvent::OuroborosMessage(msg) => route_gossipsub_msg(registry, &msg.publish),
         UnifiedEvent::OuroborosRequest(request) => route_p2p_request(registry, request),
         UnifiedEvent::GossipMessage(gossipsub_msg) => {
             route_gossipsub_msg(registry, &gossipsub_msg.unsigned)
