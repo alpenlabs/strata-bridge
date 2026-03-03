@@ -5,6 +5,7 @@ use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
 use rkyv::rancor;
 use strata_asm_proto_bridge_v1::AssignmentEntry;
+use strata_bridge_asm_events::event::AssignmentsState;
 use strata_bridge_p2p_service::message_handler2::OuroborosMessage;
 use strata_bridge_p2p_types2::GossipsubMsg;
 use strata_bridge_p2p_wire::p2p::v1::GetMessageRequest; /* FIXME: (@Rajil1213) this is
@@ -64,7 +65,7 @@ pub struct EventsMux {
     pub block_sub: Subscription<BlockEvent>,
 
     /// Assignment entry stream from the ASM runner.
-    pub assignments_sub: Subscription<Vec<AssignmentEntry>>,
+    pub assignments_sub: Subscription<AssignmentsState>,
 
     /// P2P handle for gossipsub messages.
     pub gossip_handle: GossipHandle,
@@ -115,7 +116,7 @@ impl EventsMux {
                 }
 
                 // Next, we handle assignment entries from the ASM runner which are also observed from bitcoin.
-                Some(assignments) = self.assignments_sub.next() => return UnifiedEvent::Assignment(assignments),
+                Some(state) = self.assignments_sub.next() => return UnifiedEvent::Assignment(state.assignments),
 
                 // Then, we handle gossip messages received from peers.
                 Ok(GossipEvent::ReceivedMessage(raw_msg)) = self.gossip_handle.next_event() => {
