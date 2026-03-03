@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use bitcoind_async_client::traits::Reader;
 use strata_bridge_db2::fdb::client::FdbClient;
 use strata_tasks::TaskExecutor;
 use tracing::{debug, info};
@@ -9,7 +10,9 @@ use tracing::{debug, info};
 use crate::{
     config::Config,
     mode::services::{
-        operator_table::init_operator_table, operator_wallet::init_operator_wallet,
+        btc_client::{init_btc_rpc_client, init_zmq_client},
+        operator_table::init_operator_table,
+        operator_wallet::init_operator_wallet,
         secret_service::init_secret_service_client,
     },
     params::Params,
@@ -43,6 +46,16 @@ pub(crate) async fn bootstrap(
     debug!("initializing operator wallet");
     let _operator_wallet = init_operator_wallet(&config, &params, &s2_client, &db).await?;
     info!("operator wallet initialized");
+
+    debug!("initializing bitcoin client");
+    let btc_rpc_client = init_btc_rpc_client(&config)?;
+    let cur_height = btc_rpc_client.get_block_count().await?;
+    info!(%cur_height, "bitcoin client initialized and synced");
+
+    debug!("initializing btc zmq client");
+    let zmq_client = init_zmq_client(&config, params.genesis_height).await?;
+    let start_height = zmq_client.start_height();
+    info!(%start_height, "btc zmq client initialized and subscribed to bitcoin node");
 
     Ok(())
 }

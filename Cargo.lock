@@ -10115,10 +10115,13 @@ dependencies = [
 name = "strata-bridge"
 version = "0.1.0"
 dependencies = [
+ "algebra",
  "anyhow",
+ "async-trait",
  "bdk_bitcoind_rpc",
  "bitcoin",
  "bitcoin-bosd",
+ "bitcoind-async-client",
  "btc-tracker",
  "clap",
  "hex",
