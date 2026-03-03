@@ -1119,7 +1119,7 @@ mod tests {
         info!("finalizing disprove transaction");
         const INPUT_INDEX: usize = 0;
 
-        let witness_type = &disprove_tx.witnesses()[INPUT_INDEX];
+        let witness_type = disprove_tx.witnesses()[INPUT_INDEX].clone();
         assert!(
             matches!(witness_type, TaprootWitness::Tweaked { .. }),
             "witness on the first input must be tweaked"
@@ -1129,7 +1129,7 @@ mod tests {
         assert_eq!(sighash_type, TapSighashType::Single);
 
         let disprove_msg = disprove_tx.sighashes()[INPUT_INDEX];
-        let disprove_sig = generate_agg_signature(&disprove_msg, &n_of_n_keypair, witness_type);
+        let disprove_sig = generate_agg_signature(&disprove_msg, &n_of_n_keypair, &witness_type);
         let disprove_sig = taproot::Signature {
             signature: disprove_sig,
             sighash_type,
@@ -1461,10 +1461,10 @@ mod tests {
         let challenge_tx = ChallengeTx::new(challenge_tx_input, claim_out_1);
 
         let input_index = challenge_leaf.get_input_index() as usize;
-        let challenge_witness = &challenge_tx.witnesses()[input_index];
+        let challenge_witness = challenge_tx.witnesses()[input_index].clone();
         let msg_hash = challenge_tx.sighashes()[input_index];
 
-        let signature = generate_agg_signature(&msg_hash, keypair, challenge_witness);
+        let signature = generate_agg_signature(&msg_hash, keypair, &challenge_witness);
         let signature = taproot::Signature {
             signature,
             sighash_type: challenge_leaf.get_sighash_type(),
@@ -1493,7 +1493,7 @@ mod tests {
             post_assert,
         } = assert_chain;
 
-        let witnesses = pre_assert.witnesses();
+        let witnesses = pre_assert.witnesses().clone();
         let pre_assert_input_amount = pre_assert.input_amount();
         let pre_assert_cpfp_vout = pre_assert.cpfp_vout();
         let tx_hash = pre_assert.sighashes()[0];
@@ -1562,8 +1562,7 @@ mod tests {
         let mut total_assert_vsize = 0;
         let mut total_assert_with_child_vsize = 0;
 
-        assert_data_input_amounts.into_iter().zip(signed_assert_data_txs
-            .into_iter())
+        assert_data_input_amounts.into_iter().zip(signed_assert_data_txs)
             .enumerate()
             .for_each(|(i, (input_amount, tx))| {
                 assert!(
