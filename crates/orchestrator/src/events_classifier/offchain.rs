@@ -30,7 +30,7 @@ pub(crate) fn classify(
 ) -> Option<SMEvent> {
     match event {
         UnifiedEvent::OuroborosMessage(msg) => {
-            classify_unsigned_gossip(sm_registry, &OperatorKey::Pov, msg)
+            classify_unsigned_gossip(sm_registry, &OperatorKey::Pov, &msg.publish)
                 .into_iter()
                 .next()
         }
