@@ -7,6 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+algebra.workspace = true
 btc-tracker.workspace = true
 operator-wallet.workspace = true
 secret-service-client.workspace = true
@@ -23,9 +24,11 @@ strata-l1-txfmt.workspace = true
 strata-tasks.workspace = true
 
 anyhow.workspace = true
+async-trait.workspace = true
 bdk_bitcoind_rpc.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
+bitcoind-async-client.workspace = true
 clap.workspace = true
 hex.workspace = true
 libp2p.workspace = true
