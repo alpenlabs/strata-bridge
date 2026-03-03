@@ -1691,7 +1691,7 @@ impl ContractManagerCtx {
 
             // if the stake data is missing, don't proceed further with this contract
             if !requests.is_empty() {
-                all_requests.extend(requests.into_iter());
+                all_requests.extend(requests);
                 continue;
             }
 
@@ -1724,7 +1724,7 @@ impl ContractManagerCtx {
 
                 // If this is not empty then we can't yet nag for the graph nonces.
                 if !requests.is_empty() {
-                    all_requests.extend(requests.into_iter());
+                    all_requests.extend(requests);
                     continue;
                 }
 
@@ -1758,7 +1758,7 @@ impl ContractManagerCtx {
 
                 // If this is not empty then we can't yet nag for the graph sigs.
                 if !requests.is_empty() {
-                    all_requests.extend(requests.into_iter());
+                    all_requests.extend(requests);
                     continue;
                 }
 
@@ -1788,7 +1788,7 @@ impl ContractManagerCtx {
 
                 // If this is not empty then we can't yet nag for the root nonces.
                 if !requests.is_empty() {
-                    all_requests.extend(requests.into_iter());
+                    all_requests.extend(requests);
                     continue;
                 }
 
@@ -1810,7 +1810,7 @@ impl ContractManagerCtx {
 
                 // If this is not empty then we can't yet nag for the root sigs.
                 if !requests.is_empty() {
-                    all_requests.extend(requests.into_iter());
+                    all_requests.extend(requests);
                     continue;
                 }
 

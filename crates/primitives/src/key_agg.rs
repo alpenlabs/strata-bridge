@@ -10,7 +10,7 @@ pub fn create_agg_ctx(
     public_keys: impl IntoIterator<Item = PublicKey>,
     witness: &TaprootTweak,
 ) -> Result<KeyAggContext, AggError> {
-    let key_agg_ctx = KeyAggContext::new(public_keys.into_iter())?;
+    let key_agg_ctx = KeyAggContext::new(public_keys)?;
 
     Ok(match witness {
         TaprootTweak::Key { tweak } => {
