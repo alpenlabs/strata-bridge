@@ -10170,6 +10170,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "btc-tracker",
+ "clap",
+ "libp2p",
+ "memory_pprof",
+ "serde",
+ "strata-bridge-asm-events",
+ "strata-bridge-common",
+ "strata-bridge-db2",
+ "strata-bridge-p2p-service",
+ "strata-tasks",
+ "tikv-jemallocator",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "strata-bridge-asm-events"
 version = "0.1.0"
 dependencies = [
