@@ -453,7 +453,7 @@ impl DepositSM {
     /// Returns the `OutPoint` of the DRT from the current state
     ///
     /// Returns `None` if the deposit UTXO has been confirmed spent on-chain.
-    pub(crate) fn deposit_request_outpoint(&self) -> Option<OutPoint> {
+    pub fn deposit_request_outpoint(&self) -> Option<OutPoint> {
         match self.state() {
             DepositState::Created {
                 deposit_transaction,
