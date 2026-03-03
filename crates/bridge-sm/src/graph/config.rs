@@ -2,6 +2,7 @@
 
 use bitcoin::{Amount, XOnlyPublicKey, hashes::sha256};
 use bitcoin_bosd::Descriptor;
+use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_tx_graph2::game_graph::{KeyData, ProtocolParams, SetupParams};
 
 use crate::graph::context::GraphSMCtx;
@@ -42,10 +43,7 @@ pub struct GraphSMCfg {
     pub watchtower_fault_pubkeys: Vec<XOnlyPublicKey>,
 
     /// Descriptor to which payouts are to be sent in case of a successful peg out.
-    pub payout_desc: Descriptor,
-
-    /// Descriptors where slashed stake funds are to be disbursed.
-    pub slash_watchtower_descriptors: Vec<Descriptor>,
+    pub payout_descs: Vec<Descriptor>,
 }
 
 impl GraphSMCfg {
@@ -63,7 +61,7 @@ impl GraphSMCfg {
         SetupParams {
             operator_index,
             stake_outpoint,
-            keys: self.generate_key_data(n_of_n_pubkey, unstaking_image),
+            keys: self.generate_key_data(operator_index, n_of_n_pubkey, unstaking_image),
         }
     }
 
@@ -71,6 +69,7 @@ impl GraphSMCfg {
     /// and external values.
     pub fn generate_key_data(
         &self,
+        pov_idx: OperatorIdx,
         n_of_n_pubkey: XOnlyPublicKey,
         unstaking_image: sha256::Hash,
     ) -> KeyData {
@@ -81,8 +80,19 @@ impl GraphSMCfg {
             watchtower_pubkeys: self.watchtower_pubkeys.clone(),
             admin_pubkey: self.admin_pubkey,
             wt_fault_pubkeys: self.watchtower_fault_pubkeys.clone(),
-            operator_descriptor: self.payout_desc.clone(),
-            slash_watchtower_descriptors: self.slash_watchtower_descriptors.clone(),
+            operator_descriptor: self.payout_descs[pov_idx as usize].clone(),
+            slash_watchtower_descriptors: self
+                .payout_descs
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, desc)| {
+                    if idx as OperatorIdx != pov_idx {
+                        Some(desc.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
         }
     }
 }
