@@ -47,7 +47,7 @@ pub(crate) fn classify(
         // consumed by the SMs without any direct on-chain interaction
         UnifiedEvent::Assignment(entries) => classify_assignment(sm_id, entries),
 
-        UnifiedEvent::Block(_) | UnifiedEvent::Shutdown(_) => None,
+        UnifiedEvent::Block(_) | UnifiedEvent::Shutdown => None,
 
         UnifiedEvent::OuroborosRequest(_) => unimplemented!("see STR-2329"),
         UnifiedEvent::ReqRespRequest { .. } => unimplemented!("see STR-2329"),
@@ -490,8 +490,7 @@ mod tests {
     #[test]
     fn classify_shutdown_returns_none() {
         let registry = test_empty_registry();
-        let (tx, _rx) = tokio::sync::oneshot::channel::<()>();
-        let event = UnifiedEvent::Shutdown(tx);
+        let event = UnifiedEvent::Shutdown;
         let sm_id = SMId::Deposit(0);
 
         let result = classify(&sm_id, &event, &registry);

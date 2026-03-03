@@ -22,7 +22,7 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
         UnifiedEvent::Block(_block_event) => Vec::new(),
         // handled outside this component as this is not state machine specific, it's a signal to
         // the orchestrator to shutdown, so we don't route it to any state machine
-        UnifiedEvent::Shutdown(_sender) => Vec::new(),
+        UnifiedEvent::Shutdown => Vec::new(),
         // relevant to all state machines
         UnifiedEvent::NagTick | UnifiedEvent::RetryTick => registry.get_all_ids(),
 

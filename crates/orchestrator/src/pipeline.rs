@@ -61,9 +61,8 @@ impl Pipeline {
 
             // Handle non-routable events (consume `event` on early exit, rebind otherwise)
             let event = match event {
-                UnifiedEvent::Shutdown(sender) => {
-                    info!("received shutdown signal, draining registry");
-                    let _ = sender.send(());
+                UnifiedEvent::Shutdown => {
+                    info!("received shutdown signal, breaking out of event loop");
                     return Ok(());
                 }
 
