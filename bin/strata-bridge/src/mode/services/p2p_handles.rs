@@ -9,14 +9,10 @@ use libp2p_identity::{
 };
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{P2PSigner, SecretService};
-use strata_bridge_p2p_service::{
-    Configuration as P2PConfiguration, MessageHandler2, OuroborosMessage,
-    bootstrap as p2p_bootstrap,
-};
+use strata_bridge_p2p_service::{Configuration as P2PConfiguration, bootstrap as p2p_bootstrap};
 use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_p2p::swarm::handle::{CommandHandle, GossipHandle, ReqRespHandle};
 use strata_tasks::TaskExecutor;
-use tokio::sync::mpsc;
 use tracing::{debug, info};
 
 use crate::{
@@ -31,11 +27,13 @@ pub(in crate::mode) struct P2PHandles {
     #[expect(unused)]
     command_handle: CommandHandle,
     /// Handle to the gossip subsystem.
+    #[expect(unused)]
     gossip_handle: GossipHandle,
     /// Handle to the request-response subsystem.
     #[expect(unused)]
     req_resp_handle: ReqRespHandle,
     /// [`Keypair`] used as [`PeerId`].
+    #[expect(unused)]
     keypair: Keypair,
 }
 
