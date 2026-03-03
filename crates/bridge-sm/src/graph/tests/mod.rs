@@ -103,9 +103,7 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
     let watchtower_fault_pubkeys = (0..N_TEST_OPERATORS - 1)
         .map(|_| generate_xonly_pubkey())
         .collect();
-    let slash_watchtower_descriptors = (0..N_TEST_OPERATORS - 1)
-        .map(|_| random_p2tr_desc())
-        .collect();
+    let payout_descs = (0..N_TEST_OPERATORS).map(|_| random_p2tr_desc()).collect();
 
     Arc::new(GraphSMCfg {
         game_graph_params: ProtocolParams {
@@ -125,8 +123,7 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
         admin_pubkey: generate_xonly_pubkey(),
         operator_fee: TEST_OPERATOR_FEE,
         watchtower_fault_pubkeys,
-        payout_desc: random_p2tr_desc(),
-        slash_watchtower_descriptors,
+        payout_descs,
     })
 }
 
