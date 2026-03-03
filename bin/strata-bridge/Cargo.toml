@@ -21,11 +21,13 @@ strata-bridge-orchestrator.workspace = true
 strata-bridge-p2p-service.workspace = true
 strata-bridge-p2p-types.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-rpc.workspace = true
 strata-bridge-sm.workspace = true
 strata-bridge-tx-graph2.workspace = true
 
 strata-l1-txfmt.workspace = true
 strata-p2p.workspace = true
+strata-primitives.workspace = true
 strata-tasks.workspace = true
 
 anyhow.workspace = true
@@ -34,9 +36,11 @@ bdk_bitcoind_rpc.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
+chrono.workspace = true
 clap.workspace = true
 ed25519-dalek.workspace = true
 hex.workspace = true
+jsonrpsee = { workspace = true, features = ["client", "server"] }
 libp2p.workspace = true
 libp2p-identity.workspace = true
 rustls-pemfile.workspace = true

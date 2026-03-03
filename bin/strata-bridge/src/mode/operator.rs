@@ -15,6 +15,7 @@ use crate::{
         operator_wallet::init_operator_wallet,
         orchestrator::init_orchestrator,
         p2p_handles::{P2PHandles, init_p2p_handles},
+        rpc_server::init_rpc_server,
         secret_service::init_secret_service_client,
     },
     params::Params,
@@ -61,12 +62,16 @@ pub(crate) async fn bootstrap(
 
     debug!("initializing p2p client");
     let P2PHandles {
-        command_handle: _command_handle, // NOTE: (@Rajil1213) will be used in rpc
+        command_handle,
         gossip_handle,
         req_resp_handle,
         keypair,
     } = init_p2p_handles(&config, &params, &s2_client, &executor).await?;
     info!("p2p client initialized, connected to swarm and listening");
+
+    debug!("starting rpc server");
+    init_rpc_server(&params, &config, db.clone(), command_handle, &executor).await?;
+    info!(addr=%config.rpc.rpc_addr, "rpc server started and listening for requests");
 
     debug!("starting orchestrator pipeline");
     init_orchestrator(
