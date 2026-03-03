@@ -10116,6 +10116,7 @@ name = "strata-bridge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bdk_bitcoind_rpc",
  "bitcoin",
  "bitcoin-bosd",
  "btc-tracker",
@@ -10123,6 +10124,7 @@ dependencies = [
  "hex",
  "libp2p",
  "memory_pprof",
+ "operator-wallet",
  "rustls-pemfile",
  "secp256k1 0.29.1",
  "secret-service-client",
@@ -10130,6 +10132,7 @@ dependencies = [
  "serde",
  "strata-bridge-asm-events",
  "strata-bridge-common",
+ "strata-bridge-connectors2",
  "strata-bridge-db2",
  "strata-bridge-p2p-service",
  "strata-bridge-p2p-types",
