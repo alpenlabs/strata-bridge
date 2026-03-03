@@ -107,7 +107,7 @@ impl PersistenceTracker {
 
 /// Persister is responsible for persisting state machine states to disk and recovering them during
 /// startup.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Persister {
     db: Arc<FdbClient>,
 }
