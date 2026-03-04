@@ -97,9 +97,6 @@ const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
 
 /// Creates a test bridge-wide GSM configuration.
 pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
-    let watchtower_pubkeys = (0..N_TEST_OPERATORS - 1)
-        .map(|_| generate_xonly_pubkey())
-        .collect();
     let watchtower_fault_pubkeys = (0..N_TEST_OPERATORS - 1)
         .map(|_| generate_xonly_pubkey())
         .collect();
@@ -119,7 +116,6 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             stake_amount: STAKE_AMOUNT,
         },
         operator_adaptor_key: generate_xonly_pubkey(),
-        watchtower_pubkeys,
         admin_pubkey: generate_xonly_pubkey(),
         operator_fee: TEST_OPERATOR_FEE,
         watchtower_fault_pubkeys,

@@ -22,12 +22,6 @@ pub struct GraphSMCfg {
     // mosaic-less demo.
     pub operator_adaptor_key: XOnlyPublicKey,
 
-    /// Keys used to lock the claim-contest output.
-    ///
-    /// Signature corresponding to one of these keys can be used to initiate a contest on an
-    /// operator's claim.
-    pub watchtower_pubkeys: Vec<XOnlyPublicKey>,
-
     /// Key that locks the payout connector output.
     ///
     /// Signature corresponding to this key can be used to block payouts to the operator.
