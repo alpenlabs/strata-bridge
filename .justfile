@@ -111,17 +111,17 @@ docker: build-base build-rt build-compose
 # Generate TLS for secret service 1
 [group('docker')]
 gen-s2-tls-1:
-    ./docker/gen_s2_tls.sh docker/vol/alpen-bridge-1 docker/vol/secret-service-1
+    ./docker/gen_s2_tls.sh docker/vol/strata-bridge-1 docker/vol/secret-service-1
 
 # Generate TLS for secret service 2
 [group('docker')]
 gen-s2-tls-2:
-    ./docker/gen_s2_tls.sh docker/vol/alpen-bridge-2 docker/vol/secret-service-2
+    ./docker/gen_s2_tls.sh docker/vol/strata-bridge-2 docker/vol/secret-service-2
 
 # Generate TLS for secret service 3
 [group('docker')]
 gen-s2-tls-3:
-    ./docker/gen_s2_tls.sh docker/vol/alpen-bridge-3 docker/vol/secret-service-3
+    ./docker/gen_s2_tls.sh docker/vol/strata-bridge-3 docker/vol/secret-service-3
 
 # (Re)generates the TLS CAs, certs and keys for S2's and the bridge nodes to connect
 [group('docker')]
@@ -338,7 +338,7 @@ checkpoint:
         --btc-pass password \
         --checkpoint-tag strata-ckpt \
         --deposit-entries deposit-entries.json \
-        --sequencer-xpriv tprv8ezKDhpQHojBcUwXVZHBHBMg3QJQieAneQt9kkSMBoxdWdfBi1oBTiDev4J1ebeWH9hVV64fDeddyaLjMe7tjuS16QKPwykFAAiM66RcZWi # keep this in sync with `docker/vol/alpen-bridge-{1,2,3}/params.toml`
+        --sequencer-xpriv tprv8ezKDhpQHojBcUwXVZHBHBMg3QJQieAneQt9kkSMBoxdWdfBi1oBTiDev4J1ebeWH9hVV64fDeddyaLjMe7tjuS16QKPwykFAAiM66RcZWi # keep this in sync with `docker/vol/strata-bridge-{1,2,3}/params.toml`
 
 # Run bridge-in
 [group('bridge')]
@@ -417,9 +417,9 @@ erase-deposit-setup:
     sleep 15 # wait for graph generation to begin
     docker compose stop bridge-{1,2,3}
     sleep 5 # wait for nodes to stop
-    sqlite3 docker/vol/alpen-bridge-1/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1;"
-    sqlite3 docker/vol/alpen-bridge-2/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1 and operator_idx=0;"
-    sqlite3 docker/vol/alpen-bridge-3/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1 and operator_idx=0;"
+    sqlite3 docker/vol/strata-bridge-1/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1;"
+    sqlite3 docker/vol/strata-bridge-2/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1 and operator_idx=0;"
+    sqlite3 docker/vol/strata-bridge-3/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1 and operator_idx=0;"
     docker compose start bridge-{2,3}
     sleep 10 # wait for nodes to sync
     for i in {1..3}; do
@@ -442,12 +442,12 @@ Manual steps required before running this recipe:
 ")]
 leak-deposit-setup:
     #!/usr/bin/env bash -xe
-    sqlite3 docker/vol/alpen-bridge-1/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
-    sqlite3 docker/vol/alpen-bridge-1/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
-    sqlite3 docker/vol/alpen-bridge-2/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
-    sqlite3 docker/vol/alpen-bridge-2/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
-    sqlite3 docker/vol/alpen-bridge-3/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
-    sqlite3 docker/vol/alpen-bridge-3/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/strata-bridge-1/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/strata-bridge-1/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/strata-bridge-2/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/strata-bridge-2/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/strata-bridge-3/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/strata-bridge-3/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
     for i in {1..2}; do
         just bridge-in
     done
