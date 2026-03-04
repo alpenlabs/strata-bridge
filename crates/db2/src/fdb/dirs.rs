@@ -55,6 +55,12 @@ pub struct Directories {
 
     /// Subspace for storing fund OutPoints, keyed by `Txid`.
     pub funds: DirectorySubspace,
+
+    /// Subspace for storing ASM step proofs.
+    pub asm_proofs: DirectorySubspace,
+
+    /// Subspace for storing Moho recursive proofs.
+    pub moho_proofs: DirectorySubspace,
 }
 
 impl Directories {
@@ -74,6 +80,8 @@ impl Directories {
         let deposits = open_subdir(&root, txn, SubSpaceId::Deposits).await?;
         let graphs = open_subdir(&root, txn, SubSpaceId::Graphs).await?;
         let funds = open_subdir(&root, txn, SubSpaceId::Funds).await?;
+        let asm_proofs = open_subdir(&root, txn, SubSpaceId::AsmProofs).await?;
+        let moho_proofs = open_subdir(&root, txn, SubSpaceId::MohoProofs).await?;
 
         Ok(Self {
             root,
@@ -81,6 +89,8 @@ impl Directories {
             deposits,
             graphs,
             funds,
+            asm_proofs,
+            moho_proofs,
         })
     }
 
@@ -119,6 +129,10 @@ pub enum SubSpaceId {
     Graphs,
     /// Subspace for storing fund OutPoints, keyed by `Txid`.
     Funds,
+    /// Subspace for storing AsmProofs, keyed by `L1Range`.
+    AsmProofs,
+    /// Subspace for storing fund recursive MohoProofs, keyed by `L1BlockCommitment`.
+    MohoProofs,
 }
 
 impl From<SubSpaceId> for &'static str {
@@ -128,6 +142,8 @@ impl From<SubSpaceId> for &'static str {
             SubSpaceId::Deposits => "deposits",
             SubSpaceId::Graphs => "graphs",
             SubSpaceId::Funds => "funds",
+            SubSpaceId::AsmProofs => "asm-proofs",
+            SubSpaceId::MohoProofs => "moho-proofs",
         }
     }
 }
