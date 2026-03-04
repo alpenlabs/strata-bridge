@@ -119,10 +119,10 @@ Generate HTML for each binary (bridge and s2)
 ```bash
 PROFDATA=target/llvm-cov-target/coverage.profdata
 
-llvm-cov show target/llvm-cov-target/debug/alpen-bridge \
+llvm-cov show target/llvm-cov-target/debug/strata-bridge \
   -instr-profile="$PROFDATA" \
   -format=html \
-  -output-dir=target/llvm-cov-target/coverage-html/alpen-bridge
+  -output-dir=target/llvm-cov-target/coverage-html/strata-bridge
 
 llvm-cov show target/llvm-cov-target/debug/secret-service \
   -instr-profile="$PROFDATA" \
@@ -133,7 +133,7 @@ llvm-cov show target/llvm-cov-target/debug/secret-service \
 View the html report
 ```bash
 # bridge
-open ./target/llvm-cov-target/coverage-html/alpen-bridge/index.html
+open ./target/llvm-cov-target/coverage-html/strata-bridge/index.html
 
 # s2
 open ./target/llvm-cov-target/coverage-html/secret-service/index.html
