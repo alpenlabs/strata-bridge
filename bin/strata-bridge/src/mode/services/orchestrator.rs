@@ -190,7 +190,6 @@ pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
             .first()
             .expect("at least one covenant key must be provided")
             .adaptor,
-        watchtower_pubkeys: params.keys.covenant.iter().map(|cov| cov.musig2).collect(),
         admin_pubkey: params.keys.admin,
         watchtower_fault_pubkeys: params
             .keys
