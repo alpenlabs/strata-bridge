@@ -168,7 +168,7 @@ jobs:
       - name: Build Cargo project
         run: |
           COV_TARGET_DIR="$GITHUB_WORKSPACE/target/llvm-cov-target"
-          RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin alpen-bridge --target-dir "$COV_TARGET_DIR"
+          RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin strata-bridge --target-dir "$COV_TARGET_DIR"
           RUSTFLAGS="-Cinstrument-coverage" cargo build --locked -p secret-service --bin secret-service --target-dir "$COV_TARGET_DIR"
           RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin strata-asm-runner --target-dir "$COV_TARGET_DIR"
           cargo build --locked --bin dev-cli --target-dir "$COV_TARGET_DIR"
@@ -187,7 +187,7 @@ jobs:
           export PATH="$NEWPATH:$PATH"
           echo "$PATH"
           echo "Making sure built binaries are available"
-          which alpen-bridge
+          which strata-bridge
           which secret-service
           which dev-cli
           cd functional-tests
