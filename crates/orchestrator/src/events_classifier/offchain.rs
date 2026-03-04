@@ -322,10 +322,13 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
 
 #[cfg(test)]
 mod tests {
-    use strata_bridge_primitives::types::GraphIdx;
+    use strata_bridge_p2p_types2::{
+        GossipsubMsg, P2POperatorPubKey, PayoutDescriptor, UnsignedGossipsubMsg,
+    };
+    use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 
     use super::*;
-    use crate::testing::test_empty_registry;
+    use crate::testing::{random_p2tr_desc, test_empty_registry, test_populated_registry};
 
     // ===== classify_assignment tests =====
 
@@ -336,6 +339,17 @@ mod tests {
         let entry: AssignmentEntry = arb.generate();
         let idx = entry.deposit_idx();
         (entry, idx)
+    }
+
+    fn payout_descriptor_msg(
+        deposit_idx: DepositIdx,
+        operator_idx: OperatorIdx,
+    ) -> UnsignedGossipsubMsg {
+        UnsignedGossipsubMsg::PayoutDescriptorExchange {
+            deposit_idx,
+            operator_idx,
+            operator_desc: PayoutDescriptor::from(random_p2tr_desc()),
+        }
     }
 
     #[test]
@@ -445,8 +459,81 @@ mod tests {
         assert!(result.is_none());
     }
 
-    // ===== classify_nag_request tests =====
+    // ===== classify_unsigned_gossip() tests for PayoutDescriptorExchange =====
 
+    #[test]
+    fn classify_payout_descriptor_rejects_unknown_sender() {
+        let registry = test_populated_registry(1);
+        let unknown_key = P2POperatorPubKey::from(vec![0xAA; 32]);
+        let msg = payout_descriptor_msg(0, 0);
+
+        let events = classify_unsigned_gossip(&registry, &OperatorKey::Peer(&unknown_key), &msg);
+        assert!(
+            events.is_empty(),
+            "should reject payout descriptor from unknown sender"
+        );
+    }
+
+    #[test]
+    fn classify_payout_descriptor_rejects_sender_idx_mismatch() {
+        let registry = test_populated_registry(1);
+
+        const OPERATOR_IN_PAYLOAD: OperatorIdx = 1;
+        const SENDER_IDX_IN_MSG: OperatorIdx = 2;
+        const {
+            assert!(
+                OPERATOR_IN_PAYLOAD != SENDER_IDX_IN_MSG,
+                "test setup requires sender idx mismatch"
+            )
+        };
+
+        let sender_key: P2POperatorPubKey = registry
+            .get_deposit(&0)
+            .expect("deposit exists")
+            .context()
+            .operator_table()
+            .idx_to_p2p_key(&OPERATOR_IN_PAYLOAD)
+            .expect("operator exists")
+            .clone()
+            .into();
+        let msg = payout_descriptor_msg(0, SENDER_IDX_IN_MSG);
+
+        let events = classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_key), &msg);
+        assert!(
+            events.is_empty(),
+            "should reject payout descriptor with sender/operator mismatch"
+        );
+    }
+
+    #[test]
+    fn classify_payout_descriptor_accepts_matching_sender_and_idx() {
+        let registry = test_populated_registry(1);
+        const OPERATOR_IDX: OperatorIdx = 1;
+        let sender_key: P2POperatorPubKey = registry
+            .get_deposit(&0)
+            .expect("deposit exists")
+            .context()
+            .operator_table()
+            .idx_to_p2p_key(&OPERATOR_IDX)
+            .expect("operator exists")
+            .clone()
+            .into();
+        let unsigned = payout_descriptor_msg(0, OPERATOR_IDX);
+        let event = UnifiedEvent::GossipMessage(GossipsubMsg {
+            signature: vec![],
+            key: sender_key,
+            unsigned,
+        });
+
+        let result = classify(&SMId::Deposit(0), &event, &registry);
+        assert!(matches!(
+            result,
+            Some(SMEvent::Deposit(event))
+                if matches!(*event, DepositEvent::PayoutDescriptorReceived(_))
+        ));
+    }
+
+    // ===== classify_nag_request tests =====
     mod nag_request_tests {
         use strata_bridge_p2p_types2::{NagRequest, NagRequestPayload, P2POperatorPubKey};
 
