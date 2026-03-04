@@ -188,11 +188,8 @@ pub trait ProofDb {
         &self,
     ) -> impl Future<Output = Result<Option<(L1BlockCommitment, MohoProof)>, Self::Error>> + Send;
 
-    /// Prunes all proofs (both ASM and Moho) for blocks before the given commitment.
+    /// Prunes all proofs (both ASM and Moho) for blocks before the given height.
     ///
-    /// Deletes all entries with height strictly less than `before`'s height.
-    fn prune(
-        &self,
-        before: L1BlockCommitment,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    /// Deletes all entries with height strictly less than `before_height`.
+    fn prune(&self, before_height: u32) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }

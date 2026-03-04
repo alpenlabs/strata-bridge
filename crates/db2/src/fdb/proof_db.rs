@@ -92,9 +92,7 @@ impl ProofDb for FdbClient {
         Ok(Some((commitment, proof)))
     }
 
-    async fn prune(&self, before: L1BlockCommitment) -> Result<(), Self::Error> {
-        let height = before.height_u32();
-
+    async fn prune(&self, height: u32) -> Result<(), Self::Error> {
         // Pack just the height as the range end (exclusive).
         // All keys with a height strictly less than `height` sort before this
         // in FDB's tuple ordering, so clear_range removes exactly those entries.
@@ -269,7 +267,7 @@ mod tests {
             })?;
         }
 
-                /// Property: prune removes entries with height < threshold and preserves
+        /// Property: prune removes entries with height < threshold and preserves
         /// those with height >= threshold, in both the ASM and Moho subspaces.
         #[test]
         fn prune_removes_entries_below_threshold(
@@ -344,11 +342,7 @@ mod tests {
                 }
 
                 // Prune at threshold.
-                let prune_c = L1BlockCommitment::from_height_u64(
-                    threshold as u64,
-                    L1BlockId::from(Buf32::from([0u8; 32])),
-                ).unwrap();
-                client.prune(prune_c).await.unwrap();
+                client.prune(threshold).await.unwrap();
 
                 // Moho entries below threshold should be gone.
                 for (c, _) in &below_moho_entries {
