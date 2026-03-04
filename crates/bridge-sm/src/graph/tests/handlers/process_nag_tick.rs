@@ -260,6 +260,7 @@ mod tests {
                 graph_data: test_deposit_params(),
                 graph_summary: test_graph_summary(),
                 coop_payout_failed: false,
+                assignee: TEST_ASSIGNEE,
                 signatures: vec![],
                 fulfillment_txid: generate_txid(),
                 fulfillment_block_height: LATER_BLOCK_HEIGHT,

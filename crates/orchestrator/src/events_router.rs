@@ -76,17 +76,9 @@ fn route_gossipsub_msg(
             | NagRequestPayload::DepositPartial { deposit_idx }
             | NagRequestPayload::PayoutNonce { deposit_idx }
             | NagRequestPayload::PayoutPartial { deposit_idx } => SMId::Deposit(*deposit_idx),
-            NagRequestPayload::GraphData { .. }
-            | NagRequestPayload::GraphNonces { .. }
-            | NagRequestPayload::GraphPartials { .. } => {
-                // TODO: (mukeshdroid) route graph-domain nags once GraphEvent::NagReceived is
-                // wired.
-                tracing::trace!(
-                    payload = ?nag_request.payload,
-                    "Dropping graph-domain nag request in router (graph nag delivery not enabled yet)"
-                );
-                return vec![];
-            }
+            NagRequestPayload::GraphData { graph_idx }
+            | NagRequestPayload::GraphNonces { graph_idx }
+            | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
         },
     };
 
@@ -146,6 +138,15 @@ mod tests {
         UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
             recipient: P2POperatorPubKey::from(vec![0u8; 32]),
             payload: NagRequestPayload::DepositNonce { deposit_idx },
+        })
+    }
+
+    fn make_graph_nag(deposit: u32, operator: u32) -> UnsignedGossipsubMsg {
+        UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+            recipient: P2POperatorPubKey::from(vec![0u8; 32]),
+            payload: NagRequestPayload::GraphNonces {
+                graph_idx: GraphIdx { deposit, operator },
+            },
         })
     }
 
@@ -237,6 +238,30 @@ mod tests {
 
         let routed = route_gossipsub_msg(&registry, &msg);
         assert_eq!(routed, vec![SMId::Deposit(0)]);
+    }
+
+    #[test]
+    fn route_gossip_graph_nag_known() {
+        let registry = test_populated_registry(1);
+        let msg = make_graph_nag(0, 1);
+
+        let routed = route_gossipsub_msg(&registry, &msg);
+        assert_eq!(
+            routed,
+            vec![SMId::Graph(GraphIdx {
+                deposit: 0,
+                operator: 1,
+            })]
+        );
+    }
+
+    #[test]
+    fn route_gossip_graph_nag_unknown() {
+        let registry = test_populated_registry(1);
+        let msg = make_graph_nag(99, 1);
+
+        let routed = route_gossipsub_msg(&registry, &msg);
+        assert!(routed.is_empty());
     }
 
     // ===== Assignment routing tests =====
