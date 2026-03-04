@@ -236,7 +236,7 @@ impl GraphSM {
                 // Validate that the provided nonces correctly fill the game graph for this context.
                 if GameFunctor::unpack(
                     nonces_received_event.pubnonces.clone(),
-                    cfg.watchtower_pubkeys.len(),
+                    graph_ctx.watchtower_pubkeys().len(),
                 )
                 .is_none()
                 {
@@ -262,7 +262,7 @@ impl GraphSM {
                             .values()
                             .cloned()
                             .map(|nonces| {
-                                GameFunctor::unpack(nonces, cfg.watchtower_pubkeys.len())
+                                GameFunctor::unpack(nonces, graph_ctx.watchtower_pubkeys().len())
                                     .expect("nonces were validated on insert")
                             })
                             .collect::<Vec<_>>(),
@@ -375,7 +375,7 @@ impl GraphSM {
                 // this context.
                 if GameFunctor::unpack(
                     partials_received_event.partial_signatures.clone(),
-                    cfg.watchtower_pubkeys.len(),
+                    graph_ctx.watchtower_pubkeys().len(),
                 )
                 .is_none()
                 {
@@ -394,7 +394,7 @@ impl GraphSM {
                     .get(&partials_received_event.operator_idx)
                     .expect("all operator must have submitted the pub nonce");
                 let btc_keys: Vec<_> = graph_ctx.operator_table().btc_keys().into_iter().collect();
-                let n_watchtowers = cfg.watchtower_pubkeys.len();
+                let n_watchtowers = graph_ctx.watchtower_pubkeys().len();
                 for (i, (signing_info, partial_sig, agg_nonce, op_pubnonce)) in GameFunctor::zip4(
                     GameFunctor::unpack(signing_infos.iter().collect::<Vec<_>>(), n_watchtowers)
                         .expect("signing infos are generated from game graph"),
@@ -647,6 +647,8 @@ impl GraphSM {
         cfg: Arc<GraphSMCfg>,
         claim: ClaimConfirmedEvent,
     ) -> GSMResult<GSMOutput> {
+        let graph_ctx = self.context().clone();
+
         match self.state() {
             // Claim after fulfillment
             GraphState::Fulfilled {
@@ -709,11 +711,13 @@ impl GraphSM {
 
                         let contest_tx = game_graph.contest;
                         let watchtower_index = self.context().operator_table().pov_idx();
-                        let n_of_n_signature =
-                            GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
-                                .expect("Failed to retrieve contest transaction N/N signatures")
-                                .watchtowers[watchtower_index as usize]
-                                .contest[0];
+                        let n_of_n_signature = GameFunctor::unpack(
+                            signatures.clone(),
+                            graph_ctx.watchtower_pubkeys().len(),
+                        )
+                        .expect("Failed to retrieve contest transaction N/N signatures")
+                        .watchtowers[watchtower_index as usize]
+                            .contest[0];
 
                         vec![GraphDuty::PublishContest {
                             contest_tx,
