@@ -127,6 +127,11 @@ impl DepositSM {
             NagRequestPayload::DepositPartial { .. } => self.process_deposit_partial_nag(&event),
             NagRequestPayload::PayoutNonce { .. } => self.process_payout_nonce_nag(&event),
             NagRequestPayload::PayoutPartial { .. } => self.process_payout_partial_nag(&event),
+            NagRequestPayload::GraphData { .. }
+            | NagRequestPayload::GraphNonces { .. }
+            | NagRequestPayload::GraphPartials { .. } => {
+                Err(self.reject_nag(&event, "Graph-domain nag is not applicable to DepositSM"))
+            }
         }?;
 
         Ok(DSMOutput::with_duties(duties))

@@ -249,6 +249,16 @@ pub(crate) fn classify_unsigned_gossip(
                 | NagRequestPayload::DepositPartial { deposit_idx }
                 | NagRequestPayload::PayoutNonce { deposit_idx }
                 | NagRequestPayload::PayoutPartial { deposit_idx } => *deposit_idx,
+                NagRequestPayload::GraphData { .. }
+                | NagRequestPayload::GraphNonces { .. }
+                | NagRequestPayload::GraphPartials { .. } => {
+                    // TODO: (mukeshdroid) Add this once we have NagEvents in GSM
+                    tracing::trace!(
+                        payload = ?nag_request.payload,
+                        "Dropping graph-domain nag request in classifier (graph nag delivery not enabled yet)"
+                    );
+                    return vec![];
+                }
             };
             let sm_id = SMId::Deposit(deposit_idx);
 

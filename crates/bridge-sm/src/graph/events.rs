@@ -177,6 +177,10 @@ pub struct NewBlockEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetryTickEvent;
 
+/// Event signalling that nag duties should be emitted for missing operator data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NagTickEvent;
+
 /// The external events that affect the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphEvent {
@@ -221,6 +225,8 @@ pub enum GraphEvent {
     NewBlock(NewBlockEvent),
     /// Event signalling that retriable duties should be emitted again for the current state.
     RetryTick(RetryTickEvent),
+    /// Event signalling that nag duties should be emitted for missing operator data.
+    NagTick(NagTickEvent),
 }
 
 impl Display for GraphEvent {
@@ -245,6 +251,7 @@ impl Display for GraphEvent {
             GraphEvent::PayoutConnectorSpent(_) => "PayoutConnectorSpent",
             GraphEvent::NewBlock(_) => "NewBlock",
             GraphEvent::RetryTick(_) => "RetryTick",
+            GraphEvent::NagTick(_) => "NagTick",
         };
         write!(f, "{}", display_str)
     }
@@ -287,3 +294,4 @@ impl_into_graph_event!(PayoutConfirmedEvent, PayoutConfirmed);
 impl_into_graph_event!(PayoutConnectorSpentEvent, PayoutConnectorSpent);
 impl_into_graph_event!(NewBlockEvent, NewBlock);
 impl_into_graph_event!(RetryTickEvent, RetryTick);
+impl_into_graph_event!(NagTickEvent, NagTick);
