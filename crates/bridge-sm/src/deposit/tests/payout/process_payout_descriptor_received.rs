@@ -53,6 +53,30 @@ mod tests {
         });
     }
 
+    /// Tests that payout descriptor from a non-assignee is rejected in Fulfilled state.
+    #[test]
+    fn test_payout_descriptor_received_rejected_from_non_assignee() {
+        let operator_desc = random_p2tr_desc();
+
+        let state = DepositState::Fulfilled {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_ASSIGNEE,
+            fulfillment_txid: generate_txid(),
+            fulfillment_height: LATER_BLOCK_HEIGHT,
+            cooperative_payout_deadline: LATER_BLOCK_HEIGHT
+                + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
+        };
+
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: state,
+            event: DepositEvent::PayoutDescriptorReceived(PayoutDescriptorReceivedEvent {
+                operator_idx: TEST_NON_ASSIGNEE_IDX,
+                operator_desc,
+            }),
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
+    }
+
     /// Tests that all states apart from Fulfilled should NOT accept the PayoutDescriptorReceived
     /// event.
     #[test]
