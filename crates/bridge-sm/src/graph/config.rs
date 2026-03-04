@@ -1,11 +1,8 @@
 //! Configuration shared across all graph state machines.
 
-use bitcoin::{Amount, XOnlyPublicKey, hashes::sha256};
+use bitcoin::{Amount, XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
-use strata_bridge_primitives::types::OperatorIdx;
-use strata_bridge_tx_graph2::game_graph::{KeyData, ProtocolParams, SetupParams};
-
-use crate::graph::context::GraphSMCtx;
+use strata_bridge_tx_graph2::game_graph::ProtocolParams;
 
 /// Bridge-wide configuration shared across all graph state machines.
 ///
@@ -21,6 +18,8 @@ pub struct GraphSMCfg {
 
     /// Key used in the locking script of a contest transaction.
     // NOTE: (@Rajil1213) we might need to get this from `Mosaic` per deposit at runtime instead.
+    // Until mosaic is developed, use the same adaptor key for all operators to facilitate
+    // mosaic-less demo.
     pub operator_adaptor_key: XOnlyPublicKey,
 
     /// Keys used to lock the claim-contest output.
@@ -44,55 +43,4 @@ pub struct GraphSMCfg {
 
     /// Descriptor to which payouts are to be sent in case of a successful peg out.
     pub payout_descs: Vec<Descriptor>,
-}
-
-impl GraphSMCfg {
-    /// Generate the [`SetupParams`] required for graph generation.
-    pub fn generate_setup_params(&self, graph_ctx: &GraphSMCtx) -> SetupParams {
-        let n_of_n_pubkey = graph_ctx
-            .operator_table()
-            .aggregated_btc_key()
-            .x_only_public_key()
-            .0;
-        let operator_index = graph_ctx.operator_table().pov_idx();
-        let stake_outpoint = graph_ctx.stake_outpoint();
-        let unstaking_image = graph_ctx.unstaking_image();
-
-        SetupParams {
-            operator_index,
-            stake_outpoint,
-            keys: self.generate_key_data(operator_index, n_of_n_pubkey, unstaking_image),
-        }
-    }
-
-    /// Generates the [`KeyData`] required for graph generation using the configuration parameters
-    /// and external values.
-    pub fn generate_key_data(
-        &self,
-        pov_idx: OperatorIdx,
-        n_of_n_pubkey: XOnlyPublicKey,
-        unstaking_image: sha256::Hash,
-    ) -> KeyData {
-        KeyData {
-            n_of_n_pubkey,
-            unstaking_image,
-            operator_pubkey: self.operator_adaptor_key,
-            watchtower_pubkeys: self.watchtower_pubkeys.clone(),
-            admin_pubkey: self.admin_pubkey,
-            wt_fault_pubkeys: self.watchtower_fault_pubkeys.clone(),
-            operator_descriptor: self.payout_descs[pov_idx as usize].clone(),
-            slash_watchtower_descriptors: self
-                .payout_descs
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, desc)| {
-                    if idx as OperatorIdx != pov_idx {
-                        Some(desc.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-        }
-    }
 }
