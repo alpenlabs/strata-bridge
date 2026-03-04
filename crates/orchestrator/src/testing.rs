@@ -54,9 +54,6 @@ pub(crate) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
 /// Creates a test `GraphSMCfg`, mirroring `bridge-sm/graph/tests::test_graph_sm_cfg`.
 pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
     let n_watchtowers = N_TEST_OPERATORS - 1;
-    let watchtower_pubkeys = (0..n_watchtowers)
-        .map(|_| generate_xonly_pubkey())
-        .collect();
     let watchtower_fault_pubkeys = (0..n_watchtowers)
         .map(|_| generate_xonly_pubkey())
         .collect();
@@ -75,8 +72,7 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             deposit_amount: TEST_DEPOSIT_AMOUNT,
             stake_amount: Amount::from_sat(100_000_000),
         },
-        operator_adaptor_key: generate_xonly_pubkey(),
-        watchtower_pubkeys,
+        operator_adaptor_keys: generate_xonly_pubkey(),
         admin_pubkey: generate_xonly_pubkey(),
         operator_fee: TEST_OPERATOR_FEE,
         watchtower_fault_pubkeys,
