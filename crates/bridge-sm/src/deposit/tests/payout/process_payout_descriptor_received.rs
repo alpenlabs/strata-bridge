@@ -29,6 +29,7 @@ mod tests {
         test_deposit_transition(DepositTransition {
             from_state: state,
             event: DepositEvent::PayoutDescriptorReceived(PayoutDescriptorReceivedEvent {
+                operator_idx: TEST_ASSIGNEE,
                 operator_desc: operator_desc.clone(),
             }),
             expected_state: DepositState::PayoutDescriptorReceived {
@@ -116,6 +117,7 @@ mod tests {
             test_deposit_invalid_transition(DepositInvalidTransition {
                 from_state: state,
                 event: DepositEvent::PayoutDescriptorReceived(PayoutDescriptorReceivedEvent {
+                    operator_idx: TEST_ASSIGNEE,
                     operator_desc: desc.clone(),
                 }),
                 expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
