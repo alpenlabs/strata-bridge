@@ -90,14 +90,14 @@ impl GraphSMCtx {
             .x_only_public_key()
             .0;
 
-        let adaptor_key = cfg.operator_adaptor_key;
+        let owner_idx = self.operator_idx() as usize;
+        let adaptor_key = cfg.operator_adaptor_keys[owner_idx];
         let watchtower_pubkeys = self.watchtower_pubkeys();
 
         let admin_pubkey = cfg.admin_pubkey;
         let unstaking_image = self.unstaking_image();
         let wt_fault_pubkeys = cfg.watchtower_fault_pubkeys.clone();
 
-        let owner_idx = self.operator_idx() as usize;
         let owner_desc = cfg.payout_descs[owner_idx].clone();
         let slash_watchtower_descriptors = cfg
             .payout_descs

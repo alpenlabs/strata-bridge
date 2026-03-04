@@ -185,12 +185,7 @@ pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
     let graph_config = GraphSMCfg {
         game_graph_params,
         operator_fee,
-        operator_adaptor_key: params
-            .keys
-            .covenant
-            .first()
-            .expect("at least one covenant key must be provided")
-            .adaptor,
+        operator_adaptor_keys: params.keys.covenant.iter().map(|cov| cov.adaptor).collect(),
         admin_pubkey: params.keys.admin,
         watchtower_fault_pubkeys: params
             .keys
