@@ -2,7 +2,7 @@
 
 use foundationdb::FdbBindingError;
 use strata_bridge_primitives::proof::{AsmProof, L1Range, MohoProof};
-use strata_identifiers::L1BlockCommitment;
+use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
 use terrors::OneOf;
 
 use crate::{
@@ -11,6 +11,7 @@ use crate::{
         errors::LayerError,
         row_spec::{
             asm_proofs::{AsmProofKey, AsmProofRowSpec},
+            kv::{PackableKey, SerializableValue},
             moho_proofs::{MohoProofKey, MohoProofRowSpec},
         },
     },
@@ -66,7 +67,29 @@ impl ProofDb for FdbClient {
     async fn get_latest_moho_proof(
         &self,
     ) -> Result<Option<(L1BlockCommitment, MohoProof)>, Self::Error> {
-        todo!("reverse range scan")
+        let Some((raw_key, raw_value)) = self
+            .basic_get_last(&self.dirs().moho_proofs)
+            .await
+            .map_err(OneOf::new)?
+        else {
+            return Ok(None);
+        };
+
+        let key = MohoProofKey::unpack(self.dirs(), &raw_key)
+            .map_err(LayerError::failed_to_unpack_key)
+            .map_err(OneOf::new)?;
+
+        let proof = MohoProof::deserialize(&raw_value)
+            .map_err(LayerError::failed_to_deserialize_value)
+            .map_err(OneOf::new)?;
+
+        let commitment = L1BlockCommitment::from_height_u64(
+            key.height as u64,
+            L1BlockId::from(Buf32::from(key.blkid)),
+        )
+        .expect("height was valid when stored");
+
+        Ok(Some((commitment, proof)))
     }
 
     async fn prune(&self, _before: L1BlockCommitment) -> Result<(), Self::Error> {
@@ -180,5 +203,45 @@ mod tests {
             let result = client.get_moho_proof(commitment).await.unwrap();
             assert_eq!(result, None);
         });
+    }
+
+    /// Generates a Vec of (L1BlockCommitment, MohoProof) pairs.
+    fn arb_moho_entries() -> impl Strategy<Value = Vec<(L1BlockCommitment, MohoProof)>> {
+        proptest::collection::vec((arb_l1_block_commitment(), arb_moho_proof()), 2..10)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        /// Property: after storing multiple Moho proofs, get_latest returns the one
+        /// with the highest height.
+        #[test]
+        fn get_latest_moho_proof_returns_highest(entries in arb_moho_entries()) {
+            block_on(async {
+                let client = get_client();
+
+                for (commitment, proof) in &entries {
+                    client.store_moho_proof(*commitment, proof.clone()).await.unwrap();
+                }
+
+                let (latest_commitment, latest_proof) = client
+                    .get_latest_moho_proof()
+                    .await
+                    .unwrap()
+                    .expect("should have proofs after storing");
+
+                // Find the entry with the max key (height, then blkid) to match
+                // FDB's tuple ordering.
+                let expected = entries
+                    .iter()
+                    .max_by_key(|(c, _)| (c.height_u32(), *c.blkid().as_ref()))
+                    .unwrap();
+
+                prop_assert_eq!(latest_commitment.height_u32(), expected.0.height_u32());
+                prop_assert_eq!(latest_proof, expected.1.clone());
+
+                Ok(())
+            })?;
+        }
     }
 }

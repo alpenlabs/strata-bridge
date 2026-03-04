@@ -196,6 +196,11 @@ impl FdbClient {
         .await
     }
 
+    /// Returns a reference to the directories.
+    pub(crate) const fn dirs(&self) -> &Directories {
+        &self.dirs
+    }
+
     /// Basic generic get operation.
     pub async fn basic_get<RS: KVRowSpec>(
         &self,
@@ -270,6 +275,36 @@ impl FdbClient {
         }
 
         Ok(results)
+    }
+
+    /// Returns the last (highest key) entry in the given subspace, or `None` if empty.
+    ///
+    /// Uses a reverse range scan with limit 1. Returns the raw key and value bytes.
+    pub async fn basic_get_last(
+        &self,
+        subspace: &DirectorySubspace,
+    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, FdbBindingError> {
+        let (begin, end) = subspace.range();
+
+        let opt = RangeOption {
+            limit: Some(1),
+            reverse: true,
+            ..RangeOption::from((begin, end))
+        };
+
+        self.db
+            .run(|trx, _| {
+                let opt = opt.clone();
+                async move {
+                    let values = trx.get_range(&opt, 1, true).await?;
+                    if let Some(kv) = values.first() {
+                        Ok(Some((kv.key().to_vec(), kv.value().to_vec())))
+                    } else {
+                        Ok(None)
+                    }
+                }
+            })
+            .await
     }
 
     /// Basic generic delete operation.

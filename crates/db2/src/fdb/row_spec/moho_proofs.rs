@@ -11,6 +11,10 @@ use crate::fdb::{
 };
 
 /// Key for a Moho recursive proof, anchored at an L1 block commitment.
+///
+/// Height is packed first so that FDB's lexicographic key ordering corresponds
+/// to block-height ordering. This enables reverse scans for "latest proof" and
+/// prefix-based range clears for pruning.
 #[derive(Debug)]
 pub struct MohoProofKey {
     /// Block height.

@@ -178,6 +178,12 @@ pub trait ProofDb {
     /// Retrieves the latest (highest height) Moho proof and its L1 block commitment.
     ///
     /// Returns `None` if no Moho proofs have been stored yet.
+    ///
+    /// NOTE: Multiple proofs can exist at the same height (e.g. due to reorgs).
+    /// In that case, the returned entry is determined by the underlying key
+    /// ordering (height, then blkid bytes), which may be arbitrary. Callers that
+    /// need the proof for a specific canonical block should use
+    /// [`get_moho_proof`](Self::get_moho_proof) with the exact commitment.
     fn get_latest_moho_proof(
         &self,
     ) -> impl Future<Output = Result<Option<(L1BlockCommitment, MohoProof)>, Self::Error>> + Send;
