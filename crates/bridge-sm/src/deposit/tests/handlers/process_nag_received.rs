@@ -33,6 +33,10 @@ mod tests {
     #[test]
     fn test_nag_received_deposit_nonce_in_graph_generated_emits_publish_deposit_nonce() {
         let deposit_tx = test_deposit_txn();
+        let claim_txids_by_operator: BTreeMap<_, _> = (0..N_TEST_OPERATORS as u32)
+            .map(|operator_idx| (operator_idx, generate_txid()))
+            .collect();
+        let expected_claim_txids: Vec<_> = claim_txids_by_operator.values().copied().collect();
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let ordered_pubkeys: Vec<_> = operator_table
             .btc_keys()
@@ -49,6 +53,7 @@ mod tests {
         let expected_duty = DepositDuty::PublishDepositNonce {
             deposit_idx: TEST_DEPOSIT_IDX,
             drt_outpoint: test_deposit_outpoint(),
+            claim_txids: expected_claim_txids,
             ordered_pubkeys,
             drt_tweak,
         };
@@ -61,6 +66,7 @@ mod tests {
             state: DepositState::GraphGenerated {
                 deposit_transaction: deposit_tx,
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: claim_txids_by_operator,
                 pubnonces: BTreeMap::new(),
             },
             event: DepositEvent::NagReceived(nag_event),
@@ -71,6 +77,10 @@ mod tests {
     #[test]
     fn test_nag_received_deposit_nonce_in_deposit_nonces_collected_emits_publish_deposit_nonce() {
         let deposit_tx = test_deposit_txn();
+        let claim_txids_by_operator: BTreeMap<_, _> = (0..N_TEST_OPERATORS as u32)
+            .map(|operator_idx| (operator_idx, generate_txid()))
+            .collect();
+        let expected_claim_txids: Vec<_> = claim_txids_by_operator.values().copied().collect();
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let ordered_pubkeys: Vec<_> = operator_table
             .btc_keys()
@@ -88,6 +98,7 @@ mod tests {
         let expected_duty = DepositDuty::PublishDepositNonce {
             deposit_idx: TEST_DEPOSIT_IDX,
             drt_outpoint: test_deposit_outpoint(),
+            claim_txids: expected_claim_txids,
             ordered_pubkeys,
             drt_tweak,
         };
@@ -100,6 +111,7 @@ mod tests {
             state: DepositState::DepositNoncesCollected {
                 deposit_transaction: deposit_tx,
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: claim_txids_by_operator,
                 agg_nonce,
                 pubnonces: BTreeMap::new(),
                 partial_signatures: BTreeMap::new(),
@@ -113,6 +125,10 @@ mod tests {
     fn test_nag_received_deposit_partial_in_deposit_nonces_collected_emits_publish_deposit_partial()
     {
         let deposit_tx = test_deposit_txn();
+        let claim_txids_by_operator: BTreeMap<_, _> = (0..N_TEST_OPERATORS as u32)
+            .map(|operator_idx| (operator_idx, generate_txid()))
+            .collect();
+        let expected_claim_txids: Vec<_> = claim_txids_by_operator.values().copied().collect();
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let ordered_pubkeys: Vec<_> = operator_table
             .btc_keys()
@@ -131,6 +147,7 @@ mod tests {
         let expected_duty = DepositDuty::PublishDepositPartial {
             deposit_idx: TEST_DEPOSIT_IDX,
             drt_outpoint: test_deposit_outpoint(),
+            claim_txids: expected_claim_txids,
             signing_info,
             deposit_agg_nonce: agg_nonce.clone(),
             ordered_pubkeys,
@@ -144,6 +161,7 @@ mod tests {
             state: DepositState::DepositNoncesCollected {
                 deposit_transaction: deposit_tx,
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: claim_txids_by_operator,
                 agg_nonce,
                 pubnonces: BTreeMap::new(),
                 partial_signatures: BTreeMap::new(),
@@ -285,7 +303,7 @@ mod tests {
             from_state: DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
-                linked_graphs: Default::default(),
+                claim_txids: BTreeMap::new(),
             },
             event: DepositEvent::NagReceived(nag_event),
             expected_error: |e| {
@@ -345,7 +363,7 @@ mod tests {
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
-                linked_graphs: Default::default(),
+                claim_txids: BTreeMap::new(),
             },
             DepositState::DepositPartialsCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -414,11 +432,12 @@ mod tests {
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
-                linked_graphs: Default::default(),
+                claim_txids: BTreeMap::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 pubnonces: BTreeMap::new(),
             },
             DepositState::DepositPartialsCollected {
@@ -485,16 +504,18 @@ mod tests {
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
-                linked_graphs: Default::default(),
+                claim_txids: BTreeMap::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 pubnonces: BTreeMap::new(),
             },
             DepositState::DepositNoncesCollected {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 agg_nonce: AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce())),
                 pubnonces: BTreeMap::new(),
                 partial_signatures: BTreeMap::new(),
@@ -550,16 +571,18 @@ mod tests {
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
-                linked_graphs: Default::default(),
+                claim_txids: BTreeMap::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 pubnonces: BTreeMap::new(),
             },
             DepositState::DepositNoncesCollected {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 agg_nonce: AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce())),
                 pubnonces: BTreeMap::new(),
                 partial_signatures: BTreeMap::new(),

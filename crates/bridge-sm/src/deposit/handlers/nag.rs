@@ -153,10 +153,12 @@ impl DepositSM {
         match self.state() {
             DepositState::GraphGenerated {
                 deposit_transaction,
+                claim_txids,
                 ..
             }
             | DepositState::DepositNoncesCollected {
                 deposit_transaction,
+                claim_txids,
                 ..
             } => {
                 let drt_tweak = deposit_transaction
@@ -174,6 +176,7 @@ impl DepositSM {
                 Ok(vec![DepositDuty::PublishDepositNonce {
                     deposit_idx,
                     drt_outpoint: self.context().deposit_outpoint(),
+                    claim_txids: claim_txids.values().copied().collect(),
                     ordered_pubkeys,
                     drt_tweak,
                 }])
@@ -197,6 +200,7 @@ impl DepositSM {
             DepositState::DepositNoncesCollected {
                 agg_nonce,
                 deposit_transaction,
+                claim_txids,
                 ..
             } => {
                 let signing_info = deposit_transaction
@@ -214,6 +218,7 @@ impl DepositSM {
                 Ok(vec![DepositDuty::PublishDepositPartial {
                     deposit_idx,
                     drt_outpoint: self.context().deposit_outpoint(),
+                    claim_txids: claim_txids.values().copied().collect(),
                     signing_info,
                     deposit_agg_nonce: agg_nonce.clone(),
                     ordered_pubkeys,

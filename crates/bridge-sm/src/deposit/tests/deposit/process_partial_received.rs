@@ -41,6 +41,7 @@ mod tests {
             deposit_transaction: deposit_tx.clone(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
+            claim_txids: BTreeMap::new(),
             agg_nonce: agg_nonce.clone(),
             partial_signatures: BTreeMap::new(),
         };
@@ -109,6 +110,7 @@ mod tests {
             deposit_transaction: deposit_tx.clone(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
+            claim_txids: BTreeMap::new(),
             agg_nonce: agg_nonce.clone(),
             partial_signatures: BTreeMap::new(),
         };
@@ -183,6 +185,7 @@ mod tests {
             deposit_transaction: deposit_tx.clone(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
+            claim_txids: BTreeMap::new(),
             agg_nonce: agg_nonce.clone(),
             partial_signatures: BTreeMap::new(),
         };
@@ -243,6 +246,7 @@ mod tests {
             deposit_transaction: deposit_tx.clone(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
             pubnonces,
+            claim_txids: BTreeMap::new(),
             agg_nonce: agg_nonce.clone(),
             partial_signatures: BTreeMap::new(),
         };
