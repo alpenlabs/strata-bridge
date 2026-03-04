@@ -8,8 +8,8 @@ use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
 
 use super::{
     CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
-    TEST_ASSIGNEE, TestGraphTxKind, create_nonpov_sm, dummy_proof_receipt, test_deposit_params,
-    test_graph_data, test_graph_sm_cfg, test_graph_summary, test_recipient_desc,
+    TEST_ASSIGNEE, create_nonpov_sm, dummy_proof_receipt, test_deposit_params, test_graph_data,
+    test_graph_sm_cfg, test_graph_summary, test_recipient_desc,
     utils::{NonceContext, build_nonce_context},
 };
 use crate::graph::{machine::generate_game_graph, state::GraphState};

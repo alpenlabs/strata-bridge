@@ -244,37 +244,36 @@ pub(crate) fn classify_unsigned_gossip(
         }
 
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => {
-            let deposit_idx = match &nag_request.payload {
+            let sm_id = match &nag_request.payload {
                 NagRequestPayload::DepositNonce { deposit_idx }
                 | NagRequestPayload::DepositPartial { deposit_idx }
                 | NagRequestPayload::PayoutNonce { deposit_idx }
-                | NagRequestPayload::PayoutPartial { deposit_idx } => *deposit_idx,
-                NagRequestPayload::GraphData { .. }
-                | NagRequestPayload::GraphNonces { .. }
-                | NagRequestPayload::GraphPartials { .. } => {
-                    // TODO: (mukeshdroid) Add this once we have NagEvents in GSM
-                    tracing::trace!(
-                        payload = ?nag_request.payload,
-                        "Dropping graph-domain nag request in classifier (graph nag delivery not enabled yet)"
-                    );
-                    return vec![];
-                }
+                | NagRequestPayload::PayoutPartial { deposit_idx } => SMId::Deposit(*deposit_idx),
+                NagRequestPayload::GraphData { graph_idx }
+                | NagRequestPayload::GraphNonces { graph_idx }
+                | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
             };
-            let sm_id = SMId::Deposit(deposit_idx);
 
-            // Router guarantees target DepositSM exists for routed events.
-            let pov_p2p_key = sm_registry
-                .get_deposit(&deposit_idx)
-                .map(|sm| sm.context().operator_table().pov_p2p_key().clone())
-                .expect("router should route nags only to existing deposit SMs");
+            // Router guarantees target SM exists for routed events.
+            let pov_p2p_key = match sm_id {
+                SMId::Deposit(deposit_idx) => sm_registry
+                    .get_deposit(&deposit_idx)
+                    .map(|sm| sm.context().operator_table().pov_p2p_key().clone())
+                    .expect("router should route nags only to existing deposit SMs"),
+                SMId::Graph(graph_idx) => sm_registry
+                    .get_graph(&graph_idx)
+                    .map(|sm| sm.context().operator_table().pov_p2p_key().clone())
+                    .expect("router should route nags only to existing graph SMs"),
+            };
 
             // TODO: (mukeshdroid) conversion below can be removed once p2p-type2 is integrated
             // fully.
             let pov_p2p_key: strata_bridge_p2p_types2::P2POperatorPubKey = pov_p2p_key.into();
 
-            // Check recipient matches POV (direct key equality)
+            // Check recipient matches POV
             if nag_request.recipient != pov_p2p_key {
                 tracing::trace!(
+                    target_sm = %sm_id,
                     recipient = ?nag_request.recipient,
                     pov = ?pov_p2p_key,
                     "Dropping nag: not addressed to POV operator"
@@ -284,18 +283,33 @@ pub(crate) fn classify_unsigned_gossip(
 
             // Resolve sender to operator_idx
             let Some(sender_operator_idx) = sm_registry.lookup_operator(&sm_id, key) else {
-                tracing::trace!(sender = ?key, "Dropping nag: unknown sender");
+                tracing::trace!(target_sm = %sm_id, sender = ?key, "Dropping nag: unknown sender");
                 return vec![];
             };
 
-            // Create NagReceivedEvent
-            vec![
-                DepositEvent::NagReceived(DepositEvents::NagReceivedEvent {
-                    payload: nag_request.payload.clone(),
-                    sender_operator_idx,
-                })
-                .into(),
-            ]
+            let event = match &nag_request.payload {
+                NagRequestPayload::DepositNonce { .. }
+                | NagRequestPayload::DepositPartial { .. }
+                | NagRequestPayload::PayoutNonce { .. }
+                | NagRequestPayload::PayoutPartial { .. } => {
+                    DepositEvent::NagReceived(DepositEvents::NagReceivedEvent {
+                        payload: nag_request.payload.clone(),
+                        sender_operator_idx,
+                    })
+                    .into()
+                }
+                NagRequestPayload::GraphData { .. }
+                | NagRequestPayload::GraphNonces { .. }
+                | NagRequestPayload::GraphPartials { .. } => {
+                    GraphEvent::NagReceived(GraphEvents::NagReceivedEvent {
+                        payload: nag_request.payload.clone(),
+                        sender_operator_idx,
+                    })
+                    .into()
+                }
+            };
+
+            vec![event]
         }
     }
 }
@@ -457,7 +471,9 @@ mod tests {
     // ===== classify_nag_request tests =====
 
     mod nag_request_tests {
-        use strata_bridge_p2p_types2::{NagRequest, NagRequestPayload, P2POperatorPubKey};
+        use strata_bridge_p2p_types2::{
+            GraphIdx, NagRequest, NagRequestPayload, P2POperatorPubKey,
+        };
 
         use super::*;
         use crate::testing::{
@@ -563,6 +579,115 @@ mod tests {
                 classify_unsigned_gossip(&registry, &OperatorKey::Peer(&unknown_sender_key), &msg);
 
             assert!(result.is_empty(), "Should drop nag from unknown sender");
+        }
+
+        #[test]
+        fn classify_graph_nag_request_addressed_to_pov_creates_graph_event() {
+            let mut registry = test_empty_registry();
+            let deposit_idx = 42u32;
+            insert_deposit_with_graphs(&mut registry, deposit_idx);
+
+            let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone().into();
+
+            let sender_idx = TEST_NONPOV;
+            let sender_p2p_key = operator_table.idx_to_p2p_key(&sender_idx).unwrap().clone();
+            let graph_idx = GraphIdx {
+                deposit: deposit_idx,
+                operator: sender_idx,
+            };
+
+            let nag_request = NagRequest {
+                recipient: pov_p2p_key,
+                payload: NagRequestPayload::GraphNonces { graph_idx },
+            };
+
+            let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
+            let result = classify_unsigned_gossip(
+                &registry,
+                &OperatorKey::Peer(&sender_p2p_key.into()),
+                &msg,
+            );
+
+            assert_eq!(result.len(), 1, "Should create exactly one graph event");
+            match &result[0] {
+                SMEvent::Graph(boxed) => match boxed.as_ref() {
+                    GraphEvent::NagReceived(evt) => {
+                        assert!(matches!(evt.payload, NagRequestPayload::GraphNonces { .. }));
+                        assert_eq!(evt.sender_operator_idx, sender_idx);
+                    }
+                    other => panic!("Expected graph NagReceived, got {other}"),
+                },
+                other => panic!("Expected Graph event, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn classify_graph_nag_request_not_addressed_to_pov_drops() {
+            let mut registry = test_empty_registry();
+            let deposit_idx = 42u32;
+            insert_deposit_with_graphs(&mut registry, deposit_idx);
+
+            let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+            let non_pov_idx = TEST_NONPOV;
+            let non_pov_p2p_key: P2POperatorPubKey = operator_table
+                .idx_to_p2p_key(&non_pov_idx)
+                .unwrap()
+                .clone()
+                .into();
+
+            let sender_idx = TEST_POV_IDX;
+            let sender_p2p_key = operator_table.idx_to_p2p_key(&sender_idx).unwrap().clone();
+            let graph_idx = GraphIdx {
+                deposit: deposit_idx,
+                operator: non_pov_idx,
+            };
+
+            let nag_request = NagRequest {
+                recipient: non_pov_p2p_key, // Not addressed to POV
+                payload: NagRequestPayload::GraphNonces { graph_idx },
+            };
+
+            let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
+            let result = classify_unsigned_gossip(
+                &registry,
+                &OperatorKey::Peer(&sender_p2p_key.into()),
+                &msg,
+            );
+
+            assert!(
+                result.is_empty(),
+                "Should drop graph nag not addressed to POV"
+            );
+        }
+
+        #[test]
+        fn classify_graph_nag_request_unknown_sender_drops() {
+            let mut registry = test_empty_registry();
+            let deposit_idx = 42u32;
+            insert_deposit_with_graphs(&mut registry, deposit_idx);
+
+            let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone().into();
+            let unknown_sender_key: P2POperatorPubKey = vec![0xffu8; 32].into();
+            let graph_idx = GraphIdx {
+                deposit: deposit_idx,
+                operator: TEST_NONPOV,
+            };
+
+            let nag_request = NagRequest {
+                recipient: pov_p2p_key,
+                payload: NagRequestPayload::GraphNonces { graph_idx },
+            };
+
+            let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
+            let result =
+                classify_unsigned_gossip(&registry, &OperatorKey::Peer(&unknown_sender_key), &msg);
+
+            assert!(
+                result.is_empty(),
+                "Should drop graph nag from unknown sender"
+            );
         }
 
         #[test]
