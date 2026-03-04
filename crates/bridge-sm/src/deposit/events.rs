@@ -69,6 +69,8 @@ pub struct FulfillmentConfirmedEvent {
 /// received.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayoutDescriptorReceivedEvent {
+    /// The operator who sent the payout descriptor.
+    pub operator_idx: OperatorIdx,
     /// The output descriptor of the operator where the funds for the cooperative payout are to
     /// be received.
     pub operator_desc: Descriptor,

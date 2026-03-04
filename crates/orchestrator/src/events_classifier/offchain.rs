@@ -76,6 +76,7 @@ pub(crate) fn classify_unsigned_gossip(
                 vec![
                     DepositEvent::PayoutDescriptorReceived(
                         DepositEvents::PayoutDescriptorReceivedEvent {
+                            operator_idx: *operator_idx,
                             operator_desc: descriptor,
                         },
                     )
