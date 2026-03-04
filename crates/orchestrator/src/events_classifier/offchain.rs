@@ -72,7 +72,23 @@ pub(crate) fn classify_unsigned_gossip(
             operator_idx,
             deposit_idx,
         } => {
-            // FIXME: (@Rajil1213) this needs to validate the sender as well (see STR-2316)
+            let sm_id = SMId::Deposit(*deposit_idx);
+            let Some(sender_idx) = sm_registry.lookup_operator(&sm_id, key) else {
+                warn!(
+                    %deposit_idx, %operator_idx,
+                    "Received payout descriptor from unknown sender, ignoring"
+                );
+                return vec![];
+            };
+
+            if sender_idx != *operator_idx {
+                warn!(
+                    %deposit_idx, claimed_operator_idx=%operator_idx, resolved_operator_idx=%sender_idx,
+                    "Received payout descriptor with sender/operator mismatch, ignoring"
+                );
+                return vec![];
+            }
+
             if let Ok(descriptor) = Descriptor::try_from(operator_desc.clone()) {
                 vec![
                     DepositEvent::PayoutDescriptorReceived(
