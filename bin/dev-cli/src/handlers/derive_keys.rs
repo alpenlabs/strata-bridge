@@ -4,6 +4,7 @@
 
 use anyhow::{bail, Result};
 use bitcoin::{bip32::Xpriv, hex::DisplayHex};
+use bitcoin_bosd::Descriptor;
 use libp2p_identity::ed25519::{Keypair as EdKeypair, SecretKey as EdSecretKey};
 use serde_json::json;
 use strata_bridge_key_deriv::{Musig2Keys, OperatorKeys, WalletKeys};
@@ -34,7 +35,10 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
 
     // Derive wallet keys using key-deriv crate
     let wallet_keys = WalletKeys::derive(base_xpriv)?;
-    let general_wallet = wallet_keys.general_p2tr_address(args.network).to_string();
+    let general_wallet_addr = wallet_keys.general_p2tr_address(args.network);
+    let general_wallet_descriptor = Descriptor::try_from(general_wallet_addr.clone())
+        .map_err(|e| anyhow::anyhow!("Failed to parse general wallet descriptor: {e:?}"))?;
+
     let stake_chain_wallet = wallet_keys
         .stakechain_p2tr_address(args.network)
         .to_string();
@@ -53,7 +57,8 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
     // Output the JSON entry
     let output = json!({
         "seed": seed.to_lower_hex_string(),
-        "general_wallet_address": general_wallet,
+        "general_wallet_address": general_wallet_addr.to_string(),
+        "general_wallet_descriptor": general_wallet_descriptor.to_string(),
         "stake_chain_wallet_address": stake_chain_wallet,
         "musig2_key": musig2_pubkey_hex,
         "p2p_key": p2p_pubkey
