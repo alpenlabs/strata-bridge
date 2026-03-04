@@ -10,8 +10,11 @@ from utils.network import wait_until_p2p_connected
 from utils.utils import read_operator_key, wait_until_bridge_ready
 
 
+# NOTE: (@Rajil1213) `flexitest` only recognizes modules that end with `Test`. The `-Disabled`
+# suffix has been used to disable this test until `dev-cli` is updated to use the new
+# DRT format recognized by ASM. See: https://github.com/alpenlabs/strata-bridge/pull/375.
 @flexitest.register
-class BridgeDepositTest(StrataTestBase):
+class BridgeDepositTestDisabled(StrataTestBase):
     """
     Test that a deposit can be made and completed successfully in a bridge network environment.
     """
