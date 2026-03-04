@@ -103,7 +103,7 @@ mod tests {
     use strata_identifiers::{Buf32, L1BlockId};
 
     use super::*;
-    use crate::fdb::test_utils::{block_on, get_client};
+    use crate::fdb::test_utils::{block_on, get_client, new_test_client};
 
     /// Generates an arbitrary L1BlockCommitment.
     /// Heights must be < 500_000_000 (bitcoin LOCK_TIME_THRESHOLD).
@@ -217,9 +217,10 @@ mod tests {
         /// with the highest height.
         #[test]
         fn get_latest_moho_proof_returns_highest(entries in arb_moho_entries()) {
+            // Each iteration gets its own isolated namespace so
+            // get_latest only sees entries from this iteration.
+            let client = new_test_client();
             block_on(async {
-                let client = get_client();
-
                 for (commitment, proof) in &entries {
                     client.store_moho_proof(*commitment, proof.clone()).await.unwrap();
                 }

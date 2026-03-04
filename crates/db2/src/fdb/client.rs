@@ -112,12 +112,35 @@ impl FdbClient {
         ))
     }
 
-    /// Clears the database using the root directory.
+    /// Creates a new client with a randomly-named root directory, reusing
+    /// an already-booted FDB network.  Each call returns a fully isolated
+    /// client so tests don't interfere with each other.
     #[cfg(test)]
-    pub async fn clear(&self) -> Result<Result<bool, DirectoryError>, FdbBindingError> {
-        self.db
-            .run(|trx, _| async move { Ok(self.dirs.clear(&trx).await) })
+    pub async fn new_client_in_namespace(
+        config: &Config,
+    ) -> Result<Self, OneOf<(FdbBindingError, FdbError, DirectoryError)>> {
+        use secp256k1::rand::random;
+
+        let random_suffix: u64 = random();
+        let root_directory = format!("test-{random_suffix}");
+
+        let db = Database::new(Some(&config.cluster_file_path.to_string_lossy()))
+            .map_err(OneOf::new)?;
+
+        let dirs = db
+            .run(|trx, _| {
+                let root_directory = root_directory.clone();
+                async move { Ok(Directories::setup(&trx, &root_directory).await) }
+            })
             .await
+            .map_err(OneOf::new)?
+            .map_err(OneOf::new)?;
+
+        Ok(Self {
+            db,
+            dirs,
+            transact_options: config.retry.clone().into_transact_options(),
+        })
     }
 
     /// Creates a raw FDB [`Transaction`] for use with `_in` methods.
