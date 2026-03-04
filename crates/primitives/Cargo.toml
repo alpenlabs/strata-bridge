@@ -12,6 +12,7 @@ strata-bridge-p2p-types.workspace = true
 
 strata-bridge-types.workspace = true
 strata-crypto.workspace = true
+strata-identifiers.workspace = true
 strata-primitives.workspace = true
 
 algebra.workspace = true
