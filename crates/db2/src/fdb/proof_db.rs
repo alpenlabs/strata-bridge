@@ -92,8 +92,32 @@ impl ProofDb for FdbClient {
         Ok(Some((commitment, proof)))
     }
 
-    async fn prune(&self, _before: L1BlockCommitment) -> Result<(), Self::Error> {
-        todo!("range clear")
+    async fn prune(&self, before: L1BlockCommitment) -> Result<(), Self::Error> {
+        let height = before.height_u32();
+
+        // Pack just the height as the range end (exclusive).
+        // All keys with a height strictly less than `height` sort before this
+        // in FDB's tuple ordering, so clear_range removes exactly those entries.
+        let asm_begin = self.dirs().asm_proofs.range().0;
+        let asm_end = self.dirs().asm_proofs.pack::<(u32,)>(&(height,));
+
+        let moho_begin = self.dirs().moho_proofs.range().0;
+        let moho_end = self.dirs().moho_proofs.pack::<(u32,)>(&(height,));
+
+        self.db()
+            .run(|trx, _| {
+                let asm_begin = asm_begin.clone();
+                let asm_end = asm_end.clone();
+                let moho_begin = moho_begin.clone();
+                let moho_end = moho_end.clone();
+                async move {
+                    trx.clear_range(&asm_begin, &asm_end);
+                    trx.clear_range(&moho_begin, &moho_end);
+                    Ok(())
+                }
+            })
+            .await
+            .map_err(OneOf::new)
     }
 }
 
@@ -240,6 +264,113 @@ mod tests {
 
                 prop_assert_eq!(latest_commitment.height_u32(), expected.0.height_u32());
                 prop_assert_eq!(latest_proof, expected.1.clone());
+
+                Ok(())
+            })?;
+        }
+
+                /// Property: prune removes entries with height < threshold and preserves
+        /// those with height >= threshold, in both the ASM and Moho subspaces.
+        #[test]
+        fn prune_removes_entries_below_threshold(
+            threshold in 100u32..499_999_900u32,
+            below_moho in proptest::collection::vec(
+                (1u32..100u32, any::<[u8; 32]>(), arb_moho_proof()),
+                1..4,
+            ),
+            above_moho in proptest::collection::vec(
+                (0u32..100u32, any::<[u8; 32]>(), arb_moho_proof()),
+                1..4,
+            ),
+            below_asm in proptest::collection::vec(
+                (1u32..100u32, any::<[u8; 32]>(), arb_asm_proof()),
+                1..4,
+            ),
+            above_asm in proptest::collection::vec(
+                (0u32..100u32, any::<[u8; 32]>(), arb_asm_proof()),
+                1..4,
+            ),
+        ) {
+            block_on(async {
+            let client = new_test_client();
+                // Store Moho proofs below the threshold.
+                let below_moho_entries: Vec<_> = below_moho.into_iter().map(|(offset, blkid, proof)| {
+                    let c = L1BlockCommitment::from_height_u64(
+                        (threshold - offset) as u64,
+                        L1BlockId::from(Buf32::from(blkid)),
+                    ).unwrap();
+                    (c, proof)
+                }).collect();
+
+                // Store Moho proofs at or above the threshold.
+                let above_moho_entries: Vec<_> = above_moho.into_iter().map(|(offset, blkid, proof)| {
+                    let c = L1BlockCommitment::from_height_u64(
+                        (threshold + offset) as u64,
+                        L1BlockId::from(Buf32::from(blkid)),
+                    ).unwrap();
+                    (c, proof)
+                }).collect();
+
+                for (c, proof) in &below_moho_entries {
+                    client.store_moho_proof(*c, proof.clone()).await.unwrap();
+                }
+                for (c, proof) in &above_moho_entries {
+                    client.store_moho_proof(*c, proof.clone()).await.unwrap();
+                }
+
+                // Store ASM proofs below the threshold (single-block ranges).
+                let below_asm_entries: Vec<_> = below_asm.into_iter().map(|(offset, blkid, proof)| {
+                    let c = L1BlockCommitment::from_height_u64(
+                        (threshold - offset) as u64,
+                        L1BlockId::from(Buf32::from(blkid)),
+                    ).unwrap();
+                    (L1Range::single(c), proof)
+                }).collect();
+
+                // Store ASM proofs at or above the threshold.
+                let above_asm_entries: Vec<_> = above_asm.into_iter().map(|(offset, blkid, proof)| {
+                    let c = L1BlockCommitment::from_height_u64(
+                        (threshold + offset) as u64,
+                        L1BlockId::from(Buf32::from(blkid)),
+                    ).unwrap();
+                    (L1Range::single(c), proof)
+                }).collect();
+
+                for (range, proof) in &below_asm_entries {
+                    client.store_asm_proof(*range, proof.clone()).await.unwrap();
+                }
+                for (range, proof) in &above_asm_entries {
+                    client.store_asm_proof(*range, proof.clone()).await.unwrap();
+                }
+
+                // Prune at threshold.
+                let prune_c = L1BlockCommitment::from_height_u64(
+                    threshold as u64,
+                    L1BlockId::from(Buf32::from([0u8; 32])),
+                ).unwrap();
+                client.prune(prune_c).await.unwrap();
+
+                // Moho entries below threshold should be gone.
+                for (c, _) in &below_moho_entries {
+                    let result = client.get_moho_proof(*c).await.unwrap();
+                    prop_assert_eq!(result, None, "moho at height {} should be pruned", c.height_u32());
+                }
+                // Moho entries at or above threshold should survive.
+                for (c, proof) in &above_moho_entries {
+                    let result = client.get_moho_proof(*c).await.unwrap();
+                    prop_assert_eq!(result, Some(proof.clone()), "moho at height {} should survive", c.height_u32());
+                }
+
+                // ASM entries below threshold should be gone.
+                for (range, _) in &below_asm_entries {
+                    let result = client.get_asm_proof(*range).await.unwrap();
+                    prop_assert_eq!(result, None, "asm at height {} should be pruned", range.start().height_u32());
+                }
+                // ASM entries at or above threshold should survive.
+                for (range, proof) in &above_asm_entries {
+                    let result = client.get_asm_proof(*range).await.unwrap();
+                    prop_assert_eq!(result, Some(proof.clone()), "asm at height {} should survive", range.start().height_u32());
+                }
 
                 Ok(())
             })?;

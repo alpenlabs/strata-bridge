@@ -124,8 +124,8 @@ impl FdbClient {
         let random_suffix: u64 = random();
         let root_directory = format!("test-{random_suffix}");
 
-        let db = Database::new(Some(&config.cluster_file_path.to_string_lossy()))
-            .map_err(OneOf::new)?;
+        let db =
+            Database::new(Some(&config.cluster_file_path.to_string_lossy())).map_err(OneOf::new)?;
 
         let dirs = db
             .run(|trx, _| {
@@ -141,6 +141,11 @@ impl FdbClient {
             dirs,
             transact_options: config.retry.clone().into_transact_options(),
         })
+    }
+
+    /// Returns a reference to the database.
+    pub(crate) const fn db(&self) -> &Database {
+        &self.db
     }
 
     /// Creates a raw FDB [`Transaction`] for use with `_in` methods.
