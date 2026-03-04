@@ -8,26 +8,37 @@ use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
 
 use super::{
     CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
-    TEST_ASSIGNEE, create_nonpov_sm, dummy_proof_receipt, test_deposit_params, test_graph_sm_cfg,
-    test_graph_summary, test_recipient_desc, utils::NonceContext,
+    TEST_ASSIGNEE, TestGraphTxKind, create_nonpov_sm, dummy_proof_receipt, test_deposit_params,
+    test_graph_data, test_graph_sm_cfg, test_graph_summary, test_recipient_desc,
+    utils::{NonceContext, build_nonce_context},
 };
 use crate::graph::{machine::generate_game_graph, state::GraphState};
 
 pub(super) static TEST_GRAPH_SUMMARY: LazyLock<GameGraphSummary> =
     LazyLock::new(test_graph_summary);
 
-/// Builds a mock `GraphSigned` state.
-pub(super) fn graph_signed_state() -> GraphState {
+/// Generates a test [`NonceContext`] for use with state builders.
+pub(super) fn test_nonce_context() -> (DepositParams, GameGraphSummary, NonceContext) {
+    let cfg = test_graph_sm_cfg();
+    let (deposit_params, graph) = test_graph_data(&cfg);
+    let nonce_ctx = build_nonce_context(graph.musig_signing_info().pack());
+    (deposit_params, graph.summarize(), nonce_ctx)
+}
+
+/// Builds a mock `GraphSigned` state with the given nonce context.
+pub(super) fn graph_signed_state(nonce_ctx: &NonceContext) -> GraphState {
     GraphState::GraphSigned {
         last_block_height: INITIAL_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
-        graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        graph_summary: test_graph_summary(),
+        agg_nonces: nonce_ctx.agg_nonces.clone(),
         signatures: Default::default(),
     }
 }
 
-/// Builds a mock `Assigned` state with the given assignment fields.
+/// Builds a mock `Assigned` state with the given assignment fields and nonce context.
 pub(super) fn assigned_state(
+    nonce_ctx: &NonceContext,
     assignee: u32,
     deadline: u64,
     recipient_desc: bitcoin_bosd::Descriptor,
@@ -36,6 +47,7 @@ pub(super) fn assigned_state(
         last_block_height: INITIAL_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
         graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        agg_nonces: nonce_ctx.agg_nonces.clone(),
         signatures: Default::default(),
         assignee,
         deadline,
@@ -225,6 +237,7 @@ pub(super) fn pre_signing_states() -> Vec<GraphState> {
             last_block_height: LATER_BLOCK_HEIGHT,
             graph_data: params,
             graph_summary: summary,
+            agg_nonces: Default::default(),
             signatures: Default::default(),
         },
     ]
@@ -249,9 +262,11 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
 
 /// States that may observe a claim tx.
 pub(super) fn claim_detecting_states() -> Vec<GraphState> {
+    let (_, _, nonce_ctx) = test_nonce_context();
     let mut states = pre_signing_states();
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     states.push(assigned_state(
+        &nonce_ctx,
         TEST_ASSIGNEE,
         LATER_BLOCK_HEIGHT + 15,
         test_recipient_desc(1),
@@ -300,11 +315,13 @@ pub(super) fn payout_connector_spent_states() -> Vec<GraphState> {
 /// One representative of every state variant.
 pub(super) fn all_state_variants() -> Vec<GraphState> {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
+    let (_, _, nonce_ctx) = test_nonce_context();
     let mut states = vec![GraphState::Created {
         last_block_height: LATER_BLOCK_HEIGHT,
     }];
     states.extend(pre_signing_states());
     states.push(assigned_state(
+        &nonce_ctx,
         TEST_ASSIGNEE,
         LATER_BLOCK_HEIGHT + 15,
         test_recipient_desc(1),

@@ -14,7 +14,10 @@ mod tests {
                 ASSIGNMENT_DEADLINE, FULFILLMENT_BLOCK_HEIGHT, GraphInvalidTransition,
                 GraphTransition, INITIAL_BLOCK_HEIGHT, TEST_POV_IDX, create_nonpov_sm, create_sm,
                 get_state, mock_game_signatures,
-                mock_states::{assigned_state, claimed_state, fulfilled_state, graph_signed_state},
+                mock_states::{
+                    assigned_state, claimed_state, fulfilled_state, graph_signed_state,
+                    test_nonce_context,
+                },
                 test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
                 test_graph_summary, test_graph_transition, test_recipient_desc,
             },
@@ -54,9 +57,12 @@ mod tests {
     #[test]
     fn test_faulty_claim_emits_contest_for_watchtower() {
         let cfg = test_graph_sm_cfg();
+        let (_, _, nonce_ctx) = test_nonce_context();
 
         // Build valid signatures from the non-PoV game graph
-        let nonpov_ctx = create_nonpov_sm(graph_signed_state()).context.clone();
+        let nonpov_ctx = create_nonpov_sm(graph_signed_state(&nonce_ctx))
+            .context
+            .clone();
         let game_graph = generate_game_graph(&cfg, &nonpov_ctx, test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
 
@@ -65,12 +71,14 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: test_graph_summary(),
+                agg_nonces: nonce_ctx.agg_nonces.clone(),
                 signatures: signatures.clone(),
             },
             GraphState::Assigned {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: test_graph_summary(),
+                agg_nonces: nonce_ctx.agg_nonces.clone(),
                 signatures: signatures.clone(),
                 assignee: TEST_POV_IDX,
                 deadline: ASSIGNMENT_DEADLINE,
@@ -111,9 +119,15 @@ mod tests {
 
     #[test]
     fn test_faulty_claim_no_duty_for_pov() {
+        let (_, _, nonce_ctx) = test_nonce_context();
         let from_states = [
-            graph_signed_state(),
-            assigned_state(TEST_POV_IDX, ASSIGNMENT_DEADLINE, test_recipient_desc(1)),
+            graph_signed_state(&nonce_ctx),
+            assigned_state(
+                &nonce_ctx,
+                TEST_POV_IDX,
+                ASSIGNMENT_DEADLINE,
+                test_recipient_desc(1),
+            ),
         ];
 
         for from_state in from_states {
@@ -149,10 +163,16 @@ mod tests {
 
     #[test]
     fn test_claim_rejected_invalid_txid() {
+        let (_, _, nonce_ctx) = test_nonce_context();
         let from_states = [
             fulfilled_state(TEST_POV_IDX, generate_txid()),
-            graph_signed_state(),
-            assigned_state(TEST_POV_IDX, ASSIGNMENT_DEADLINE, test_recipient_desc(1)),
+            graph_signed_state(&nonce_ctx),
+            assigned_state(
+                &nonce_ctx,
+                TEST_POV_IDX,
+                ASSIGNMENT_DEADLINE,
+                test_recipient_desc(1),
+            ),
         ];
 
         for from_state in from_states {

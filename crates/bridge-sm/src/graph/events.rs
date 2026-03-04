@@ -9,6 +9,7 @@ use std::{fmt::Display, num::NonZero};
 use bitcoin::{OutPoint, Txid};
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
+use strata_bridge_p2p_types2::NagRequestPayload;
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use zkaleido::ProofReceipt;
 
@@ -181,6 +182,15 @@ pub struct RetryTickEvent;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NagTickEvent;
 
+/// Event received when another operator nags for missing graph data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NagReceivedEvent {
+    /// The nag payload describing what's being requested.
+    pub payload: NagRequestPayload,
+    /// The operator index of the sender.
+    pub sender_operator_idx: OperatorIdx,
+}
+
 /// The external events that affect the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphEvent {
@@ -227,6 +237,8 @@ pub enum GraphEvent {
     RetryTick(RetryTickEvent),
     /// Event signalling that nag duties should be emitted for missing operator data.
     NagTick(NagTickEvent),
+    /// Event received when another operator nags for missing graph data.
+    NagReceived(NagReceivedEvent),
 }
 
 impl Display for GraphEvent {
@@ -252,6 +264,7 @@ impl Display for GraphEvent {
             GraphEvent::NewBlock(_) => "NewBlock",
             GraphEvent::RetryTick(_) => "RetryTick",
             GraphEvent::NagTick(_) => "NagTick",
+            GraphEvent::NagReceived(_) => "NagReceived",
         };
         write!(f, "{}", display_str)
     }
@@ -295,3 +308,4 @@ impl_into_graph_event!(PayoutConnectorSpentEvent, PayoutConnectorSpent);
 impl_into_graph_event!(NewBlockEvent, NewBlock);
 impl_into_graph_event!(RetryTickEvent, RetryTick);
 impl_into_graph_event!(NagTickEvent, NagTick);
+impl_into_graph_event!(NagReceivedEvent, NagReceived);

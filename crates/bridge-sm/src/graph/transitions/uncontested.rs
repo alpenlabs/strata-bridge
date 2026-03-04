@@ -473,6 +473,7 @@ impl GraphSM {
                         last_block_height: *last_block_height,
                         graph_data: *graph_data,
                         graph_summary: graph_summary.clone(),
+                        agg_nonces: agg_nonces.clone(),
                         signatures: agg_sigs.clone(),
                     };
 
@@ -517,6 +518,7 @@ impl GraphSM {
                 last_block_height,
                 graph_data,
                 graph_summary,
+                agg_nonces,
                 signatures,
             } => {
                 if assignment_event.assignee != self.context().operator_idx() {
@@ -535,6 +537,7 @@ impl GraphSM {
                     last_block_height: *last_block_height,
                     graph_data: *graph_data,
                     graph_summary: graph_summary.clone(),
+                    agg_nonces: agg_nonces.clone(),
                     signatures: signatures.clone(),
                     assignee: assignment_event.assignee,
                     deadline: assignment_event.deadline,
@@ -548,6 +551,7 @@ impl GraphSM {
                 last_block_height,
                 graph_data,
                 graph_summary,
+                agg_nonces,
                 signatures,
                 assignee,
                 deadline,
@@ -577,6 +581,7 @@ impl GraphSM {
                         last_block_height: *last_block_height,
                         graph_data: *graph_data,
                         graph_summary: graph_summary.clone(),
+                        agg_nonces: agg_nonces.clone(),
                         signatures: signatures.clone(),
                         assignee: assignment_event.assignee,
                         deadline: assignment_event.deadline,
@@ -588,6 +593,7 @@ impl GraphSM {
                         last_block_height: *last_block_height,
                         graph_data: *graph_data,
                         graph_summary: graph_summary.clone(),
+                        agg_nonces: agg_nonces.clone(),
                         signatures: signatures.clone(),
                     };
                 }

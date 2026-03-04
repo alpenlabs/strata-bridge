@@ -13,7 +13,7 @@ mod tests {
             TEST_ASSIGNEE, TEST_POV_IDX, create_nonpov_sm, create_sm,
             mock_states::{
                 assigned_state, claimed_state, contested_state, graph_signed_state,
-                terminal_states, test_graph_generated_state,
+                terminal_states, test_graph_generated_state, test_nonce_context,
             },
             test_deposit_params, test_graph_sm_cfg, test_graph_summary,
             test_nonpov_owned_handler_output, test_pov_owned_handler_output, test_recipient_desc,
@@ -201,8 +201,19 @@ mod tests {
                 agg_nonces: Default::default(),
                 partial_signatures: Default::default(),
             },
-            graph_signed_state(),
-            assigned_state(TEST_ASSIGNEE, LATER_BLOCK_HEIGHT, test_recipient_desc(1)),
+            {
+                let (_, _, nonce_ctx) = test_nonce_context();
+                graph_signed_state(&nonce_ctx)
+            },
+            {
+                let (_, _, nonce_ctx) = test_nonce_context();
+                assigned_state(
+                    &nonce_ctx,
+                    TEST_ASSIGNEE,
+                    LATER_BLOCK_HEIGHT,
+                    test_recipient_desc(1),
+                )
+            },
         ];
 
         for state in non_retriable_states {

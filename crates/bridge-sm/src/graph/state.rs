@@ -79,6 +79,9 @@ pub enum GraphState {
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
+        /// Aggregated nonces retained to respond to nag for graph partial signatures.
+        agg_nonces: Vec<AggNonce>,
+
         /// Aggregated final signatures for the graph.
         signatures: Vec<Signature>,
     },
@@ -93,6 +96,9 @@ pub enum GraphState {
         /// Collection of the IDs of all transactions of a
         /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
+
+        /// Aggregated nonces retained to respond to nag for graph partial signature.
+        agg_nonces: Vec<AggNonce>,
 
         /// Aggregated final signatures for the graph.
         signatures: Vec<Signature>,

@@ -5,17 +5,23 @@ mod tests {
 
     use strata_bridge_test_utils::bitcoin::generate_txid;
 
-    use crate::graph::{
-        duties::{GraphDuty, NagDuty},
-        events::{GraphEvent, NagTickEvent},
-        state::GraphState,
-        tests::{
-            GraphHandlerOutput, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, N_TEST_OPERATORS,
-            TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX, test_deposit_params, test_graph_sm_cfg,
-            test_graph_sm_ctx, test_graph_summary, test_nonpov_owned_handler_output,
-            test_operator_table, test_pov_owned_handler_output, test_recipient_desc,
+    use crate::{
+        graph::{
+            duties::{GraphDuty, NagDuty},
+            events::{GraphEvent, NagTickEvent},
+            machine::GraphSM,
+            state::GraphState,
+            tests::{
+                GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, N_TEST_OPERATORS,
+                TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX, create_nonpov_sm, get_state,
+                test_deposit_params, test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary,
+                test_graph_transition, test_operator_table, test_recipient_desc,
+            },
         },
+        testing::test_transition,
     };
+
+    // ===== Created state tests (NagGraphData) =====
 
     #[test]
     fn test_nag_tick_emits_nag_graph_data_for_pov_owned_created_graph() {
@@ -27,22 +33,23 @@ mod tests {
             .expect("graph owner idx must be in operator table")
             .clone();
 
-        test_pov_owned_handler_output(
-            test_graph_sm_cfg(),
-            GraphHandlerOutput {
-                state: GraphState::Created {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
+        let state = GraphState::Created {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        test_graph_transition(GraphTransition {
+            from_state: state.clone(),
+            event: GraphEvent::NagTick(NagTickEvent),
+            expected_state: state,
+            expected_duties: vec![GraphDuty::Nag {
+                duty: NagDuty::NagGraphData {
+                    graph_idx,
+                    operator_idx: graph_owner_idx,
+                    operator_pubkey: graph_owner_pubkey,
                 },
-                event: GraphEvent::NagTick(NagTickEvent),
-                expected_duties: vec![GraphDuty::Nag {
-                    duty: NagDuty::NagGraphData {
-                        graph_idx,
-                        operator_idx: graph_owner_idx,
-                        operator_pubkey: graph_owner_pubkey,
-                    },
-                }],
-            },
-        );
+            }],
+            expected_signals: vec![],
+        });
     }
 
     #[test]
@@ -55,13 +62,18 @@ mod tests {
             .expect("graph owner idx must be in operator table")
             .clone();
 
-        test_nonpov_owned_handler_output(
+        let state = GraphState::Created {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
             test_graph_sm_cfg(),
-            GraphHandlerOutput {
-                state: GraphState::Created {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                },
+            GraphTransition {
+                from_state: state.clone(),
                 event: GraphEvent::NagTick(NagTickEvent),
+                expected_state: state,
                 expected_duties: vec![GraphDuty::Nag {
                     duty: NagDuty::NagGraphData {
                         graph_idx,
@@ -69,9 +81,12 @@ mod tests {
                         operator_pubkey: graph_owner_pubkey,
                     },
                 }],
+                expected_signals: vec![],
             },
         );
     }
+
+    // ===== AdaptorsVerified state tests (NagGraphNonces) =====
 
     #[test]
     fn test_nag_tick_emits_nag_graph_nonces_for_missing_operators_in_adaptors_verified() {
@@ -85,7 +100,10 @@ mod tests {
             .operator_idxs()
             .difference(&present)
             .map(|&op_idx| {
-                let operator_pubkey = operator_table.idx_to_p2p_key(&op_idx).unwrap().clone();
+                let operator_pubkey = operator_table
+                    .idx_to_p2p_key(&op_idx)
+                    .expect("operator idx from table must exist")
+                    .clone();
                 GraphDuty::Nag {
                     duty: NagDuty::NagGraphNonces {
                         graph_idx,
@@ -96,19 +114,20 @@ mod tests {
             })
             .collect();
 
-        test_pov_owned_handler_output(
-            test_graph_sm_cfg(),
-            GraphHandlerOutput {
-                state: GraphState::AdaptorsVerified {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    graph_data: test_deposit_params(),
-                    graph_summary: test_graph_summary(),
-                    pubnonces,
-                },
-                event: GraphEvent::NagTick(NagTickEvent),
-                expected_duties,
-            },
-        );
+        let state = GraphState::AdaptorsVerified {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            graph_data: test_deposit_params(),
+            graph_summary: test_graph_summary(),
+            pubnonces,
+        };
+
+        test_graph_transition(GraphTransition {
+            from_state: state.clone(),
+            event: GraphEvent::NagTick(NagTickEvent),
+            expected_state: state,
+            expected_duties,
+            expected_signals: vec![],
+        });
     }
 
     #[test]
@@ -120,20 +139,23 @@ mod tests {
             .map(|&idx| (idx, vec![]))
             .collect();
 
-        test_pov_owned_handler_output(
-            test_graph_sm_cfg(),
-            GraphHandlerOutput {
-                state: GraphState::AdaptorsVerified {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    graph_data: test_deposit_params(),
-                    graph_summary: test_graph_summary(),
-                    pubnonces,
-                },
-                event: GraphEvent::NagTick(NagTickEvent),
-                expected_duties: vec![],
-            },
-        );
+        let state = GraphState::AdaptorsVerified {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            graph_data: test_deposit_params(),
+            graph_summary: test_graph_summary(),
+            pubnonces,
+        };
+
+        test_graph_transition(GraphTransition {
+            from_state: state.clone(),
+            event: GraphEvent::NagTick(NagTickEvent),
+            expected_state: state,
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
+
+    // ===== NoncesCollected state tests (NagGraphPartials) =====
 
     #[test]
     fn test_nag_tick_emits_nag_graph_partials_for_missing_operators_in_nonces_collected() {
@@ -147,7 +169,10 @@ mod tests {
             .operator_idxs()
             .difference(&present)
             .map(|&op_idx| {
-                let operator_pubkey = operator_table.idx_to_p2p_key(&op_idx).unwrap().clone();
+                let operator_pubkey = operator_table
+                    .idx_to_p2p_key(&op_idx)
+                    .expect("operator idx from table must exist")
+                    .clone();
                 GraphDuty::Nag {
                     duty: NagDuty::NagGraphPartials {
                         graph_idx,
@@ -158,21 +183,22 @@ mod tests {
             })
             .collect();
 
-        test_pov_owned_handler_output(
-            test_graph_sm_cfg(),
-            GraphHandlerOutput {
-                state: GraphState::NoncesCollected {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    graph_data: test_deposit_params(),
-                    graph_summary: test_graph_summary(),
-                    pubnonces: BTreeMap::new(),
-                    agg_nonces: vec![],
-                    partial_signatures,
-                },
-                event: GraphEvent::NagTick(NagTickEvent),
-                expected_duties,
-            },
-        );
+        let state = GraphState::NoncesCollected {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            graph_data: test_deposit_params(),
+            graph_summary: test_graph_summary(),
+            pubnonces: BTreeMap::new(),
+            agg_nonces: vec![],
+            partial_signatures,
+        };
+
+        test_graph_transition(GraphTransition {
+            from_state: state.clone(),
+            event: GraphEvent::NagTick(NagTickEvent),
+            expected_state: state,
+            expected_duties,
+            expected_signals: vec![],
+        });
     }
 
     #[test]
@@ -184,22 +210,25 @@ mod tests {
             .map(|&idx| (idx, vec![]))
             .collect();
 
-        test_pov_owned_handler_output(
-            test_graph_sm_cfg(),
-            GraphHandlerOutput {
-                state: GraphState::NoncesCollected {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
-                    graph_data: test_deposit_params(),
-                    graph_summary: test_graph_summary(),
-                    pubnonces: BTreeMap::new(),
-                    agg_nonces: vec![],
-                    partial_signatures,
-                },
-                event: GraphEvent::NagTick(NagTickEvent),
-                expected_duties: vec![],
-            },
-        );
+        let state = GraphState::NoncesCollected {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            graph_data: test_deposit_params(),
+            graph_summary: test_graph_summary(),
+            pubnonces: BTreeMap::new(),
+            agg_nonces: vec![],
+            partial_signatures,
+        };
+
+        test_graph_transition(GraphTransition {
+            from_state: state.clone(),
+            event: GraphEvent::NagTick(NagTickEvent),
+            expected_state: state,
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
+
+    // ===== Non-naggable states (no duties emitted) =====
 
     #[test]
     fn test_nag_tick_noop_for_irrelevant_states() {
@@ -213,12 +242,14 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: test_graph_summary(),
+                agg_nonces: vec![],
                 signatures: vec![],
             },
             GraphState::Assigned {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: test_graph_summary(),
+                agg_nonces: vec![],
                 signatures: vec![],
                 assignee: TEST_ASSIGNEE,
                 deadline: LATER_BLOCK_HEIGHT,
@@ -236,14 +267,13 @@ mod tests {
         ];
 
         for state in irrelevant_states {
-            test_pov_owned_handler_output(
-                test_graph_sm_cfg(),
-                GraphHandlerOutput {
-                    state,
-                    event: GraphEvent::NagTick(NagTickEvent),
-                    expected_duties: vec![],
-                },
-            );
+            test_graph_transition(GraphTransition {
+                from_state: state.clone(),
+                event: GraphEvent::NagTick(NagTickEvent),
+                expected_state: state,
+                expected_duties: vec![],
+                expected_signals: vec![],
+            });
         }
     }
 }

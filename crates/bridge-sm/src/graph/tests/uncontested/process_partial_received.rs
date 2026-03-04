@@ -102,8 +102,14 @@ mod tests {
         seq.assert_no_errors();
 
         assert!(matches!(seq.state(), GraphState::GraphSigned { .. }));
-        if let GraphState::GraphSigned { signatures, .. } = seq.state() {
+        if let GraphState::GraphSigned {
+            signatures,
+            agg_nonces,
+            ..
+        } = seq.state()
+        {
             assert_eq!(signatures.len(), nonce_ctx.signing_infos.len());
+            assert_eq!(agg_nonces, &nonce_ctx.agg_nonces);
         }
 
         assert!(seq.all_duties().is_empty());
