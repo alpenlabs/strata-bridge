@@ -8,7 +8,9 @@ mod utils;
 
 use std::sync::Arc;
 
+use strata_bridge_p2p_types2::{NagRequest, NagRequestPayload};
 use strata_bridge_sm::graph::duties::GraphDuty;
+use tracing::info;
 
 use crate::{
     config::ExecutionConfig,
@@ -101,5 +103,63 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishContestedPayout {
             signed_contested_payout_tx,
         } => publish_contested_payout(&output_handles, signed_contested_payout_tx).await,
+        GraphDuty::Nag { duty } => {
+            let (graph_idx, operator_idx, nag_request) = match duty {
+                strata_bridge_sm::graph::duties::NagDuty::NagGraphData {
+                    graph_idx,
+                    operator_idx,
+                    operator_pubkey,
+                } => (
+                    *graph_idx,
+                    *operator_idx,
+                    NagRequest {
+                        recipient: operator_pubkey.clone().into(),
+                        payload: NagRequestPayload::GraphData {
+                            graph_idx: *graph_idx,
+                        },
+                    },
+                ),
+                strata_bridge_sm::graph::duties::NagDuty::NagGraphNonces {
+                    graph_idx,
+                    operator_idx,
+                    operator_pubkey,
+                } => (
+                    *graph_idx,
+                    *operator_idx,
+                    NagRequest {
+                        recipient: operator_pubkey.clone().into(),
+                        payload: NagRequestPayload::GraphNonces {
+                            graph_idx: *graph_idx,
+                        },
+                    },
+                ),
+                strata_bridge_sm::graph::duties::NagDuty::NagGraphPartials {
+                    graph_idx,
+                    operator_idx,
+                    operator_pubkey,
+                } => (
+                    *graph_idx,
+                    *operator_idx,
+                    NagRequest {
+                        recipient: operator_pubkey.clone().into(),
+                        payload: NagRequestPayload::GraphPartials {
+                            graph_idx: *graph_idx,
+                        },
+                    },
+                ),
+            };
+
+            info!(%graph_idx, %operator_idx, payload = ?nag_request.payload, "executing nag duty to request missing graph peer data");
+
+            output_handles
+                .msg_handler2
+                .write()
+                .await
+                .send_nag_request(nag_request, None)
+                .await;
+
+            info!(%graph_idx, %operator_idx, "published graph nag request");
+            Ok(())
+        }
     }
 }

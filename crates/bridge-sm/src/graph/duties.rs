@@ -6,6 +6,7 @@ use musig2::{
     AggNonce,
     secp256k1::{Message, schnorr::Signature},
 };
+use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
     mosaic::Labels,
     scripts::taproot::TaprootTweak,
@@ -13,6 +14,72 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_tx_graph2::transactions::{claim::ClaimTx, prelude::ContestTx};
 use zkaleido::ProofReceipt;
+
+/// The nag duties that can be emitted to remind operators of missing graph signing data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NagDuty {
+    /// Nag the graph owner for missing graph data generation.
+    NagGraphData {
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
+        /// The index of the operator to nag.
+        operator_idx: OperatorIdx,
+        /// The P2P public key of the operator to nag.
+        operator_pubkey: P2POperatorPubKey,
+    },
+    /// Nag an operator for missing graph nonces.
+    NagGraphNonces {
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
+        /// The index of the operator to nag.
+        operator_idx: OperatorIdx,
+        /// The P2P public key of the operator to nag.
+        operator_pubkey: P2POperatorPubKey,
+    },
+    /// Nag an operator for missing graph partial signatures.
+    NagGraphPartials {
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
+        /// The index of the operator to nag.
+        operator_idx: OperatorIdx,
+        /// The P2P public key of the operator to nag.
+        operator_pubkey: P2POperatorPubKey,
+    },
+}
+
+impl std::fmt::Display for NagDuty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NagDuty::NagGraphData {
+                graph_idx,
+                operator_idx,
+                ..
+            } => write!(
+                f,
+                "NagGraphData (graph_idx: {}, operator_idx: {})",
+                graph_idx, operator_idx
+            ),
+            NagDuty::NagGraphNonces {
+                graph_idx,
+                operator_idx,
+                ..
+            } => write!(
+                f,
+                "NagGraphNonces (graph_idx: {}, operator_idx: {})",
+                graph_idx, operator_idx
+            ),
+            NagDuty::NagGraphPartials {
+                graph_idx,
+                operator_idx,
+                ..
+            } => write!(
+                f,
+                "NagGraphPartials (graph_idx: {}, operator_idx: {})",
+                graph_idx, operator_idx
+            ),
+        }
+    }
+}
 
 /// The duties that need to be performed to drive the Graph State Machine forward.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,6 +228,11 @@ pub enum GraphDuty {
         /// The signed contested payout transaction to be published.
         signed_contested_payout_tx: Transaction,
     },
+    /// Nag other operators for missing information.
+    Nag {
+        /// The specific nag duty to perform.
+        duty: NagDuty,
+    },
 }
 
 impl std::fmt::Display for GraphDuty {
@@ -180,6 +252,7 @@ impl std::fmt::Display for GraphDuty {
             GraphDuty::PublishCounterProofNack { .. } => "PublishCounterProofNack".to_string(),
             GraphDuty::PublishSlash { .. } => "PublishSlash".to_string(),
             GraphDuty::PublishContestedPayout { .. } => "PublishContestedPayout".to_string(),
+            GraphDuty::Nag { duty } => format!("Nag({})", duty),
         };
         write!(f, "{s}")
     }

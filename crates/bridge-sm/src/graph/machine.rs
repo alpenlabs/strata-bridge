@@ -71,6 +71,7 @@ impl StateMachine for GraphSM {
             GraphEvent::PayoutConnectorSpent(_connector_spent) => todo!(),
             GraphEvent::NewBlock(new_block) => self.notify_new_block(cfg, new_block),
             GraphEvent::RetryTick(_retry_tick) => self.process_retry_tick(cfg),
+            GraphEvent::NagTick(_nag_tick) => self.process_nag_tick(cfg),
         }
     }
 }

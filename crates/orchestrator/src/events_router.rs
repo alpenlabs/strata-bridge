@@ -76,6 +76,17 @@ fn route_gossipsub_msg(
             | NagRequestPayload::DepositPartial { deposit_idx }
             | NagRequestPayload::PayoutNonce { deposit_idx }
             | NagRequestPayload::PayoutPartial { deposit_idx } => SMId::Deposit(*deposit_idx),
+            NagRequestPayload::GraphData { .. }
+            | NagRequestPayload::GraphNonces { .. }
+            | NagRequestPayload::GraphPartials { .. } => {
+                // TODO: (mukeshdroid) route graph-domain nags once GraphEvent::NagReceived is
+                // wired.
+                tracing::trace!(
+                    payload = ?nag_request.payload,
+                    "Dropping graph-domain nag request in router (graph nag delivery not enabled yet)"
+                );
+                return vec![];
+            }
         },
     };
 
@@ -96,7 +107,9 @@ fn route_p2p_request(
 #[cfg(test)]
 mod tests {
     use strata_asm_proto_bridge_v1::AssignmentEntry;
-    use strata_bridge_p2p_types2::{GraphIdx, PayoutDescriptor, PubNonce};
+    use strata_bridge_p2p_types2::{
+        GraphIdx, NagRequest, NagRequestPayload, P2POperatorPubKey, PayoutDescriptor, PubNonce,
+    };
     use strata_bridge_test_utils::{
         arbitrary_generator::ArbitraryGenerator, musig2::generate_pubnonce,
     };
@@ -127,6 +140,13 @@ mod tests {
             operator_idx: 0,
             operator_desc: PayoutDescriptor::new(vec![0xDE, 0xAD]),
         }
+    }
+
+    fn make_deposit_nag(deposit_idx: u32) -> UnsignedGossipsubMsg {
+        UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+            recipient: P2POperatorPubKey::from(vec![0u8; 32]),
+            payload: NagRequestPayload::DepositNonce { deposit_idx },
+        })
     }
 
     // ===== route() tests for non-gossip events =====
@@ -205,6 +225,15 @@ mod tests {
     fn route_gossip_payout_descriptor() {
         let registry = test_populated_registry(1);
         let msg = make_payout_descriptor(0);
+
+        let routed = route_gossipsub_msg(&registry, &msg);
+        assert_eq!(routed, vec![SMId::Deposit(0)]);
+    }
+
+    #[test]
+    fn route_gossip_deposit_nag_known() {
+        let registry = test_populated_registry(1);
+        let msg = make_deposit_nag(0);
 
         let routed = route_gossipsub_msg(&registry, &msg);
         assert_eq!(routed, vec![SMId::Deposit(0)]);

@@ -53,6 +53,12 @@ enum NagPayloadKind {
     PayoutNonce = 0x02,
     /// Request missing payout partial signature.
     PayoutPartial = 0x03,
+    /// Request graph data.
+    GraphData = 0x04,
+    /// Request missing graph nonces.
+    GraphNonces = 0x05,
+    /// Request missing graph partial signatures.
+    GraphPartials = 0x06,
 }
 
 /// MuSig2 nonce variants for different signing contexts.
@@ -248,6 +254,21 @@ pub enum NagRequestPayload {
         /// The deposit index for identifying the payout.
         deposit_idx: DepositIdx,
     },
+    /// Request graph data generation.
+    GraphData {
+        /// The graph index for identifying the graph instance.
+        graph_idx: GraphIdx,
+    },
+    /// Request missing graph nonces.
+    GraphNonces {
+        /// The graph index for identifying the graph instance.
+        graph_idx: GraphIdx,
+    },
+    /// Request missing graph partial signatures.
+    GraphPartials {
+        /// The graph index for identifying the graph instance.
+        graph_idx: GraphIdx,
+    },
 }
 
 impl NagRequestPayload {
@@ -273,6 +294,21 @@ impl NagRequestPayload {
             Self::PayoutPartial { deposit_idx } => {
                 buf.push(NagPayloadKind::PayoutPartial as u8);
                 buf.extend(deposit_idx.to_le_bytes());
+            }
+            Self::GraphData { graph_idx } => {
+                buf.push(NagPayloadKind::GraphData as u8);
+                buf.extend(graph_idx.operator.to_le_bytes());
+                buf.extend(graph_idx.deposit.to_le_bytes());
+            }
+            Self::GraphNonces { graph_idx } => {
+                buf.push(NagPayloadKind::GraphNonces as u8);
+                buf.extend(graph_idx.operator.to_le_bytes());
+                buf.extend(graph_idx.deposit.to_le_bytes());
+            }
+            Self::GraphPartials { graph_idx } => {
+                buf.push(NagPayloadKind::GraphPartials as u8);
+                buf.extend(graph_idx.operator.to_le_bytes());
+                buf.extend(graph_idx.deposit.to_le_bytes());
             }
         }
         buf
@@ -304,6 +340,27 @@ impl fmt::Debug for NagRequestPayload {
                 write!(
                     f,
                     "NagRequestPayload::PayoutPartial(deposit_idx: {deposit_idx})"
+                )
+            }
+            Self::GraphData { graph_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::GraphData(graph_idx: ({}, {}))",
+                    graph_idx.operator, graph_idx.deposit
+                )
+            }
+            Self::GraphNonces { graph_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::GraphNonces(graph_idx: ({}, {}))",
+                    graph_idx.operator, graph_idx.deposit
+                )
+            }
+            Self::GraphPartials { graph_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::GraphPartials(graph_idx: ({}, {}))",
+                    graph_idx.operator, graph_idx.deposit
                 )
             }
         }
@@ -679,6 +736,45 @@ mod tests {
         assert_eq!(content[0], 0x03, "PayoutPartial should have prefix 0x03");
     }
 
+    // Verifies NagRequestPayload::GraphData uses discriminator 0x04.
+    #[test]
+    fn nag_payload_graph_data_has_correct_prefix() {
+        let payload = NagRequestPayload::GraphData {
+            graph_idx: GraphIdx {
+                operator: 7,
+                deposit: 42,
+            },
+        };
+        let content = payload.content_bytes();
+        assert_eq!(content[0], 0x04, "GraphData should have prefix 0x04");
+    }
+
+    // Verifies NagRequestPayload::GraphNonces uses discriminator 0x05.
+    #[test]
+    fn nag_payload_graph_nonces_has_correct_prefix() {
+        let payload = NagRequestPayload::GraphNonces {
+            graph_idx: GraphIdx {
+                operator: 7,
+                deposit: 42,
+            },
+        };
+        let content = payload.content_bytes();
+        assert_eq!(content[0], 0x05, "GraphNonces should have prefix 0x05");
+    }
+
+    // Verifies NagRequestPayload::GraphPartials uses discriminator 0x06.
+    #[test]
+    fn nag_payload_graph_partials_has_correct_prefix() {
+        let payload = NagRequestPayload::GraphPartials {
+            graph_idx: GraphIdx {
+                operator: 7,
+                deposit: 42,
+            },
+        };
+        let content = payload.content_bytes();
+        assert_eq!(content[0], 0x06, "GraphPartials should have prefix 0x06");
+    }
+
     // ==================== Content Serialization Tests ====================
 
     // Verifies MuSig2Nonce::Deposit serializes with correct byte layout.
@@ -812,6 +908,46 @@ mod tests {
         assert_eq!(&content[0..32], &recipient_bytes[..]);
         assert_eq!(content[32], 0x00); // payload discriminator
         assert_eq!(&content[33..37], &42u32.to_le_bytes());
+    }
+
+    // Verifies graph nag payload bytes are stable and ordered as
+    // [discriminator][operator][deposit].
+    #[test]
+    fn nag_payload_graph_content_bytes_stability() {
+        let graph_data = NagRequestPayload::GraphData {
+            graph_idx: GraphIdx {
+                operator: 1,
+                deposit: 2,
+            },
+        };
+        let nonces = NagRequestPayload::GraphNonces {
+            graph_idx: GraphIdx {
+                operator: 1,
+                deposit: 2,
+            },
+        };
+        let partials = NagRequestPayload::GraphPartials {
+            graph_idx: GraphIdx {
+                operator: 1,
+                deposit: 2,
+            },
+        };
+
+        assert_eq!(
+            graph_data.content_bytes(),
+            vec![0x04, 1, 0, 0, 0, 2, 0, 0, 0],
+            "GraphData must serialize as [0x04][operator_idx LE][deposit_idx LE]"
+        );
+        assert_eq!(
+            nonces.content_bytes(),
+            vec![0x05, 1, 0, 0, 0, 2, 0, 0, 0],
+            "GraphNonces must serialize as [0x05][operator_idx LE][deposit_idx LE]"
+        );
+        assert_eq!(
+            partials.content_bytes(),
+            vec![0x06, 1, 0, 0, 0, 2, 0, 0, 0],
+            "GraphPartials must serialize as [0x06][operator_idx LE][deposit_idx LE]"
+        );
     }
 
     mod proptests {
