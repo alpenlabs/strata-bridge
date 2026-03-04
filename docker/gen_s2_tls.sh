@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-BRIDGE_BASE_DIR="${1:-docker/vol/alpen-bridge}"
+BRIDGE_BASE_DIR="${1:-docker/vol/strata-bridge}"
 S2_BASE_DIR="${2:-docker/vol/secret-service}"
 IP="${3:-172.28.1.6}"
 
