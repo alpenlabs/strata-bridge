@@ -8,8 +8,8 @@ use strata_bridge_p2p_types2::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
 use strata_bridge_sm::{
-    deposit::{events as DepositEvents, events::DepositEvent},
-    graph::{events as GraphEvents, events::GraphEvent},
+    deposit::events::{self as DepositEvents, DepositEvent, RetryTickEvent},
+    graph::events::{self as GraphEvents, GraphEvent},
 };
 use tracing::warn;
 
@@ -51,8 +51,8 @@ pub(crate) fn classify(
 
         UnifiedEvent::OuroborosRequest(_) => unimplemented!("see STR-2329"),
         UnifiedEvent::ReqRespRequest { .. } => unimplemented!("see STR-2329"),
-        UnifiedEvent::NagTick => unimplemented!("see STR-2329"),
-        UnifiedEvent::RetryTick => unimplemented!("see STR-2329"),
+        UnifiedEvent::NagTick => classify_nag_tick(sm_id, sm_registry),
+        UnifiedEvent::RetryTick => classify_retry_tick(sm_id, sm_registry),
     }
 }
 
@@ -342,12 +342,34 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
     }
 }
 
+fn classify_nag_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
+    match sm_id {
+        SMId::Deposit(deposit_idx) => sm_registry
+            .get_deposit(deposit_idx)
+            .map(|_| DepositEvent::NagTick(DepositEvents::NagTickEvent).into()),
+        SMId::Graph(_graph_idx) => sm_registry
+            .get_graph(_graph_idx)
+            .map(|_| GraphEvent::NagTick(GraphEvents::NagTickEvent).into()),
+    }
+}
+
+fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
+    match sm_id {
+        SMId::Deposit(deposit_idx) => sm_registry
+            .get_deposit(deposit_idx)
+            .map(|_| DepositEvent::RetryTick(RetryTickEvent).into()),
+        SMId::Graph(_graph_idx) => sm_registry
+            .get_graph(_graph_idx)
+            .map(|_| GraphEvent::RetryTick(GraphEvents::RetryTickEvent).into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use strata_bridge_primitives::types::GraphIdx;
+    use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
 
     use super::*;
-    use crate::testing::test_empty_registry;
+    use crate::testing::{insert_deposit_with_graphs, test_empty_registry};
 
     // ===== classify_assignment tests =====
 
@@ -461,6 +483,137 @@ mod tests {
         let registry = test_empty_registry();
         let event = UnifiedEvent::Shutdown;
         let sm_id = SMId::Deposit(0);
+
+        let result = classify(&sm_id, &event, &registry);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn classify_nag_tick_existing_deposit_returns_nag_tick_event() {
+        let mut registry = test_empty_registry();
+        let deposit_idx = 42;
+        insert_deposit_with_graphs(&mut registry, deposit_idx);
+
+        let sm_id = SMId::Deposit(deposit_idx);
+        let event = UnifiedEvent::NagTick;
+
+        let result = classify(&sm_id, &event, &registry);
+        match result {
+            Some(SMEvent::Deposit(event)) => assert!(matches!(*event, DepositEvent::NagTick(_))),
+            other => panic!("expected Deposit::NagTick, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_nag_tick_missing_deposit_returns_none() {
+        let registry = test_empty_registry();
+        let sm_id = SMId::Deposit(999);
+        let event = UnifiedEvent::NagTick;
+
+        let result = classify(&sm_id, &event, &registry);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn classify_nag_tick_existing_graph_returns_nag_tick_event() {
+        let mut registry = test_empty_registry();
+        let deposit_idx = 42;
+        insert_deposit_with_graphs(&mut registry, deposit_idx);
+
+        let sm_id = SMId::Graph(GraphIdx {
+            deposit: deposit_idx,
+            operator: 0,
+        });
+        let event = UnifiedEvent::NagTick;
+
+        let result = classify(&sm_id, &event, &registry);
+        match result {
+            Some(SMEvent::Graph(event)) => assert!(matches!(*event, GraphEvent::NagTick(_))),
+            other => panic!("expected Deposit::NagTick, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_nag_tick_missing_graph_returns_none() {
+        let mut registry = test_empty_registry();
+        const DEPOSIT_IDX: DepositIdx = 42;
+        insert_deposit_with_graphs(&mut registry, DEPOSIT_IDX);
+
+        const MISSING_DEPOSIT_IDX: DepositIdx = 999;
+        const {
+            assert!(
+                DEPOSIT_IDX != MISSING_DEPOSIT_IDX,
+                "test setup error: missing deposit should not exist in registry"
+            )
+        };
+
+        let sm_id = SMId::Graph(GraphIdx {
+            deposit: MISSING_DEPOSIT_IDX,
+            operator: 0,
+        });
+        let event = UnifiedEvent::NagTick;
+
+        let result = classify(&sm_id, &event, &registry);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn classify_retry_tick_existing_deposit_returns_retry_tick_event() {
+        let mut registry = test_empty_registry();
+        let deposit_idx = 42;
+        insert_deposit_with_graphs(&mut registry, deposit_idx);
+
+        let sm_id = SMId::Deposit(deposit_idx);
+        let event = UnifiedEvent::RetryTick;
+
+        let result = classify(&sm_id, &event, &registry);
+        match result {
+            Some(SMEvent::Deposit(event)) => {
+                assert!(matches!(*event, DepositEvent::RetryTick(_)));
+            }
+            other => panic!("expected Deposit::RetryTick, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_retry_tick_missing_deposit_returns_none() {
+        let registry = test_empty_registry();
+        let sm_id = SMId::Deposit(999);
+        let event = UnifiedEvent::RetryTick;
+
+        let result = classify(&sm_id, &event, &registry);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn classify_retry_tick_existing_graph_returns_retry_tick_event() {
+        let mut registry = test_empty_registry();
+        let deposit_idx = 42;
+        insert_deposit_with_graphs(&mut registry, deposit_idx);
+
+        let sm_id = SMId::Graph(GraphIdx {
+            deposit: deposit_idx,
+            operator: 0,
+        });
+        let event = UnifiedEvent::RetryTick;
+
+        let result = classify(&sm_id, &event, &registry);
+        match result {
+            Some(SMEvent::Graph(event)) => {
+                assert!(matches!(*event, GraphEvent::RetryTick(_)));
+            }
+            other => panic!("expected Deposit::RetryTick, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_retry_tick_missing_graph_returns_none() {
+        let registry = test_empty_registry();
+        let sm_id = SMId::Graph(GraphIdx {
+            deposit: 999,
+            operator: 0,
+        });
+        let event = UnifiedEvent::RetryTick;
 
         let result = classify(&sm_id, &event, &registry);
         assert!(result.is_none());
