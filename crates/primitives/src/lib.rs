@@ -21,5 +21,6 @@ pub mod scripts;
 pub mod secp;
 #[cfg(feature = "async")]
 pub mod subscription;
+pub mod proof;
 pub mod types;
 pub mod wots;
