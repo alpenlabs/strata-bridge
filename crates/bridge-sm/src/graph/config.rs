@@ -20,7 +20,7 @@ pub struct GraphSMCfg {
     // NOTE: (@Rajil1213) we might need to get this from `Mosaic` per deposit at runtime instead.
     // Until mosaic is developed, use the same adaptor key for all operators to facilitate
     // mosaic-less demo.
-    pub operator_adaptor_key: XOnlyPublicKey,
+    pub operator_adaptor_keys: Vec<XOnlyPublicKey>,
 
     /// Key that locks the payout connector output.
     ///
