@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use bitcoin::{Amount, OutPoint, Transaction, secp256k1::XOnlyPublicKey};
+use bitcoin::{Amount, OutPoint, Transaction, Txid, secp256k1::XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, secp256k1::Message};
 use strata_bridge_connectors2::SigningInfo;
@@ -107,6 +107,8 @@ pub enum DepositDuty {
         deposit_idx: DepositIdx,
         /// DRT outpoint to ID the signing session
         drt_outpoint: OutPoint,
+        /// Claim txids for this deposit. If any exists on chain, signing must be aborted.
+        claim_txids: Vec<Txid>,
         /// Ordered public keys of all operators for MuSig2 signing
         ordered_pubkeys: Vec<XOnlyPublicKey>,
         /// The taproot tweak for the DRT output (merkle root of take-back script)
@@ -118,6 +120,8 @@ pub enum DepositDuty {
         deposit_idx: DepositIdx,
         /// DRT outpoint to resume the earlier signing session
         drt_outpoint: OutPoint,
+        /// Claim txids for this deposit. If any exists on chain, signing must be aborted.
+        claim_txids: Vec<Txid>,
         /// Signing info containing sighash and tweak for the DRT input
         signing_info: SigningInfo,
         /// aggregated nonce from all operators for this signing session

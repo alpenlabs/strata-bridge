@@ -1,7 +1,7 @@
 //! Unit Tests for process_deposit_confirmed
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::BTreeMap;
 
     use bitcoin::{OutPoint, Txid, hashes::Hash};
     use strata_bridge_test_utils::prelude::generate_spending_tx;
@@ -48,6 +48,7 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             deposit_transaction: deposit_tx.clone(),
             pubnonces: BTreeMap::new(),
+            claim_txids: BTreeMap::new(),
             agg_nonce: generate_agg_nonce(),
             partial_signatures: BTreeMap::new(),
         };
@@ -77,11 +78,12 @@ mod tests {
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
-                linked_graphs: BTreeSet::new(),
+                claim_txids: BTreeMap::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 pubnonces: BTreeMap::new(),
             },
             DepositState::Deposited {

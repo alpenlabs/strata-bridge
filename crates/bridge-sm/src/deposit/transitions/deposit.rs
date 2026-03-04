@@ -83,6 +83,7 @@ impl DepositSM {
 
         match graph_msg {
             GraphToDeposit::GraphAvailable {
+                claim_txid,
                 operator_idx,
                 deposit_idx,
                 ..
@@ -105,19 +106,22 @@ impl DepositSM {
                     DepositState::Created {
                         deposit_transaction,
                         last_block_height,
-                        linked_graphs,
+                        claim_txids,
                     } => {
                         // Check for duplicate graph submission
-                        if linked_graphs.contains(&operator_idx) {
+                        if claim_txids.contains_key(&operator_idx) {
                             return Err(DSMError::duplicate(
                                 self.state().clone(),
                                 graph_msg.clone().into(),
                             ));
                         }
 
-                        linked_graphs.insert(operator_idx);
+                        claim_txids.insert(operator_idx, claim_txid);
 
-                        if linked_graphs.len() == operator_table_cardinality {
+                        if claim_txids.len() == operator_table_cardinality {
+                            let claim_txids = claim_txids.clone();
+                            let claim_txids_list = claim_txids.values().copied().collect();
+
                             // Get the tweak from signing_info
                             let drt_tweak = deposit_transaction
                                 .signing_info()
@@ -130,6 +134,7 @@ impl DepositSM {
                             let new_state = DepositState::GraphGenerated {
                                 deposit_transaction: deposit_transaction.clone(),
                                 last_block_height: *last_block_height,
+                                claim_txids,
                                 pubnonces: BTreeMap::new(),
                             };
                             self.state = new_state;
@@ -147,6 +152,7 @@ impl DepositSM {
                             let duty = DepositDuty::PublishDepositNonce {
                                 deposit_idx: self.context().deposit_idx,
                                 drt_outpoint: deposit_outpoint,
+                                claim_txids: claim_txids_list,
                                 ordered_pubkeys,
                                 drt_tweak,
                             };
@@ -185,6 +191,7 @@ impl DepositSM {
             DepositState::GraphGenerated {
                 deposit_transaction,
                 last_block_height,
+                claim_txids,
                 pubnonces,
             } => {
                 // Check for duplicate nonce submission
@@ -200,6 +207,8 @@ impl DepositSM {
 
                 // Check if we have collected all nonces
                 if pubnonces.len() == operator_table_cardinality {
+                    let claim_txids_list = claim_txids.values().copied().collect();
+
                     // All nonces collected, compute the aggregated nonce
                     let agg_nonce = AggNonce::sum(pubnonces.values().cloned());
 
@@ -214,6 +223,7 @@ impl DepositSM {
                     let new_state = DepositState::DepositNoncesCollected {
                         deposit_transaction: deposit_transaction.clone(),
                         last_block_height: *last_block_height,
+                        claim_txids: claim_txids.clone(),
                         agg_nonce: agg_nonce.clone(),
                         pubnonces: pubnonces.clone(),
                         partial_signatures: BTreeMap::new(),
@@ -233,6 +243,7 @@ impl DepositSM {
                     let duty = DepositDuty::PublishDepositPartial {
                         deposit_idx: self.context().deposit_idx,
                         drt_outpoint: self.context().deposit_outpoint(),
+                        claim_txids: claim_txids_list,
                         signing_info,
                         deposit_agg_nonce: agg_nonce,
                         ordered_pubkeys,
@@ -288,6 +299,7 @@ impl DepositSM {
                 agg_nonce,
                 pubnonces,
                 partial_signatures,
+                ..
             } => {
                 // Extract Copy types immediately using dereference pattern to bypass borrow checker
                 let blk_height = *last_block_height;

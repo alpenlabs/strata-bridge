@@ -44,6 +44,7 @@ mod tests {
             state: DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 pubnonces,
             },
             event: DepositEvent::NagTick(NagTickEvent),
@@ -75,6 +76,7 @@ mod tests {
             state: DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 pubnonces: BTreeMap::new(),
             },
             event: DepositEvent::NagTick(NagTickEvent),
@@ -95,6 +97,7 @@ mod tests {
             state: DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 pubnonces,
             },
             event: DepositEvent::NagTick(NagTickEvent),
@@ -131,6 +134,7 @@ mod tests {
             state: DepositState::DepositNoncesCollected {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 agg_nonce: AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce())),
                 pubnonces: BTreeMap::new(),
                 partial_signatures,
@@ -164,6 +168,7 @@ mod tests {
             state: DepositState::DepositNoncesCollected {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 agg_nonce: AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce())),
                 pubnonces: BTreeMap::new(),
                 partial_signatures: BTreeMap::new(),
@@ -186,6 +191,7 @@ mod tests {
             state: DepositState::DepositNoncesCollected {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 agg_nonce: AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce())),
                 pubnonces: BTreeMap::new(),
                 partial_signatures,
@@ -424,7 +430,7 @@ mod tests {
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
-                linked_graphs: BTreeSet::new(),
+                claim_txids: BTreeMap::new(),
             },
             DepositState::DepositPartialsCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,

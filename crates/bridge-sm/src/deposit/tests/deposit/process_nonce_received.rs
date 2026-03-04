@@ -19,6 +19,10 @@ mod tests {
         let deposit_tx = test_deposit_txn();
         let operator_signers = test_operator_signers();
         let operator_signers_nonce_counter = 0u64;
+        let claim_txids_by_operator: BTreeMap<_, _> = (0..N_TEST_OPERATORS as u32)
+            .map(|operator_idx| (operator_idx, generate_txid()))
+            .collect();
+        let expected_claim_txids: Vec<_> = claim_txids_by_operator.values().copied().collect();
 
         // Extract signing info
         let (key_agg_ctx, _sighash) = get_deposit_signing_info(&deposit_tx, &operator_signers);
@@ -39,6 +43,7 @@ mod tests {
         let initial_state = DepositState::GraphGenerated {
             deposit_transaction: deposit_tx.clone(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
+            claim_txids: claim_txids_by_operator.clone(),
             pubnonces: BTreeMap::new(),
         };
 
@@ -57,20 +62,21 @@ mod tests {
 
         seq.assert_no_errors();
 
-        // Should transition to DepositNoncesCollected
-        assert!(matches!(
-            seq.state(),
-            DepositState::DepositNoncesCollected { .. }
-        ));
+        match seq.state() {
+            DepositState::DepositNoncesCollected { claim_txids, .. } => {
+                assert_eq!(claim_txids, &claim_txids_by_operator);
+            }
+            _ => panic!("Expected DepositNoncesCollected state"),
+        }
 
-        // Check that a PublishDepositPartial duty was emitted
-        assert!(
-            matches!(
-                seq.all_duties().as_slice(),
-                [DepositDuty::PublishDepositPartial { .. }]
-            ),
-            "Expected exactly 1 PublishDepositPartial duty to be emitted"
-        );
+        let duties = seq.all_duties();
+        assert_eq!(duties.len(), 1, "Expected exactly one duty");
+        match duties[0] {
+            DepositDuty::PublishDepositPartial { claim_txids, .. } => {
+                assert_eq!(claim_txids, &expected_claim_txids);
+            }
+            _ => panic!("Expected PublishDepositPartial duty"),
+        }
     }
 
     #[test]
@@ -86,6 +92,7 @@ mod tests {
         let initial_state = DepositState::GraphGenerated {
             deposit_transaction: deposit_tx.clone(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
+            claim_txids: BTreeMap::new(),
             pubnonces: BTreeMap::new(),
         };
 
@@ -126,6 +133,7 @@ mod tests {
         let initial_state = DepositState::GraphGenerated {
             deposit_transaction: deposit_tx.clone(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
+            claim_txids: BTreeMap::new(),
             pubnonces: BTreeMap::new(),
         };
 

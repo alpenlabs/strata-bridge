@@ -308,13 +308,14 @@ impl Arbitrary for DepositState {
                 DepositState::Created {
                     last_block_height: height,
                     deposit_transaction: test_deposit_txn(),
-                    linked_graphs: Default::default(),
+                    claim_txids: BTreeMap::new(),
                 }
             }),
             (block_height.clone()).prop_map(|height| {
                 DepositState::GraphGenerated {
                     last_block_height: height,
                     deposit_transaction: test_deposit_txn(),
+                    claim_txids: BTreeMap::new(),
                     pubnonces: Default::default(),
                 }
             }),
@@ -322,6 +323,7 @@ impl Arbitrary for DepositState {
                 DepositState::DepositNoncesCollected {
                     last_block_height: height,
                     deposit_transaction: test_deposit_txn(),
+                    claim_txids: BTreeMap::new(),
                     agg_nonce: generate_agg_nonce(),
                     partial_signatures: Default::default(),
                     pubnonces: Default::default(),

@@ -1,7 +1,7 @@
 //! Unit Tests for process_graph_available
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, str::FromStr};
+    use std::{collections::BTreeMap, str::FromStr};
 
     use bitcoin::OutPoint;
     use strata_bridge_test_utils::prelude::generate_spending_tx;
@@ -24,17 +24,20 @@ mod tests {
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
-            linked_graphs: BTreeSet::new(),
+            claim_txids: BTreeMap::new(),
         };
 
         let sm = create_sm(initial_state);
         let mut seq = EventSequence::new(sm, get_state);
+        let mut expected_claim_txids_by_operator = BTreeMap::new();
 
         for operator_idx in 0..N_TEST_OPERATORS as u32 {
+            let claim_txid = generate_txid();
+            expected_claim_txids_by_operator.insert(operator_idx, claim_txid);
             seq.process(
                 test_deposit_sm_cfg(),
                 DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
-                    claim_txid: generate_txid(),
+                    claim_txid,
                     operator_idx,
                     deposit_idx: TEST_DEPOSIT_IDX,
                 }),
@@ -42,18 +45,24 @@ mod tests {
         }
 
         seq.assert_no_errors();
+        let expected_claim_txids: Vec<_> =
+            expected_claim_txids_by_operator.values().copied().collect();
 
-        // Should transition to GraphGenerated
-        assert!(matches!(seq.state(), DepositState::GraphGenerated { .. }));
+        match seq.state() {
+            DepositState::GraphGenerated { claim_txids, .. } => {
+                assert_eq!(claim_txids, &expected_claim_txids_by_operator);
+            }
+            _ => panic!("Expected GraphGenerated state"),
+        }
 
-        // Check that a PublishDepositNonce duty was emitted
-        assert!(
-            matches!(
-                seq.all_duties().as_slice(),
-                [DepositDuty::PublishDepositNonce { .. }]
-            ),
-            "Expected exactly 1 PublishDepositNonce duty to be emitted"
-        );
+        let duties = seq.all_duties();
+        assert_eq!(duties.len(), 1, "Expected exactly one duty");
+        match duties[0] {
+            DepositDuty::PublishDepositNonce { claim_txids, .. } => {
+                assert_eq!(claim_txids, &expected_claim_txids);
+            }
+            _ => panic!("Expected PublishDepositNonce duty"),
+        }
     }
 
     #[test]
@@ -63,7 +72,7 @@ mod tests {
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
-            linked_graphs: BTreeSet::new(),
+            claim_txids: BTreeMap::new(),
         };
 
         let sm = create_sm(initial_state.clone());
@@ -135,7 +144,7 @@ mod tests {
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx.clone(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
-            linked_graphs: BTreeSet::new(),
+            claim_txids: BTreeMap::new(),
         };
 
         let sm = create_sm(initial_state.clone());
@@ -162,11 +171,10 @@ mod tests {
     #[test]
     fn test_invalid_deposit_idx_in_process_graph_available() {
         let deposit_tx = test_deposit_txn();
-        let linked_graphs = BTreeSet::new();
         let initial_state = DepositState::Created {
             deposit_transaction: deposit_tx,
             last_block_height: INITIAL_BLOCK_HEIGHT,
-            linked_graphs,
+            claim_txids: BTreeMap::new(),
         };
 
         let invalid_deposit_idx = TEST_DEPOSIT_IDX + 1;
@@ -213,8 +221,9 @@ mod tests {
         let state = DepositState::DepositNoncesCollected {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             deposit_transaction: test_deposit_txn(),
-            pubnonces: BTreeMap::new(),
+            claim_txids: BTreeMap::new(),
             agg_nonce: generate_agg_nonce(),
+            pubnonces: BTreeMap::new(),
             partial_signatures: BTreeMap::new(),
         };
 
