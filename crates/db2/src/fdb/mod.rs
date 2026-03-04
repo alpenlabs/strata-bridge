@@ -5,6 +5,7 @@ pub mod cfg;
 pub mod client;
 pub mod dirs;
 pub mod errors;
+pub mod proof_db;
 pub mod row_spec;
 
 /// The FoundationDB layer identifier.
