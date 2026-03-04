@@ -1,9 +1,12 @@
 //! This module contains the executors for performing duties related to deposits.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use bitcoin::{
-    Amount, FeeRate, OutPoint, TapSighashType, Transaction,
+    Amount, FeeRate, OutPoint, TapSighashType, Transaction, Txid,
     secp256k1::{Message, PublicKey, XOnlyPublicKey, schnorr},
     sighash::{Prevouts, SighashCache},
 };
@@ -24,7 +27,7 @@ use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
 use strata_bridge_tx_graph2::transactions::prelude::{
     CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{config::ExecutionConfig, errors::ExecutorError, output_handles::OutputHandles};
 
@@ -38,6 +41,7 @@ pub async fn execute_deposit_duty(
         DepositDuty::PublishDepositNonce {
             deposit_idx,
             drt_outpoint,
+            claim_txids,
             ordered_pubkeys,
             drt_tweak,
         } => {
@@ -45,6 +49,7 @@ pub async fn execute_deposit_duty(
                 &output_handles,
                 *deposit_idx,
                 *drt_outpoint,
+                claim_txids,
                 ordered_pubkeys,
                 *drt_tweak,
             )
@@ -53,6 +58,7 @@ pub async fn execute_deposit_duty(
         DepositDuty::PublishDepositPartial {
             deposit_idx,
             drt_outpoint,
+            claim_txids,
             signing_info,
             deposit_agg_nonce,
             ordered_pubkeys,
@@ -61,6 +67,7 @@ pub async fn execute_deposit_duty(
                 &output_handles,
                 *deposit_idx,
                 *drt_outpoint,
+                claim_txids,
                 *signing_info,
                 deposit_agg_nonce.clone(),
                 ordered_pubkeys,
@@ -214,15 +221,67 @@ pub async fn execute_deposit_duty(
     }
 }
 
+/// Checks that none of the claim transactions are already on chain.
+///
+/// # Errors
+///
+/// Returns an error if any claim transaction is found on chain or if the check fails for any reason
+/// (e.g. RPC error).
+async fn ensure_claims_not_onchain(
+    output_handles: &OutputHandles,
+    deposit_idx: DepositIdx,
+    claim_txids: &[Txid],
+) -> Result<(), ExecutorError> {
+    let unique_claim_txids: BTreeSet<Txid> = claim_txids.iter().copied().collect();
+    info!(%deposit_idx, ?unique_claim_txids, "checking if claim txids are on chain before signing deposit transaction");
+
+    for claim_txid in unique_claim_txids {
+        debug!(%deposit_idx, %claim_txid, "checking if claim tx is on chain");
+        match output_handles
+            .bitcoind_rpc_client
+            .get_raw_transaction_verbosity_one(&claim_txid)
+            .await
+        {
+            Ok(_) => {
+                warn!(
+                    %deposit_idx,
+                    %claim_txid,
+                    "claim tx already on chain, aborting deposit signing"
+                );
+                return Err(ExecutorError::ClaimTxAlreadyOnChain(claim_txid));
+            }
+            Err(e) if e.is_tx_not_found() => {}
+            Err(e) => {
+                warn!(
+                    %deposit_idx,
+                    %claim_txid,
+                    ?e,
+                    "failed to check claim tx status, aborting deposit signing to be safe"
+                );
+                return Err(ExecutorError::BitcoinRpcErr(e));
+            }
+        }
+    }
+
+    debug!(
+        %deposit_idx,
+        "no claim tx found on chain, good to proceed with signing"
+    );
+
+    Ok(())
+}
+
 /// Publishes the operator's nonce for the deposit transaction signing session.
 async fn publish_deposit_nonce(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     drt_outpoint: OutPoint,
+    claim_txids: &[Txid],
     ordered_pubkeys: &[XOnlyPublicKey],
     drt_tweak: TaprootTweak,
 ) -> Result<(), ExecutorError> {
     info!(%drt_outpoint, "executing publish_deposit_nonce duty");
+    ensure_claims_not_onchain(output_handles, deposit_idx, claim_txids).await?;
 
     // Create Musig2Params for key-path spend (n-of-n)
     // The tweak is the merkle root of the DRT's take-back script
@@ -257,11 +316,13 @@ async fn publish_deposit_partial(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     drt_outpoint: OutPoint,
+    claim_txids: &[Txid],
     signing_info: SigningInfo,
     deposit_agg_nonce: AggNonce,
     ordered_pubkeys: &[XOnlyPublicKey],
 ) -> Result<(), ExecutorError> {
     info!(%drt_outpoint, "executing publish_deposit_partial duty");
+    ensure_claims_not_onchain(output_handles, deposit_idx, claim_txids).await?;
 
     // Create Musig2Params for key-path spend (n-of-n)
     // Must use same params as nonce generation for deterministic nonce recovery

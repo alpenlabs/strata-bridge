@@ -22,16 +22,18 @@ mod tests {
             DepositState::Created {
                 last_block_height: LATER_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn(),
-                linked_graphs: Default::default(),
+                claim_txids: BTreeMap::new(),
             },
             DepositState::GraphGenerated {
                 last_block_height: LATER_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn(),
+                claim_txids: BTreeMap::new(),
                 pubnonces: Default::default(),
             },
             DepositState::DepositNoncesCollected {
                 last_block_height: LATER_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn(),
+                claim_txids: BTreeMap::new(),
                 agg_nonce: generate_agg_nonce(),
                 partial_signatures: Default::default(),
                 pubnonces: Default::default(),
@@ -50,6 +52,7 @@ mod tests {
             DepositState::DepositNoncesCollected {
                 last_block_height: h,
                 deposit_transaction: test_deposit_txn(),
+                claim_txids: BTreeMap::new(),
                 agg_nonce: generate_agg_nonce(),
                 partial_signatures: Default::default(),
                 pubnonces: Default::default(),
@@ -68,11 +71,12 @@ mod tests {
             DepositState::Created {
                 last_block_height: h,
                 deposit_transaction: test_deposit_txn(),
-                linked_graphs: Default::default(),
+                claim_txids: BTreeMap::new(),
             },
             DepositState::GraphGenerated {
                 last_block_height: h,
                 deposit_transaction: test_deposit_txn(),
+                claim_txids: BTreeMap::new(),
                 pubnonces: Default::default(),
             },
         ]

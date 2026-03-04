@@ -1,7 +1,7 @@
 //! Unit tests for process_retry_tick.
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeMap;
 
     use musig2::AggNonce;
 
@@ -196,17 +196,19 @@ mod tests {
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
-                linked_graphs: BTreeSet::new(),
+                claim_txids: BTreeMap::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 pubnonces: BTreeMap::new(),
             },
             DepositState::DepositNoncesCollected {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 pubnonces: BTreeMap::new(),
+                claim_txids: BTreeMap::new(),
                 agg_nonce: AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce())),
                 partial_signatures: BTreeMap::new(),
             },

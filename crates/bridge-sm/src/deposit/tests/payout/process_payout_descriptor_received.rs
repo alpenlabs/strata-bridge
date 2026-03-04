@@ -1,7 +1,7 @@
 //! Unit Tests for process_payout_descriptor_received
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::BTreeMap;
 
     use crate::deposit::{
         duties::DepositDuty,
@@ -87,17 +87,19 @@ mod tests {
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
-                linked_graphs: BTreeSet::new(),
+                claim_txids: BTreeMap::new(),
             },
             DepositState::GraphGenerated {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
                 pubnonces: BTreeMap::new(),
             },
             DepositState::DepositNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn(),
                 pubnonces: BTreeMap::new(),
+                claim_txids: BTreeMap::new(),
                 agg_nonce: generate_agg_nonce(),
                 partial_signatures: BTreeMap::new(),
             },

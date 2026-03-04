@@ -21,7 +21,7 @@ mod tests {
         let state = DepositState::Created {
             deposit_transaction: test_deposit_txn(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
-            linked_graphs: Default::default(),
+            claim_txids: BTreeMap::new(),
         };
 
         let tx = test_takeback_tx(outpoint);
@@ -40,6 +40,7 @@ mod tests {
         let outpoint = OutPoint::default();
         let state = DepositState::GraphGenerated {
             deposit_transaction: test_deposit_txn(),
+            claim_txids: BTreeMap::new(),
             pubnonces: Default::default(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };
@@ -85,7 +86,7 @@ mod tests {
     fn test_wrong_drt_takeback_tx_rejection() {
         let initial_state = DepositState::Created {
             deposit_transaction: test_deposit_txn(),
-            linked_graphs: Default::default(),
+            claim_txids: BTreeMap::new(),
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };
 

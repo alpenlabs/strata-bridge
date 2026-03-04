@@ -4,10 +4,7 @@
 //! with respect to the multisig. Each state represents a specific point in the process
 //! of handling a deposit, from the initial request to the final spend.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::Display,
-};
+use std::{collections::BTreeMap, fmt::Display};
 
 use bitcoin::{Transaction, Txid};
 use bitcoin_bosd::Descriptor;
@@ -30,8 +27,13 @@ pub enum DepositState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Operators whose pegout graphs have been generated for this deposit transaction.
-        linked_graphs: BTreeSet<OperatorIdx>,
+        /// Claim txids by operator for this deposit.
+        ///
+        /// Dual purpose:
+        /// - In `Created`, its cardinality tracks graph-link progress (one entry per operator).
+        /// - Across pre-deposit states, it provides the claim txids used by deposit-signing duties
+        ///   to abort if any claim is already on chain.
+        claim_txids: BTreeMap<OperatorIdx, Txid>,
     },
     /// This state represents the phase where all operator graphs have been generated.
     ///
@@ -43,6 +45,9 @@ pub enum DepositState {
 
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
+
+        /// Claim txids by operator for this deposit, carried over from `Created`.
+        claim_txids: BTreeMap<OperatorIdx, Txid>,
 
         /// Public nonces provided by each operator for signing.
         pubnonces: BTreeMap<OperatorIdx, PubNonce>,
@@ -57,6 +62,9 @@ pub enum DepositState {
 
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
+
+        /// Claim txids by operator for this deposit, carried over from `Created`.
+        claim_txids: BTreeMap<OperatorIdx, Txid>,
 
         /// Aggregated nonce used to validate partial signatures.
         agg_nonce: AggNonce,
@@ -185,7 +193,7 @@ impl DepositState {
         DepositState::Created {
             deposit_transaction,
             last_block_height: block_height,
-            linked_graphs: BTreeSet::new(),
+            claim_txids: BTreeMap::new(),
         }
     }
 
