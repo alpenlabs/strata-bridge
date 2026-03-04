@@ -32,7 +32,7 @@ mod tests {
         let claim_txid = test_graph_summary().claim;
 
         test_graph_transition(GraphTransition {
-            from_state: fulfilled_state(fulfillment_txid),
+            from_state: fulfilled_state(TEST_POV_IDX, fulfillment_txid),
             event: GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
                 claim_txid,
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn test_claim_rejected_invalid_txid() {
         let from_states = [
-            fulfilled_state(generate_txid()),
+            fulfilled_state(TEST_POV_IDX, generate_txid()),
             graph_signed_state(),
             assigned_state(TEST_POV_IDX, ASSIGNMENT_DEADLINE, test_recipient_desc(1)),
         ];

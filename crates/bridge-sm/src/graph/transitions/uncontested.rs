@@ -615,6 +615,7 @@ impl GraphSM {
                 graph_data,
                 graph_summary,
                 signatures,
+                assignee,
                 ..
             } => {
                 self.state = GraphState::Fulfilled {
@@ -622,6 +623,7 @@ impl GraphSM {
                     graph_data: *graph_data,
                     graph_summary: graph_summary.clone(),
                     coop_payout_failed: false,
+                    assignee: *assignee,
                     signatures: signatures.clone(),
                     fulfillment_txid: fulfillment.fulfillment_txid,
                     fulfillment_block_height: fulfillment.fulfillment_block_height,

@@ -44,12 +44,13 @@ pub(super) fn assigned_state(
 }
 
 /// Builds a mock `Fulfilled` state with default test values.
-pub(super) fn fulfilled_state(fulfillment_txid: bitcoin::Txid) -> GraphState {
+pub(super) fn fulfilled_state(assignee: u32, fulfillment_txid: bitcoin::Txid) -> GraphState {
     GraphState::Fulfilled {
         last_block_height: INITIAL_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
         graph_summary: test_graph_summary(),
         coop_payout_failed: false,
+        assignee,
         signatures: Default::default(),
         fulfillment_txid,
         fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
@@ -255,7 +256,7 @@ pub(super) fn claim_detecting_states() -> Vec<GraphState> {
         LATER_BLOCK_HEIGHT + 15,
         test_recipient_desc(1),
     ));
-    states.push(fulfilled_state(graph_summary.claim));
+    states.push(fulfilled_state(TEST_ASSIGNEE, graph_summary.claim));
     states
 }
 
@@ -308,7 +309,7 @@ pub(super) fn all_state_variants() -> Vec<GraphState> {
         LATER_BLOCK_HEIGHT + 15,
         test_recipient_desc(1),
     ));
-    states.push(fulfilled_state(graph_summary.claim));
+    states.push(fulfilled_state(TEST_ASSIGNEE, graph_summary.claim));
     states.push(claimed_state(
         LATER_BLOCK_HEIGHT,
         graph_summary.claim,

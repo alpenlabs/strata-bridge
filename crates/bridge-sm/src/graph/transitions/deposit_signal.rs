@@ -29,7 +29,7 @@ impl GraphSM {
     /// Processes the cooperative payout failure signal from the Deposit SM.
     ///
     /// Sets `coop_payout_failed` to `true` in the `Fulfilled` state and emits a
-    /// `PublishClaim` duty if the assignee is the PoV operator.
+    /// `PublishClaim` duty if this graph belongs to the PoV operator.
     fn process_coop_payout_failed(
         &mut self,
         cfg: Arc<GraphSMCfg>,
