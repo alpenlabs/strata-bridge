@@ -27,8 +27,8 @@ else
     BIN_PATH=$(realpath target/debug/)
 fi
 
-# Build all required binaries (only alpen-bridge and secret-service gets coverage instrumentation)
-RUSTFLAGS="$RUSTFLAGS" cargo build --bin alpen-bridge $CARGO_ARGS
+# Build all required binaries (only strata-bridge and secret-service gets coverage instrumentation)
+RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-bridge $CARGO_ARGS
 RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO_ARGS
 RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-asm-runner $CARGO_ARGS
 cargo build --bin dev-cli $CARGO_ARGS
