@@ -141,7 +141,7 @@ pub(crate) fn generate_game_graph(
     ctx: &GraphSMCtx,
     deposit_params: DepositParams,
 ) -> GameGraph {
-    let setup_params = cfg.generate_setup_params(ctx);
+    let setup_params = ctx.generate_setup_params(cfg);
     let protocol_params = cfg.game_graph_params;
     let graph_data = GameData {
         protocol: protocol_params,
