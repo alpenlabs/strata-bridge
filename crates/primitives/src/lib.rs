@@ -17,10 +17,10 @@ pub mod errors;
 pub mod key_agg;
 pub mod mosaic;
 pub mod operator_table;
+pub mod proof;
 pub mod scripts;
 pub mod secp;
 #[cfg(feature = "async")]
 pub mod subscription;
-pub mod proof;
 pub mod types;
 pub mod wots;
