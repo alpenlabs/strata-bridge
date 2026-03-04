@@ -120,7 +120,7 @@ class BridgeOperatorFactory(flexitest.Factory):
 
         logfile_path = os.path.join(dd, "service.log")
         cmd = [
-            "alpen-bridge",
+            "strata-bridge",
             "--params",
             params_toml_path,
             "--config",

@@ -12,14 +12,14 @@ from .config_cfg import (
     BtcZmqConfig,
     DbConfig,
     Duration,
-    FdbConfig,
     FdbRetryConfig,
+    OperatorWalletConfig,
     P2pConfig,
     RpcConfig,
     SecretServiceClientConfig,
-    StakeTxConfig,
 )
-from .params_cfg import BridgeOperatorParams, Connectors, Keys, Sidesystem, StakeChain, TxGraph
+from .params_cfg import BridgeOperatorParams, CovenantKeys, Keys, Protocol
+from .sidesystem_cfg import Sidesystem
 
 DEFAULT_INITIAL_HEARBEAT_DELAY_SECS = 10
 
@@ -40,16 +40,19 @@ def generate_config_toml(
     tls_dir: str,
     heartbeat_delay_factor: int = 1,  # no delay by default
 ):
+    _ = datadir
     mtls_dir = Path(tls_dir)
     total_peers = len(other_p2p_addrs) + 1  # +1 for self
 
     config = BridgeOperatorConfig(
-        datadir=datadir,
-        is_faulty=False,
+        num_threads=None,
+        thread_stack_size=None,
         nag_interval=Duration(secs=30, nanos=0),
+        retry_interval=Duration(secs=1, nanos=0),
         min_withdrawal_fulfillment_window=144,
-        stake_funding_pool_size=32,
         shutdown_timeout=Duration(secs=30, nanos=0),
+        cooperative_payout_timeout=144,
+        max_fee_rate=10,
         secret_service_client=SecretServiceClientConfig(
             server_addr=f"127.0.0.1:{s2_props.get('s2_port')}",
             server_hostname="secret-service",
@@ -65,10 +68,10 @@ def generate_config_toml(
             retry_count=3,
             retry_interval=1000,
         ),
-        db=DbConfig(max_retry_count=3, backoff_period=Duration(secs=1000, nanos=0)),
-        fdb=FdbConfig(
+        db=DbConfig(
             cluster_file_path=fdb_props["cluster_file"],
             root_directory=fdb_props["root_directory"],
+            tls=None,
             retry=FdbRetryConfig(retry_limit=5, timeout=Duration(secs=5, nanos=0)),
         ),
         p2p=P2pConfig(
@@ -110,7 +113,7 @@ def generate_config_toml(
             rawtx_connection_string=zmq_connection_string(bitcoind_props["zmq_rawtx"]),
             sequence_connection_string=zmq_connection_string(bitcoind_props["zmq_sequence"]),
         ),
-        stake_tx=StakeTxConfig(max_retries=10, retry_delay=Duration(secs=5, nanos=0)),
+        operator_wallet=OperatorWalletConfig(claim_funding_pool_size=32),
     )
 
     with open(output_path, "w") as f:
@@ -133,30 +136,33 @@ def generate_params_toml(
         operator_key_infos: List of OperatorKeys containing MUSIG2_KEY and P2P_KEY
         sidesystem: Pre-built sidesystem params to embed
     """
+    covenant = [
+        CovenantKeys(
+            musig2=key.MUSIG2_KEY,
+            p2p=key.P2P_KEY,
+            adaptor=key.MUSIG2_KEY,
+            watchtower_fault=key.MUSIG2_KEY,
+            payout_descriptor=key.GENERAL_WALLET_DESCRIPTOR,
+        )
+        for key in operator_key_infos
+    ]
+
     params = BridgeOperatorParams(
         network="regtest",
         genesis_height=sidesystem.genesis_l1_view.blk.height,
-        keys=Keys(
-            musig2=[key.MUSIG2_KEY for key in operator_key_infos],
-            p2p=[key.P2P_KEY for key in operator_key_infos],
-        ),
-        tx_graph=TxGraph(
-            tag="alpn",
+        keys=Keys(admin=operator_key_infos[0].MUSIG2_KEY, covenant=covenant),
+        protocol=Protocol(
+            magic_bytes="alpn",
             deposit_amount=1_000_000_000,
-            operator_fee=10_000_000,
-            challenge_cost=10_000_000,
-            refund_delay=1008,
-        ),
-        stake_chain=StakeChain(
             stake_amount=100_000_000,
-            burn_amount=10_000_000,
-            delta={"Blocks": 6},
-            slash_stake_count=24,
+            operator_fee=10_000_000,
+            recovery_delay=1_008,
+            contest_timelock=144,
+            proof_timelock=144,
+            ack_timelock=144,
+            nack_timelock=144,
+            contested_payout_timelock=1_008,
         ),
-        connectors=Connectors(
-            payout_optimistic_timelock=1008, pre_assert_timelock=1152, payout_timelock=1008
-        ),
-        sidesystem=sidesystem,
     )
 
     with open(output_path, "w") as f:
