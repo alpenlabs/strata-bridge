@@ -58,6 +58,9 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
         .map(|_| generate_xonly_pubkey())
         .collect();
     let payout_descs = (0..N_TEST_OPERATORS).map(|_| random_p2tr_desc()).collect();
+    let adapter_pubkeys = (0..N_TEST_OPERATORS)
+        .map(|_| generate_xonly_pubkey())
+        .collect();
 
     Arc::new(GraphSMCfg {
         game_graph_params: ProtocolParams {
@@ -72,7 +75,7 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             deposit_amount: TEST_DEPOSIT_AMOUNT,
             stake_amount: Amount::from_sat(100_000_000),
         },
-        operator_adaptor_keys: generate_xonly_pubkey(),
+        operator_adaptor_keys: adapter_pubkeys,
         admin_pubkey: generate_xonly_pubkey(),
         operator_fee: TEST_OPERATOR_FEE,
         watchtower_fault_pubkeys,
