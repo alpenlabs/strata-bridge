@@ -1,5 +1,6 @@
 //! Testing utilities specific to the Graph State Machine.
 mod contested;
+mod handlers;
 pub(super) mod mock_states;
 mod uncontested;
 pub(super) mod utils;
@@ -305,6 +306,50 @@ pub(super) type GraphInvalidTransition = InvalidTransition<GraphState, GraphEven
 /// Test an invalid GraphSM transition with pre-configured test helpers.
 pub(super) fn test_graph_invalid_transition(invalid: GraphInvalidTransition) {
     test_invalid_transition::<GraphSM, _, _, _, _, _, _>(create_sm, test_graph_sm_cfg(), invalid);
+}
+
+/// Configuration for testing handlers that don't mutate state.
+///
+/// Unlike transitions, handlers only emit duties without changing state.
+pub(super) struct GraphHandlerOutput {
+    /// The state (remains unchanged after handler execution).
+    pub state: GraphState,
+    /// The event that triggers the handler.
+    pub event: GraphEvent,
+    /// The expected duties emitted by the handler.
+    pub expected_duties: Vec<GraphDuty>,
+}
+
+/// Helper for testing handlers for graphs owned by the POV (`create_sm`).
+pub(super) fn test_pov_owned_handler_output(cfg: Arc<GraphSMCfg>, output: GraphHandlerOutput) {
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
+        create_sm,
+        get_state,
+        cfg,
+        GraphTransition {
+            from_state: output.state.clone(),
+            event: output.event,
+            expected_state: output.state,
+            expected_duties: output.expected_duties,
+            expected_signals: vec![],
+        },
+    );
+}
+
+/// Helper for testing handlers for graphs not owned by the POV (`create_nonpov_sm`).
+pub(super) fn test_nonpov_owned_handler_output(cfg: Arc<GraphSMCfg>, output: GraphHandlerOutput) {
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
+        create_nonpov_sm,
+        get_state,
+        cfg,
+        GraphTransition {
+            from_state: output.state.clone(),
+            event: output.event,
+            expected_state: output.state,
+            expected_duties: output.expected_duties,
+            expected_signals: vec![],
+        },
+    );
 }
 
 /// Creates a packed vector of mock signatures whose layout matches

@@ -173,6 +173,10 @@ pub struct NewBlockEvent {
     pub block_height: BitcoinBlockHeight,
 }
 
+/// Event signalling that retriable duties should be emitted again for the current state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetryTickEvent;
+
 /// The external events that affect the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphEvent {
@@ -215,6 +219,8 @@ pub enum GraphEvent {
     /// This is required to deal with timelocks in various states and to track the last observed
     /// block.
     NewBlock(NewBlockEvent),
+    /// Event signalling that retriable duties should be emitted again for the current state.
+    RetryTick(RetryTickEvent),
 }
 
 impl Display for GraphEvent {
@@ -238,6 +244,7 @@ impl Display for GraphEvent {
             GraphEvent::PayoutConfirmed(_) => "PayoutConfirmed",
             GraphEvent::PayoutConnectorSpent(_) => "PayoutConnectorSpent",
             GraphEvent::NewBlock(_) => "NewBlock",
+            GraphEvent::RetryTick(_) => "RetryTick",
         };
         write!(f, "{}", display_str)
     }
@@ -279,3 +286,4 @@ impl_into_graph_event!(SlashConfirmedEvent, SlashConfirmed);
 impl_into_graph_event!(PayoutConfirmedEvent, PayoutConfirmed);
 impl_into_graph_event!(PayoutConnectorSpentEvent, PayoutConnectorSpent);
 impl_into_graph_event!(NewBlockEvent, NewBlock);
+impl_into_graph_event!(RetryTickEvent, RetryTick);

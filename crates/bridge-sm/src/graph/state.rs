@@ -123,6 +123,9 @@ pub enum GraphState {
         /// Whether the cooperative payout has failed and the unilateral claim path is activated.
         coop_payout_failed: bool,
 
+        /// The operator who fulfilled the withdrawal.
+        assignee: OperatorIdx,
+
         /// Aggregated final signatures for the graph.
         signatures: Vec<Signature>,
 

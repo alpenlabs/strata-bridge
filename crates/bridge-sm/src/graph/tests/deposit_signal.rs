@@ -43,13 +43,14 @@ mod tests {
             get_state,
             cfg,
             GraphTransition {
-                from_state: fulfilled_state(fulfillment_txid),
+                from_state: fulfilled_state(TEST_POV_IDX, fulfillment_txid),
                 event: coop_payout_failed_event(),
                 expected_state: GraphState::Fulfilled {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     graph_data: test_deposit_params(),
                     graph_summary: test_graph_summary(),
                     coop_payout_failed: true,
+                    assignee: TEST_POV_IDX,
                     signatures: Default::default(),
                     fulfillment_txid,
                     fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
@@ -72,13 +73,14 @@ mod tests {
             get_state,
             cfg,
             GraphTransition {
-                from_state: fulfilled_state(fulfillment_txid),
+                from_state: fulfilled_state(TEST_POV_IDX, fulfillment_txid),
                 event: coop_payout_failed_event(),
                 expected_state: GraphState::Fulfilled {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     graph_data: test_deposit_params(),
                     graph_summary: test_graph_summary(),
                     coop_payout_failed: true,
+                    assignee: TEST_POV_IDX,
                     signatures: Default::default(),
                     fulfillment_txid,
                     fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,

@@ -45,7 +45,7 @@ mod tests {
                     test_recipient_desc(1),
                 ),
                 event: GraphEvent::FulfillmentConfirmed(event),
-                expected_state: fulfilled_state(fulfillment_txid),
+                expected_state: fulfilled_state(TEST_POV_IDX, fulfillment_txid),
                 expected_duties: vec![],
                 expected_signals: vec![],
             },
@@ -70,7 +70,7 @@ mod tests {
                     test_recipient_desc(1),
                 ),
                 event: GraphEvent::FulfillmentConfirmed(event),
-                expected_state: fulfilled_state(fulfillment_txid),
+                expected_state: fulfilled_state(TEST_POV_IDX, fulfillment_txid),
                 expected_duties: vec![],
                 expected_signals: vec![],
             },
@@ -82,7 +82,7 @@ mod tests {
         let fulfillment_txid = generate_txid();
 
         test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: fulfilled_state(fulfillment_txid),
+            from_state: fulfilled_state(TEST_POV_IDX, fulfillment_txid),
             event: GraphEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
                 fulfillment_txid: generate_txid(),
                 fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
