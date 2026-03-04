@@ -59,7 +59,7 @@ mod tests {
         let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let uncontested_sigs =
-            GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+            GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
                 .expect("Failed to unpack signatures")
                 .uncontested_payout;
         let signed_uncontested_payout_tx = game_graph.uncontested_payout.finalize(uncontested_sigs);
@@ -158,7 +158,7 @@ mod tests {
         let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let bridge_proof_timeout_sigs =
-            GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+            GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
                 .expect("Failed to unpack signatures")
                 .bridge_proof_timeout;
         let signed_timeout_tx = game_graph
@@ -191,7 +191,7 @@ mod tests {
 
         let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
-        let slash_sigs = GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+        let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures")
             .bridge_proof_timeout;
         let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
@@ -240,7 +240,7 @@ mod tests {
 
         let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
-        let slash_sigs = GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
+        let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures")
             .bridge_proof_timeout;
         let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
