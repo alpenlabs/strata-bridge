@@ -58,13 +58,53 @@ def generate_blocks(
     return thr
 
 
-def generate_task(rpc: BitcoindClient, wait_dur, addr):
+def generate_task(
+    rpc: BitcoindClient,
+    wait_dur,
+    addr,
+    max_retries_per_tick: int = 3,
+    max_consecutive_failed_ticks: int = 5,
+    max_retry_delay: int = 3,
+):
+    consecutive_failed_ticks = 0
+
     while True:
         time.sleep(wait_dur)
-        try:
-            rpc.proxy.generatetoaddress(1, addr)
-        except Exception as ex:
-            logging.warning(f"{ex} while generating to address {addr}")
+        logging.debug(f"Generating block to address {addr}")
+        retry_delay = 1
+        tick_succeeded = False
+
+        for attempt in range(1, max_retries_per_tick + 1):
+            try:
+                rpc.proxy.generatetoaddress(1, addr)
+                tick_succeeded = True
+                break
+            except Exception as ex:
+                if attempt == max_retries_per_tick:
+                    logging.warning(
+                        f"{ex} while generating to address {addr} "
+                        f"(attempt {attempt}/{max_retries_per_tick})"
+                    )
+                    break
+
+                logging.warning(
+                    f"{ex} while generating to address {addr} "
+                    f"(attempt {attempt}/{max_retries_per_tick}); retrying in {retry_delay}s"
+                )
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_retry_delay)
+
+        if tick_succeeded:
+            consecutive_failed_ticks = 0
+            continue
+
+        consecutive_failed_ticks += 1
+        if consecutive_failed_ticks >= max_consecutive_failed_ticks:
+            logging.error(
+                "Stopping miner thread after %s consecutive failed ticks while generating to %s",
+                consecutive_failed_ticks,
+                addr,
+            )
             return
 
 
