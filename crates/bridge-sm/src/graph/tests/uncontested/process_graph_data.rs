@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_invalid_process_graph_data_from_withdrawn() {
-        // GraphDataProduced is only valid in Created; any other state should be InvalidEvent
+        // Peer-provided graph data should be rejected once the graph is terminal.
         let state = GraphState::Withdrawn {
             payout_txid: generate_txid(),
         };
@@ -149,7 +149,7 @@ mod tests {
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
             event: GraphEvent::GraphDataProduced(test_graph_data_event()),
-            expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
     }
 
