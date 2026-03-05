@@ -10,7 +10,7 @@ mod tests {
             state::GraphState,
             tests::{
                 GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, TEST_POV_IDX, create_sm, get_state,
-                mock_states::nonces_collected_state,
+                mock_states::{adaptors_verified_state, nonces_collected_state},
                 test_graph_data, test_graph_invalid_transition, test_graph_sm_cfg,
                 utils::{build_nonce_context, build_partial_signatures},
             },
@@ -281,6 +281,34 @@ mod tests {
         // Missing one partials
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
+            event: GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
+                operator_idx: TEST_POV_IDX,
+                partial_signatures: operator_partials,
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    #[test]
+    fn test_partials_received_in_adaptors_verified_state_is_rejected() {
+        let cfg = test_graph_sm_cfg();
+        let (deposit_params, graph) = test_graph_data(&cfg);
+        let graph_summary = graph.summarize();
+        let nonce_ctx = build_nonce_context(graph.musig_signing_info().pack());
+        let partial_sigs_map = build_partial_signatures(
+            &nonce_ctx.signers,
+            &nonce_ctx.key_agg_ctxs,
+            &nonce_ctx.agg_nonces,
+            &nonce_ctx.signing_infos,
+            0,
+        );
+        let operator_partials = partial_sigs_map
+            .get(&TEST_POV_IDX)
+            .expect("operator partial signatures missing")
+            .clone();
+
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: adaptors_verified_state(deposit_params, graph_summary),
             event: GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 partial_signatures: operator_partials,

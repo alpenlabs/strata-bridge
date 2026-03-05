@@ -356,7 +356,7 @@ mod tests {
 
         let nonce = generate_pubnonce();
 
-        let invalid_states = [
+        let pre_deposit_states = [
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -380,6 +380,9 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn().as_ref().clone(),
             },
+        ];
+
+        let invalid_states = [
             DepositState::Deposited {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
             },
@@ -412,6 +415,17 @@ mod tests {
             DepositState::Aborted,
         ];
 
+        for state in pre_deposit_states {
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::PayoutNonceReceived(PayoutNonceReceivedEvent {
+                    payout_nonce: nonce.clone(),
+                    operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
+                }),
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            });
+        }
+
         for state in invalid_states {
             test_deposit_invalid_transition(DepositInvalidTransition {
                 from_state: state,
@@ -419,7 +433,7 @@ mod tests {
                     payout_nonce: nonce.clone(),
                     operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
                 }),
-                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
             });
         }
     }
