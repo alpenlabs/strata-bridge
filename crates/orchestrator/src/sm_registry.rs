@@ -282,9 +282,10 @@ where
     E: std::fmt::Display + std::fmt::Debug,
 {
     match err {
-        BridgeSMError::InvalidEvent { reason, .. } => Err(ProcessError::InvariantViolation(
+        BridgeSMError::InvalidEvent { reason, state, .. } => Err(ProcessError::InvariantViolation(
             *id,
             event,
+            state.to_string(),
             reason.unwrap_or_else(|| "invalid event".to_string()),
         )),
         BridgeSMError::Duplicate { .. } => Ok(ProcessOutcome::Ignored {
@@ -604,11 +605,12 @@ mod tests {
         })));
         let reason = "invalid transition".to_string();
 
+        let state_str = "state".to_string();
         let result = sm_to_process_result(
             &id,
-            event,
+            event.clone(),
             BridgeSMError::InvalidEvent {
-                state: Box::new("state".to_string()),
+                state: Box::new(state_str.clone()),
                 event: Box::new("event".to_string()),
                 reason: Some(reason.clone()),
             },
@@ -616,8 +618,8 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ProcessError::InvariantViolation(SMId::Deposit(9), SMEvent::Deposit(_), err_reason))
-                if err_reason == reason
+            Err(ProcessError::InvariantViolation(dep_id, dep_event, state, err_reason))
+                if err_reason == reason && state == state_str && dep_id == id && dep_event == event
         ));
     }
 }

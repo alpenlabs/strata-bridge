@@ -53,7 +53,7 @@ pub enum OperatorKey<'a> {
 }
 
 /// Wrapper for state-machine-specific events.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SMEvent {
     /// An event related to the deposit state machine.
     Deposit(Box<DepositEvent>),

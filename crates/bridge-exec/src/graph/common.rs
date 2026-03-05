@@ -226,7 +226,12 @@ pub(super) async fn publish_graph_partials(
         }
         Err(e) if e.is_tx_not_found() => { /* safe to proceed */ }
         Err(e) => {
-            warn!(?graph_idx, %claim_txid, ?e, "failed to check claim tx status, aborting partial sig generation");
+            warn!(
+                ?graph_idx,
+                %claim_txid,
+                ?e,
+                "failed to check claim tx status, aborting partial sig generation"
+            );
             return Err(ExecutorError::BitcoinRpcErr(e));
         }
     }
