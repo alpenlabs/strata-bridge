@@ -7,6 +7,7 @@
 //! effect the desired operations.
 
 pub mod deposit;
+pub(crate) mod error_policy;
 pub mod errors;
 pub mod graph;
 pub mod signals;
