@@ -51,7 +51,7 @@ pub(crate) async fn init_orchestrator(
         .await
         .map_err(|e| anyhow!("failed to recover state machine registry from database: {e:?}"))?;
 
-    let start_height = *registry
+    let start_height = registry
         .get_deposit_ids()
         .iter()
         .filter_map(|dep_idx| {
@@ -59,9 +59,10 @@ pub(crate) async fn init_orchestrator(
                 .get_deposit(dep_idx)?
                 .state()
                 .last_processed_block_height()
+                .map(|height| height + 1)
         })
         .min()
-        .unwrap_or(&params.genesis_height);
+        .unwrap_or(params.genesis_height);
     let zmq_client = init_zmq_client(config, start_height).await?;
 
     let (ouroboros_msg_sender, ouroboros_msg_receiver) = mpsc::unbounded_channel();
