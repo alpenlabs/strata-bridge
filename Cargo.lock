@@ -10215,6 +10215,7 @@ dependencies = [
  "strata-bridge-sm",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph2",
+ "strata-identifiers",
  "terrors",
  "tokio",
 ]
@@ -10381,6 +10382,7 @@ dependencies = [
  "strata-bridge-p2p-types",
  "strata-bridge-types",
  "strata-crypto",
+ "strata-identifiers",
  "strata-primitives",
  "thiserror 2.0.17",
  "tokio",
