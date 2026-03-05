@@ -4,7 +4,11 @@
 use std::collections::VecDeque;
 
 use strata_bridge_primitives::operator_table::OperatorTable;
-use tracing::{info, warn};
+use strata_bridge_sm::graph::{
+    duties::GraphDuty,
+    events::{AdaptorsVerifiedEvent, GraphEvent},
+};
+use tracing::{info, trace, warn};
 
 use crate::{
     duty_dispatcher::DutyDispatcher,
@@ -58,6 +62,7 @@ impl Pipeline {
         loop {
             // Stage 1: Multiplex event streams
             let event = self.event_mux.next().await;
+            trace!(?event, "received new event from multiplexer");
 
             // Handle non-routable events (consume `event` on early exit, rebind otherwise)
             let event = match event {
@@ -71,6 +76,10 @@ impl Pipeline {
             };
 
             // Stage 2: Classification
+            trace!(
+                ?event,
+                "classifying event and determining target state machines"
+            );
             let (targets, new_duties): (Vec<(SMId, SMEvent)>, Vec<UnifiedDuty>) = match &event {
                 UnifiedEvent::Block(block_event) => onchain::classify_block(
                     &initial_operator_table,
@@ -99,7 +108,10 @@ impl Pipeline {
             all_duties.extend(new_duties);
 
             // Stage 5: Batch persistence
-            for batch in tracker.into_batches() {
+
+            let batches = tracker.into_batches();
+            info!(count=%batches.len(), "persisting updated state machines batches");
+            for batch in batches {
                 self.persister.persist_batch(batch, &self.registry).await?;
             }
 
@@ -132,6 +144,24 @@ impl Pipeline {
                 &mut tracker,
             )?;
         }
+
+        all_duties
+            .iter()
+            .filter_map(|duty| {
+                if let UnifiedDuty::Graph(GraphDuty::VerifyAdaptors { graph_idx, .. }) = duty {
+                    Some((
+                        *graph_idx,
+                        GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .for_each(|(graph_idx, event)| {
+                info!(%graph_idx, "enqueuing fabricated AdaptorsVerified event");
+
+                signal_queue.push_back((graph_idx.into(), event.into()));
+            });
 
         // Signal cascade: process signals until the queue is drained
         while let Some((sm_id, sm_event)) = signal_queue.pop_front() {
