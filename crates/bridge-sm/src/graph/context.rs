@@ -1,6 +1,6 @@
 //! Context for the Graph State Machine.
 
-use bitcoin::{OutPoint, hashes::sha256};
+use bitcoin::{OutPoint, XOnlyPublicKey, hashes::sha256};
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -96,7 +96,7 @@ impl GraphSMCtx {
 
         let admin_pubkey = cfg.admin_pubkey;
         let unstaking_image = self.unstaking_image();
-        let wt_fault_pubkeys = cfg.watchtower_fault_pubkeys.clone();
+        let wt_fault_pubkeys = self.watchtower_fault_pubkeys(&cfg.watchtower_fault_pubkeys);
 
         let owner_desc = cfg.payout_descs[owner_idx].clone();
         let slash_watchtower_descriptors = cfg
@@ -119,7 +119,7 @@ impl GraphSMCtx {
     }
 
     /// Returns the list of watchtower pubkeys for this graph.
-    pub fn watchtower_pubkeys(&self) -> Vec<bitcoin::XOnlyPublicKey> {
+    pub fn watchtower_pubkeys(&self) -> Vec<XOnlyPublicKey> {
         let owner_idx = self.operator_idx();
         let owner_pubkey = self
             .operator_table()
@@ -136,6 +136,30 @@ impl GraphSMCtx {
             .into_iter()
             .filter(|key| key.x_only_public_key().0 != owner_pubkey)
             .map(|key| key.x_only_public_key().0)
+            .collect()
+    }
+
+    /// Returns the list of watchtower fault pubkeys for this graph.
+    pub fn watchtower_fault_pubkeys(
+        &self,
+        all_fault_pubkeys: &[XOnlyPublicKey],
+    ) -> Vec<XOnlyPublicKey> {
+        let expected_watchtower_count = self.watchtower_pubkeys().len();
+
+        // Support both config shapes:
+        // - already watchtower-only fault keys (len == n-1)
+        // - per-operator fault keys (len == n), where owner's entry must be skipped
+        if all_fault_pubkeys.len() == expected_watchtower_count {
+            return all_fault_pubkeys.to_vec();
+        }
+
+        let owner_idx = self.operator_idx() as usize;
+
+        all_fault_pubkeys
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| *idx != owner_idx)
+            .map(|(_, pubkey)| *pubkey)
             .collect()
     }
 }
