@@ -115,6 +115,7 @@ pub(super) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
 pub(super) fn test_sm_ctx() -> DepositSMCtx {
     DepositSMCtx {
         deposit_idx: TEST_DEPOSIT_IDX,
+        deposit_request_outpoint: OutPoint::default(),
         deposit_outpoint: test_deposit_outpoint(),
         operator_table: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
     }
