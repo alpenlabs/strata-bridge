@@ -150,7 +150,7 @@ mod tests {
         for state in pre_deposit_states() {
             let sm = create_sm(state);
             let drt = sm
-                .deposit_request_outpoint()
+                .spendable_deposit_request_outpoint()
                 .expect("pre-deposit states must have DRT outpoint");
             let result = sm.classify_tx(&cfg, &test_takeback_tx(drt), LATER_BLOCK_HEIGHT);
             assert!(

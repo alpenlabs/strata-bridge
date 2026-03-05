@@ -365,6 +365,7 @@ mod tests {
         DepositSM {
             context: DepositSMCtx {
                 deposit_idx,
+                deposit_request_outpoint: outpoint,
                 deposit_outpoint: outpoint,
                 operator_table,
             },

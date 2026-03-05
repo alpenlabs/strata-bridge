@@ -1,5 +1,3 @@
-//! Bootstraps an RPC server for the node.
-
 use std::{fmt, sync::Arc};
 
 use anyhow::Context;
@@ -202,6 +200,9 @@ impl BridgeRpc {
 
         let mut cache_registry_lock = cached_registry.write().await;
         *cache_registry_lock = sm_registry;
+
+        let deposit_count = cache_registry_lock.num_deposits();
+        info!(%deposit_count, "rpc server state machine registry cache refresh complete");
     }
 }
 
@@ -260,7 +261,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         let deposit_requests = cached_registry
             .deposits()
             .filter_map(|(_deposit_idx, dsm)| {
-                dsm.deposit_request_outpoint().map(|outpoint| outpoint.txid)
+                dsm.spendable_deposit_request_outpoint()
+                    .map(|outpoint| outpoint.txid)
             })
             .collect();
 
@@ -277,8 +279,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             .deposits()
             .into_iter()
             .find(|(_deposit_idx, dsm)| {
-                dsm.deposit_request_outpoint()
-                    .is_some_and(|outpoint| outpoint.txid == deposit_request_txid)
+                dsm.context().deposit_request_outpoint().txid == deposit_request_txid
             })
             .map(|(_deposit_idx, dsm)| match dsm.state() {
                 DepositState::Created { .. }
