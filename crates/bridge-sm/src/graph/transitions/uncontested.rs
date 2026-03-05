@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, num::NonZero, sync::Arc};
 
 use musig2::{
     AggNonce, aggregate_partial_signatures,
@@ -36,12 +36,18 @@ impl GraphSM {
         cfg: Arc<GraphSMCfg>,
         graph_data_event: GraphDataGeneratedEvent,
     ) -> GSMResult<GSMOutput> {
+        let graph_owner = self.context().graph_idx().operator;
+        let pov_operator_idx = self.context().operator_table().pov_idx();
+        let is_my_graph = graph_owner == pov_operator_idx;
+
         match self.state() {
             GraphState::Created {
                 last_block_height, ..
             } => {
+                let game_index = NonZero::new(graph_data_event.graph_idx.deposit + 1)
+                    .expect("(deposit index + 1) is always non-zero");
                 let deposit_params = DepositParams {
-                    game_index: graph_data_event.game_index,
+                    game_index,
                     claim_funds: graph_data_event.claim_funds,
                     deposit_outpoint: self.context.deposit_outpoint(),
                 };
@@ -49,8 +55,7 @@ impl GraphSM {
 
                 // As the operator who owns this graph, we do not need to verify adaptor
                 // signatures. Transition directly to `AdaptorsVerified` state
-                let pov_operator_idx = self.context.operator_table().pov_idx();
-                if self.context.operator_idx() == pov_operator_idx {
+                if is_my_graph {
                     let graph_inpoints = game_graph.musig_inpoints().pack();
                     let graph_tweaks = game_graph
                         .musig_signing_info()
@@ -119,18 +124,14 @@ impl GraphSM {
                     Ok(GSMOutput::with_duties(duties))
                 }
             }
-            GraphState::GraphGenerated { .. } => Err(GSMError::duplicate(
+            GraphState::GraphGenerated { .. } if !is_my_graph => Err(GSMError::duplicate(
                 self.state().clone(),
                 graph_data_event.into(),
             )),
-            GraphState::AdaptorsVerified { .. }
-                if self.context.operator_idx() == self.context.operator_table().pov_idx() =>
-            {
-                Err(GSMError::duplicate(
-                    self.state().clone(),
-                    graph_data_event.into(),
-                ))
-            }
+            GraphState::AdaptorsVerified { .. } if is_my_graph => Err(GSMError::duplicate(
+                self.state().clone(),
+                graph_data_event.into(),
+            )),
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 graph_data_event.into(),

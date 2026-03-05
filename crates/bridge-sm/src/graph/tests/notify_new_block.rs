@@ -193,7 +193,7 @@ mod tests {
         let signatures = mock_game_signatures(&game_graph);
         let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures")
-            .bridge_proof_timeout;
+            .slash;
         let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
@@ -242,7 +242,7 @@ mod tests {
         let signatures = mock_game_signatures(&game_graph);
         let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures")
-            .bridge_proof_timeout;
+            .slash;
         let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
