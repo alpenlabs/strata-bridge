@@ -38,7 +38,7 @@ use strata_bridge_sm::{
     tx_classifier::TxClassifier,
 };
 use strata_bridge_tx_graph2::transactions::prelude::DepositData;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     errors::ProcessError,
@@ -155,18 +155,29 @@ fn try_register_deposit(
         return Ok(Vec::new());
     };
 
+    let drt_txid = tx.compute_txid();
+
+    let span = tracing::span!(tracing::Level::TRACE, "registering new deposit", drt_txid=%drt_txid);
+    let _entered = span.entered();
+
     let depositor_pubkey = drt_info.header_aux().recovery_pk();
     let Ok(depositor_pubkey) = XOnlyPublicKey::from_slice(depositor_pubkey) else {
         error!(pk=%depositor_pubkey.to_lower_hex_string(), "invalid depositor pubkey in DRT, ignoring");
         return Ok(Vec::new());
     };
 
-    let drt_txid = tx.compute_txid();
     let magic_bytes = deposit_cfg.magic_bytes;
 
     let deposit_idx_offset = registry.next_deposit_idx()?;
 
-    // always second output for now
+    // Always second output for now: output 0 is SPS-50 OP_RETURN and output 1 is DRT spend UTXO.
+    let Some(deposit_request_output) = tx.output.get(1) else {
+        error!(
+            %drt_txid,
+            "invalid DRT: expected spendable output at index 1, ignoring"
+        );
+        return Ok(Vec::new());
+    };
     let deposit_request_outpoint = OutPoint::new(drt_txid, 1);
     let deposit_data = DepositData {
         deposit_idx: deposit_idx_offset,
@@ -179,10 +190,12 @@ fn try_register_deposit(
         cur_operator_table.clone(),
         deposit_data,
         depositor_pubkey,
+        deposit_request_output.value,
         height,
     );
 
     let deposit_outpoint = dsm.context().deposit_outpoint();
+    info!(%deposit_outpoint, deposit_idx=deposit_idx_offset, "registering new DepositSM for detected DRT");
     registry.insert_deposit(deposit_idx_offset, dsm)?;
 
     // Register one GraphSM per operator, collecting initial duties
@@ -211,6 +224,7 @@ fn try_register_deposit(
 
         let (gsm, duty) = GraphSM::new(gsm_ctx, height);
 
+        info!(%graph_idx, "registering new GraphSM for detected DRT");
         registry.insert_graph(gsm.context().graph_idx(), gsm)?;
         if let Some(duty) = duty {
             duties.push(duty.into());
