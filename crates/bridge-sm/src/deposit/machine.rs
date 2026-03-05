@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use bitcoin::{OutPoint, XOnlyPublicKey, relative};
+use bitcoin::{Amount, OutPoint, XOnlyPublicKey, relative};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
@@ -97,6 +97,7 @@ impl DepositSM {
         operator_table: OperatorTable,
         deposit_data: DepositData,
         depositor_pubkey: XOnlyPublicKey,
+        drt_output_amount: Amount,
         block_height: BitcoinBlockHeight,
     ) -> Self {
         let network = bridge_cfg.network();
@@ -109,16 +110,18 @@ impl DepositSM {
             n_of_n_pubkey,
             depositor_pubkey,
             deposit_time_lock,
-            deposit_amount,
+            drt_output_amount,
         );
         let non_connector = NOfNConnector::new(network, n_of_n_pubkey, deposit_amount);
 
         let deposit_idx = deposit_data.deposit_idx;
+        let deposit_request_outpoint = deposit_data.deposit_request_outpoint;
         let deposit_tx = DepositTx::new(deposit_data, non_connector, deposit_request_connetor);
 
         let deposit_outpoint = OutPoint::new(deposit_tx.as_ref().compute_txid(), 0); // always the first output (for now)
         let context = DepositSMCtx {
             deposit_idx,
+            deposit_request_outpoint,
             deposit_outpoint,
             operator_table,
         };

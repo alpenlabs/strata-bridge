@@ -111,11 +111,13 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
     };
 
     // Use the public DepositSM::new constructor
+    let deposit_request_amount = cfg.deposit_amount() + Amount::from_sat(10_000); // ensure drt output amount is greater than deposit amount
     let dsm = DepositSM::new(
         cfg,
         operator_table.clone(),
         data,
         depositor_pubkey,
+        deposit_request_amount,
         INITIAL_BLOCK_HEIGHT,
     );
     let deposit_outpoint = dsm.context().deposit_outpoint();
