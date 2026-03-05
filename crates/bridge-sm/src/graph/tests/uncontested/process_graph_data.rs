@@ -1,8 +1,9 @@
 //! Unit Tests for process_graph_data
 #[cfg(test)]
 mod tests {
-    use std::num::NonZero;
+    use std::collections::BTreeMap;
 
+    use strata_bridge_primitives::types::GraphIdx;
     use strata_bridge_test_utils::bitcoin::generate_txid;
 
     use crate::{
@@ -13,7 +14,8 @@ mod tests {
             state::GraphState,
             tests::{
                 GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, TEST_NONPOV_IDX, create_nonpov_sm,
-                create_sm, get_state, test_graph_invalid_transition, test_graph_sm_cfg,
+                create_sm, get_state, test_deposit_params, test_graph_invalid_transition,
+                test_graph_invalid_transition_with, test_graph_sm_cfg, test_graph_summary,
             },
         },
         testing::EventSequence,
@@ -22,7 +24,10 @@ mod tests {
     /// Creates a test [`GraphDataGeneratedEvent`] with deterministic values.
     fn test_graph_data_event() -> GraphDataGeneratedEvent {
         GraphDataGeneratedEvent {
-            game_index: NonZero::new(1).unwrap(),
+            graph_idx: GraphIdx {
+                deposit: 0,
+                operator: 0,
+            },
             claim_funds: Default::default(),
         }
     }
@@ -98,7 +103,7 @@ mod tests {
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
 
-        // Duplicate event from GraphGenerated should produce a Duplicate error
+        // Duplicate graph data is classified as a duplicate once the graph is initialized.
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: seq.state().clone(),
             event: GraphEvent::GraphDataProduced(test_graph_data_event()),
@@ -123,12 +128,15 @@ mod tests {
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::GraphGenerated { .. }));
 
-        // Duplicate event from GraphGenerated should produce a Duplicate error
-        test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: seq.state().clone(),
-            event: GraphEvent::GraphDataProduced(test_graph_data_event()),
-            expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
-        });
+        // Duplicate graph data is classified as a duplicate once the graph is initialized.
+        test_graph_invalid_transition_with(
+            create_nonpov_sm,
+            GraphInvalidTransition {
+                from_state: seq.state().clone(),
+                event: GraphEvent::GraphDataProduced(test_graph_data_event()),
+                expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
+            },
+        );
     }
 
     #[test]
@@ -142,6 +150,24 @@ mod tests {
             from_state: state,
             event: GraphEvent::GraphDataProduced(test_graph_data_event()),
             expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+        });
+    }
+
+    #[test]
+    fn test_duplicate_process_graph_data_from_nonces_collected() {
+        let state = GraphState::NoncesCollected {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            graph_data: test_deposit_params(),
+            graph_summary: test_graph_summary(),
+            pubnonces: BTreeMap::new(),
+            agg_nonces: vec![],
+            partial_signatures: BTreeMap::new(),
+        };
+
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: state,
+            event: GraphEvent::GraphDataProduced(test_graph_data_event()),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
     }
 }

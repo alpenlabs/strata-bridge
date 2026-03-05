@@ -299,9 +299,19 @@ pub(super) fn test_graph_transition(transition: GraphTransition) {
 /// Type alias for invalid GraphSM transitions.
 pub(super) type GraphInvalidTransition = InvalidTransition<GraphState, GraphEvent, GSMError>;
 
+/// Test an invalid GraphSM transition with a caller-provided state machine constructor.
+pub(super) fn test_graph_invalid_transition_with<CreateFn>(
+    create_sm: CreateFn,
+    invalid: GraphInvalidTransition,
+) where
+    CreateFn: Fn(GraphState) -> GraphSM,
+{
+    test_invalid_transition::<GraphSM, _, _, _, _, _, _>(create_sm, test_graph_sm_cfg(), invalid);
+}
+
 /// Test an invalid GraphSM transition with pre-configured test helpers.
 pub(super) fn test_graph_invalid_transition(invalid: GraphInvalidTransition) {
-    test_invalid_transition::<GraphSM, _, _, _, _, _, _>(create_sm, test_graph_sm_cfg(), invalid);
+    test_graph_invalid_transition_with(create_sm, invalid);
 }
 
 /// Configuration for testing handlers that don't mutate state.

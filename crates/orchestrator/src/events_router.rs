@@ -7,6 +7,7 @@ use strata_bridge_p2p_types2::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
 use strata_bridge_p2p_wire::p2p::v1::GetMessageRequest;
+use tracing::warn;
 
 use crate::{events_mux::UnifiedEvent, sm_registry::SMRegistry, sm_types::SMId};
 
@@ -56,7 +57,7 @@ fn route_gossipsub_msg(
     unsigned_gossip_msg: &UnsignedGossipsubMsg,
 ) -> Vec<SMId> {
     let sm_id = match unsigned_gossip_msg {
-        UnsignedGossipsubMsg::GraphDataExchange { .. } => todo!(),
+        UnsignedGossipsubMsg::GraphDataExchange { graph_idx, .. } => SMId::Graph(*graph_idx),
         UnsignedGossipsubMsg::PayoutDescriptorExchange { deposit_idx, .. } => {
             SMId::Deposit(*deposit_idx)
         }
@@ -84,6 +85,14 @@ fn route_gossipsub_msg(
     if registry.contains_id(&sm_id) {
         vec![sm_id]
     } else {
+        if let UnsignedGossipsubMsg::NagRequestExchange(nag_request) = unsigned_gossip_msg {
+            warn!(
+                target_sm = %sm_id,
+                recipient = ?nag_request.recipient,
+                payload = ?nag_request.payload,
+                "dropping nag request in router: target state machine not found"
+            );
+        }
         vec![]
     }
 }
