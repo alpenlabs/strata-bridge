@@ -38,9 +38,9 @@ class BaseEnv(flexitest.EnvConfig):
         # Load all operator keys
         self.operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
 
-        # Generate unique root directory for this environment's FDB data
-        # This allows multiple test environments to share a single FDB instance
-        self.fdb_root_directory: str | None = None
+        # Generate unique root directory prefix for this environment's FDB data.
+        # Each operator derives its own namespace from this prefix.
+        self.fdb_root_directory_prefix: str | None = None
 
     def setup_bitcoin(self, ectx: flexitest.EnvContext):
         """Setup Bitcoin node with wallet and initial funding."""
@@ -75,7 +75,7 @@ class BaseEnv(flexitest.EnvConfig):
         fdb = fdb_fac.create_fdb()
 
         # Generate unique root directory for this environment
-        self.fdb_root_directory = generate_fdb_root_directory(env_name)
+        self.fdb_root_directory_prefix = generate_fdb_root_directory(env_name)
 
         return fdb
 
@@ -110,10 +110,15 @@ class BaseEnv(flexitest.EnvConfig):
         # Build sidesystem + rollup params once using live bitcoind data.
         self._ensure_rollup_params(ectx, bitcoind_rpc)
 
-        # Augment fdb_props with root_directory for this environment
+        if self.fdb_root_directory_prefix is None:
+            raise RuntimeError("FDB root directory prefix must be initialized before operators")
+
+        operator_root_directory = f"{self.fdb_root_directory_prefix}-operator-{operator_idx}"
+
+        # Augment fdb_props with an operator-specific root_directory
         fdb_props_with_root = {
             **fdb_props,
-            "root_directory": self.fdb_root_directory,
+            "root_directory": operator_root_directory,
         }
 
         s2_service = s2_fac.create_s2_service(operator_idx, operator_key)
