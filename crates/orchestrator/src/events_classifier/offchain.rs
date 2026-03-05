@@ -11,7 +11,7 @@ use strata_bridge_sm::{
     deposit::events::{self as DepositEvents, DepositEvent, RetryTickEvent},
     graph::events::{self as GraphEvents, GraphEvent},
 };
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{
     events_mux::UnifiedEvent,
@@ -66,7 +66,16 @@ pub(crate) fn classify_unsigned_gossip(
     msg: &UnsignedGossipsubMsg,
 ) -> Vec<SMEvent> {
     match msg {
-        UnsignedGossipsubMsg::GraphDataExchange { .. } => todo!(),
+        UnsignedGossipsubMsg::GraphDataExchange {
+            graph_idx,
+            claim_input,
+        } => vec![
+            GraphEvent::GraphDataProduced(GraphEvents::GraphDataGeneratedEvent {
+                graph_idx: *graph_idx,
+                claim_funds: claim_input.inner(),
+            })
+            .into(),
+        ],
         UnsignedGossipsubMsg::PayoutDescriptorExchange {
             operator_desc,
             operator_idx,
@@ -270,6 +279,14 @@ pub(crate) fn classify_unsigned_gossip(
                 | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
             };
 
+            info!(
+                target_sm = %sm_id,
+                sender = ?key,
+                recipient = ?nag_request.recipient,
+                payload = ?nag_request.payload,
+                "classifying incoming nag request"
+            );
+
             // Router guarantees target SM exists for routed events.
             let pov_p2p_key = match sm_id {
                 SMId::Deposit(deposit_idx) => sm_registry
@@ -288,20 +305,33 @@ pub(crate) fn classify_unsigned_gossip(
 
             // Check recipient matches POV
             if nag_request.recipient != pov_p2p_key {
-                tracing::trace!(
+                warn!(
                     target_sm = %sm_id,
                     recipient = ?nag_request.recipient,
                     pov = ?pov_p2p_key,
-                    "Dropping nag: not addressed to POV operator"
+                    payload = ?nag_request.payload,
+                    "dropping nag: recipient does not match POV operator"
                 );
                 return vec![];
             }
 
             // Resolve sender to operator_idx
             let Some(sender_operator_idx) = sm_registry.lookup_operator(&sm_id, key) else {
-                tracing::trace!(target_sm = %sm_id, sender = ?key, "Dropping nag: unknown sender");
+                warn!(
+                    target_sm = %sm_id,
+                    sender = ?key,
+                    payload = ?nag_request.payload,
+                    "dropping nag: sender is not in operator table for target state machine"
+                );
                 return vec![];
             };
+
+            info!(
+                target_sm = %sm_id,
+                sender_operator_idx,
+                payload = ?nag_request.payload,
+                "accepted nag request and mapping to state machine event"
+            );
 
             let event = match &nag_request.payload {
                 NagRequestPayload::DepositNonce { .. }
