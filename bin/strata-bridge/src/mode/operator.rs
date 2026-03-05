@@ -10,7 +10,7 @@ use tracing::{debug, info};
 use crate::{
     config::Config,
     mode::services::{
-        btc_client::{init_btc_rpc_client, init_zmq_client},
+        btc_client::init_btc_rpc_client,
         operator_table::init_operator_table,
         operator_wallet::init_operator_wallet,
         orchestrator::init_orchestrator,
@@ -54,11 +54,6 @@ pub(crate) async fn bootstrap(
     let btc_rpc_client = init_btc_rpc_client(&config)?;
     let cur_height = btc_rpc_client.get_block_count().await?;
     info!(%cur_height, "bitcoin client initialized and synced");
-
-    debug!("initializing btc zmq client");
-    let zmq_client = init_zmq_client(&config, params.genesis_height).await?;
-    let start_height = zmq_client.start_height();
-    info!(%start_height, "btc zmq client initialized and subscribed to bitcoin node");
 
     debug!("initializing p2p client");
     let P2PHandles {
