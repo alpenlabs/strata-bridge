@@ -142,6 +142,18 @@ impl DepositSM {
                 cooperative_payout_deadline,
                 ..
             } => {
+                let sender_idx = descriptor.operator_idx;
+                if sender_idx != *assignee {
+                    return Err(DSMError::rejected(
+                        self.state().clone(),
+                        descriptor.into(),
+                        format!(
+                            "received payout descriptor from operator {}, expected assignee {}",
+                            sender_idx, assignee
+                        ),
+                    ));
+                }
+
                 // Build the cooperative payout transaction
                 let deposit_connector =
                     NOfNConnector::new(cfg.network(), n_of_n_pubkey, cfg.deposit_amount());
