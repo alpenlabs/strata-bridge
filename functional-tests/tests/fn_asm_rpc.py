@@ -36,6 +36,8 @@ class AsmBlockProcessingTest(StrataTestBase):
         # Get initial status
         initial_status = AsmWorkerStatus.from_dict(asm_rpc.strata_asm_getStatus())
         self.logger.info(f"ASM status: {initial_status.cur_block}")
+        if initial_status.cur_block is None:
+            raise AssertionError("ASM status should report a current block")
 
         # Get initial block count from Bitcoin
         initial_btc_height = bitcoin_rpc.proxy.getblockcount()
