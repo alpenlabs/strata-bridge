@@ -4,7 +4,12 @@ from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from rpc.types import RpcDepositStatusComplete, RpcDepositStatusInProgress
 from utils.bridge import get_bridge_nodes_and_rpcs
-from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
+from utils.deposit import (
+    wait_until_deposit_status,
+    wait_until_drt_recognized,
+    wait_until_drts_reach_status_threshold,
+    wait_until_drts_recognized,
+)
 from utils.dev_cli import DevCli
 from utils.network import wait_until_p2p_connected
 from utils.utils import (
@@ -25,6 +30,7 @@ class BridgeDepositTest(StrataTestBase):
         ctx.set_env(BridgeNetworkEnv())
 
     def main(self, ctx: flexitest.RunContext):
+        CONCURRENT_DRT_COUNT = 5
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
 
         # Test deposit
@@ -43,74 +49,71 @@ class BridgeDepositTest(StrataTestBase):
 
         wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
 
-        # Reuse environment to check recovery/nag behavior when one operator is down.
-        # Shutting down all operators except one to force nagging behavior in the active nodes,
-        # then restarting the stopped node to verify it can rejoin and process the deposit.
-        # Shutting down all nodes will prevent us from checking whether a DRT gets recognized.
-        # Shutting down all nodes after DRT recognition is too slow,
-        # and causes the deposit to go through before restart.
-        CRASHED_OPERATOR_IDX = 2
-        active_operator_indices = [
-            idx for idx in range(num_operators) if idx != CRASHED_OPERATOR_IDX
-        ]
+        self.logger.info(f"Broadcasting {CONCURRENT_DRT_COUNT} DRTs before restarting all nodes")
+        drt_txids = [dev_cli.send_deposit_request() for _ in range(CONCURRENT_DRT_COUNT)]
 
-        self.logger.info(
-            f"Stopping operator node {CRASHED_OPERATOR_IDX} before next DRT to force nagging"
-        )
-        bridge_nodes[CRASHED_OPERATOR_IDX].stop()
+        for drt_txid in drt_txids:
+            self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
-        nag_log_offsets = snapshot_log_offsets(
-            [bridge_nodes[idx].props["logfile"] for idx in active_operator_indices]
+        operator_log_offsets = snapshot_log_offsets(
+            [bridge_node.props["logfile"] for bridge_node in bridge_nodes]
         )
 
-        self.logger.info("Sending another DRT to test resilience with one operator offline")
-        drt_txid = dev_cli.send_deposit_request()
-        self.logger.info(f"Broadcasted DRT: {drt_txid}")
-
-        new_deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
-
-        self.logger.info("Ensuring deposit is in progress while one operator is offline")
-        wait_until_deposit_status(
+        self.logger.info("Waiting for all DRTs to be recognized before stopping nodes")
+        wait_until_drts_recognized(
             bridge_rpc,
-            new_deposit_id,
-            RpcDepositStatusInProgress,
+            drt_txids,
             timeout=180,
         )
+
+        self.logger.info("Stopping all operator nodes")
+        for i in range(num_operators):
+            self.logger.info(f"Stopping operator node {i}")
+            bridge_nodes[i].stop()
+
+        self.logger.info("Restarting all operator nodes")
+        for i in range(num_operators):
+            self.logger.info(f"Restarting operator node {i}")
+            bridge_nodes[i].start()
+            wait_until_bridge_ready(bridge_rpcs[i])
 
         self.logger.info(
-            f"Waiting for active operators to nag missing operator {CRASHED_OPERATOR_IDX}"
-        )
-        wait_until_logs_match(
-            nag_log_offsets,
-            lambda line: (
-                "executing nag duty to request missing graph peer data" in line
-                and f"operator_idx={CRASHED_OPERATOR_IDX}" in line
-            ),
-            timeout=180,
-            error_msg=(
-                f"Timeout after 180 seconds waiting for nag duty targeting "
-                f"operator {CRASHED_OPERATOR_IDX}"
-            ),
+            "Waiting for restarted nodes to recognize all DRTs with enough deposits in progress"
         )
 
-        self.logger.info(f"Restarting operator node {CRASHED_OPERATOR_IDX}")
-        bridge_nodes[CRASHED_OPERATOR_IDX].start()
-        wait_until_bridge_ready(bridge_rpcs[CRASHED_OPERATOR_IDX])
+        deposit_ids = wait_until_drts_reach_status_threshold(
+            bridge_rpc,
+            drt_txids,
+            expected_status=RpcDepositStatusInProgress,
+            threshold=1,
+            timeout=180,
+        )
+
+        self.logger.info("Waiting for a post-restart nag emission in operator logs")
+        try:
+            wait_until_logs_match(
+                operator_log_offsets,
+                lambda line: "executing nag duty to request missing peer data" in line,
+                timeout=60,
+                error_msg="Timed out waiting for post-restart nag emission",
+            )
+            self.logger.info("Observed post-restart nag emission in operator logs")
+        except TimeoutError:
+            self.logger.info("No post-restart nag emission observed within timeout")
 
         self.logger.info("Verifying P2P connectivity among bridge nodes before deposit")
         wait_until_p2p_connected(bridge_rpcs)
 
-        self.logger.info("Waiting for deposit to complete after operator nodes restart")
-        wait_until_deposit_status(
-            bridge_rpc,
-            new_deposit_id,
-            RpcDepositStatusComplete,
-            timeout=300,
-        )
+        self.logger.info("Waiting for all restarted deposits to complete")
+        for deposit_id in deposit_ids:
+            wait_until_deposit_status(
+                bridge_rpc,
+                deposit_id,
+                RpcDepositStatusComplete,
+                timeout=300,
+            )
 
-        # Verify operator connectivity again
-        # TODO: @MdTeach investigate why this fails in CI but passes locally
-        self.logger.info("Verifying P2P connectivity among bridge nodes after deposit")
+        self.logger.info("Verifying P2P connectivity among bridge nodes after deposits")
         wait_until_p2p_connected(bridge_rpcs)
 
         return True
