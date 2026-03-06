@@ -260,10 +260,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         let cached_registry = self.cached_registry.read().await;
         let deposit_requests = cached_registry
             .deposits()
-            .filter_map(|(_deposit_idx, dsm)| {
-                dsm.spendable_deposit_request_outpoint()
-                    .map(|outpoint| outpoint.txid)
-            })
+            .map(|(_deposit_idx, dsm)| dsm.context().deposit_request_outpoint().txid)
             .collect();
 
         Ok(deposit_requests)
