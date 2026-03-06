@@ -11,7 +11,7 @@ use strata_bridge_sm::{
     deposit::events::{self as DepositEvents, DepositEvent, RetryTickEvent},
     graph::events::{self as GraphEvents, GraphEvent},
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     events_mux::UnifiedEvent,
@@ -305,7 +305,7 @@ pub(crate) fn classify_unsigned_gossip(
 
             // Check recipient matches POV
             if nag_request.recipient != pov_p2p_key {
-                warn!(
+                debug!(
                     target_sm = %sm_id,
                     recipient = ?nag_request.recipient,
                     pov = ?pov_p2p_key,
