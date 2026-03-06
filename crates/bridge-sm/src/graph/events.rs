@@ -4,13 +4,13 @@
 //! different transitions and emit duties that need to be performed and messages that need to be
 //! propagated.
 
-use std::{fmt::Display, num::NonZero};
+use std::fmt::Display;
 
 use bitcoin::{OutPoint, Txid};
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_p2p_types2::NagRequestPayload;
-use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
+use strata_bridge_primitives::types::{BitcoinBlockHeight, GraphIdx, OperatorIdx};
 use zkaleido::ProofReceipt;
 
 use crate::signals::DepositToGraph;
@@ -18,8 +18,8 @@ use crate::signals::DepositToGraph;
 /// Event notifying that graph data has been generated for a graph instance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphDataGeneratedEvent {
-    /// Game index.
-    pub game_index: NonZero<u32>,
+    /// The index of the graph this event is for.
+    pub graph_idx: GraphIdx,
     /// UTXO that funds the claim transaction.
     pub claim_funds: OutPoint,
 }

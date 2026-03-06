@@ -7,6 +7,7 @@ use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph2::game_graph::{DepositParams, GameData, GameGraph};
 
 use crate::{
+    error_policy::soften_peer_event_error,
     graph::{
         config::GraphSMCfg,
         context::GraphSMCtx,
@@ -42,15 +43,23 @@ impl StateMachine for GraphSM {
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
-            GraphEvent::GraphDataProduced(graph_data) => self.process_graph_data(cfg, graph_data),
+            GraphEvent::GraphDataProduced(graph_data) => {
+                let event = GraphEvent::GraphDataProduced(graph_data.clone());
+                self.process_graph_data(cfg, graph_data)
+                    .map_err(|err| soften_peer_event_error(event, err))
+            }
             GraphEvent::AdaptorsVerified(adaptors) => {
                 self.process_adaptors_verification(cfg, adaptors)
             }
             GraphEvent::NoncesReceived(nonces_event) => {
+                let event = GraphEvent::NoncesReceived(nonces_event.clone());
                 self.process_nonce_received(cfg, nonces_event)
+                    .map_err(|err| soften_peer_event_error(event, err))
             }
             GraphEvent::PartialsReceived(partials_event) => {
+                let event = GraphEvent::PartialsReceived(partials_event.clone());
                 self.process_partial_received(cfg, partials_event)
+                    .map_err(|err| soften_peer_event_error(event, err))
             }
             GraphEvent::WithdrawalAssigned(assignment) => self.process_assignment(assignment),
             GraphEvent::FulfillmentConfirmed(fulfillment) => self.process_fulfillment(fulfillment),
@@ -72,7 +81,11 @@ impl StateMachine for GraphSM {
             GraphEvent::NewBlock(new_block) => self.notify_new_block(cfg, new_block),
             GraphEvent::RetryTick(_retry_tick) => self.process_retry_tick(cfg),
             GraphEvent::NagTick(_nag_tick) => self.process_nag_tick(cfg),
-            GraphEvent::NagReceived(event) => self.process_nag_received(cfg, event),
+            GraphEvent::NagReceived(event) => {
+                let sm_event = GraphEvent::NagReceived(event.clone());
+                self.process_nag_received(cfg, event)
+                    .map_err(|err| soften_peer_event_error(sm_event, err))
+            }
         }
     }
 }
@@ -117,7 +130,6 @@ impl GraphSM {
     pub const fn state_mut(&mut self) -> &mut GraphState {
         &mut self.state
     }
-
     /// Checks that the operator index exists, otherwise returns `GSMError::Rejected`.
     pub(super) fn check_operator_idx<E>(&self, operator_idx: u32, inner_event: &E) -> GSMResult<()>
     where
@@ -141,7 +153,7 @@ pub(crate) fn generate_game_graph(
     ctx: &GraphSMCtx,
     deposit_params: DepositParams,
 ) -> GameGraph {
-    let setup_params = cfg.generate_setup_params(ctx);
+    let setup_params = ctx.generate_setup_params(cfg);
     let protocol_params = cfg.game_graph_params;
     let graph_data = GameData {
         protocol: protocol_params,

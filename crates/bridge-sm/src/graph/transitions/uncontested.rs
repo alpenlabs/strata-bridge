@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, num::NonZero, sync::Arc};
 
 use musig2::{
     AggNonce, aggregate_partial_signatures,
@@ -40,8 +40,10 @@ impl GraphSM {
             GraphState::Created {
                 last_block_height, ..
             } => {
+                let game_index = NonZero::new(graph_data_event.graph_idx.deposit + 1)
+                    .expect("(deposit index + 1) is always non-zero");
                 let deposit_params = DepositParams {
-                    game_index: graph_data_event.game_index,
+                    game_index,
                     claim_funds: graph_data_event.claim_funds,
                     deposit_outpoint: self.context.deposit_outpoint(),
                 };
@@ -119,18 +121,22 @@ impl GraphSM {
                     Ok(GSMOutput::with_duties(duties))
                 }
             }
-            GraphState::GraphGenerated { .. } => Err(GSMError::duplicate(
+            GraphState::GraphGenerated { .. }
+            | GraphState::AdaptorsVerified { .. }
+            | GraphState::NoncesCollected { .. }
+            | GraphState::GraphSigned { .. }
+            | GraphState::Assigned { .. }
+            | GraphState::Fulfilled { .. }
+            | GraphState::Claimed { .. }
+            | GraphState::Contested { .. }
+            | GraphState::BridgeProofPosted { .. }
+            | GraphState::BridgeProofTimedout { .. }
+            | GraphState::CounterProofPosted { .. }
+            | GraphState::AllNackd { .. }
+            | GraphState::Acked { .. } => Err(GSMError::duplicate(
                 self.state().clone(),
                 graph_data_event.into(),
             )),
-            GraphState::AdaptorsVerified { .. }
-                if self.context.operator_idx() == self.context.operator_table().pov_idx() =>
-            {
-                Err(GSMError::duplicate(
-                    self.state().clone(),
-                    graph_data_event.into(),
-                ))
-            }
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 graph_data_event.into(),
@@ -236,7 +242,7 @@ impl GraphSM {
                 // Validate that the provided nonces correctly fill the game graph for this context.
                 if GameFunctor::unpack(
                     nonces_received_event.pubnonces.clone(),
-                    cfg.watchtower_pubkeys.len(),
+                    graph_ctx.watchtower_pubkeys().len(),
                 )
                 .is_none()
                 {
@@ -262,7 +268,7 @@ impl GraphSM {
                             .values()
                             .cloned()
                             .map(|nonces| {
-                                GameFunctor::unpack(nonces, cfg.watchtower_pubkeys.len())
+                                GameFunctor::unpack(nonces, graph_ctx.watchtower_pubkeys().len())
                                     .expect("nonces were validated on insert")
                             })
                             .collect::<Vec<_>>(),
@@ -375,7 +381,7 @@ impl GraphSM {
                 // this context.
                 if GameFunctor::unpack(
                     partials_received_event.partial_signatures.clone(),
-                    cfg.watchtower_pubkeys.len(),
+                    graph_ctx.watchtower_pubkeys().len(),
                 )
                 .is_none()
                 {
@@ -394,7 +400,7 @@ impl GraphSM {
                     .get(&partials_received_event.operator_idx)
                     .expect("all operator must have submitted the pub nonce");
                 let btc_keys: Vec<_> = graph_ctx.operator_table().btc_keys().into_iter().collect();
-                let n_watchtowers = cfg.watchtower_pubkeys.len();
+                let n_watchtowers = graph_ctx.watchtower_pubkeys().len();
                 for (i, (signing_info, partial_sig, agg_nonce, op_pubnonce)) in GameFunctor::zip4(
                     GameFunctor::unpack(signing_infos.iter().collect::<Vec<_>>(), n_watchtowers)
                         .expect("signing infos are generated from game graph"),
@@ -655,6 +661,8 @@ impl GraphSM {
         cfg: Arc<GraphSMCfg>,
         claim: ClaimConfirmedEvent,
     ) -> GSMResult<GSMOutput> {
+        let graph_ctx = self.context().clone();
+
         match self.state() {
             // Claim after fulfillment
             GraphState::Fulfilled {
@@ -717,11 +725,13 @@ impl GraphSM {
 
                         let contest_tx = game_graph.contest;
                         let watchtower_index = self.context().operator_table().pov_idx();
-                        let n_of_n_signature =
-                            GameFunctor::unpack(signatures.clone(), cfg.watchtower_pubkeys.len())
-                                .expect("Failed to retrieve contest transaction N/N signatures")
-                                .watchtowers[watchtower_index as usize]
-                                .contest[0];
+                        let n_of_n_signature = GameFunctor::unpack(
+                            signatures.clone(),
+                            graph_ctx.watchtower_pubkeys().len(),
+                        )
+                        .expect("Failed to retrieve contest transaction N/N signatures")
+                        .watchtowers[watchtower_index as usize]
+                            .contest[0];
 
                         vec![GraphDuty::PublishContest {
                             contest_tx,

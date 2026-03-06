@@ -1,8 +1,9 @@
 //! Unit Tests for process_graph_data
 #[cfg(test)]
 mod tests {
-    use std::num::NonZero;
+    use std::collections::BTreeMap;
 
+    use strata_bridge_primitives::types::GraphIdx;
     use strata_bridge_test_utils::bitcoin::generate_txid;
 
     use crate::{
@@ -13,7 +14,8 @@ mod tests {
             state::GraphState,
             tests::{
                 GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, TEST_NONPOV_IDX, create_nonpov_sm,
-                create_sm, get_state, test_graph_invalid_transition, test_graph_sm_cfg,
+                create_sm, get_state, test_deposit_params, test_graph_invalid_transition,
+                test_graph_sm_cfg, test_graph_summary,
             },
         },
         testing::EventSequence,
@@ -22,7 +24,10 @@ mod tests {
     /// Creates a test [`GraphDataGeneratedEvent`] with deterministic values.
     fn test_graph_data_event() -> GraphDataGeneratedEvent {
         GraphDataGeneratedEvent {
-            game_index: NonZero::new(1).unwrap(),
+            graph_idx: GraphIdx {
+                deposit: 0,
+                operator: 0,
+            },
             claim_funds: Default::default(),
         }
     }
@@ -133,7 +138,7 @@ mod tests {
 
     #[test]
     fn test_invalid_process_graph_data_from_withdrawn() {
-        // GraphDataProduced is only valid in Created; any other state should be InvalidEvent
+        // Peer-provided graph data should be rejected once the graph is terminal.
         let state = GraphState::Withdrawn {
             payout_txid: generate_txid(),
         };
@@ -141,7 +146,25 @@ mod tests {
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
             event: GraphEvent::GraphDataProduced(test_graph_data_event()),
-            expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    #[test]
+    fn test_duplicate_process_graph_data_from_nonces_collected() {
+        let state = GraphState::NoncesCollected {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            graph_data: test_deposit_params(),
+            graph_summary: test_graph_summary(),
+            pubnonces: BTreeMap::new(),
+            agg_nonces: vec![],
+            partial_signatures: BTreeMap::new(),
+        };
+
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: state,
+            event: GraphEvent::GraphDataProduced(test_graph_data_event()),
+            expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
         });
     }
 }

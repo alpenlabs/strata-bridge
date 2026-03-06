@@ -7,6 +7,7 @@ use strata_bridge_p2p_types2::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
 use strata_bridge_p2p_wire::p2p::v1::GetMessageRequest;
+use tracing::warn;
 
 use crate::{events_mux::UnifiedEvent, sm_registry::SMRegistry, sm_types::SMId};
 
@@ -22,7 +23,7 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
         UnifiedEvent::Block(_block_event) => Vec::new(),
         // handled outside this component as this is not state machine specific, it's a signal to
         // the orchestrator to shutdown, so we don't route it to any state machine
-        UnifiedEvent::Shutdown(_sender) => Vec::new(),
+        UnifiedEvent::Shutdown => Vec::new(),
         // relevant to all state machines
         UnifiedEvent::NagTick | UnifiedEvent::RetryTick => registry.get_all_ids(),
 
@@ -42,9 +43,7 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
             })
             .collect(),
 
-        UnifiedEvent::OuroborosMessage(unsigned_gossipsub_msg) => {
-            route_gossipsub_msg(registry, unsigned_gossipsub_msg)
-        }
+        UnifiedEvent::OuroborosMessage(msg) => route_gossipsub_msg(registry, &msg.publish),
         UnifiedEvent::OuroborosRequest(request) => route_p2p_request(registry, request),
         UnifiedEvent::GossipMessage(gossipsub_msg) => {
             route_gossipsub_msg(registry, &gossipsub_msg.unsigned)
@@ -58,7 +57,7 @@ fn route_gossipsub_msg(
     unsigned_gossip_msg: &UnsignedGossipsubMsg,
 ) -> Vec<SMId> {
     let sm_id = match unsigned_gossip_msg {
-        UnsignedGossipsubMsg::GraphDataExchange { .. } => todo!(),
+        UnsignedGossipsubMsg::GraphDataExchange { graph_idx, .. } => SMId::Graph(*graph_idx),
         UnsignedGossipsubMsg::PayoutDescriptorExchange { deposit_idx, .. } => {
             SMId::Deposit(*deposit_idx)
         }
@@ -86,6 +85,14 @@ fn route_gossipsub_msg(
     if registry.contains_id(&sm_id) {
         vec![sm_id]
     } else {
+        if let UnsignedGossipsubMsg::NagRequestExchange(nag_request) = unsigned_gossip_msg {
+            warn!(
+                target_sm = %sm_id,
+                recipient = ?nag_request.recipient,
+                payload = ?nag_request.payload,
+                "dropping nag request in router: target state machine not found"
+            );
+        }
         vec![]
     }
 }

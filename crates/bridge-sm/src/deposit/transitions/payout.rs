@@ -179,11 +179,27 @@ impl DepositSM {
                 ]))
             }
 
-            _ => Err(DSMError::invalid_event(
-                self.state().clone(),
-                descriptor.into(),
-                None,
-            )),
+            state => {
+                if matches!(
+                    state,
+                    DepositState::Created { .. }
+                        | DepositState::GraphGenerated { .. }
+                        | DepositState::DepositNoncesCollected { .. }
+                        | DepositState::DepositPartialsCollected { .. }
+                ) {
+                    Err(DSMError::rejected(
+                        self.state().clone(),
+                        descriptor.into(),
+                        "Inapplicable PayoutDescriptor event in pre-deposit state; expected state(s): Fulfilled",
+                    ))
+                } else {
+                    Err(DSMError::invalid_event(
+                        self.state().clone(),
+                        descriptor.into(),
+                        None,
+                    ))
+                }
+            }
         }
     }
 
@@ -287,11 +303,27 @@ impl DepositSM {
                 }
             }
 
-            _ => Err(DSMError::invalid_event(
-                self.state().clone(),
-                payout_nonce.into(),
-                None,
-            )),
+            state => {
+                if matches!(
+                    state,
+                    DepositState::Created { .. }
+                        | DepositState::GraphGenerated { .. }
+                        | DepositState::DepositNoncesCollected { .. }
+                        | DepositState::DepositPartialsCollected { .. }
+                ) {
+                    Err(DSMError::rejected(
+                        self.state().clone(),
+                        payout_nonce.into(),
+                        "Inapplicable PayoutNonce event in pre-deposit state; expected state(s): PayoutDescriptorReceived | PayoutNoncesCollected",
+                    ))
+                } else {
+                    Err(DSMError::invalid_event(
+                        self.state().clone(),
+                        payout_nonce.into(),
+                        None,
+                    ))
+                }
+            }
         }
     }
 
@@ -416,11 +448,27 @@ impl DepositSM {
                 }
             }
 
-            _ => Err(DSMError::invalid_event(
-                self.state.clone(),
-                payout_partial.into(),
-                None,
-            )),
+            state => {
+                if matches!(
+                    state,
+                    DepositState::Created { .. }
+                        | DepositState::GraphGenerated { .. }
+                        | DepositState::DepositNoncesCollected { .. }
+                        | DepositState::DepositPartialsCollected { .. }
+                ) {
+                    Err(DSMError::rejected(
+                        self.state().clone(),
+                        payout_partial.into(),
+                        "Inapplicable PayoutPartial event in pre-deposit state; expected state(s): PayoutNoncesCollected",
+                    ))
+                } else {
+                    Err(DSMError::invalid_event(
+                        self.state.clone(),
+                        payout_partial.into(),
+                        None,
+                    ))
+                }
+            }
         }
     }
 

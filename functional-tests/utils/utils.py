@@ -17,6 +17,7 @@ class OperatorKeyInfo:
 
     SEED: str
     GENERAL_WALLET: str
+    GENERAL_WALLET_DESCRIPTOR: str
     STAKE_CHAIN_WALLET: str
     MUSIG2_KEY: str
     P2P_KEY: str
@@ -57,13 +58,53 @@ def generate_blocks(
     return thr
 
 
-def generate_task(rpc: BitcoindClient, wait_dur, addr):
+def generate_task(
+    rpc: BitcoindClient,
+    wait_dur,
+    addr,
+    max_retries_per_tick: int = 3,
+    max_consecutive_failed_ticks: int = 5,
+    max_retry_delay: int = 3,
+):
+    consecutive_failed_ticks = 0
+
     while True:
         time.sleep(wait_dur)
-        try:
-            rpc.proxy.generatetoaddress(1, addr)
-        except Exception as ex:
-            logging.warning(f"{ex} while generating to address {addr}")
+        logging.debug(f"Generating block to address {addr}")
+        retry_delay = 1
+        tick_succeeded = False
+
+        for attempt in range(1, max_retries_per_tick + 1):
+            try:
+                rpc.proxy.generatetoaddress(1, addr)
+                tick_succeeded = True
+                break
+            except Exception as ex:
+                if attempt == max_retries_per_tick:
+                    logging.warning(
+                        f"{ex} while generating to address {addr} "
+                        f"(attempt {attempt}/{max_retries_per_tick})"
+                    )
+                    break
+
+                logging.warning(
+                    f"{ex} while generating to address {addr} "
+                    f"(attempt {attempt}/{max_retries_per_tick}); retrying in {retry_delay}s"
+                )
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_retry_delay)
+
+        if tick_succeeded:
+            consecutive_failed_ticks = 0
+            continue
+
+        consecutive_failed_ticks += 1
+        if consecutive_failed_ticks >= max_consecutive_failed_ticks:
+            logging.error(
+                "Stopping miner thread after %s consecutive failed ticks while generating to %s",
+                consecutive_failed_ticks,
+                addr,
+            )
             return
 
 
@@ -96,6 +137,66 @@ def wait_until(
             pass
 
     raise TimeoutError(f"{error_msg} (timeout: {timeout}s)")
+
+
+def snapshot_log_offsets(log_paths: list[str]) -> dict[str, int]:
+    """
+    Capture the current read offset for each log file path.
+
+    Args:
+        log_paths: Log files to snapshot.
+
+    Returns:
+        Mapping from log path to the current file size.
+    """
+    return {
+        log_path: Path(log_path).stat().st_size if Path(log_path).exists() else 0
+        for log_path in log_paths
+    }
+
+
+def wait_until_logs_match(
+    log_offsets: dict[str, int],
+    matcher: Callable[[str], bool],
+    timeout: int = 120,
+    step: int = 1,
+    error_msg: str = "Condition not met within timeout",
+):
+    """
+    Wait until any newly appended log line matches the provided predicate.
+
+    Args:
+        log_offsets: Starting offsets keyed by log path.
+        matcher: Predicate applied to each newly appended line.
+        timeout: Timeout in seconds (default: 120).
+        step: Poll interval in seconds (default: 1).
+        error_msg: Custom error message for timeout.
+
+    The offsets are intentional. Tests that inspect whole log files can match stale
+    lines emitted before the action under test. By reading only from a captured
+    offset onward, this helper preserves "did this happen after X?" semantics.
+    """
+
+    def has_matching_line():
+        for log_path, start_offset in log_offsets.items():
+            path = Path(log_path)
+            if not path.exists():
+                continue
+
+            with path.open(encoding="utf-8", errors="ignore") as f:
+                f.seek(start_offset)
+                for line in f:
+                    if matcher(line):
+                        return True
+
+        return False
+
+    wait_until(
+        has_matching_line,
+        timeout=timeout,
+        step=step,
+        error_msg=error_msg,
+    )
 
 
 def wait_until_bridge_ready(rpc_client, timeout: int = 120, step: int = 1):

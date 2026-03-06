@@ -2,22 +2,22 @@
 FROM --platform=linux/amd64 bridge-base:latest AS builder
 
 # It's already in the builder but this is so docker knows when to rebuild this image
-COPY bin/alpen-bridge bin/alpen-bridge
+COPY bin/strata-bridge bin/strata-bridge
 
 # Build bridge node
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo b -r -p alpen-bridge
+    cargo b -r -p strata-bridge
 
-RUN --mount=type=cache,target=/app/target cp /app/target/release/alpen-bridge /app/alpen-bridge
+RUN --mount=type=cache,target=/app/target cp /app/target/release/strata-bridge /app/strata-bridge
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 
 # Copy the built binaries from the builder stage
-COPY --from=builder /app/alpen-bridge /usr/local/bin/alpen-bridge
+COPY --from=builder /app/strata-bridge /usr/local/bin/strata-bridge
 COPY --from=builder /app/migrations /app/migrations
-COPY docker/alpen-bridge/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/strata-bridge/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 EXPOSE 5678
 EXPOSE 3000

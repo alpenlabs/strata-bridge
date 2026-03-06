@@ -11,9 +11,9 @@ mod tests {
             state::GraphState,
             tests::{
                 GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, TEST_POV_IDX,
-                create_sm, get_state, mock_states::adaptors_verified_state, test_graph_data,
-                test_graph_invalid_transition, test_graph_sm_cfg, test_graph_transition,
-                utils::build_nonce_context,
+                create_sm, get_state, mock_states::adaptors_verified_state, test_deposit_params,
+                test_graph_data, test_graph_invalid_transition, test_graph_sm_cfg,
+                test_graph_summary, test_graph_transition, utils::build_nonce_context,
             },
         },
         signals::GraphSignal,
@@ -217,6 +217,36 @@ mod tests {
                 pubnonces: operator_nonces,
             }),
             expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
+        });
+    }
+
+    #[test]
+    fn test_nonce_received_in_created_state_is_rejected() {
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: GraphState::Created {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            event: GraphEvent::NoncesReceived(GraphNoncesReceivedEvent {
+                operator_idx: TEST_POV_IDX,
+                pubnonces: vec![],
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    #[test]
+    fn test_nonce_received_in_graph_generated_state_is_rejected() {
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: GraphState::GraphGenerated {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: test_graph_summary(),
+            },
+            event: GraphEvent::NoncesReceived(GraphNoncesReceivedEvent {
+                operator_idx: TEST_POV_IDX,
+                pubnonces: vec![],
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
     }
 }

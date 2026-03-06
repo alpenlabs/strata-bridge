@@ -4,6 +4,7 @@ use bitcoin::OutPoint;
 use musig2::{AggNonce, aggregate_partial_signatures, secp256k1::schnorr, verify_partial};
 use strata_bridge_primitives::key_agg::create_agg_ctx;
 use strata_bridge_tx_graph2::transactions::PresignedTx;
+use tracing::{info, warn};
 
 use crate::{
     deposit::{
@@ -33,7 +34,7 @@ impl DepositSM {
             return Err(DSMError::duplicate(self.state().clone(), takeback.into()));
         }
 
-        let Some(deposit_request_outpoint) = self.deposit_request_outpoint() else {
+        let Some(deposit_request_outpoint) = self.spendable_deposit_request_outpoint() else {
             return Err(DSMError::invalid_event(
                 self.state().clone(),
                 takeback.into(),
@@ -396,17 +397,28 @@ impl DepositSM {
                 deposit_transaction,
                 ..
             } => {
+                let expected_txid = deposit_transaction.compute_txid();
+
                 // Ensure that the deposit transaction confirmed on-chain is the one we were
                 // expecting.
-                if confirmed.deposit_transaction.compute_txid()
-                    != deposit_transaction.compute_txid()
-                {
+                if confirmed.deposit_transaction.compute_txid() != expected_txid {
+                    warn!(
+                        "Deposit transaction confirmed on chain does not match expected deposit transaction. Expected txid: {}, confirmed txid: {}",
+                        expected_txid,
+                        confirmed.deposit_transaction.compute_txid()
+                    );
+
                     return Err(DSMError::rejected(
                         self.state().clone(),
                         confirmed.into(),
                         "Transaction confirmed on chain does not match expected deposit transaction",
                     ));
                 }
+
+                info!(
+                    txid=%expected_txid,
+                    "Deposit transaction confirmed on chain",
+                );
                 // Transition to the Deposited State
                 self.state = DepositState::Deposited {
                     last_block_height: *last_block_height,
@@ -453,7 +465,7 @@ impl DepositSM {
     /// Returns the `OutPoint` of the DRT from the current state
     ///
     /// Returns `None` if the deposit UTXO has been confirmed spent on-chain.
-    pub(crate) fn deposit_request_outpoint(&self) -> Option<OutPoint> {
+    pub fn spendable_deposit_request_outpoint(&self) -> Option<OutPoint> {
         match self.state() {
             DepositState::Created {
                 deposit_transaction,

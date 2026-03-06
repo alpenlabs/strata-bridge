@@ -1,0 +1,64 @@
+[package]
+name = "strata-bridge"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+algebra.workspace = true
+btc-tracker.workspace = true
+operator-wallet.workspace = true
+secret-service-client.workspace = true
+secret-service-proto.workspace = true
+strata-bridge-asm-events.workspace = true
+strata-bridge-common.workspace = true
+strata-bridge-connectors2.workspace = true
+strata-bridge-db2.workspace = true
+strata-bridge-exec.workspace = true
+strata-bridge-orchestrator.workspace = true
+strata-bridge-p2p-service.workspace = true
+strata-bridge-p2p-types.workspace = true
+strata-bridge-primitives.workspace = true
+strata-bridge-rpc.workspace = true
+strata-bridge-sm.workspace = true
+strata-bridge-tx-graph2.workspace = true
+
+strata-l1-txfmt.workspace = true
+strata-p2p.workspace = true
+strata-primitives.workspace = true
+strata-tasks.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+bdk_bitcoind_rpc.workspace = true
+bitcoin.workspace = true
+bitcoin-bosd.workspace = true
+bitcoind-async-client.workspace = true
+chrono.workspace = true
+clap.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+jsonrpsee = { workspace = true, features = ["client", "server"] }
+libp2p.workspace = true
+libp2p-identity.workspace = true
+rustls-pemfile.workspace = true
+secp256k1.workspace = true
+serde.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+memory_pprof = { workspace = true, optional = true }
+tikv-jemallocator = "0.6"
+
+[features]
+default = []
+# not compatible with windows/msvc
+memory_profiling = [
+  "tikv-jemallocator/profiling",
+  "tikv-jemallocator/unprefixed_malloc_on_supported_platforms",
+  "dep:memory_pprof",
+]

@@ -26,7 +26,7 @@ impl TxClassifier for DepositSM {
         let dt_txid = self.context().deposit_outpoint().txid;
 
         let is_drt_spend = self
-            .deposit_request_outpoint()
+            .spendable_deposit_request_outpoint()
             .is_some_and(|drt_outpoint| is_deposit_spend(drt_outpoint, tx) && txid != dt_txid);
         if is_drt_spend {
             return Some(DepositEvent::UserTakeBack(UserTakeBackEvent {

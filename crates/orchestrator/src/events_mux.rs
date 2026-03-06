@@ -5,7 +5,9 @@ use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
 use rkyv::rancor;
 use strata_asm_proto_bridge_v1::AssignmentEntry;
-use strata_bridge_p2p_types2::{GossipsubMsg, UnsignedGossipsubMsg};
+use strata_bridge_asm_events::event::AssignmentsState;
+use strata_bridge_p2p_service::message_handler2::OuroborosMessage;
+use strata_bridge_p2p_types2::GossipsubMsg;
 use strata_bridge_p2p_wire::p2p::v1::GetMessageRequest; /* FIXME: (@Rajil1213) this is
                                                           * temporary until we have it in
                                                           * `p2p_types2`. */
@@ -22,11 +24,11 @@ use tracing::warn;
 #[derive(Debug)]
 pub enum UnifiedEvent {
     /// Priority 0: Self-published gossip messages for consistent state.
-    OuroborosMessage(UnsignedGossipsubMsg),
+    OuroborosMessage(OuroborosMessage),
     /// Priority 1: Self-published nag requests.
     OuroborosRequest(GetMessageRequest),
     /// Priority 2: Graceful shutdown request.
-    Shutdown(tokio::sync::oneshot::Sender<()>),
+    Shutdown,
     /// Priority 3: Buried bitcoin blocks from ZMQ.
     Block(BlockEvent),
     /// Priority 4: Assignment entries identified by the ASM runner.
@@ -51,19 +53,19 @@ pub enum UnifiedEvent {
 #[derive(Debug)]
 pub struct EventsMux {
     /// Ouroboros channel for gossip messages.
-    pub ouroboros_msg_rx: tokio::sync::mpsc::UnboundedReceiver<UnsignedGossipsubMsg>,
+    pub ouroboros_msg_rx: tokio::sync::mpsc::UnboundedReceiver<OuroborosMessage>,
 
     /// Ouroboros channel for nag requests.
     pub ouroboros_req_rx: tokio::sync::mpsc::UnboundedReceiver<GetMessageRequest>,
 
     /// Shutdown signal receiver.
-    pub shutdown_rx: Option<tokio::sync::oneshot::Receiver<tokio::sync::oneshot::Sender<()>>>,
+    pub shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
 
     /// Bitcoin block event stream.
     pub block_sub: Subscription<BlockEvent>,
 
     /// Assignment entry stream from the ASM runner.
-    pub assignments_sub: Subscription<Vec<AssignmentEntry>>,
+    pub assignments_sub: Subscription<AssignmentsState>,
 
     /// P2P handle for gossipsub messages.
     pub gossip_handle: GossipHandle,
@@ -94,14 +96,14 @@ impl EventsMux {
 
                 // Only now, we handle shutdown signals
                 // so that we don't shutdown before our own messages and requests are processed.
-                Ok(shutdown_sender) = async {
+                Ok(()) = async {
                     match self.shutdown_rx.as_mut() {
                         Some(rx) => rx.await,
                         None => std::future::pending().await, // If we've already processed a shutdown, we should never receive another one, so we can just await forever.
                     }
                 } => {
                     self.shutdown_rx = None; // Ensure we only process shutdown once.
-                    return UnifiedEvent::Shutdown(shutdown_sender);
+                    return UnifiedEvent::Shutdown;
                 }
 
                 // Now, we handle external event streams starting with buried bitcoin blocks.
@@ -114,7 +116,7 @@ impl EventsMux {
                 }
 
                 // Next, we handle assignment entries from the ASM runner which are also observed from bitcoin.
-                Some(assignments) = self.assignments_sub.next() => return UnifiedEvent::Assignment(assignments),
+                Some(state) = self.assignments_sub.next() => return UnifiedEvent::Assignment(state.assignments),
 
                 // Then, we handle gossip messages received from peers.
                 Ok(GossipEvent::ReceivedMessage(raw_msg)) = self.gossip_handle.next_event() => {

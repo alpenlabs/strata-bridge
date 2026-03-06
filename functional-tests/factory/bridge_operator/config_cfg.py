@@ -18,38 +18,46 @@ class BtcClientConfig:
     url: str
     user: str
     pass_: str
-    retry_count: int
-    retry_interval: int
+    retry_count: int | None
+    retry_interval: int | None
+
+
+@dataclass
+class FdbRetryConfig:
+    retry_limit: int | None
+    timeout: Duration | None
 
 
 @dataclass
 class DbConfig:
-    max_retry_count: int
-    backoff_period: Duration
+    cluster_file_path: str
+    root_directory: str
+    tls: dict | None
+    retry: FdbRetryConfig
 
 
 @dataclass
 class P2pConfig:
-    idle_connection_timeout: Duration
+    idle_connection_timeout: Duration | None
     listening_addr: str
     connect_to: list[str]
-    num_threads: int
-    dial_timeout: Duration
-    general_timeout: Duration
-    connection_check_interval: Duration
-    gossipsub_mesh_n: int | None = None
-    gossipsub_mesh_n_low: int | None = None
-    gossipsub_mesh_n_high: int | None = None
-    gossipsub_scoring_preset: str | None = None
-    gossipsub_heartbeat_initial_delay: Duration | None = None
-    gossipsub_forward_queue_duration: Duration | None = None
-    gossipsub_publish_queue_duration: Duration | None = None
+    num_threads: int | None
+    dial_timeout: Duration | None
+    general_timeout: Duration | None
+    connection_check_interval: Duration | None
+    gossipsub_mesh_n: int | None
+    gossipsub_mesh_n_low: int | None
+    gossipsub_mesh_n_high: int | None
+    gossipsub_scoring_preset: str | None
+    gossipsub_heartbeat_initial_delay: Duration | None
+    gossipsub_publish_queue_duration: Duration | None
+    gossipsub_forward_queue_duration: Duration | None
 
 
 @dataclass
 class RpcConfig:
     rpc_addr: str
-    refresh_interval: Duration
+    refresh_interval: Duration | None
 
 
 @dataclass
@@ -63,25 +71,6 @@ class BtcZmqConfig:
 
 
 @dataclass
-class StakeTxConfig:
-    max_retries: int
-    retry_delay: Duration
-
-
-@dataclass
-class FdbRetryConfig:
-    retry_limit: int
-    timeout: Duration
-
-
-@dataclass
-class FdbConfig:
-    cluster_file_path: str
-    root_directory: str
-    retry: FdbRetryConfig
-
-
-@dataclass
 class AsmRpcConfig:
     rpc_url: str
     request_timeout: Duration
@@ -92,19 +81,25 @@ class AsmRpcConfig:
 
 
 @dataclass
+class OperatorWalletConfig:
+    claim_funding_pool_size: int
+
+
+@dataclass
 class BridgeOperatorConfig:
-    datadir: str
-    is_faulty: bool
+    num_threads: int | None
+    thread_stack_size: int | None
     nag_interval: Duration
+    retry_interval: Duration
     min_withdrawal_fulfillment_window: int
-    stake_funding_pool_size: int
     shutdown_timeout: Duration
+    cooperative_payout_timeout: int
+    max_fee_rate: int
     secret_service_client: SecretServiceClientConfig
     btc_client: BtcClientConfig
     db: DbConfig
-    fdb: FdbConfig
     p2p: P2pConfig
     rpc: RpcConfig
     asm_rpc: AsmRpcConfig
     btc_zmq: BtcZmqConfig
-    stake_tx: StakeTxConfig
+    operator_wallet: OperatorWalletConfig

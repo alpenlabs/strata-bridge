@@ -1,3 +1,6 @@
+//! Legacy bridge-in handler. Will be removed after the new bridge binary is deployed.
+//! Use `bridge_in_v2` instead.
+
 use std::str::FromStr;
 
 use alloy::primitives::Address as EvmAddress;
@@ -48,7 +51,7 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
     let taproot_address = generate_taproot_address(params.network, timelock_script, agg_key);
 
     let deposit_fees = Amount::from_sat(1_000);
-    let psbt = psbt_wallet.create_drt_psbt(
+    let psbt = psbt_wallet.create_legacy_drt_psbt(
         params.deposit_amount + deposit_fees,
         &taproot_address,
         metadata,

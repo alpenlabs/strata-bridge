@@ -3,9 +3,12 @@
 
 use std::collections::VecDeque;
 
-use strata_bridge_db2::traits::BridgeDb;
 use strata_bridge_primitives::operator_table::OperatorTable;
-use tracing::{info, warn};
+use strata_bridge_sm::graph::{
+    duties::GraphDuty,
+    events::{AdaptorsVerifiedEvent, GraphEvent},
+};
+use tracing::{info, trace, warn};
 
 use crate::{
     duty_dispatcher::DutyDispatcher,
@@ -25,19 +28,19 @@ use crate::{
 /// processes them through the STF, cascades any resulting signals, persists state changes, and
 /// dispatches duties to executors.
 #[expect(missing_debug_implementations)]
-pub struct Pipeline<Db: BridgeDb> {
+pub struct Pipeline {
     event_mux: EventsMux,
     registry: SMRegistry,
-    persister: Persister<Db>,
+    persister: Persister,
     dispatcher: DutyDispatcher,
 }
 
-impl<Db: BridgeDb> Pipeline<Db> {
+impl Pipeline {
     /// Creates a new pipeline with all required components.
     pub const fn new(
         event_mux: EventsMux,
         registry: SMRegistry,
-        persister: Persister<Db>,
+        persister: Persister,
         dispatcher: DutyDispatcher,
     ) -> Self {
         Self {
@@ -55,19 +58,16 @@ impl<Db: BridgeDb> Pipeline<Db> {
     /// The `initial_operator_table` needs to be constructed from a params file or similar source of
     /// truth for now. Eventually, this will be queried from the Operator State Machine in the
     /// registry.
-    pub async fn run(
-        mut self,
-        initial_operator_table: OperatorTable,
-    ) -> Result<(), PipelineError<Db>> {
+    pub async fn run(mut self, initial_operator_table: OperatorTable) -> Result<(), PipelineError> {
         loop {
             // Stage 1: Multiplex event streams
             let event = self.event_mux.next().await;
+            trace!(?event, "received new event from multiplexer");
 
             // Handle non-routable events (consume `event` on early exit, rebind otherwise)
             let event = match event {
-                UnifiedEvent::Shutdown(sender) => {
-                    info!("received shutdown signal, draining registry");
-                    let _ = sender.send(());
+                UnifiedEvent::Shutdown => {
+                    info!("received shutdown signal, breaking out of event loop");
                     return Ok(());
                 }
 
@@ -76,6 +76,10 @@ impl<Db: BridgeDb> Pipeline<Db> {
             };
 
             // Stage 2: Classification
+            trace!(
+                ?event,
+                "classifying event and determining target state machines"
+            );
             let (targets, new_duties): (Vec<(SMId, SMEvent)>, Vec<UnifiedDuty>) = match &event {
                 UnifiedEvent::Block(block_event) => onchain::classify_block(
                     &initial_operator_table,
@@ -104,7 +108,10 @@ impl<Db: BridgeDb> Pipeline<Db> {
             all_duties.extend(new_duties);
 
             // Stage 5: Batch persistence
-            for batch in tracker.into_batches() {
+
+            let batches = tracker.into_batches();
+            info!(count=%batches.len(), "persisting updated state machines batches");
+            for batch in batches {
                 self.persister.persist_batch(batch, &self.registry).await?;
             }
 
@@ -122,7 +129,7 @@ impl<Db: BridgeDb> Pipeline<Db> {
     fn process_and_cascade(
         &mut self,
         targets: Vec<(SMId, SMEvent)>,
-    ) -> Result<(Vec<crate::sm_types::UnifiedDuty>, PersistenceTracker), PipelineError<Db>> {
+    ) -> Result<(Vec<crate::sm_types::UnifiedDuty>, PersistenceTracker), PipelineError> {
         let mut all_duties = Vec::new();
         let mut signal_queue: VecDeque<(SMId, SMEvent)> = VecDeque::new();
         let mut tracker = PersistenceTracker::new();
@@ -137,6 +144,24 @@ impl<Db: BridgeDb> Pipeline<Db> {
                 &mut tracker,
             )?;
         }
+
+        all_duties
+            .iter()
+            .filter_map(|duty| {
+                if let UnifiedDuty::Graph(GraphDuty::VerifyAdaptors { graph_idx, .. }) = duty {
+                    Some((
+                        *graph_idx,
+                        GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .for_each(|(graph_idx, event)| {
+                info!(%graph_idx, "enqueuing fabricated AdaptorsVerified event");
+
+                signal_queue.push_back((graph_idx.into(), event.into()));
+            });
 
         // Signal cascade: process signals until the queue is drained
         while let Some((sm_id, sm_event)) = signal_queue.pop_front() {
@@ -163,7 +188,7 @@ impl<Db: BridgeDb> Pipeline<Db> {
         all_duties: &mut Vec<crate::sm_types::UnifiedDuty>,
         signal_queue: &mut VecDeque<(SMId, SMEvent)>,
         tracker: &mut PersistenceTracker,
-    ) -> Result<(), PipelineError<Db>> {
+    ) -> Result<(), PipelineError> {
         match self.registry.process_event(&sm_id, sm_event) {
             Ok(ProcessOutcome::Applied(output)) => {
                 all_duties.extend(output.duties);

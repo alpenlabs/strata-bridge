@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use bitcoin::{OutPoint, XOnlyPublicKey, relative};
+use bitcoin::{Amount, OutPoint, XOnlyPublicKey, relative};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
@@ -20,6 +20,7 @@ use crate::{
         events::DepositEvent,
         state::DepositState,
     },
+    error_policy::soften_peer_event_error,
     signals::DepositSignal,
     state_machine::{SMOutput, StateMachine},
 };
@@ -49,9 +50,15 @@ impl StateMachine for DepositSM {
         match event {
             DepositEvent::UserTakeBack(takeback) => self.process_drt_takeback(takeback),
             DepositEvent::GraphMessage(graph_msg) => self.process_graph_available(graph_msg),
-            DepositEvent::NonceReceived(nonce_event) => self.process_nonce_received(nonce_event),
+            DepositEvent::NonceReceived(nonce_event) => {
+                let event = DepositEvent::NonceReceived(nonce_event.clone());
+                self.process_nonce_received(nonce_event)
+                    .map_err(|err| soften_peer_event_error(event, err))
+            }
             DepositEvent::PartialReceived(partial_event) => {
+                let event = DepositEvent::PartialReceived(partial_event.clone());
                 self.process_partial_received(partial_event)
+                    .map_err(|err| soften_peer_event_error(event, err))
             }
             DepositEvent::DepositConfirmed(confirmed) => self.process_deposit_confirmed(confirmed),
             DepositEvent::WithdrawalAssigned(assignment) => {
@@ -61,13 +68,19 @@ impl StateMachine for DepositSM {
                 self.process_fulfillment(cfg, fulfillment)
             }
             DepositEvent::PayoutDescriptorReceived(descriptor) => {
+                let event = DepositEvent::PayoutDescriptorReceived(descriptor.clone());
                 self.process_payout_descriptor_received(cfg, descriptor)
+                    .map_err(|err| soften_peer_event_error(event, err))
             }
             DepositEvent::PayoutNonceReceived(payout_nonce) => {
+                let event = DepositEvent::PayoutNonceReceived(payout_nonce.clone());
                 self.process_payout_nonce_received(payout_nonce)
+                    .map_err(|err| soften_peer_event_error(event, err))
             }
             DepositEvent::PayoutPartialReceived(payout_partial) => {
+                let event = DepositEvent::PayoutPartialReceived(payout_partial.clone());
                 self.process_payout_partial_received(payout_partial)
+                    .map_err(|err| soften_peer_event_error(event, err))
             }
             DepositEvent::PayoutConfirmed(payout_confirmed) => {
                 self.process_payout_confirmed(&payout_confirmed)
@@ -75,7 +88,11 @@ impl StateMachine for DepositSM {
             DepositEvent::NewBlock(new_block) => self.process_new_block(new_block),
             DepositEvent::RetryTick(_) => self.process_retry_tick(cfg),
             DepositEvent::NagTick(_) => self.process_nag_tick(cfg),
-            DepositEvent::NagReceived(event) => self.process_nag_received(event),
+            DepositEvent::NagReceived(event) => {
+                let sm_event = DepositEvent::NagReceived(event.clone());
+                self.process_nag_received(event)
+                    .map_err(|err| soften_peer_event_error(sm_event, err))
+            }
         }
     }
 }
@@ -97,6 +114,7 @@ impl DepositSM {
         operator_table: OperatorTable,
         deposit_data: DepositData,
         depositor_pubkey: XOnlyPublicKey,
+        drt_output_amount: Amount,
         block_height: BitcoinBlockHeight,
     ) -> Self {
         let network = bridge_cfg.network();
@@ -109,16 +127,18 @@ impl DepositSM {
             n_of_n_pubkey,
             depositor_pubkey,
             deposit_time_lock,
-            deposit_amount,
+            drt_output_amount,
         );
         let non_connector = NOfNConnector::new(network, n_of_n_pubkey, deposit_amount);
 
         let deposit_idx = deposit_data.deposit_idx;
+        let deposit_request_outpoint = deposit_data.deposit_request_outpoint;
         let deposit_tx = DepositTx::new(deposit_data, non_connector, deposit_request_connetor);
 
         let deposit_outpoint = OutPoint::new(deposit_tx.as_ref().compute_txid(), 0); // always the first output (for now)
         let context = DepositSMCtx {
             deposit_idx,
+            deposit_request_outpoint,
             deposit_outpoint,
             operator_table,
         };
@@ -143,7 +163,6 @@ impl DepositSM {
     pub const fn state_mut(&mut self) -> &mut DepositState {
         &mut self.state
     }
-
     /// Checks that the operator index exists, otherwise returns `DSMError::Rejected`.
     pub(super) fn check_operator_idx<E>(&self, operator_idx: u32, inner_event: &E) -> DSMResult<()>
     where

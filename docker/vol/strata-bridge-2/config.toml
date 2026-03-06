@@ -1,12 +1,12 @@
-datadir = "/app/data"
-is_faulty = false
 nag_interval = { secs = 30, nanos = 0 }
+retry_interval = { secs = 1, nanos = 0 }
 min_withdrawal_fulfillment_window = 144
-stake_funding_pool_size = 32
 shutdown_timeout = { secs = 30, nanos = 0 }
+cooperative_payout_timeout = 144
+max_fee_rate = 10
 
 [secret_service_client]
-server_addr = "172.28.1.5:69"
+server_addr = "172.28.1.6:69"
 server_hostname = "secret-service"
 timeout = 1000
 cert = "/app/tls/cert.pem"
@@ -21,22 +21,19 @@ retry_count = 3
 retry_interval = 1000
 
 [db]
-max_retry_count = 3
-backoff_period = { secs = 1000, nanos = 0 }
-
-[fdb]
 cluster_file_path = "/var/fdb/fdb.cluster"
-root_directory = "strata-bridge-node-0"
+root_directory = "strata-bridge-node-1"
 retry = { retry_limit = 5, timeout = { secs = 5, nanos = 0 } }
 
 [p2p]
 idle_connection_timeout = { secs = 1000, nanos = 0 }
-listening_addr = "/ip4/172.28.0.5/tcp/5679"
-connect_to = ["/ip4/172.28.0.6/tcp/5679", "/ip4/172.28.0.7/tcp/5679"]
+listening_addr = "/ip4/172.28.0.6/tcp/5679"
+connect_to = ["/ip4/172.28.0.5/tcp/5679", "/ip4/172.28.0.7/tcp/5679"]
 num_threads = 4
 dial_timeout = { secs = 0, nanos = 250_000_000 }
 general_timeout = { secs = 0, nanos = 250_000_000 }
 connection_check_interval = { secs = 0, nanos = 500_000_000 }
+gossipsub_scoring_preset = "permissive"
 
 [rpc]
 rpc_addr = "0.0.0.0:5678"
@@ -58,6 +55,5 @@ rawblock_connection_string = "tcp://host.docker.internal:28334"
 rawtx_connection_string = "tcp://host.docker.internal:28335"
 sequence_connection_string = "tcp://host.docker.internal:28336"
 
-[stake_tx]
-max_retries = 10
-retry_delay = { secs = 5, nanos = 0 }
+[operator_wallet]
+claim_funding_pool_size = 32

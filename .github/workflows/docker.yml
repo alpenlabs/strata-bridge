@@ -100,13 +100,13 @@ jobs:
             .
           docker save bridge-rt:latest -o /tmp/bridge-rt.tar
 
-      - name: Build alpen-bridge image
+      - name: Build strata-bridge image
         run: |
           docker load -i /tmp/bridge-base.tar
           docker load -i /tmp/bridge-rt.tar
           docker build \
-            --file docker/alpen-bridge/Dockerfile \
-            --tag alpen-bridge:latest \
+            --file docker/strata-bridge/Dockerfile \
+            --tag strata-bridge:latest \
             .
 
       - name: Build secret-service image

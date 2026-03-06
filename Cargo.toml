@@ -38,6 +38,7 @@ members = [
 
   # binaries listed separately
   "bin/alpen-bridge",
+  "bin/strata-bridge",
   "bin/asm-runner",
   "bin/assert-splitter",
   "bin/dev-cli",
@@ -52,6 +53,7 @@ members = [
 
 default-members = [
   "bin/alpen-bridge",
+  "bin/strata-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/asm-runner",
@@ -74,6 +76,7 @@ algebra = { path = "crates/algebra" }
 alpen-bridge-params = { path = "crates/params" }
 btc-tracker = { path = "crates/btc-tracker" }
 duty-tracker = { path = "crates/duty-tracker" }
+memory_pprof = { path = "crates/memory_pprof" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
@@ -89,7 +92,7 @@ strata-bridge-db2 = { path = "crates/db2" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
 strata-bridge-key-deriv = { path = "crates/key-deriv" }
-strata-bridge-orchestartor = { path = "crates/orchestrator" }
+strata-bridge-orchestrator = { path = "crates/orchestrator" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
 strata-bridge-p2p-types = { path = "crates/p2p-types" }
 strata-bridge-p2p-types2 = { path = "crates/p2p-types2" }
@@ -176,7 +179,7 @@ bitcoin = { version = "0.32.8", features = ["rand-std", "serde"] }
 bitcoin-bosd = { version = "0.9.0", features = ["address"] }
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
 bitcoincore-rpc = "0.19.0"
-bitcoind-async-client = { version = "0.10.0", features = ["29_0"] }
+bitcoind-async-client = { version = "0.10.1", features = ["29_0"] }
 bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "release/0.1.0-rc.1" }
 borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
@@ -240,6 +243,7 @@ reqwest = { version = "0.12.12", default-features = false, features = [
   "json",
 ] }
 rkyv = "0.8.8"
+rustls-pemfile = "2.2.0"
 secp256k1 = "0.29.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, features = [

@@ -1,8 +1,11 @@
 //! Contains functionality related to persisting data to disk for crash recovery.
 
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+};
 
-use strata_bridge_db2::{traits::BridgeDb, types::WriteBatch};
+use strata_bridge_db2::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
 use thiserror::Error;
 use tracing::error;
 
@@ -104,17 +107,14 @@ impl PersistenceTracker {
 
 /// Persister is responsible for persisting state machine states to disk and recovering them during
 /// startup.
-#[derive(Debug)]
-pub struct Persister<Db>
-where
-    Db: BridgeDb,
-{
-    db: Db,
+#[derive(Debug, Clone)]
+pub struct Persister {
+    db: Arc<FdbClient>,
 }
 
-impl<Db: BridgeDb> Persister<Db> {
+impl Persister {
     /// Creates a new persister with the given database instance.
-    pub const fn new(db: Db) -> Self {
+    pub const fn new(db: Arc<FdbClient>) -> Self {
         Self { db }
     }
 
@@ -123,7 +123,7 @@ impl<Db: BridgeDb> Persister<Db> {
         &self,
         batch: BTreeSet<SMId>,
         sm_registry: &SMRegistry,
-    ) -> Result<(), PersistError<Db>> {
+    ) -> Result<(), PersistError> {
         let write_batch = batch
             .into_iter()
             .fold(WriteBatch::new(), |mut write_batch, sm_id| {
@@ -154,7 +154,7 @@ impl<Db: BridgeDb> Persister<Db> {
     }
 
     /// Build the entire registry using the most recently persisted state from disk.
-    pub async fn recover_registry(&self, config: SMConfig) -> Result<SMRegistry, PersistError<Db>> {
+    pub async fn recover_registry(&self, config: SMConfig) -> Result<SMRegistry, PersistError> {
         let mut registry = SMRegistry::new(config);
 
         for (deposit_idx, deposit_sm) in self
@@ -181,10 +181,10 @@ impl<Db: BridgeDb> Persister<Db> {
 
 /// Error type for problems arising during persistence operations.
 #[derive(Debug, Error)]
-pub enum PersistError<Db: BridgeDb> {
+pub enum PersistError {
     /// Error indicating a failure to persist a batch of state machines to disk.
-    #[error("persistence error: {0}")]
-    DbErr(Db::Error),
+    #[error("persistence error: {0:?}")]
+    DbErr(<FdbClient as BridgeDb>::Error),
 
     /// Error indicating duplicate or invalid registry state during recovery.
     #[error("registry invariant violation: {0}")]
