@@ -39,9 +39,11 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
-        with:
-          toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
+        env:
+          RUST_NIGHTLY: ${{ needs.extract-rust-version.outputs.nightly-version }}
+        run: |
+          rustup toolchain install "$RUST_NIGHTLY" --profile minimal
+          rustup default "$RUST_NIGHTLY"
 
       - name: Rust cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
@@ -79,10 +81,11 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
-        with:
-          toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
-          components: rustfmt
+        env:
+          RUST_NIGHTLY: ${{ needs.extract-rust-version.outputs.nightly-version }}
+        run: |
+          rustup toolchain install "$RUST_NIGHTLY" --profile minimal --component rustfmt
+          rustup default "$RUST_NIGHTLY"
 
       - name: cargo fmt check
         run: cargo fmt --all --check

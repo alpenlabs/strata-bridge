@@ -120,10 +120,11 @@ jobs:
           rm -rf SHA256SUMS "bitcoin-$BITCOIND_VERSION" "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
-        with:
-          components: llvm-tools-preview
-          toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
+        env:
+          RUST_NIGHTLY: ${{ needs.extract-rust-version.outputs.nightly-version }}
+        run: |
+          rustup toolchain install "$RUST_NIGHTLY" --profile minimal --component llvm-tools-preview
+          rustup default "$RUST_NIGHTLY"
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@81ecf985428d5c2ea81dbf079bceca32bc9604ab # v2.62.43
