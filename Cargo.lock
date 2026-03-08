@@ -10394,6 +10394,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-proof-db"
+version = "0.1.0"
+dependencies = [
+ "strata-bridge-primitives",
+ "strata-identifiers",
+]
+
+[[package]]
 name = "strata-bridge-proof-primitives"
 version = "0.1.0"
 dependencies = [
