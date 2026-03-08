@@ -10456,8 +10456,12 @@ dependencies = [
 name = "strata-bridge-proof-db"
 version = "0.1.0"
 dependencies = [
+ "proptest",
+ "sled",
  "strata-bridge-primitives",
  "strata-identifiers",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
