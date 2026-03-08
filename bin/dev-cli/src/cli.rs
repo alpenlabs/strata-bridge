@@ -29,6 +29,9 @@ pub(crate) enum Commands {
     Disprove(DisproveArgs),
 
     DeriveKeys(DeriveKeysArgs),
+
+    /// Create and publish a mock checkpoint.
+    CreateAndPublishMockCheckpoint(CreateAndPublishMockCheckpointArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -146,6 +149,10 @@ pub(crate) struct DisproveArgs {
     #[arg(long, help = "the strata bridge params file")]
     pub(crate) params: PathBuf,
 }
+
+#[derive(Parser, Debug, Clone)]
+#[command(about = "Create and publish a mock checkpoint", version)]
+pub(crate) struct CreateAndPublishMockCheckpointArgs {}
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct BtcArgs {
