@@ -24,7 +24,9 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup default nightly
 
       - name: Update rust-toolchain.toml to use latest nightly
         run: |
