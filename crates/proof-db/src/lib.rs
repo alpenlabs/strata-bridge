@@ -5,6 +5,10 @@ use std::fmt::Debug;
 use strata_bridge_primitives::proof::{AsmProof, L1Range, MohoProof};
 use strata_identifiers::L1BlockCommitment;
 
+mod sled;
+
+pub use self::sled::SledProofDb;
+
 /// Persistence interface for proof storage.
 pub trait ProofDb {
     /// The error type returned by the database operations.

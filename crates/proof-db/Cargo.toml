@@ -7,5 +7,12 @@ edition = "2024"
 strata-bridge-primitives.workspace = true
 strata-identifiers.workspace = true
 
+sled.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+
 [lints]
 workspace = true
