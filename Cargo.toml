@@ -16,6 +16,7 @@ members = [
   "crates/connectors2",
   "crates/db",
   "crates/db2",
+  "crates/proof-db",
   "crates/duty-tracker",
   "crates/key-deriv",
   "crates/memory_pprof",
@@ -95,6 +96,7 @@ strata-bridge-p2p-types = { path = "crates/p2p-types" }
 strata-bridge-p2p-types2 = { path = "crates/p2p-types2" }
 strata-bridge-p2p-wire = { path = "crates/p2p-wire" }
 strata-bridge-primitives = { path = "crates/primitives" }
+strata-bridge-proof-db = { path = "crates/proof-db" }
 strata-bridge-proof-primitives = { path = "crates/bridge-proof/primitives" }
 strata-bridge-proof-protocol = { path = "crates/bridge-proof/protocol" }
 strata-bridge-proof-snark = { path = "crates/bridge-proof/snark" }
@@ -249,6 +251,7 @@ serde_json = { version = "1.0", default-features = false, features = [
 serde_with = "3.12.0"
 serial_test = "3.2.0"
 sha2 = "0.10"
+sled = "0.34.7"
 sp1-sdk = "5.0.0"
 sp1-verifier = "5.0.0"
 sqlx = { version = "0.8.2", features = [
