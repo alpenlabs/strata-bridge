@@ -16,6 +16,11 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{Client, RpcApi};
 use secp256k1::rand::rngs::OsRng;
+use strata_checkpoint_types_ssz::{
+    compute_asm_manifests_hash, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
+    CheckpointTip, L2BlockRange, SignedCheckpointPayload,
+};
+use strata_test_utils_l2::CheckpointTestHarness;
 use tracing::info;
 
 use crate::cli::CreateAndPublishMockCheckpointArgs;
@@ -23,7 +28,10 @@ use crate::cli::CreateAndPublishMockCheckpointArgs;
 pub(crate) async fn handle_create_and_publish_mock_checkpoint(
     _args: CreateAndPublishMockCheckpointArgs,
 ) -> Result<()> {
-    todo!("implement create_and_publish_mock_checkpoint")
+    let state_diff: Vec<u8> = Vec::new();
+    let ol_logs = Vec::new();
+    let sidecar = CheckpointSidecar::new(state_diff.clone(), ol_logs.clone()).unwrap();
+    todo!()
 }
 
 /// Build a reveal script that embeds payload data in a taproot script leaf.
