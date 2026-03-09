@@ -10,10 +10,18 @@ use strata_checkpoint_types_ssz::{
     CheckpointTip, L2BlockRange, SignedCheckpointPayload,
 };
 use strata_crypto::hash;
+use strata_primitives::bitcoin_bosd::Descriptor;
 use strata_identifiers::{Buf64, OLBlockCommitment, OLBlockId};
 use strata_test_utils::ArbitraryGenerator;
+use strata_ol_chain_types_new::SimpleWithdrawalIntentLogData;
+use strata_identifiers::AccountSerial;
+use strata_identifiers::strata_codec::encode_to_vec;
+use strata_checkpoint_types_ssz::OLLog;
 
 use crate::cli::CreateAndPublishMockCheckpointArgs;
+
+/// Bridge denomination: 10 BTC in sats.
+const DENOMINATION_SATS: u64 = 1_000_000_000;
 
 pub(crate) struct CheckpointTestHarness {
     sequencer_predicate: SigningKey,
@@ -46,12 +54,34 @@ impl CheckpointTestHarness {
     /// Generates a valid checkpoint payload signed by the checkpoint predicate.
     ///
     /// Creates a complete checkpoint payload including:
-    /// - Random state diff and empty OL logs in the sidecar
+    /// - Random state diff and `num_withdrawals` withdrawal OL logs in the sidecar
     /// - Properly constructed checkpoint claim with manifest hashes
     /// - Valid checkpoint proof signature
-    pub(crate) fn build_payload_with_tip(&self, new_tip: CheckpointTip) -> CheckpointPayload {
+    pub(crate) fn build_payload_with_tip(
+        &self,
+        new_tip: CheckpointTip,
+        num_withdrawals: usize,
+    ) -> CheckpointPayload {
         let state_diff: Vec<u8> = ArbitraryGenerator::new().generate();
-        let ol_logs = Vec::new();
+
+        // Build withdrawal OL logs with valid BOSD descriptors.
+        // BRIDGE_GATEWAY_ACCT_SERIAL = AccountSerial::reserved(0x10)
+        let bridge_gateway_serial = AccountSerial::reserved(0x10);
+
+        let ol_logs: Vec<OLLog> = (0..num_withdrawals)
+            .map(|i| {
+                let mut pkh = [0u8; 20];
+                pkh[..8].copy_from_slice(&(i as u64).to_le_bytes());
+                let dest_descriptor = Descriptor::new_p2wpkh(&pkh);
+                let withdrawal_log_data = SimpleWithdrawalIntentLogData::new(
+                    DENOMINATION_SATS,
+                    dest_descriptor.to_bytes(),
+                )
+                .unwrap();
+                let encoded_log = encode_to_vec(&withdrawal_log_data).unwrap();
+                OLLog::new(bridge_gateway_serial, encoded_log)
+            })
+            .collect();
 
         let state_diff_hash = hash::raw(&state_diff).into();
         let ol_logs_hash = hash::raw(&ol_logs.as_ssz_bytes()).into();
@@ -123,7 +153,7 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
 ) -> Result<()> {
     let cp_helper = CheckpointTestHarness::new_with_genesis_height(101);
     let new_tip = cp_helper.gen_new_tip();
-    let payload = cp_helper.build_payload_with_tip(new_tip);
+    let payload = cp_helper.build_payload_with_tip(new_tip, 1);
     let _signed_payload = cp_helper.sign_payload(payload);
 
     Ok(())
