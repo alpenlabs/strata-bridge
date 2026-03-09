@@ -30,7 +30,9 @@ use strata_bridge_tx_graph2::transactions::prelude::{
 use tracing::{error, info, warn};
 
 use crate::{
-    chain::is_txid_onchain, config::ExecutionConfig, errors::ExecutorError,
+    chain::{is_txid_onchain, publish_signed_transaction},
+    config::ExecutionConfig,
+    errors::ExecutorError,
     output_handles::OutputHandles,
 };
 
@@ -352,14 +354,13 @@ async fn publish_deposit(
     let drt_txid = signed_deposit_transaction.input[0].previous_output.txid;
     info!(%txid, %drt_txid, "executing publish_deposit duty");
 
-    // Broadcast and wait for burial confirmation
-    output_handles
-        .tx_driver
-        .drive(signed_deposit_transaction, TxStatus::is_buried)
-        .await?;
-
-    info!(%txid, "deposit transaction confirmed");
-    Ok(())
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        &signed_deposit_transaction,
+        "deposit",
+        TxStatus::is_buried,
+    )
+    .await
 }
 
 /// Fulfills a withdrawal request by fronting funds to the user.
@@ -492,12 +493,14 @@ async fn fulfill_withdrawal(
         )
         .await?;
 
-    // Broadcast and wait for confirmation
-    info!(%txid, "submitting withdrawal fulfillment tx to the tx driver");
-    output_handles
-        .tx_driver
-        .drive(signed_tx, TxStatus::is_buried)
-        .await?;
+    info!(%txid, "submitting withdrawal fulfillment transaction");
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        &signed_tx,
+        "withdrawal fulfillment",
+        TxStatus::is_buried,
+    )
+    .await?;
 
     info!(%txid, %deposit_idx, "withdrawal fulfillment confirmed");
     Ok(())
@@ -699,11 +702,13 @@ async fn publish_payout(
     // Finalize the transaction using CooperativePayoutTx.finalize()
     let finalized_tx = (*payout_coop_tx).finalize(agg_signature);
 
-    // Broadcast and wait for confirmation
-    output_handles
-        .tx_driver
-        .drive(finalized_tx, TxStatus::is_buried)
-        .await?;
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        &finalized_tx,
+        "cooperative payout",
+        TxStatus::is_buried,
+    )
+    .await?;
 
     info!(%txid, "cooperative payout transaction confirmed");
     Ok(())

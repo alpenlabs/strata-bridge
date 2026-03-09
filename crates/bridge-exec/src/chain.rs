@@ -1,8 +1,11 @@
-//! Shared Bitcoin chain-state helpers for executors.
+//! Shared Bitcoin chain helpers for executors.
 
-use bitcoin::Txid;
+use bitcoin::{Transaction, Txid};
 use bitcoind_async_client::{Client as BitcoinClient, error::ClientError, traits::Reader};
-use tracing::{debug, warn};
+use btc_tracker::{event::TxStatus, tx_driver::TxDriver};
+use tracing::{debug, info, warn};
+
+use crate::errors::ExecutorError;
 
 /// Returns whether the provided transaction ID already exists on chain (confirmed or in the
 /// mempool).
@@ -22,6 +25,29 @@ pub(crate) async fn is_txid_onchain(
             Err(e)
         }
     }
+}
+
+/// Publishes a signed transaction to Bitcoin and waits for the provided transaction status
+/// condition to be met.
+pub(crate) async fn publish_signed_transaction(
+    tx_driver: &TxDriver,
+    signed_tx: &Transaction,
+    label: &str,
+    wait_condition: fn(&TxStatus) -> bool,
+) -> Result<(), ExecutorError> {
+    let txid = signed_tx.compute_txid();
+    info!(%txid, %label, "publishing transaction");
+
+    tx_driver
+        .drive(signed_tx.clone(), wait_condition)
+        .await
+        .map_err(|e| {
+            warn!(%txid, %label, ?e, "failed to publish transaction");
+            ExecutorError::TxDriverErr(e)
+        })?;
+
+    info!(%txid, %label, "transaction reached target status");
+    Ok(())
 }
 
 #[cfg(test)]

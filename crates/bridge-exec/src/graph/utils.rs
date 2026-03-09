@@ -3,7 +3,7 @@
 use algebra::predicate;
 use bdk_wallet::Wallet;
 use bitcoin::{
-    Psbt, TapSighashType, Transaction,
+    Psbt, TapSighashType,
     hashes::Hash,
     sighash::{Prevouts, SighashCache},
     taproot,
@@ -11,30 +11,9 @@ use bitcoin::{
 use btc_tracker::{event::TxStatus, tx_driver::TxDriver};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::*;
-use tracing::{info, warn};
+use tracing::info;
 
-use crate::{errors::ExecutorError, output_handles::OutputHandles};
-
-/// Publishes a signed transaction to Bitcoin and waits for confirmation.
-pub(crate) async fn publish_signed_transaction(
-    output_handles: &OutputHandles,
-    signed_tx: &Transaction,
-    label: &str,
-) -> Result<(), ExecutorError> {
-    let txid = signed_tx.compute_txid();
-    info!(%txid, %label, "publishing transaction");
-    output_handles
-        .tx_driver
-        .drive(signed_tx.clone(), TxStatus::is_buried)
-        .await
-        .map_err(|e| {
-            warn!(%txid, %label, ?e, "failed to publish transaction");
-            ExecutorError::TxDriverErr(e)
-        })?;
-    info!(%txid, %label, "transaction confirmed");
-
-    Ok(())
-}
+use crate::errors::ExecutorError;
 
 /// Finalizes and broadcasts a claim funding transaction.
 ///
