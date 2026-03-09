@@ -11,7 +11,7 @@ use jsonrpsee::{
     server::ServerBuilder,
     types::{ErrorObject, ErrorObjectOwned},
 };
-use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State};
+use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};
 use strata_asm_rpc::traits::AssignmentsApiServer;
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
@@ -80,6 +80,31 @@ impl AssignmentsApiServer for AsmRpcServer {
                     .expect("borsh deserialization should be infallible");
 
                 Ok(bridge_state.assignments().assignments().to_vec())
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    async fn get_deposits(&self, block_hash: BlockHash) -> RpcResult<Vec<DepositEntry>> {
+        let commitment = self
+            .to_block_commitment(block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+        let state = self
+            .asm_manager
+            .get_state(commitment)
+            .map_err(to_rpc_error)?;
+        match state {
+            Some(state) => {
+                let bridge_state = state
+                    .state()
+                    .find_section(BRIDGE_V1_SUBPROTOCOL_ID)
+                    .expect("bridge subprotoccol should be enabled");
+
+                let bridge_state: BridgeV1State = borsh::from_slice(&bridge_state.data)
+                    .expect("borsh deserialization should be infallible");
+
+                Ok(bridge_state.deposits().deposits().cloned().collect())
             }
             None => Ok(vec![]),
         }
