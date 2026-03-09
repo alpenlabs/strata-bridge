@@ -22,6 +22,9 @@ use strata_checkpoint_types_ssz::{
 };
 use strata_test_utils_l2::CheckpointTestHarness;
 use tracing::info;
+use strata_crypto::hash;
+use ssz::Encode;
+use strata_identifiers::OLBlockCommitment;
 
 use crate::cli::CreateAndPublishMockCheckpointArgs;
 
@@ -29,10 +32,43 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
     _args: CreateAndPublishMockCheckpointArgs,
 ) -> Result<()> {
     let state_diff: Vec<u8> = Vec::new();
+    let new_tip = get_new_tip();
     let ol_logs = Vec::new();
     let sidecar = CheckpointSidecar::new(state_diff.clone(), ol_logs.clone()).unwrap();
+
+    let state_diff_hash = hash::raw(&state_diff).into();
+    let ol_logs_hash = hash::raw(&ol_logs.as_ssz_bytes()).into();
+    let asm_manifests_hash = compute_asm_manifests_hash(Default::default());
+
+
+    let verified_l2_commitment = OLBlockCommitment{
+        slot:0,
+        blkid:Default::default()
+    };
+
+    let new_l2_commitment = OLBlockCommitment{
+        slot:1,
+        blkid:Default::default()
+    };
+
+    let l2_range = L2BlockRange::new(verified_l2_commitment, new_l2_commitment);
+    let claim = CheckpointClaim::new(
+        1,
+        l2_range,
+        asm_manifests_hash,
+        state_diff_hash,
+        ol_logs_hash,
+    );
+    let proof = Vec::new();
+    let payload = CheckpointPayload::new(new_tip, sidecar, proof).unwrap();
     todo!()
 }
+
+fn get_new_tip()->CheckpointTip{
+    let new_ol_block_commitment = OLBlockCommitment::new(1, Default::default());
+    CheckpointTip::new(1, 101, new_ol_block_commitment)
+}
+
 
 /// Build a reveal script that embeds payload data in a taproot script leaf.
 ///

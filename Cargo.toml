@@ -137,6 +137,7 @@ strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d8
 strata-test-utils-l2 = { git = "https://github.com/alpenlabs/alpen.git", rev = "1d88d845d807c47aed95f62ac86f804e5f8aab94" }
 
 # Dependencies from alpenlabs/strata-common
+ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.12.3" }
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc4" }
 strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc4" }
 strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc4" }
