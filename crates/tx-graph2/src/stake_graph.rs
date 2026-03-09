@@ -81,6 +81,9 @@ pub struct StakeGraphSummary {
 }
 
 impl StakeGraph {
+    /// Total number of presigned transaction inputs.
+    pub const N_MUSIG_INPUTS: usize = UnstakingIntentTx::N_INPUTS + UnstakingTx::N_INPUTS;
+
     /// Creates a new stake graph.
     pub fn new(data: StakeData) -> Self {
         let protocol = data.protocol;

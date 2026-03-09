@@ -10,6 +10,7 @@ pub mod deposit;
 pub mod errors;
 pub mod graph;
 pub mod signals;
+pub mod stake;
 pub mod state_machine;
 pub mod tx_classifier;
 
