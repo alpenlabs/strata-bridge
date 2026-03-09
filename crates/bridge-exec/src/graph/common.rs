@@ -18,9 +18,7 @@ use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
 use tracing::{error, info, warn};
 
 use crate::{
-    config::ExecutionConfig,
-    errors::ExecutorError,
-    graph::utils::{finalize_claim_funding_tx, publish_signed_transaction},
+    chain::is_txid_onchain, errors::ExecutorError, graph::utils::publish_signed_transaction,
     output_handles::OutputHandles,
 };
 
@@ -212,23 +210,21 @@ pub(super) async fn publish_graph_partials(
     claim_txid: Txid,
     ordered_pubkeys: &[XOnlyPublicKey],
 ) -> Result<(), ExecutorError> {
-    // Verify claim tx is NOT on chain before signing partials
-    info!(?graph_idx, %claim_txid, "ensuring claim tx is NOT on chain before publishing partials");
-
-    match output_handles
-        .bitcoind_rpc_client
-        .get_raw_transaction_verbosity_one(&claim_txid)
+    info!(
+        ?graph_idx,
+        %claim_txid,
+        "ensuring claim tx is not on chain before publishing partials"
+    );
+    if is_txid_onchain(&output_handles.bitcoind_rpc_client, &claim_txid)
         .await
+        .map_err(ExecutorError::BitcoinRpcErr)?
     {
-        Ok(_) => {
-            warn!(?graph_idx, %claim_txid, "claim tx already on chain, aborting partial sig generation");
-            return Err(ExecutorError::ClaimTxAlreadyOnChain(claim_txid));
-        }
-        Err(e) if e.is_tx_not_found() => { /* safe to proceed */ }
-        Err(e) => {
-            warn!(?graph_idx, %claim_txid, ?e, "failed to check claim tx status, aborting partial sig generation");
-            return Err(ExecutorError::BitcoinRpcErr(e));
-        }
+        warn!(
+            ?graph_idx,
+            %claim_txid,
+            "claim tx already on chain, aborting partial sig generation"
+        );
+        return Err(ExecutorError::ClaimTxAlreadyOnChain(claim_txid));
     }
 
     info!(?graph_idx, %claim_txid, num_inputs = graph_inpoints.len(), "publishing graph partials");

@@ -15,6 +15,7 @@
 )]
 #![feature(generic_const_exprs)] // FIXME: (@Rajil1213) remove this once strata-p2p is updated
 
+mod chain;
 pub mod config;
 pub mod deposit;
 pub mod errors;
