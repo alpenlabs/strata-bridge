@@ -14,151 +14,10 @@ use bitcoin::{
     Address, Amount, Network, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn,
     TxOut, Witness,
 };
-use strata_identifiers::OLBlockId;
-use strata_identifiers::Buf64;
 use bitcoincore_rpc::{Client, RpcApi};
 use secp256k1::rand::rngs::OsRng;
-use strata_checkpoint_types_ssz::{
-    compute_asm_manifests_hash, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
-    CheckpointTip, L2BlockRange, SignedCheckpointPayload,
-};
-use k256::{
-    ecdsa::signature::SignatureEncoding,
-    schnorr::{signature::Signer, SigningKey},
-};
-use rand::{thread_rng, Rng};
+use strata_l1_txfmt::{MagicBytes, ParseConfig, SubprotocolId, TagDataRef, TxType};
 use tracing::info;
-use strata_crypto::hash;
-use ssz::Encode;
-use strata_identifiers::OLBlockCommitment;
-use strata_test_utils::ArbitraryGenerator;
-
-use crate::cli::CreateAndPublishMockCheckpointArgs;
-
-pub(crate) struct CheckpointTestHarness {
-    genesis_l1_height: u32,
-    sequencer_predicate: SigningKey,
-    checkpoint_predicate: SigningKey,
-    verified_tip: CheckpointTip,
-}
-
-impl CheckpointTestHarness {
-    /// Creates a test harness with a specific genesis L1 height.
-    ///
-    /// Useful when the genesis height must align with an external test
-    /// environment (e.g. Bitcoin regtest height in integration tests).
-    pub(crate) fn new_with_genesis_height(genesis_l1_height: u32) -> Self {
-        let mut rng = thread_rng();
-
-        let genesis_ol_blkid = ArbitraryGenerator::new().generate();
-        let genesis_blk = OLBlockCommitment::new(0, genesis_ol_blkid);
-
-        let sequencer_predicate = SigningKey::random(&mut rng);
-        let checkpoint_predicate = SigningKey::random(&mut rng);
-
-        let genesis_tip = CheckpointTip::new(0, genesis_l1_height, genesis_blk);
-        Self {
-            genesis_l1_height,
-            sequencer_predicate,
-            checkpoint_predicate,
-            verified_tip: genesis_tip,
-        }
-    }
-
-    /// Generates a valid checkpoint payload signed by the checkpoint predicate.
-    ///
-    /// Creates a complete checkpoint payload including:
-    /// - Random state diff and empty OL logs in the sidecar
-    /// - Properly constructed checkpoint claim with manifest hashes
-    /// - Valid checkpoint proof signature
-    pub(crate) fn build_payload_with_tip(&self, new_tip: CheckpointTip) -> CheckpointPayload {
-        let state_diff: Vec<u8> = ArbitraryGenerator::new().generate();
-        let ol_logs = Vec::new();
-        let sidecar = CheckpointSidecar::new(state_diff.clone(), ol_logs.clone()).unwrap();
-
-        let state_diff_hash = hash::raw(&state_diff).into();
-        let ol_logs_hash = hash::raw(&ol_logs.as_ssz_bytes()).into();
-
-        let asm_manifests_hash = compute_asm_manifests_hash(Default::default());
-
-        let l2_range = L2BlockRange::new(self.verified_tip.l2_commitment, new_tip.l2_commitment);
-        let claim = CheckpointClaim::new(
-            new_tip.epoch,
-            l2_range,
-            asm_manifests_hash,
-            state_diff_hash,
-            ol_logs_hash,
-        );
-
-        let proof = self
-            .checkpoint_predicate
-            .sign(&claim.as_ssz_bytes())
-            .to_vec();
-
-        CheckpointPayload::new(new_tip, sidecar, proof).unwrap()
-    }
-
-    /// Generates a new checkpoint tip that advances from the current verified tip.
-    pub(crate) fn gen_new_tip(&self) -> CheckpointTip {
-        let l1_blocks_processed: u32 = 0;
-        let ol_blocks_processed: u64 = 1;
-        self.gen_new_tip_with_advances(l1_blocks_processed, ol_blocks_processed)
-    }
-
-    /// Generates a new checkpoint tip with specific L1 and L2 advancement.
-    ///
-    /// Useful in integration tests where L1 block count is constrained
-    /// by the regtest environment.
-    pub(crate) fn gen_new_tip_with_advances(
-        &self,
-        l1_blocks: u32,
-        ol_blocks: u64,
-    ) -> CheckpointTip {
-        let mut arb = ArbitraryGenerator::new();
-        let verified_tip = self.verified_tip;
-
-        let new_epoch = verified_tip.epoch + 1;
-        let new_covered_l1_height = verified_tip.l1_height + l1_blocks;
-        let new_ol_slot = verified_tip.l2_commitment().slot() + ol_blocks;
-        let new_ol_blkid: OLBlockId = arb.generate();
-        let new_ol_block_commitment = OLBlockCommitment::new(new_ol_slot, new_ol_blkid);
-
-        CheckpointTip::new(new_epoch, new_covered_l1_height, new_ol_block_commitment)
-    }
-
-    /// Signs a checkpoint payload with the sequencer predicate key.
-    ///
-    /// The sequencer signature covers the entire SSZ-encoded checkpoint payload,
-    /// attesting to the validity of the checkpoint transition.
-    pub(crate) fn sign_payload(&self, payload: CheckpointPayload) -> SignedCheckpointPayload {
-        let signature = self
-            .sequencer_predicate
-            .sign(&payload.as_ssz_bytes())
-            .to_vec();
-        let mut sig = [0u8; 64];
-        sig.copy_from_slice(&signature[..64]);
-        SignedCheckpointPayload::new(payload, Buf64::from(sig))
-    }
-}
-
-
-pub(crate) async fn handle_create_and_publish_mock_checkpoint(
-    _args: CreateAndPublishMockCheckpointArgs,
-) -> Result<()> {
-    let cp_helper = CheckpointTestHarness::new_with_genesis_height(101);
-    let new_tip = cp_helper.gen_new_tip();
-    let payload = cp_helper.build_payload_with_tip(new_tip);
-    let signed_payload = cp_helper.sign_payload(payload);
-
-    Ok(())
-
-}
-
-fn get_new_tip()->CheckpointTip{
-    let new_ol_block_commitment = OLBlockCommitment::new(1, Default::default());
-    CheckpointTip::new(1, 101, new_ol_block_commitment)
-}
-
 
 /// Build a reveal script that embeds payload data in a taproot script leaf.
 ///
@@ -180,16 +39,22 @@ fn build_reveal_script(internal_key: &XOnlyPublicKey, payload: &[u8]) -> ScriptB
     builder.push_opcode(OP_ENDIF).into_script()
 }
 
-/// Build and broadcast a taproot envelope transaction embedding arbitrary payload.
+/// Build and broadcast an SPS-50 taproot envelope transaction embedding arbitrary payload.
 ///
 /// Uses a commit-reveal pattern:
 /// 1. Commit: sends funds to a taproot address with the payload in a script leaf.
 /// 2. Reveal: spends via script path, exposing the payload in the witness.
 ///
+/// The reveal tx includes an SPS-50 compliant OP_RETURN tag as the first output,
+/// encoding the magic bytes, subprotocol ID, and tx type.
+///
 /// Returns the reveal transaction's txid.
 pub(crate) fn build_and_broadcast_envelope_tx(
     client: &Client,
-    payload: Vec<u8>,
+    magic: MagicBytes,
+    subprotocol_id: SubprotocolId,
+    tx_type: TxType,
+    payload: &[u8],
 ) -> Result<bitcoin::Txid> {
     let secp = Secp256k1::new();
 
@@ -198,7 +63,7 @@ pub(crate) fn build_and_broadcast_envelope_tx(
     let (internal_key, _) = XOnlyPublicKey::from_keypair(&keypair);
 
     // Build reveal script with embedded payload
-    let reveal_script = build_reveal_script(&internal_key, &payload);
+    let reveal_script = build_reveal_script(&internal_key, payload);
 
     // Build taproot with the reveal script as a leaf
     let taproot_spend_info = TaprootBuilder::new()
@@ -250,6 +115,19 @@ pub(crate) fn build_and_broadcast_envelope_tx(
         .control_block(&(reveal_script.clone(), LeafVersion::TapScript))
         .context("failed to create control block")?;
 
+    // Build SPS-50 compliant OP_RETURN tag
+    let tag_data = TagDataRef::new(subprotocol_id, tx_type, &[])
+        .map_err(|e| anyhow::anyhow!("failed to create tag data: {:?}", e))?;
+    let parse_config = ParseConfig::new(magic);
+    let op_return_script = parse_config
+        .encode_script_buf(&tag_data)
+        .map_err(|e| anyhow::anyhow!("failed to encode OP_RETURN script: {:?}", e))?;
+
+    let op_return_output = TxOut {
+        value: Amount::ZERO,
+        script_pubkey: op_return_script,
+    };
+
     let change_address = client
         .get_new_address(None, Some(bitcoincore_rpc::json::AddressType::Bech32m))
         .context("failed to get change address")?
@@ -272,7 +150,7 @@ pub(crate) fn build_and_broadcast_envelope_tx(
         version: Version::TWO,
         lock_time: LockTime::ZERO,
         input: vec![tx_input],
-        output: vec![change_output],
+        output: vec![op_return_output, change_output],
     };
 
     // Sign the reveal transaction (script-path spend)
@@ -336,9 +214,11 @@ mod tests {
             .generate_to_address(110, &address)
             .expect("failed to mine blocks");
 
-        let payload = b"hello checkpoint".to_vec();
+        let magic: MagicBytes = "alpe".parse().expect("valid magic");
+        let payload = b"hello checkpoint";
         let txid =
-            build_and_broadcast_envelope_tx(&client, payload).expect("envelope tx should succeed");
+            build_and_broadcast_envelope_tx(&client, magic, 0, 0, payload)
+                .expect("envelope tx should succeed");
 
         // Confirm the tx is in the mempool
         let mempool = client.get_raw_mempool().expect("failed to get mempool");
@@ -348,12 +228,12 @@ mod tests {
         );
 
         // Mine it and verify it's confirmed
-        client
+        let block_hashes = client
             .generate_to_address(1, &address)
             .expect("failed to mine block");
 
         let tx_info = client
-            .get_raw_transaction_info(&txid, None)
+            .get_raw_transaction_info(&txid, block_hashes.first().map(|h| h))
             .expect("failed to get tx info");
         assert!(
             tx_info.confirmations.unwrap_or(0) > 0,
