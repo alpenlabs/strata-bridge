@@ -14,7 +14,7 @@ refund_delay = 1_008
 stake_chain_delta = {{ Blocks = 6 }}
 payout_timelock = 1_008
 
-tag = "alpn"
+tag = "ALPN"
 
 musig2_keys = {musig2_keys}
 """

@@ -166,9 +166,9 @@ mod tests {
 
     #[test]
     fn tag_from_str() {
-        let tag = Tag::try_from("alpn").unwrap();
+        let tag = Tag::try_from("ALPN").unwrap();
         assert_eq!(tag.len(), 4);
         assert!(!tag.is_empty());
-        assert_eq!(tag.as_bytes(), b"alpn");
+        assert_eq!(tag.as_bytes(), b"ALPN");
     }
 }

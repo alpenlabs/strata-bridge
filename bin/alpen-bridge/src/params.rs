@@ -136,7 +136,7 @@ mod tests {
             p2p = ["ab1d0c44056036dce1b783d2db0c42876b60948c7ae2002476fcb61e15d6f7d7", "6f83c5863297da5f9d859898cfeb66f8a1cb719b6e8f599301788481c0d8f523"]
 
             [tx_graph]
-            tag = "alpn"
+            tag = "ALPN"
             deposit_amount = {deposit_amount}
             operator_fee = 1_000_000
             challenge_cost = 10_000_000
