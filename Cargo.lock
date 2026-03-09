@@ -920,7 +920,7 @@ dependencies = [
  "duty-tracker",
  "ed25519-dalek",
  "hex",
- "jsonrpsee 0.24.9",
+ "jsonrpsee",
  "libp2p",
  "memory_pprof",
  "musig2",
@@ -1500,18 +1500,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compression"
-version = "0.4.41"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0f9ee0f6e02ffd7ad5816e9464499fba7b3effd01123b515c41d1697c43dad1"
-dependencies = [
- "compression-codecs",
- "compression-core",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
 name = "async-io"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1885,7 +1873,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1905,7 +1893,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -2619,7 +2607,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -2628,7 +2616,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -2640,23 +2628,6 @@ dependencies = [
  "bytes",
  "memchr",
 ]
-
-[[package]]
-name = "compression-codecs"
-version = "0.4.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb7b51a7d9c967fc26773061ba86150f19c50c0d65c887cb1fbe295fd16619b7"
-dependencies = [
- "compression-core",
- "zstd",
- "zstd-safe",
-]
-
-[[package]]
-name = "compression-core"
-version = "0.4.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75984efb6ed102a0d42db99afb6c1948f0380d1d91808d5529916e6c08b49d8d"
 
 [[package]]
 name = "concurrent-queue"
@@ -3203,24 +3174,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "deadpool"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0be2b1d1d6ec8d846f05e137292d0b89133caf95ef33695424c09568bdd39b1b"
-dependencies = [
- "deadpool-runtime",
- "lazy_static",
- "num_cpus",
- "tokio",
-]
-
-[[package]]
-name = "deadpool-runtime"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
-
-[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3333,10 +3286,12 @@ dependencies = [
  "borsh",
  "clap",
  "hex",
- "jsonrpsee 0.24.9",
+ "jsonrpsee",
+ "k256",
  "libp2p-identity",
  "miniscript",
  "musig2",
+ "rand 0.8.5",
  "secp256k1 0.29.1",
  "serde",
  "serde_json",
@@ -3355,7 +3310,7 @@ dependencies = [
  "strata-crypto",
  "strata-identifiers",
  "strata-l1-txfmt",
- "strata-test-utils-l2",
+ "strata-test-utils",
  "tokio",
  "toml",
  "tracing",
@@ -3637,15 +3592,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
-name = "encoding_rs"
-version = "0.8.35"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
-dependencies = [
- "cfg-if 1.0.1",
-]
-
-[[package]]
 name = "enum-as-inner"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3730,7 +3676,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5204,30 +5150,16 @@ version = "0.24.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37b26c20e2178756451cfeb0661fb74c47dd5988cb7e3939de7e9241fd604d42"
 dependencies = [
- "jsonrpsee-client-transport 0.24.9",
- "jsonrpsee-core 0.24.9",
- "jsonrpsee-http-client 0.24.9",
+ "jsonrpsee-client-transport",
+ "jsonrpsee-core",
+ "jsonrpsee-http-client",
  "jsonrpsee-proc-macros",
  "jsonrpsee-server",
- "jsonrpsee-types 0.24.9",
- "jsonrpsee-wasm-client 0.24.9",
- "jsonrpsee-ws-client 0.24.9",
+ "jsonrpsee-types",
+ "jsonrpsee-wasm-client",
+ "jsonrpsee-ws-client",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "jsonrpsee"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f3f48dc3e6b8bd21e15436c1ddd0bc22a6a54e8ec46fedd6adf3425f396ec6a"
-dependencies = [
- "jsonrpsee-client-transport 0.26.0",
- "jsonrpsee-core 0.26.0",
- "jsonrpsee-http-client 0.26.0",
- "jsonrpsee-types 0.26.0",
- "jsonrpsee-wasm-client 0.26.0",
- "jsonrpsee-ws-client 0.26.0",
 ]
 
 [[package]]
@@ -5241,38 +5173,13 @@ dependencies = [
  "futures-util",
  "gloo-net",
  "http",
- "jsonrpsee-core 0.24.9",
+ "jsonrpsee-core",
  "pin-project",
  "rustls 0.23.28",
  "rustls-pki-types",
  "rustls-platform-verifier",
  "soketto",
  "thiserror 1.0.69",
- "tokio",
- "tokio-rustls 0.26.2",
- "tokio-util",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "jsonrpsee-client-transport"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf36eb27f8e13fa93dcb50ccb44c417e25b818cfa1a481b5470cd07b19c60b98"
-dependencies = [
- "base64 0.22.1",
- "futures-channel",
- "futures-util",
- "gloo-net",
- "http",
- "jsonrpsee-core 0.26.0",
- "pin-project",
- "rustls 0.23.28",
- "rustls-pki-types",
- "rustls-platform-verifier",
- "soketto",
- "thiserror 2.0.18",
  "tokio",
  "tokio-rustls 0.26.2",
  "tokio-util",
@@ -5293,7 +5200,7 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
- "jsonrpsee-types 0.24.9",
+ "jsonrpsee-types",
  "parking_lot 0.12.4",
  "pin-project",
  "rand 0.8.5",
@@ -5303,32 +5210,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
- "tracing",
- "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "jsonrpsee-core"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "316c96719901f05d1137f19ba598b5fe9c9bc39f4335f67f6be8613921946480"
-dependencies = [
- "async-trait",
- "bytes",
- "futures-timer",
- "futures-util",
- "http",
- "http-body",
- "http-body-util",
- "jsonrpsee-types 0.26.0",
- "pin-project",
- "rustc-hash 2.1.1",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
- "tower 0.5.2",
  "tracing",
  "wasm-bindgen-futures",
 ]
@@ -5345,8 +5226,8 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-util",
- "jsonrpsee-core 0.24.9",
- "jsonrpsee-types 0.24.9",
+ "jsonrpsee-core",
+ "jsonrpsee-types",
  "rustls 0.23.28",
  "rustls-platform-verifier",
  "serde",
@@ -5355,29 +5236,6 @@ dependencies = [
  "tokio",
  "tower 0.4.13",
  "tracing",
- "url",
-]
-
-[[package]]
-name = "jsonrpsee-http-client"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "790bedefcec85321e007ff3af84b4e417540d5c87b3c9779b9e247d1bcc3dab8"
-dependencies = [
- "base64 0.22.1",
- "http-body",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "jsonrpsee-core 0.26.0",
- "jsonrpsee-types 0.26.0",
- "rustls 0.23.28",
- "rustls-platform-verifier",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tower 0.5.2",
  "url",
 ]
 
@@ -5406,8 +5264,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "jsonrpsee-core 0.24.9",
- "jsonrpsee-types 0.24.9",
+ "jsonrpsee-core",
+ "jsonrpsee-types",
  "pin-project",
  "route-recognizer",
  "serde",
@@ -5434,38 +5292,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "jsonrpsee-types"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc88ff4688e43cc3fa9883a8a95c6fa27aa2e76c96e610b737b6554d650d7fd5"
-dependencies = [
- "http",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "jsonrpsee-wasm-client"
 version = "0.24.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6558a9586cad43019dafd0b6311d0938f46efc116b34b28c74778bc11a2edf6"
 dependencies = [
- "jsonrpsee-client-transport 0.24.9",
- "jsonrpsee-core 0.24.9",
- "jsonrpsee-types 0.24.9",
-]
-
-[[package]]
-name = "jsonrpsee-wasm-client"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7902885de4779f711a95d82c8da2d7e5f9f3a7c7cfa44d51c067fd1c29d72a3c"
-dependencies = [
- "jsonrpsee-client-transport 0.26.0",
- "jsonrpsee-core 0.26.0",
- "jsonrpsee-types 0.26.0",
- "tower 0.5.2",
+ "jsonrpsee-client-transport",
+ "jsonrpsee-core",
+ "jsonrpsee-types",
 ]
 
 [[package]]
@@ -5475,23 +5309,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01b3323d890aa384f12148e8d2a1fd18eb66e9e7e825f9de4fa53bcc19b93eef"
 dependencies = [
  "http",
- "jsonrpsee-client-transport 0.24.9",
- "jsonrpsee-core 0.24.9",
- "jsonrpsee-types 0.24.9",
- "url",
-]
-
-[[package]]
-name = "jsonrpsee-ws-client"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b6fceceeb05301cc4c065ab3bd2fa990d41ff4eb44e4ca1b30fa99c057c3e79"
-dependencies = [
- "http",
- "jsonrpsee-client-transport 0.26.0",
- "jsonrpsee-core 0.26.0",
- "jsonrpsee-types 0.26.0",
- "tower 0.5.2",
+ "jsonrpsee-client-transport",
+ "jsonrpsee-core",
+ "jsonrpsee-types",
  "url",
 ]
 
@@ -5585,7 +5405,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if 1.0.1",
- "windows-targets 0.53.5",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -6702,7 +6522,7 @@ version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77e878c846a8abae00dd069496dbe8751b16ac1c3d6bd2a7283a938e8228f90d"
 dependencies = [
- "proc-macro-crate 3.3.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.114",
@@ -6818,24 +6638,6 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry-otlp"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29e1f9c8b032d4f635c730c0efcf731d5e2530ea13fa8bef7939ddc8420696bd"
-dependencies = [
- "async-trait",
- "futures-core",
- "http",
- "opentelemetry 0.26.0",
- "opentelemetry-proto 0.26.1",
- "opentelemetry_sdk 0.26.0",
- "prost",
- "thiserror 1.0.69",
- "tokio",
- "tonic",
-]
-
-[[package]]
-name = "opentelemetry-otlp"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d899720fe06916ccba71c01d04ecd77312734e2de3467fd30d9d580c8ce85656"
@@ -6844,8 +6646,8 @@ dependencies = [
  "http",
  "opentelemetry 0.29.1",
  "opentelemetry-http",
- "opentelemetry-proto 0.29.0",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry-proto",
+ "opentelemetry_sdk",
  "prost",
  "reqwest",
  "thiserror 2.0.18",
@@ -6856,47 +6658,14 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry-proto"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9d3968ce3aefdcca5c27e3c4ea4391b37547726a70893aab52d3de95d5f8b34"
-dependencies = [
- "opentelemetry 0.26.0",
- "opentelemetry_sdk 0.26.0",
- "prost",
- "tonic",
-]
-
-[[package]]
-name = "opentelemetry-proto"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c40da242381435e18570d5b9d50aca2a4f4f4d8e146231adb4e7768023309b3"
 dependencies = [
  "opentelemetry 0.29.1",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry_sdk",
  "prost",
  "tonic",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2c627d9f4c9cdc1f21a29ee4bfbd6028fcb8bcf2a857b43f3abdf72c9c862f3"
-dependencies = [
- "async-trait",
- "futures-channel",
- "futures-executor",
- "futures-util",
- "glob",
- "once_cell",
- "opentelemetry 0.26.0",
- "percent-encoding",
- "rand 0.8.5",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
@@ -7847,7 +7616,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8115,11 +7884,9 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "encoding_rs",
  "futures-channel",
  "futures-core",
  "futures-util",
- "h2",
  "http",
  "http-body",
  "http-body-util",
@@ -8128,7 +7895,6 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
- "mime",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -8396,7 +8162,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8474,7 +8240,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -10200,7 +9966,7 @@ name = "strata-asm-rpc"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "jsonrpsee 0.24.9",
+ "jsonrpsee",
  "strata-asm-proto-bridge-v1",
  "strata-asm-worker",
 ]
@@ -10217,7 +9983,7 @@ dependencies = [
  "btc-tracker",
  "clap",
  "futures",
- "jsonrpsee 0.24.9",
+ "jsonrpsee",
  "serde",
  "serde_json",
  "strata-asm-common",
@@ -10348,7 +10114,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "hex",
- "jsonrpsee 0.24.9",
+ "jsonrpsee",
  "libp2p",
  "libp2p-identity",
  "memory_pprof",
@@ -10388,7 +10154,7 @@ dependencies = [
  "bitcoin",
  "btc-tracker",
  "futures",
- "jsonrpsee 0.24.9",
+ "jsonrpsee",
  "serde",
  "strata-asm-proto-bridge-v1",
  "strata-asm-rpc",
@@ -10403,10 +10169,10 @@ name = "strata-bridge-common"
 version = "0.1.0"
 dependencies = [
  "opentelemetry 0.29.1",
- "opentelemetry-otlp 0.29.0",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
  "tracing",
- "tracing-opentelemetry 0.30.0",
+ "tracing-opentelemetry",
  "tracing-subscriber 0.3.22",
 ]
 
@@ -10721,7 +10487,7 @@ name = "strata-bridge-rpc"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "jsonrpsee 0.24.9",
+ "jsonrpsee",
  "serde",
  "strata-bridge-primitives",
  "strata-primitives",
@@ -10890,122 +10656,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-btcio"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "anyhow",
- "bitcoin",
- "bitcoind-async-client",
- "hex",
- "rand 0.8.5",
- "reqwest",
- "strata-asm-types",
- "strata-config",
- "strata-csm-types",
- "strata-db-types",
- "strata-identifiers",
- "strata-l1-envelope-fmt",
- "strata-l1-txfmt",
- "strata-primitives",
- "strata-state",
- "strata-status",
- "strata-storage",
- "strata-tasks",
- "thiserror 2.0.18",
- "threadpool",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "strata-chain-worker"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "anyhow",
- "serde",
- "strata-chainexec",
- "strata-chaintsn",
- "strata-checkpoint-types",
- "strata-eectl",
- "strata-identifiers",
- "strata-ol-chain-types",
- "strata-ol-chainstate-types",
- "strata-params",
- "strata-primitives",
- "strata-service",
- "strata-status",
- "strata-storage",
- "strata-tasks",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "strata-chain-worker-new"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "anyhow",
- "serde",
- "strata-checkpoint-types",
- "strata-db-types",
- "strata-identifiers",
- "strata-node-context",
- "strata-ol-chain-types-new",
- "strata-ol-state-support-types",
- "strata-ol-state-types",
- "strata-ol-stf",
- "strata-params",
- "strata-primitives",
- "strata-service",
- "strata-status",
- "strata-storage",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "strata-chainexec"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "strata-chaintsn",
- "strata-identifiers",
- "strata-ol-chain-types",
- "strata-ol-chainstate-types",
- "strata-params",
- "strata-primitives",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "strata-chaintsn"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "rand_chacha 0.3.1",
- "rand_core 0.6.4",
- "strata-asm-common",
- "strata-asm-logs",
- "strata-asm-types",
- "strata-bridge-types",
- "strata-checkpoint-types",
- "strata-identifiers",
- "strata-ol-chain-types",
- "strata-ol-chainstate-types",
- "strata-params",
- "strata-predicate",
- "strata-primitives",
- "strata-state",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
 name = "strata-checkpoint-types"
 version = "0.3.0-alpha.1"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
@@ -11068,77 +10718,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-common"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "deadpool",
- "jsonrpsee 0.26.0",
- "opentelemetry 0.26.0",
- "opentelemetry-otlp 0.26.0",
- "opentelemetry_sdk 0.26.0",
- "serde",
- "tracing",
- "tracing-appender",
- "tracing-opentelemetry 0.27.0",
- "tracing-subscriber 0.3.22",
-]
-
-[[package]]
-name = "strata-config"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "bitcoin",
- "serde",
-]
-
-[[package]]
-name = "strata-consensus-logic"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "anyhow",
- "bitcoin",
- "bitcoind-async-client",
- "borsh",
- "serde",
- "strata-asm-common",
- "strata-asm-worker",
- "strata-btc-types",
- "strata-chain-worker",
- "strata-chain-worker-new",
- "strata-chainexec",
- "strata-chaintsn",
- "strata-checkpoint-types",
- "strata-common",
- "strata-csm-types",
- "strata-csm-worker",
- "strata-db-types",
- "strata-eectl",
- "strata-identifiers",
- "strata-ledger-types",
- "strata-merkle",
- "strata-node-context",
- "strata-ol-chain-types",
- "strata-ol-chain-types-new",
- "strata-ol-chainstate-types",
- "strata-ol-state-types",
- "strata-params",
- "strata-predicate",
- "strata-primitives",
- "strata-service",
- "strata-state",
- "strata-status",
- "strata-storage",
- "strata-tasks",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc18)",
-]
-
-[[package]]
 name = "strata-crypto"
 version = "0.3.0-alpha.1"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
@@ -11168,38 +10747,6 @@ dependencies = [
  "strata-checkpoint-types",
  "strata-identifiers",
  "strata-primitives",
-]
-
-[[package]]
-name = "strata-csm-worker"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "anyhow",
- "serde",
- "strata-asm-common",
- "strata-asm-logs",
- "strata-asm-worker",
- "strata-checkpoint-types",
- "strata-common",
- "strata-csm-types",
- "strata-db-types",
- "strata-identifiers",
- "strata-params",
- "strata-primitives",
- "strata-service",
- "strata-status",
- "strata-storage",
- "tracing",
-]
-
-[[package]]
-name = "strata-da-framework"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "strata-codec",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -11260,25 +10807,6 @@ dependencies = [
  "thiserror 2.0.18",
  "typed-sled",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc18)",
-]
-
-[[package]]
-name = "strata-eectl"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "anyhow",
- "strata-common",
- "strata-db-types",
- "strata-identifiers",
- "strata-ol-chain-types",
- "strata-primitives",
- "strata-state",
- "strata-status",
- "strata-tasks",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -11365,20 +10893,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-node-context"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "bitcoind-async-client",
- "strata-config",
- "strata-params",
- "strata-status",
- "strata-storage",
- "strata-tasks",
- "tokio",
-]
-
-[[package]]
 name = "strata-ol-chain-types"
 version = "0.3.0-alpha.1"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
@@ -11434,31 +10948,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-ol-da"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "strata-acct-types",
- "strata-codec",
- "strata-da-framework",
- "strata-identifiers",
- "strata-ledger-types",
- "strata-predicate",
- "strata-snark-acct-types",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "strata-ol-msg-types"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "strata-codec",
- "strata-identifiers",
- "strata-msg-fmt",
-]
-
-[[package]]
 name = "strata-ol-params"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
@@ -11467,24 +10956,6 @@ dependencies = [
  "strata-btc-types",
  "strata-identifiers",
  "strata-predicate",
-]
-
-[[package]]
-name = "strata-ol-state-support-types"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "strata-acct-types",
- "strata-asm-manifest-types",
- "strata-checkpoint-types-ssz",
- "strata-da-framework",
- "strata-identifiers",
- "strata-ledger-types",
- "strata-ol-da",
- "strata-ol-state-types",
- "strata-predicate",
- "strata-snark-acct-types",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -11511,28 +10982,6 @@ dependencies = [
  "strata-snark-acct-types",
  "tree_hash",
  "tree_hash_derive",
-]
-
-[[package]]
-name = "strata-ol-stf"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "strata-acct-types",
- "strata-asm-common",
- "strata-asm-manifest-types",
- "strata-codec",
- "strata-identifiers",
- "strata-ledger-types",
- "strata-merkle",
- "strata-msg-fmt",
- "strata-ol-chain-types-new",
- "strata-ol-da",
- "strata-ol-msg-types",
- "strata-ol-state-types",
- "strata-snark-acct-sys",
- "strata-snark-acct-types",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -11637,18 +11086,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-snark-acct-sys"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "ssz",
- "strata-acct-types",
- "strata-ledger-types",
- "strata-merkle",
- "strata-snark-acct-types",
-]
-
-[[package]]
 name = "strata-snark-acct-types"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
@@ -11681,21 +11118,6 @@ dependencies = [
  "strata-csm-types",
  "strata-identifiers",
  "strata-primitives",
-]
-
-[[package]]
-name = "strata-status"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "strata-csm-types",
- "strata-identifiers",
- "strata-ol-chain-types",
- "strata-ol-chainstate-types",
- "strata-primitives",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -11758,49 +11180,6 @@ source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62
 dependencies = [
  "arbitrary",
  "rand_core 0.6.4",
-]
-
-[[package]]
-name = "strata-test-utils-btc"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "anyhow",
- "bitcoin",
- "bitcoind-async-client",
- "hex",
- "strata-asm-common",
- "strata-asm-types",
- "strata-btcio",
- "strata-identifiers",
- "strata-primitives",
- "tokio",
-]
-
-[[package]]
-name = "strata-test-utils-l2"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=1d88d845d807c47aed95f62ac86f804e5f8aab94#1d88d845d807c47aed95f62ac86f804e5f8aab94"
-dependencies = [
- "bitcoin",
- "borsh",
- "k256",
- "rand 0.8.5",
- "ssz",
- "strata-asm-common",
- "strata-checkpoint-types",
- "strata-checkpoint-types-ssz",
- "strata-consensus-logic",
- "strata-crypto",
- "strata-identifiers",
- "strata-merkle",
- "strata-ol-chain-types",
- "strata-ol-chainstate-types",
- "strata-params",
- "strata-predicate",
- "strata-primitives",
- "strata-test-utils",
- "strata-test-utils-btc",
 ]
 
 [[package]]
@@ -12030,7 +11409,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -12414,18 +11793,13 @@ version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
 dependencies = [
- "async-compression",
  "bitflags 2.10.0",
  "bytes",
- "futures-core",
  "futures-util",
  "http",
  "http-body",
- "http-body-util",
  "iri-string",
  "pin-project-lite",
- "tokio",
- "tokio-util",
  "tower 0.5.2",
  "tower-layer",
  "tower-service",
@@ -12525,24 +11899,6 @@ dependencies = [
 
 [[package]]
 name = "tracing-opentelemetry"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc58af5d3f6c5811462cabb3289aec0093f7338e367e5a33d28c0433b3c7360b"
-dependencies = [
- "js-sys",
- "once_cell",
- "opentelemetry 0.26.0",
- "opentelemetry_sdk 0.26.0",
- "smallvec",
- "tracing",
- "tracing-core",
- "tracing-log",
- "tracing-subscriber 0.3.22",
- "web-time",
-]
-
-[[package]]
-name = "tracing-opentelemetry"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd8e764bd6f5813fd8bebc3117875190c5b0415be8f7f8059bffb6ecd979c444"
@@ -12550,23 +11906,13 @@ dependencies = [
  "js-sys",
  "once_cell",
  "opentelemetry 0.29.1",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry_sdk",
  "smallvec",
  "tracing",
  "tracing-core",
  "tracing-log",
  "tracing-subscriber 0.3.22",
  "web-time",
-]
-
-[[package]]
-name = "tracing-serde"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
-dependencies = [
- "serde",
- "tracing-core",
 ]
 
 [[package]]
@@ -12588,15 +11934,12 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex-automata",
- "serde",
- "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
- "tracing-serde",
 ]
 
 [[package]]
@@ -13147,7 +12490,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -14018,32 +13361,4 @@ dependencies = [
  "libc",
  "system-deps",
  "zeromq-src",
-]
-
-[[package]]
-name = "zstd"
-version = "0.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
-dependencies = [
- "zstd-safe",
-]
-
-[[package]]
-name = "zstd-safe"
-version = "7.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
-dependencies = [
- "zstd-sys",
-]
-
-[[package]]
-name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
-dependencies = [
- "cc",
- "pkg-config",
 ]

@@ -27,7 +27,7 @@ strata-checkpoint-types-ssz.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true
 strata-l1-txfmt.workspace = true
-strata-test-utils-l2.workspace = true
+strata-test-utils.workspace = true
 
 alloy.workspace = true
 alloy-signer.workspace = true
@@ -40,8 +40,10 @@ borsh.workspace = true
 clap.workspace = true
 hex.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "macros"] }
+k256.workspace = true
 miniscript.workspace = true
 musig2.workspace = true
+rand.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand"] }
 serde.workspace = true
 serde_json.workspace = true
