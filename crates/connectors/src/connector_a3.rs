@@ -413,6 +413,7 @@ mod tests {
     };
     use strata_bridge_proof_protocol::BridgeProofPublicOutput;
     use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
+    use strata_btc_types::TxidExt;
 
     use super::*;
 
@@ -422,8 +423,8 @@ mod tests {
         let withdrawal_fulfillment_txid = generate_txid();
 
         let public_inputs = BridgeProofPublicOutput {
-            deposit_txid: deposit_txid.into(),
-            withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.into(),
+            deposit_txid: deposit_txid.to_buf32(),
+            withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.to_buf32(),
         };
 
         let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
@@ -451,8 +452,8 @@ mod tests {
         );
 
         let faulty_public_inputs = BridgeProofPublicOutput {
-            withdrawal_fulfillment_txid: generate_txid().into(),
-            deposit_txid: deposit_txid.into(),
+            withdrawal_fulfillment_txid: generate_txid().to_buf32(),
+            deposit_txid: deposit_txid.to_buf32(),
         };
         let faulty_inputs_hash =
             hash_public_inputs_with_fn(&borsh::to_vec(&faulty_public_inputs).unwrap(), blake3_hash);
@@ -476,8 +477,8 @@ mod tests {
         );
 
         let faulty_public_inputs = BridgeProofPublicOutput {
-            deposit_txid: generate_txid().into(),
-            withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.into(),
+            deposit_txid: generate_txid().to_buf32(),
+            withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.to_buf32(),
         };
         let faulty_inputs_hash =
             hash_public_inputs_with_fn(&borsh::to_vec(&faulty_public_inputs).unwrap(), blake3_hash);

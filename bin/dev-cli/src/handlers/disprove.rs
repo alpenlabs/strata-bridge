@@ -29,6 +29,7 @@ use strata_bridge_tx_graph::transactions::{
     claim::ClaimTx,
     prelude::{AssertDataTxBatch, DisproveData, DisproveTx},
 };
+use strata_btc_types::TxidExt;
 use tracing::{info, warn};
 
 use super::rpc;
@@ -200,7 +201,7 @@ fn get_disprove_leaf(
     let withdrawal_txid: [u8; 32] =
         <Wots32 as Wots>::signature_to_message(&withdrawal_fulfillment_txid);
     let public_inputs = BridgeProofPublicOutput {
-        deposit_txid: deposit_txid.into(),
+        deposit_txid: deposit_txid.to_buf32(),
         withdrawal_fulfillment_txid: withdrawal_txid.into(),
     };
 

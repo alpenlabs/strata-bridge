@@ -23,6 +23,7 @@ tracing.workspace = true
 strata-bridge-test-utils.workspace = true
 strata-bridge-proof-protocol.workspace = true
 strata-bridge-common.workspace = true
+strata-btc-types.workspace = true
 
 bitcoind-async-client.workspace = true
 borsh.workspace = true

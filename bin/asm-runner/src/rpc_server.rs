@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use bitcoin::{BlockHash, absolute::Height};
+use bitcoin::BlockHash;
 use bitcoind_async_client::{Client, traits::Reader};
 use jsonrpsee::{
     core::RpcResult,
@@ -15,6 +15,7 @@ use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State};
 use strata_asm_rpc::traits::AssignmentsApiServer;
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
+use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
 use strata_storage::AsmStateManager;
 use tracing::info;
@@ -51,9 +52,8 @@ impl AsmRpcServer {
         &self,
         block_hash: BlockHash,
     ) -> anyhow::Result<L1BlockCommitment> {
-        let block_id = block_hash.into();
-        let height = self.bitcoin_client.get_block_height(&block_hash).await?;
-        let height = Height::from_consensus(height as u32)?;
+        let block_id = block_hash.to_l1_block_id();
+        let height = self.bitcoin_client.get_block_height(&block_hash).await? as u32;
         Ok(L1BlockCommitment::new(height, block_id))
     }
 }
