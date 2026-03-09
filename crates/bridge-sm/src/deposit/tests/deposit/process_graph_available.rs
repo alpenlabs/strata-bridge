@@ -17,6 +17,9 @@ mod tests {
         testing::transition::*,
     };
 
+    /// Tests whether the DepositState transitions to GraphGenerated and produces the expected
+    /// PublishDepositNonce duty when processing `GraphAvaileble` messages from all operators in
+    /// sequence.
     #[test]
     fn test_process_graph_available_sequence() {
         let deposit_tx = test_deposit_txn();
@@ -65,6 +68,8 @@ mod tests {
         }
     }
 
+    /// Tests whether the DepositState transitions emits a `DSMError::Duplicate` error when
+    /// processing duplicate `GraphAvaileble` messages from operators.
     #[test]
     fn test_duplicate_process_graph_available_sequence() {
         let deposit_tx = test_deposit_txn();
