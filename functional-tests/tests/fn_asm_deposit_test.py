@@ -2,6 +2,7 @@ import flexitest
 
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
+from rpc.asm_types import DepositEntry
 from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
@@ -49,9 +50,10 @@ class AsmDepositTest(StrataTestBase):
         asm_rpc = asm_service.create_rpc()
         recent_block_num = bitcoin_rpc.proxy.getblockcount()
         recent_block_hash = bitcoin_rpc.proxy.getblockhash(recent_block_num)
-        deposits = asm_rpc.strata_asm_getDeposits(recent_block_hash)
-        self.logger.info(f"ASM deposits at block {recent_block_num}: {len(deposits)}")
-
+        deposits: list[DepositEntry] = asm_rpc.strata_asm_getDeposits(recent_block_hash)
+        self.logger.info(f"ASM deposits at block {recent_block_num}: {deposits}")
         assert len(deposits) == 1
+        deposit = DepositEntry.from_dict(deposits[0])
+        assert deposit.deposit_idx == 0
 
         return True
