@@ -1,9 +1,10 @@
 //! Executors for payout graph duties.
 
 use bitcoin::Transaction;
+use btc_tracker::event::TxStatus;
 
 use crate::{
-    errors::ExecutorError, graph::utils::publish_signed_transaction, output_handles::OutputHandles,
+    chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
 };
 
 /// Publishes the signed uncontested payout transaction to Bitcoin.
@@ -12,9 +13,10 @@ pub(super) async fn publish_uncontested_payout(
     signed_uncontested_payout_tx: &Transaction,
 ) -> Result<(), ExecutorError> {
     publish_signed_transaction(
-        output_handles,
+        &output_handles.tx_driver,
         signed_uncontested_payout_tx,
         "uncontested payout",
+        TxStatus::is_buried,
     )
     .await
 }

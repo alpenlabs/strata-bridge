@@ -5,7 +5,7 @@ use bitcoin::{
     FeeRate, OutPoint, TapSighashType, Txid, XOnlyPublicKey,
     sighash::{Prevouts, SighashCache},
 };
-use bitcoind_async_client::traits::Reader;
+use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
@@ -17,8 +17,11 @@ use strata_bridge_primitives::{
 use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
 use tracing::{error, info, warn};
 
+use super::utils::finalize_claim_funding_tx;
 use crate::{
-    chain::is_txid_onchain, errors::ExecutorError, graph::utils::publish_signed_transaction,
+    chain::{is_txid_onchain, publish_signed_transaction},
+    config::ExecutionConfig,
+    errors::ExecutorError,
     output_handles::OutputHandles,
 };
 
@@ -344,5 +347,11 @@ pub(super) async fn publish_claim(
             .push(signature.serialize());
     }
 
-    publish_signed_transaction(output_handles, &signed_claim_tx, "claim").await
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        &signed_claim_tx,
+        "claim",
+        TxStatus::is_buried,
+    )
+    .await
 }
