@@ -1,24 +1,19 @@
-use anyhow::Result;
+use bitcoin::bip32::Xpriv;
 use k256::{
     ecdsa::signature::SignatureEncoding,
     schnorr::{signature::Signer, SigningKey},
 };
-use rand::thread_rng;
 use ssz::Encode;
 use strata_checkpoint_types_ssz::{
     compute_asm_manifests_hash, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
-    CheckpointTip, L2BlockRange, SignedCheckpointPayload,
+    CheckpointTip, L2BlockRange, OLLog, SignedCheckpointPayload,
 };
 use strata_crypto::hash;
-use strata_primitives::bitcoin_bosd::Descriptor;
-use strata_identifiers::{Buf64, OLBlockCommitment, OLBlockId};
-use strata_test_utils::ArbitraryGenerator;
-use strata_ol_chain_types_new::SimpleWithdrawalIntentLogData;
-use strata_identifiers::AccountSerial;
 use strata_identifiers::strata_codec::encode_to_vec;
-use strata_checkpoint_types_ssz::OLLog;
-
-use crate::cli::CreateAndPublishMockCheckpointArgs;
+use strata_identifiers::{AccountSerial, Buf64, OLBlockCommitment, OLBlockId};
+use strata_ol_chain_types_new::SimpleWithdrawalIntentLogData;
+use strata_primitives::bitcoin_bosd::Descriptor;
+use strata_test_utils::ArbitraryGenerator;
 
 /// Bridge denomination: 10 BTC in sats.
 const DENOMINATION_SATS: u64 = 1_000_000_000;
@@ -34,19 +29,19 @@ impl CheckpointTestHarness {
     ///
     /// Useful when the genesis height must align with an external test
     /// environment (e.g. Bitcoin regtest height in integration tests).
-    pub(crate) fn new_with_genesis_height(genesis_l1_height: u32) -> Self {
-        let mut rng = thread_rng();
-
+    pub(crate) fn new_with_genesis_height(genesis_l1_height: u32, sequencer_key: &Xpriv) -> Self {
         let genesis_ol_blkid = ArbitraryGenerator::new().generate();
         let genesis_blk = OLBlockCommitment::new(0, genesis_ol_blkid);
 
-        let sequencer_predicate = SigningKey::random(&mut rng);
-        let checkpoint_predicate = SigningKey::random(&mut rng);
+        let sk = SigningKey::from_bytes(&sequencer_key.private_key.secret_bytes())
+            .expect("invalid secret key from xpriv");
+        let vk = sk.verifying_key();
+        eprintln!("initialized checkpoint harness: sequencer_pubkey={}", hex::encode(vk.to_bytes()));
 
         let genesis_tip = CheckpointTip::new(0, genesis_l1_height, genesis_blk);
         Self {
-            sequencer_predicate,
-            checkpoint_predicate,
+            sequencer_predicate: sk.clone(),
+            checkpoint_predicate: sk,
             verified_tip: genesis_tip,
         }
     }
@@ -148,13 +143,3 @@ impl CheckpointTestHarness {
     }
 }
 
-pub(crate) async fn handle_create_and_publish_mock_checkpoint(
-    _args: CreateAndPublishMockCheckpointArgs,
-) -> Result<()> {
-    let cp_helper = CheckpointTestHarness::new_with_genesis_height(101);
-    let new_tip = cp_helper.gen_new_tip();
-    let payload = cp_helper.build_payload_with_tip(new_tip, 1);
-    let _signed_payload = cp_helper.sign_payload(payload);
-
-    Ok(())
-}
