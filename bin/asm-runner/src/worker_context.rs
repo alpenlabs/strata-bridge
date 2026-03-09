@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use bitcoin::{Block, BlockHash, Network};
 use bitcoind_async_client::{Client, traits::Reader};
-use strata_asm_common::AsmManifest;
+use strata_asm_common::{AsmManifest, AuxData};
 use strata_asm_worker::{WorkerContext, WorkerError, WorkerResult};
-use strata_btc_types::{BitcoinTxid, RawBitcoinTx};
+use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_identifiers::{Hash, L1BlockCommitment, L1BlockId};
 use strata_state::asm_state::AsmState;
 use strata_storage::{AsmStateManager, MmrHandle};
@@ -43,7 +43,7 @@ impl AsmWorkerContext {
 impl WorkerContext for AsmWorkerContext {
     fn get_l1_block(&self, blockid: &L1BlockId) -> WorkerResult<Block> {
         // Fetch block directly from Bitcoin node by hash
-        let block_hash: BlockHash = (*blockid).into();
+        let block_hash: BlockHash = blockid.to_block_hash();
         self.runtime_handle
             .block_on(self.bitcoin_client.get_block(&block_hash))
             .map_err(|_| WorkerError::MissingL1Block(*blockid))
@@ -92,7 +92,7 @@ impl WorkerContext for AsmWorkerContext {
                     .get_raw_transaction_verbosity_zero(&bitcoin_txid),
             )
             .map(|resp| RawBitcoinTx::from(resp.0))
-            .map_err(|_| WorkerError::BitcoinTxNotFound(txid.clone()))
+            .map_err(|_| WorkerError::BitcoinTxNotFound(*txid))
     }
 
     fn append_manifest_to_mmr(&self, manifest_hash: Hash) -> WorkerResult<u64> {
@@ -109,7 +109,24 @@ impl WorkerContext for AsmWorkerContext {
 
     fn get_manifest_hash(&self, index: u64) -> WorkerResult<Option<Hash>> {
         self.mmr_handle
-            .get_node_blocking(index)
+            .get_leaf_blocking(index)
             .map_err(|_| WorkerError::DbError)
+    }
+
+    fn store_aux_data(&self, blockid: &L1BlockCommitment, data: &AuxData) -> WorkerResult<()> {
+        self.asm_manager
+            .put_aux_data(*blockid, data.clone())
+            .map_err(|_| WorkerError::DbError)
+    }
+
+    fn get_aux_data(&self, blockid: &L1BlockCommitment) -> WorkerResult<Option<AuxData>> {
+        self.asm_manager
+            .get_aux_data(*blockid)
+            .map_err(|_| WorkerError::DbError)
+    }
+
+    fn has_l1_manifest(&self, _blockid: &L1BlockId) -> WorkerResult<bool> {
+        // Each block generates a valid manifest
+        Ok(true)
     }
 }

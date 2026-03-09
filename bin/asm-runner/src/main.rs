@@ -13,8 +13,8 @@ use std::{path::PathBuf, time::Duration};
 
 use anyhow::Result;
 use clap::Parser;
+use strata_asm_params::AsmParams;
 use strata_bridge_common::logging::{self, LoggerConfig};
-use strata_params::RollupParams;
 use strata_tasks::TaskManager;
 use tokio::runtime::Builder;
 use tracing::info;
@@ -33,8 +33,8 @@ struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: PathBuf,
 
-    /// Path to rollup params JSON file
-    #[arg(short, long, default_value = "params.json")]
+    /// Path to ASM params JSON file
+    #[arg(short, long, default_value = "asm-params.json")]
     params: PathBuf,
 }
 
@@ -48,8 +48,8 @@ fn main() {
     // 3. Load configuration
     let config = load_config(&cli.config).expect("Failed to load config");
 
-    // 4. Load rollup params (for ASM spec)
-    let params = load_params(&cli.params).expect("Failed to load params");
+    // 4. Load ASM params
+    let params = load_params(&cli.params).expect("Failed to load ASM params");
 
     info!(
         "Starting ASM RPC server with config: {:?}, params: {:?}",
@@ -81,10 +81,10 @@ fn main() {
     tracing::info!("ASM RPC server shutdown complete");
 }
 
-/// Load rollup parameters
-fn load_params(params_path: &PathBuf) -> Result<RollupParams> {
+/// Load ASM parameters
+fn load_params(params_path: &PathBuf) -> Result<AsmParams> {
     let contents = std::fs::read_to_string(params_path)?;
-    let params: RollupParams = serde_json::from_str(&contents)?;
+    let params: AsmParams = serde_json::from_str(&contents)?;
     Ok(params)
 }
 

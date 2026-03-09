@@ -3,7 +3,6 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use anyhow::Result;
-use bitcoin::absolute::Height;
 use bitcoind_async_client::{Client, traits::Reader};
 use btc_tracker::{
     client::{BlockFetcher, BtcNotifyClient, Connected},
@@ -12,7 +11,8 @@ use btc_tracker::{
 };
 use futures::StreamExt;
 use strata_asm_worker::AsmWorkerHandle;
-use strata_identifiers::{L1BlockCommitment, L1BlockId};
+use strata_btc_types::BlockHashExt;
+use strata_identifiers::L1BlockCommitment;
 use strata_state::BlockSubmitter;
 use tracing::{debug, error, info};
 
@@ -52,9 +52,8 @@ pub(crate) async fn drive_asm_from_btc_tracker(
         // Process blocks as they get mined
         if matches!(block_event.status, BlockStatus::Mined) {
             // Construct L1BlockCommitment from block
-            let block_id = L1BlockId::from(block_hash);
-            let height = Height::from_consensus(block_height as u32).unwrap_or(Height::ZERO);
-            let block_commitment = L1BlockCommitment::new(height, block_id);
+            let block_id = block_hash.to_l1_block_id();
+            let block_commitment = L1BlockCommitment::new(block_height as u32, block_id);
 
             match asm_worker.submit_block_async(block_commitment).await {
                 Ok(_) => {

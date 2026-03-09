@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-use strata_asm_types::L1VerificationError;
 use thiserror::Error;
 
 /// Represents all possible errors that can occur during the verification of a bridge proof.
@@ -55,10 +54,6 @@ pub(crate) enum BridgeProofError {
     /// Insufficient blocks submitted after the withdrawal fulfillment transaction.
     #[error("Expected at least {0} blocks after the withdrawal fulfillment transaction, but {1} were provided.")]
     InsufficientBlocksAfterWithdrawalFulfillment(usize, usize),
-
-    /// Provided header does not follow consensus rules
-    #[error("Invalid header")]
-    InvalidHeader(#[from] L1VerificationError),
 }
 
 /// Represents errors that occur during the verification of chain state.

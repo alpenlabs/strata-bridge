@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bitcoind_async_client::{Auth, Client};
+use strata_asm_params::AsmParams;
 use strata_asm_worker::AsmWorkerBuilder;
-use strata_params::RollupParams;
 use strata_tasks::TaskExecutor;
 use tokio::runtime::Handle;
 
@@ -16,7 +16,7 @@ use crate::{
 };
 pub(crate) async fn bootstrap(
     config: AsmRpcConfig,
-    params: RollupParams,
+    params: AsmParams,
     executor: TaskExecutor,
 ) -> Result<()> {
     // 1. Create storage managers (AsmStateManager + MmrHandle)
@@ -37,13 +37,13 @@ pub(crate) async fn bootstrap(
     // 4. Launch ASM worker
     let asm_worker = AsmWorkerBuilder::new()
         .with_context(worker_context)
-        .with_params(Arc::new(params.clone()))
+        .with_asm_params(Arc::new(params.clone()))
         .launch(&executor)?;
 
     // 5. Set up BtcTracker to drive ASM
     let start_height = match asm_worker.monitor().get_current().cur_block {
         Some(blk) => blk.height_u64(),
-        None => params.genesis_l1_view.height_u64(),
+        None => params.l1_view.height_u64(),
     };
     let btc_tracker =
         Arc::new(setup_btc_tracker(&config.bitcoin, bitcoin_client.clone(), start_height).await?);

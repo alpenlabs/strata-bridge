@@ -5,7 +5,10 @@ use std::marker::PhantomData;
 use bitcoin::{block::Header, hashes::Hash, Transaction};
 use borsh::{BorshDeserialize, BorshSerialize};
 use strata_crypto::hash::sha256d;
-use strata_primitives::buf::Buf32;
+use strata_primitives::{
+    buf::Buf32,
+    l1::{TxidExt, WtxidExt},
+};
 
 use crate::{tx::BitcoinTx, utils::witness_commitment_from_coinbase};
 
@@ -81,7 +84,7 @@ pub struct WtxIdMarker;
 
 impl TxIdComputable for TxIdMarker {
     fn compute_id(tx: &Transaction, _idx: usize) -> Buf32 {
-        tx.compute_txid().into()
+        tx.compute_txid().to_buf32()
     }
 }
 
@@ -91,7 +94,7 @@ impl TxIdComputable for WtxIdMarker {
         if idx == 0 {
             return Buf32::zero();
         }
-        tx.compute_wtxid().into()
+        tx.compute_wtxid().to_buf32()
     }
 }
 

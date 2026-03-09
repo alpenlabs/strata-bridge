@@ -12,6 +12,7 @@ strata-asm-rpc.workspace = true
 strata-bridge-common.workspace = true
 
 strata-asm-common.workspace = true
+strata-asm-params.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-txs-bridge-v1.workspace = true
 strata-asm-worker.workspace = true
@@ -19,7 +20,6 @@ strata-btc-types.workspace = true
 strata-db-store-sled.workspace = true
 strata-identifiers.workspace = true
 strata-merkle.workspace = true
-strata-params.workspace = true
 strata-state.workspace = true
 strata-storage.workspace = true
 strata-tasks.workspace = true

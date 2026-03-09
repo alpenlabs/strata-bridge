@@ -340,7 +340,7 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
             (entry.deposit_idx() == *deposit_idx).then(|| {
                 DepositEvent::WithdrawalAssigned(DepositEvents::WithdrawalAssignedEvent {
                     assignee: entry.current_assignee(),
-                    deadline: entry.fulfillment_deadline(),
+                    deadline: entry.fulfillment_deadline().into(),
                     recipient_desc: entry.withdrawal_command().destination().clone(),
                 })
                 .into()
@@ -350,7 +350,7 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
             (entry.deposit_idx() == graph_idx.deposit).then(|| {
                 GraphEvent::WithdrawalAssigned(GraphEvents::WithdrawalAssignedEvent {
                     assignee: entry.current_assignee(),
-                    deadline: entry.fulfillment_deadline(),
+                    deadline: entry.fulfillment_deadline().into(),
                     recipient_desc: entry.withdrawal_command().destination().clone(),
                 })
                 .into()
@@ -364,7 +364,7 @@ mod tests {
     use strata_bridge_p2p_types2::{
         GossipsubMsg, P2POperatorPubKey, PayoutDescriptor, UnsignedGossipsubMsg,
     };
-    use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+    use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx};
 
     use super::*;
     use crate::testing::{random_p2tr_desc, test_empty_registry, test_populated_registry};
@@ -440,7 +440,7 @@ mod tests {
     fn classify_assignment_correct_fields() {
         let (entry, dep_idx) = arb_entry();
         let expected_assignee = entry.current_assignee();
-        let expected_deadline = entry.fulfillment_deadline();
+        let expected_deadline: BitcoinBlockHeight = entry.fulfillment_deadline().into();
         let expected_desc = entry.withdrawal_command().destination().clone();
 
         let sm_id = SMId::Deposit(dep_idx);

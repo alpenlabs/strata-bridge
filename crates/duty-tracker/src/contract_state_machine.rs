@@ -2520,7 +2520,7 @@ impl ContractSM {
         };
 
         let recipient = assignment.withdrawal_command().destination();
-        let deadline = assignment.fulfillment_deadline();
+        let deadline: BitcoinBlockHeight = assignment.fulfillment_deadline().into();
 
         match &mut self.state.state {
                     // new assignment
