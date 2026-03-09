@@ -2,7 +2,8 @@ from pathlib import Path
 
 import flexitest
 
-from factory.bridge_operator.sidesystem_cfg import build_sidesystem, write_rollup_params_json
+from factory.bridge_operator.asm_cfg import build_asm_params, write_asm_params_json
+from factory.bridge_operator.sidesystem_cfg import build_sidesystem
 from factory.fdb import generate_fdb_root_directory
 from utils import (
     BLOCK_GENERATION_INTERVAL_SECS,
@@ -80,17 +81,17 @@ class BaseEnv(flexitest.EnvConfig):
         return fdb
 
     def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
-        """Build sidesystem params and rollup_params.json once per environment."""
+        """Build sidesystem/ASM params and write asm-params.json once per environment."""
         if self._sidesystem is not None and self._rollup_params_path is not None:
             return
 
         genesis_height = int(self.initial_blocks)
-        sidesystem = build_sidesystem(bitcoind_rpc, self.operator_key_infos, genesis_height)
+        self._sidesystem = build_sidesystem(bitcoind_rpc, self.operator_key_infos, genesis_height)
 
+        asm_params = build_asm_params(bitcoind_rpc, self.operator_key_infos, genesis_height)
         envdd_path = Path(ectx.envdd_path)
-        rollup_params_path = envdd_path / "generated" / "rollup_params.json"
-        self._rollup_params_path = write_rollup_params_json(rollup_params_path, sidesystem)
-        self._sidesystem = sidesystem
+        asm_params_path = envdd_path / "generated" / "asm-params.json"
+        self._rollup_params_path = write_asm_params_json(asm_params_path, asm_params)
 
     def create_operator(
         self,
