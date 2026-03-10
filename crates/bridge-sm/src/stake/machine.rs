@@ -5,8 +5,12 @@ use std::sync::Arc;
 use crate::{
     signals::Signal,
     stake::{
-        config::StakeSMCfg, context::StakeSMCtx, duties::StakeDuty, errors::SSMError,
-        events::StakeEvent, state::StakeState,
+        config::StakeSMCfg,
+        context::StakeSMCtx,
+        duties::StakeDuty,
+        errors::{SSMError, SSMResult},
+        events::StakeEvent,
+        state::StakeState,
     },
     state_machine::{SMOutput, StateMachine},
 };
@@ -35,7 +39,9 @@ impl StateMachine for StakeSM {
         let _ = cfg;
         match event {
             StakeEvent::StakeDataReceived(event) => self.process_stake_data(event),
-            StakeEvent::UnstakingNoncesReceived(_) => todo!(),
+            StakeEvent::UnstakingNoncesReceived(event) => {
+                self.process_unstaking_nonces_received(event)
+            }
             StakeEvent::UnstakingPartialsReceived(_) => todo!(),
             StakeEvent::StakeConfirmed(_) => todo!(),
             StakeEvent::PreimageRevealed(_) => todo!(),
@@ -80,5 +86,21 @@ impl StakeSM {
     /// Returns a mutable reference to the current state.
     pub const fn state_mut(&mut self) -> &mut StakeState {
         &mut self.state
+    }
+
+    /// Checks that the operator index exists, otherwise returns `SSMError::Rejected`.
+    pub(super) fn check_operator_idx<E>(&self, operator_idx: u32, inner_event: &E) -> SSMResult<()>
+    where
+        E: Clone + Into<StakeEvent>,
+    {
+        if self.context().operator_table().contains_idx(&operator_idx) {
+            Ok(())
+        } else {
+            Err(SSMError::rejected(
+                self.state().clone(),
+                inner_event.clone().into(),
+                format!("Operator index {} not in operator table", operator_idx),
+            ))
+        }
     }
 }
