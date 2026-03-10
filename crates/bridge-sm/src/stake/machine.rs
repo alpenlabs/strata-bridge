@@ -47,7 +47,7 @@ impl StateMachine for StakeSM {
             }
             StakeEvent::StakeConfirmed(event) => self.process_stake_confirmed(event),
             StakeEvent::PreimageRevealed(event) => self.process_preimage_revealed(event),
-            StakeEvent::UnstakingConfirmed(_) => todo!(),
+            StakeEvent::UnstakingConfirmed(event) => self.process_unstaking_confirmed(event),
             StakeEvent::NewBlock(_) => todo!(),
         }
     }
