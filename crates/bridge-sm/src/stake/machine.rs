@@ -34,7 +34,7 @@ impl StateMachine for StakeSM {
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         let _ = cfg;
         match event {
-            StakeEvent::StakeDataReceived(_) => todo!(),
+            StakeEvent::StakeDataReceived(event) => self.process_stake_data(event),
             StakeEvent::UnstakingNoncesReceived(_) => todo!(),
             StakeEvent::UnstakingPartialsReceived(_) => todo!(),
             StakeEvent::StakeConfirmed(_) => todo!(),
