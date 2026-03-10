@@ -92,17 +92,6 @@ impl StakeState {
         }
     }
 
-    /// Returns true if the stake is available for reassignment/use.
-    pub const fn is_available(&self) -> bool {
-        !matches!(
-            self,
-            Self::Created { .. }
-                | Self::StakeGraphGenerated { .. }
-                | Self::UnstakingNoncesCollected { .. }
-                | Self::UnstakingSigned { .. }
-        )
-    }
-
     /// Returns true if the stake is fully unstaked.
     pub const fn is_unstaked(&self) -> bool {
         matches!(self, Self::Unstaked { .. })
