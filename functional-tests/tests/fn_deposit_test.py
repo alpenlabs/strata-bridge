@@ -24,6 +24,12 @@ from utils.utils import (
 class BridgeDepositTest(StrataTestBase):
     """
     Test that a deposit can be made and completed successfully in a bridge network environment.
+
+    Then broadcast multiple DRTs before restarting all operator nodes,
+    and verify that:
+    - the restarted nodes recognize the DRTs,
+    - emit nags if necessary, and
+    - complete the deposits while maintaining P2P connectivity.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
