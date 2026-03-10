@@ -14,7 +14,7 @@ refund_delay = 1_008
 stake_chain_delta = {{ Blocks = 6 }}
 payout_timelock = 1_008
 
-tag = "alpn"
+tag = "ALPN"
 
 musig2_keys = {musig2_keys}
 """
@@ -71,6 +71,29 @@ class DevCli:
             self.params_path,
             "--ee-address",
             EE_ADDRESS,
+        ]
+
+        res = self._run_command(args)
+        # HACK: (@Rajil1213) parse raw stdout to extract txid
+        txid = res.splitlines()[-1].split("=")[-1].strip()
+        return txid
+
+    def send_mock_checkpoint(self, num_withdrawals=1, genesis_l1_height=101) -> str:
+        rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
+        wallet = self.bitcoind_props.get("walletname", "testwallet")
+
+        args = [
+            "create-and-publish-mock-checkpoint",
+            "--btc-url",
+            f"http://127.0.0.1:{rpc_port}/wallet/{wallet}",
+            "--btc-user",
+            self.bitcoind_props.get("rpc_user", "user"),
+            "--btc-pass",
+            self.bitcoind_props.get("rpc_password", "password"),
+            "--num-withdrawals",
+            str(num_withdrawals),
+            "--genesis-l1-height",
+            str(genesis_l1_height),
         ]
 
         res = self._run_command(args)

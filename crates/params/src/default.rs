@@ -3,10 +3,10 @@
 use bitcoin::{relative, Amount};
 
 /// Default tag for the bridge.
-pub(crate) const BRIDGE_TAG: &str = "alpn";
+pub const BRIDGE_TAG: &str = "ALPN";
 
 /// Default denomination for each deposit to the bridge.
-pub(crate) const BRIDGE_DENOMINATION: Amount = Amount::from_int_btc(10);
+pub const BRIDGE_DENOMINATION: Amount = Amount::from_int_btc(10);
 
 /// Default amount of BTC that is staked by an operator.
 pub(crate) const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);
