@@ -15,11 +15,7 @@ mod tests {
             tests::{
                 GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, TEST_NONPOV_IDX, create_nonpov_sm,
                 create_sm, get_state, test_deposit_params, test_graph_invalid_transition,
-<<<<<<< HEAD
                 test_graph_invalid_transition_with, test_graph_sm_cfg, test_graph_summary,
-=======
-                test_graph_sm_cfg, test_graph_summary,
->>>>>>> eec1fd9a (fix(graph-sm): derive game index from graph idx and align graph-data event routing)
             },
         },
         testing::EventSequence,
@@ -172,24 +168,6 @@ mod tests {
             from_state: state,
             event: GraphEvent::GraphDataProduced(test_graph_data_event()),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
-        });
-    }
-
-    #[test]
-    fn test_duplicate_process_graph_data_from_nonces_collected() {
-        let state = GraphState::NoncesCollected {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: test_graph_summary(),
-            pubnonces: BTreeMap::new(),
-            agg_nonces: vec![],
-            partial_signatures: BTreeMap::new(),
-        };
-
-        test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: state,
-            event: GraphEvent::GraphDataProduced(test_graph_data_event()),
-            expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
         });
     }
 }

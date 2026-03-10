@@ -26,8 +26,6 @@ pub(crate) enum Commands {
 
     Challenge(ChallengeArgs),
 
-    Disprove(DisproveArgs),
-
     DeriveKeys(DeriveKeysArgs),
 
     /// Create and publish a mock checkpoint.
@@ -119,43 +117,8 @@ pub(crate) struct ChallengeArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-#[command(about = "Send challenge transaction", version)]
-pub(crate) struct DisproveArgs {
-    #[arg(
-        long,
-        env = "POST_ASSERT_TXID",
-        value_parser = clap::value_parser!(Txid),
-        help = "the txid of the claim being challenged"
-    )]
-    pub(crate) post_assert_txid: Txid,
-
-    #[clap(flatten)]
-    pub(crate) btc_args: BtcArgs,
-
-    #[arg(
-        long,
-        env = "BRIDGE_NODE_URL",
-        help = "the url of the bridge node to query for challenge signature"
-    )]
-    pub(crate) bridge_node_url: String,
-
-    #[arg(
-        long,
-        help = "the path to the hex-encoded groth16 verification key for the bridge",
-        default_value = "strata_bridge_groth16_vk.hex"
-    )]
-    pub(crate) vk_path: PathBuf,
-
-    #[arg(long, help = "the strata bridge params file")]
-    pub(crate) params: PathBuf,
-}
-
-#[derive(Parser, Debug, Clone)]
 #[command(about = "Create and publish a mock checkpoint", version)]
 pub(crate) struct CreateAndPublishMockCheckpointArgs {
-    #[arg(long, help = "path to keys.json containing pk and sk fields")]
-    pub(crate) keys_path: PathBuf,
-
     #[arg(
         long,
         default_value = "1",
@@ -165,6 +128,9 @@ pub(crate) struct CreateAndPublishMockCheckpointArgs {
 
     #[arg(long, default_value = "101", help = "genesis L1 height")]
     pub(crate) genesis_l1_height: u32,
+
+    #[arg(long, default_value_t = Network::Regtest, help = "bitcoin network")]
+    pub(crate) network: Network,
 
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,

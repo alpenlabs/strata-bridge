@@ -11,7 +11,7 @@ use jsonrpsee::{
     server::ServerBuilder,
     types::{ErrorObject, ErrorObjectOwned},
 };
-use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State};
+use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};
 use strata_asm_rpc::traits::AssignmentsApiServer;
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
@@ -56,11 +56,8 @@ impl AsmRpcServer {
         let height = self.bitcoin_client.get_block_height(&block_hash).await? as u32;
         Ok(L1BlockCommitment::new(height, block_id))
     }
-}
 
-#[async_trait]
-impl AssignmentsApiServer for AsmRpcServer {
-    async fn get_assignments(&self, block_hash: BlockHash) -> RpcResult<Vec<AssignmentEntry>> {
+    async fn get_bridge_state(&self, block_hash: BlockHash) -> RpcResult<Option<BridgeV1State>> {
         let commitment = self
             .to_block_commitment(block_hash)
             .await
@@ -74,13 +71,30 @@ impl AssignmentsApiServer for AsmRpcServer {
                 let bridge_state = state
                     .state()
                     .find_section(BRIDGE_V1_SUBPROTOCOL_ID)
-                    .expect("bridge subprotoccol should be enabled");
+                    .expect("bridge subprotocol should be enabled");
 
                 let bridge_state: BridgeV1State = borsh::from_slice(&bridge_state.data)
                     .expect("borsh deserialization should be infallible");
 
-                Ok(bridge_state.assignments().assignments().to_vec())
+                Ok(Some(bridge_state))
             }
+            None => Ok(None),
+        }
+    }
+}
+
+#[async_trait]
+impl AssignmentsApiServer for AsmRpcServer {
+    async fn get_assignments(&self, block_hash: BlockHash) -> RpcResult<Vec<AssignmentEntry>> {
+        match self.get_bridge_state(block_hash).await? {
+            Some(bridge_state) => Ok(bridge_state.assignments().assignments().to_vec()),
+            None => Ok(vec![]),
+        }
+    }
+
+    async fn get_deposits(&self, block_hash: BlockHash) -> RpcResult<Vec<DepositEntry>> {
+        match self.get_bridge_state(block_hash).await? {
+            Some(bridge_state) => Ok(bridge_state.deposits().deposits().cloned().collect()),
             None => Ok(vec![]),
         }
     }

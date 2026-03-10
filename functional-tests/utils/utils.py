@@ -233,6 +233,33 @@ def wait_until_bitcoind_ready(rpc_client, timeout: int = 120, step: int = 1):
     )
 
 
+def wait_for_tx_confirmation(bitcoin_rpc, txid: str, timeout: int = 60) -> str:
+    """
+    Waits until a transaction is confirmed and returns the block hash it was included in.
+
+    Args:
+        bitcoin_rpc: Bitcoin RPC client.
+        txid: Transaction ID to wait for.
+        timeout: Timeout in seconds (default: 60).
+
+    Returns:
+        The block hash containing the transaction.
+    """
+    block_hash = None
+
+    def check():
+        nonlocal block_hash
+        tx_info = bitcoin_rpc.proxy.getrawtransaction(txid, True)
+        if "blockhash" in tx_info:
+            block_hash = tx_info["blockhash"]
+            return True
+        return False
+
+    wait_until(check, timeout=timeout, error_msg=f"Tx {txid} not confirmed")
+    assert block_hash is not None
+    return block_hash
+
+
 def generate_p2p_ports(start_port=12800):
     """P2P port generator to avoid port conflicts."""
     port = start_port

@@ -270,7 +270,7 @@ mod tests {
             payout_descriptor = "{desc_2}"
 
             [protocol]
-            magic_bytes = "alpn"
+            magic_bytes = "ALPN"
             deposit_amount = {deposit_amount}
             stake_amount = 100_000_000
             operator_fee = 1_000_000

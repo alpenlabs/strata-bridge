@@ -150,7 +150,7 @@ def generate_params_toml(
         genesis_height=sidesystem.genesis_l1_view.blk.height,
         keys=Keys(admin=operator_key_infos[0].MUSIG2_KEY, covenant=covenant),
         protocol=Protocol(
-            magic_bytes="alpn",
+            magic_bytes="ALPN",
             deposit_amount=1_000_000_000,
             stake_amount=100_000_000,
             operator_fee=10_000_000,

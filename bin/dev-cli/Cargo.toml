@@ -12,19 +12,19 @@ path = "src/main.rs"
 
 [dependencies]
 alpen-bridge-params.workspace = true
-strata-bridge-common.workspace = true
-strata-bridge-connectors.workspace = true
-strata-bridge-key-deriv.workspace = true
-strata-bridge-primitives.workspace = true
-strata-bridge-proof-protocol.workspace = true
-strata-bridge-proof-snark.workspace = true
-strata-bridge-rpc = { workspace = true, features = ["client"] }
-strata-bridge-tx-graph.workspace = true
-
+ssz.workspace = true
 strata-asm-txs-bridge-v1.workspace = true
-strata-btc-types.workspace = true
+strata-asm-txs-checkpoint.workspace = true
+strata-bridge-common.workspace = true
+strata-bridge-key-deriv.workspace = true
+strata-bridge-rpc = { workspace = true, features = ["client"] }
+strata-checkpoint-types-ssz.workspace = true
+strata-crypto.workspace = true
 strata-identifiers.workspace = true
 strata-l1-txfmt.workspace = true
+strata-ol-chain-types-new.workspace = true
+strata-primitives.workspace = true
+strata-test-utils.workspace = true
 
 alloy.workspace = true
 alloy-signer.workspace = true
@@ -32,18 +32,17 @@ anyhow.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd = { workspace = true, features = ["address"] }
 bitcoincore-rpc.workspace = true
-bitvm.workspace = true
-borsh.workspace = true
 clap.workspace = true
 hex.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "macros"] }
+k256.workspace = true
 libp2p-identity = { workspace = true, features = ["ed25519"] }
 miniscript.workspace = true
 musig2.workspace = true
+rand.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand"] }
 serde.workspace = true
 serde_json.workspace = true
-sp1-verifier.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
