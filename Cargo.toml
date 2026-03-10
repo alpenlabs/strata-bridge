@@ -106,7 +106,7 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-bridge-tx-graph2 = { path = "crates/tx-graph2" }
 wots = { path = "crates/wots" }
 
-# Dependencies from alpenlabs/alpen pinned to commit 1d88d8 (main @ 2026-03-09)
+# Dependencies from alpenlabs/alpen pinned to commit ef898bc (main @ 2026-03-09)
 strata-asm-common = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef898bc872b2fa38b48c90a938cdf5399441b210" }
 strata-asm-params = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef898bc872b2fa38b48c90a938cdf5399441b210" }
 strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef898bc872b2fa38b48c90a938cdf5399441b210" }
