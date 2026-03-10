@@ -92,6 +92,14 @@ impl StakeState {
         }
     }
 
+    /// Returns true if the stake is available to be spent.
+    pub const fn is_available(&self) -> bool {
+        matches!(
+            self,
+            Self::Confirmed { .. } | Self::PreimageRevealed { .. } | Self::Unstaked { .. }
+        )
+    }
+
     /// Returns true if the stake is fully unstaked.
     pub const fn is_unstaked(&self) -> bool {
         matches!(self, Self::Unstaked { .. })
