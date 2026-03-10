@@ -7,3 +7,4 @@ pub mod errors;
 pub mod events;
 pub mod machine;
 pub mod state;
+mod transitions;
