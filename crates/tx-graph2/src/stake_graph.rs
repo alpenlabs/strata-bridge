@@ -62,11 +62,11 @@ pub struct ProtocolParams {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StakeGraph {
     /// Stake transaction.
-    stake: StakeTx,
+    pub stake: StakeTx,
     /// Unstaking intent transaction.
-    unstaking_intent: UnstakingIntentTx,
+    pub unstaking_intent: UnstakingIntentTx,
     /// Unstaking transaction.
-    unstaking: UnstakingTx,
+    pub unstaking: UnstakingTx,
 }
 
 /// Collection of the IDs of all transactions of a [`StakeGraph`].
