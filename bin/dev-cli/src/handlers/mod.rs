@@ -2,6 +2,7 @@ pub(crate) mod bridge_in;
 pub(crate) mod bridge_in_v2;
 pub(crate) mod bridge_out;
 pub(crate) mod challenge;
+pub(crate) mod checkpoint;
 pub(crate) mod derive_keys;
 pub(crate) mod disprove;
 mod rpc;
