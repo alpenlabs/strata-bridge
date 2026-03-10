@@ -36,11 +36,9 @@ def generate_config_toml(
     my_p2p_addr: str,
     other_p2p_addrs: list[str],
     output_path: str,
-    datadir: str,
     tls_dir: str,
     heartbeat_delay_factor: int = 1,  # no delay by default
 ):
-    _ = datadir
     mtls_dir = Path(tls_dir)
     total_peers = len(other_p2p_addrs) + 1  # +1 for self
 
