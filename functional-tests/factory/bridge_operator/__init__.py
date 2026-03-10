@@ -105,7 +105,6 @@ class BridgeOperatorFactory(flexitest.Factory):
             my_p2p_addr,
             other_p2p_addrs,
             config_toml_path,
-            dd,
             mtls_cred_path,
             heartbeat_delay_factor,
         )
