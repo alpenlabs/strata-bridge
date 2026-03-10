@@ -109,7 +109,7 @@ impl StakeState {
 
     /// Returns the height of the last processed block,
     /// if the state contains this information.
-    pub const fn last_processed_block_height(&self) -> Option<BitcoinBlockHeight> {
+    pub const fn last_block_height(&self) -> Option<BitcoinBlockHeight> {
         match self {
             Self::Created {
                 last_block_height, ..
