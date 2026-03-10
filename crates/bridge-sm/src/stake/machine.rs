@@ -46,7 +46,7 @@ impl StateMachine for StakeSM {
                 self.process_unstaking_partials_received(event)
             }
             StakeEvent::StakeConfirmed(event) => self.process_stake_confirmed(event),
-            StakeEvent::PreimageRevealed(_) => todo!(),
+            StakeEvent::PreimageRevealed(event) => self.process_preimage_revealed(event),
             StakeEvent::UnstakingConfirmed(_) => todo!(),
             StakeEvent::NewBlock(_) => todo!(),
         }

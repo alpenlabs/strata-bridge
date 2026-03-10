@@ -1,5 +1,6 @@
 //! Transitions for the Stake State Machine.
 
+mod preimage_revealed;
 mod stake_confirmed;
 mod stake_data_received;
 mod unstaking_nonces_received;
