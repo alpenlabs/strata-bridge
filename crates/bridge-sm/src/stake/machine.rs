@@ -36,7 +36,6 @@ impl StateMachine for StakeSM {
         cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
-        let _ = cfg;
         match event {
             StakeEvent::StakeDataReceived(event) => self.process_stake_data(event),
             StakeEvent::UnstakingNoncesReceived(event) => {
@@ -48,7 +47,7 @@ impl StateMachine for StakeSM {
             StakeEvent::StakeConfirmed(event) => self.process_stake_confirmed(event),
             StakeEvent::PreimageRevealed(event) => self.process_preimage_revealed(event),
             StakeEvent::UnstakingConfirmed(event) => self.process_unstaking_confirmed(event),
-            StakeEvent::NewBlock(_) => todo!(),
+            StakeEvent::NewBlock(event) => self.process_new_block(cfg, event),
         }
     }
 }
