@@ -2,8 +2,9 @@ from pathlib import Path
 
 import flexitest
 
-from factory.bridge_operator.asm_cfg import build_asm_params, write_asm_params_json
+from factory.bridge_operator.asm_cfg import build_asm_params
 from factory.bridge_operator.sidesystem_cfg import build_sidesystem
+from factory.common.asm_params import write_asm_params_json
 from factory.fdb import generate_fdb_root_directory
 from utils import (
     BLOCK_GENERATION_INTERVAL_SECS,
