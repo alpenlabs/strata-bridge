@@ -103,11 +103,8 @@ This file has the following structure:
 
 ```plaintext
 GENERAL_WALLET_1=bcrt1pjsz8n98943w6h7tn0gtk7rrea6ulp8yhfxsg0gfcmkcl709vavhs5qpe8y
-STAKE_CHAIN_WALLET_1=bcrt1payzuzxk4q2szywcnrcgyy7u0t3899xyllep92gcqsukc8r3wypxqn6qy03
 GENERAL_WALLET_2=
-STAKE_CHAIN_WALLET_2=
 GENERAL_WALLET_3=
-STAKE_CHAIN_WALLET_3=
 SP1_PROVER=network
 SP1_PROOF_STRATEGY=
 NETWORK_RPC_URL=
