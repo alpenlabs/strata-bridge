@@ -355,6 +355,19 @@ bridge-in:
         --params bin/dev-cli/params.toml \
         --ee-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
 
+[group('bridge')]
+bridge-in-v2:
+    RUST_LOG=info \
+    cargo r \
+        --bin dev-cli \
+        -- \
+        bridge-in-v2 \
+        --btc-url http://localhost:18443/wallet/default \
+        --btc-user user \
+        --btc-pass password \
+        --params bin/dev-cli/params.toml \
+        --ee-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
+
 # Run bridge-out
 [group('bridge')]
 bridge-out:
