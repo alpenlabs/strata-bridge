@@ -22,3 +22,14 @@ zkaleido.workspace = true
 bitcoin.workspace = true
 borsh.workspace = true
 sha2.workspace = true
+
+[target.'cfg(not(target_os = "zkvm"))'.dependencies]
+zkaleido-native-adapter.workspace = true
+
+[dev-dependencies]
+bincode.workspace = true
+serde_json.workspace = true
+strata-asm-params.workspace = true
+strata-btc-types.workspace = true
+strata-btc-verification.workspace = true
+strata-l1-txfmt.workspace = true

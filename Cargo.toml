@@ -126,6 +126,7 @@ strata-asm-worker = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef8
 strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef898bc872b2fa38b48c90a938cdf5399441b210" }
 strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef898bc872b2fa38b48c90a938cdf5399441b210" }
 strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef898bc872b2fa38b48c90a938cdf5399441b210" }
+strata-btc-verification = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef898bc872b2fa38b48c90a938cdf5399441b210" }
 strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef898bc872b2fa38b48c90a938cdf5399441b210" }
 strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef898bc872b2fa38b48c90a938cdf5399441b210" }
 strata-checkpoint-types-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef898bc872b2fa38b48c90a938cdf5399441b210" }
