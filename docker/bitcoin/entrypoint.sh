@@ -36,13 +36,10 @@ bitcoind -daemon -conf=${BITCOIND_CONF_FILE}
 sleep 1
 
 GENERAL_WALLET_1=${GENERAL_WALLET_1}
-STAKE_CHAIN_WALLET_1=${STAKE_CHAIN_WALLET_1}
 
 GENERAL_WALLET_2=${GENERAL_WALLET_2}
-STAKE_CHAIN_WALLET_2=${STAKE_CHAIN_WALLET_2}
 
 GENERAL_WALLET_3=${GENERAL_WALLET_3}
-STAKE_CHAIN_WALLET_3=${STAKE_CHAIN_WALLET_3}
 
 bcli="bitcoin-cli -rpcuser=${BTC_USER} -rpcpassword=${BTC_PASS} -regtest -rpcconnect=127.0.0.1 -rpcport=18443"
 
@@ -60,22 +57,6 @@ sleep 0.1
 $bcli createwallet default
 MY_ADDRESS=$($bcli -rpcwallet=default getnewaddress)
 $bcli generatetoaddress 104 $MY_ADDRESS
-
-# send some funds to the stake chain wallet too
-FUNDING_AMOUNT="0.00027720"
-echo "sending ${FUNDING_AMOUNT} BTC to the stake chain wallets"
-
-$bcli sendtoaddress ${STAKE_CHAIN_WALLET_1} ${FUNDING_AMOUNT}
-$bcli generatetoaddress 1 $MY_ADDRESS
-sleep 0.1
-
-$bcli sendtoaddress ${STAKE_CHAIN_WALLET_2} ${FUNDING_AMOUNT}
-$bcli generatetoaddress 1 $MY_ADDRESS
-sleep 0.1
-
-$bcli sendtoaddress ${STAKE_CHAIN_WALLET_3} ${FUNDING_AMOUNT}
-$bcli generatetoaddress 1 $MY_ADDRESS
-sleep 0.1
 
 # Run forever
 if [ "$AUTOMINE" -ne 0 ]; then

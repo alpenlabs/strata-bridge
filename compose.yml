@@ -160,11 +160,8 @@ services:
     # INFO operator_wallet: crates/operator-wallet/src/lib.rs:95: stakechain wallet address: bcrt1pga206rnnd9vchqvs5s0gax4v99pdzlml470f3tfw8nfaemmmu0wsjru24g
     environment:
       - GENERAL_WALLET_1=$GENERAL_WALLET_1
-      - STAKE_CHAIN_WALLET_1=$STAKE_CHAIN_WALLET_1
       - GENERAL_WALLET_2=$GENERAL_WALLET_2
-      - STAKE_CHAIN_WALLET_2=$STAKE_CHAIN_WALLET_2
       - GENERAL_WALLET_3=$GENERAL_WALLET_3
-      - STAKE_CHAIN_WALLET_3=$STAKE_CHAIN_WALLET_3
       - AUTOMINE=5 # every 5 seconds, set to 0 to disable auto generating blocks, keep in alignment with `block_time` in sidesystem params
     networks:
       - bridge
