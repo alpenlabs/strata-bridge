@@ -7,6 +7,22 @@ x-base-secret-service: &base-secret-service
     - SECRET_SERVICE_DEV=0 # use ./docker/gen_s2_tls.sh to gen tls certs
     - RUST_LOG=info
 
+x-base-asm-runner: &base-asm-runner
+  image: strata-asm-runner:latest
+  build:
+    context: .
+    dockerfile: ./docker/asm-runner/Dockerfile
+  environment:
+    - RUST_LOG=info
+  ports:
+    - 9010:9010
+  volumes:
+    - ./docker/vol/asm-runner:/app
+  depends_on:
+    - bitcoind
+  networks:
+    - bridge
+
 x-base-bridge-node: &base-bridge-node
   image: strata-bridge:latest
   build:
@@ -22,6 +38,7 @@ x-base-bridge-node: &base-bridge-node
   depends_on:
     - bitcoind
     - foundationdb
+    - asm-runner
 
 services:
   foundationdb:
@@ -49,6 +66,9 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+  asm-runner:
+    <<: *base-asm-runner
 
   secret-service-1:
     <<: *base-secret-service

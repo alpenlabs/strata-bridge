@@ -1,0 +1,17 @@
+[rpc]
+host = "0.0.0.0"
+port = 9010
+
+[database]
+path = "/app/data"
+num_threads = 4
+retry_count = 4
+delay = { secs = 0, nanos = 150_000_000 }
+
+[bitcoin]
+rpc_url = "http://bitcoind:18443"
+rpc_user = "user"
+rpc_password = "password"
+rawblock_connection_string = "tcp://bitcoind:28334"
+retry_count = 3
+retry_interval = { secs = 1, nanos = 0 }

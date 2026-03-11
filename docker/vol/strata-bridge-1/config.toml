@@ -40,7 +40,7 @@ rpc_addr = "0.0.0.0:5678"
 refresh_interval = { secs = 600, nanos = 0 }
 
 [asm_rpc]
-rpc_url = "http://host.docker.internal:9010"
+rpc_url = "http://asm-runner:9010"
 request_timeout = { secs = 2, nanos = 0 }
 max_retries = 10
 retry_initial_delay = { secs = 1, nanos = 0 }
