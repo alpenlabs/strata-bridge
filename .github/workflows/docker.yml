@@ -120,6 +120,15 @@ jobs:
             --tag secret-service:latest \
             .
 
+      - name: Build asm-runner image
+        run: |
+          docker load -i /tmp/bridge-base.tar
+          docker load -i /tmp/bridge-rt.tar
+          docker build \
+            --file docker/asm-runner/Dockerfile \
+            --tag strata-asm-runner:latest \
+            .
+
       - name: Move cache
         run: |
           # Move cache to avoid ever-growing cache
