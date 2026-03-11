@@ -15,7 +15,15 @@ FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 
 WORKDIR /app
 
+RUN apt-get update && \
+    apt-get install -y python3 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy the built binary from the builder stage
 COPY --from=builder /app/strata-asm-runner /usr/local/bin/strata-asm-runner
+COPY functional-tests/factory/common/asm_params.py /usr/local/bin/asm_params.py
+COPY docker/asm-runner/gen_asm_params.py /usr/local/bin/gen_asm_params.py
+COPY docker/asm-runner/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-ENTRYPOINT ["/usr/local/bin/strata-asm-runner", "--config", "/app/config.toml", "--params", "/app/asm-params.json"]
+ENTRYPOINT ["sh", "/usr/local/bin/entrypoint.sh"]

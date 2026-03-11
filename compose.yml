@@ -18,6 +18,7 @@ x-base-asm-runner: &base-asm-runner
     - 9010:9010
   volumes:
     - ./docker/vol/asm-runner:/app
+    - ./docker/vol/strata-bridge-3/params.toml:/bridge/params.toml:ro
   depends_on:
     - bitcoind
   networks:
