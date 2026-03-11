@@ -61,7 +61,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "fdbcli --exec 'status minimal' 2>/dev/null | grep -q 'The database is available' || exit 1",
+          "fdbcli --no-status --exec 'status minimal' 2>/dev/null | grep -q 'The database is available' || exit 1",
         ]
       interval: 10s
       timeout: 5s

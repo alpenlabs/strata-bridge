@@ -84,17 +84,18 @@ clean:
 # Start FoundationDB container, wait for health, and initialize
 [group('docker')]
 start-fdb:
-    docker compose up -d --wait foundationdb
+    docker compose up -d foundationdb
     just init-fdb
+    docker compose up -d --wait foundationdb
 
 # Initialize FoundationDB (idempotent - safe to run multiple times)
 [group('docker')]
 init-fdb:
     #!/usr/bin/env bash
-    if docker exec strata-bridge-foundationdb-1 fdbcli --exec "status" 2>/dev/null | grep -q "Configuration"; then
+    if docker compose exec -T foundationdb fdbcli --no-status --exec "status minimal" 2>/dev/null | grep -q "The database is available"; then
         echo "FoundationDB already configured, skipping..."
     else
-        docker exec strata-bridge-foundationdb-1 fdbcli --exec "configure new single ssd"
+        docker compose exec -T foundationdb fdbcli --exec "configure new single ssd"
         echo -e "\n\033[36m======== FDB_INITIALIZED ========\033[0m\n"
     fi
 
