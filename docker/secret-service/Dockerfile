@@ -16,6 +16,4 @@ FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 # Copy the built binaries from the builder stage
 COPY --from=builder /app/secret-service /usr/local/bin/secret-service
 
-EXPOSE 3000
-
 ENTRYPOINT ["/usr/local/bin/secret-service", "/app/config.toml"]

@@ -18,7 +18,4 @@ FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 COPY --from=builder /app/strata-bridge /usr/local/bin/strata-bridge
 COPY docker/strata-bridge/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-EXPOSE 5678
-EXPOSE 3000
-
 ENTRYPOINT ["sh", "/usr/local/bin/entrypoint.sh"]
