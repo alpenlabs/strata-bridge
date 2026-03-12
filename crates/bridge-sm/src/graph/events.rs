@@ -123,6 +123,9 @@ pub struct CounterProofConfirmedEvent {
 
     /// The block height at which the counterproof transaction was confirmed.
     pub counterproof_block_height: BitcoinBlockHeight,
+
+    /// The index of the watchtower who submitted the counterproof transaction.
+    pub counterprover_idx: OperatorIdx,
 }
 
 /// Event notifying that a counterproof ACK transaction has been confirmed on-chain.
@@ -133,6 +136,9 @@ pub struct CounterProofAckConfirmedEvent {
 
     /// The block height at which the counterproof ACK transaction was confirmed.
     pub counterproof_ack_block_height: BitcoinBlockHeight,
+
+    /// The index of the watchtower who submitted the corresponding counterproof transaction.
+    pub counterprover_idx: OperatorIdx,
 }
 
 /// Event notifying that a counterproof NACK transaction has been confirmed on-chain.
@@ -141,8 +147,8 @@ pub struct CounterProofNackConfirmedEvent {
     /// The txid of the counterproof NACK transaction.
     pub counterproof_nack_txid: Txid,
 
-    /// The index of the operator whose counterproof is being NACK'd.
-    pub nacker_idx: OperatorIdx,
+    /// The index of the watchtower who submitted the corresponding counterproof transaction.
+    pub counterprover_idx: OperatorIdx,
 }
 
 /// Event notifying that a slash transaction has been confirmed on-chain.
