@@ -63,7 +63,8 @@ impl DepositSM {
             DepositState::Fulfilled { .. }
             | DepositState::PayoutDescriptorReceived { .. }
             | DepositState::PayoutNoncesCollected { .. }
-            | DepositState::CooperativePathFailed { .. } => {
+            | DepositState::CooperativePathFailed { .. }
+            | DepositState::Spent => {
                 Err(DSMError::duplicate(self.state.clone(), assignment.into()))
             }
 

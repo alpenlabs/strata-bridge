@@ -175,7 +175,6 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn().as_ref().clone(),
             },
-            DepositState::Spent,
             DepositState::Aborted,
         ];
 
@@ -224,6 +223,7 @@ mod tests {
             DepositState::CooperativePathFailed {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
             },
+            DepositState::Spent,
         ];
 
         for state in post_assignment_states {

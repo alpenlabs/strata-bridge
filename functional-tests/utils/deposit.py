@@ -1,7 +1,27 @@
 import logging
 
+from bitcoinlib.services.bitcoind import BitcoindClient
+
+from constants import DT_DEPOSIT_VOUT
 from rpc.types import RpcDepositInfo, RpcDepositStatus
 from utils.utils import wait_until
+
+
+def wait_until_deposit_utxo_spent(bitcoin_rpc: BitcoindClient, deposit_txid: str, timeout=300):
+    """Wait until the deposit UTXO is spent."""
+
+    def check():
+        return bitcoin_rpc.proxy.gettxout(deposit_txid, DT_DEPOSIT_VOUT) is None
+
+    wait_until(
+        check,
+        timeout=timeout,
+        step=1,
+        error_msg=(
+            f"Deposit UTXO (txid={deposit_txid}, vout={DT_DEPOSIT_VOUT}) "
+            f"was not spent within {timeout}s"
+        ),
+    )
 
 
 def wait_until_drt_recognized(bridge_rpc, drt_txid: str, timeout=300) -> str | None:
