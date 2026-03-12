@@ -1,6 +1,7 @@
 //! Unit tests for the Stake State Machine.
 
 mod new_block;
+mod stake_data_received;
 
 use std::{
     array,
