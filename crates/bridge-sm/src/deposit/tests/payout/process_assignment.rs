@@ -146,8 +146,7 @@ mod tests {
         });
     }
 
-    /// tests that all states apart from Deposited and Assigned should NOT accept the Assignment
-    /// event
+    /// tests that pre-deposit and terminal states should reject the Assignment event as invalid
     #[test]
     fn test_assignment_invalid_from_other_states() {
         let desc = random_p2tr_desc();
@@ -176,6 +175,29 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn().as_ref().clone(),
             },
+            DepositState::Spent,
+            DepositState::Aborted,
+        ];
+
+        for state in invalid_states {
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                    assignee: TEST_ASSIGNEE,
+                    deadline: LATER_BLOCK_HEIGHT,
+                    recipient_desc: desc.clone(),
+                }),
+                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+            });
+        }
+    }
+
+    /// tests that post-assignment states treat re-delivered Assignment events as duplicates
+    #[test]
+    fn test_assignment_duplicate_from_post_assignment_states() {
+        let desc = random_p2tr_desc();
+
+        let post_assignment_states = [
             DepositState::Fulfilled {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
@@ -202,11 +224,9 @@ mod tests {
             DepositState::CooperativePathFailed {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
             },
-            DepositState::Spent,
-            DepositState::Aborted,
         ];
 
-        for state in invalid_states {
+        for state in post_assignment_states {
             test_deposit_invalid_transition(DepositInvalidTransition {
                 from_state: state,
                 event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
@@ -214,7 +234,7 @@ mod tests {
                     deadline: LATER_BLOCK_HEIGHT,
                     recipient_desc: desc.clone(),
                 }),
-                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+                expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
             });
         }
     }
