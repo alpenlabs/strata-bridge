@@ -135,7 +135,8 @@ impl DepositSM {
         let deposit_request_outpoint = deposit_data.deposit_request_outpoint;
         let deposit_tx = DepositTx::new(deposit_data, non_connector, deposit_request_connetor);
 
-        let deposit_outpoint = OutPoint::new(deposit_tx.as_ref().compute_txid(), 0); // always the first output (for now)
+        let deposit_outpoint =
+            OutPoint::new(deposit_tx.as_ref().compute_txid(), DepositTx::DEPOSIT_VOUT);
         let context = DepositSMCtx {
             deposit_idx,
             deposit_request_outpoint,
