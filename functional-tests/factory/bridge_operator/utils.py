@@ -98,7 +98,7 @@ def generate_config_toml(
         asm_rpc=AsmRpcConfig(
             rpc_url=f"http://127.0.0.1:{asm_props['rpc_port']}",
             request_timeout=Duration(secs=2, nanos=0),
-            max_retries=None,
+            max_retries=10,
             retry_initial_delay=Duration(secs=1, nanos=0),
             retry_max_delay=Duration(secs=60, nanos=0),
             retry_multiplier=2,
