@@ -8,3 +8,6 @@ pub mod events;
 pub mod machine;
 pub mod state;
 mod transitions;
+
+#[cfg(test)]
+mod tests;
