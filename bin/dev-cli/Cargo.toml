@@ -21,6 +21,7 @@ strata-bridge-rpc = { workspace = true, features = ["client"] }
 strata-checkpoint-types-ssz.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true
+strata-l1-envelope-fmt.workspace = true
 strata-l1-txfmt.workspace = true
 strata-ol-chain-types-new.workspace = true
 strata-primitives.workspace = true

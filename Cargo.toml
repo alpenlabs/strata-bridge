@@ -143,6 +143,7 @@ strata-test-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "ef8
 # Dependencies from alpenlabs/strata-common
 ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.12.4" }
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc7" }
+strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc7" }
 strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc7" }
 strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc7" }
 strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc7" }

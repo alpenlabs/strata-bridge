@@ -2,11 +2,6 @@ use anyhow::{Context, Result};
 use bitcoin::{
     hashes::Hash,
     locktime::absolute::LockTime,
-    opcodes::{
-        all::{OP_CHECKSIG, OP_ENDIF, OP_IF},
-        OP_FALSE,
-    },
-    script::Builder as ScriptBuilder,
     secp256k1::{Keypair, Secp256k1, XOnlyPublicKey},
     sighash::{Prevouts, SighashCache},
     taproot::{LeafVersion, TaprootBuilder},
@@ -16,28 +11,11 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{Client, RpcApi};
 use secp256k1::{rand::rngs::OsRng, Message};
+use strata_l1_envelope_fmt::builder::EnvelopeScriptBuilder;
 use strata_l1_txfmt::{MagicBytes, ParseConfig, SubprotocolId, TagDataRef, TxType};
 use tracing::info;
 
 use super::constants::{ENVELOPE_CHANGE_SATS, ENVELOPE_FEE_SATS};
-
-/// Build a reveal script that embeds payload data in a taproot script leaf.
-fn build_reveal_script(internal_key: &XOnlyPublicKey, payload: &[u8]) -> ScriptBuf {
-    let mut builder = ScriptBuilder::new()
-        .push_x_only_key(internal_key)
-        .push_opcode(OP_CHECKSIG)
-        .push_opcode(OP_FALSE)
-        .push_opcode(OP_IF);
-
-    // Push payload in chunks (max 520 bytes per push)
-    for chunk in payload.chunks(520) {
-        builder = builder.push_slice::<&bitcoin::script::PushBytes>(
-            chunk.try_into().expect("chunk must be <= 520 bytes"),
-        );
-    }
-
-    builder.push_opcode(OP_ENDIF).into_script()
-}
 
 /// Build and broadcast an SPS-50 taproot envelope transaction embedding arbitrary payload.
 pub(crate) fn build_and_broadcast_envelope_tx(
@@ -55,7 +33,12 @@ pub(crate) fn build_and_broadcast_envelope_tx(
     let (internal_key, _) = XOnlyPublicKey::from_keypair(&keypair);
 
     // Build reveal script with embedded payload
-    let reveal_script = build_reveal_script(&internal_key, payload);
+    let reveal_script = EnvelopeScriptBuilder::with_pubkey(&internal_key.serialize())
+        .context("failed to create envelope builder")?
+        .add_envelope(payload)
+        .context("failed to add envelope payload")?
+        .build_without_min_check()
+        .context("failed to build reveal script")?;
 
     // Build taproot with the reveal script as a leaf
     let taproot_spend_info = TaprootBuilder::new()
