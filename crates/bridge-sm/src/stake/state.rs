@@ -92,6 +92,14 @@ impl StakeState {
         }
     }
 
+    /// Returns true if the stake is available to be spent.
+    pub const fn is_available(&self) -> bool {
+        matches!(
+            self,
+            Self::Confirmed { .. } | Self::PreimageRevealed { .. } | Self::Unstaked { .. }
+        )
+    }
+
     /// Returns true if the stake is fully unstaked.
     pub const fn is_unstaked(&self) -> bool {
         matches!(self, Self::Unstaked { .. })
@@ -109,7 +117,7 @@ impl StakeState {
 
     /// Returns the height of the last processed block,
     /// if the state contains this information.
-    pub const fn last_processed_block_height(&self) -> Option<BitcoinBlockHeight> {
+    pub const fn last_block_height(&self) -> Option<BitcoinBlockHeight> {
         match self {
             Self::Created {
                 last_block_height, ..

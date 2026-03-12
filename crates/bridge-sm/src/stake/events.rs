@@ -12,7 +12,7 @@ pub struct StakeDataReceivedEvent {
     pub stake_data: StakeData,
 }
 
-/// Event notifying that nonces were received from an operator.
+/// Event notifying that public nonces were received from an operator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnstakingNoncesReceivedEvent {
     /// The operator who submitted the nonces.
