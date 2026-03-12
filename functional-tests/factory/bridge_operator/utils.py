@@ -32,6 +32,7 @@ def generate_config_toml(
     bitcoind_props: dict,
     s2_props: dict,
     fdb_props: dict,
+    asm_props: dict,
     rpc_port: int,
     my_p2p_addr: str,
     other_p2p_addrs: list[str],
@@ -96,7 +97,7 @@ def generate_config_toml(
         rpc=RpcConfig(rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=1, nanos=0)),
         # TODO: (@prajwolrg) revisit rpc url
         asm_rpc=AsmRpcConfig(
-            rpc_url="http://localhost:9010",
+            rpc_url=f"http://127.0.0.1:{asm_props['rpc_port']}",
             request_timeout=Duration(secs=2, nanos=0),
             max_retries=None,
             retry_initial_delay=Duration(secs=1, nanos=0),
