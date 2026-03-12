@@ -11,7 +11,7 @@ class BridgeNetworkEnv(BaseEnv):
 
     def __init__(
         self,
-        funding_amount=5.01,
+        funding_amount=10.01,
         initial_blocks=101,
         finalization_blocks=10,
     ):
