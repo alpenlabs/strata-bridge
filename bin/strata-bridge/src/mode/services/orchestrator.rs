@@ -114,6 +114,9 @@ pub(crate) async fn init_orchestrator(
     executor.spawn_critical_async_with_shutdown("orchestrator", |shutdown_guard| async move {
         let pipeline = orchestrator_pipeline;
 
+        // Prevent asm_feed from being dropped so its background runner isn't aborted.
+        let _asm_feed = asm_feed;
+
         select! {
             _shutdown_received = shutdown_guard.wait_for_shutdown() => {
                 info!("shutdown signal received, initiating graceful shutdown");
