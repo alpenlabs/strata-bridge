@@ -3,8 +3,8 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
-use strata_db_store_sled::{AsmDBSled, GlobalMmrDb, SledDbConfig, open_sled_database};
-use strata_storage::{AsmStateManager, GlobalMmrManager, MmrHandle, MmrId};
+use strata_db_store_sled::{AsmDBSled, MmrIndexDb, SledDbConfig, open_sled_database};
+use strata_storage::{AsmStateManager, MmrId, MmrIndexHandle, MmrIndexManager};
 use threadpool::ThreadPool;
 
 use crate::config::DatabaseConfig;
@@ -20,36 +20,34 @@ const DEFAULT_DELAY: Duration = Duration::from_millis(150);
 
 /// Sled database name for MMR data.
 const MMR_DB_NAME: &str = "mmr";
+
 /// Sled database name for ASM state data.
 const ASM_DB_NAME: &str = "asm";
 
 /// Create storage managers for ASM state and MMR
 ///
-/// Returns a tuple of (AsmStateManager, MmrHandle) that can be used by the
+/// Returns a tuple of (AsmStateManager, MmrIndexHandle) that can be used by the
 /// WorkerContext and RPC server.
 pub(crate) fn create_storage_managers(
     config: &DatabaseConfig,
-) -> Result<(Arc<AsmStateManager>, MmrHandle)> {
+) -> Result<(Arc<AsmStateManager>, MmrIndexHandle)> {
     // Create thread pools for database operations
     let pool = ThreadPool::new(config.num_threads.unwrap_or(DEFAULT_NUM_THREADS));
 
-    // Open sled databases
+    // Open only the DBs asm-runner needs.
     let asm_sled_db = open_sled_database(&config.path, ASM_DB_NAME)?;
     let mmr_sled_db = open_sled_database(&config.path, MMR_DB_NAME)?;
 
-    // Create database instances with default config
-    let config = SledDbConfig::new_with_constant_backoff(
+    // Build manager DB adapters with configured retry policy.
+    let db_config = SledDbConfig::new_with_constant_backoff(
         config.retry_count.unwrap_or(DEFAULT_RETRY_COUNT),
         config.delay.unwrap_or(DEFAULT_DELAY).as_millis() as u64,
     );
-    let asm_db = Arc::new(AsmDBSled::new(asm_sled_db, config.clone())?);
-    let mmr_db = Arc::new(GlobalMmrDb::new(mmr_sled_db, config)?);
+    let asm_db = Arc::new(AsmDBSled::new(asm_sled_db, db_config.clone())?);
+    let mmr_db = Arc::new(MmrIndexDb::new(mmr_sled_db, db_config)?);
 
-    // Create managers
     let asm_manager = Arc::new(AsmStateManager::new(pool.clone(), asm_db));
-    let mmr_manager = Arc::new(GlobalMmrManager::new(pool, mmr_db));
-
-    // Get a handle for the ASM manifest MMR
+    let mmr_manager = MmrIndexManager::new(pool, mmr_db);
     let mmr_handle = mmr_manager.get_handle(MmrId::Asm);
 
     Ok((asm_manager, mmr_handle))

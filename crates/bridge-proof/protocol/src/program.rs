@@ -1,11 +1,6 @@
-use std::{
-    panic::{catch_unwind, AssertUnwindSafe},
-    sync::Arc,
-};
-
 use bitcoin::consensus::serialize;
-use zkaleido::{ProofType, PublicValues, ZkVmError, ZkVmInputResult, ZkVmProgram, ZkVmResult};
-use zkaleido_native_adapter::{NativeHost, NativeMachine};
+use zkaleido::{ProofType, PublicValues, ZkVmInputResult, ZkVmProgram, ZkVmResult};
+use zkaleido_native_adapter::NativeHost;
 
 use crate::{
     process_bridge_proof_outer, BridgeProofInput, BridgeProofInputBorsh, BridgeProofPublicOutput,
@@ -63,33 +58,15 @@ impl ZkVmProgram for BridgeProgram {
 impl BridgeProgram {
     /// get native host. This can be used for testing
     pub fn native_host() -> NativeHost {
-        NativeHost {
-            process_proof: Arc::new(Box::new(move |zkvm: &NativeMachine| {
-                catch_unwind(AssertUnwindSafe(|| {
-                    process_bridge_proof_outer(zkvm);
-                }))
-                .map_err(|_| ZkVmError::ExecutionError(Self::name()))?;
-                Ok(())
-            })),
-        }
+        NativeHost::new(process_bridge_proof_outer)
     }
 
-    /// Add this new convenience method
+    /// Executes the bridge program in native mode without generating a ZK proof.
     pub fn execute(
         input: &<Self as ZkVmProgram>::Input,
     ) -> ZkVmResult<<Self as ZkVmProgram>::Output> {
-        // Get the native host and delegate to the trait's execute method
         let host = Self::native_host();
         <Self as ZkVmProgram>::execute(input, &host)
-    }
-}
-/// get native host. This can be used for testing
-pub fn get_native_host() -> NativeHost {
-    NativeHost {
-        process_proof: Arc::new(Box::new(move |zkvm: &NativeMachine| {
-            process_bridge_proof_outer(zkvm);
-            Ok(())
-        })),
     }
 }
 
@@ -124,7 +101,7 @@ mod tests {
     fn test_native() {
         logging::init(LoggerConfig::new("test-native".to_string()));
         let input = get_input();
-        let host = get_native_host();
+        let host = BridgeProgram::native_host();
         let receipt = BridgeProgram::prove(&input, &host).unwrap();
         debug!(?receipt, "received proof receipt from native host");
     }

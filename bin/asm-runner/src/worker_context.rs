@@ -9,7 +9,7 @@ use strata_asm_worker::{WorkerContext, WorkerError, WorkerResult};
 use strata_btc_types::{BitcoinTxid, L1BlockIdBitcoinExt, RawBitcoinTx};
 use strata_identifiers::{Hash, L1BlockCommitment, L1BlockId};
 use strata_state::asm_state::AsmState;
-use strata_storage::{AsmStateManager, MmrHandle};
+use strata_storage::{AsmStateManager, MmrIndexHandle};
 use tokio::runtime::Handle;
 
 /// ASM [`WorkerContext`] implementation
@@ -20,7 +20,7 @@ pub(crate) struct AsmWorkerContext {
     runtime_handle: Handle,
     bitcoin_client: Arc<Client>,
     asm_manager: Arc<AsmStateManager>,
-    mmr_handle: MmrHandle,
+    mmr_handle: MmrIndexHandle,
 }
 
 impl AsmWorkerContext {
@@ -29,7 +29,7 @@ impl AsmWorkerContext {
         runtime_handle: Handle,
         bitcoin_client: Arc<Client>,
         asm_manager: Arc<AsmStateManager>,
-        mmr_handle: MmrHandle,
+        mmr_handle: MmrIndexHandle,
     ) -> Self {
         Self {
             runtime_handle,
@@ -101,9 +101,13 @@ impl WorkerContext for AsmWorkerContext {
             .map_err(|_| WorkerError::DbError)
     }
 
-    fn generate_mmr_proof(&self, index: u64) -> WorkerResult<strata_merkle::MerkleProofB32> {
+    fn generate_mmr_proof_at(
+        &self,
+        index: u64,
+        at_leaf_count: u64,
+    ) -> WorkerResult<strata_merkle::MerkleProofB32> {
         self.mmr_handle
-            .generate_proof(index)
+            .generate_proof_at(index, at_leaf_count)
             .map_err(|_| WorkerError::MmrProofFailed { index })
     }
 

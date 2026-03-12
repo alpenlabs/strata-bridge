@@ -1,6 +1,8 @@
 use std::{
     borrow::Borrow,
     cell::RefCell,
+    error::Error,
+    io,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     ops::Deref,
     sync::Arc,
@@ -31,8 +33,43 @@ use strata_bridge_primitives::{scripts::taproot::TaprootTweak, secp::EvenSecretK
 
 use crate::seeded_impl::Service;
 
-async fn setup() -> SecretServiceClient {
-    let port = thread_rng().gen_range(20_000..30_000);
+fn is_permission_denied(err: &(dyn Error + 'static)) -> bool {
+    if let Some(io_err) = err.downcast_ref::<io::Error>() {
+        if io_err.kind() == io::ErrorKind::PermissionDenied {
+            return true;
+        }
+    }
+
+    let mut source = err.source();
+    while let Some(e) = source {
+        if let Some(io_err) = e.downcast_ref::<io::Error>() {
+            if io_err.kind() == io::ErrorKind::PermissionDenied {
+                return true;
+            }
+        }
+        source = e.source();
+    }
+
+    false
+}
+
+async fn setup() -> Option<SecretServiceClient> {
+    // Both `ring` and `aws-lc-rs` are in the dep tree; rustls can't auto-detect the provider.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let port = match std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)) {
+        Ok(socket) => socket
+            .local_addr()
+            .expect("must get selected UDP port")
+            .port(),
+        Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
+            eprintln!(
+                "Skipping secret-service network test: UDP sockets are unavailable in this environment"
+            );
+            return None;
+        }
+        Err(err) => panic!("must be able to pick an ephemeral UDP port: {err:?}"),
+    };
     let server_addr: SocketAddr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port).into();
     let server_host = "localhost".to_string();
 
@@ -66,15 +103,34 @@ async fn setup() -> SecretServiceClient {
         timeout: Duration::from_secs(1),
     };
 
-    let client = SecretServiceClient::new(client_config)
-        .await
-        .expect("good conn");
-    client
+    let mut last_err: Option<String> = None;
+    for _ in 0..20 {
+        match SecretServiceClient::new(client_config.clone()).await {
+            Ok(client) => return Some(client),
+            Err(err) => {
+                if is_permission_denied(&err) {
+                    eprintln!(
+                        "Skipping secret-service network test: UDP sockets are unavailable in this environment"
+                    );
+                    return None;
+                }
+                last_err = Some(format!("{err:?}"));
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+    }
+
+    panic!(
+        "good conn: {}",
+        last_err.expect("must capture last connection error")
+    );
 }
 
 #[tokio::test]
 async fn wots() {
-    let client = setup().await;
+    let Some(client) = setup().await else {
+        return;
+    };
     let wots = client.wots_signer();
     let txid = Txid::all_zeros();
     wots.get_128_secret_key(txid, 0, 0)
@@ -93,14 +149,18 @@ async fn wots() {
 
 #[tokio::test]
 async fn p2p() {
-    let client = setup().await;
+    let Some(client) = setup().await else {
+        return;
+    };
     let p2p_signer = client.p2p_signer();
     p2p_signer.secret_key().await.expect("good response");
 }
 
 #[tokio::test]
 async fn stakechain_preimg() {
-    let client = setup().await;
+    let Some(client) = setup().await else {
+        return;
+    };
 
     let sc_preimg = client.stake_chain_preimages();
     sc_preimg
@@ -111,7 +171,9 @@ async fn stakechain_preimg() {
 
 #[tokio::test]
 async fn schnorr_signers() {
-    let client = setup().await;
+    let Some(client) = setup().await else {
+        return;
+    };
 
     let general_wallet_signer = client.general_wallet_signer();
     let stakechain_wallet_signer = client.stakechain_wallet_signer();
@@ -200,7 +262,9 @@ async fn schnorr_signers() {
 
 #[tokio::test]
 async fn musig2() {
-    let client = setup().await;
+    let Some(client) = setup().await else {
+        return;
+    };
 
     const TOTAL_SIGNERS: usize = 3;
     const LOCAL_SIGNERS: usize = TOTAL_SIGNERS - 1;

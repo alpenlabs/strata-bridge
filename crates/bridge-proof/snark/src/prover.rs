@@ -7,12 +7,10 @@ use ark_groth16::Proof;
 use sp1_sdk::{HashableKey, SP1VerifyingKey};
 use sp1_verifier::{blake3_hash, hash_public_inputs_with_fn};
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
-use strata_bridge_proof_protocol::{
-    get_native_host, BridgeProgram, BridgeProofInput, BridgeProofPublicOutput,
-};
+use strata_bridge_proof_protocol::{BridgeProgram, BridgeProofInput, BridgeProofPublicOutput};
 use tracing::info;
-use zkaleido::{ZkVmProgram, ZkVmVerifier};
-use zkaleido_sp1_groth16_verifier::verify_groth16;
+use zkaleido::{ZkVmProgram, ZkVmVkProvider};
+use zkaleido_sp1_groth16_verifier::SP1Groth16Verifier;
 use zkaleido_sp1_host::SP1Host;
 
 /// Proves a bridge proof using SP1.
@@ -20,7 +18,7 @@ pub fn sp1_prove(
     input: &BridgeProofInput,
 ) -> anyhow::Result<(Proof<Bn254>, [Fr; 1], BridgeProofPublicOutput)> {
     info!(action = "simulating proof in native mode");
-    let native_host = get_native_host();
+    let native_host = BridgeProgram::native_host();
     let _ = BridgeProgram::prove(input, &native_host).expect("failed to assert proof statements");
 
     if std::env::var("SP1_PROVER").is_err() {
@@ -34,15 +32,24 @@ pub fn sp1_prove(
     let vk: SP1VerifyingKey = bincode::deserialize(host.vk().as_bytes())?;
 
     info!(action = "verifying proof");
-    verify_groth16(&proof_receipt, &vk.bytes32_raw()).context("proof verification failed")?;
+    let groth16_verifier =
+        SP1Groth16Verifier::load(&sp1_verifier::GROTH16_VK_BYTES, vk.bytes32_raw())
+            .context("failed to load SP1 groth16 verifier")?;
+    groth16_verifier
+        .verify(
+            proof_receipt.receipt().proof().as_bytes(),
+            proof_receipt.receipt().public_values().as_bytes(),
+        )
+        .context("proof verification failed")?;
 
-    let output = BridgeProgram::process_output::<SP1Host>(proof_receipt.public_values())?;
+    let output = BridgeProgram::process_output::<SP1Host>(proof_receipt.receipt().public_values())?;
 
-    // SP1 prepends the raw Groth16 proof with the first 4 bytes of the groth16 vkey
-    // The use of correct vkey is checked in verify_groth16 function above
-    let proof = sp1_verifier::load_ark_proof_from_bytes(&proof_receipt.proof().as_bytes()[4..])?;
+    // SP1 prepends the raw Groth16 proof with the first 4 bytes of the Groth16 vkey hash tag.
+    // The key hash/prefix check is performed by SP1Groth16Verifier above.
+    let proof =
+        sp1_verifier::load_ark_proof_from_bytes(&proof_receipt.receipt().proof().as_bytes()[4..])?;
     let public_inputs = [Fr::from_be_bytes_mod_order(&hash_public_inputs_with_fn(
-        proof_receipt.public_values().as_bytes(),
+        proof_receipt.receipt().public_values().as_bytes(),
         blake3_hash,
     ))];
     info!(action = "loaded proof and public params");
