@@ -9,7 +9,12 @@ mod tests {
         state::GraphState,
         tests::{
             GraphInvalidTransition, GraphTransition, TEST_NONPOV_IDX, TEST_POV_IDX,
-            mock_states::{assigned_state, graph_signed_state, test_nonce_context},
+            mock_states::{
+                acked_state, all_nackd_state, assigned_state, bridge_proof_posted_state,
+                bridge_proof_timedout_state, claimed_state, contested_state,
+                counter_proof_posted_state, fulfilled_state, graph_signed_state,
+                pre_signing_states, terminal_states, test_nonce_context,
+            },
             random_p2tr_desc, test_graph_invalid_transition, test_graph_transition,
             test_recipient_desc,
         },
@@ -168,16 +173,50 @@ mod tests {
     fn test_assignment_invalid_from_other_states() {
         let desc = random_p2tr_desc();
 
-        test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: GraphState::Withdrawn {
-                payout_txid: generate_txid(),
-            },
-            event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
-                assignee: TEST_POV_IDX,
-                deadline: REASSIGNMENT_DEADLINE,
-                recipient_desc: desc,
-            }),
-            expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
-        });
+        let mut invalid_states: Vec<_> = pre_signing_states()
+            .into_iter()
+            .filter(|s| !matches!(s, GraphState::GraphSigned { .. }))
+            .collect();
+        invalid_states.extend(terminal_states());
+
+        for state in invalid_states {
+            test_graph_invalid_transition(GraphInvalidTransition {
+                from_state: state,
+                event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                    assignee: TEST_POV_IDX,
+                    deadline: REASSIGNMENT_DEADLINE,
+                    recipient_desc: desc.clone(),
+                }),
+                expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+            });
+        }
+    }
+
+    #[test]
+    fn test_assignment_duplicate_from_post_assignment_states() {
+        let desc = random_p2tr_desc();
+
+        let post_assignment_states = vec![
+            fulfilled_state(TEST_POV_IDX, generate_txid()),
+            claimed_state(100, generate_txid(), vec![]),
+            contested_state(),
+            bridge_proof_posted_state(),
+            bridge_proof_timedout_state(),
+            counter_proof_posted_state(),
+            all_nackd_state(),
+            acked_state(),
+        ];
+
+        for state in post_assignment_states {
+            test_graph_invalid_transition(GraphInvalidTransition {
+                from_state: state,
+                event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                    assignee: TEST_POV_IDX,
+                    deadline: REASSIGNMENT_DEADLINE,
+                    recipient_desc: desc.clone(),
+                }),
+                expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
+            });
+        }
     }
 }
