@@ -164,7 +164,12 @@ pub enum GraphDuty {
         /// The aggregated n-of-n signature.
         n_of_n_signature: Signature,
 
-        /// The index of the watchtower that will finalize the transaction.
+        /// Used to select the correct Taproot script when finalizing the
+        /// contest transaction.
+        ///
+        /// This is a dense per-graph watchtower slot, not a global operator
+        /// index. For example, if operator 1 owns the graph, then operator 3
+        /// is at watchtower slot 2.
         watchtower_index: OperatorIdx,
     },
 
