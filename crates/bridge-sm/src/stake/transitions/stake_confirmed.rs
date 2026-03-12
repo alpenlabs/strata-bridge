@@ -1,6 +1,6 @@
 use crate::{
     stake::{
-        errors::SSMResult,
+        errors::{SSMError, SSMResult},
         events::StakeConfirmedEvent,
         machine::{SSMOutput, StakeSM},
         state::StakeState,
@@ -14,7 +14,7 @@ impl StakeSM {
     /// The machine transitions from [`StakeState::UnstakingSigned`] to [`StakeState::Confirmed`]
     /// when the confirmed stake transaction matches the expected ID.
     ///
-    /// In all other states, this event is ignored.
+    /// In all other states, this event is rejected.
     pub(crate) fn process_stake_confirmed(
         &mut self,
         event: StakeConfirmedEvent,
@@ -27,7 +27,7 @@ impl StakeSM {
                 ..
             } => {
                 if event.tx.compute_txid() != *expected_stake_txid {
-                    return Err(crate::stake::errors::SSMError::rejected(
+                    return Err(SSMError::rejected(
                         self.state().clone(),
                         event.into(),
                         "Confirmed stake transaction does not match expected txid",
@@ -42,7 +42,14 @@ impl StakeSM {
 
                 Ok(SMOutput::new())
             }
-            _ => Ok(SMOutput::new()),
+            _ => Err(SSMError::rejected(
+                self.state().clone(),
+                event.into(),
+                format!(
+                    "Received stale stake confirmation in state: {}",
+                    self.state()
+                ),
+            )),
         }
     }
 }
