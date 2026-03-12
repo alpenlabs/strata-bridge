@@ -64,7 +64,9 @@ impl StakeSM {
 
                 Ok(SMOutput::new())
             }
-            StakeState::PreimageRevealed { .. } => Ok(SMOutput::new()),
+            StakeState::PreimageRevealed { .. } => {
+                Err(SSMError::duplicate(self.state().clone(), event.into()))
+            }
             _ => Err(SSMError::invalid_event(
                 self.state().clone(),
                 event.into(),
