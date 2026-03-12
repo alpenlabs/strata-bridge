@@ -95,7 +95,6 @@ def generate_config_toml(
             gossipsub_scoring_preset="permissive",
         ),
         rpc=RpcConfig(rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=1, nanos=0)),
-        # TODO: (@prajwolrg) revisit rpc url
         asm_rpc=AsmRpcConfig(
             rpc_url=f"http://127.0.0.1:{asm_props['rpc_port']}",
             request_timeout=Duration(secs=2, nanos=0),
