@@ -5,7 +5,9 @@ use musig2::{
     secp256k1::{Message, schnorr},
     verify_partial,
 };
-use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootTweak};
+use strata_bridge_primitives::{
+    key_agg::create_agg_ctx, scripts::taproot::TaprootTweak, types::OperatorIdx,
+};
 use strata_bridge_tx_graph2::{game_graph::DepositParams, musig_functor::GameFunctor};
 
 use crate::{
@@ -88,17 +90,15 @@ impl GraphSM {
 
                     Ok(GSMOutput::with_duties(duties))
                 } else {
-                    // The graph owner's counterproof is excluded, so indices
-                    // after it are shifted by one. Adjust the pov counterproof index accordingly.
-                    let pov_counterproof_idx = if self.context.operator_idx() <= pov_operator_idx {
-                        pov_operator_idx - 1
-                    } else {
-                        pov_operator_idx
-                    };
+                    let pov_counterproof_idx = Self::watchtower_slot_for_operator(
+                        self.context().operator_idx(),
+                        pov_operator_idx,
+                    )
+                    .expect("non-owner POV must map to a watchtower slot");
 
                     let pov_counterproof_graph = game_graph
                         .counterproofs
-                        .get(pov_counterproof_idx as usize)
+                        .get(pov_counterproof_idx)
                         .ok_or_else(|| {
                             GSMError::invalid_event(
                                 self.state().clone(),
@@ -719,7 +719,12 @@ impl GraphSM {
                         let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
 
                         let contest_tx = game_graph.contest;
-                        let watchtower_index = self.context().operator_table().pov_idx();
+                        let watchtower_index = Self::watchtower_slot_for_operator(
+                            self.context().operator_idx(),
+                            self.context().operator_table().pov_idx(),
+                        )
+                        .expect("non-owner POV must map to a watchtower slot")
+                            as u32;
                         let n_of_n_signature = GameFunctor::unpack(
                             signatures.clone(),
                             graph_ctx.watchtower_pubkeys().len(),
@@ -757,6 +762,19 @@ impl GraphSM {
                 claim.into(),
                 None,
             )),
+        }
+    }
+
+    const fn watchtower_slot_for_operator(
+        graph_owner_idx: OperatorIdx,
+        operator_idx: OperatorIdx,
+    ) -> Option<usize> {
+        if operator_idx == graph_owner_idx {
+            None
+        } else if operator_idx < graph_owner_idx {
+            Some(operator_idx as usize)
+        } else {
+            Some(operator_idx as usize - 1)
         }
     }
 }
