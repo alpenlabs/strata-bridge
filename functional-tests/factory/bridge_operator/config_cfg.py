@@ -74,7 +74,7 @@ class BtcZmqConfig:
 class AsmRpcConfig:
     rpc_url: str
     request_timeout: Duration
-    max_retries: int | None
+    max_retries: int
     retry_initial_delay: Duration
     retry_max_delay: Duration
     retry_multiplier: int

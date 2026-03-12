@@ -13,8 +13,8 @@ pub struct AsmRpcConfig {
     /// Timeout for each RPC request.
     pub request_timeout: Duration,
 
-    /// Maximum number of retries per request. `None` means retry indefinitely.
-    pub max_retries: Option<usize>,
+    /// Maximum number of retries per request.
+    pub max_retries: usize,
 
     /// Initial delay for exponential backoff retries.
     pub retry_initial_delay: Duration,
