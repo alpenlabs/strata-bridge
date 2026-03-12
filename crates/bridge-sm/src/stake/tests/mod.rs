@@ -1,5 +1,7 @@
 //! Unit tests for the Stake State Machine.
 
+mod new_block;
+
 use std::{
     array,
     collections::BTreeMap,
