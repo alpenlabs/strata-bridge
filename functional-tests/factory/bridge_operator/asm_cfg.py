@@ -91,7 +91,8 @@ def _build_subprotocols(
             BridgeSubprotocol(
                 operators=musig2_keys,
                 denomination=1_000_000_000,
-                assignment_duration=64,
+                # In test env block time is in seconds, so use a large deadline.
+                assignment_duration=64_000,
                 operator_fee=50_000_000,
                 recovery_delay=1_008,
             )
