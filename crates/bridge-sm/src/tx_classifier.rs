@@ -87,6 +87,19 @@ pub fn is_counterproof_txid(summary: &GameGraphSummary, txid: &Txid) -> bool {
         .any(|summary| summary.counterproof == *txid)
 }
 
+/// Returns the operator index whose counterproof tx matches the given txid.
+pub fn counterproof_operator_idx(
+    summary: &GameGraphSummary,
+    txid: &Txid,
+    graph_owner_idx: OperatorIdx,
+) -> Option<OperatorIdx> {
+    summary
+        .counterproofs
+        .iter()
+        .position(|summary| summary.counterproof == *txid)
+        .map(|watchtower_slot| watchtower_slot_to_operator_idx(watchtower_slot, graph_owner_idx))
+}
+
 /// Checks if the transaction ID is that of a counterpoof ACK transaction.
 pub fn is_counterproof_ack_txid(summary: &GameGraphSummary, txid: &Txid) -> bool {
     summary
@@ -95,43 +108,55 @@ pub fn is_counterproof_ack_txid(summary: &GameGraphSummary, txid: &Txid) -> bool
         .any(|summary| summary.counterproof_ack == *txid)
 }
 
-/// Check if the transaction is a counterproof NACK transaction and returns the index of the
-/// operator that did the `NACK`-ing.
-///
-/// A ACK transaction is not presigned but it spends the output of the counterproof.
-pub fn is_counterproof_nack_tx(
+/// Returns the operator index whose counterproof ACK tx matches the given txid.
+pub fn counterproof_ack_operator_idx(
     summary: &GameGraphSummary,
-    pov_idx: OperatorIdx,
+    txid: &Txid,
+    graph_owner_idx: OperatorIdx,
+) -> Option<OperatorIdx> {
+    summary
+        .counterproofs
+        .iter()
+        .position(|summary| summary.counterproof_ack == *txid)
+        .map(|watchtower_slot| watchtower_slot_to_operator_idx(watchtower_slot, graph_owner_idx))
+}
+
+/// Check if the transaction is a counterproof NACK transaction and return the counterprover's
+/// operator index.
+///
+/// A NACK transaction is not presigned but it spends the ACK/NACK output of the counterproof it
+/// rejects.
+pub fn nack_counterprover_idx(
+    summary: &GameGraphSummary,
+    graph_owner_idx: OperatorIdx,
     tx: &Transaction,
 ) -> Option<OperatorIdx> {
     summary
         .counterproofs
         .iter()
-        .find_map(|summary| {
+        .enumerate()
+        .find_map(|(watchtower_slot, summary)| {
             let expected_counteproof_outpoint = OutPoint {
                 txid: summary.counterproof,
                 vout: CounterproofTx::ACK_NACK_VOUT,
             };
 
-            tx.input.iter().enumerate().find_map(|(input_index, txin)| {
-                if txin.previous_output == expected_counteproof_outpoint {
-                    Some(input_index as OperatorIdx)
-                } else {
-                    None
-                }
-            })
+            tx.input
+                .iter()
+                .any(|txin| txin.previous_output == expected_counteproof_outpoint)
+                .then(|| watchtower_slot_to_operator_idx(watchtower_slot, graph_owner_idx))
         })
-        .map(|output_index| {
-            // Counterproof outputs are arranged in order of operator indices
-            // so if the output_index is earlier than the pov_idx, it corresponds to the
-            // same indexed operator, otherwise it corresponds to the operator at index
-            // output_index - 1
-            if output_index <= pov_idx {
-                output_index
-            } else {
-                output_index - 1
-            }
-        })
+}
+
+const fn watchtower_slot_to_operator_idx(
+    watchtower_slot: usize,
+    graph_owner_idx: OperatorIdx,
+) -> OperatorIdx {
+    if watchtower_slot < graph_owner_idx as usize {
+        watchtower_slot as OperatorIdx
+    } else {
+        watchtower_slot as OperatorIdx + 1
+    }
 }
 
 /// Check if the payout connector has been spent (via admin or unstaking burn txs).
