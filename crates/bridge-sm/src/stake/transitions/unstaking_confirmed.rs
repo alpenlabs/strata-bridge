@@ -40,7 +40,11 @@ impl StakeSM {
 
                 Ok(SMOutput::new())
             }
-            StakeState::Unstaked { .. } => Ok(SMOutput::new()),
+            StakeState::Unstaked { .. } => Err(SSMError::rejected(
+                self.state().clone(),
+                event.into(),
+                "Received stale unstaking confirmation after unstaking completed",
+            )),
             _ => Ok(SMOutput::new()),
         }
     }
