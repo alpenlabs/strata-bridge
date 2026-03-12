@@ -601,6 +601,20 @@ impl GraphSM {
                 Ok(GSMOutput::default())
             }
 
+            // Post-assignment states: the graph has already progressed past assignment,
+            // so this is a duplicate assignment event re-delivered by the ASM client.
+            GraphState::Fulfilled { .. }
+            | GraphState::Claimed { .. }
+            | GraphState::Contested { .. }
+            | GraphState::BridgeProofPosted { .. }
+            | GraphState::BridgeProofTimedout { .. }
+            | GraphState::CounterProofPosted { .. }
+            | GraphState::AllNackd { .. }
+            | GraphState::Acked { .. } => Err(GSMError::duplicate(
+                self.state().clone(),
+                assignment_event.into(),
+            )),
+
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 assignment_event.into(),
