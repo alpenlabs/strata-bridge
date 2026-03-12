@@ -19,7 +19,7 @@ class BaseEnv(flexitest.EnvConfig):
     def __init__(
         self,
         num_operators,
-        funding_amount=5.01,
+        funding_amount=10.01,
         initial_blocks=101,
         finalization_blocks=10,
     ):
