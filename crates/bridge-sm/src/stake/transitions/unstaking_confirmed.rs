@@ -13,8 +13,6 @@ impl StakeSM {
     ///
     /// The machine transitions from [`StakeState::PreimageRevealed`] to [`StakeState::Unstaked`]
     /// when the confirmed transaction matches the expected unstaking TXID.
-    ///
-    /// In all other states, this event is ignored.
     pub(crate) fn process_unstaking_confirmed(
         &mut self,
         event: UnstakingConfirmedEvent,
@@ -45,7 +43,14 @@ impl StakeSM {
                 event.into(),
                 "Received stale unstaking confirmation after unstaking completed",
             )),
-            _ => Ok(SMOutput::new()),
+            _ => Err(SSMError::invalid_event(
+                self.state().clone(),
+                event.into(),
+                Some(format!(
+                    "Invalid state for unstaking confirmation: {}",
+                    self.state()
+                )),
+            )),
         }
     }
 }
