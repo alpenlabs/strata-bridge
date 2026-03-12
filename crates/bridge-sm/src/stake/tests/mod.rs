@@ -3,6 +3,7 @@
 mod new_block;
 mod stake_data_received;
 mod unstaking_nonces_received;
+mod unstaking_partials_received;
 
 use std::{
     array,
