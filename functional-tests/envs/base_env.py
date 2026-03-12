@@ -128,21 +128,23 @@ class BaseEnv(flexitest.EnvConfig):
             "root_directory": operator_root_directory,
         }
 
+        if self._asm_rpc_service is None:
+            asm_fac = ectx.get_factory("asm_rpc")
+            params_file_path = self._rollup_params_path
+            self._asm_rpc_service = asm_fac.create_asm_rpc_service(bitcoind_props, params_file_path)
+        asm_props = self._asm_rpc_service.props
+
         s2_service = s2_fac.create_s2_service(operator_idx, operator_key)
         bridge_operator = bo_fac.create_server(
             operator_idx,
             bitcoind_props,
             s2_service.props,
             fdb_props_with_root,
+            asm_props,
             self.operator_key_infos,
             self.p2p_ports,
             sidesystem=self._sidesystem,
         )
-
-        if self._asm_rpc_service is None:
-            asm_fac = ectx.get_factory("asm_rpc")
-            params_file_path = self._rollup_params_path
-            self._asm_rpc_service = asm_fac.create_asm_rpc_service(bitcoind_props, params_file_path)
 
         return s2_service, bridge_operator, self._asm_rpc_service
 

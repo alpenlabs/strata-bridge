@@ -18,9 +18,9 @@ from utils.utils import (
 
 
 @flexitest.register
-class AsmDepositTest(StrataTestBase):
+class AsmBinaryTest(StrataTestBase):
     """
-    Test that ASM parses bridge DRT and DT
+    Test that ASM can serve the Deposits and Assignments
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -46,6 +46,12 @@ class AsmDepositTest(StrataTestBase):
 
         wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
         self.logger.info("Deposit completed")
+
+        # Stop bridge nodes to prevent the payouts
+        self.logger.info("Stopping all operator nodes")
+        for i in range(num_operators):
+            self.logger.info(f"Stopping operator node {i}")
+            bridge_nodes[i].stop()
 
         # Assert ASM has the deposit entry
         asm_service = ctx.get_service("asm_rpc")
