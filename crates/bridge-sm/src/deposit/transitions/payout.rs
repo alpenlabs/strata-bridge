@@ -58,6 +58,15 @@ impl DepositSM {
                 }
             }
 
+            // Post-assignment states: the deposit has already progressed past assignment,
+            // so this is a duplicate assignment event re-delivered by the ASM client.
+            DepositState::Fulfilled { .. }
+            | DepositState::PayoutDescriptorReceived { .. }
+            | DepositState::PayoutNoncesCollected { .. }
+            | DepositState::CooperativePathFailed { .. } => {
+                Err(DSMError::duplicate(self.state.clone(), assignment.into()))
+            }
+
             _ => Err(DSMError::invalid_event(
                 self.state.clone(),
                 assignment.into(),
