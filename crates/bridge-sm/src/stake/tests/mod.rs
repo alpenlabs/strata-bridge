@@ -2,6 +2,7 @@
 
 mod new_block;
 mod stake_data_received;
+mod unstaking_nonces_received;
 
 use std::{
     array,
