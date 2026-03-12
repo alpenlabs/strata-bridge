@@ -7,19 +7,8 @@ from typing import Any
 
 from utils.utils import OperatorKeyInfo
 
-
-@dataclass
-class Block:
-    height: int
-    blkid: str
-
-
-@dataclass
-class GenesisL1View:
-    blk: Block
-    next_target: int
-    epoch_start_timestamp: int
-    last_11_timestamps: list[int]
+from ..common.asm_params import Block, GenesisL1View
+from ..common.asm_params import build_genesis_l1_view as build_genesis_l1_view_common
 
 
 @dataclass
@@ -70,31 +59,14 @@ class Sidesystem:
         )
 
 
-def _parse_bits_to_target(bits: int | str) -> int:
-    if isinstance(bits, str):
-        # `getblockheader` returns a hex string like "207fffff" on regtest.
-        return int(bits, 16)
-    return int(bits)
-
-
 def build_genesis_l1_view(bitcoind_rpc: Any, genesis_height: int) -> GenesisL1View:
     """Build a GenesisL1View using the live bitcoind RPC."""
     block_hash = bitcoind_rpc.proxy.getblockhash(genesis_height)
     header = bitcoind_rpc.proxy.getblockheader(block_hash)
-
-    header_time = int(header["time"])
-    next_target = _parse_bits_to_target(header["bits"])
-
-    # Use a slightly older timestamp history so the median time is strictly
-    # less than the genesis block's time.
-    history_time = header_time - 1 if header_time > 0 else header_time
-    last_11_timestamps = [history_time] * 11
-
-    return GenesisL1View(
-        blk=Block(height=genesis_height, blkid=block_hash),
-        next_target=next_target,
-        epoch_start_timestamp=header_time,
-        last_11_timestamps=last_11_timestamps,
+    return build_genesis_l1_view_common(
+        genesis_height=genesis_height,
+        block_hash=block_hash,
+        header=header,
     )
 
 
