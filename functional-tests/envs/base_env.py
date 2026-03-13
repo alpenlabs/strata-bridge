@@ -3,6 +3,7 @@ from pathlib import Path
 import flexitest
 
 from factory.bridge_operator.asm_cfg import build_asm_params
+from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from factory.bridge_operator.sidesystem_cfg import build_sidesystem
 from factory.common.asm_params import write_asm_params_json
 from factory.fdb import generate_fdb_root_directory
@@ -21,8 +22,9 @@ class BaseEnv(flexitest.EnvConfig):
         self,
         num_operators,
         funding_amount=10.01,
-        initial_blocks=101,
+        bridge_protocol_params=BridgeProtocolParams(),  # noqa: B008
         finalization_blocks=10,
+        initial_blocks=101,
     ):
         super().__init__()
         self.num_operators = num_operators
@@ -32,6 +34,7 @@ class BaseEnv(flexitest.EnvConfig):
         self._asm_rpc_service = None
         self._sidesystem = None
         self._rollup_params_path = None
+        self._bridge_protocol_params = bridge_protocol_params
 
         # Generate P2P ports for this environment
         p2p_port_gen = generate_p2p_ports()
@@ -143,6 +146,7 @@ class BaseEnv(flexitest.EnvConfig):
             self.operator_key_infos,
             self.p2p_ports,
             sidesystem=self._sidesystem,
+            bridge_protocol_params=self._bridge_protocol_params,
         )
 
         return s2_service, bridge_operator, self._asm_rpc_service

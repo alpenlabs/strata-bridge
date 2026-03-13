@@ -1,6 +1,7 @@
 import flexitest
 
 from constants import BRIDGE_NETWORK_SIZE
+from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from utils.utils import wait_until_bridge_ready
 
 from .base_env import BaseEnv
@@ -12,13 +13,13 @@ class BridgeNetworkEnv(BaseEnv):
     def __init__(
         self,
         funding_amount=10.01,
-        initial_blocks=101,
+        bridge_protocol_params=BridgeProtocolParams(),  # noqa: B008
         finalization_blocks=10,
     ):
         super().__init__(
             BRIDGE_NETWORK_SIZE,
             funding_amount,
-            initial_blocks,
+            bridge_protocol_params,
             finalization_blocks,
         )
 
