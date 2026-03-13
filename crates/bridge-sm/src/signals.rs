@@ -1,7 +1,7 @@
 //! Messages that need to be transferred between different state machines in the bridge.
 
 use bitcoin::Txid;
-use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 
 /// The signals that need to be sent across different state machines in the bridge.
 ///
@@ -59,9 +59,8 @@ pub enum DepositToGraph {
     CooperativePayoutFailed {
         /// The index of the operator that was assigned.
         assignee: OperatorIdx,
-        /// The index of the deposit for which the cooperative payout failed.
-        deposit_idx: u32,
-        // add more fields if necessary
+        /// The index of the target graph for which the cooperative payout failed.
+        graph_idx: GraphIdx,
     },
 }
 
