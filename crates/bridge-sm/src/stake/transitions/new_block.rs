@@ -23,7 +23,7 @@ impl StakeSM {
         cfg: Arc<StakeSMCfg>,
         event: NewBlockEvent,
     ) -> SSMResult<SSMOutput> {
-        match self.state_mut().last_block_height_mut() {
+        match self.state_mut().last_processed_block_height_mut() {
             None => {
                 return Err(SSMError::rejected(
                     self.state().clone(),
