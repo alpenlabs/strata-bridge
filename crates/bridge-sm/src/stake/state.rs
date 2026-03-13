@@ -92,8 +92,11 @@ impl StakeState {
         }
     }
 
-    /// Returns true if the stake is available to be spent.
-    pub const fn is_available(&self) -> bool {
+    /// Returns true if staking has happened.
+    ///
+    /// This means that other state machines can start working.
+    /// This predicate returns true even after unstaking has completed.
+    pub const fn has_staked(&self) -> bool {
         matches!(
             self,
             Self::Confirmed { .. } | Self::PreimageRevealed { .. } | Self::Unstaked { .. }
