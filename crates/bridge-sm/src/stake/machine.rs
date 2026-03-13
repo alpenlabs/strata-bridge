@@ -9,7 +9,7 @@ use crate::{
         context::StakeSMCtx,
         duties::StakeDuty,
         errors::{SSMError, SSMResult},
-        events::StakeEvent,
+        events::{NagTickEvent, StakeEvent},
         state::StakeState,
     },
     state_machine::{SMOutput, StateMachine},
@@ -48,6 +48,7 @@ impl StateMachine for StakeSM {
             StakeEvent::PreimageRevealed(event) => self.process_preimage_revealed(event),
             StakeEvent::UnstakingConfirmed(event) => self.process_unstaking_confirmed(event),
             StakeEvent::NewBlock(event) => self.process_new_block(cfg, event),
+            StakeEvent::NagTick(NagTickEvent) => self.process_nag_tick(),
         }
     }
 }
