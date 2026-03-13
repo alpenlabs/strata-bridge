@@ -31,10 +31,10 @@ impl StakeSM {
                 let summary = StakeGraph::new(stake_data.clone()).summarize();
 
                 if event.tx.compute_txid() != summary.unstaking_intent {
-                    return Err(SSMError::rejected(
+                    return Err(SSMError::invalid_event(
                         self.state().clone(),
                         event.into(),
-                        "The observed unstaking intent transaction does not match the expected TXID",
+                        Some("The observed unstaking intent transaction does not match the expected TXID".to_string()),
                     ));
                 }
 
@@ -55,10 +55,7 @@ impl StakeSM {
                     return Err(SSMError::invalid_event(
                         self.state().clone(),
                         event.into(),
-                        Some(
-                            "The observed unstaking intent transaction is missing valid witness data"
-                                .to_owned(),
-                        ),
+                        Some("The observed unstaking intent transaction is missing valid witness data".to_string()),
                     ));
                 };
 

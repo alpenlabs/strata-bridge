@@ -88,7 +88,7 @@ fn reject_mismatching_unstaking_intent_tx() {
             block_height: UNSTAKING_INTENT_HEIGHT,
         }
         .into(),
-        expected_error: |e| matches!(e, SSMError::Rejected { .. }),
+        expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
     });
 }
 
