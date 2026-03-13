@@ -7,6 +7,7 @@ from utils.utils import OperatorKeyInfo
 
 from .config_cfg import (
     AsmRpcConfig,
+    BridgeConfigParams,
     BridgeOperatorConfig,
     BtcClientConfig,
     BtcZmqConfig,
@@ -38,6 +39,7 @@ def generate_config_toml(
     other_p2p_addrs: list[str],
     output_path: str,
     tls_dir: str,
+    bridge_config_params: BridgeConfigParams,
     heartbeat_delay_factor: int = 1,  # no delay by default
 ):
     mtls_dir = Path(tls_dir)
@@ -48,10 +50,10 @@ def generate_config_toml(
         thread_stack_size=None,
         nag_interval=Duration(secs=10, nanos=0),
         retry_interval=Duration(secs=1, nanos=0),
-        min_withdrawal_fulfillment_window=144,
+        min_withdrawal_fulfillment_window=bridge_config_params.min_withdrawal_fulfillment_window,
         shutdown_timeout=Duration(secs=30, nanos=0),
-        cooperative_payout_timeout=144,
-        max_fee_rate=10,
+        cooperative_payout_timeout=bridge_config_params.cooperative_payout_timeout,
+        max_fee_rate=bridge_config_params.max_fee_rate,
         secret_service_client=SecretServiceClientConfig(
             server_addr=f"127.0.0.1:{s2_props.get('s2_port')}",
             server_hostname="secret-service",
