@@ -64,6 +64,10 @@ pub struct NewBlockEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NagTickEvent;
 
+/// Event signalling a retry tick has occurred.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetryTickEvent;
+
 /// External events that are processed by the Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StakeEvent {
@@ -83,6 +87,8 @@ pub enum StakeEvent {
     NewBlock(NewBlockEvent),
     /// Event signalling that nag duties should be emitted for missing operator data.
     NagTick(NagTickEvent),
+    /// Event signalling that retriable duties should be emitted for the current state.
+    RetryTick(RetryTickEvent),
 }
 
 impl std::fmt::Display for StakeEvent {
@@ -96,6 +102,7 @@ impl std::fmt::Display for StakeEvent {
             Self::UnstakingConfirmed(_) => "UnstakingConfirmed",
             Self::NewBlock(_) => "NewBlock",
             Self::NagTick(_) => "NagTick",
+            Self::RetryTick(_) => "RetryTick",
         };
 
         write!(f, "{display}")
@@ -163,6 +170,12 @@ impl std::fmt::Display for NagTickEvent {
     }
 }
 
+impl std::fmt::Display for RetryTickEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RetryTick")
+    }
+}
+
 /// Implements `From<T> for StakeEvent` for a leaf event type.
 ///
 /// This allows all stake-related event structs to be ergonomically
@@ -186,3 +199,4 @@ impl_into_stake_event!(PreimageRevealedEvent, PreimageRevealed);
 impl_into_stake_event!(UnstakingConfirmedEvent, UnstakingConfirmed);
 impl_into_stake_event!(NewBlockEvent, NewBlock);
 impl_into_stake_event!(NagTickEvent, NagTick);
+impl_into_stake_event!(RetryTickEvent, RetryTick);

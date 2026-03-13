@@ -3,6 +3,7 @@
 mod nag_tick;
 mod new_block;
 mod preimage_revealed;
+mod retry_tick;
 mod stake_confirmed;
 mod stake_data_received;
 mod unstaking_confirmed;
