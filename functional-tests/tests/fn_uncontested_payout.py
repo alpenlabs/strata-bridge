@@ -1,6 +1,5 @@
 import flexitest
 
-from constants import MAX_BRIDGE_TIMEOUT
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
