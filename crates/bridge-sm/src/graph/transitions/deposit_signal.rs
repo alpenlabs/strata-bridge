@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use strata_bridge_primitives::types::GraphIdx;
+
 use crate::{
     graph::{
         config::GraphSMCfg,
@@ -21,8 +23,8 @@ impl GraphSM {
         match deposit_message {
             DepositToGraph::CooperativePayoutFailed {
                 assignee,
-                deposit_idx,
-            } => self.process_coop_payout_failed(cfg, assignee, deposit_idx),
+                graph_idx,
+            } => self.process_coop_payout_failed(cfg, assignee, graph_idx),
         }
     }
 
@@ -34,7 +36,7 @@ impl GraphSM {
         &mut self,
         cfg: Arc<GraphSMCfg>,
         assignee: u32,
-        deposit_idx: u32,
+        graph_idx: GraphIdx,
     ) -> GSMResult<GSMOutput> {
         // Extract context values before the match to avoid borrow conflicts
         let graph_ctx = self.context().clone();
@@ -65,7 +67,7 @@ impl GraphSM {
                 self.state().clone(),
                 DepositToGraph::CooperativePayoutFailed {
                     assignee,
-                    deposit_idx,
+                    graph_idx,
                 }
                 .into(),
                 None,

@@ -1,3 +1,5 @@
+use strata_bridge_primitives::types::GraphIdx;
+
 use crate::{
     deposit::{
         errors::{DSMError, DSMResult},
@@ -86,7 +88,10 @@ impl DepositSM {
                         signals: vec![DepositSignal::ToGraph(
                             DepositToGraph::CooperativePayoutFailed {
                                 assignee,
-                                deposit_idx: self.context().deposit_idx(),
+                                graph_idx: GraphIdx {
+                                    deposit: self.context().deposit_idx(),
+                                    operator: assignee,
+                                },
                             },
                         )],
                     });

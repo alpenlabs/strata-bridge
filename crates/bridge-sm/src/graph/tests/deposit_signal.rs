@@ -1,6 +1,7 @@
 //! Unit Tests for process_deposit_signal (CooperativePayoutFailed from Deposit SM)
 #[cfg(test)]
 mod tests {
+    use strata_bridge_primitives::types::GraphIdx;
     use strata_bridge_test_utils::bitcoin::generate_txid;
 
     use crate::{
@@ -19,13 +20,16 @@ mod tests {
             },
         },
         signals::DepositToGraph,
-        testing::test_transition,
+        testing::{fixtures::TEST_DEPOSIT_IDX, test_transition},
     };
 
     fn coop_payout_failed_event() -> GraphEvent {
         GraphEvent::DepositMessage(DepositToGraph::CooperativePayoutFailed {
             assignee: TEST_POV_IDX,
-            deposit_idx: Default::default(),
+            graph_idx: GraphIdx {
+                deposit: TEST_DEPOSIT_IDX,
+                operator: TEST_POV_IDX,
+            },
         })
     }
 
