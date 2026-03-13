@@ -12,6 +12,11 @@ pub enum StakeDuty {
         /// The operator who owns the stake graph.
         operator_idx: OperatorIdx,
     },
+    /// Publish the stake transaction for a given operator.
+    PublishStake {
+        /// The operator who owns the stake graph.
+        operator_idx: OperatorIdx,
+    },
     /// Publish the nonces for a given operator.
     PublishUnstakingNonces {
         /// Data that is required to construct the stake graph.
@@ -63,6 +68,9 @@ impl std::fmt::Display for StakeDuty {
         let display = match self {
             Self::PublishStakeData { operator_idx } => {
                 format!("PublishStakeData (operator_idx: {operator_idx})")
+            }
+            Self::PublishStake { operator_idx } => {
+                format!("PublishStake (operator_idx: {operator_idx})")
             }
             Self::PublishUnstakingNonces { .. } => "PublishUnstakingNonces".to_string(),
             Self::PublishUnstakingPartials { .. } => "PublishUnstakingPartials".to_string(),
