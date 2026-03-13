@@ -60,6 +60,10 @@ pub struct NewBlockEvent {
     pub block_height: BitcoinBlockHeight,
 }
 
+/// Event signalling a nag tick has occurred.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NagTickEvent;
+
 /// External events that are processed by the Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StakeEvent {
@@ -77,6 +81,8 @@ pub enum StakeEvent {
     UnstakingConfirmed(UnstakingConfirmedEvent),
     /// A new block has been observed on-chain.
     NewBlock(NewBlockEvent),
+    /// Event signalling that nag duties should be emitted for missing operator data.
+    NagTick(NagTickEvent),
 }
 
 impl std::fmt::Display for StakeEvent {
@@ -89,6 +95,7 @@ impl std::fmt::Display for StakeEvent {
             Self::PreimageRevealed(_) => "PreimageRevealed",
             Self::UnstakingConfirmed(_) => "UnstakingConfirmed",
             Self::NewBlock(_) => "NewBlock",
+            Self::NagTick(_) => "NagTick",
         };
 
         write!(f, "{display}")
@@ -150,6 +157,12 @@ impl std::fmt::Display for NewBlockEvent {
     }
 }
 
+impl std::fmt::Display for NagTickEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NagTick")
+    }
+}
+
 /// Implements `From<T> for StakeEvent` for a leaf event type.
 ///
 /// This allows all stake-related event structs to be ergonomically
@@ -172,3 +185,4 @@ impl_into_stake_event!(StakeConfirmedEvent, StakeConfirmed);
 impl_into_stake_event!(PreimageRevealedEvent, PreimageRevealed);
 impl_into_stake_event!(UnstakingConfirmedEvent, UnstakingConfirmed);
 impl_into_stake_event!(NewBlockEvent, NewBlock);
+impl_into_stake_event!(NagTickEvent, NagTick);
