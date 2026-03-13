@@ -23,26 +23,22 @@ impl StakeSM {
         cfg: Arc<StakeSMCfg>,
         event: NewBlockEvent,
     ) -> SSMResult<SSMOutput> {
-        match self.state().last_block_height() {
+        match self.state_mut().last_block_height_mut() {
             None => {
                 return Err(SSMError::rejected(
                     self.state().clone(),
                     event.into(),
-                    "Rejecting event because unstaking is complete",
+                    "Rejecting event because state machine is in a terminal state",
                 ));
             }
-            Some(last_block_height) if last_block_height >= event.block_height => {
+            Some(last_block_height) if *last_block_height >= event.block_height => {
                 return Err(SSMError::rejected(
                     self.state().clone(),
                     event.into(),
                     "Rejecting already processed block height",
                 ));
             }
-            _ => {}
-        }
-
-        if let Some(last_block_height) = self.state_mut().last_block_height_mut() {
-            *last_block_height = event.block_height;
+            Some(last_block_height) => *last_block_height = event.block_height,
         }
 
         if let StakeState::PreimageRevealed {
