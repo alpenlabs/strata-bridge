@@ -55,60 +55,49 @@ fn unstaking_tx() -> Transaction {
 
 #[test]
 fn accept_unstaking_tx() {
-    let from_state = preimage_revealed_state();
-    let expected_state = StakeState::Unstaked {
-        preimage: TEST_UNSTAKING_PREIMAGE,
-        unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-    };
-    let mut sm = create_state_machine(from_state);
-
-    let output = sm
-        .process_unstaking_confirmed(UnstakingConfirmedEvent { tx: unstaking_tx() })
-        .expect("unstaking transaction should be accepted");
-
-    assert_eq!(sm.state(), &expected_state);
-    assert!(output.duties.is_empty());
-    assert!(output.signals.is_empty());
+    test_stake_transition(StakeTransition {
+        from_state: preimage_revealed_state(),
+        event: UnstakingConfirmedEvent { tx: unstaking_tx() }.into(),
+        expected_state: StakeState::Unstaked {
+            preimage: TEST_UNSTAKING_PREIMAGE,
+            unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        },
+        expected_duties: vec![],
+        expected_signals: vec![],
+    });
 }
 
 #[test]
 fn reject_mismatching_unstaking_tx() {
-    let from_state = preimage_revealed_state();
-    let expected_state = from_state.clone();
-    let mut sm = create_state_machine(from_state);
-
-    let result = sm.process_unstaking_confirmed(UnstakingConfirmedEvent {
-        tx: TEST_GRAPH.stake.as_ref().clone(),
+    test_stake_invalid_transition(StakeInvalidTransition {
+        from_state: preimage_revealed_state(),
+        event: UnstakingConfirmedEvent {
+            tx: TEST_GRAPH.stake.as_ref().clone(),
+        }
+        .into(),
+        expected_error: |e| matches!(e, SSMError::Rejected { .. }),
     });
-
-    assert!(matches!(result, Err(SSMError::Rejected { .. })));
-    assert_eq!(sm.state(), &expected_state);
 }
 
 #[test]
 fn reject_unstaked_state() {
-    let from_state = StakeState::Unstaked {
-        preimage: TEST_UNSTAKING_PREIMAGE,
-        unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-    };
-    let expected_state = from_state.clone();
-    let mut sm = create_state_machine(from_state);
-
-    let result = sm.process_unstaking_confirmed(UnstakingConfirmedEvent { tx: unstaking_tx() });
-
-    assert!(matches!(result, Err(SSMError::Rejected { .. })));
-    assert_eq!(sm.state(), &expected_state);
+    test_stake_invalid_transition(StakeInvalidTransition {
+        from_state: StakeState::Unstaked {
+            preimage: TEST_UNSTAKING_PREIMAGE,
+            unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        },
+        event: UnstakingConfirmedEvent { tx: unstaking_tx() }.into(),
+        expected_error: |e| matches!(e, SSMError::Rejected { .. }),
+    });
 }
 
 #[test]
 fn reject_invalid_states() {
     for from_state in invalid_states() {
-        let expected_state = from_state.clone();
-        let mut sm = create_state_machine(from_state);
-
-        let result = sm.process_unstaking_confirmed(UnstakingConfirmedEvent { tx: unstaking_tx() });
-
-        assert!(matches!(result, Err(SSMError::InvalidEvent { .. })));
-        assert_eq!(sm.state(), &expected_state);
+        test_stake_invalid_transition(StakeInvalidTransition {
+            from_state,
+            event: UnstakingConfirmedEvent { tx: unstaking_tx() }.into(),
+            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
+        });
     }
 }

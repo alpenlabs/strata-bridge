@@ -50,50 +50,44 @@ fn invalid_states() -> [StakeState; 6] {
 
 #[test]
 fn accept_stake_tx() {
-    let from_state = signed_state();
-    let expected_state = StakeState::Confirmed {
-        last_block_height: STAKE_HEIGHT,
-        stake_data: TEST_STAKE_DATA.clone(),
-        stake_txid: TEST_GRAPH_SUMMARY.stake,
-    };
-    let mut sm = create_state_machine(from_state);
-
-    let output = sm
-        .process_stake_confirmed(StakeConfirmedEvent {
+    test_stake_transition(StakeTransition {
+        from_state: signed_state(),
+        event: StakeConfirmedEvent {
             tx: TEST_GRAPH.stake.as_ref().clone(),
-        })
-        .expect("stake transaction should be accepted");
-
-    assert_eq!(sm.state(), &expected_state);
-    assert!(output.duties.is_empty());
-    assert!(output.signals.is_empty());
+        }
+        .into(),
+        expected_state: StakeState::Confirmed {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            stake_txid: TEST_GRAPH_SUMMARY.stake,
+        },
+        expected_duties: vec![],
+        expected_signals: vec![],
+    });
 }
 
 #[test]
 fn reject_mismatching_stake_tx() {
-    let from_state = signed_state();
-    let expected_state = from_state.clone();
-    let mut sm = create_state_machine(from_state);
-
-    let result = sm.process_stake_confirmed(StakeConfirmedEvent {
-        tx: TEST_GRAPH.unstaking.as_ref().clone(),
+    test_stake_invalid_transition(StakeInvalidTransition {
+        from_state: signed_state(),
+        event: StakeConfirmedEvent {
+            tx: TEST_GRAPH.unstaking.as_ref().clone(),
+        }
+        .into(),
+        expected_error: |e| matches!(e, SSMError::Rejected { .. }),
     });
-
-    assert!(matches!(result, Err(SSMError::Rejected { .. })));
-    assert_eq!(sm.state(), &expected_state);
 }
 
 #[test]
 fn reject_invalid_states() {
     for from_state in invalid_states() {
-        let expected_state = from_state.clone();
-        let mut sm = create_state_machine(from_state);
-
-        let result = sm.process_stake_confirmed(StakeConfirmedEvent {
-            tx: TEST_GRAPH.stake.as_ref().clone(),
+        test_stake_invalid_transition(StakeInvalidTransition {
+            from_state,
+            event: StakeConfirmedEvent {
+                tx: TEST_GRAPH.stake.as_ref().clone(),
+            }
+            .into(),
+            expected_error: |e| matches!(e, SSMError::Rejected { .. }),
         });
-
-        assert!(matches!(result, Err(SSMError::Rejected { .. })));
-        assert_eq!(sm.state(), &expected_state);
     }
 }

@@ -66,64 +66,56 @@ fn unstaking_intent_tx() -> Transaction {
 
 #[test]
 fn accept_preimage_revealed() {
-    let from_state = confirmed_state();
-    let expected_state = revealed_state();
-    let mut sm = create_state_machine(from_state);
-
-    let output = sm
-        .process_preimage_revealed(PreimageRevealedEvent {
+    test_stake_transition(StakeTransition {
+        from_state: confirmed_state(),
+        event: PreimageRevealedEvent {
             tx: unstaking_intent_tx(),
             block_height: UNSTAKING_INTENT_HEIGHT,
-        })
-        .expect("revealed preimage should be accepted");
-
-    assert_eq!(sm.state(), &expected_state);
-    assert!(output.duties.is_empty());
-    assert!(output.signals.is_empty());
+        }
+        .into(),
+        expected_state: revealed_state(),
+        expected_duties: vec![],
+        expected_signals: vec![],
+    });
 }
 
 #[test]
 fn reject_mismatching_unstaking_intent_tx() {
-    let from_state = confirmed_state();
-    let expected_state = from_state.clone();
-    let mut sm = create_state_machine(from_state);
-
-    let result = sm.process_preimage_revealed(PreimageRevealedEvent {
-        tx: TEST_GRAPH.unstaking.as_ref().clone(),
-        block_height: UNSTAKING_INTENT_HEIGHT,
+    test_stake_invalid_transition(StakeInvalidTransition {
+        from_state: confirmed_state(),
+        event: PreimageRevealedEvent {
+            tx: TEST_GRAPH.unstaking.as_ref().clone(),
+            block_height: UNSTAKING_INTENT_HEIGHT,
+        }
+        .into(),
+        expected_error: |e| matches!(e, SSMError::Rejected { .. }),
     });
-
-    assert!(matches!(result, Err(SSMError::Rejected { .. })));
-    assert_eq!(sm.state(), &expected_state);
 }
 
 #[test]
 fn reject_duplicate_preimage_revealed() {
-    let from_state = revealed_state();
-    let expected_state = from_state.clone();
-    let mut sm = create_state_machine(from_state);
-
-    let result = sm.process_preimage_revealed(PreimageRevealedEvent {
-        tx: unstaking_intent_tx(),
-        block_height: UNSTAKING_INTENT_HEIGHT + 1,
+    test_stake_invalid_transition(StakeInvalidTransition {
+        from_state: revealed_state(),
+        event: PreimageRevealedEvent {
+            tx: unstaking_intent_tx(),
+            block_height: UNSTAKING_INTENT_HEIGHT + 1,
+        }
+        .into(),
+        expected_error: |e| matches!(e, SSMError::Duplicate { .. }),
     });
-
-    assert!(matches!(result, Err(SSMError::Duplicate { .. })));
-    assert_eq!(sm.state(), &expected_state);
 }
 
 #[test]
 fn reject_invalid_states() {
     for from_state in invalid_states() {
-        let expected_state = from_state.clone();
-        let mut sm = create_state_machine(from_state);
-
-        let result = sm.process_preimage_revealed(PreimageRevealedEvent {
-            tx: unstaking_intent_tx(),
-            block_height: UNSTAKING_INTENT_HEIGHT,
+        test_stake_invalid_transition(StakeInvalidTransition {
+            from_state,
+            event: PreimageRevealedEvent {
+                tx: unstaking_intent_tx(),
+                block_height: UNSTAKING_INTENT_HEIGHT,
+            }
+            .into(),
+            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
         });
-
-        assert!(matches!(result, Err(SSMError::InvalidEvent { .. })));
-        assert_eq!(sm.state(), &expected_state);
     }
 }
