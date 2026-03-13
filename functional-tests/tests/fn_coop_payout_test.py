@@ -3,6 +3,7 @@ import flexitest
 from constants import MAX_BRIDGE_TIMEOUT
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
+from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.asm_types import AssignmentEntry
 from rpc.types import RpcDepositStatusComplete
@@ -30,7 +31,10 @@ class CooperativePayoutTest(StrataTestBase):
         ctx.set_env(
             BridgeNetworkEnv(
                 funding_amount=10.01,
-                bridge_protocol_params=BridgeProtocolParams(contest_timelock=MAX_BRIDGE_TIMEOUT),
+                bridge_protocol_params=BridgeProtocolParams(contest_timelock=MAX_BRIDGE_TIMEOUT),  # noqa: B008
+                bridge_config_params=BridgeConfigParams(
+                    cooperative_payout_timeout=MAX_BRIDGE_TIMEOUT,
+                ),  # noqa: B008
             )
         )
 

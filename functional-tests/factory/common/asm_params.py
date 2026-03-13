@@ -92,8 +92,8 @@ def build_subprotocols(
     musig2_keys: list[str],
     genesis_height: int,
     denomination: int = 1_000_000_000,
-    assignment_duration: int = 64,
-    operator_fee: int = 50_000_000,
+    assignment_duration: int = 100_000,
+    operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
 ) -> list[dict[str, Any]]:
     compressed_keys = [f"02{key}" for key in musig2_keys]
@@ -142,8 +142,8 @@ def build_asm_params(
     header: dict[str, Any],
     magic: str = "ALPN",
     denomination: int = 1_000_000_000,
-    assignment_duration: int = 64,
-    operator_fee: int = 50_000_000,
+    assignment_duration: int = 10_000,
+    operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
 ) -> AsmParams:
     l1_view = build_genesis_l1_view(genesis_height, block_hash, header)

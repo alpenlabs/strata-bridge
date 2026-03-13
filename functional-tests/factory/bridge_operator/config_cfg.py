@@ -86,6 +86,13 @@ class OperatorWalletConfig:
 
 
 @dataclass
+class BridgeConfigParams:
+    min_withdrawal_fulfillment_window: int = 144
+    cooperative_payout_timeout: int = 144
+    max_fee_rate: int = 10
+
+
+@dataclass
 class BridgeOperatorConfig:
     num_threads: int | None
     thread_stack_size: int | None

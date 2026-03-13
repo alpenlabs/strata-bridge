@@ -10,6 +10,7 @@ from rpc import inject_service_create_rpc
 from utils.service_names import get_mtls_cred_path, get_operator_service_name
 from utils.utils import OperatorKeyInfo
 
+from .config_cfg import BridgeConfigParams
 from .params_cfg import BridgeProtocolParams
 from .sidesystem_cfg import Sidesystem
 from .utils import generate_config_toml, generate_params_toml
@@ -80,6 +81,7 @@ class BridgeOperatorFactory(flexitest.Factory):
         ectx: flexitest.EnvContext,
         sidesystem: Sidesystem,
         bridge_protocol_params: BridgeProtocolParams,
+        bridge_config_params: BridgeConfigParams,
     ) -> flexitest.Service:
         bridge_operator_name = get_operator_service_name(operator_idx, BRIDGE_NODE_DIR)
         rpc_port = self.next_port()
@@ -110,6 +112,7 @@ class BridgeOperatorFactory(flexitest.Factory):
             other_p2p_addrs,
             config_toml_path,
             mtls_cred_path,
+            bridge_config_params,
             heartbeat_delay_factor,
         )
 
