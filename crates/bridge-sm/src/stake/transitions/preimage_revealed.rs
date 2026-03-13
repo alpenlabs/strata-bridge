@@ -42,17 +42,25 @@ impl StakeSM {
                 // that the given transaction has the exact structure of the unstaking intent
                 // transaction. Forging a transaction with the same TXID but with a
                 // different structure is a cryptographically hard problem.
-                // Therefore, the following unwrap (cryptographically) never returns [0; 32].
                 //
-                // Also, see the implementation of the `UnstakingIntentTx` for reference.
-                // The first witness stack item is the preimage, which must be 32 bytes.
-                let preimage: [u8; 32] = event
+                // This means we know that event.tx has a first input,
+                // but we don't have any guarantees about its witness.
+                let Some(preimage): Option<[u8; 32]> = event
                     .tx
                     .input
                     .first()
                     .and_then(|txin| txin.witness.iter().next())
                     .and_then(|stack_item| stack_item.try_into().ok())
-                    .unwrap_or([0; 32]);
+                else {
+                    return Err(SSMError::invalid_event(
+                        self.state().clone(),
+                        event.into(),
+                        Some(
+                            "The observed unstaking intent transaction is missing valid witness data"
+                                .to_owned(),
+                        ),
+                    ));
+                };
 
                 self.state = StakeState::PreimageRevealed {
                     last_block_height: event.block_height,

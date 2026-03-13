@@ -1,6 +1,6 @@
 //! Unit tests for [`StakeSM::process_preimage_revealed`].
 
-use bitcoin::Transaction;
+use bitcoin::{Transaction, Witness};
 use strata_bridge_connectors2::prelude::UnstakingIntentWitness;
 
 use super::*;
@@ -89,6 +89,22 @@ fn reject_mismatching_unstaking_intent_tx() {
         }
         .into(),
         expected_error: |e| matches!(e, SSMError::Rejected { .. }),
+    });
+}
+
+#[test]
+fn reject_missing_preimage_witness() {
+    let mut tx = unstaking_intent_tx();
+    tx.input[0].witness = Witness::default();
+
+    test_stake_invalid_transition(StakeInvalidTransition {
+        from_state: confirmed_state(),
+        event: PreimageRevealedEvent {
+            tx,
+            block_height: UNSTAKING_INTENT_HEIGHT,
+        }
+        .into(),
+        expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
     });
 }
 
