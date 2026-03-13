@@ -35,8 +35,15 @@ use strata_bridge_tx_graph2::stake_graph::{
 };
 
 use crate::{
-    stake::{config::StakeSMCfg, context::StakeSMCtx, machine::StakeSM, state::StakeState},
-    testing::signer::TestMusigSigner,
+    signals::Signal,
+    stake::{
+        config::StakeSMCfg, context::StakeSMCtx, duties::StakeDuty, errors::SSMError,
+        events::StakeEvent, machine::StakeSM, state::StakeState,
+    },
+    testing::{
+        signer::TestMusigSigner,
+        transition::{InvalidTransition, Transition, test_invalid_transition, test_transition},
+    },
 };
 
 // ┌───────────────────────────────────────────────────────────────────┐
@@ -49,6 +56,36 @@ fn create_state_machine(state: StakeState) -> StakeSM {
         context: TEST_CTX.clone(),
         state,
     }
+}
+
+/// Gets the state from a [`StakeSM`].
+const fn get_state(sm: &StakeSM) -> &StakeState {
+    sm.state()
+}
+
+/// Type alias for [`StakeSM`] transitions.
+type StakeTransition = Transition<StakeState, StakeEvent, StakeDuty, Signal>;
+
+/// Type alias for invalid [`StakeSM`] transitions.
+type StakeInvalidTransition = InvalidTransition<StakeState, StakeEvent, SSMError>;
+
+/// Test a valid [`StakeSM`] transition with pre-configured test helpers.
+fn test_stake_transition(transition: StakeTransition) {
+    test_transition::<StakeSM, _, _, _, _, _, _, _>(
+        create_state_machine,
+        get_state,
+        TEST_CFG.clone(),
+        transition,
+    );
+}
+
+/// Test an invalid [`StakeSM`] transition with pre-configured test helpers.
+fn test_stake_invalid_transition(invalid: StakeInvalidTransition) {
+    test_invalid_transition::<StakeSM, _, _, _, _, _, _>(
+        create_state_machine,
+        TEST_CFG.clone(),
+        invalid,
+    );
 }
 
 // ┌───────────────────────────────────────────────────────────────────┐

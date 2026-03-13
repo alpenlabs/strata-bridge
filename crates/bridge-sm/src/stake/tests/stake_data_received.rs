@@ -41,60 +41,52 @@ fn invalid_states() -> [StakeState; 5] {
 
 #[test]
 fn accept_stake_data() {
-    let from_state = StakeState::Created {
-        last_block_height: STAKE_HEIGHT,
-    };
-    let expected_state = StakeState::StakeGraphGenerated {
-        last_block_height: STAKE_HEIGHT,
-        stake_data: TEST_STAKE_DATA.clone(),
-        pub_nonces: BTreeMap::new(),
-    };
-    let mut sm = create_state_machine(from_state);
-
-    let output = sm
-        .process_stake_data(StakeDataReceivedEvent {
+    test_stake_transition(StakeTransition {
+        from_state: StakeState::Created {
+            last_block_height: STAKE_HEIGHT,
+        },
+        event: StakeDataReceivedEvent {
             stake_data: TEST_STAKE_DATA.clone(),
-        })
-        .expect("stake data should be accepted");
-
-    assert_eq!(sm.state(), &expected_state);
-    assert_eq!(
-        output.duties,
-        vec![StakeDuty::PublishUnstakingNonces {
+        }
+        .into(),
+        expected_state: StakeState::StakeGraphGenerated {
+            last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-        }]
-    );
-    assert!(output.signals.is_empty());
+            pub_nonces: BTreeMap::new(),
+        },
+        expected_duties: vec![StakeDuty::PublishUnstakingNonces {
+            stake_data: TEST_STAKE_DATA.clone(),
+        }],
+        expected_signals: vec![],
+    });
 }
 
 #[test]
 fn reject_duplicate_data() {
-    let from_state = StakeState::StakeGraphGenerated {
-        last_block_height: STAKE_HEIGHT,
-        stake_data: TEST_STAKE_DATA.clone(),
-        pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-    };
-    let mut sm = create_state_machine(from_state.clone());
-
-    let result = sm.process_stake_data(StakeDataReceivedEvent {
-        stake_data: TEST_STAKE_DATA.clone(),
+    test_stake_invalid_transition(StakeInvalidTransition {
+        from_state: StakeState::StakeGraphGenerated {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            pub_nonces: TEST_PUB_NONCES_MAP.clone(),
+        },
+        event: StakeDataReceivedEvent {
+            stake_data: TEST_STAKE_DATA.clone(),
+        }
+        .into(),
+        expected_error: |e| matches!(e, SSMError::Duplicate { .. }),
     });
-
-    assert!(matches!(result, Err(SSMError::Duplicate { .. })));
-    assert_eq!(sm.state(), &from_state);
 }
 
 #[test]
 fn reject_invalid_states() {
     for from_state in invalid_states() {
-        let expected_state = from_state.clone();
-        let mut sm = create_state_machine(from_state);
-
-        let result = sm.process_stake_data(StakeDataReceivedEvent {
-            stake_data: TEST_STAKE_DATA.clone(),
+        test_stake_invalid_transition(StakeInvalidTransition {
+            from_state,
+            event: StakeDataReceivedEvent {
+                stake_data: TEST_STAKE_DATA.clone(),
+            }
+            .into(),
+            expected_error: |e| matches!(e, SSMError::Rejected { .. }),
         });
-
-        assert!(matches!(result, Err(SSMError::Rejected { .. })));
-        assert_eq!(sm.state(), &expected_state);
     }
 }
