@@ -18,7 +18,7 @@ from .config_cfg import (
     RpcConfig,
     SecretServiceClientConfig,
 )
-from .params_cfg import BridgeOperatorParams, CovenantKeys, Keys, Protocol
+from .params_cfg import BridgeOperatorParams, BridgeProtocolParams, CovenantKeys, Keys
 from .sidesystem_cfg import Sidesystem
 
 DEFAULT_INITIAL_HEARBEAT_DELAY_SECS = 10
@@ -125,6 +125,7 @@ def generate_params_toml(
     output_path: str,
     operator_key_infos: list[OperatorKeyInfo],
     sidesystem: Sidesystem,
+    bridge_protocol_params: BridgeProtocolParams,
 ):
     """
     Generate bridge operator params.toml file using operator keys.
@@ -133,6 +134,7 @@ def generate_params_toml(
         output_path: Path to write the params.toml file
         operator_key_infos: List of OperatorKeys containing MUSIG2_KEY and P2P_KEY
         sidesystem: Pre-built sidesystem params to embed
+        bridge_protocol_params: Bridge parameters for this test env
     """
     covenant = [
         CovenantKeys(
@@ -149,18 +151,7 @@ def generate_params_toml(
         network="regtest",
         genesis_height=sidesystem.genesis_l1_view.blk.height,
         keys=Keys(admin=operator_key_infos[0].MUSIG2_KEY, covenant=covenant),
-        protocol=Protocol(
-            magic_bytes="ALPN",
-            deposit_amount=1_000_000_000,
-            stake_amount=100_000_000,
-            operator_fee=10_000_000,
-            recovery_delay=1_008,
-            contest_timelock=144,
-            proof_timelock=144,
-            ack_timelock=144,
-            nack_timelock=144,
-            contested_payout_timelock=1_008,
-        ),
+        protocol=bridge_protocol_params,
     )
 
     with open(output_path, "w") as f:

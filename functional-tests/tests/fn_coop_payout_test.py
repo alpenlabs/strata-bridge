@@ -1,7 +1,9 @@
 import flexitest
 
+from constants import MAX_BRIDGE_TIMEOUT
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
+from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.asm_types import AssignmentEntry
 from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
@@ -25,7 +27,12 @@ class CooperativePayoutTest(StrataTestBase):
     """
 
     def __init__(self, ctx: flexitest.InitContext):
-        ctx.set_env(BridgeNetworkEnv())
+        ctx.set_env(
+            BridgeNetworkEnv(
+                funding_amount=10.01,
+                bridge_protocol_params=BridgeProtocolParams(contest_timelock=MAX_BRIDGE_TIMEOUT),
+            )
+        )
 
     def main(self, ctx: flexitest.RunContext):
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)

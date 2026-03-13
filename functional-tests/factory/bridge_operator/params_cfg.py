@@ -17,17 +17,17 @@ class Keys:
 
 
 @dataclass
-class Protocol:
-    magic_bytes: str
-    deposit_amount: int
-    stake_amount: int
-    operator_fee: int
-    recovery_delay: int
-    contest_timelock: int
-    proof_timelock: int
-    ack_timelock: int
-    nack_timelock: int
-    contested_payout_timelock: int
+class BridgeProtocolParams:
+    magic_bytes: str = "ALPN"
+    deposit_amount: int = 1_000_000_000
+    stake_amount: int = 100_000_000
+    operator_fee: int = 10_000_000
+    recovery_delay: int = 1_008
+    contest_timelock: int = 144
+    proof_timelock: int = 144
+    ack_timelock: int = 144
+    nack_timelock: int = 144
+    contested_payout_timelock: int = 1_008
 
 
 @dataclass
@@ -35,4 +35,4 @@ class BridgeOperatorParams:
     network: str
     genesis_height: int
     keys: Keys
-    protocol: Protocol
+    protocol: BridgeProtocolParams
