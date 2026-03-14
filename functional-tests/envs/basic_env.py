@@ -4,13 +4,14 @@ from utils.service_names import get_operator_dir_name
 from utils.utils import wait_until_bridge_ready
 
 from .base_env import BaseEnv
+from .bitcoin_env_config import BitcoinEnvConfig
 
 
 class BasicEnv(BaseEnv):
     """Environment running a single bridge operator connected to S2 instance and a Bitcoin node."""
 
-    def __init__(self):
-        super().__init__(num_operators=1)
+    def __init__(self, btc_config: BitcoinEnvConfig | None = None):
+        super().__init__(num_operators=1, btc_config=btc_config)
 
     def init(self, ectx: flexitest.EnvContext) -> flexitest.LiveEnv:
         svcs = {}
