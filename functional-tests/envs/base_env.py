@@ -7,11 +7,12 @@ from factory.bridge_operator.sidesystem_cfg import build_sidesystem
 from factory.common.asm_params import write_asm_params_json
 from factory.fdb import generate_fdb_root_directory
 from utils import (
-    BLOCK_GENERATION_INTERVAL_SECS,
     generate_blocks,
     wait_until_bitcoind_ready,
 )
 from utils.utils import generate_p2p_ports, read_operator_key
+
+from .bitcoin_env_config import BitcoinEnvConfig
 
 
 class BaseEnv(flexitest.EnvConfig):
@@ -20,15 +21,14 @@ class BaseEnv(flexitest.EnvConfig):
     def __init__(
         self,
         num_operators,
-        funding_amount=10.01,
-        initial_blocks=101,
-        finalization_blocks=10,
+        btc_config: BitcoinEnvConfig | None = None,
     ):
         super().__init__()
         self.num_operators = num_operators
-        self.funding_amount = funding_amount
-        self.initial_blocks = initial_blocks
-        self.finalization_blocks = finalization_blocks
+        self.btc_config = btc_config or BitcoinEnvConfig()
+        self.funding_amount = self.btc_config.funding_amount
+        self.initial_blocks = self.btc_config.initial_blocks
+        self.finalization_blocks = self.btc_config.finalization_blocks
         self._asm_rpc_service = None
         self._sidesystem = None
         self._rollup_params_path = None
@@ -58,8 +58,9 @@ class BaseEnv(flexitest.EnvConfig):
         # Mine initial blocks to have usable funds
         brpc.proxy.generatetoaddress(self.initial_blocks, wallet_addr)
 
-        # Start automatic block generation
-        generate_blocks(brpc, BLOCK_GENERATION_INTERVAL_SECS, wallet_addr)
+        # Start automatic block generation if configured
+        if self.btc_config.auto_mine:
+            generate_blocks(brpc, self.btc_config.block_generation_interval_secs, wallet_addr)
 
         return bitcoind, brpc, wallet_addr
 

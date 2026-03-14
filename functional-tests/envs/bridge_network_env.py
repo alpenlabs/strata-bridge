@@ -4,23 +4,14 @@ from constants import BRIDGE_NETWORK_SIZE
 from utils.utils import wait_until_bridge_ready
 
 from .base_env import BaseEnv
+from .bitcoin_env_config import BitcoinEnvConfig
 
 
 class BridgeNetworkEnv(BaseEnv):
     """Env running configurable bridge operators connected to S2 instances and a Bitcoin node."""
 
-    def __init__(
-        self,
-        funding_amount=10.01,
-        initial_blocks=101,
-        finalization_blocks=10,
-    ):
-        super().__init__(
-            BRIDGE_NETWORK_SIZE,
-            funding_amount,
-            initial_blocks,
-            finalization_blocks,
-        )
+    def __init__(self, btc_config: BitcoinEnvConfig | None = None):
+        super().__init__(BRIDGE_NETWORK_SIZE, btc_config=btc_config)
 
     def init(self, ectx: flexitest.EnvContext) -> flexitest.LiveEnv:
         svcs = {}
