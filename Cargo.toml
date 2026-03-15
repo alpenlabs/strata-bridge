@@ -20,6 +20,7 @@ members = [
   "crates/duty-tracker",
   "crates/key-deriv",
   "crates/memory_pprof",
+  "crates/asm-proof-impl",
   "crates/operator-wallet",
   "crates/orchestrator",
   "crates/p2p-service",
@@ -83,6 +84,7 @@ prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
 secret-service-proto = { path = "crates/secret-service-proto" }
 secret-service-server = { path = "crates/secret-service-server" }
+strata-asm-proof-impl = { path = "crates/asm-proof-impl" }
 strata-asm-rpc = { path = "crates/asm-rpc" }
 strata-bridge-asm-events = { path = "crates/asm-events" }
 strata-bridge-common = { path = "crates/common" }

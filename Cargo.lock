@@ -5935,7 +5935,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if 1.0.1",
- "windows-targets 0.53.5",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -10491,6 +10491,10 @@ dependencies = [
  "strata-l1-txfmt",
  "strata-predicate",
 ]
+
+[[package]]
+name = "strata-asm-proof-impl"
+version = "0.1.0"
 
 [[package]]
 name = "strata-asm-proto-administration"
