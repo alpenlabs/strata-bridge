@@ -18,13 +18,13 @@ pub fn route_signal(registry: &SMRegistry, signal: Signal) -> Vec<(SMId, SMEvent
     match signal {
         Signal::FromDeposit(deposit_signal) => match deposit_signal {
             DepositSignal::ToGraph(deposit_to_graph) => match deposit_to_graph {
-                msg @ DepositToGraph::CooperativePayoutFailed { deposit_idx, .. } => {
+                msg @ DepositToGraph::CooperativePayoutFailed { graph_idx, .. } => {
                     let event: SMEvent = GraphEvent::DepositMessage(msg).into();
 
                     registry
                         .get_graph_ids()
                         .into_iter()
-                        .filter(|graph_id| graph_id.deposit == deposit_idx)
+                        .filter(|id| *id == graph_idx)
                         .map(|graph_id| (graph_id.into(), event.clone()))
                         .collect()
                 }
@@ -50,39 +50,44 @@ pub fn route_signal(registry: &SMRegistry, signal: Signal) -> Vec<(SMId, SMEvent
 
 #[cfg(test)]
 mod tests {
-    use strata_bridge_primitives::types::OperatorIdx;
+    use strata_bridge_primitives::types::GraphIdx;
     use strata_bridge_test_utils::prelude::generate_txid;
 
     use super::*;
-    use crate::testing::{N_TEST_OPERATORS, test_populated_registry};
+    use crate::testing::test_populated_registry;
 
     #[test]
-    fn cooperative_payout_failed_routes_to_matching_graphs() {
+    fn cooperative_payout_failed_routes_to_specific_graph() {
         let registry = test_populated_registry(2);
+        let target_graph = GraphIdx {
+            deposit: 0,
+            operator: 1,
+        };
         let signal = Signal::FromDeposit(DepositSignal::ToGraph(
             DepositToGraph::CooperativePayoutFailed {
-                deposit_idx: 0,
-                assignee: 0,
+                graph_idx: target_graph,
+                assignee: 1,
             },
         ));
 
         let targets = route_signal(&registry, signal);
 
-        assert_eq!(targets.len(), N_TEST_OPERATORS);
-        for (id, _event) in &targets {
-            match id {
-                SMId::Graph(gidx) => assert_eq!(gidx.deposit, 0),
-                _ => panic!("expected Graph SM ID, got {id}"),
-            }
+        assert_eq!(targets.len(), 1);
+        match &targets[0].0 {
+            SMId::Graph(gidx) => assert_eq!(*gidx, target_graph),
+            other => panic!("expected Graph SM ID, got {other}"),
         }
     }
 
     #[test]
-    fn cooperative_payout_failed_no_matching_graphs() {
+    fn cooperative_payout_failed_no_matching_graph() {
         let registry = test_populated_registry(1);
         let signal = Signal::FromDeposit(DepositSignal::ToGraph(
             DepositToGraph::CooperativePayoutFailed {
-                deposit_idx: 99,
+                graph_idx: GraphIdx {
+                    deposit: 99,
+                    operator: 0,
+                },
                 assignee: 0,
             },
         ));
@@ -92,27 +97,27 @@ mod tests {
     }
 
     #[test]
-    fn cooperative_payout_failed_ignores_other_deposits() {
+    fn cooperative_payout_failed_ignores_other_graphs() {
         let registry = test_populated_registry(3);
+        let target_graph = GraphIdx {
+            deposit: 1,
+            operator: 2,
+        };
         let signal = Signal::FromDeposit(DepositSignal::ToGraph(
             DepositToGraph::CooperativePayoutFailed {
-                deposit_idx: 1,
-                assignee: 0,
+                graph_idx: target_graph,
+                assignee: 2,
             },
         ));
 
         let targets = route_signal(&registry, signal);
 
-        // Only graphs for deposit 1, not 0 or 2.
-        assert_eq!(targets.len(), N_TEST_OPERATORS);
-        for (id, _event) in &targets {
-            match id {
-                SMId::Graph(gidx) => {
-                    assert_eq!(gidx.deposit, 1);
-                    assert!(gidx.operator < N_TEST_OPERATORS as OperatorIdx);
-                }
-                _ => panic!("expected Graph SM ID, got {id}"),
+        assert_eq!(targets.len(), 1);
+        match &targets[0].0 {
+            SMId::Graph(gidx) => {
+                assert_eq!(*gidx, target_graph);
             }
+            other => panic!("expected Graph SM ID, got {other}"),
         }
     }
 
