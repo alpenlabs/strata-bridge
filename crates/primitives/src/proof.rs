@@ -24,7 +24,7 @@ impl L1Range {
     ///
     /// Returns `None` if `end` height is strictly less than `start` height.
     pub fn new(start: L1BlockCommitment, end: L1BlockCommitment) -> Option<Self> {
-        if end.height_u32() < start.height_u32() {
+        if end.height() < start.height() {
             return None;
         }
         Some(Self { start, end })
