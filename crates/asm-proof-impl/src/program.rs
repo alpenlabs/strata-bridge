@@ -88,8 +88,7 @@ mod tests {
     use bitcoin::Block;
     use moho_runtime_impl::RuntimeInput;
     use moho_runtime_interface::MohoProgram;
-    use moho_types::{ExportState, MohoState, MohoStateCommitment, StateReference};
-    use ssz::{decode::Decode, encode::Encode, SszEncoder};
+    use moho_types::{ExportState, MohoState};
     use strata_asm_common::{AnchorState, AsmHistoryAccumulatorState, AuxData, ChainViewState};
     use strata_asm_params::{AsmParams, SubprotocolInstance};
     use strata_asm_spec::StrataAsmSpec;
@@ -185,34 +184,16 @@ mod tests {
     }
 
     fn create_runtime_input(step_input: &AsmStepInput) -> RuntimeInput {
-        let pre_state_ref = step_input.compute_prev_ref();
         let inner_pre_state = create_genesis_anchor_state(&step_input.block.0);
         let moho_pre_state = create_moho_prestate(&step_input.block.0);
-
-        // TODO: Compute the appropriate post state
-        let post_state_commitment = MohoStateCommitment::default();
-
-        // Build RuntimeInput via SSZ encoding since its fields are private.
-        let fixed_len = <StateReference as Encode>::ssz_fixed_len()
-            + <MohoState as Encode>::ssz_fixed_len()
-            + <Vec<u8> as Encode>::ssz_fixed_len()
-            + <Vec<u8> as Encode>::ssz_fixed_len()
-            + <MohoStateCommitment as Encode>::ssz_fixed_len();
-
-        let mut buf = Vec::new();
-        let mut encoder = SszEncoder::container(&mut buf, fixed_len);
-        encoder.append(&pre_state_ref);
-        encoder.append(&moho_pre_state);
-        encoder.append(&borsh::to_vec(&inner_pre_state).unwrap());
-        encoder.append(&borsh::to_vec(&step_input).unwrap());
-        encoder.append(&post_state_commitment);
-        encoder.finalize();
-
-        RuntimeInput::from_ssz_bytes(&buf).expect("failed to decode RuntimeInput from SSZ")
+        RuntimeInput::new(
+            moho_pre_state,
+            borsh::to_vec(&inner_pre_state).unwrap(),
+            borsh::to_vec(step_input).unwrap(),
+        )
     }
 
     #[test]
-    #[ignore = "we don't construct appropriate post state"]
     fn test_stf() {
         let step_input = create_asm_step_input();
         let l1view = create_genesis_l1_view_to_process_block(&step_input.block.0);
