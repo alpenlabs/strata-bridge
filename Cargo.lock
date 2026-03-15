@@ -6101,6 +6101,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "moho-runtime-impl"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+dependencies = [
+ "borsh",
+ "moho-runtime-interface",
+ "moho-types",
+ "ssz",
+ "ssz_derive",
+]
+
+[[package]]
+name = "moho-runtime-interface"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+dependencies = [
+ "borsh",
+ "moho-types",
+ "strata-predicate",
+]
+
+[[package]]
+name = "moho-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+dependencies = [
+ "hex",
+ "sha2",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-merkle",
+ "strata-predicate",
+ "thiserror 2.0.18",
+ "tree_hash",
+ "tree_hash_derive",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
+]
+
+[[package]]
 name = "moka"
 version = "0.12.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9928,6 +9970,33 @@ dependencies = [
  "strata-identifiers",
  "strata-l1-txfmt",
  "strata-predicate",
+]
+
+[[package]]
+name = "strata-asm-proof-impl"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bitcoin",
+ "borsh",
+ "moho-runtime-impl",
+ "moho-runtime-interface",
+ "moho-types",
+ "serde_json",
+ "sha2",
+ "ssz",
+ "strata-asm-common",
+ "strata-asm-logs",
+ "strata-asm-params",
+ "strata-asm-spec",
+ "strata-asm-stf",
+ "strata-btc-types",
+ "strata-btc-verification",
+ "strata-identifiers",
+ "strata-l1-txfmt",
+ "strata-predicate",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
+ "zkaleido-native-adapter",
 ]
 
 [[package]]
