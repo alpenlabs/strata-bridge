@@ -35,9 +35,9 @@ impl SledProofDb {
 /// `[start_height_be(4)][start_blkid(32)][end_height_be(4)][end_blkid(32)]`
 fn encode_asm_key(range: &L1Range) -> [u8; 72] {
     let mut key = [0u8; 72];
-    key[0..4].copy_from_slice(&range.start().height_u32().to_be_bytes());
+    key[0..4].copy_from_slice(&range.start().height().to_be_bytes());
     key[4..36].copy_from_slice(range.start().blkid().as_ref());
-    key[36..40].copy_from_slice(&range.end().height_u32().to_be_bytes());
+    key[36..40].copy_from_slice(&range.end().height().to_be_bytes());
     key[40..72].copy_from_slice(range.end().blkid().as_ref());
     key
 }
@@ -46,7 +46,7 @@ fn encode_asm_key(range: &L1Range) -> [u8; 72] {
 /// `[height_be(4)][blkid(32)]`
 fn encode_moho_key(l1ref: &L1BlockCommitment) -> [u8; 36] {
     let mut key = [0u8; 36];
-    key[0..4].copy_from_slice(&l1ref.height_u32().to_be_bytes());
+    key[0..4].copy_from_slice(&l1ref.height().to_be_bytes());
     key[4..36].copy_from_slice(l1ref.blkid().as_ref());
     key
 }
@@ -55,8 +55,7 @@ fn encode_moho_key(l1ref: &L1BlockCommitment) -> [u8; 36] {
 fn decode_moho_key(key: &[u8]) -> L1BlockCommitment {
     let height = u32::from_be_bytes(key[0..4].try_into().expect("key is at least 4 bytes"));
     let blkid: [u8; 32] = key[4..36].try_into().expect("key is at least 36 bytes");
-    L1BlockCommitment::from_height_u64(height as u64, L1BlockId::from(Buf32::from(blkid)))
-        .expect("height was valid when stored")
+    L1BlockCommitment::new(height, L1BlockId::from(Buf32::from(blkid)))
 }
 
 impl ProofDb for SledProofDb {
@@ -132,10 +131,8 @@ mod tests {
     /// Generates an arbitrary L1BlockCommitment.
     /// Heights must be < 500_000_000 (bitcoin LOCK_TIME_THRESHOLD).
     fn arb_l1_block_commitment() -> impl Strategy<Value = L1BlockCommitment> {
-        (0u32..500_000_000u32, any::<[u8; 32]>()).prop_map(|(h, blkid)| {
-            L1BlockCommitment::from_height_u64(h as u64, L1BlockId::from(Buf32::from(blkid)))
-                .expect("valid height")
-        })
+        (0u32..500_000_000u32, any::<[u8; 32]>())
+            .prop_map(|(h, blkid)| L1BlockCommitment::new(h, L1BlockId::from(Buf32::from(blkid))))
     }
 
     /// Generates an arbitrary L1Range (end height >= start height).
@@ -208,11 +205,8 @@ mod tests {
         let (db, _dir) = temp_db();
 
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let commitment = L1BlockCommitment::from_height_u64(
-                999_999,
-                L1BlockId::from(Buf32::from([0xffu8; 32])),
-            )
-            .unwrap();
+            let commitment =
+                L1BlockCommitment::new(999_999, L1BlockId::from(Buf32::from([0xffu8; 32])));
             let range = L1Range::single(commitment);
 
             let result = db.get_asm_proof(range).await.unwrap();
@@ -225,11 +219,8 @@ mod tests {
         let (db, _dir) = temp_db();
 
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let commitment = L1BlockCommitment::from_height_u64(
-                999_998,
-                L1BlockId::from(Buf32::from([0xfeu8; 32])),
-            )
-            .unwrap();
+            let commitment =
+                L1BlockCommitment::new(999_998, L1BlockId::from(Buf32::from([0xfeu8; 32])));
 
             let result = db.get_moho_proof(commitment).await.unwrap();
             assert_eq!(result, None);
@@ -275,10 +266,10 @@ mod tests {
                 // the big-endian lexicographic ordering.
                 let expected = entries
                     .iter()
-                    .max_by_key(|(c, _)| (c.height_u32(), *c.blkid().as_ref()))
+                    .max_by_key(|(c, _)| (c.height(), *c.blkid().as_ref()))
                     .unwrap();
 
-                prop_assert_eq!(latest_commitment.height_u32(), expected.0.height_u32());
+                prop_assert_eq!(latest_commitment.height(), expected.0.height());
                 prop_assert_eq!(latest_proof, expected.1.clone());
 
                 Ok(())
@@ -312,19 +303,18 @@ mod tests {
             tokio::runtime::Runtime::new().unwrap().block_on(async {
                 // Store Moho proofs below the threshold.
                 let below_moho_entries: Vec<_> = below_moho.into_iter().map(|(offset, blkid, proof)| {
-                    let c = L1BlockCommitment::from_height_u64(
-                        (threshold - offset) as u64,
-                        L1BlockId::from(Buf32::from(blkid)),
-                    ).unwrap();
+                    let c = L1BlockCommitment::new(
+                        threshold - offset,
+                        L1BlockId::from(Buf32::from(blkid)));
                     (c, proof)
                 }).collect();
 
                 // Store Moho proofs at or above the threshold.
                 let above_moho_entries: Vec<_> = above_moho.into_iter().map(|(offset, blkid, proof)| {
-                    let c = L1BlockCommitment::from_height_u64(
-                        (threshold + offset) as u64,
+                    let c = L1BlockCommitment::new(
+                        threshold + offset,
                         L1BlockId::from(Buf32::from(blkid)),
-                    ).unwrap();
+                    );
                     (c, proof)
                 }).collect();
 
@@ -337,19 +327,19 @@ mod tests {
 
                 // Store ASM proofs below the threshold (single-block ranges).
                 let below_asm_entries: Vec<_> = below_asm.into_iter().map(|(offset, blkid, proof)| {
-                    let c = L1BlockCommitment::from_height_u64(
-                        (threshold - offset) as u64,
+                    let c = L1BlockCommitment::new(
+                        threshold - offset,
                         L1BlockId::from(Buf32::from(blkid)),
-                    ).unwrap();
+                    );
                     (L1Range::single(c), proof)
                 }).collect();
 
                 // Store ASM proofs at or above the threshold.
                 let above_asm_entries: Vec<_> = above_asm.into_iter().map(|(offset, blkid, proof)| {
-                    let c = L1BlockCommitment::from_height_u64(
-                        (threshold + offset) as u64,
+                    let c = L1BlockCommitment::new(
+                        threshold + offset,
                         L1BlockId::from(Buf32::from(blkid)),
-                    ).unwrap();
+                    );
                     (L1Range::single(c), proof)
                 }).collect();
 
@@ -366,23 +356,23 @@ mod tests {
                 // Moho entries below threshold should be gone.
                 for (c, _) in &below_moho_entries {
                     let result = db.get_moho_proof(*c).await.unwrap();
-                    prop_assert_eq!(result, None, "moho at height {} should be pruned", c.height_u32());
+                    prop_assert_eq!(result, None, "moho at height {} should be pruned", c.height());
                 }
                 // Moho entries at or above threshold should survive.
                 for (c, proof) in &above_moho_entries {
                     let result = db.get_moho_proof(*c).await.unwrap();
-                    prop_assert_eq!(result, Some(proof.clone()), "moho at height {} should survive", c.height_u32());
+                    prop_assert_eq!(result, Some(proof.clone()), "moho at height {} should survive", c.height());
                 }
 
                 // ASM entries below threshold should be gone.
                 for (range, _) in &below_asm_entries {
                     let result = db.get_asm_proof(*range).await.unwrap();
-                    prop_assert_eq!(result, None, "asm at height {} should be pruned", range.start().height_u32());
+                    prop_assert_eq!(result, None, "asm at height {} should be pruned", range.start().height());
                 }
                 // ASM entries at or above threshold should survive.
                 for (range, proof) in &above_asm_entries {
                     let result = db.get_asm_proof(*range).await.unwrap();
-                    prop_assert_eq!(result, Some(proof.clone()), "asm at height {} should survive", range.start().height_u32());
+                    prop_assert_eq!(result, Some(proof.clone()), "asm at height {} should survive", range.start().height());
                 }
 
                 Ok(())
