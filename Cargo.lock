@@ -5935,7 +5935,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if 1.0.1",
- "windows-targets 0.48.5",
+ "windows-targets 0.53.5",
 ]
 
 [[package]]
@@ -6626,6 +6626,36 @@ dependencies = [
  "net2",
  "winapi 0.2.8",
  "ws2_32-sys",
+]
+
+[[package]]
+name = "moho-runtime-interface"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+dependencies = [
+ "borsh",
+ "moho-types",
+ "strata-predicate",
+]
+
+[[package]]
+name = "moho-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+dependencies = [
+ "hex",
+ "sha2",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-merkle",
+ "strata-predicate",
+ "thiserror 2.0.18",
+ "tree_hash",
+ "tree_hash_derive",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20)",
 ]
 
 [[package]]
@@ -10495,6 +10525,19 @@ dependencies = [
 [[package]]
 name = "strata-asm-proof-impl"
 version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "borsh",
+ "moho-runtime-interface",
+ "moho-types",
+ "sha2",
+ "strata-asm-common",
+ "strata-asm-logs",
+ "strata-asm-spec",
+ "strata-asm-stf",
+ "strata-identifiers",
+ "strata-predicate",
+]
 
 [[package]]
 name = "strata-asm-proto-administration"
