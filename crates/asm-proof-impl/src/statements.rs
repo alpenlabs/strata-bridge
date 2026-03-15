@@ -1,6 +1,6 @@
 //! ASM STF proof statements.
 
-use moho_runtime_impl::{verify_input, RuntimeInput};
+use moho_runtime_impl::{compute_moho_attestation, RuntimeInput};
 use ssz::{Decode, Encode};
 use strata_asm_spec::StrataAsmSpec;
 use zkaleido::ZkVmEnv;
@@ -17,7 +17,7 @@ pub fn process_asm_stf(zkvm: &impl ZkVmEnv, spec: &StrataAsmSpec) {
     let runtime_input = RuntimeInput::from_ssz_bytes(&runtime_input_bytes)
         .expect("failed to deserialize runtime input for SSZ bytes");
 
-    let attestation = verify_input::<AsmStfProgram>(runtime_input, spec);
+    let attestation = compute_moho_attestation::<AsmStfProgram>(runtime_input, spec);
 
     let attestation_bytes = attestation.as_ssz_bytes();
     zkvm.commit_buf(&attestation_bytes);
