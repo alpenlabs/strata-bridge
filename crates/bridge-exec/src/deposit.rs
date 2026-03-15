@@ -428,60 +428,115 @@ async fn fulfill_withdrawal(
     let unfunded_tx = wft.into_unsigned_tx();
 
     // Fund the transaction via wallet (adds inputs and change)
-    let wft_psbt = {
+    // IMPORTANT: The persisted outpoint lookup must happen inside the wallet lock
+    // to prevent concurrent executions from each observing None and selecting
+    // different UTXOs for the same deposit_idx.
+    let (wft_psbt, newly_leased_outpoints) = {
         let mut wallet = output_handles.wallet.write().await;
 
-        info!("syncing wallet before funding withdrawal fulfillment tx");
+        info!(%deposit_idx, "syncing wallet before funding withdrawal fulfillment tx");
         if let Err(e) = wallet.sync().await {
-            warn!(?e, "could not sync wallet, continuing anyway");
+            warn!(%deposit_idx, ?e, "could not sync wallet, continuing anyway");
         }
 
-        match wallet.fund_v3_transaction(deposit_idx, unfunded_tx, fee_rate) {
-            Ok(psbt) => psbt,
+        // Read persisted outpoints inside the lock to prevent race conditions
+        let persisted_funding_outpoints = output_handles
+            .db
+            .get_withdrawal_funding_outpoints(deposit_idx)
+            .await?;
+
+        let funding_result = match persisted_funding_outpoints.as_deref() {
+            Some(outpoints) => {
+                info!(%deposit_idx, "reusing persisted funding outpoints");
+                wallet.fund_v3_transaction_with_outpoints(outpoints, unfunded_tx, fee_rate)
+            }
+            None => {
+                info!(%deposit_idx, "selecting new funding outpoints");
+                wallet.fund_v3_transaction(unfunded_tx, fee_rate)
+            }
+        };
+
+        match funding_result {
+            Ok(psbt) => {
+                // Track which outpoints were newly leased (only in None path)
+                let newly_leased = if persisted_funding_outpoints.is_none() {
+                    Some(
+                        psbt.unsigned_tx
+                            .input
+                            .iter()
+                            .map(|input| input.previous_output)
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    None
+                };
+                (psbt, newly_leased)
+            }
             Err(err) => {
-                error!(%err, "could not fund withdrawal");
+                error!(%deposit_idx, %err, "could not fund withdrawal");
                 return Ok(());
             }
         }
     };
 
-    // Sign each input
     let txid = wft_psbt.unsigned_tx.compute_txid();
-    info!(%txid, "signing withdrawal fulfillment transaction");
+    info!(%deposit_idx, %txid, "signing withdrawal fulfillment transaction");
 
-    let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
+    let sign_result: Result<Transaction, ExecutorError> = async {
+        let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
 
-    let prevouts: Vec<_> = wft_psbt
-        .inputs
-        .iter()
-        .filter_map(|input| input.witness_utxo.clone())
-        .collect();
-    let prevouts = Prevouts::All(&prevouts);
+        let prevouts: Vec<_> = wft_psbt
+            .inputs
+            .iter()
+            .filter_map(|input| input.witness_utxo.clone())
+            .collect();
+        let prevouts = Prevouts::All(&prevouts);
 
-    let mut signed_tx = wft_psbt.unsigned_tx.clone();
-    for (input_index, _) in wft_psbt.inputs.iter().enumerate() {
-        let msg = create_message_hash(
-            &mut sighash_cache,
-            prevouts.clone(),
-            &TaprootWitness::Key,
-            TapSighashType::Default,
-            input_index,
-        )
-        .map_err(|e| ExecutorError::WalletErr(format!("sighash error: {e}")))?;
+        let mut signed_tx = wft_psbt.unsigned_tx.clone();
+        for (input_index, _) in wft_psbt.inputs.iter().enumerate() {
+            let msg = create_message_hash(
+                &mut sighash_cache,
+                prevouts.clone(),
+                &TaprootWitness::Key,
+                TapSighashType::Default,
+                input_index,
+            )
+            .map_err(|e| ExecutorError::WalletErr(format!("sighash error: {e}")))?;
 
-        let signature = output_handles
-            .s2_client
-            .general_wallet_signer()
-            .sign(msg.as_ref(), None)
-            .await?;
+            let signature = output_handles
+                .s2_client
+                .general_wallet_signer()
+                .sign(msg.as_ref(), None)
+                .await?;
 
-        signed_tx.input[input_index]
-            .witness
-            .push(signature.serialize());
+            signed_tx.input[input_index]
+                .witness
+                .push(signature.serialize());
+        }
+        Ok(signed_tx)
     }
+    .await;
 
-    // save the retrieved funding outpoints in db.
-    output_handles
+    let signed_tx = match sign_result {
+        Ok(tx) => tx,
+        Err(e) => {
+            error!(%deposit_idx, ?e, "failed to sign withdrawal fulfillment transaction");
+            // Release newly leased outpoints so they can be reused on retry.
+            // Nothing was persisted, so retry will select fresh UTXOs.
+            if let Some(ref outpoints) = newly_leased_outpoints {
+                output_handles
+                    .wallet
+                    .write()
+                    .await
+                    .release_outpoints(outpoints);
+            }
+            return Err(e);
+        }
+    };
+
+    // Persist outpoints after successful signing, before broadcast.
+    // This ensures idempotent behavior on retry after crash/restart.
+    if let Err(e) = output_handles
         .db
         .set_withdrawal_funding_outpoints(
             deposit_idx,
@@ -491,9 +546,20 @@ async fn fulfill_withdrawal(
                 .map(|input| input.previous_output)
                 .collect(),
         )
-        .await?;
+        .await
+    {
+        error!(%deposit_idx, ?e, "failed to persist withdrawal funding outpoints");
+        if let Some(ref outpoints) = newly_leased_outpoints {
+            output_handles
+                .wallet
+                .write()
+                .await
+                .release_outpoints(outpoints);
+        }
+        return Err(e.into());
+    }
 
-    info!(%txid, "submitting withdrawal fulfillment transaction");
+    info!(%deposit_idx, %txid, "submitting withdrawal fulfillment transaction");
     publish_signed_transaction(
         &output_handles.tx_driver,
         &signed_tx,
@@ -502,7 +568,8 @@ async fn fulfill_withdrawal(
     )
     .await?;
 
-    info!(%txid, %deposit_idx, "withdrawal fulfillment confirmed");
+    info!(%deposit_idx, %txid, "withdrawal fulfillment confirmed");
+
     Ok(())
 }
 
