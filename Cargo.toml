@@ -162,6 +162,9 @@ strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.
   "kad",
 ], default-features = false }
 
+# Dependencies from alpenlabs/ssz-gen
+ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.12.4" }
+
 # Dependencies from alpenlabs/moho (main @ 2026-03-11)
 moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "a9c137e14bcbc8bfdc99c51d4f03e86369aef210" }
 moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "a9c137e14bcbc8bfdc99c51d4f03e86369aef210" }
