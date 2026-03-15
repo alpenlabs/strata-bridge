@@ -32,6 +32,8 @@ use strata_bridge_primitives::{scripts::taproot::TaprootTweak, secp::EvenSecretK
 use crate::seeded_impl::Service;
 
 async fn setup() -> SecretServiceClient {
+    crate::tls::install_rustls_crypto_provider();
+
     let port = thread_rng().gen_range(20_000..30_000);
     let server_addr: SocketAddr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port).into();
     let server_host = "localhost".to_string();

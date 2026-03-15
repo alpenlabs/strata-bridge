@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use secret_service_server::rustls::{
+    self,
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     server::WebPkiClientVerifier,
     RootCertStore, ServerConfig,
@@ -14,6 +15,8 @@ use crate::{config::TlsConfig, DEV_MODE};
 
 /// Loads a TLS configuration for the Secret Service server.
 pub(crate) async fn load_tls(conf: TlsConfig) -> ServerConfig {
+    install_rustls_crypto_provider();
+
     let (certs, key) = if let (Some(crt_path), Some(key_path)) = (conf.cert, conf.key) {
         let key = fs::read(&key_path).await.expect("readable key");
         let key = if key_path.extension().is_some_and(|x| x == "der") {
@@ -60,6 +63,15 @@ pub(crate) async fn load_tls(conf: TlsConfig) -> ServerConfig {
     tls_builder
         .with_single_cert(certs, key)
         .expect("valid rustls config")
+}
+
+/// Installs a process-level rustls crypto provider.
+///
+/// This is required when rustls is built with multiple provider features enabled
+/// (e.g., both `ring` and `aws_lc_rs`) because `ClientConfig::builder()` and
+/// `ServerConfig::builder()` cannot infer a provider from crate features.
+pub(crate) fn install_rustls_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
 /// Reads a certificate from a file.

@@ -45,6 +45,7 @@ async fn main() {
     #[cfg(feature = "memory_profiling")]
     memory_pprof::setup_memory_profiling(3_000);
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
+    tls::install_rustls_crypto_provider();
     if *DEV_MODE {
         warn!("⚠️ DEV_MODE active");
     }
