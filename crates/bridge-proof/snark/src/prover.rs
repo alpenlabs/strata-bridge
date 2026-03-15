@@ -4,15 +4,13 @@ use anyhow::Context;
 use ark_bn254::{Bn254, Fr};
 use ark_ff::PrimeField;
 use ark_groth16::Proof;
-use sp1_sdk::{HashableKey, SP1VerifyingKey};
-use sp1_verifier::{blake3_hash, hash_public_inputs_with_fn};
+use sp1_sdk::HashableKey;
+use sp1_verifier::{blake3_hash, hash_public_inputs_with_fn, GROTH16_VK_BYTES};
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
-use strata_bridge_proof_protocol::{
-    get_native_host, BridgeProgram, BridgeProofInput, BridgeProofPublicOutput,
-};
+use strata_bridge_proof_protocol::{BridgeProgram, BridgeProofInput, BridgeProofPublicOutput};
 use tracing::info;
-use zkaleido::{ZkVmProgram, ZkVmVerifier};
-use zkaleido_sp1_groth16_verifier::verify_groth16;
+use zkaleido::ZkVmProgram;
+use zkaleido_sp1_groth16_verifier::SP1Groth16Verifier;
 use zkaleido_sp1_host::SP1Host;
 
 /// Proves a bridge proof using SP1.
@@ -20,8 +18,7 @@ pub fn sp1_prove(
     input: &BridgeProofInput,
 ) -> anyhow::Result<(Proof<Bn254>, [Fr; 1], BridgeProofPublicOutput)> {
     info!(action = "simulating proof in native mode");
-    let native_host = get_native_host();
-    let _ = BridgeProgram::prove(input, &native_host).expect("failed to assert proof statements");
+    let _ = BridgeProgram::execute(input).expect("failed to assert proof statements");
 
     if std::env::var("SP1_PROVER").is_err() {
         panic!("Only network prover is supported");
@@ -30,11 +27,15 @@ pub fn sp1_prove(
     info!(action = "generating proof");
     let host = SP1Host::init(GUEST_BRIDGE_ELF);
     let proof_receipt = BridgeProgram::prove(input, &host)?;
-
-    let vk: SP1VerifyingKey = bincode::deserialize(host.vk().as_bytes())?;
+    let proof_receipt = proof_receipt.receipt();
 
     info!(action = "verifying proof");
-    verify_groth16(&proof_receipt, &vk.bytes32_raw()).context("proof verification failed")?;
+    SP1Groth16Verifier::load(&GROTH16_VK_BYTES, host.proving_key.vk.bytes32_raw())?
+        .verify(
+            proof_receipt.proof().as_bytes(),
+            proof_receipt.public_values().as_bytes(),
+        )
+        .context("proof verification failed")?;
 
     let output = BridgeProgram::process_output::<SP1Host>(proof_receipt.public_values())?;
 

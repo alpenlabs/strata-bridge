@@ -1,18 +1,16 @@
-use std::{
-    panic::{catch_unwind, AssertUnwindSafe},
-    sync::Arc,
-};
-
 use bitcoin::consensus::serialize;
-use zkaleido::{ProofType, PublicValues, ZkVmError, ZkVmInputResult, ZkVmProgram, ZkVmResult};
-use zkaleido_native_adapter::{NativeHost, NativeMachine};
+use zkaleido::{ProofType, PublicValues, ZkVmInputResult, ZkVmProgram, ZkVmResult};
+use zkaleido_native_adapter::NativeHost;
 
 use crate::{
     process_bridge_proof_outer, BridgeProofInput, BridgeProofInputBorsh, BridgeProofPublicOutput,
 };
 
-/// This is responsible for generating the proof
-// TODO: zkaleido maybe add a display/debug trait to ZkVmProgram
+/// The bridge proof program for ZKVM proof generation and verification.
+///
+/// This implements [`ZkVmProgram`] to define how the bridge proof input is serialized
+/// into the ZKVM guest and how the resulting [`BridgeProofPublicOutput`] is extracted from the
+/// proof's public values.
 #[derive(Debug)]
 pub struct BridgeProgram;
 
@@ -63,15 +61,7 @@ impl ZkVmProgram for BridgeProgram {
 impl BridgeProgram {
     /// get native host. This can be used for testing
     pub fn native_host() -> NativeHost {
-        NativeHost {
-            process_proof: Arc::new(Box::new(move |zkvm: &NativeMachine| {
-                catch_unwind(AssertUnwindSafe(|| {
-                    process_bridge_proof_outer(zkvm);
-                }))
-                .map_err(|_| ZkVmError::ExecutionError(Self::name()))?;
-                Ok(())
-            })),
-        }
+        NativeHost::new(process_bridge_proof_outer)
     }
 
     /// Add this new convenience method
@@ -83,16 +73,6 @@ impl BridgeProgram {
         <Self as ZkVmProgram>::execute(input, &host)
     }
 }
-/// get native host. This can be used for testing
-pub fn get_native_host() -> NativeHost {
-    NativeHost {
-        process_proof: Arc::new(Box::new(move |zkvm: &NativeMachine| {
-            process_bridge_proof_outer(zkvm);
-            Ok(())
-        })),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use alpen_bridge_params::prelude::PegOutGraphParams;
@@ -101,8 +81,6 @@ mod tests {
         load_op_signature, load_test_rollup_params,
     };
     use strata_bridge_common::logging::{self, LoggerConfig};
-    use tracing::debug;
-    use zkaleido::ZkVmProgram;
 
     use super::*;
 
@@ -124,8 +102,7 @@ mod tests {
     fn test_native() {
         logging::init(LoggerConfig::new("test-native".to_string()));
         let input = get_input();
-        let host = get_native_host();
-        let receipt = BridgeProgram::prove(&input, &host).unwrap();
-        debug!(?receipt, "received proof receipt from native host");
+        let res = BridgeProgram::execute(&input);
+        assert!(res.is_ok());
     }
 }

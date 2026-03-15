@@ -13,7 +13,6 @@ ark-ec.workspace = true
 ark-ff.workspace = true
 ark-groth16.workspace = true
 ark-serialize.workspace = true
-bincode.workspace = true
 hex.workspace = true
 sp1-sdk.workspace = true
 sp1-verifier = { workspace = true, features = ["ark"] }
