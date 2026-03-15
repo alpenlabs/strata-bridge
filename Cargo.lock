@@ -3672,7 +3672,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6101,6 +6101,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "moho-runtime-impl"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
+dependencies = [
+ "borsh",
+ "moho-runtime-interface",
+ "moho-types",
+ "ssz",
+ "ssz_derive",
+]
+
+[[package]]
 name = "moho-runtime-interface"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/moho?rev=97e9d281f310e9c2e60cf80448c95e855be589b9#97e9d281f310e9c2e60cf80448c95e855be589b9"
@@ -7655,7 +7667,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8216,7 +8228,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8294,7 +8306,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9966,15 +9978,18 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
+ "moho-runtime-impl",
  "moho-runtime-interface",
  "moho-types",
  "sha2",
+ "ssz",
  "strata-asm-common",
  "strata-asm-logs",
  "strata-asm-spec",
  "strata-asm-stf",
  "strata-identifiers",
  "strata-predicate",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
 ]
 
 [[package]]
@@ -11635,7 +11650,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
