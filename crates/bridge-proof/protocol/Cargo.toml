@@ -22,5 +22,4 @@ thiserror.workspace = true
 
 [dev-dependencies]
 strata-bridge-common.workspace = true
-tracing.workspace = true
 prover-test-utils.workspace = true
