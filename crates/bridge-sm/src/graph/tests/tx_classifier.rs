@@ -6,12 +6,170 @@
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::{
+        OutPoint,
+        hashes::{Hash, sha256},
+    };
+    use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
     use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_txid};
+    use strata_bridge_tx_graph2::{
+        game_graph::{CounterproofGraphSummary, GameGraphSummary},
+        transactions::prelude::CounterproofTx,
+    };
 
     use crate::{
-        graph::tests::{mock_states::*, *},
+        graph::{
+            context::GraphSMCtx,
+            machine::GraphSM,
+            state::GraphState,
+            tests::{mock_states::*, *},
+        },
+        testing::fixtures::{TEST_DEPOSIT_IDX, test_operator_table},
         tx_classifier::TxClassifier,
     };
+
+    /// Generates a graph summary with the specified number of counterproofs, along with the
+    /// corresponding counterproof and ack transactions in full that reference the summary's
+    /// counterproofs.
+    fn test_counterproof_summary_with_watchtowers(
+        watchtower_count: usize,
+    ) -> (GameGraphSummary, Vec<Transaction>, Vec<Transaction>) {
+        let mut summary = test_graph_summary();
+        let counterproof_txs = (0..watchtower_count)
+            .map(|idx| {
+                generate_spending_tx(
+                    OutPoint {
+                        txid: generate_txid(),
+                        vout: 10 + idx as u32,
+                    },
+                    &[],
+                )
+            })
+            .collect::<Vec<_>>();
+        let counterproof_ack_txs = (0..watchtower_count)
+            .map(|idx| {
+                generate_spending_tx(
+                    OutPoint {
+                        txid: generate_txid(),
+                        vout: 20 + idx as u32,
+                    },
+                    &[],
+                )
+            })
+            .collect::<Vec<_>>();
+        summary.counterproofs = counterproof_txs
+            .iter()
+            .zip(&counterproof_ack_txs)
+            .map(|(counterproof_tx, ack_tx)| CounterproofGraphSummary {
+                counterproof: counterproof_tx.compute_txid(),
+                counterproof_ack: ack_tx.compute_txid(),
+            })
+            .collect();
+
+        (summary, counterproof_txs, counterproof_ack_txs)
+    }
+
+    fn replace_graph_summary(mut state: GraphState, graph_summary: GameGraphSummary) -> GraphState {
+        match &mut state {
+            GraphState::Contested {
+                graph_summary: state_summary,
+                ..
+            }
+            | GraphState::BridgeProofPosted {
+                graph_summary: state_summary,
+                ..
+            }
+            | GraphState::CounterProofPosted {
+                graph_summary: state_summary,
+                ..
+            } => *state_summary = graph_summary,
+            _ => panic!("test state must carry a graph summary"),
+        }
+
+        state
+    }
+
+    fn create_sm_with_owner_and_pov(
+        state: GraphState,
+        graph_owner_idx: OperatorIdx,
+        pov_idx: OperatorIdx,
+    ) -> GraphSM {
+        GraphSM {
+            context: GraphSMCtx {
+                graph_idx: GraphIdx {
+                    deposit: TEST_DEPOSIT_IDX,
+                    operator: graph_owner_idx,
+                },
+                deposit_outpoint: OutPoint::default(),
+                stake_outpoint: OutPoint::default(),
+                unstaking_image: sha256::Hash::all_zeros(),
+                operator_table: test_operator_table(N_TEST_OPERATORS, pov_idx),
+            },
+            state,
+        }
+    }
+
+    /// Asserts that the counterproof, ACK and NACK transactions for the specified counterproof
+    /// slot are all attributed to the expected operator index.
+    fn assert_counterproof_graph_attribution(
+        graph_owner_idx: OperatorIdx,
+        pov_idx: OperatorIdx,
+        counterproof_slot: usize,
+        expected_operator_idx: OperatorIdx,
+    ) {
+        let cfg = test_graph_sm_cfg();
+        let (graph_summary, counterproof_txs, counterproof_ack_txs) =
+            test_counterproof_summary_with_watchtowers(N_TEST_OPERATORS - 1);
+
+        let contested_sm = create_sm_with_owner_and_pov(
+            replace_graph_summary(contested_state(), graph_summary.clone()),
+            graph_owner_idx,
+            pov_idx,
+        );
+        let counterproof_result = contested_sm.classify_tx(
+            &cfg,
+            &counterproof_txs[counterproof_slot],
+            LATER_BLOCK_HEIGHT,
+        );
+        match counterproof_result {
+            Some(GraphEvent::CounterProofConfirmed(event)) => {
+                assert_eq!(event.counterprover_idx, expected_operator_idx);
+            }
+            _ => panic!("expected Some(CounterProofConfirmed) but got {counterproof_result:?}"),
+        }
+
+        let counterproof_posted_sm = create_sm_with_owner_and_pov(
+            replace_graph_summary(counter_proof_posted_state(), graph_summary),
+            graph_owner_idx,
+            pov_idx,
+        );
+        let ack_result = counterproof_posted_sm.classify_tx(
+            &cfg,
+            &counterproof_ack_txs[counterproof_slot],
+            LATER_BLOCK_HEIGHT,
+        );
+        match ack_result {
+            Some(GraphEvent::CounterProofAckConfirmed(event)) => {
+                assert_eq!(event.counterprover_idx, expected_operator_idx);
+            }
+            _ => panic!("expected Some(CounterProofAckConfirmed) but got {ack_result:?}"),
+        }
+
+        let nack_tx = generate_spending_tx(
+            OutPoint {
+                txid: counterproof_txs[counterproof_slot].compute_txid(),
+                vout: CounterproofTx::ACK_NACK_VOUT,
+            },
+            &[],
+        );
+        let nack_result = counterproof_posted_sm.classify_tx(&cfg, &nack_tx, LATER_BLOCK_HEIGHT);
+        match nack_result {
+            Some(GraphEvent::CounterProofNackConfirmed(event)) => {
+                assert_eq!(event.counterprover_idx, expected_operator_idx);
+            }
+            _ => panic!("expected Some(CounterProofNackConfirmed) but got {nack_result:?}"),
+        }
+    }
 
     // --- Positive tests: classify_tx returns the correct event ---
 
@@ -162,6 +320,31 @@ mod tests {
             matches!(result, Some(GraphEvent::CounterProofNackConfirmed(_))),
             "expected Some(CounterProofNackConfirmed) but got {result:?}"
         );
+    }
+
+    #[test]
+    fn classify_tx_attributes_counterproof_graph_exhaustively() {
+        let operator_count = N_TEST_OPERATORS as u32;
+
+        for graph_owner_idx in 0..operator_count {
+            for pov_idx in 0..operator_count {
+                // Counterproof slots are assigned to operators in ascending operator-index order,
+                // with the graph owner's operator index omitted from the sequence entirely.
+                // Zipping the dense slot range with the operator range minus the owner gives an
+                // oracle derived directly from that protocol rule, without reproducing the slot
+                // remapping arithmetic used by the implementation.
+                for (counterproof_slot, expected_operator_idx) in (0..N_TEST_OPERATORS - 1)
+                    .zip((0..operator_count).filter(|idx| *idx != graph_owner_idx))
+                {
+                    assert_counterproof_graph_attribution(
+                        graph_owner_idx,
+                        pov_idx,
+                        counterproof_slot,
+                        expected_operator_idx,
+                    );
+                }
+            }
+        }
     }
 
     #[test]

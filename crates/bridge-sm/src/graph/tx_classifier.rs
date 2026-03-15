@@ -16,8 +16,8 @@ use crate::{
         state::GraphState,
     },
     tx_classifier::{
-        TxClassifier, is_bridge_proof_tx, is_counterproof_ack_txid, is_counterproof_nack_tx,
-        is_counterproof_txid, is_fulfillment, is_payout_connector_spent,
+        TxClassifier, counterproof_ack_operator_idx, counterproof_operator_idx, is_bridge_proof_tx,
+        is_fulfillment, is_payout_connector_spent, nack_counterprover_idx,
     },
 };
 
@@ -146,11 +146,14 @@ impl TxClassifier for GraphSM {
                             proof: proof_receipt,
                         },
                     ))
-                } else if is_counterproof_txid(graph_summary, &txid) {
+                } else if let Some(counterprover_idx) =
+                    counterproof_operator_idx(graph_summary, &txid, self.context().operator_idx())
+                {
                     Some(GraphEvent::CounterProofConfirmed(
                         CounterProofConfirmedEvent {
                             counterproof_txid: txid,
                             counterproof_block_height: height,
+                            counterprover_idx,
                         },
                     ))
                 } else if is_payout_connector_spent(&graph_summary.claim, tx) {
@@ -166,11 +169,14 @@ impl TxClassifier for GraphSM {
 
             // expects a counterproof or a contested payout or a payout burn
             GraphState::BridgeProofPosted { graph_summary, .. } => {
-                if is_counterproof_txid(graph_summary, &txid) {
+                if let Some(counterprover_idx) =
+                    counterproof_operator_idx(graph_summary, &txid, self.context().operator_idx())
+                {
                     Some(GraphEvent::CounterProofConfirmed(
                         CounterProofConfirmedEvent {
                             counterproof_txid: txid,
                             counterproof_block_height: height,
+                            counterprover_idx,
                         },
                     ))
                 } else if txid == graph_summary.contested_payout {
@@ -210,11 +216,16 @@ impl TxClassifier for GraphSM {
 
             // expects a counterproof ACK or NACK or payout burn
             GraphState::CounterProofPosted { graph_summary, .. } => {
-                if is_counterproof_ack_txid(graph_summary, &txid) {
+                if let Some(counterprover_idx) = counterproof_ack_operator_idx(
+                    graph_summary,
+                    &txid,
+                    self.context().operator_idx(),
+                ) {
                     Some(GraphEvent::CounterProofAckConfirmed(
                         CounterProofAckConfirmedEvent {
                             counterproof_ack_txid: txid,
                             counterproof_ack_block_height: height,
+                            counterprover_idx,
                         },
                     ))
                 } else if is_payout_connector_spent(&graph_summary.claim, tx) {
@@ -224,17 +235,14 @@ impl TxClassifier for GraphSM {
                         },
                     ))
                 } else {
-                    is_counterproof_nack_tx(
-                        graph_summary,
-                        self.context.operator_table.pov_idx(),
-                        tx,
+                    nack_counterprover_idx(graph_summary, self.context().operator_idx(), tx).map(
+                        |counterprover_idx| {
+                            GraphEvent::CounterProofNackConfirmed(CounterProofNackConfirmedEvent {
+                                counterproof_nack_txid: txid,
+                                counterprover_idx,
+                            })
+                        },
                     )
-                    .map(|nacker_idx| {
-                        GraphEvent::CounterProofNackConfirmed(CounterProofNackConfirmedEvent {
-                            counterproof_nack_txid: txid,
-                            nacker_idx,
-                        })
-                    })
                 }
             }
 
