@@ -29,7 +29,7 @@ use statement::process_bridge_proof;
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_params::RollupParams;
 use strata_primitives::buf::{Buf32, Buf64};
-use zkaleido::ZkVmEnv;
+use zkaleido::{ZkVmEnvBorsh, ZkVmEnvSerde};
 
 /// Represents the private inputs required by the `BridgeProver` to generate a proof.
 ///
@@ -101,7 +101,7 @@ pub struct BridgeProofPublicOutput {
 ///
 /// This function is designed for use inside a guest ZkVM program and will **panic** if any
 /// errors occur during deserialization, proof verification, or output commitment.
-pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
+pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnvSerde) {
     let rollup_params: RollupParams = zkvm.read_serde();
     let pegout_graph_params: PegOutGraphParams = zkvm.read_serde();
 
@@ -122,5 +122,5 @@ pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
     zkvm.commit_borsh(&output);
 }
 
-pub use program::{get_native_host, BridgeProgram};
+pub use program::BridgeProgram;
 pub use statement::REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX;

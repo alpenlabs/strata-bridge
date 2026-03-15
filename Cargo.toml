@@ -159,10 +159,10 @@ strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.
 # Dependencies from alpenlabs/ssz-gen
 ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
-zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
-zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
-zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21" }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21" }
+zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21" }
+zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc21" }
 
 # external deps
 alloy = { version = "1.4.3", features = ["full", "node-bindings"] }
@@ -266,8 +266,8 @@ serde_with = "3.12.0"
 serial_test = "3.2.0"
 sha2 = "0.10"
 sled = "0.34.7"
-sp1-sdk = "5.0.0"
-sp1-verifier = "5.0.0"
+sp1-sdk = "5.2.4"
+sp1-verifier = "5.2.4"
 sqlx = { version = "0.8.2", features = [
   "sqlite",
   "runtime-tokio",

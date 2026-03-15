@@ -36,6 +36,7 @@ use operator_wallet::{sync::Backend, OperatorWallet, OperatorWalletConfig};
 use secp256k1::Parity;
 use secret_service_client::{
     rustls::{
+        self,
         pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
         ClientConfig, RootCertStore,
     },
@@ -281,6 +282,8 @@ pub(crate) async fn bootstrap(
 pub(crate) async fn init_secret_service_client(
     config: &SecretServiceConfig,
 ) -> SecretServiceClient {
+    install_rustls_crypto_provider();
+
     let key = fs::read(&config.key).expect("readable key");
     let key = if config.key.extension().is_some_and(|x| x == "der") {
         PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key))
@@ -317,6 +320,10 @@ pub(crate) async fn init_secret_service_client(
     SecretServiceClient::new(s2_config)
         .await
         .expect("good client")
+}
+
+fn install_rustls_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
 /// Reads a certificate from a file.
