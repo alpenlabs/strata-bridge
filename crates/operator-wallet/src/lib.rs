@@ -1,24 +1,18 @@
 //! Operator wallet
 pub mod sync;
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    time::Duration,
-};
+use std::{collections::BTreeSet, time::Duration};
 
 use algebra::predicate;
 use bdk_wallet::{
-    bitcoin::{
-        script::PushBytesBuf, Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, Transaction,
-        XOnlyPublicKey,
-    },
+    bitcoin::{Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, Transaction, XOnlyPublicKey},
     descriptor,
     error::CreateTxError,
     KeychainKind, LocalOutput, TxOrdering, Wallet,
 };
 use sync::{Backend, SyncError};
 use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// How many times we should reattempt after an error during a wallet sync
 const SYNC_RETRIES: u32 = 5;
@@ -65,10 +59,6 @@ impl OperatorWalletConfig {
     }
 }
 
-/// Type alias for the ID of fronting transactions. This is used to track which outpoints are being
-/// used for fronting withdrawals and to avoid double-spends.
-pub type FrontingOutPointId = u32;
-
 /// The [`OperatorWallet`] is responsible for managing an operator's L1 funds, split into a general
 /// wallet and a dedicated stakechain wallet.
 #[derive(Debug)]
@@ -80,13 +70,6 @@ pub struct OperatorWallet {
     general_addr_script_buf: ScriptBuf,
     sync_backend: Backend,
     leased_outpoints: BTreeSet<OutPoint>,
-    /// The outpoints used to fund the withdrawal fulfillment transactions.
-    ///
-    /// This keeps track of all such utxos so that two parallel withdrawal fulfillment executors do
-    /// not end up acquiring the same funding utxo and failing due to double-spend. It is assumed
-    /// that the [`OperatorWallet`] itself is accessed via a mutually exclusive lock and so
-    /// this [`BTreeSet`] is not behind another lock.
-    fronting_outpoints: BTreeMap<FrontingOutPointId, Vec<OutPoint>>,
 }
 
 impl OperatorWallet {
@@ -123,7 +106,6 @@ impl OperatorWallet {
             general_wallet,
             stakechain_wallet,
             sync_backend,
-            fronting_outpoints: BTreeMap::new(),
             leased_outpoints,
         }
     }
@@ -173,59 +155,8 @@ impl OperatorWallet {
         |outpoint| self.leased_outpoints.contains(outpoint)
     }
 
-    /// Creates a PSBT that outfronts a withdrawal from the general wallet to a user owned P2TR
-    /// address. (excluding anchor outputs). Needs signing by the general wallet.
-    ///
-    /// # Notes
-    ///
-    /// The caller is responsible of assuring that the `OP_RETURN` data is within standard limits,
-    /// i.e. `<= 80` bytes.
-    ///
-    /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
-    /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
-    pub fn front_withdrawal(
-        &mut self,
-        fee_rate: FeeRate,
-        user_script_pubkey: ScriptBuf,
-        amount: Amount,
-        op_return_data: &[u8],
-    ) -> Result<Psbt, CreateTxError> {
-        let mut push_data = PushBytesBuf::new();
-        push_data
-            .extend_from_slice(op_return_data)
-            .expect("op_return_data should be within limit");
-        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
-
-        let mut tx_builder = self.general_wallet.build_tx();
-        // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
-        tx_builder.version(3);
-        // DON'T spend any of the anchor outputs
-        tx_builder.unspendable(anchor_outpoints);
-
-        tx_builder.unspendable(
-            self.fronting_outpoints
-                .values()
-                .flatten()
-                .cloned()
-                .collect(),
-        );
-        tx_builder.fee_rate(fee_rate);
-        tx_builder.add_recipient(user_script_pubkey, amount);
-        tx_builder.add_data(&push_data);
-        tx_builder.ordering(TxOrdering::Untouched);
-
-        let psbt = tx_builder.finish()?;
-
-        // Mark the used input(s) as fronted so we can track it later
-        psbt.unsigned_tx.input.iter().for_each(|input| {
-            let stub_id = 0;
-            self.fronting_outpoints
-                .entry(stub_id)
-                .or_default()
-                .push(input.previous_output);
-        });
-
-        Ok(psbt)
+    fn release(&mut self, outpoint: &OutPoint) -> bool {
+        self.leased_outpoints.remove(outpoint)
     }
 
     /// Funds an unfunded version 3 transaction by adding inputs and change.
@@ -233,11 +164,8 @@ impl OperatorWallet {
     /// Takes a transaction with outputs only and adds inputs from the general wallet to cover the
     /// outputs plus fees. Change, if any, is added at the end of vouts.
     ///
-    /// The used input UTXOs are marked as reserved so that two different executors do not end up
+    /// The used input UTXOs are marked as leased so that two different executors do not end up
     /// using the same UTXOs and failing due to double-spend.
-    ///
-    /// The `id` is used to identify the transaction being funded. If one already exists, the same
-    /// UTXO as reserved earlier will be used for it.
     ///
     /// # Notes
     ///
@@ -245,40 +173,18 @@ impl OperatorWallet {
     /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
     pub fn fund_v3_transaction(
         &mut self,
-        id: u32,
         unfunded_tx: Transaction,
         fee_rate: FeeRate,
     ) -> Result<Psbt, CreateTxError> {
         let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
+        // Outpoints already committed to other transactions - exclude to prevent double-spend
+        let leased: Vec<OutPoint> = self.leased_outpoints().collect();
 
         let mut tx_builder = self.general_wallet.build_tx();
         // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
         tx_builder.version(3);
-        // DON'T spend any of the anchor outputs or already-used fronting outputs
         tx_builder.unspendable(anchor_outpoints);
-        if let Some(reserved_outpoints) = self.fronting_outpoints.get(&id) {
-            reserved_outpoints.iter().for_each(|reserved_outpoint| {
-                tx_builder
-                    .add_utxo(*reserved_outpoint)
-                    .expect("reserved outpoint must be known to the wallet");
-            });
-
-            // do not add any more than the ones already selected from the reserve
-            // NOTE: (@Rajil1213) if there is a fee-rate spike, these inputs might not have enough
-            // funds to cover the outputs + fees. In that case, the transaction in the mempool can
-            // be CPFP'd by the user or the operator.
-            tx_builder.manually_selected_only();
-        }
-        // added utxo takes priority over unspendable, so we add the reserved utxo first and then
-        // mark all fronting outpoints as unspendable to avoid accidentally using another one of
-        // them.
-        tx_builder.unspendable(
-            self.fronting_outpoints
-                .values()
-                .flatten()
-                .cloned()
-                .collect(),
-        );
+        tx_builder.unspendable(leased);
         tx_builder.fee_rate(fee_rate);
 
         // Add all outputs from the unfunded transaction
@@ -290,15 +196,71 @@ impl OperatorWallet {
 
         let psbt = tx_builder.finish()?;
 
-        // Mark the used input(s) as fronted so we can track it later
+        // Mark the used input(s) as leased so they won't be reused
         psbt.unsigned_tx.input.iter().for_each(|input| {
-            self.fronting_outpoints
-                .entry(id)
-                .or_default()
-                .push(input.previous_output);
+            self.lease(input.previous_output);
         });
 
         Ok(psbt)
+    }
+
+    /// Creates a funded PSBT for a V3 transaction using explicit outpoints.
+    ///
+    /// This is used for idempotent transaction creation when the funding outpoints
+    /// have been persisted from a previous run.
+    ///
+    /// The specified outpoints are marked as leased to prevent concurrent duties from
+    /// selecting them via [`Self::fund_v3_transaction`].
+    pub fn fund_v3_transaction_with_outpoints(
+        &mut self,
+        outpoints: &[OutPoint],
+        unfunded_tx: Transaction,
+        fee_rate: FeeRate,
+    ) -> Result<Psbt, CreateTxError> {
+        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
+
+        let mut tx_builder = self.general_wallet.build_tx();
+        tx_builder.version(3);
+        tx_builder.unspendable(anchor_outpoints);
+
+        for outpoint in outpoints {
+            tx_builder
+                .add_utxo(*outpoint)
+                .map_err(|_| CreateTxError::UnknownUtxo)?;
+        }
+        tx_builder.manually_selected_only();
+        tx_builder.fee_rate(fee_rate);
+
+        for output in &unfunded_tx.output {
+            tx_builder.add_recipient(output.script_pubkey.clone(), output.value);
+        }
+        tx_builder.ordering(TxOrdering::Untouched);
+
+        let psbt = tx_builder.finish()?;
+
+        // Lease the outpoints to prevent concurrent duties from selecting them.
+        // This is necessary because sync may have removed leases when the previous
+        // transaction was in mempool, and if that transaction was later dropped,
+        // these outpoints would become available for selection again.
+        for outpoint in outpoints {
+            self.lease(*outpoint);
+        }
+
+        Ok(psbt)
+    }
+
+    /// Releases the outpoints from leased_outpoints.
+    /// This is used to free up outpoints if the outpoints were not persisted due to issues
+    /// like failure to sign.
+    pub fn release_outpoints(&mut self, outpoints: &[OutPoint]) {
+        for outpoint in outpoints {
+            if !self.release(outpoint) {
+                warn!(
+                    ?outpoint,
+                    "attempted to release outpoint that was not leased"
+                );
+            }
+        }
     }
 
     /// Creates a PSBT that refills the pool of claim funding UTXOs from the general wallet
