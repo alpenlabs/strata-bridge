@@ -115,8 +115,11 @@ wots = { path = "crates/wots" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 201c3fa0 (main @ 2026-03-12)
 strata-asm-common = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
+strata-asm-logs = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-params = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
+strata-asm-spec = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
+strata-asm-stf = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-txs-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-txs-checkpoint = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-worker = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
@@ -151,6 +154,14 @@ strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "
 strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
 
+# Dependencies from alpenlabs/ssz-gen
+ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
+
+# Dependencies from alpenlabs/moho pinned to commit 97e9d28 (main @ 2026-03-12)
+moho-runtime-impl = { git = "https://github.com/alpenlabs/moho", rev = "97e9d281f310e9c2e60cf80448c95e855be589b9" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", rev = "97e9d281f310e9c2e60cf80448c95e855be589b9" }
+moho-types = { git = "https://github.com/alpenlabs/moho", rev = "97e9d281f310e9c2e60cf80448c95e855be589b9" }
+
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.5", features = [
   "quic",
   "request-response",
@@ -158,8 +169,6 @@ strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.
   "kad",
 ], default-features = false }
 
-# Dependencies from alpenlabs/ssz-gen
-ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.14.0" }
 
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
