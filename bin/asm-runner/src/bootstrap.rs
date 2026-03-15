@@ -42,11 +42,12 @@ pub(crate) async fn bootstrap(
 
     // 5. Set up BtcTracker to drive ASM
     let start_height = match asm_worker.monitor().get_current().cur_block {
-        Some(blk) => blk.height_u64(),
-        None => params.l1_view.height_u64(),
+        Some(blk) => blk.height(),
+        None => params.l1_view.height(),
     };
-    let btc_tracker =
-        Arc::new(setup_btc_tracker(&config.bitcoin, bitcoin_client.clone(), start_height).await?);
+    let btc_tracker = Arc::new(
+        setup_btc_tracker(&config.bitcoin, bitcoin_client.clone(), start_height as u64).await?,
+    );
     let asm_worker = Arc::new(asm_worker);
 
     // 6. Spawn block driver as a critical task
