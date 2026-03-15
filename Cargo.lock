@@ -11053,6 +11053,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-moho-guest-builder"
+version = "0.1.0"
+
+[[package]]
 name = "strata-msg-fmt"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc9#b9d24f391cb7b0004788230d673685363f6975bb"

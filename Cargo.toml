@@ -47,6 +47,7 @@ members = [
   "bin/secret-service",
 
   "bridge-guest-builder",
+  "moho-guest-builder",
 
   # test utilities
   "crates/test-utils",
@@ -94,6 +95,7 @@ strata-bridge-db = { path = "crates/db" }
 strata-bridge-db2 = { path = "crates/db2" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
+strata-moho-guest-builder = { path = "moho-guest-builder" }
 strata-bridge-key-deriv = { path = "crates/key-deriv" }
 strata-bridge-orchestrator = { path = "crates/orchestrator" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
