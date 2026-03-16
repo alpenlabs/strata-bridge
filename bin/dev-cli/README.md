@@ -4,12 +4,12 @@ Strata Bridge CLI for dev environment.
 
 ## Commands
 
-### `bridge-in-v2`
+### `bridge-in`
 
 Send a deposit request transaction on bitcoin.
 
 ```bash
-dev-cli bridge-in-v2 \
+dev-cli bridge-in \
   --btc-url http://127.0.0.1:18443/wallet/testwallet \
   --btc-user user \
   --btc-pass password \

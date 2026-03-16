@@ -204,7 +204,7 @@ open http://localhost:11000/debug/pprof/heap/flamegraph
 To send a deposit request against the Docker stack, run:
 
 ```sh
-just bridge-in-v2
+just bridge-in
 ```
 
 This uses:

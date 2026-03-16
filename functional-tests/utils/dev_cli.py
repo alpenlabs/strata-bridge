@@ -62,7 +62,7 @@ class DevCli:
         wallet = self.bitcoind_props.get("walletname", "testwallet")
 
         args = [
-            "bridge-in-v2",
+            "bridge-in",
             "--btc-url",
             f"http://127.0.0.1:{rpc_port}/wallet/{wallet}",
             "--btc-user",
