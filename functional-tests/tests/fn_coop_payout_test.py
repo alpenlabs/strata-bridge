@@ -30,7 +30,6 @@ class CooperativePayoutTest(StrataTestBase):
     def __init__(self, ctx: flexitest.InitContext):
         ctx.set_env(
             BridgeNetworkEnv(
-                funding_amount=10.01,
                 bridge_protocol_params=BridgeProtocolParams(contest_timelock=MAX_BRIDGE_TIMEOUT),  # noqa: B008
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=MAX_BRIDGE_TIMEOUT,
