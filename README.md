@@ -12,15 +12,6 @@ A reference implementation of Strata Bridge by your friends at [Alpen Labs](http
 > [!IMPORTANT]
 > This software is a work-in-progress and as such, is _not_ meant to be used in a production environment!
 
-## Transaction Graph
-
-The following is the transaction graph that has been implemented in this repository:
-
-<figure>
-    <img src="./assets/testnet-i-tx-graph.jpg" alt = "Transaction graph" />
-    <figcaption>The transaction graph for this repository.</figcaption>
-</figure>
-
 ## How To Run Locally
 
 ### Prerequisites
@@ -29,10 +20,7 @@ See [`CONTRIBUTING.md`](/CONTRIBUTING.md#development-tools).
 
 ### Running
 
-Run the Strata stack (`strata-client`, `strata-reth`, `bitcoind`) as per the instructions
-in the [`alpen`](https://github.com/alpenlabs/alpen/tree/bitvm2) repository.
-
-Then, see the instructions in [`docker/README.md`](./docker/README.md) to run the bridge nodes
+See the instructions in [`docker/README.md`](./docker/README.md) to run the bridge nodes
 and their corresponding secret-service nodes.
 
 ## Contributing
