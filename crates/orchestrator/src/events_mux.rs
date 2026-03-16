@@ -7,7 +7,7 @@ use rkyv::rancor;
 use strata_asm_proto_bridge_v1::AssignmentEntry;
 use strata_bridge_asm_events::event::AssignmentsState;
 use strata_bridge_p2p_service::message_handler2::OuroborosMessage;
-use strata_bridge_p2p_types2::GossipsubMsg;
+use strata_bridge_p2p_types::GossipsubMsg;
 use strata_bridge_primitives::subscription::Subscription;
 use strata_p2p::{
     events::GossipEvent,

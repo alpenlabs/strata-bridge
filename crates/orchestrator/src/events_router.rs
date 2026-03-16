@@ -3,7 +3,7 @@
 //!
 //! [`EventsMux`]: crate::events_mux::EventsMux
 
-use strata_bridge_p2p_types2::{
+use strata_bridge_p2p_types::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
 use tracing::warn;
@@ -97,7 +97,7 @@ fn route_gossipsub_msg(
 #[cfg(test)]
 mod tests {
     use strata_asm_proto_bridge_v1::AssignmentEntry;
-    use strata_bridge_p2p_types2::{
+    use strata_bridge_p2p_types::{
         GraphIdx, NagRequest, NagRequestPayload, PayoutDescriptor, PubNonce,
     };
     use strata_bridge_primitives::types::P2POperatorPubKey;

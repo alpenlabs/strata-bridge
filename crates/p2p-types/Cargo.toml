@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "strata-bridge-p2p-types2"
+name = "strata-bridge-p2p-types"
 version = "0.1.0"
 
 [lints]

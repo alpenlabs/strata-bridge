@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use musig2::{AggNonce, secp256k1::Message};
-use strata_bridge_p2p_types2::NagRequestPayload;
+use strata_bridge_p2p_types::NagRequestPayload;
 use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 
 use crate::graph::{

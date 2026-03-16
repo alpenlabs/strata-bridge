@@ -9,7 +9,7 @@ use std::fmt::Display;
 use bitcoin::{OutPoint, Txid};
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
-use strata_bridge_p2p_types2::NagRequestPayload;
+use strata_bridge_p2p_types::NagRequestPayload;
 use strata_bridge_primitives::types::{BitcoinBlockHeight, GraphIdx, OperatorIdx};
 use zkaleido::ProofReceipt;
 
