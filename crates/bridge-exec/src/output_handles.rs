@@ -7,7 +7,7 @@ use btc_tracker::tx_driver::TxDriver;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::fdb::client::FdbClient;
-use strata_bridge_p2p_service::MessageHandler2;
+use strata_bridge_p2p_service::MessageHandler;
 use tokio::sync::RwLock;
 
 /// The handles for external services that need to be accessed by the executors.
@@ -24,7 +24,7 @@ pub struct OutputHandles {
     pub db: Arc<FdbClient>,
 
     /// Handle for broadcasting P2P messages
-    pub msg_handler2: RwLock<MessageHandler2>,
+    pub msg_handler: RwLock<MessageHandler>,
 
     /// Handle for accessing the Bitcoin client RPC.
     pub bitcoind_rpc_client: BitcoinClient,

@@ -151,7 +151,7 @@ pub async fn execute_graph_duty(
             info!(%graph_idx, %operator_idx, payload = ?nag_request.payload, "executing nag duty to request missing graph peer data");
 
             output_handles
-                .msg_handler2
+                .msg_handler
                 .write()
                 .await
                 .send_nag_request(nag_request, None)

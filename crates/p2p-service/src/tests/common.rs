@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{info, trace};
 
-use crate::message_handler2::{MessageHandler, OuroborosMessage};
+use crate::message_handler::{MessageHandler, OuroborosMessage};
 
 pub(crate) struct Operator {
     pub(crate) p2p: P2P,
@@ -189,11 +189,8 @@ impl Setup {
             tasks.spawn(operator.p2p.listen());
 
             let (ouroboros_tx, ouroboros_rx) = mpsc::unbounded_channel();
-            let handler = MessageHandler::new(
-                ouroboros_tx,
-                operator.gossip_handle.clone(),
-                operator.kp,
-            );
+            let handler =
+                MessageHandler::new(ouroboros_tx, operator.gossip_handle.clone(), operator.kp);
 
             levers.push(OperatorHandle {
                 handler,
