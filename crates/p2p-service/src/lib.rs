@@ -3,10 +3,10 @@
 pub mod bootstrap;
 pub mod config;
 pub mod constants;
-pub mod message_handler2;
+pub mod message_handler;
 
 pub use bootstrap::bootstrap;
 pub use config::{Configuration, GossipsubScoringPreset};
-pub use message_handler2::{MessageHandler as MessageHandler2, OuroborosMessage};
+pub use message_handler::{MessageHandler, OuroborosMessage};
 #[cfg(test)]
 pub mod tests;

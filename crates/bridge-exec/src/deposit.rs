@@ -214,7 +214,7 @@ pub async fn execute_deposit_duty(
             info!(%deposit_idx, %operator_idx, payload = ?nag_request.payload, "executing nag duty to request missing peer data");
 
             output_handles
-                .msg_handler2
+                .msg_handler
                 .write()
                 .await
                 .send_nag_request(nag_request, None)
@@ -271,9 +271,9 @@ async fn publish_deposit_nonce(
         .await?
         .map_err(|_| ExecutorError::OurPubKeyNotInParams)?;
 
-    // Broadcast via MessageHandler2
+    // Broadcast via MessageHandler
     output_handles
-        .msg_handler2
+        .msg_handler
         .write()
         .await
         .send_deposit_nonce(deposit_idx, nonce, None)
@@ -333,9 +333,9 @@ async fn publish_deposit_partial(
             terrors::E2::B(_) => ExecutorError::SelfVerifyFailed,
         })?;
 
-    // Broadcast via MessageHandler2
+    // Broadcast via MessageHandler
     output_handles
-        .msg_handler2
+        .msg_handler
         .write()
         .await
         .send_deposit_partial(deposit_idx, partial_sig, None)
@@ -535,7 +535,7 @@ async fn request_payout_nonces(
 
     // Broadcast to all operators
     output_handles
-        .msg_handler2
+        .msg_handler
         .write()
         .await
         .send_payout_descriptor(deposit_idx, operator_idx, payout_descriptor.clone(), None)
@@ -569,9 +569,9 @@ async fn publish_payout_nonce(
         .await?
         .map_err(|_| ExecutorError::OurPubKeyNotInParams)?;
 
-    // Broadcast via MessageHandler2
+    // Broadcast via MessageHandler
     output_handles
-        .msg_handler2
+        .msg_handler
         .write()
         .await
         .send_payout_nonce(deposit_idx, nonce, None)
@@ -614,9 +614,9 @@ async fn publish_payout_partial(
             terrors::E2::B(_) => ExecutorError::SelfVerifyFailed,
         })?;
 
-    // Broadcast via MessageHandler2
+    // Broadcast via MessageHandler
     output_handles
-        .msg_handler2
+        .msg_handler
         .write()
         .await
         .send_payout_partial(deposit_idx, partial_sig, None)

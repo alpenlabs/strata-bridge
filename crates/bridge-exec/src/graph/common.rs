@@ -34,7 +34,7 @@ pub(super) async fn generate_graph_data(
     let OutputHandles {
         wallet,
         db,
-        msg_handler2,
+        msg_handler,
         s2_client,
         tx_driver,
         ..
@@ -48,7 +48,7 @@ pub(super) async fn generate_graph_data(
             "graph data already exists in disk, skipping generation"
         );
 
-        msg_handler2
+        msg_handler
             .write()
             .await
             .send_graph_data(graph_idx, funding_outpoint, None)
@@ -109,7 +109,7 @@ pub(super) async fn generate_graph_data(
     db.set_claim_funding_outpoint(graph_idx, funding_outpoint)
         .await?;
 
-    msg_handler2
+    msg_handler
         .write()
         .await
         .send_graph_data(graph_idx, funding_outpoint, None)
@@ -186,9 +186,9 @@ pub(super) async fn publish_graph_nonces(
 
     let nonces: Vec<PubNonce> = try_join_all(nonce_futures).await?;
 
-    // Broadcast via MessageHandler2
+    // Broadcast via MessageHandler
     output_handles
-        .msg_handler2
+        .msg_handler
         .write()
         .await
         .send_graph_nonces(graph_idx, nonces, None)
@@ -269,9 +269,9 @@ pub(super) async fn publish_graph_partials(
 
     let partials: Vec<PartialSignature> = try_join_all(partial_futures).await?;
 
-    // Broadcast via MessageHandler2
+    // Broadcast via MessageHandler
     output_handles
-        .msg_handler2
+        .msg_handler
         .write()
         .await
         .send_graph_partials(graph_idx, partials, None)

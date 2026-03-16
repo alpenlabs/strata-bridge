@@ -16,7 +16,7 @@ use strata_bridge_orchestrator::{
     duty_dispatcher::DutyDispatcher, events_mux::EventsMux, persister::Persister,
     pipeline::Pipeline, sm_registry::SMConfig,
 };
-use strata_bridge_p2p_service::MessageHandler2;
+use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_sm::{self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg};
 use strata_bridge_tx_graph::game_graph::ProtocolParams as TxGraphProtocolParams;
@@ -67,7 +67,7 @@ pub(crate) async fn init_orchestrator(
 
     let (ouroboros_msg_sender, ouroboros_msg_receiver) = mpsc::unbounded_channel();
     let message_handler =
-        MessageHandler2::new(ouroboros_msg_sender, gossip_handle.clone(), p2p_keypair);
+        MessageHandler::new(ouroboros_msg_sender, gossip_handle.clone(), p2p_keypair);
 
     debug!("initializing asm assignments feed");
     let asm_block_feed = zmq_client.subscribe_blocks().await;
@@ -98,7 +98,7 @@ pub(crate) async fn init_orchestrator(
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
     let output_handles = OutputHandles {
         wallet: RwLock::new(wallet),
-        msg_handler2: RwLock::new(message_handler),
+        msg_handler: RwLock::new(message_handler),
         db: fdb_client.clone(),
         bitcoind_rpc_client: btc_rpc_client,
         s2_client: s2_client.clone(),

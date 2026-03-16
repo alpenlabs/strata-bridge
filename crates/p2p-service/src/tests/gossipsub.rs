@@ -38,12 +38,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     // 1. Payout descriptor
     for op in operators.iter_mut() {
         op.handler
-            .send_payout_descriptor(
-                deposit_idx,
-                0,
-                PayoutDescriptor::new(vec![1, 2, 3]),
-                None,
-            )
+            .send_payout_descriptor(deposit_idx, 0, PayoutDescriptor::new(vec![1, 2, 3]), None)
             .await;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "payout_descriptor", |msg| {
@@ -220,15 +215,14 @@ async fn dispatch_direct_peer() -> anyhow::Result<()> {
 
     // Verify the oneshot channel received the signed serialized bytes
     let data = rx.await.expect("oneshot should have received data");
-    let archived =
-        rkyv::access::<rkyv::Archived<strata_bridge_p2p_types::GossipsubMsg>, rkyv::rancor::Error>(
-            &data,
-        )
-        .expect("must be able to access archived msg");
-    let msg = rkyv::deserialize::<strata_bridge_p2p_types::GossipsubMsg, rkyv::rancor::Error>(
-        archived,
-    )
-    .expect("must be able to deserialize msg");
+    let archived = rkyv::access::<
+        rkyv::Archived<strata_bridge_p2p_types::GossipsubMsg>,
+        rkyv::rancor::Error,
+    >(&data)
+    .expect("must be able to access archived msg");
+    let msg =
+        rkyv::deserialize::<strata_bridge_p2p_types::GossipsubMsg, rkyv::rancor::Error>(archived)
+            .expect("must be able to deserialize msg");
     assert!(matches!(
         msg.unsigned,
         UnsignedGossipsubMsg::PayoutDescriptorExchange { .. }
