@@ -5,9 +5,7 @@ use musig2::{
     secp256k1::{Message, schnorr},
     verify_partial,
 };
-use strata_bridge_primitives::{
-    key_agg::create_agg_ctx, scripts::taproot::TaprootTweak, types::OperatorIdx,
-};
+use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootTweak};
 use strata_bridge_tx_graph2::{game_graph::DepositParams, musig_functor::GameFunctor};
 
 use crate::{
@@ -22,6 +20,7 @@ use crate::{
         },
         machine::{GSMOutput, GraphSM, generate_game_graph},
         state::GraphState,
+        watchtower::watchtower_slot_for_operator,
     },
     signals::{GraphSignal, GraphToDeposit},
 };
@@ -90,7 +89,7 @@ impl GraphSM {
 
                     Ok(GSMOutput::with_duties(duties))
                 } else {
-                    let pov_counterproof_idx = Self::watchtower_slot_for_operator(
+                    let pov_counterproof_idx = watchtower_slot_for_operator(
                         self.context().operator_idx(),
                         pov_operator_idx,
                     )
@@ -719,7 +718,7 @@ impl GraphSM {
                         let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
 
                         let contest_tx = game_graph.contest;
-                        let watchtower_index = Self::watchtower_slot_for_operator(
+                        let watchtower_index = watchtower_slot_for_operator(
                             self.context().operator_idx(),
                             self.context().operator_table().pov_idx(),
                         )
@@ -762,19 +761,6 @@ impl GraphSM {
                 claim.into(),
                 None,
             )),
-        }
-    }
-
-    const fn watchtower_slot_for_operator(
-        graph_owner_idx: OperatorIdx,
-        operator_idx: OperatorIdx,
-    ) -> Option<usize> {
-        if operator_idx == graph_owner_idx {
-            None
-        } else if operator_idx < graph_owner_idx {
-            Some(operator_idx as usize)
-        } else {
-            Some(operator_idx as usize - 1)
         }
     }
 }
