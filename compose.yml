@@ -54,9 +54,7 @@ services:
       # NOTE: Keep this port in sync with docker/vol/fdb/fdb.cluster
       - "4500:4500"
     networks:
-      bridge:
-        # NOTE: Keep this IP in sync with docker/vol/fdb/fdb.cluster
-        ipv4_address: 172.28.0.100
+      - bridge
     healthcheck:
       test:
         [
@@ -78,8 +76,7 @@ services:
     volumes:
       - ./docker/vol/secret-service-1:/app
     networks:
-      bridge:
-        ipv4_address: 172.28.1.5
+      - bridge
   bridge-1:
     <<: *base-bridge-node
     ports:
@@ -91,8 +88,7 @@ services:
       - ./migrations:/app/migrations
       - ./docker/vol/fdb/fdb.cluster:/var/fdb/fdb.cluster:ro
     networks:
-      bridge:
-        ipv4_address: 172.28.0.5
+      - bridge
 
   secret-service-2:
     <<: *base-secret-service
@@ -101,8 +97,7 @@ services:
     volumes:
       - ./docker/vol/secret-service-2:/app
     networks:
-      bridge:
-        ipv4_address: 172.28.1.6
+      - bridge
   bridge-2:
     <<: *base-bridge-node
     ports:
@@ -114,8 +109,7 @@ services:
       - ./migrations:/app/migrations
       - ./docker/vol/fdb/fdb.cluster:/var/fdb/fdb.cluster:ro
     networks:
-      bridge:
-        ipv4_address: 172.28.0.6
+      - bridge
 
   secret-service-3:
     <<: *base-secret-service
@@ -124,8 +118,7 @@ services:
     volumes:
       - ./docker/vol/secret-service-3:/app
     networks:
-      bridge:
-        ipv4_address: 172.28.1.7
+      - bridge
   bridge-3:
     <<: *base-bridge-node
     ports:
@@ -137,8 +130,7 @@ services:
       - ./migrations:/app/migrations
       - ./docker/vol/fdb/fdb.cluster:/var/fdb/fdb.cluster:ro
     networks:
-      bridge:
-        ipv4_address: 172.28.0.7
+      - bridge
 
   bitcoind:
     image: bitcoin/bitcoin:30
@@ -168,6 +160,3 @@ services:
 
 networks:
   bridge:
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16
