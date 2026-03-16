@@ -24,6 +24,3 @@ jobs:
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error:
-          true # don't fail the build if there are vulnerabilities.
-          # because of a false-positive on `sqlx-mysql` which is not being used in this repo.

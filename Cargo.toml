@@ -176,7 +176,7 @@ libp2p = { version = "0.56.0", features = [
   "yamux",
   "identify",
 ] }
-libp2p-identity = "0.2.12"
+libp2p-identity = { version = "0.2.12", features = ["ed25519"] }
 miniscript = "12.3.0"
 # NOTE: (@Rajil1213) Using an alpenlabs fork that bumps serdect 0.2 → 0.3 to fix a
 # serialize/deserialize mismatch in non-human-readable binary formats (e.g.

@@ -38,7 +38,6 @@ pub type DepositIdx = u32;
     RkyvDeserialize,
     Arbitrary,
 )]
-#[rkyv(attr(expect(missing_docs)))]
 pub struct GraphIdx {
     /// The index of the deposit that a peg out graph is associated with.
     pub deposit: DepositIdx,

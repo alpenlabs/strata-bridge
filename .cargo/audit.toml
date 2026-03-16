@@ -1,0 +1,9 @@
+[advisories]
+ignore = [
+  # tracing-subscriber 0.2.25 pulled by ark-relations 0.5.1 (via ark-groth16).
+  # Waiting on arkworks-rs/groth16#90.
+  "RUSTSEC-2025-0055",
+
+  # lru 0.12.5 pulled by sp1-prover. Blocked on sp1 upstream.
+  "RUSTSEC-2026-0002",
+]
