@@ -15,7 +15,7 @@ use strata_bridge_tx_graph2::{
 };
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 
-use crate::state_machine::StateMachine;
+use crate::{graph::watchtower::watchtower_slot_to_operator_idx, state_machine::StateMachine};
 
 /// Classifies raw Bitcoin transactions into typed State Machine Events.
 ///
@@ -136,27 +136,16 @@ pub fn nack_counterprover_idx(
         .iter()
         .enumerate()
         .find_map(|(watchtower_slot, summary)| {
-            let expected_counteproof_outpoint = OutPoint {
+            let expected_counterproof_outpoint = OutPoint {
                 txid: summary.counterproof,
                 vout: CounterproofTx::ACK_NACK_VOUT,
             };
 
             tx.input
                 .iter()
-                .any(|txin| txin.previous_output == expected_counteproof_outpoint)
+                .any(|txin| txin.previous_output == expected_counterproof_outpoint)
                 .then(|| watchtower_slot_to_operator_idx(watchtower_slot, graph_owner_idx))
         })
-}
-
-const fn watchtower_slot_to_operator_idx(
-    watchtower_slot: usize,
-    graph_owner_idx: OperatorIdx,
-) -> OperatorIdx {
-    if watchtower_slot < graph_owner_idx as usize {
-        watchtower_slot as OperatorIdx
-    } else {
-        watchtower_slot as OperatorIdx + 1
-    }
 }
 
 /// Check if the payout connector has been spent (via admin or unstaking burn txs).

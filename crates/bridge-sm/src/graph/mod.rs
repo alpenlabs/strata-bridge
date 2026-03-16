@@ -9,6 +9,7 @@ pub mod machine;
 pub mod state;
 pub mod transitions;
 mod tx_classifier;
+pub(crate) mod watchtower;
 
 #[cfg(test)]
 pub mod tests;
