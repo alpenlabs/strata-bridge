@@ -8803,7 +8803,6 @@ name = "secret-service"
 version = "0.2.0"
 dependencies = [
  "bitcoin",
- "bitvm",
  "cache-advisor",
  "colored 3.0.0",
  "hkdf",
@@ -8827,7 +8826,6 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber 0.3.20",
- "wots",
 ]
 
 [[package]]
@@ -8835,7 +8833,6 @@ name = "secret-service-client"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitvm",
  "libp2p-identity",
  "musig2",
  "quinn",
@@ -8850,7 +8847,6 @@ name = "secret-service-proto"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitvm",
  "libp2p-identity",
  "musig2",
  "quinn",
@@ -13126,15 +13122,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
  "bitflags 2.10.0",
-]
-
-[[package]]
-name = "wots"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "bitcoin-script",
- "bitvm",
 ]
 
 [[package]]

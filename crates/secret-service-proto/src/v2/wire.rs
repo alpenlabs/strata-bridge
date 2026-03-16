@@ -3,7 +3,6 @@
 // our compiler
 
 use bitcoin::{taproot::TaprootError, OutPoint, XOnlyPublicKey};
-use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 use rkyv::{Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 use terrors::OneOf;
@@ -55,43 +54,6 @@ pub enum ServerMessage {
     /// Response for
     /// [`Musig2Signer::get_our_partial_sig`](super::traits::Musig2Signer::get_our_partial_sig).
     Musig2GetOurPartialSig(Result<[u8; 32], OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>>),
-
-    /// Response for
-
-    /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).
-    WotsGet128SecretKey {
-        /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 720], // 20*36
-    },
-
-    /// Response for
-    /// [`WotsSigner::get_256_secret_key`](super::traits::WotsSigner::get_256_secret_key).
-    WotsGet256SecretKey {
-        /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 1360], // 20*68
-    },
-
-    /// Response for
-    /// [`WotsSigner::get_128_public_key`](super::traits::WotsSigner::get_128_public_key).
-    WotsGet128PublicKey {
-        /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 720], // 20*36
-    },
-
-    /// Response for
-    /// [`WotsSigner::get_256_public_key`](super::traits::WotsSigner::get_256_public_key).
-    WotsGet256PublicKey {
-        /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 1360], // 20*68
-    },
-
-    /// Response for
-    /// [`WotsSigner::get_128_signature`](super::traits::WotsSigner::get_128_signature).
-    WotsGet128Signature { sig: <wots_hash as Wots>::Signature },
-
-    /// Response for
-    /// [`WotsSigner::get_256_signature`](super::traits::WotsSigner::get_256_signature).
-    WotsGet256Signature { sig: <wots256 as Wots>::Signature },
 
     /// Response for
     /// [`StakeChainPreimages::get_preimg`](super::traits::StakeChainPreimages::get_preimg).
@@ -152,54 +114,6 @@ pub enum ClientMessage {
     },
 
     /// Request for
-    /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).
-    WotsGet128SecretKey {
-        /// Specifier for which WOTS key to use
-        specifier: WotsKeySpecifier,
-    },
-
-    /// Request for
-    /// [`WotsSigner::get_256_secret_key`](super::traits::WotsSigner::get_256_secret_key).
-    WotsGet256SecretKey {
-        /// Specifier for which WOTS key to use
-        specifier: WotsKeySpecifier,
-    },
-
-    /// Request for
-    /// [`WotsSigner::get_128_public_key`](super::traits::WotsSigner::get_128_public_key).
-    WotsGet128PublicKey {
-        /// Specifier for which WOTS key to use
-        specifier: WotsKeySpecifier,
-    },
-
-    /// Request for
-    /// [`WotsSigner::get_256_public_key`](super::traits::WotsSigner::get_256_public_key).
-    WotsGet256PublicKey {
-        /// Specifier for which WOTS key to use
-        specifier: WotsKeySpecifier,
-    },
-
-    /// Request for
-    /// [`WotsSigner::get_128_signature`](super::traits::WotsSigner::get_128_signature).
-    WotsGet128Signature {
-        /// Specifier for which WOTS key to use
-        specifier: WotsKeySpecifier,
-
-        /// 128-bit message to be signed.
-        msg: [u8; 16],
-    },
-
-    /// Request for
-    /// [`WotsSigner::get_256_signature`](super::traits::WotsSigner::get_256_signature).
-    WotsGet256Signature {
-        /// Specifier for which WOTS key to use
-        specifier: WotsKeySpecifier,
-
-        /// 256-bit message to be signed.
-        msg: [u8; 32],
-    },
-
-    /// Request for
     /// [`StakeChainPreimages::get_preimg`](super::traits::StakeChainPreimages::get_preimg).
     StakeChainGetPreimage {
         /// The Pre-Stake [`Txid`](bitcoin::Txid) that this Stake Chain preimage is derived from.
@@ -249,21 +163,6 @@ pub enum SignerTarget {
     General,
     Stakechain,
     Musig2,
-}
-
-#[derive(Debug, Clone, Copy, Archive, Serialize, Deserialize)]
-pub struct WotsKeySpecifier {
-    /// [`Txid`](bitcoin::Txid) that the WOTS key is derived from.
-    pub txid: [u8; 32],
-
-    /// Transaction's vout that the WOTS key is derived from.
-    pub vout: u32,
-
-    /// WOTS index that the WOTS key is derived from.
-    ///
-    /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
-    /// hence to resolve the ambiguity, the index is needed.
-    pub index: u32,
 }
 
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]

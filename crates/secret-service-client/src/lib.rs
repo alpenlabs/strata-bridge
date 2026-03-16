@@ -8,7 +8,6 @@ pub mod p2p;
 pub mod stakechain;
 pub mod wallet;
 
-pub mod wots;
 use std::{
     io,
     net::{Ipv4Addr, SocketAddr},
@@ -38,7 +37,6 @@ use stakechain::StakeChainPreimgClient;
 use terrors::OneOf;
 use tokio::time::timeout;
 use wallet::{GeneralWalletClient, StakechainWalletClient};
-use wots::WotsClient;
 
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(25);
 
@@ -124,8 +122,6 @@ impl SecretService<Client> for SecretServiceClient {
 
     type Musig2Signer = Musig2Client;
 
-    type WotsSigner = WotsClient;
-
     type StakeChainPreimages = StakeChainPreimgClient;
 
     fn general_wallet_signer(&self) -> Self::GeneralWalletSigner {
@@ -142,10 +138,6 @@ impl SecretService<Client> for SecretServiceClient {
 
     fn musig2_signer(&self) -> Self::Musig2Signer {
         Musig2Client::new(self.conn.clone(), self.config.clone())
-    }
-
-    fn wots_signer(&self) -> Self::WotsSigner {
-        WotsClient::new(self.conn.clone(), self.config.clone())
     }
 
     fn stake_chain_preimages(&self) -> Self::StakeChainPreimages {

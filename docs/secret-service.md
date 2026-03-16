@@ -94,7 +94,6 @@ S2's API is made up of several stubs of related functionality. These are impleme
 | `Musig2Signer`        | Operations around Musig2 signing sessions. Includes the various operations where secrets are involved. All other logic is delegated to the client. |
 | `P2PSigner`           | BIP340 Schnorr signer interface for signing operator's messages for the P2P network                                                                |
 | `StakeChainPreimages` | Deterministic creation of preimages for the stakechain that the operator uses to fulfil withdrawals.                                               |
-| `WotsSigner`          | Winternitz One-Time Signatures are used as a hash-based primitive to transfer state across Bitcoin UTXOs without native support.                   |
 
 The exact operations available along with usage and implementation specification
 can be viewed in the Rust docs.

@@ -18,13 +18,11 @@ use strata_bridge_key_deriv::OperatorKeys;
 use tokio::{fs, io};
 use tracing::info;
 use wallet::{GeneralWalletSigner, StakechainWalletSigner};
-use wots::SeededWotsSigner;
 
 pub mod musig2;
 pub mod p2p;
 pub mod stakechain;
 pub mod wallet;
-pub mod wots;
 
 /// Secret data for the Secret Service.
 #[derive(Debug)]
@@ -88,8 +86,6 @@ impl SecretService<Server> for Service {
 
     type Musig2Signer = Ms2Signer;
 
-    type WotsSigner = SeededWotsSigner;
-
     type StakeChainPreimages = StakeChain;
 
     fn general_wallet_signer(&self) -> Self::GeneralWalletSigner {
@@ -108,10 +104,6 @@ impl SecretService<Server> for Service {
 
     fn musig2_signer(&self) -> Self::Musig2Signer {
         Ms2Signer::new(self.keys.base_xpriv())
-    }
-
-    fn wots_signer(&self) -> Self::WotsSigner {
-        SeededWotsSigner::new(self.keys.base_xpriv())
     }
 
     fn stake_chain_preimages(&self) -> Self::StakeChainPreimages {

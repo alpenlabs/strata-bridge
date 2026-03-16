@@ -3,7 +3,6 @@
 use std::future::Future;
 
 use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
-use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 use libp2p_identity::ed25519::SecretKey;
 use musig2::{secp256k1::schnorr::Signature, AggNonce, PartialSignature, PubNonce};
 use quinn::{ConnectionError, ReadExactError, WriteError};
@@ -33,9 +32,6 @@ where
     /// Implementation of the [`Musig2Signer`] trait.
     type Musig2Signer: Musig2Signer<O>;
 
-    /// Implementation of the [`WotsSigner`] trait.
-    type WotsSigner: WotsSigner<O>;
-
     /// Implementation of the [`StakeChainPreimages`] trait.
     type StakeChainPreimages: StakeChainPreimages<O>;
 
@@ -53,9 +49,6 @@ where
 
     /// Creates an instance of the [`Musig2Signer`].
     fn musig2_signer(&self) -> Self::Musig2Signer;
-
-    /// Creates an instance of the [`WotsSigner`].
-    fn wots_signer(&self) -> Self::WotsSigner;
 
     /// Creates an instance of the [`StakeChainPreimages`].
     fn stake_chain_preimages(&self) -> Self::StakeChainPreimages;
@@ -239,68 +232,6 @@ pub struct Musig2Params {
     /// This is composed of the [`Txid`] of the transaction being signed and its input index
     /// (`vout`).
     pub input: OutPoint,
-}
-
-/// Winternitz One-Time Signatures (WOTS) are used to transfer state across UTXOs, even though
-/// bitcoin does not support this natively.
-///
-/// This signer returns deterministic keys so the caller can assemble a transaction.
-pub trait WotsSigner<O: Origin>: Send {
-    /// Returns a deterministic WOTS secret key for a given transaction ID, vout,
-    /// and WOTS index. The secret key can be obtained via [`Self::get_128_secret_key`] with the
-    /// same arguments.
-    fn get_128_secret_key(
-        &self,
-        txid: Txid,
-        vout: u32,
-        index: u32,
-    ) -> impl Future<Output = O::Container<[u8; 20 * 36]>> + Send;
-
-    /// Returns a deterministic WOTS secret key for a given transaction ID, vout,
-    /// and WOTS index. The public key can be obtained via [`Self::get_256_public_key`] with the
-    /// same arguments.
-    fn get_256_secret_key(
-        &self,
-        txid: Txid,
-        vout: u32,
-        index: u32,
-    ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;
-
-    /// Returns a deterministic WOTS public key for a given transaction ID, vout,
-    /// and WOTS index. The secret key can be obtained via [`Self::get_128_secret_key`] with the
-    /// same arguments.
-    fn get_128_public_key(
-        &self,
-        txid: Txid,
-        vout: u32,
-        index: u32,
-    ) -> impl Future<Output = O::Container<[u8; 20 * 36]>> + Send;
-
-    /// Returns a deterministic public key for a given transaction ID, vout,
-    /// and WOTS index. The secret key can be obtained via [`Self::get_256_secret_key`] with the
-    /// same parameters.
-    fn get_256_public_key(
-        &self,
-        txid: Txid,
-        vout: u32,
-        index: u32,
-    ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;
-
-    fn get_128_signature(
-        &self,
-        txid: Txid,
-        vout: u32,
-        index: u32,
-        msg: &[u8; 16],
-    ) -> impl Future<Output = O::Container<<wots_hash as Wots>::Signature>> + Send;
-
-    fn get_256_signature(
-        &self,
-        txid: Txid,
-        vout: u32,
-        index: u32,
-        msg: &[u8; 32],
-    ) -> impl Future<Output = O::Container<<wots256 as Wots>::Signature>> + Send;
 }
 
 /// The Stake Chain preimages are used to generate deterministic preimages for the Stake Chain
