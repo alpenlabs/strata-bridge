@@ -4,7 +4,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use musig2::AggNonce;
-    use strata_bridge_p2p_types2::NagRequestPayload;
+    use strata_bridge_p2p_types::NagRequestPayload;
 
     use crate::{
         deposit::{

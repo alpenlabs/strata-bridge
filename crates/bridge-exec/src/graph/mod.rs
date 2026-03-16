@@ -8,7 +8,7 @@ mod utils;
 
 use std::sync::Arc;
 
-use strata_bridge_p2p_types2::{NagRequest, NagRequestPayload};
+use strata_bridge_p2p_types::{NagRequest, NagRequestPayload};
 use strata_bridge_sm::graph::duties::GraphDuty;
 use tracing::info;
 

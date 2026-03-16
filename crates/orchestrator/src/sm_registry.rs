@@ -304,7 +304,7 @@ where
 #[cfg(test)]
 mod tests {
     use bitcoin::key::rand;
-    use strata_bridge_p2p_types2::NagRequestPayload;
+    use strata_bridge_p2p_types::NagRequestPayload;
     use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
     use strata_bridge_sm::{
         deposit::events::{DepositEvent, NagReceivedEvent, NewBlockEvent as DepositNewBlock},

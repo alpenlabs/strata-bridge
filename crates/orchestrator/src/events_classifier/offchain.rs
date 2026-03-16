@@ -4,7 +4,7 @@
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
 use strata_asm_proto_bridge_v1::AssignmentEntry;
-use strata_bridge_p2p_types2::{
+use strata_bridge_p2p_types::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
 use strata_bridge_sm::{
@@ -407,7 +407,7 @@ fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent
 
 #[cfg(test)]
 mod tests {
-    use strata_bridge_p2p_types2::{GossipsubMsg, PayoutDescriptor, UnsignedGossipsubMsg};
+    use strata_bridge_p2p_types::{GossipsubMsg, PayoutDescriptor, UnsignedGossipsubMsg};
     use strata_bridge_primitives::types::{
         BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey,
     };
@@ -750,7 +750,7 @@ mod tests {
 
     // ===== classify_nag_request tests =====
     mod nag_request_tests {
-        use strata_bridge_p2p_types2::{GraphIdx, NagRequest, NagRequestPayload};
+        use strata_bridge_p2p_types::{GraphIdx, NagRequest, NagRequestPayload};
 
         use super::*;
         use crate::testing::{

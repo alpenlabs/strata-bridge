@@ -4,7 +4,7 @@ use bitcoin::OutPoint;
 use libp2p::futures::SinkExt;
 use libp2p_identity::ed25519::Keypair;
 use musig2::{PartialSignature, PubNonce};
-use strata_bridge_p2p_types2::{
+use strata_bridge_p2p_types::{
     GraphIdx, MuSig2Nonce, MuSig2Partial, NagRequest, PayoutDescriptor, UnsignedGossipsubMsg,
 };
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};

@@ -10229,7 +10229,7 @@ dependencies = [
  "strata-bridge-connectors",
  "strata-bridge-db",
  "strata-bridge-p2p-service",
- "strata-bridge-p2p-types2",
+ "strata-bridge-p2p-types",
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-tx-graph",
@@ -10272,7 +10272,7 @@ dependencies = [
  "strata-bridge-db",
  "strata-bridge-exec",
  "strata-bridge-p2p-service",
- "strata-bridge-p2p-types2",
+ "strata-bridge-p2p-types",
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-test-utils",
@@ -10294,7 +10294,7 @@ dependencies = [
  "musig2",
  "rkyv",
  "serde",
- "strata-bridge-p2p-types2",
+ "strata-bridge-p2p-types",
  "strata-bridge-primitives",
  "strata-p2p",
  "tokio",
@@ -10303,7 +10303,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-bridge-p2p-types2"
+name = "strata-bridge-p2p-types"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
@@ -10436,7 +10436,7 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-txs-bridge-v1",
  "strata-bridge-connectors",
- "strata-bridge-p2p-types2",
+ "strata-bridge-p2p-types",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
