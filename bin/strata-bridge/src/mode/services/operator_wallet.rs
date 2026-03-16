@@ -16,7 +16,7 @@ use strata_bridge_connectors2::{
     Connector,
     prelude::{ClaimContestConnector, ClaimPayoutConnector},
 };
-use strata_bridge_db2::{fdb::client::FdbClient, traits::BridgeDb};
+use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb};
 use strata_bridge_primitives::constants::SEGWIT_MIN_AMOUNT;
 use tracing::{debug, info};
 

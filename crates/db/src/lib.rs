@@ -1,6 +1,6 @@
 //! Database traits and implementations.
-pub mod errors;
-pub mod inmemory;
-pub mod operator;
-pub mod persistent;
-pub mod public;
+
+#[cfg(feature = "fdb")]
+pub mod fdb;
+pub mod traits;
+pub mod types;

@@ -118,12 +118,11 @@ you can run the basic CI checks in your local environment:
 - [`cargo-audit`](https://docs.rs/cargo-audit/latest/cargo_audit/):
   tool to check `Cargo.lock` files for security vulnerabilities.
 - [Docker](https://docs.docker.com/get-docker/).
-- [`sqlx-cli`](https://lib.rs/crates/sqlx-cli) to run database migrations.
 - [`bitcoind`](https://bitcoin.org/en/download) to run the unit tests.
 
 ### FoundationDB
 
-The `db2` crate requires [FoundationDB](https://apple.github.io/foundationdb/):
+The `db` crate requires [FoundationDB](https://apple.github.io/foundationdb/):
 
 - **Client package**: Required at compile time for linking against `libfdb_c`, and at runtime
   for connecting to the database.
@@ -150,7 +149,7 @@ FoundationDB is not available in package managers. You have to do a manual insta
   # https://github.com/apple/foundationdb/releases/download/7.3.43/FoundationDB-7.3.43_x86_64.pkg
   ```
 
-**Server** (required at runtime, e.g., for running `db2` tests):
+**Server** (required at runtime, e.g., for running `db` tests):
 
 - **Ubuntu/Debian**:
   ```sh
@@ -177,7 +176,7 @@ nix develop
 > [!WARNING]
 > **FoundationDB Limitations in Nix**
 >
-> The Nix devshell has limited support for FoundationDB (required by the `db2` crate):
+> The Nix devshell has limited support for FoundationDB (required by the `db` crate):
 > - **Linux**: FDB is included via nixpkgs, but may have version compatibility issues.
 > - **macOS**: FDB is NOT available via Nix and must be installed manually using the
 >   instructions above.

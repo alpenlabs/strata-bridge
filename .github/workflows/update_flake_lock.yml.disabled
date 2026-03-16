@@ -1,5 +1,5 @@
 # NOTE: This workflow is currently disabled due to issues with FoundationDB
-# integration in the db2 crate. FoundationDB is not easily available via Nix
+# integration in the db crate. FoundationDB is not easily available via Nix
 # on macOS, and the Linux package has compatibility issues.
 #
 # See CONTRIBUTING.md for more details.

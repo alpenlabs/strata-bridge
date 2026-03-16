@@ -8,7 +8,7 @@ use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE};
 use mode::{operator, watchtower};
 use serde::de::DeserializeOwned;
 use strata_bridge_common::{logging, logging::LoggerConfig};
-use strata_bridge_db2::fdb::client::{FdbClient, MustDrop};
+use strata_bridge_db::fdb::client::{FdbClient, MustDrop};
 use strata_tasks::TaskManager;
 use tokio::runtime;
 use tracing::{debug, info, trace};

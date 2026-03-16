@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use bitcoind_async_client::traits::Reader;
-use strata_bridge_db2::fdb::client::FdbClient;
+use strata_bridge_db::fdb::client::FdbClient;
 use strata_tasks::TaskExecutor;
 use tracing::{debug, info};
 

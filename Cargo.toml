@@ -15,7 +15,6 @@ members = [
   "crates/connectors",
   "crates/connectors2",
   "crates/db",
-  "crates/db2",
   "crates/proof-db",
   "crates/key-deriv",
   "crates/memory_pprof",
@@ -78,7 +77,6 @@ strata-bridge-common = { path = "crates/common" }
 strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-connectors2 = { path = "crates/connectors2" }
 strata-bridge-db = { path = "crates/db" }
-strata-bridge-db2 = { path = "crates/db2" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
 strata-bridge-key-deriv = { path = "crates/key-deriv" }

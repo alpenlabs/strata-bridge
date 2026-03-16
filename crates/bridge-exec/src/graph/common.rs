@@ -9,7 +9,7 @@ use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
-use strata_bridge_db2::traits::BridgeDb;
+use strata_bridge_db::traits::BridgeDb;
 use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{GraphIdx, OperatorIdx},

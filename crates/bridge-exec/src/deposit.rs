@@ -16,7 +16,7 @@ use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors2::SigningInfo;
-use strata_bridge_db2::traits::BridgeDb;
+use strata_bridge_db::traits::BridgeDb;
 use strata_bridge_p2p_types2::{NagRequest, NagRequestPayload, PayoutDescriptor};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,

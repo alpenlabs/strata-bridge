@@ -8,7 +8,7 @@ use btc_tracker::config::BtcNotifyConfig;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
-use strata_bridge_db2::fdb::cfg::Config as FdbConfig;
+use strata_bridge_db::fdb::cfg::Config as FdbConfig;
 use strata_bridge_p2p_service::GossipsubScoringPreset;
 
 /// Configuration values that dictate the behavior of the bridge node.
