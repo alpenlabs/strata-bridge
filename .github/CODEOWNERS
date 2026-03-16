@@ -32,8 +32,7 @@
 /**/secret-service/ @Zk2u
 
 # Duty tracker components
-/crates/btc-notify/ @Rajil1213
-/crates/duty-tracker/ @Rajil1213
+/crates/btc-tracker/ @Rajil1213
 
 # Transaction graph components
 /crates/tx-graph/ @Rajil1213

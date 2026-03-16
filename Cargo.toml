@@ -17,7 +17,6 @@ members = [
   "crates/db",
   "crates/db2",
   "crates/proof-db",
-  "crates/duty-tracker",
   "crates/key-deriv",
   "crates/memory_pprof",
   "crates/operator-wallet",
@@ -68,7 +67,6 @@ clippy.missing_const_for_fn = "deny"
 algebra = { path = "crates/algebra" }
 alpen-bridge-params = { path = "crates/params" }
 btc-tracker = { path = "crates/btc-tracker" }
-duty-tracker = { path = "crates/duty-tracker" }
 memory_pprof = { path = "crates/memory_pprof" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
