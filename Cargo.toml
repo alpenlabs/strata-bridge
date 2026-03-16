@@ -38,10 +38,8 @@ members = [
   "crates/wots",
 
   # binaries listed separately
-  "bin/alpen-bridge",
   "bin/strata-bridge",
   "bin/asm-runner",
-  "bin/assert-splitter",
   "bin/dev-cli",
   "bin/secret-service",
 
@@ -52,13 +50,7 @@ members = [
   "crates/bridge-proof/test-utils",
 ]
 
-default-members = [
-  "bin/alpen-bridge",
-  "bin/strata-bridge",
-  "bin/dev-cli",
-  "bin/assert-splitter",
-  "bin/asm-runner",
-]
+default-members = ["bin/strata-bridge", "bin/dev-cli", "bin/asm-runner"]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
