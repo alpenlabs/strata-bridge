@@ -3,7 +3,7 @@
 # and initial implementation contributions
 
 # Global fallback: core bridge team
-* @Rajil1213 @Zk2u @MdTeach
+* @Rajil1213 @MdTeach
 
 # Bookkeeping
 /rust-toolchain.toml @Rajil1213 @Zk2u
@@ -43,7 +43,7 @@
 /crates/connectors2/ @uncomputable
 
 # Main binary
-/bin/alpen-bridge/ @Rajil1213
+/bin/strata-bridge/ @Rajil1213
 
 # Prover things
 /crates/bridge-proof/ @Rajil1213 @prajwolrg
@@ -58,8 +58,6 @@
 # Test utilities
 /crates/test-utils/ @Rajil1213
 /bin/dev-cli/ @Rajil1213
-/bin/dev-bridge/ @Rajil1213
-/bin/assert-splitter/ @Rajil1213
 /test-data/ @Rajil1213
 
 # Functional tests

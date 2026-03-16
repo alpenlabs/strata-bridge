@@ -923,56 +923,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alpen-bridge"
-version = "0.2.0"
-dependencies = [
- "alpen-bridge-params",
- "anyhow",
- "async-trait",
- "bdk_bitcoind_rpc",
- "bincode",
- "bitcoin",
- "bitcoind-async-client",
- "btc-tracker",
- "chrono",
- "clap",
- "duty-tracker",
- "ed25519-dalek",
- "hex",
- "jsonrpsee",
- "libp2p",
- "memory_pprof",
- "musig2",
- "operator-wallet",
- "rustls-pemfile 2.2.0",
- "secp256k1 0.29.1",
- "secret-service-client",
- "secret-service-proto",
- "serde",
- "serde_json",
- "sqlx",
- "strata-bridge-asm-events",
- "strata-bridge-common",
- "strata-bridge-connectors",
- "strata-bridge-db",
- "strata-bridge-db2",
- "strata-bridge-p2p-service",
- "strata-bridge-p2p-types",
- "strata-bridge-primitives",
- "strata-bridge-rpc",
- "strata-bridge-stake-chain",
- "strata-bridge-tx-graph",
- "strata-p2p",
- "strata-params",
- "strata-primitives",
- "strata-tasks",
- "tikv-jemallocator",
- "tokio",
- "toml",
- "tracing",
-]
-
-[[package]]
 name = "alpen-bridge-params"
 version = "0.1.0"
 dependencies = [
@@ -1489,22 +1439,6 @@ name = "asn1_der"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "155a5a185e42c6b77ac7b88a15143d930a9e9727a5b7b77eed417404ab15c247"
-
-[[package]]
-name = "assert-splitter"
-version = "0.1.0"
-dependencies = [
- "ark-bn254",
- "ark-ff 0.5.0",
- "bitcoin",
- "bitcoin-script",
- "bitvm",
- "blake3",
- "proptest",
- "secp256k1 0.29.1",
- "strata-bridge-primitives",
- "strata-bridge-test-utils",
-]
 
 [[package]]
 name = "async-channel"
