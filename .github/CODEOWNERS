@@ -36,7 +36,6 @@
 
 # Transaction graph components
 /crates/tx-graph/ @uncomputable
-/crates/stake-chain/ @Rajil1213
 /crates/connectors/ @Rajil1213
 /crates/connectors2/ @uncomputable
 

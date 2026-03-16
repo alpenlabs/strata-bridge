@@ -10703,23 +10703,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-bridge-stake-chain"
-version = "0.1.0"
-dependencies = [
- "alpen-bridge-params",
- "bitcoin",
- "bitcoin-bosd",
- "corepc-node",
- "secp256k1 0.29.1",
- "serde",
- "strata-bridge-common",
- "strata-bridge-connectors",
- "strata-bridge-primitives",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
 name = "strata-bridge-test-utils"
 version = "0.1.0"
 dependencies = [
