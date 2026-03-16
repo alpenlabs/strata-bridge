@@ -1,1 +1,1 @@
-docker:docker@172.28.0.100:4500
+docker:docker@foundationdb:4500

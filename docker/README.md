@@ -100,7 +100,7 @@ The bridge nodes use FoundationDB for persistent storage. The Docker workflow au
 
 All bridge operators share the same FDB instance but use non-conflicting keyspaces. The initialization is idempotent, so it's safe to run `just clean-docker` multiple times.
 
-The FDB cluster file is pre-configured at `docker/vol/fdb/fdb.cluster` with a static IP (`172.28.0.100:4500`). Data is persisted to `docker/vol/fdb/data`.
+The FDB cluster file is pre-configured at `docker/vol/fdb/fdb.cluster` using the Docker service name (`foundationdb:4500`). Data is persisted to `docker/vol/fdb/data`.
 
 If you need to manually initialize or re-initialize FDB, you can run:
 

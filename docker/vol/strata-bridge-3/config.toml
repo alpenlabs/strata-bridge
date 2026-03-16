@@ -6,7 +6,7 @@ cooperative_payout_timeout = 144
 max_fee_rate = 10
 
 [secret_service_client]
-server_addr = "172.28.1.7:69"
+server_addr = "secret-service-3:69"
 server_hostname = "secret-service"
 timeout = 1000
 cert = "/app/tls/cert.pem"
@@ -27,8 +27,8 @@ retry = { retry_limit = 5, timeout = { secs = 5, nanos = 0 } }
 
 [p2p]
 idle_connection_timeout = { secs = 1000, nanos = 0 }
-listening_addr = "/ip4/172.28.0.7/tcp/5679"
-connect_to = ["/ip4/172.28.0.5/tcp/5679", "/ip4/172.28.0.6/tcp/5679"]
+listening_addr = "/ip4/0.0.0.0/tcp/5679"
+connect_to = ["/dns4/bridge-1/tcp/5679", "/dns4/bridge-2/tcp/5679"]
 num_threads = 4
 dial_timeout = { secs = 0, nanos = 250_000_000 }
 general_timeout = { secs = 0, nanos = 250_000_000 }
