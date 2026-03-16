@@ -29,7 +29,6 @@ class UnContestedPayoutTest(StrataTestBase):
     def __init__(self, ctx: flexitest.InitContext):
         ctx.set_env(
             BridgeNetworkEnv(
-                funding_amount=10.01,
                 bridge_protocol_params=BridgeProtocolParams(contest_timelock=5),
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=0,
