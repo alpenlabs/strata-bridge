@@ -2,7 +2,7 @@
 #[cfg(test)]
 mod tests {
     use strata_bridge_test_utils::bitcoin::generate_txid;
-    use strata_bridge_tx_graph2::musig_functor::GameFunctor;
+    use strata_bridge_tx_graph::musig_functor::GameFunctor;
 
     use crate::{
         graph::{

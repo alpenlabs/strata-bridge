@@ -19,7 +19,7 @@ use strata_bridge_orchestrator::{
 use strata_bridge_p2p_service::MessageHandler2;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_sm::{self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg};
-use strata_bridge_tx_graph2::game_graph::ProtocolParams as TxGraphProtocolParams;
+use strata_bridge_tx_graph::game_graph::ProtocolParams as TxGraphProtocolParams;
 use strata_p2p::swarm::handle::{GossipHandle, ReqRespHandle};
 use strata_tasks::TaskExecutor;
 use tokio::{

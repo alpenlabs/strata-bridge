@@ -300,7 +300,7 @@ mod tests {
         graph::{context::GraphSMCtx, state::GraphState},
     };
     use strata_bridge_test_utils::arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid};
-    use strata_bridge_tx_graph2::game_graph::{
+    use strata_bridge_tx_graph::game_graph::{
         CounterproofGraphSummary, DepositParams, GameGraphSummary,
     };
 

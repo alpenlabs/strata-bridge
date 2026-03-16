@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
-use strata_bridge_tx_graph2::game_graph::{DepositParams, GameData, GameGraph};
+use strata_bridge_tx_graph::game_graph::{DepositParams, GameData, GameGraph};
 
 use crate::{
     error_policy::soften_peer_event_error,

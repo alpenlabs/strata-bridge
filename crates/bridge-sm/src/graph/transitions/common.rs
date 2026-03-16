@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use strata_bridge_tx_graph2::musig_functor::GameFunctor;
+use strata_bridge_tx_graph::musig_functor::GameFunctor;
 
 use crate::graph::{
     config::GraphSMCfg,

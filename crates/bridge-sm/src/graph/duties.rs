@@ -12,7 +12,7 @@ use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
-use strata_bridge_tx_graph2::transactions::{claim::ClaimTx, prelude::ContestTx};
+use strata_bridge_tx_graph::transactions::{claim::ClaimTx, prelude::ContestTx};
 use zkaleido::ProofReceipt;
 
 /// The nag duties that can be emitted to remind operators of missing graph signing data.

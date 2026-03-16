@@ -27,7 +27,7 @@ use strata_bridge_test_utils::{
     bitcoin::{generate_spending_tx, generate_xonly_pubkey},
     prelude::generate_signature,
 };
-use strata_bridge_tx_graph2::{
+use strata_bridge_tx_graph::{
     game_graph::{
         CounterproofGraphSummary, DepositParams, GameGraph, GameGraphSummary, ProtocolParams,
     },

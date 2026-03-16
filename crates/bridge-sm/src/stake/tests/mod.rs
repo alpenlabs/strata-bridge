@@ -30,7 +30,7 @@ use strata_bridge_test_utils::{
     bridge_fixtures::{TEST_MAGIC_BYTES, TEST_POV_IDX, random_p2tr_desc},
     prelude::generate_keypair,
 };
-use strata_bridge_tx_graph2::stake_graph::{
+use strata_bridge_tx_graph::stake_graph::{
     ProtocolParams, SetupParams, StakeData, StakeGraph, StakeGraphSummary,
 };
 

@@ -2,7 +2,7 @@
 
 use musig2::AggNonce;
 use strata_bridge_primitives::types::OperatorIdx;
-use strata_bridge_tx_graph2::stake_graph::{StakeData, StakeGraph};
+use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
 
 /// A duty of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -2,7 +2,7 @@ use std::array;
 
 use musig2::{aggregate_partial_signatures, verify_partial};
 use strata_bridge_primitives::key_agg::create_agg_ctx;
-use strata_bridge_tx_graph2::stake_graph::StakeGraph;
+use strata_bridge_tx_graph::stake_graph::StakeGraph;
 
 use crate::{
     stake::{

@@ -37,7 +37,7 @@ use strata_bridge_sm::{
     },
     tx_classifier::TxClassifier,
 };
-use strata_bridge_tx_graph2::transactions::prelude::DepositData;
+use strata_bridge_tx_graph::transactions::prelude::DepositData;
 use tracing::{error, info};
 
 use crate::{

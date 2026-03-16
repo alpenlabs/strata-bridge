@@ -11,7 +11,7 @@ use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_test_utils::bitcoin::generate_spending_tx;
 // Re-export shared bridge fixtures (constants + helpers) from the central location.
 pub use strata_bridge_test_utils::bridge_fixtures::*;
-use strata_bridge_tx_graph2::transactions::prelude::{
+use strata_bridge_tx_graph::transactions::prelude::{
     WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
 };
 

@@ -12,7 +12,7 @@ mod tests {
     };
     use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
     use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_txid};
-    use strata_bridge_tx_graph2::{
+    use strata_bridge_tx_graph::{
         game_graph::{CounterproofGraphSummary, GameGraphSummary},
         transactions::prelude::CounterproofTx,
     };

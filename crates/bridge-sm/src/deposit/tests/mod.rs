@@ -30,7 +30,7 @@ use strata_bridge_test_utils::{
     bridge_fixtures::TEST_RECOVERY_DELAY,
     musig2::{generate_agg_nonce, generate_partial_signature, generate_pubnonce},
 };
-use strata_bridge_tx_graph2::transactions::{
+use strata_bridge_tx_graph::transactions::{
     PresignedTx,
     prelude::{
         CooperativePayoutData, CooperativePayoutTx, DepositData, DepositTx,

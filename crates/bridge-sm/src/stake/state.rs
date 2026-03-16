@@ -8,7 +8,7 @@ use std::{
 use bitcoin::{Txid, secp256k1::schnorr::Signature};
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph2::stake_graph::{StakeData, StakeGraph};
+use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
 
 /// The state of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]

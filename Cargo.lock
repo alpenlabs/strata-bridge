@@ -10654,7 +10654,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-rpc",
  "strata-bridge-sm",
- "strata-bridge-tx-graph2",
+ "strata-bridge-tx-graph",
  "strata-l1-txfmt",
  "strata-p2p",
  "strata-primitives",
@@ -10769,7 +10769,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-test-utils",
- "strata-bridge-tx-graph2",
+ "strata-bridge-tx-graph",
  "terrors",
  "tokio",
 ]
@@ -10797,7 +10797,7 @@ dependencies = [
  "strata-bridge-p2p-types2",
  "strata-bridge-primitives",
  "strata-bridge-sm",
- "strata-bridge-tx-graph2",
+ "strata-bridge-tx-graph",
  "strata-l1-txfmt",
  "terrors",
  "thiserror 2.0.18",
@@ -10842,7 +10842,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-test-utils",
- "strata-bridge-tx-graph2",
+ "strata-bridge-tx-graph",
  "strata-p2p",
  "thiserror 2.0.18",
  "tokio",
@@ -11041,7 +11041,7 @@ dependencies = [
  "strata-bridge-p2p-types2",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
- "strata-bridge-tx-graph2",
+ "strata-bridge-tx-graph",
  "strata-l1-txfmt",
  "thiserror 2.0.18",
  "tracing",
@@ -11090,7 +11090,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-bridge-tx-graph2"
+name = "strata-bridge-tx-graph"
 version = "0.1.0"
 dependencies = [
  "algebra",

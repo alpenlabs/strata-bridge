@@ -24,7 +24,7 @@ use strata_bridge_primitives::{
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
-use strata_bridge_tx_graph2::transactions::prelude::{
+use strata_bridge_tx_graph::transactions::prelude::{
     CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
 };
 use tracing::{error, info, warn};
