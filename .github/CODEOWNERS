@@ -48,7 +48,7 @@
 /bridge-guest-builder/ @Rajil1213 @prajwolrg
 
 # Other components
-/crates/db/ @Rajil1213
+/crates/db/ @Rajil1213 @Zk2u
 /crates/p2p-service/ @storopoli @Zk2u
 /crates/rpc/ @storopoli @Zk2u
 /crates/operator-wallet/ @Zk2u

@@ -1,5 +1,5 @@
 {
-  # NOTE: The Nix devshell currently has limited support for FoundationDB (db2 crate).
+  # NOTE: The Nix devshell currently has limited support for FoundationDB (db crate).
   # - Linux: FDB is included via nixpkgs, but may have version compatibility issues.
   # - macOS: FDB is NOT available via Nix; must be installed manually from .pkg.
   # See CONTRIBUTING.md and .github/workflows/nix.yml for more details.

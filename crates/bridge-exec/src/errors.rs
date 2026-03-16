@@ -3,7 +3,7 @@
 use bdk_wallet::error::CreateTxError;
 use bitcoin::Txid;
 use foundationdb::FdbBindingError;
-use strata_bridge_db2::fdb::errors::LayerError;
+use strata_bridge_db::fdb::errors::LayerError;
 use terrors::OneOf;
 use thiserror::Error;
 

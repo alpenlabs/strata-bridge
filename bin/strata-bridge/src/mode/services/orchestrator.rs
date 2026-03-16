@@ -10,7 +10,7 @@ use libp2p_identity::ed25519::Keypair;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_asm_events::client::AsmEventFeed;
-use strata_bridge_db2::fdb::client::FdbClient;
+use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{config::ExecutionConfig, output_handles::OutputHandles};
 use strata_bridge_orchestrator::{
     duty_dispatcher::DutyDispatcher, events_mux::EventsMux, persister::Persister,

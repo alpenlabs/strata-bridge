@@ -1,6 +1,5 @@
 import logging
 import os
-import shutil
 import subprocess
 import sys
 
@@ -21,10 +20,6 @@ def main(argv):
     setup_root_logger()
     root_dir = os.path.dirname(os.path.abspath(__file__))
     test_dir = os.path.join(root_dir, TEST_DIR)
-
-    # HACK (@MdTeach): Strata bridge DB initialization assumes migrations
-    # exist in the current working directory (env::current_dir()).
-    migrate_migrations(root_dir)
 
     # Create datadir.
     datadir_root = flexitest.create_datadir_in_workspace(os.path.join(root_dir, "_dd"))
@@ -99,26 +94,6 @@ def generate_mtls_credentials(gen_script_path: str, datadir_root: str, operator_
         logging.error("gen_s2_tls.sh stdout:\n%s", result.stdout)
         logging.error("gen_s2_tls.sh stderr:\n%s", result.stderr)
         raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
-
-
-def migrate_migrations(root_dir: str) -> None:
-    """
-    Copy the `migrations` from workspace dir to functional test dir
-    """
-    # Source: one directory above root_dir
-    src = os.path.abspath(os.path.join(root_dir, "..", "migrations"))
-    # Destination: inside root_dir
-    dst = os.path.abspath(os.path.join(root_dir, "migrations"))
-
-    if not os.path.isdir(src):
-        raise ValueError(f"Source migrations folder does not exist: {src}")
-
-    # If dst is a file or a symlink, remove it first
-    if os.path.isfile(dst) or os.path.islink(dst):
-        os.remove(dst)
-
-    # Recursively copy, allowing dst to exist and overwriting files
-    shutil.copytree(src, dst, dirs_exist_ok=True)
 
 
 if __name__ == "__main__":

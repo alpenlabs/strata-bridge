@@ -12,7 +12,7 @@ use jsonrpsee::{
 use libp2p::{PeerId, identity::PublicKey as LibP2pPublicKey};
 use secp256k1::Parity;
 use serde::Serialize;
-use strata_bridge_db2::fdb::client::FdbClient;
+use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_orchestrator::{
     persister::Persister,
     sm_registry::{SMConfig, SMRegistry},

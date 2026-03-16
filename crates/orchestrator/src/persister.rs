@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use strata_bridge_db2::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
+use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
 use thiserror::Error;
 use tracing::error;
 
