@@ -1,7 +1,7 @@
 //! This module contains the stake transaction.
 
 use bitcoin::{absolute, transaction::Version, Amount, OutPoint, Transaction, TxIn, TxOut};
-use strata_bridge_connectors2::{
+use strata_bridge_connectors::{
     prelude::{NOfNConnector, P2AConnector, UnstakingIntentOutput},
     Connector, ParentTx,
 };

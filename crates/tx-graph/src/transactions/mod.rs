@@ -1,6 +1,6 @@
 //! This module contains the individual transactions of the Glock transaction graph.
 
-use strata_bridge_connectors2::SigningInfo;
+use strata_bridge_connectors::SigningInfo;
 
 pub mod bridge_proof;
 pub mod bridge_proof_timeout;

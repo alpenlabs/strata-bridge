@@ -1,5 +1,6 @@
-//! This module exports all the connectors in this crate for convenience.
+//! This module exports all connectors in this crate for convenience.
+
 pub use super::{
-    connector_a3::*, connector_c0::*, connector_c1::*, connector_cpfp::*, connector_k::*,
-    connector_n_of_n::*, connector_p::*, connector_s::*, connectors_a::*, stake_path::*,
+    claim_contest::*, claim_payout::*, contest_counterproof::*, cpfp::*, n_of_n::*, p2a::*,
+    timelocked::*, unstaking_intent::*,
 };

@@ -8,7 +8,7 @@ description = "State machines for the Strata Bridge"
 workspace = true
 
 [dependencies]
-strata-bridge-connectors2.workspace = true
+strata-bridge-connectors.workspace = true
 strata-bridge-p2p-types.workspace = true
 strata-bridge-p2p-types2.workspace = true
 strata-bridge-primitives.workspace = true

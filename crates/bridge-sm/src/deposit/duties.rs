@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use bitcoin::{Amount, OutPoint, Transaction, Txid, secp256k1::XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, secp256k1::Message};
-use strata_bridge_connectors2::SigningInfo;
+use strata_bridge_connectors::SigningInfo;
 use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,

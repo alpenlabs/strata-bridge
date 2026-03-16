@@ -1,7 +1,7 @@
 //! Unit tests for [`StakeSM::process_preimage_revealed`].
 
 use bitcoin::{Transaction, Witness};
-use strata_bridge_connectors2::prelude::UnstakingIntentWitness;
+use strata_bridge_connectors::prelude::UnstakingIntentWitness;
 
 use super::*;
 use crate::stake::{errors::SSMError, events::PreimageRevealedEvent, state::StakeState};

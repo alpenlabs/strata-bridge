@@ -18,7 +18,7 @@ use bitcoin_bosd::Descriptor;
 use musig2::KeyAggContext;
 use proptest::prelude::*;
 use secp256k1::{Message, SecretKey};
-use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
+use strata_bridge_connectors::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
     scripts::{prelude::get_aggregated_pubkey, taproot::TaprootTweak},

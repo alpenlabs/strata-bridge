@@ -10,7 +10,7 @@ use bitcoin::{
     Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::{schnorr, Scalar};
-use strata_bridge_connectors2::{
+use strata_bridge_connectors::{
     prelude::{ContestProofConnector, TimelockedSpendPath, TimelockedWitness},
     Connector, SigningInfo,
 };

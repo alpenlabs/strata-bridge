@@ -1,7 +1,7 @@
 //! This module contains the claim transaction.
 
 use bitcoin::{absolute, transaction::Version, OutPoint, Transaction, TxOut};
-use strata_bridge_connectors2::{
+use strata_bridge_connectors::{
     prelude::{ClaimContestConnector, ClaimPayoutConnector, CpfpConnector},
     Connector, ParentTx,
 };

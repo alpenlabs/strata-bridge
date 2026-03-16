@@ -23,9 +23,10 @@ use bitcoin::{
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, KeyAggContext, PartialSignature, PubNonce, aggregate_partial_signatures};
 use secp256k1::{Keypair, schnorr::Signature};
-use strata_bridge_connectors2::SigningInfo;
-use strata_bridge_p2p_types::P2POperatorPubKey;
-use strata_bridge_primitives::{key_agg::create_agg_ctx, operator_table::OperatorTable};
+use strata_bridge_connectors::SigningInfo;
+use strata_bridge_primitives::{
+    key_agg::create_agg_ctx, operator_table::OperatorTable, types::P2POperatorPubKey,
+};
 use strata_bridge_test_utils::{
     bridge_fixtures::{TEST_MAGIC_BYTES, TEST_POV_IDX, random_p2tr_desc},
     prelude::generate_keypair,
