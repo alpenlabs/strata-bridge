@@ -3789,61 +3789,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
-name = "duty-tracker"
-version = "0.1.0"
-dependencies = [
- "algebra",
- "alpen-bridge-params",
- "ark-bn254",
- "ark-groth16",
- "async-trait",
- "bdk_wallet",
- "bincode",
- "bitcoin",
- "bitcoin-bosd",
- "bitcoind-async-client",
- "bitvm",
- "btc-tracker",
- "futures",
- "hex",
- "libp2p-identity",
- "musig2",
- "operator-wallet",
- "proptest",
- "prover-test-utils",
- "rkyv",
- "secp256k1 0.29.1",
- "secret-service-client",
- "secret-service-proto",
- "serde",
- "serde_json",
- "sqlx",
- "strata-asm-proto-bridge-v1",
- "strata-bridge-asm-events",
- "strata-bridge-common",
- "strata-bridge-connectors",
- "strata-bridge-db",
- "strata-bridge-p2p-service",
- "strata-bridge-p2p-types",
- "strata-bridge-p2p-wire",
- "strata-bridge-primitives",
- "strata-bridge-proof-primitives",
- "strata-bridge-proof-protocol",
- "strata-bridge-proof-snark",
- "strata-bridge-stake-chain",
- "strata-bridge-test-utils",
- "strata-bridge-tx-graph",
- "strata-checkpoint-types",
- "strata-p2p",
- "strata-params",
- "strata-primitives",
- "strata-tasks",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "dyn-clone"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
