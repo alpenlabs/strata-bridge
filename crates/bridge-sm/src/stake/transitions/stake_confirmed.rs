@@ -43,6 +43,11 @@ impl StakeSM {
             StakeState::Confirmed { .. } => {
                 Err(SSMError::duplicate(self.state.clone(), event.into()))
             }
+            StakeState::PreimageRevealed { .. } | StakeState::Unstaked { .. } => Err(SSMError::invalid_event(
+                self.state().clone(),
+                event.into(),
+                Some("Stake confirmation is invalid after unstaking (intent) transactions have been observed".to_string()
+            ))),
             _ => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
