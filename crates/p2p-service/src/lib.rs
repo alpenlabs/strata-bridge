@@ -8,3 +8,5 @@ pub mod message_handler2;
 pub use bootstrap::bootstrap;
 pub use config::{Configuration, GossipsubScoringPreset};
 pub use message_handler2::{MessageHandler as MessageHandler2, OuroborosMessage};
+#[cfg(test)]
+pub mod tests;
