@@ -38,6 +38,9 @@ impl StakeSM {
 
                 Ok(SMOutput::new())
             }
+            StakeState::Unstaked { .. } => {
+                Err(SSMError::duplicate(self.state.clone(), event.into()))
+            }
             _ => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
