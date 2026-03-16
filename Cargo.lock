@@ -923,16 +923,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alpen-bridge-params"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "serde",
- "thiserror 2.0.18",
- "toml",
-]
-
-[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3502,14 +3492,12 @@ version = "0.2.0"
 dependencies = [
  "alloy",
  "alloy-signer",
- "alpen-bridge-params",
  "anyhow",
  "bitcoin",
  "bitcoin-bosd",
  "bitcoincore-rpc",
  "clap",
  "hex",
- "jsonrpsee",
  "k256",
  "libp2p-identity",
  "miniscript",
@@ -3523,7 +3511,7 @@ dependencies = [
  "strata-asm-txs-checkpoint",
  "strata-bridge-common",
  "strata-bridge-key-deriv",
- "strata-bridge-rpc",
+ "strata-bridge-primitives",
  "strata-checkpoint-types-ssz",
  "strata-crypto",
  "strata-identifiers",
@@ -10325,7 +10313,6 @@ name = "strata-bridge-primitives"
 version = "0.1.0"
 dependencies = [
  "algebra",
- "alpen-bridge-params",
  "anyhow",
  "arbitrary",
  "bitcoin",
@@ -10378,10 +10365,10 @@ dependencies = [
 name = "strata-bridge-proof-protocol"
 version = "0.1.0"
 dependencies = [
- "alpen-bridge-params",
  "bitcoin",
  "borsh",
  "prover-test-utils",
+ "serde",
  "strata-bridge-common",
  "strata-bridge-proof-primitives",
  "strata-params",

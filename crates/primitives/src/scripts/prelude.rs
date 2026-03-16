@@ -1,3 +1,3 @@
 //! Prelude for scripts.
 
-pub use super::{general::*, metadata::*, taproot::*};
+pub use super::{general::*, taproot::*};

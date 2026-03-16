@@ -11,3 +11,9 @@ use bitcoin::Amount;
 /// Dust depends on the -dustrelayfee value of the Bitcoin Core node you are broadcasting to.
 /// This function uses the default value of 0.00003 BTC/kB (3 sat/vByte).
 pub const SEGWIT_MIN_AMOUNT: Amount = Amount::from_sat(330);
+
+/// Default tag for the bridge.
+pub const BRIDGE_TAG: &str = "ALPN";
+
+/// Default denomination for each deposit to the bridge.
+pub const BRIDGE_DENOMINATION: Amount = Amount::from_int_btc(10);

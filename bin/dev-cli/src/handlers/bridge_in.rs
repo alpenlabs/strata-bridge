@@ -38,7 +38,7 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
     let ee_address = EvmAddress::from_str(&ee_address)?;
     let recovery_pubkey = get_recovery_pubkey();
 
-    let metadata = build_sps50_metadata(&params.tag.to_string(), &ee_address, &recovery_pubkey)?;
+    let metadata = build_sps50_metadata(&params.tag, &ee_address, &recovery_pubkey)?;
 
     let timelock_script = build_timelock_miniscript(params.refund_delay, recovery_pubkey);
 

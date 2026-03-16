@@ -7,8 +7,6 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-alpen-bridge-params.workspace = true
-
 strata-bridge-types.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true

@@ -7,7 +7,6 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-alpen-bridge-params.workspace = true
 strata-bridge-proof-primitives.workspace = true
 
 strata-params.workspace = true
@@ -18,6 +17,7 @@ zkaleido-native-adapter.workspace = true
 
 bitcoin.workspace = true
 borsh.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
