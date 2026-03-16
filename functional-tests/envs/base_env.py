@@ -68,10 +68,13 @@ class BaseEnv(flexitest.EnvConfig):
         brpc.proxy.generatetoaddress(self.initial_blocks, wallet_addr)
 
         # Start automatic block generation
+        miner = None
         if self.btc_config.auto_mine:
-            generate_blocks(brpc, self.btc_config.block_generation_interval_secs, wallet_addr)
+            miner = generate_blocks(
+                brpc, self.btc_config.block_generation_interval_secs, wallet_addr
+            )
 
-        return bitcoind, brpc, wallet_addr
+        return bitcoind, brpc, wallet_addr, miner
 
     def setup_fdb(self, ectx: flexitest.EnvContext, env_name: str):
         """Setup FoundationDB instance with a unique root directory for this environment.

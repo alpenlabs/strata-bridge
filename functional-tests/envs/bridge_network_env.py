@@ -7,6 +7,7 @@ from utils.utils import wait_until_bridge_ready
 
 from .asm_config import AsmEnvConfig
 from .base_env import BaseEnv
+from .basic_env import StrataLiveEnv
 from .btc_config import BitcoinEnvConfig
 
 
@@ -32,7 +33,7 @@ class BridgeNetworkEnv(BaseEnv):
         svcs = {}
 
         # Setup Bitcoin node
-        bitcoind, brpc, wallet_addr = self.setup_bitcoin(ectx)
+        bitcoind, brpc, wallet_addr, miner = self.setup_bitcoin(ectx)
         svcs["bitcoin"] = bitcoind
 
         # Setup FoundationDB with unique root directory for this environment
@@ -57,4 +58,4 @@ class BridgeNetworkEnv(BaseEnv):
             svcs[f"bridge_node_{i}"] = bridge_node
             svcs["asm_rpc"] = asm_service
 
-        return flexitest.LiveEnv(svcs)
+        return StrataLiveEnv(svcs, miner)
