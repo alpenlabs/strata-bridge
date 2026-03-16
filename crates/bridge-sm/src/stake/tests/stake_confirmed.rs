@@ -12,7 +12,7 @@ fn signed_state() -> StakeState {
     }
 }
 
-fn invalid_states() -> [StakeState; 6] {
+fn invalid_states() -> [StakeState; 5] {
     [
         StakeState::Created {
             last_block_height: STAKE_HEIGHT,
@@ -28,11 +28,6 @@ fn invalid_states() -> [StakeState; 6] {
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
             agg_nonces: TEST_AGG_NONCES.clone(),
             partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
-        },
-        StakeState::Confirmed {
-            last_block_height: STAKE_HEIGHT,
-            stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
         },
         StakeState::PreimageRevealed {
             last_block_height: STAKE_HEIGHT,
@@ -75,6 +70,22 @@ fn reject_mismatching_stake_tx() {
         }
         .into(),
         expected_error: |e| matches!(e, SSMError::Rejected { .. }),
+    });
+}
+
+#[test]
+fn reject_duplicate_stake_confirmed() {
+    test_stake_invalid_transition(StakeInvalidTransition {
+        from_state: StakeState::Confirmed {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            stake_txid: TEST_GRAPH_SUMMARY.stake,
+        },
+        event: StakeConfirmedEvent {
+            tx: TEST_GRAPH.stake.as_ref().clone(),
+        }
+        .into(),
+        expected_error: |e| matches!(e, SSMError::Duplicate { .. }),
     });
 }
 
