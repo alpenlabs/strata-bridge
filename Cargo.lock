@@ -11698,8 +11698,8 @@ dependencies = [
 
 [[package]]
 name = "strata-p2p"
-version = "0.3.5"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.3.5#f7f255474ad17d6eaf4942caba86a176a79a4bb6"
+version = "0.3.6"
+source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.3.6#76f6bafdf5fa3c311465edbb74314f1a0cb4bda4"
 dependencies = [
  "cynosure",
  "flexbuffers",
