@@ -6,7 +6,6 @@
 use strata_bridge_p2p_types2::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
-use strata_bridge_p2p_wire::p2p::v1::GetMessageRequest;
 use tracing::warn;
 
 use crate::{events_mux::UnifiedEvent, sm_registry::SMRegistry, sm_types::SMId};
@@ -44,11 +43,9 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
             .collect(),
 
         UnifiedEvent::OuroborosMessage(msg) => route_gossipsub_msg(registry, &msg.publish),
-        UnifiedEvent::OuroborosRequest(request) => route_p2p_request(registry, request),
         UnifiedEvent::GossipMessage(gossipsub_msg) => {
             route_gossipsub_msg(registry, &gossipsub_msg.unsigned)
         }
-        UnifiedEvent::ReqRespRequest { request, .. } => route_p2p_request(registry, request),
     }
 }
 
@@ -97,19 +94,13 @@ fn route_gossipsub_msg(
     }
 }
 
-fn route_p2p_request(
-    _registry: &SMRegistry,
-    _get_message_request: &GetMessageRequest,
-) -> Vec<SMId> {
-    todo!("@Rajil1213 implement routing logic for requests once we have new types")
-}
-
 #[cfg(test)]
 mod tests {
     use strata_asm_proto_bridge_v1::AssignmentEntry;
     use strata_bridge_p2p_types2::{
-        GraphIdx, NagRequest, NagRequestPayload, P2POperatorPubKey, PayoutDescriptor, PubNonce,
+        GraphIdx, NagRequest, NagRequestPayload, PayoutDescriptor, PubNonce,
     };
+    use strata_bridge_primitives::types::P2POperatorPubKey;
     use strata_bridge_test_utils::{
         arbitrary_generator::ArbitraryGenerator, musig2::generate_pubnonce,
     };

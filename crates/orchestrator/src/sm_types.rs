@@ -2,8 +2,7 @@
 
 use std::fmt::Display;
 
-use strata_bridge_p2p_types2::P2POperatorPubKey;
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, P2POperatorPubKey};
 use strata_bridge_sm::{
     deposit::{duties::DepositDuty, events::DepositEvent},
     graph::{duties::GraphDuty, events::GraphEvent},

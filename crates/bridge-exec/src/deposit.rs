@@ -161,7 +161,7 @@ pub async fn execute_deposit_duty(
                     *deposit_idx,
                     *operator_idx,
                     NagRequest {
-                        recipient: operator_pubkey.clone().into(),
+                        recipient: operator_pubkey.clone(),
                         payload: NagRequestPayload::DepositNonce {
                             deposit_idx: *deposit_idx,
                         },
@@ -175,7 +175,7 @@ pub async fn execute_deposit_duty(
                     *deposit_idx,
                     *operator_idx,
                     NagRequest {
-                        recipient: operator_pubkey.clone().into(),
+                        recipient: operator_pubkey.clone(),
                         payload: NagRequestPayload::DepositPartial {
                             deposit_idx: *deposit_idx,
                         },
@@ -189,7 +189,7 @@ pub async fn execute_deposit_duty(
                     *deposit_idx,
                     *operator_idx,
                     NagRequest {
-                        recipient: operator_pubkey.clone().into(),
+                        recipient: operator_pubkey.clone(),
                         payload: NagRequestPayload::PayoutNonce {
                             deposit_idx: *deposit_idx,
                         },
@@ -203,7 +203,7 @@ pub async fn execute_deposit_duty(
                     *deposit_idx,
                     *operator_idx,
                     NagRequest {
-                        recipient: operator_pubkey.clone().into(),
+                        recipient: operator_pubkey.clone(),
                         payload: NagRequestPayload::PayoutPartial {
                             deposit_idx: *deposit_idx,
                         },

@@ -8,12 +8,9 @@ use strata_asm_proto_bridge_v1::AssignmentEntry;
 use strata_bridge_asm_events::event::AssignmentsState;
 use strata_bridge_p2p_service::message_handler2::OuroborosMessage;
 use strata_bridge_p2p_types2::GossipsubMsg;
-use strata_bridge_p2p_wire::p2p::v1::GetMessageRequest; /* FIXME: (@Rajil1213) this is
-                                                          * temporary until we have it in
-                                                          * `p2p_types2`. */
 use strata_bridge_primitives::subscription::Subscription;
 use strata_p2p::{
-    events::{GossipEvent, ReqRespEvent},
+    events::GossipEvent,
     swarm::handle::{GossipHandle, ReqRespHandle},
 };
 use tracing::warn;
@@ -25,26 +22,17 @@ use tracing::warn;
 pub enum UnifiedEvent {
     /// Priority 0: Self-published gossip messages for consistent state.
     OuroborosMessage(OuroborosMessage),
-    /// Priority 1: Self-published nag requests.
-    OuroborosRequest(GetMessageRequest),
-    /// Priority 2: Graceful shutdown request.
+    /// Priority 1: Graceful shutdown request.
     Shutdown,
-    /// Priority 3: Buried bitcoin blocks from ZMQ.
+    /// Priority 2: Buried bitcoin blocks from ZMQ.
     Block(BlockEvent),
-    /// Priority 4: Assignment entries identified by the ASM runner.
+    /// Priority 3: Assignment entries identified by the ASM runner.
     Assignment(Vec<AssignmentEntry>),
-    /// Priority 5a: Gossip messages received from peers.
+    /// Priority 4a: Gossip messages received from peers.
     GossipMessage(GossipsubMsg),
-    /// Priority 5b: Requests received from peers.
-    ReqRespRequest {
-        /// The request received from the peer.
-        request: GetMessageRequest,
-        /// The peer that sent the request.
-        peer: Option<tokio::sync::oneshot::Sender<Vec<u8>>>,
-    },
-    /// Priority 6a: Periodic tick for nagging peers for missing messages.
+    /// Priority 5a: Periodic tick for nagging peers for missing messages.
     NagTick,
-    /// Priority 6b: Periodic tick for retrying failed duties.
+    /// Priority 5b: Periodic tick for retrying failed duties.
     RetryTick,
 }
 
@@ -54,9 +42,6 @@ pub enum UnifiedEvent {
 pub struct EventsMux {
     /// Ouroboros channel for gossip messages.
     pub ouroboros_msg_rx: tokio::sync::mpsc::UnboundedReceiver<OuroborosMessage>,
-
-    /// Ouroboros channel for nag requests.
-    pub ouroboros_req_rx: tokio::sync::mpsc::UnboundedReceiver<GetMessageRequest>,
 
     /// Shutdown signal receiver.
     pub shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
@@ -91,9 +76,6 @@ impl EventsMux {
                 // necessary for having consistent state.
                 Some(msg) = self.ouroboros_msg_rx.recv() => return UnifiedEvent::OuroborosMessage(msg),
 
-                // And similarly, our own requests
-                Some(req) = self.ouroboros_req_rx.recv() => return UnifiedEvent::OuroborosRequest(req),
-
                 // Only now, we handle shutdown signals
                 // so that we don't shutdown before our own messages and requests are processed.
                 Ok(()) = async {
@@ -127,20 +109,6 @@ impl EventsMux {
                     };
 
                     return UnifiedEvent::GossipMessage(msg);
-                },
-
-                // And similarly, the requests received from peers.
-                Some(ReqRespEvent::ReceivedRequest(raw_msg, peer_channel)) = self.req_resp_handle.next_event() => {
-                    let Ok(request) = rkyv::from_bytes::<GetMessageRequest, rancor::Error>(&raw_msg) else {
-                        // If we fail to deserialize the request, we ignore it and continue polling.
-                        warn!("received invalid request from peer");
-                        continue;
-                    };
-
-                    return UnifiedEvent::ReqRespRequest {
-                        request,
-                        peer: Some(peer_channel),
-                    };
                 },
 
                 // Then, we handle the periodic nag tick for nagging peers about missing messages.

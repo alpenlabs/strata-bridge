@@ -112,7 +112,7 @@ pub async fn execute_graph_duty(
                     *graph_idx,
                     *operator_idx,
                     NagRequest {
-                        recipient: operator_pubkey.clone().into(),
+                        recipient: operator_pubkey.clone(),
                         payload: NagRequestPayload::GraphData {
                             graph_idx: *graph_idx,
                         },
@@ -126,7 +126,7 @@ pub async fn execute_graph_duty(
                     *graph_idx,
                     *operator_idx,
                     NagRequest {
-                        recipient: operator_pubkey.clone().into(),
+                        recipient: operator_pubkey.clone(),
                         payload: NagRequestPayload::GraphNonces {
                             graph_idx: *graph_idx,
                         },
@@ -140,7 +140,7 @@ pub async fn execute_graph_duty(
                     *graph_idx,
                     *operator_idx,
                     NagRequest {
-                        recipient: operator_pubkey.clone().into(),
+                        recipient: operator_pubkey.clone(),
                         payload: NagRequestPayload::GraphPartials {
                             graph_idx: *graph_idx,
                         },

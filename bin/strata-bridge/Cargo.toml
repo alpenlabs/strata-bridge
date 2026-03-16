@@ -19,7 +19,6 @@ strata-bridge-db.workspace = true
 strata-bridge-exec.workspace = true
 strata-bridge-orchestrator.workspace = true
 strata-bridge-p2p-service.workspace = true
-strata-bridge-p2p-types.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-rpc.workspace = true
 strata-bridge-sm.workspace = true

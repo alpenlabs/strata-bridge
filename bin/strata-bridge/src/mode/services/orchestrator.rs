@@ -66,7 +66,6 @@ pub(crate) async fn init_orchestrator(
     let zmq_client = init_zmq_client(config, start_height).await?;
 
     let (ouroboros_msg_sender, ouroboros_msg_receiver) = mpsc::unbounded_channel();
-    let (_ouroboros_req_sender, ouroboros_req_receiver) = mpsc::unbounded_channel();
     let message_handler =
         MessageHandler2::new(ouroboros_msg_sender, gossip_handle.clone(), p2p_keypair);
 
@@ -86,7 +85,6 @@ pub(crate) async fn init_orchestrator(
 
     let events_mux = EventsMux {
         ouroboros_msg_rx: ouroboros_msg_receiver,
-        ouroboros_req_rx: ouroboros_req_receiver,
         shutdown_rx: Some(shutdown_receiver),
         block_sub: orchestrator_block_sub,
         assignments_sub,

@@ -47,8 +47,9 @@
 
 # Other components
 /crates/db/ @Rajil1213 @Zk2u
-/crates/p2p-service/ @storopoli @Zk2u
-/crates/rpc/ @storopoli @Zk2u
+/crates/p2p-service/ @mukeshdroid @Rajil1213 @storopoli
+/crates/p2p-types2/ @mukeshdroid @Rajil1213
+/crates/rpc/ @Rajil1213
 /crates/operator-wallet/ @Zk2u
 
 # Test utilities

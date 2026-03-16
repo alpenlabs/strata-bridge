@@ -10130,7 +10130,6 @@ dependencies = [
  "strata-bridge-exec",
  "strata-bridge-orchestrator",
  "strata-bridge-p2p-service",
- "strata-bridge-p2p-types",
  "strata-bridge-primitives",
  "strata-bridge-rpc",
  "strata-bridge-sm",
@@ -10274,7 +10273,6 @@ dependencies = [
  "strata-bridge-exec",
  "strata-bridge-p2p-service",
  "strata-bridge-p2p-types2",
- "strata-bridge-p2p-wire",
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-test-utils",
@@ -10291,39 +10289,17 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcoin",
- "futures",
  "libp2p",
  "libp2p-identity",
  "musig2",
  "rkyv",
  "serde",
- "strata-bridge-common",
- "strata-bridge-p2p-types",
  "strata-bridge-p2p-types2",
- "strata-bridge-p2p-wire",
  "strata-bridge-primitives",
- "strata-bridge-test-utils",
  "strata-p2p",
  "tokio",
  "tokio-util",
  "tracing",
-]
-
-[[package]]
-name = "strata-bridge-p2p-types"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "bitcoin",
- "hex",
- "libp2p-identity",
- "musig2",
- "proptest",
- "proptest-derive",
- "rkyv",
- "secp256k1 0.29.1",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -10332,7 +10308,6 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "bitcoin-bosd",
- "hex",
  "libp2p-identity",
  "musig2",
  "proptest",
@@ -10341,19 +10316,8 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "serde_json",
- "strata-bridge-p2p-types",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
-]
-
-[[package]]
-name = "strata-bridge-p2p-wire"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "libp2p",
- "rkyv",
- "strata-bridge-p2p-types",
 ]
 
 [[package]]
@@ -10367,6 +10331,8 @@ dependencies = [
  "bitcoin",
  "bitcoin-script",
  "futures",
+ "hex",
+ "libp2p-identity",
  "miniscript",
  "musig2",
  "proptest",
@@ -10374,7 +10340,7 @@ dependencies = [
  "rkyv",
  "secp256k1 0.29.1",
  "serde",
- "strata-bridge-p2p-types",
+ "serde_json",
  "strata-bridge-types",
  "strata-crypto",
  "strata-identifiers",
@@ -10470,7 +10436,6 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-txs-bridge-v1",
  "strata-bridge-connectors",
- "strata-bridge-p2p-types",
  "strata-bridge-p2p-types2",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
@@ -10497,7 +10462,6 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "serde_json",
- "strata-bridge-p2p-types",
  "strata-bridge-primitives",
  "strata-bridge-types",
  "tokio",
