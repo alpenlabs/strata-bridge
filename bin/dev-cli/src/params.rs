@@ -1,6 +1,5 @@
 use std::{fs, path::Path, str::FromStr};
 
-use alpen_bridge_params::types::Tag;
 use anyhow::anyhow;
 use bitcoin::{relative::LockTime, secp256k1::XOnlyPublicKey, Amount, Network};
 use serde::{Deserialize, Serialize};
@@ -16,28 +15,11 @@ pub(crate) struct Params {
     pub(crate) payout_timelock: u32,
     pub(crate) refund_delay: u16,
 
-    #[serde(serialize_with = "serialize_tag")]
-    #[serde(deserialize_with = "deserialize_tag")]
-    pub(crate) tag: Tag,
+    pub(crate) tag: String,
 
     #[serde(serialize_with = "serialize_keys")]
     #[serde(deserialize_with = "deserialize_keys")]
     pub(crate) musig2_keys: Vec<XOnlyPublicKey>,
-}
-
-fn serialize_tag<S>(tag: &Tag, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    serializer.serialize_str(&tag.to_string())
-}
-
-fn deserialize_tag<'de, D>(deserializer: D) -> Result<Tag, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let tag_str = String::deserialize(deserializer)?;
-    Tag::try_from(tag_str).map_err(serde::de::Error::custom)
 }
 
 fn serialize_keys<S>(keys: &[XOnlyPublicKey], serializer: S) -> Result<S::Ok, S::Error>

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use bitcoin::{Network, Txid};
+use bitcoin::Network;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -19,8 +19,6 @@ pub(crate) enum Commands {
     BridgeIn(BridgeInArgs),
 
     BridgeOut(BridgeOutArgs),
-
-    Challenge(ChallengeArgs),
 
     DeriveKeys(DeriveKeysArgs),
 
@@ -71,31 +69,6 @@ pub(crate) struct BridgeOutArgs {
 
     #[arg(long, help = "the private key for an address in strata")]
     pub(crate) private_key: String,
-}
-
-#[derive(Parser, Debug, Clone)]
-#[command(about = "Send challenge transaction", version)]
-pub(crate) struct ChallengeArgs {
-    #[arg(
-        long,
-        env = "CLAIM_TXID",
-        value_parser = clap::value_parser!(Txid),
-        help = "the txid of the claim being challenged"
-    )]
-    pub(crate) claim_txid: Txid,
-
-    #[clap(flatten)]
-    pub(crate) btc_args: BtcArgs,
-
-    #[arg(long, help = "the path to the params file")]
-    pub(crate) params: PathBuf,
-
-    #[arg(
-        long,
-        env = "BRIDGE_NODE_URL",
-        help = "the url of the bridge node to query for challenge signature"
-    )]
-    pub(crate) bridge_node_url: String,
 }
 
 #[derive(Parser, Debug, Clone)]

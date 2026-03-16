@@ -22,7 +22,6 @@
 /crates/primitives/ @Rajil1213
 /crates/common/ @Rajil1213
 /crates/wots/ @Zk2u
-/crates/params/ @Rajil1213
 
 # Secret service components
 /crates/secret-service-client/ @Zk2u

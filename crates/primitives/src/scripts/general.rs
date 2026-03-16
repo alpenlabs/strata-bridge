@@ -13,8 +13,6 @@ use miniscript::Miniscript;
 use musig2::KeyAggContext;
 use secp256k1::{PublicKey, XOnlyPublicKey};
 
-use super::prelude::AuxiliaryData;
-
 /// Create a script with the spending condition that a MuSig2 aggregated signature corresponding to
 /// the pubkey set must be provided.
 ///
@@ -32,8 +30,6 @@ pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> Script {
 ///
 /// The `refund_delay` should be provided by the consensus-critical parameters that dictate the
 /// behavior of the bridge node.
-///
-/// TLDR: use the `refund_delay` in the `PegOutGraphParams` inside the `Params`.
 pub fn drt_take_back(recovery_xonly_pubkey: XOnlyPublicKey, refund_delay: u16) -> ScriptBuf {
     let script = format!("and_v(v:pk({recovery_xonly_pubkey}),older({refund_delay}))",);
     let miniscript = Miniscript::<XOnlyPublicKey, miniscript::Tap>::from_str(&script).unwrap();
@@ -75,22 +71,6 @@ pub fn get_aggregated_pubkey(pubkeys: impl IntoIterator<Item = PublicKey>) -> XO
     let aggregated_pubkey: PublicKey = key_agg_ctx.aggregated_pubkey();
 
     aggregated_pubkey.x_only_public_key().0
-}
-
-/// Create the metadata script that "stores" all the required metadata information for both the
-/// deposit request transaction (DRT) and deposit transaction (DT).
-pub fn metadata_script(auxiliary_data: AuxiliaryData) -> ScriptBuf {
-    let bytes = auxiliary_data.to_vec();
-
-    let mut data = PushBytesBuf::new();
-
-    data.extend_from_slice(&bytes)
-        .expect("bytes should be within the limit");
-
-    Builder::new()
-        .push_opcode(OP_RETURN)
-        .push_slice(data)
-        .into_script()
 }
 
 /// Creates a script that can be spent by anyone.

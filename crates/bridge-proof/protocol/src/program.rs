@@ -44,7 +44,6 @@ impl ZkVmProgram for BridgeProgram {
 
         input_builder
             .write_serde(&input.rollup_params)?
-            .write_serde(&input.pegout_graph_params)?
             .write_buf(&headers_buf)?
             .write_borsh(&borsh_input)?
             .build()
@@ -75,7 +74,6 @@ impl BridgeProgram {
 }
 #[cfg(test)]
 mod tests {
-    use alpen_bridge_params::prelude::PegOutGraphParams;
     use prover_test_utils::{
         extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
         load_op_signature, load_test_rollup_params,
@@ -85,11 +83,8 @@ mod tests {
     use super::*;
 
     fn get_input() -> BridgeProofInput {
-        let pegout_graph_params = PegOutGraphParams::default();
-
         BridgeProofInput {
             rollup_params: load_test_rollup_params(),
-            pegout_graph_params,
             headers: extract_test_headers(),
             deposit_idx: 0,
             strata_checkpoint_tx: get_strata_checkpoint_tx(),

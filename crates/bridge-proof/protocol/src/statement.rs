@@ -1,4 +1,3 @@
-use alpen_bridge_params::prelude::PegOutGraphParams;
 use bitcoin::block::Header;
 use strata_params::RollupParams;
 
@@ -38,7 +37,6 @@ pub(crate) fn process_bridge_proof(
     input: BridgeProofInputBorsh,
     headers: Vec<Header>,
     _rollup_params: RollupParams,
-    _peg_out_graph_params: PegOutGraphParams,
 ) -> Result<BridgeProofPublicOutput, BridgeProofError> {
     let headers_after_withdrawal = headers
         .len()

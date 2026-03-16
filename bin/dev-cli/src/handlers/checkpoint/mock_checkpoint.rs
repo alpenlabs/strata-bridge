@@ -1,10 +1,10 @@
-use alpen_bridge_params::default::BRIDGE_DENOMINATION;
 use k256::{
     ecdsa::signature::SignatureEncoding,
     schnorr::{signature::Signer, SigningKey},
 };
 use rand::{thread_rng, Rng};
 use ssz::Encode;
+use strata_bridge_primitives::constants::BRIDGE_DENOMINATION;
 use strata_checkpoint_types_ssz::{
     compute_asm_manifests_hash, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
     CheckpointTip, L2BlockRange, OLLog, SignedCheckpointPayload, TerminalHeaderComplement,

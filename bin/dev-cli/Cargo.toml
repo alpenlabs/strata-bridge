@@ -11,13 +11,13 @@ name = "dev-cli"
 path = "src/main.rs"
 
 [dependencies]
-alpen-bridge-params.workspace = true
+strata-bridge-common.workspace = true
+strata-bridge-key-deriv.workspace = true
+strata-bridge-primitives.workspace = true
+
 ssz.workspace = true
 strata-asm-txs-bridge-v1.workspace = true
 strata-asm-txs-checkpoint.workspace = true
-strata-bridge-common.workspace = true
-strata-bridge-key-deriv.workspace = true
-strata-bridge-rpc = { workspace = true, features = ["client"] }
 strata-checkpoint-types-ssz.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true
@@ -35,7 +35,6 @@ bitcoin-bosd = { workspace = true, features = ["address"] }
 bitcoincore-rpc.workspace = true
 clap.workspace = true
 hex.workspace = true
-jsonrpsee = { workspace = true, features = ["client", "macros"] }
 k256.workspace = true
 libp2p-identity = { workspace = true, features = ["ed25519"] }
 miniscript.workspace = true
