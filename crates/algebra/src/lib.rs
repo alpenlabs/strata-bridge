@@ -1,7 +1,6 @@
 //! Algebraic Abstractions that relies heavily on the Functional Programming paradigm.
 
 #![feature(coverage_attribute)]
-#![feature(closure_lifetime_binder)]
 
 pub mod bijection;
 pub mod category;

@@ -1,7 +1,3 @@
-// needed because of `wots` in `p2p-types`
-// TODO: (@Rajil1213) remove these when `wots` is removed.
-#![expect(incomplete_features)]
-#![feature(generic_const_exprs)]
 //! The shallowest layer of abstraction in the `strata-bridge` that is responsible for:
 //!
 //! - Dispatching duty executors that implement the actual duties of the bridge (e.g. relaying

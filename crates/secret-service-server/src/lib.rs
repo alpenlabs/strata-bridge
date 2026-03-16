@@ -1,5 +1,3 @@
-#![expect(incomplete_features)]
-#![feature(generic_const_exprs)]
 //! This module contains the implementation of the secret service server.
 //!
 //! This handles networking and communication with clients, but does not implement the traits

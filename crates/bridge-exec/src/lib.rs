@@ -9,12 +9,6 @@
 //! - It is an idempotent function i.e., its effects are deterministic and can be safely retried.
 //! - It can be run asynchronously and independently of other executors.
 
-#![allow(
-    incomplete_features,
-    reason = "required for the feature below in order to compile strata-p2p"
-)]
-#![feature(generic_const_exprs)] // FIXME: (@Rajil1213) remove this once strata-p2p is updated
-
 mod chain;
 pub mod config;
 pub mod deposit;
