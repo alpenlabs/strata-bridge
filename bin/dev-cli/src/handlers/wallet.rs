@@ -11,14 +11,6 @@ use bitcoincore_rpc::{
 use tracing::{debug, info};
 
 pub(crate) trait PsbtWallet {
-    fn create_legacy_drt_psbt(
-        &self,
-        deposit_amount: Amount,
-        destination_address: &Address,
-        metadata: Vec<u8>,
-        network: &Network,
-    ) -> Result<String>;
-
     fn create_drt_psbt(
         &self,
         deposit_amount: Amount,
@@ -41,52 +33,6 @@ impl BitcoinRpcWallet {
 }
 
 impl PsbtWallet for BitcoinRpcWallet {
-    fn create_legacy_drt_psbt(
-        &self,
-        amount: Amount,
-        destination_address: &Address,
-        metadata: Vec<u8>,
-        network: &Network,
-    ) -> Result<String> {
-        let change_address = self
-            .client
-            .get_new_address(None, Some(bitcoincore_rpc::json::AddressType::Bech32m))
-            .context("Failed to get new address from RPC client")?
-            .require_network(*network)
-            .context("Failed to get change address");
-
-        let inputs: Vec<CreateRawTransactionInput> = vec![];
-        let outputs = vec![
-            serde_json::Map::from_iter(vec![(
-                destination_address.to_string(),
-                serde_json::to_value(amount.to_btc())?,
-            )]),
-            serde_json::Map::from_iter(vec![(
-                "data".to_string(),
-                serde_json::to_value(hex::encode(metadata))?,
-            )]),
-        ];
-
-        let options = WalletCreateFundedPsbtOptions {
-            replaceable: Some(true),
-            change_address: Some(change_address.unwrap().as_unchecked().clone()),
-            change_position: Some(2),
-            ..Default::default()
-        };
-
-        let args: Vec<serde_json::Value> = vec![
-            serde_json::to_value(inputs)?,
-            serde_json::to_value(outputs)?,
-            serde_json::Value::Null,
-            serde_json::to_value(options)?,
-            serde_json::Value::Null,
-        ];
-
-        let psbt: WalletCreateFundedPsbtResult =
-            self.client.call("walletcreatefundedpsbt", &args)?;
-        Ok(psbt.psbt)
-    }
-
     fn create_drt_psbt(
         &self,
         amount: Amount,
