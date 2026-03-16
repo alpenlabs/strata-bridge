@@ -1,4 +1,4 @@
-# CODEOWNERS file for strata-bridge
+# CODEOWNERS file for strata-bridge/
 # Based on git blame analysis of contributor patterns
 # and initial implementation contributions
 
@@ -9,19 +9,14 @@
 /rust-toolchain.toml @Rajil1213 @Zk2u
 **/Cargo.toml @Rajil1213 @Zk2u
 **/Cargo.lock @Rajil1213 @Zk2u
-**/Makefile @Rajil1213 @Zk2u
 **/LICENSE* @Rajil1213 @Zk2u
 **/README.md @Rajil1213 @Zk2u
 **/.gitignore @Rajil1213 @Zk2u
-/migrations/ @Rajil1213
-/scripts/ @Rajil1213
 /zizmor.yml @storopoli
-/assets/ @Rajil1213
 
 # Primitives and common components
 /crates/primitives/ @Rajil1213
 /crates/common/ @Rajil1213
-/crates/wots/ @Zk2u
 
 # Secret service components
 /crates/secret-service-client/ @Zk2u
@@ -30,8 +25,17 @@
 /bin/secret-service/ @Zk2u
 /**/secret-service/ @Zk2u
 
-# Duty tracker components
+# External service components
 /crates/btc-tracker/ @Rajil1213
+/crates/asm-events/ @prajwolrg @MdTeach
+/crates/asm-rpc/ @prajwolrg @MdTeach
+/crates/proof-db/ @prajwolrg @MdTeach
+/bin/asm-runner/ @prajwolrg @MdTeach
+
+# Main components
+/crates/orchestrator/ @Rajil1213
+/crates/bridge-sm/ @Rajil1213 @MdTeach @mukeshdroid @uncomputable
+/crates/bridge-exec/ @Rajil1213 @MdTeach @mukeshdroid @uncomputable
 
 # Transaction graph components
 /crates/tx-graph/ @uncomputable
@@ -50,11 +54,13 @@
 /crates/p2p-types/ @mukeshdroid @Rajil1213
 /crates/rpc/ @Rajil1213
 /crates/operator-wallet/ @Zk2u
+/crates/key-deriv/ @Zk2u @Rajil1213
 
 # Test utilities
 /crates/test-utils/ @Rajil1213
-/bin/dev-cli/ @Rajil1213
+/bin/dev-cli/ @Rajil1213 @MdTeach
 /test-data/ @Rajil1213
+/crates/memory_pprof/ @Zk2u
 
 # Functional tests
 /functional-tests/ @MdTeach @Voidash @Rajil1213
@@ -73,7 +79,6 @@
 
 # CI/CD
 /.github/ @Rajil1213 @storopoli
-/.codecov.yml @Rajil1213 @storopoli
 
 # Nix
 **/*.nix @storopoli
