@@ -50,17 +50,6 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Install latest just release
-        uses: taiki-e/install-action@81ecf985428d5c2ea81dbf079bceca32bc9604ab # v2.62.43
-        with:
-          tool: just
-
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --locked
-
-      - name: Run db migrations
-        run: just migrate
-
       - name: Install FoundationDB
         uses: ./.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
 

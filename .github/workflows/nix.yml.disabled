@@ -108,8 +108,5 @@ jobs:
 
           rm -f FoundationDB-*.pkg
 
-      - name: Run db migrations
-        run: nix develop --command bash -c 'just migrate'
-
       - name: "Test devshell"
         run: nix develop --command bash -c 'just build'

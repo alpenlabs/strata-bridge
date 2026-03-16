@@ -318,15 +318,6 @@ pr: lint rustdocs test-doc test-unit
     @test -z "`git status --porcelain`" || echo "WARNING: You have uncommitted changes"
     @echo "All good to create a PR!"
 
-# Run migrations
-[group('database')]
-migrate:
-    #!/usr/bin/env bash
-    export DATABASE_URL="sqlite://./operator.db"
-    rm -f operator.db
-    touch operator.db
-    sqlx migrate run
-
 # Broadcast a mock checkpoint
 [group('bridge')]
 checkpoint:
@@ -414,60 +405,6 @@ disprove:
 [group('bridge')]
 derive-keys seed:
     cargo r --bin dev-cli -- derive-keys {{seed}}
-
-[doc("\
-Performs the following experiment:
-1. Make a deposit request and stop the nodes after the contract is created but before the graphs can be generated.
-2. Delete the deposit setup for operator 0 from the network state.
-3. Start all but the first node again.
-4. Wait for the nodes to sync.
-5. Make a few more deposits that the first node misses out on and wait till they are buried.
-6. Start the first node again and check if all deposits make it through.\
-")]
-[group('experiments')]
-erase-deposit-setup:
-    #!/usr/bin/env bash -xe
-    just bridge-in
-    sleep 15 # wait for graph generation to begin
-    docker compose stop bridge-{1,2,3}
-    sleep 5 # wait for nodes to stop
-    sqlite3 docker/vol/strata-bridge-1/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1;"
-    sqlite3 docker/vol/strata-bridge-2/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1 and operator_idx=0;"
-    sqlite3 docker/vol/strata-bridge-3/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1 and operator_idx=0;"
-    docker compose start bridge-{2,3}
-    sleep 10 # wait for nodes to sync
-    for i in {1..3}; do
-        just bridge-in
-    done
-    sleep 10 # wait for deposits to be buried
-    docker compose start bridge-1
-
-[group('experiments')]
-[doc("\
-Simulates the following scenario:
-- Nodes crash after persisting new contract(s) but before persisting the deposit setup.
-- The nodes stay down long enough for the contract(s) to be `Aborted`.
-- The nodes also miss a few deposit requests while they're down.
-
-Manual steps required before running this recipe:
-1. Make at least four deposits (0,1,2,3 - 2 and 3 will be leaked by this recipe).
-2. Make at least two more concurrent deposits (but stop the nodes before two deposit goes through).
-3. Update the `block_height` in the sql statements in this recipe to match the last processed block height before stopping the nodes.\
-")]
-leak-deposit-setup:
-    #!/usr/bin/env bash -xe
-    sqlite3 docker/vol/strata-bridge-1/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
-    sqlite3 docker/vol/strata-bridge-1/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
-    sqlite3 docker/vol/strata-bridge-2/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
-    sqlite3 docker/vol/strata-bridge-2/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
-    sqlite3 docker/vol/strata-bridge-3/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
-    sqlite3 docker/vol/strata-bridge-3/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
-    for i in {1..2}; do
-        just bridge-in
-    done
-    sleep 10
-    docker compose start bridge-{1,2,3}
-
 
 # Activate uv environment for integration tests
 [group('functional-tests')]
