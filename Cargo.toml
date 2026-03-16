@@ -94,35 +94,23 @@ strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", r
 strata-asm-txs-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-txs-checkpoint = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-worker = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
-strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-btc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
-strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
-strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-checkpoint-types-ssz = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
-strata-config = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-db-store-sled = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-identifiers = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
-strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
-strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-ol-chain-types-new = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
-strata-ol-chainstate-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-params = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
-strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
-strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-test-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 
 # Dependencies from alpenlabs/strata-common
-strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
 strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
 strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
 strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
-strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
-strata-service = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
 
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.6", features = [
@@ -151,13 +139,7 @@ ark-ff = "0.5.0"
 ark-groth16 = "0.5.0"
 ark-serialize = "0.5.0"
 async-trait = "0.1.81"
-base64 = "0.22.1"
 bdk_bitcoind_rpc = "0.18.0"
-bdk_esplora = { version = "0.20.1", features = [
-  "async-https",
-  "async-https-rustls",
-  "tokio",
-], default-features = false }
 bdk_wallet = "1.1.0"
 bincode = "1.3.3"
 blake3 = "1.6.1"
@@ -171,13 +153,11 @@ borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.10.1", features = ["29_0"] }
-dotenvy = "0.15.7"
 ed25519-dalek = { version = "2.1.1", features = ["zeroize"] }
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
   "blocking-https-rustls",
   "async-https-rustls",
 ] }
-ethnum = "1.5.0"
 # TODO: (@Zk2u) switch to fdb 0.11.0 once released
 foundationdb = { git = "https://github.com/foundationdb-rs/foundationdb-rs", rev = "7e02f866ff08153f4309a429fc74515c77ea8f07", features = [
   "fdb-7_3",
@@ -186,8 +166,6 @@ futures = "0.3.31"
 hex = { version = "0.4.3", features = ["serde"] }
 indexmap = "2.8.0"
 jsonrpsee = "0.24.7"
-jsonrpsee-types = "0.24.7"
-kanal = "0.1.0-pre8"
 libp2p = { version = "0.56.0", features = [
   "noise",
   "gossipsub",
@@ -216,19 +194,11 @@ musig2 = { git = "https://github.com/alpenlabs/musig2", branch = "fix/deserializ
 opentelemetry = "0.29.1"
 opentelemetry-otlp = { version = "0.29.0", features = ["grpc-tonic"] }
 opentelemetry_sdk = { version = "0.29.0", features = ["rt-tokio"] }
-parking_lot = "0.12.3"
 postcard = { version = "1.1.3", features = ["alloc"] }
 proptest = "1.6.0"
 proptest-derive = "0.5.1"
 quinn = "0.11.6"
 rand = "0.8.5"
-reqwest = { version = "0.12.12", default-features = false, features = [
-  "http2",
-  "rustls-tls",
-  "charset",
-  "zstd",
-  "json",
-] }
 rkyv = "0.8.8"
 rustls-pemfile = "2.2.0"
 secp256k1 = "0.29.1"
@@ -237,20 +207,11 @@ serde_json = { version = "1.0", default-features = false, features = [
   "alloc",
   "raw_value",
 ] }
-serde_with = "3.12.0"
 serial_test = "3.2.0"
 sha2 = "0.10"
 sled = "0.34.7"
 sp1-sdk = "5.2.4"
 sp1-verifier = "5.2.4"
-sqlx = { version = "0.8.2", features = [
-  "sqlite",
-  "runtime-tokio",
-  "json",
-  "macros",
-  "derive",
-  "migrate",
-] }
 tempfile = "3.10.1"
 
 # TODO: (@Zk2u) update this once <https://github.com/komora-io/terrors/pull/20> is merged.
