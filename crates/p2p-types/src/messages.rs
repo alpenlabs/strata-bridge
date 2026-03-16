@@ -403,6 +403,7 @@ impl fmt::Debug for NagRequest {
 
 /// Unsigned gossipsub messages.
 #[derive(Clone, Archive, Serialize, Deserialize, Arbitrary)]
+#[rkyv(attr(expect(clippy::enum_variant_names)))]
 pub enum UnsignedGossipsubMsg {
     /// Payout descriptor exchange.
     PayoutDescriptorExchange {
