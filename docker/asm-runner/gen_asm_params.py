@@ -61,7 +61,9 @@ def wait_for_bitcoind(bitcoin_cfg: dict, timeout_secs: int) -> None:
     raise RuntimeError("bitcoind did not become ready in time")
 
 
-def wait_for_genesis_height(bitcoin_cfg: dict, genesis_height: int, timeout_secs: int) -> None:
+def wait_for_genesis_height(
+    bitcoin_cfg: dict, genesis_height: int, timeout_secs: int
+) -> None:
     deadline = time.time() + timeout_secs
 
     while time.time() < deadline:

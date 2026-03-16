@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from constants import ASM_MAGIC_BYTES
+
 
 @dataclass
 class CovenantKeys:
@@ -18,7 +20,7 @@ class Keys:
 
 @dataclass
 class BridgeProtocolParams:
-    magic_bytes: str = "ALPN"
+    magic_bytes: str = ASM_MAGIC_BYTES
     deposit_amount: int = 1_000_000_000
     stake_amount: int = 100_000_000
     operator_fee: int = 10_000_000

@@ -5,6 +5,7 @@ SECRET_SERVICE_DIR = "secret_service"
 BLOCK_GENERATION_INTERVAL_SECS = 2
 BRIDGE_NETWORK_SIZE = 3
 DEFAULT_LOG_LEVEL = "DEBUG"
+ASM_MAGIC_BYTES = "ALPN"
 
 # Deposit Transaction output indices
 DT_DEPOSIT_VOUT = 1  # Deposit funds locked in N/N taproot

@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from constants import ASM_MAGIC_BYTES
+
 
 @dataclass
 class Block:
@@ -140,7 +142,7 @@ def build_asm_params(
     genesis_height: int,
     block_hash: str,
     header: dict[str, Any],
-    magic: str = "ALPN",
+    magic: str = ASM_MAGIC_BYTES,
     denomination: int = 1_000_000_000,
     assignment_duration: int = 10_000,
     operator_fee: int = 100_000_000,
