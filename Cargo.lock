@@ -11090,36 +11090,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-bridge-tx-graph"
-version = "0.1.0"
-dependencies = [
- "algebra",
- "alpen-bridge-params",
- "bitcoin",
- "bitcoin-bosd",
- "bitcoin-script",
- "bitcoind-async-client",
- "bitvm",
- "corepc-node",
- "futures",
- "proptest",
- "rkyv",
- "secp256k1 0.29.1",
- "serde",
- "serde_json",
- "strata-bridge-common",
- "strata-bridge-connectors",
- "strata-bridge-db",
- "strata-bridge-primitives",
- "strata-bridge-stake-chain",
- "strata-bridge-test-utils",
- "strata-crypto",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "strata-bridge-tx-graph2"
 version = "0.1.0"
 dependencies = [
