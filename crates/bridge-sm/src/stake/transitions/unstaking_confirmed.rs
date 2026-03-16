@@ -38,18 +38,10 @@ impl StakeSM {
 
                 Ok(SMOutput::new())
             }
-            StakeState::Unstaked { .. } => Err(SSMError::rejected(
+            _ => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
-                "Received stale unstaking confirmation after unstaking completed",
-            )),
-            _ => Err(SSMError::invalid_event(
-                self.state().clone(),
-                event.into(),
-                Some(format!(
-                    "Invalid state for unstaking confirmation: {}",
-                    self.state()
-                )),
+                format!("Invalid state for unstaking confirmation: {}", self.state()),
             )),
         }
     }

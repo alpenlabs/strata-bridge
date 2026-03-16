@@ -16,8 +16,6 @@ impl StakeSM {
     /// The machine transitions from [`StakeState::Confirmed`] to [`StakeState::PreimageRevealed`]
     /// when the observed unstaking intent transaction matches the expected TXID.
     /// The preimage is extracted from the witness stack of the transaction.
-    ///
-    /// In the [`StakeState::UnstakingSigned`] state, this event is ignored.
     pub(crate) fn process_preimage_revealed(
         &mut self,
         event: PreimageRevealedEvent,
@@ -72,13 +70,10 @@ impl StakeSM {
             StakeState::PreimageRevealed { .. } => {
                 Err(SSMError::duplicate(self.state().clone(), event.into()))
             }
-            _ => Err(SSMError::invalid_event(
+            _ => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
-                Some(format!(
-                    "Invalid state for preimage revelation: {}",
-                    self.state()
-                )),
+                format!("Invalid state for preimage revelation: {}", self.state()),
             )),
         }
     }

@@ -43,7 +43,7 @@ impl StakeSM {
             _ => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
-                format!("Received stale stake data event in state: {}", self.state()),
+                format!("Invalid state for receiving stake data: {}", self.state()),
             )),
         }
     }

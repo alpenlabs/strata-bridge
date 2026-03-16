@@ -97,7 +97,7 @@ fn reject_invalid_states() {
         test_stake_invalid_transition(StakeInvalidTransition {
             from_state,
             event: UnstakingConfirmedEvent { tx: unstaking_tx() }.into(),
-            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
+            expected_error: |e| matches!(e, SSMError::Rejected { .. }),
         });
     }
 }
