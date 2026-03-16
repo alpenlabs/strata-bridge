@@ -3,7 +3,7 @@
 use std::num::NonZero;
 
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
-use strata_bridge_connectors2::{
+use strata_bridge_connectors::{
     n_of_n::NOfNConnector,
     prelude::{UnstakingIntentOutput, UnstakingOutput},
     SigningInfo,
@@ -155,7 +155,7 @@ mod tests {
         relative, Amount, Network, OutPoint, TxOut,
     };
     use secp256k1::{rand::random, Keypair};
-    use strata_bridge_connectors2::{
+    use strata_bridge_connectors::{
         prelude::{UnstakingIntentOutput, UnstakingIntentWitness},
         test_utils::BitcoinNode,
         Connector,

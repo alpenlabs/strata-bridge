@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use musig2::{AggNonce, KeyAggContext, PartialSignature, PubNonce};
-use strata_bridge_connectors2::SigningInfo;
+use strata_bridge_connectors::SigningInfo;
 use strata_bridge_primitives::{key_agg::create_agg_ctx, types::OperatorIdx};
 
 use super::{test_graph_sm_ctx, test_operator_signers};

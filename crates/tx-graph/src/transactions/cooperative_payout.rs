@@ -8,7 +8,7 @@ use bitcoin::{
 };
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
-use strata_bridge_connectors2::{
+use strata_bridge_connectors::{
     prelude::{NOfNConnector, NOfNSpend, P2AConnector},
     Connector, ParentTx, SigningInfo,
 };

@@ -6,7 +6,7 @@ use std::{array, num::NonZero};
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
-use strata_bridge_connectors2::{
+use strata_bridge_connectors::{
     cpfp::CpfpConnector,
     prelude::{
         ClaimContestConnector, ClaimPayoutConnector, ContestCounterproofOutput,
@@ -577,7 +577,7 @@ impl GameConnectors {
 mod tests {
     use bitcoin::{hashes::Hash, transaction::Version, TxOut};
     use secp256k1::{rand::random, Keypair, SECP256K1};
-    use strata_bridge_connectors2::{
+    use strata_bridge_connectors::{
         prelude::ContestCounterproofWitness, test_utils::BitcoinNode, Connector,
     };
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins};

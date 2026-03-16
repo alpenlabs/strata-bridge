@@ -10319,7 +10319,7 @@ dependencies = [
  "serde",
  "strata-bridge-asm-events",
  "strata-bridge-common",
- "strata-bridge-connectors2",
+ "strata-bridge-connectors",
  "strata-bridge-db",
  "strata-bridge-exec",
  "strata-bridge-orchestrator",
@@ -10373,30 +10373,6 @@ dependencies = [
 name = "strata-bridge-connectors"
 version = "0.1.0"
 dependencies = [
- "ark-serialize 0.5.0",
- "bincode",
- "bitcoin",
- "bitcoin-bosd",
- "bitcoin-script",
- "bitcoind-async-client",
- "bitvm",
- "borsh",
- "corepc-node",
- "secp256k1 0.29.1",
- "sp1-verifier",
- "strata-bridge-common",
- "strata-bridge-primitives",
- "strata-bridge-proof-protocol",
- "strata-bridge-proof-snark",
- "strata-bridge-test-utils",
- "strata-btc-types",
- "tracing",
-]
-
-[[package]]
-name = "strata-bridge-connectors2"
-version = "0.1.0"
-dependencies = [
  "bitcoin",
  "bitcoin-bosd",
  "bitcoind-async-client",
@@ -10445,7 +10421,7 @@ dependencies = [
  "operator-wallet",
  "secret-service-client",
  "secret-service-proto",
- "strata-bridge-connectors2",
+ "strata-bridge-connectors",
  "strata-bridge-db",
  "strata-bridge-p2p-service",
  "strata-bridge-p2p-types2",
@@ -10690,7 +10666,7 @@ dependencies = [
  "serde",
  "strata-asm-common",
  "strata-asm-txs-bridge-v1",
- "strata-bridge-connectors2",
+ "strata-bridge-connectors",
  "strata-bridge-p2p-types",
  "strata-bridge-p2p-types2",
  "strata-bridge-primitives",
@@ -10737,7 +10713,7 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "strata-asm-txs-bridge-v1",
- "strata-bridge-connectors2",
+ "strata-bridge-connectors",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
  "strata-l1-txfmt",

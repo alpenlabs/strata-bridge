@@ -14,7 +14,7 @@ use bitcoin::{
     OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
-use strata_bridge_connectors2::{
+use strata_bridge_connectors::{
     prelude::{
         ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness, CounterproofConnector,
         TimelockedSpendPath, TimelockedWitness,

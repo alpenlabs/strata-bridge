@@ -12,7 +12,7 @@ use bitcoin::{
 use operator_wallet::{OperatorWallet, OperatorWalletConfig, sync::Backend};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
-use strata_bridge_connectors2::{
+use strata_bridge_connectors::{
     Connector,
     prelude::{ClaimContestConnector, ClaimPayoutConnector},
 };

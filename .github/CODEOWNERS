@@ -36,8 +36,7 @@
 
 # Transaction graph components
 /crates/tx-graph/ @uncomputable
-/crates/connectors/ @Rajil1213
-/crates/connectors2/ @uncomputable
+/crates/connectors/ @uncomputable
 
 # Main binary
 /bin/strata-bridge/ @Rajil1213
