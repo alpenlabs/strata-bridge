@@ -12,7 +12,7 @@ fn signed_state() -> StakeState {
     }
 }
 
-fn invalid_states() -> [StakeState; 5] {
+fn rejected_states() -> [StakeState; 3] {
     [
         StakeState::Created {
             last_block_height: STAKE_HEIGHT,
@@ -29,6 +29,11 @@ fn invalid_states() -> [StakeState; 5] {
             agg_nonces: TEST_AGG_NONCES.clone(),
             partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
         },
+    ]
+}
+
+fn invalid_states() -> [StakeState; 2] {
+    [
         StakeState::PreimageRevealed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
@@ -91,7 +96,7 @@ fn reject_duplicate_stake_confirmed() {
 
 #[test]
 fn reject_invalid_states() {
-    for from_state in invalid_states() {
+    for from_state in rejected_states() {
         test_stake_invalid_transition(StakeInvalidTransition {
             from_state,
             event: StakeConfirmedEvent {
@@ -99,6 +104,20 @@ fn reject_invalid_states() {
             }
             .into(),
             expected_error: |e| matches!(e, SSMError::Rejected { .. }),
+        });
+    }
+}
+
+#[test]
+fn reject_invalid_event_after_unstaking_observed() {
+    for from_state in invalid_states() {
+        test_stake_invalid_transition(StakeInvalidTransition {
+            from_state,
+            event: StakeConfirmedEvent {
+                tx: TEST_GRAPH.stake.as_ref().clone(),
+            }
+            .into(),
+            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
         });
     }
 }
