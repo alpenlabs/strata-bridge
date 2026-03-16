@@ -4,7 +4,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 
 from bitcoinlib.services.bitcoind import BitcoindClient
 
@@ -41,40 +41,58 @@ def read_operator_key(operator_idx: int) -> OperatorKeyInfo:
     return OperatorKeyInfo(**raw_keys)
 
 
+class MinerThread:
+    """Wraps the block-generation thread with a stop signal."""
+
+    def __init__(self, thread: Thread, stop_event: Event):
+        self._thread = thread
+        self._stop_event = stop_event
+
+    def stop(self, timeout: float = 5):
+        self._stop_event.set()
+        self._thread.join(timeout=timeout)
+
+
 def generate_blocks(
     bitcoin_rpc: BitcoindClient,
     wait_dur,
     addr: str,
-) -> Thread:
+) -> MinerThread:
+    stop_event = Event()
     thr = Thread(
         target=generate_task,
         args=(
             bitcoin_rpc,
             wait_dur,
             addr,
+            stop_event,
         ),
     )
     thr.start()
-    return thr
+    return MinerThread(thr, stop_event)
 
 
 def generate_task(
     rpc: BitcoindClient,
     wait_dur,
     addr,
+    stop_event: Event,
     max_retries_per_tick: int = 3,
     max_consecutive_failed_ticks: int = 5,
     max_retry_delay: int = 3,
 ):
     consecutive_failed_ticks = 0
 
-    while True:
-        time.sleep(wait_dur)
+    while not stop_event.is_set():
+        if stop_event.wait(timeout=wait_dur):
+            break
         logging.debug(f"Generating block to address {addr}")
         retry_delay = 1
         tick_succeeded = False
 
         for attempt in range(1, max_retries_per_tick + 1):
+            if stop_event.is_set():
+                return
             try:
                 rpc.proxy.generatetoaddress(1, addr)
                 tick_succeeded = True
@@ -91,7 +109,8 @@ def generate_task(
                     f"{ex} while generating to address {addr} "
                     f"(attempt {attempt}/{max_retries_per_tick}); retrying in {retry_delay}s"
                 )
-                time.sleep(retry_delay)
+                if stop_event.wait(timeout=retry_delay):
+                    return
                 retry_delay = min(retry_delay * 2, max_retry_delay)
 
         if tick_succeeded:

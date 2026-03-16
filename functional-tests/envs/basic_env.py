@@ -1,9 +1,31 @@
 import flexitest
 
+from utils import generate_blocks
 from utils.service_names import get_operator_dir_name
-from utils.utils import wait_until_bridge_ready
+from utils.utils import MinerThread, wait_until_bridge_ready
 
 from .base_env import BaseEnv
+
+
+class StrataLiveEnv(flexitest.LiveEnv):
+    """LiveEnv with miner control exposed to tests via ctx.env."""
+
+    def __init__(self, svcs, miner: MinerThread | None = None):
+        super().__init__(svcs)
+        self._miner = miner
+
+    def stop_miner(self):
+        if self._miner is not None:
+            self._miner.stop()
+            self._miner = None
+
+    def start_miner(self, bitcoin_rpc, block_interval, addr):
+        self.stop_miner()
+        self._miner = generate_blocks(bitcoin_rpc, block_interval, addr)
+
+    def shutdown(self):
+        self.stop_miner()
+        super().shutdown()
 
 
 class BasicEnv(BaseEnv):
@@ -16,7 +38,7 @@ class BasicEnv(BaseEnv):
         svcs = {}
 
         # Setup Bitcoin node
-        bitcoind, brpc, wallet_addr = self.setup_bitcoin(ectx)
+        bitcoind, brpc, wallet_addr, miner = self.setup_bitcoin(ectx)
         svcs["bitcoin"] = bitcoind
 
         # Setup FoundationDB with unique root directory for this environment
@@ -45,4 +67,4 @@ class BasicEnv(BaseEnv):
         svcs["s2"] = s2_service
         svcs["asm_rpc"] = asm_service
 
-        return flexitest.LiveEnv(svcs)
+        return StrataLiveEnv(svcs, miner)
