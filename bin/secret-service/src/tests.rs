@@ -75,25 +75,6 @@ async fn setup() -> SecretServiceClient {
 }
 
 #[tokio::test]
-async fn wots() {
-    let client = setup().await;
-    let wots = client.wots_signer();
-    let txid = Txid::all_zeros();
-    wots.get_128_secret_key(txid, 0, 0)
-        .await
-        .expect("good response");
-    wots.get_128_public_key(txid, 0, 0)
-        .await
-        .expect("good response");
-    wots.get_256_secret_key(txid, 0, 0)
-        .await
-        .expect("good response");
-    wots.get_256_public_key(txid, 0, 0)
-        .await
-        .expect("good response");
-}
-
-#[tokio::test]
 async fn p2p() {
     let client = setup().await;
     let p2p_signer = client.p2p_signer();

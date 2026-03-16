@@ -20,7 +20,6 @@ use secret_service_proto::{
     v2::{
         traits::{
             Musig2Signer, P2PSigner, SchnorrSigner, SecretService, Server, StakeChainPreimages,
-            WotsSigner,
         },
         wire::{ClientMessage, ServerMessage, SignerTarget},
     },
@@ -277,60 +276,6 @@ where
                     SignerTarget::Musig2 => service.musig2_signer().pubkey().await.serialize(),
                 },
             },
-
-            ClientMessage::WotsGet128SecretKey { specifier } => {
-                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
-                let key = service
-                    .wots_signer()
-                    .get_128_secret_key(txid, specifier.vout, specifier.index)
-                    .await;
-                ServerMessage::WotsGet128SecretKey { key }
-            }
-
-            ClientMessage::WotsGet256SecretKey { specifier } => {
-                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
-                let key = service
-                    .wots_signer()
-                    .get_256_secret_key(txid, specifier.vout, specifier.index)
-                    .await;
-                ServerMessage::WotsGet256SecretKey { key }
-            }
-
-            ClientMessage::WotsGet128PublicKey { specifier } => {
-                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
-                let key = service
-                    .wots_signer()
-                    .get_128_public_key(txid, specifier.vout, specifier.index)
-                    .await;
-                ServerMessage::WotsGet128PublicKey { key }
-            }
-
-            ClientMessage::WotsGet256PublicKey { specifier } => {
-                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
-                let key = service
-                    .wots_signer()
-                    .get_256_public_key(txid, specifier.vout, specifier.index)
-                    .await;
-                ServerMessage::WotsGet256PublicKey { key }
-            }
-
-            ClientMessage::WotsGet128Signature { specifier, msg } => {
-                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
-                let sig = service
-                    .wots_signer()
-                    .get_128_signature(txid, specifier.vout, specifier.index, &msg)
-                    .await;
-                ServerMessage::WotsGet128Signature { sig }
-            }
-
-            ClientMessage::WotsGet256Signature { specifier, msg } => {
-                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
-                let sig = service
-                    .wots_signer()
-                    .get_256_signature(txid, specifier.vout, specifier.index, &msg)
-                    .await;
-                ServerMessage::WotsGet256Signature { sig }
-            }
 
             ClientMessage::StakeChainGetPreimage {
                 prestake_txid,

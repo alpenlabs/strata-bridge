@@ -7,11 +7,11 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+strata-bridge-primitives.workspace = true
+
 bitcoin.workspace = true
-bitvm.workspace = true
 libp2p-identity = { workspace = true, features = ["ed25519"] }
 musig2.workspace = true
 quinn.workspace = true
 rkyv.workspace = true
-strata-bridge-primitives.workspace = true
 terrors.workspace = true
