@@ -1,9 +1,9 @@
 //! Types for the RPC server.
 
-use bitcoin::{hashes::sha256, taproot, OutPoint, Txid};
+use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::{types::OperatorIdx, wots};
-use strata_primitives::{bitcoin_bosd::Descriptor, buf::Buf32};
+use strata_bridge_primitives::types::OperatorIdx;
+use strata_primitives::buf::Buf32;
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,31 +147,4 @@ pub enum RpcBridgeDutyStatus {
         /// Assigned operator index.
         assigned_operator_idx: OperatorIdx,
     },
-}
-
-/// The data shared during deposit setup required to construct a disprove transaction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpcDisproveData {
-    /// The transaction ID of the post-assert transaction.
-    pub post_assert_txid: Txid,
-
-    /// The transaction ID of the deposit transaction.
-    pub deposit_txid: Txid,
-
-    /// The outpoint of the stake transaction that is being spent.
-    pub stake_outpoint: OutPoint,
-
-    /// The hash for the hashlock in the stake transaction.
-    pub stake_hash: sha256::Hash,
-
-    /// The operator descriptor that the operator uses for reimbursements and whose key is used to
-    /// lock the stake.
-    pub operator_descriptor: Descriptor,
-
-    /// The WOTS public keys whose private keys were used by the operator to sign their proof
-    /// assertions.
-    pub wots_public_keys: wots::PublicKeys,
-
-    /// The N-of-N signature used to finalize the first input in the disprove transaction.
-    pub n_of_n_sig: taproot::Signature,
 }

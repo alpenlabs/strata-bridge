@@ -15,7 +15,6 @@ arbitrary.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
-bitvm.workspace = true
 corepc-node.workspace = true
 hex.workspace = true
 musig2.workspace = true

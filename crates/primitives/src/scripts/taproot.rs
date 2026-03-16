@@ -15,7 +15,6 @@ use bitcoin::{
     Address, Network, ScriptBuf, TapLeafHash, TapNodeHash, TapSighashType, Transaction, TxOut,
     Witness, XOnlyPublicKey,
 };
-use bitvm::treepp::*;
 use secp256k1::{rand::rngs::OsRng, Keypair, Message, Parity, SecretKey};
 use serde::{Deserialize, Serialize};
 use strata_crypto::keys::constants::UNSPENDABLE_PUBLIC_KEY;
@@ -149,15 +148,6 @@ fn build_taptree(
         Address::p2tr(SECP256K1, internal_key, merkle_root, network),
         spend_info,
     ))
-}
-
-/// Returns the witness stack for a taproot script.
-pub fn taproot_witness_signatures(script: Script) -> Vec<Vec<u8>> {
-    let result = execute_script(script);
-
-    (0..result.final_stack.len())
-        .map(|index| result.final_stack.get(index))
-        .collect::<Vec<_>>()
 }
 
 /// Finalizes a [`bitcoin::Psbt`] input.
