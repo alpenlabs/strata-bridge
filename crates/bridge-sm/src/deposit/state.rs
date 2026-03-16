@@ -11,7 +11,7 @@ use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph2::transactions::{deposit::DepositTx, prelude::CooperativePayoutTx};
+use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CooperativePayoutTx};
 
 /// The state of a Deposit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

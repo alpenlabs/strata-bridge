@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, num::NonZero, sync::LazyLock};
 
 use musig2::secp256k1::schnorr::Signature;
 use secp256k1::schnorr;
-use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
+use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary};
 
 use super::{
     CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,

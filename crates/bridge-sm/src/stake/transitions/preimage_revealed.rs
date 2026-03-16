@@ -1,4 +1,4 @@
-use strata_bridge_tx_graph2::stake_graph::StakeGraph;
+use strata_bridge_tx_graph::stake_graph::StakeGraph;
 
 use crate::{
     stake::{

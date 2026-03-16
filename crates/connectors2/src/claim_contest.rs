@@ -91,7 +91,7 @@ impl Connector for ClaimContestConnector {
 
     fn value(&self) -> Amount {
         let minimal_non_dust = self.script_pubkey().minimal_non_dust();
-        // NOTE: (@uncomputable) correctness is asserted in tx-graph2 crate:
+        // NOTE: (@uncomputable) correctness is asserted in tx-graph crate:
         // presigned transactions pay zero fees
         minimal_non_dust * u64::from(CONTEST_WATCHTOWER_0_VOUT + self.n_watchtowers())
     }

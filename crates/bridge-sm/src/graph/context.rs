@@ -6,7 +6,7 @@ use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
-use strata_bridge_tx_graph2::game_graph::{KeyData, SetupParams};
+use strata_bridge_tx_graph::game_graph::{KeyData, SetupParams};
 
 use crate::graph::config::GraphSMCfg;
 

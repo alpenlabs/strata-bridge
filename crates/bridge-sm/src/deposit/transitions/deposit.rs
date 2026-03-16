@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bitcoin::OutPoint;
 use musig2::{AggNonce, aggregate_partial_signatures, secp256k1::schnorr, verify_partial};
 use strata_bridge_primitives::key_agg::create_agg_ctx;
-use strata_bridge_tx_graph2::transactions::PresignedTx;
+use strata_bridge_tx_graph::transactions::PresignedTx;
 use tracing::{info, warn};
 
 use crate::{

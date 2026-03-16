@@ -9,7 +9,7 @@ use bitcoin::{Amount, OutPoint, XOnlyPublicKey, relative};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors2::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
-use strata_bridge_tx_graph2::transactions::prelude::{DepositData, DepositTx};
+use strata_bridge_tx_graph::transactions::prelude::{DepositData, DepositTx};
 
 use crate::{
     deposit::{

@@ -7,7 +7,7 @@ use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph2::game_graph::{DepositParams, GameGraphSummary};
+use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary};
 use zkaleido::ProofReceipt;
 
 /// The state of a pegout graph associated with a particular deposit.
@@ -28,7 +28,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
     },
     /// All adaptors for this pegout graph have been verified.
@@ -40,7 +40,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Public nonces provided by each operator for signing.
@@ -55,7 +55,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Public nonces provided by each operator for signing.
@@ -76,7 +76,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Aggregated nonces retained to respond to nag for graph partial signatures.
@@ -94,7 +94,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Aggregated nonces retained to respond to nag for graph partial signature.
@@ -123,7 +123,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Whether the cooperative payout has failed and the unilateral claim path is activated.
@@ -150,7 +150,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Aggregated final signatures for the graph.
@@ -175,7 +175,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Aggregated final signatures for the graph.
@@ -200,7 +200,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Aggregated final signatures for the graph.
@@ -227,7 +227,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Aggregated final signatures for the graph.
@@ -251,7 +251,7 @@ pub enum GraphState {
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
-        /// [`strata_bridge_tx_graph2::game_graph::GameGraph`].
+        /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
 
         /// Aggregated final signatures for the graph.

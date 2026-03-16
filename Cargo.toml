@@ -32,7 +32,7 @@ members = [
   "crates/secret-service-proto",
   "crates/secret-service-server",
   "crates/stake-chain",
-  "crates/tx-graph2",
+  "crates/tx-graph",
   "crates/wots",
 
   # binaries listed separately
@@ -96,7 +96,7 @@ strata-bridge-rpc = { path = "crates/rpc" }
 strata-bridge-sm = { path = "crates/bridge-sm" }
 strata-bridge-stake-chain = { path = "crates/stake-chain" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
-strata-bridge-tx-graph2 = { path = "crates/tx-graph2" }
+strata-bridge-tx-graph = { path = "crates/tx-graph" }
 wots = { path = "crates/wots" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 201c3fa0 (main @ 2026-03-12)

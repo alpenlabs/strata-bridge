@@ -16,7 +16,7 @@ strata-bridge-p2p-types2.workspace = true
 strata-bridge-p2p-wire.workspace = true
 strata-bridge-primitives = { workspace = true, features = ["async"] }
 strata-bridge-sm.workspace = true
-strata-bridge-tx-graph2.workspace = true
+strata-bridge-tx-graph.workspace = true
 
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-txs-bridge-v1.workspace = true

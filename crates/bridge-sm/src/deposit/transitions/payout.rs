@@ -4,7 +4,7 @@ use bitcoin::Txid;
 use musig2::{AggNonce, verify_partial};
 use strata_bridge_connectors2::n_of_n::NOfNConnector;
 use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootTweak};
-use strata_bridge_tx_graph2::transactions::prelude::{CooperativePayoutData, CooperativePayoutTx};
+use strata_bridge_tx_graph::transactions::prelude::{CooperativePayoutData, CooperativePayoutTx};
 
 use crate::{
     deposit::{

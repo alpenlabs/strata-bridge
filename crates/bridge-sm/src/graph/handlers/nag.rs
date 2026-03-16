@@ -201,7 +201,7 @@ impl GraphSM {
     fn build_publish_graph_nonces_duty(
         &self,
         cfg: &GraphSMCfg,
-        graph_data: strata_bridge_tx_graph2::game_graph::DepositParams,
+        graph_data: strata_bridge_tx_graph::game_graph::DepositParams,
     ) -> GraphDuty {
         let game_graph = generate_game_graph(cfg, self.context(), graph_data);
         let graph_inpoints = game_graph.musig_inpoints().pack();
@@ -230,7 +230,7 @@ impl GraphSM {
     fn build_publish_graph_partials_duty(
         &self,
         cfg: &GraphSMCfg,
-        graph_data: strata_bridge_tx_graph2::game_graph::DepositParams,
+        graph_data: strata_bridge_tx_graph::game_graph::DepositParams,
         agg_nonces: Vec<AggNonce>,
     ) -> GraphDuty {
         let game_graph = generate_game_graph(cfg, self.context(), graph_data);

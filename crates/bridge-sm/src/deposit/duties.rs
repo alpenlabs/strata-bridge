@@ -12,7 +12,7 @@ use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
-use strata_bridge_tx_graph2::transactions::prelude::CooperativePayoutTx;
+use strata_bridge_tx_graph::transactions::prelude::CooperativePayoutTx;
 
 /// The nag duties that can be emitted to remind operators of missing data.
 #[derive(Debug, Clone, PartialEq, Eq)]

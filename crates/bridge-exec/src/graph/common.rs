@@ -14,7 +14,7 @@ use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{GraphIdx, OperatorIdx},
 };
-use strata_bridge_tx_graph2::transactions::claim::ClaimTx;
+use strata_bridge_tx_graph::transactions::claim::ClaimTx;
 use tracing::{error, info, warn};
 
 use super::utils::finalize_claim_funding_tx;

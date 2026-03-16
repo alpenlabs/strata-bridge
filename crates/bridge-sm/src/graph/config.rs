@@ -2,7 +2,7 @@
 
 use bitcoin::{Amount, XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
-use strata_bridge_tx_graph2::game_graph::ProtocolParams;
+use strata_bridge_tx_graph::game_graph::ProtocolParams;
 
 /// Bridge-wide configuration shared across all graph state machines.
 ///

@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use strata_bridge_p2p_types2::NagRequestPayload;
 use strata_bridge_primitives::types::OperatorIdx;
-use strata_bridge_tx_graph2::transactions::PresignedTx;
+use strata_bridge_tx_graph::transactions::PresignedTx;
 
 use crate::deposit::{
     config::DepositSMCfg,

@@ -6,7 +6,7 @@ use musig2::{
     verify_partial,
 };
 use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootTweak};
-use strata_bridge_tx_graph2::{game_graph::DepositParams, musig_functor::GameFunctor};
+use strata_bridge_tx_graph::{game_graph::DepositParams, musig_functor::GameFunctor};
 
 use crate::{
     graph::{

@@ -27,7 +27,7 @@ mod tests {
         musig2::KeyAggContext,
         AggNonce,
         Message,
-        strata_bridge_tx_graph2::transactions::prelude::CooperativePayoutTx,
+        strata_bridge_tx_graph::transactions::prelude::CooperativePayoutTx,
     ) {
         let signers = test_operator_signers();
         let operator_desc = random_p2tr_desc();

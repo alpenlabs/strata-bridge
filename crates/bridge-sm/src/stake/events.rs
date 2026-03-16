@@ -3,7 +3,7 @@
 use bitcoin::Transaction;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph2::stake_graph::{StakeData, StakeGraph};
+use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
 
 /// Event notifying that stake data has been received.
 #[derive(Debug, Clone, PartialEq, Eq)]
