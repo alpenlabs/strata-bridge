@@ -5,8 +5,7 @@ use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_primitives::buf::Buf32;
 
 use crate::types::{
-    RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcDisproveData, RpcOperatorStatus,
-    RpcWithdrawalInfo,
+    RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcOperatorStatus, RpcWithdrawalInfo,
 };
 
 /// RPCs related to information about the client itself.
@@ -97,11 +96,4 @@ pub trait StrataBridgeDaApi {
     /// Query for challenge signature for a particular claim.
     #[method(name = "challengeSignature")]
     async fn get_challenge_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>>;
-
-    /// Query for the graph-setup data required to construct a disprove transaction for a particular
-    /// claim.
-    ///
-    /// This does not include the actual disprove script, which is only known at disprove time.
-    #[method(name = "disproveData")]
-    async fn get_disprove_data(&self, claim_txid: Txid) -> RpcResult<Option<RpcDisproveData>>;
 }
