@@ -7,7 +7,7 @@ use libp2p::{
     Multiaddr, PeerId,
 };
 use serde::{Deserialize, Serialize};
-use strata_bridge_p2p_types::P2POperatorPubKey;
+use strata_bridge_primitives::types::P2POperatorPubKey;
 
 /// Gossipsub peer scoring preset configuration.
 ///

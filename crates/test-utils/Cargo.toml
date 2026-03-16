@@ -7,8 +7,8 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-strata-bridge-p2p-types.workspace = true
 strata-bridge-primitives.workspace = true
+
 strata-bridge-types.workspace = true
 
 arbitrary.workspace = true

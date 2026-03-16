@@ -8,7 +8,6 @@ workspace = true
 
 [dependencies]
 alpen-bridge-params.workspace = true
-strata-bridge-p2p-types.workspace = true
 
 strata-bridge-types.workspace = true
 strata-crypto.workspace = true
@@ -21,6 +20,8 @@ arbitrary.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
 bitcoin-script.workspace = true
 futures = { workspace = true, optional = true }
+hex.workspace = true
+libp2p-identity.workspace = true
 miniscript.workspace = true
 musig2 = { workspace = true, features = ["serde"] }
 proptest.workspace = true
@@ -30,6 +31,9 @@ secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [features]
 async = ["dep:tokio", "dep:futures"]

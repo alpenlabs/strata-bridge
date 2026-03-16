@@ -49,8 +49,6 @@ pub(crate) fn classify(
 
         UnifiedEvent::Block(_) | UnifiedEvent::Shutdown => None,
 
-        UnifiedEvent::OuroborosRequest(_) => unimplemented!("see STR-2329"),
-        UnifiedEvent::ReqRespRequest { .. } => unimplemented!("see STR-2329"),
         UnifiedEvent::NagTick => classify_nag_tick(sm_id, sm_registry),
         UnifiedEvent::RetryTick => classify_retry_tick(sm_id, sm_registry),
     }
@@ -299,10 +297,6 @@ pub(crate) fn classify_unsigned_gossip(
                     .expect("router should route nags only to existing graph SMs"),
             };
 
-            // TODO: (mukeshdroid) conversion below can be removed once p2p-type2 is integrated
-            // fully.
-            let pov_p2p_key: strata_bridge_p2p_types2::P2POperatorPubKey = pov_p2p_key.into();
-
             // Check recipient matches POV
             if nag_request.recipient != pov_p2p_key {
                 debug!(
@@ -413,10 +407,10 @@ fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent
 
 #[cfg(test)]
 mod tests {
-    use strata_bridge_p2p_types2::{
-        GossipsubMsg, P2POperatorPubKey, PayoutDescriptor, UnsignedGossipsubMsg,
+    use strata_bridge_p2p_types2::{GossipsubMsg, PayoutDescriptor, UnsignedGossipsubMsg};
+    use strata_bridge_primitives::types::{
+        BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey,
     };
-    use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx};
 
     use super::*;
     use crate::testing::{
@@ -717,8 +711,7 @@ mod tests {
             .operator_table()
             .idx_to_p2p_key(&OPERATOR_IN_PAYLOAD)
             .expect("operator exists")
-            .clone()
-            .into();
+            .clone();
         let msg = payout_descriptor_msg(0, SENDER_IDX_IN_MSG);
 
         let events = classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_key), &msg);
@@ -739,8 +732,7 @@ mod tests {
             .operator_table()
             .idx_to_p2p_key(&OPERATOR_IDX)
             .expect("operator exists")
-            .clone()
-            .into();
+            .clone();
         let unsigned = payout_descriptor_msg(0, OPERATOR_IDX);
         let event = UnifiedEvent::GossipMessage(GossipsubMsg {
             signature: vec![],
@@ -758,9 +750,7 @@ mod tests {
 
     // ===== classify_nag_request tests =====
     mod nag_request_tests {
-        use strata_bridge_p2p_types2::{
-            GraphIdx, NagRequest, NagRequestPayload, P2POperatorPubKey,
-        };
+        use strata_bridge_p2p_types2::{GraphIdx, NagRequest, NagRequestPayload};
 
         use super::*;
         use crate::testing::{
@@ -776,7 +766,7 @@ mod tests {
 
             // Get the POV P2P key from the operator table
             let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone().into();
+            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone();
 
             // Get a non-POV operator's key as the sender
             let sender_idx = TEST_NONPOV; // Non-POV operator
@@ -788,11 +778,8 @@ mod tests {
             };
 
             let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
-            let result = classify_unsigned_gossip(
-                &registry,
-                &OperatorKey::Peer(&sender_p2p_key.into()),
-                &msg,
-            );
+            let result =
+                classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_p2p_key), &msg);
 
             assert_eq!(result.len(), 1, "Should create exactly one event");
             match &result[0] {
@@ -819,11 +806,8 @@ mod tests {
             // Create a recipient that is NOT the POV (use a different operator's key)
             let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
             let non_pov_idx = TEST_NONPOV;
-            let non_pov_p2p_key: P2POperatorPubKey = operator_table
-                .idx_to_p2p_key(&non_pov_idx)
-                .unwrap()
-                .clone()
-                .into();
+            let non_pov_p2p_key: P2POperatorPubKey =
+                operator_table.idx_to_p2p_key(&non_pov_idx).unwrap().clone();
 
             let sender_idx = TEST_POV_IDX;
             let sender_p2p_key = operator_table.idx_to_p2p_key(&sender_idx).unwrap().clone();
@@ -834,11 +818,8 @@ mod tests {
             };
 
             let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
-            let result = classify_unsigned_gossip(
-                &registry,
-                &OperatorKey::Peer(&sender_p2p_key.into()),
-                &msg,
-            );
+            let result =
+                classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_p2p_key), &msg);
 
             assert!(result.is_empty(), "Should drop nag not addressed to us");
         }
@@ -851,7 +832,7 @@ mod tests {
 
             // Get the POV P2P key
             let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone().into();
+            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone();
 
             // Create an unknown sender key (not in operator table)
             let unknown_sender_key: P2POperatorPubKey = vec![0xffu8; 32].into();
@@ -875,7 +856,7 @@ mod tests {
             insert_deposit_with_graphs(&mut registry, deposit_idx);
 
             let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone().into();
+            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone();
 
             let sender_idx = TEST_NONPOV;
             let sender_p2p_key = operator_table.idx_to_p2p_key(&sender_idx).unwrap().clone();
@@ -890,11 +871,8 @@ mod tests {
             };
 
             let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
-            let result = classify_unsigned_gossip(
-                &registry,
-                &OperatorKey::Peer(&sender_p2p_key.into()),
-                &msg,
-            );
+            let result =
+                classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_p2p_key), &msg);
 
             assert_eq!(result.len(), 1, "Should create exactly one graph event");
             match &result[0] {
@@ -917,11 +895,8 @@ mod tests {
 
             let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
             let non_pov_idx = TEST_NONPOV;
-            let non_pov_p2p_key: P2POperatorPubKey = operator_table
-                .idx_to_p2p_key(&non_pov_idx)
-                .unwrap()
-                .clone()
-                .into();
+            let non_pov_p2p_key: P2POperatorPubKey =
+                operator_table.idx_to_p2p_key(&non_pov_idx).unwrap().clone();
 
             let sender_idx = TEST_POV_IDX;
             let sender_p2p_key = operator_table.idx_to_p2p_key(&sender_idx).unwrap().clone();
@@ -936,11 +911,8 @@ mod tests {
             };
 
             let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
-            let result = classify_unsigned_gossip(
-                &registry,
-                &OperatorKey::Peer(&sender_p2p_key.into()),
-                &msg,
-            );
+            let result =
+                classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_p2p_key), &msg);
 
             assert!(
                 result.is_empty(),
@@ -955,7 +927,7 @@ mod tests {
             insert_deposit_with_graphs(&mut registry, deposit_idx);
 
             let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone().into();
+            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone();
             let unknown_sender_key: P2POperatorPubKey = vec![0xffu8; 32].into();
             let graph_idx = GraphIdx {
                 deposit: deposit_idx,
@@ -983,7 +955,7 @@ mod tests {
             let registry = test_empty_registry(); // Empty registry - violates router invariant.
 
             let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone().into();
+            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone();
             let sender_p2p_key = operator_table.idx_to_p2p_key(&TEST_NONPOV).unwrap().clone();
 
             let nag_request = NagRequest {
@@ -992,11 +964,7 @@ mod tests {
             };
 
             let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
-            let _ = classify_unsigned_gossip(
-                &registry,
-                &OperatorKey::Peer(&sender_p2p_key.into()),
-                &msg,
-            );
+            let _ = classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_p2p_key), &msg);
         }
     }
 }

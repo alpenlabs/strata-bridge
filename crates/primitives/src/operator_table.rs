@@ -9,10 +9,12 @@ use algebra::category;
 use bitcoin::{Network, XOnlyPublicKey};
 use musig2::KeyAggContext;
 use serde::{Deserialize, Serialize};
-use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_types::PublickeyTable;
 
-use crate::{build_context::TxBuildContext, types::OperatorIdx};
+use crate::{
+    build_context::TxBuildContext,
+    types::{OperatorIdx, P2POperatorPubKey},
+};
 
 type OperatorTableEntry = (OperatorIdx, P2POperatorPubKey, secp256k1::PublicKey);
 
@@ -287,10 +289,9 @@ impl OperatorTable {
 /// Proptest generators for the operator table.
 pub mod prop_test_generators {
     use proptest::{prelude::*, prop_compose};
-    use strata_bridge_p2p_types::P2POperatorPubKey;
 
     use super::OperatorTable;
-    use crate::secp::EvenSecretKey;
+    use crate::{secp::EvenSecretKey, types::P2POperatorPubKey};
 
     prop_compose! {
         /// Generates a random P2P public key.

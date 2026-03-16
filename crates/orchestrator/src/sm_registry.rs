@@ -221,7 +221,7 @@ impl SMRegistry {
         };
         match key {
             OperatorKey::Pov => Some(table.pov_idx()),
-            OperatorKey::Peer(p2p_key) => table.p2p_key_to_idx(&(*p2p_key).clone().into()),
+            OperatorKey::Peer(p2p_key) => table.p2p_key_to_idx(p2p_key),
         }
     }
 
@@ -305,7 +305,7 @@ where
 mod tests {
     use bitcoin::key::rand;
     use strata_bridge_p2p_types2::NagRequestPayload;
-    use strata_bridge_primitives::types::GraphIdx;
+    use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
     use strata_bridge_sm::{
         deposit::events::{DepositEvent, NagReceivedEvent, NewBlockEvent as DepositNewBlock},
         graph::events::{GraphEvent, NewBlockEvent as GraphNewBlock},
@@ -468,7 +468,7 @@ mod tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let p2p_key = table.idx_to_p2p_key(&1).unwrap().clone();
 
-        let op_idx = registry.lookup_operator(&id, &OperatorKey::Peer(&p2p_key.into()));
+        let op_idx = registry.lookup_operator(&id, &OperatorKey::Peer(&p2p_key));
         assert_eq!(op_idx, Some(1));
     }
 
@@ -478,7 +478,7 @@ mod tests {
         let id = SMId::Deposit(0);
 
         // A P2P key that doesn't belong to any operator
-        let unknown_key = strata_bridge_p2p_types2::P2POperatorPubKey::from(vec![0xFFu8; 33]);
+        let unknown_key = P2POperatorPubKey::from(vec![0xFFu8; 33]);
         let op_idx = registry.lookup_operator(&id, &OperatorKey::Peer(&unknown_key));
         assert!(op_idx.is_none());
     }

@@ -7,9 +7,10 @@
 use bitcoin::Amount;
 use bitcoin_bosd::Descriptor;
 use secp256k1::{SecretKey, SECP256K1};
-use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
-    operator_table::OperatorTable, secp::EvenSecretKey, types::OperatorIdx,
+    operator_table::OperatorTable,
+    secp::EvenSecretKey,
+    types::{OperatorIdx, P2POperatorPubKey},
 };
 
 use crate::bitcoin::generate_xonly_pubkey;

@@ -4,8 +4,10 @@ use anyhow::Context;
 use secp256k1::Parity;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
-use strata_bridge_p2p_types::P2POperatorPubKey;
-use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
+use strata_bridge_primitives::{
+    operator_table::OperatorTable,
+    types::{OperatorIdx, P2POperatorPubKey},
+};
 use tracing::info;
 
 use crate::params::Params;

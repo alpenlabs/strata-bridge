@@ -6,11 +6,9 @@ use bitcoin::hashes::Hash;
 use libp2p_identity::ed25519;
 use proptest_derive::Arbitrary;
 use rkyv::{Archive, Deserialize, Serialize};
-use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
+use strata_bridge_primitives::types::{DepositIdx, OperatorIdx, P2POperatorPubKey};
 
-use crate::{
-    ClaimInput, GraphIdx, P2POperatorPubKey, PartialSignature, PayoutDescriptor, PubNonce,
-};
+use crate::{ClaimInput, GraphIdx, PartialSignature, PayoutDescriptor, PubNonce};
 
 /// Signing context discriminator for cryptographic domain separation.
 ///

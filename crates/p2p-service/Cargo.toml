@@ -7,9 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-strata-bridge-p2p-types.workspace = true
 strata-bridge-p2p-types2.workspace = true
-strata-bridge-p2p-wire.workspace = true
 strata-bridge-primitives.workspace = true
 
 strata-p2p.workspace = true
@@ -24,10 +22,3 @@ serde.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
-
-[dev-dependencies]
-strata-bridge-test-utils.workspace = true
-strata-bridge-common.workspace = true
-
-futures.workspace = true
-tokio.workspace = true

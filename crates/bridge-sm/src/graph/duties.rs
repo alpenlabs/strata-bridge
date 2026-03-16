@@ -6,11 +6,10 @@ use musig2::{
     AggNonce,
     secp256k1::{Message, schnorr::Signature},
 };
-use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
     mosaic::Labels,
     scripts::taproot::TaprootTweak,
-    types::{DepositIdx, GraphIdx, OperatorIdx},
+    types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
 };
 use strata_bridge_tx_graph::transactions::{claim::ClaimTx, prelude::ContestTx};
 use zkaleido::ProofReceipt;
