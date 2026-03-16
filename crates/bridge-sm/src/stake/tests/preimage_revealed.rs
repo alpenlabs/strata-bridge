@@ -131,7 +131,7 @@ fn reject_invalid_states() {
                 block_height: UNSTAKING_INTENT_HEIGHT,
             }
             .into(),
-            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
+            expected_error: |e| matches!(e, SSMError::Rejected { .. }),
         });
     }
 }

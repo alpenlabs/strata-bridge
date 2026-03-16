@@ -156,7 +156,7 @@ fn reject_invalid_states() {
                 partial_signatures: operator_partial_sigs(0),
             }
             .into(),
-            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
+            expected_error: |e| matches!(e, SSMError::Rejected { .. }),
         });
     }
 }

@@ -129,13 +129,13 @@ impl StakeSM {
                 self.state.clone(),
                 event.clone().into(),
             )),
-            _ => Err(SSMError::invalid_event(
+            _ => Err(SSMError::rejected(
                 self.state.clone(),
                 event.into(),
-                Some(format!(
+                format!(
                     "Invalid state for collecting unstaking partials: {}",
                     self.state()
-                )),
+                ),
             )),
         }
     }

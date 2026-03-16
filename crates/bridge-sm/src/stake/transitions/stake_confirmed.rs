@@ -13,8 +13,6 @@ impl StakeSM {
     ///
     /// The machine transitions from [`StakeState::UnstakingSigned`] to [`StakeState::Confirmed`]
     /// when the confirmed stake transaction matches the expected ID.
-    ///
-    /// In all other states, this event is rejected.
     pub(crate) fn process_stake_confirmed(
         &mut self,
         event: StakeConfirmedEvent,
@@ -45,10 +43,7 @@ impl StakeSM {
             _ => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
-                format!(
-                    "Received stale stake confirmation in state: {}",
-                    self.state()
-                ),
+                format!("Invalid state for stake confirmation: {}", self.state()),
             )),
         }
     }

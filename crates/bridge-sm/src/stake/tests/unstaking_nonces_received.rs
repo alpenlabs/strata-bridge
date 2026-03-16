@@ -149,7 +149,7 @@ fn reject_invalid_states() {
                 pub_nonces: operator_pub_nonces(0),
             }
             .into(),
-            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
+            expected_error: |e| matches!(e, SSMError::Rejected { .. }),
         });
     }
 }
