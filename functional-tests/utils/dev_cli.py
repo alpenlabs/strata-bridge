@@ -2,6 +2,8 @@ import os
 import subprocess
 import tempfile
 
+from constants import ASM_MAGIC_BYTES
+
 BINARY_PATH = "dev-cli"
 EE_ADDRESS = "70997970C51812dc3A010C7d01b50e0d17dc79C8"
 
@@ -14,7 +16,7 @@ refund_delay = 1_008
 stake_chain_delta = {{ Blocks = 6 }}
 payout_timelock = 1_008
 
-tag = "ALPN"
+tag = "{tag}"
 
 musig2_keys = {musig2_keys}
 """
@@ -33,7 +35,7 @@ class DevCli:
             keys_str += f'  "{key}",\n'
         keys_str += "]"
 
-        params_content = DEV_CLI_PARAMS_TEMPLATE.format(musig2_keys=keys_str)
+        params_content = DEV_CLI_PARAMS_TEMPLATE.format(tag=ASM_MAGIC_BYTES, musig2_keys=keys_str)
 
         params_path = os.path.join(self.temp_dir, "params.toml")
         with open(params_path, "w") as f:

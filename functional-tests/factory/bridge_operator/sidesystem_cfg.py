@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from constants import ASM_MAGIC_BYTES
 from utils.utils import OperatorKeyInfo
 
 from ..common.asm_params import Block, GenesisL1View
@@ -35,7 +36,7 @@ class Sidesystem:
         # These defaults are intentionally test-friendly (small safety depths and
         # durations) to allow the ASM runner to progress quickly on regtest.
         return cls(
-            magic_bytes="ALPN",
+            magic_bytes=ASM_MAGIC_BYTES,
             block_time=1_000,
             cred_rule="unchecked",
             l1_reorg_safe_depth=4,
