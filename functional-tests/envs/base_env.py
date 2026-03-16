@@ -14,6 +14,7 @@ from utils import (
 )
 from utils.utils import generate_p2p_ports, read_operator_key
 
+from .asm_config import AsmEnvConfig
 from .btc_config import BitcoinEnvConfig
 
 
@@ -26,6 +27,7 @@ class BaseEnv(flexitest.EnvConfig):
         bridge_protocol_params=BridgeProtocolParams(),  # noqa: B008
         bridge_config_params=BridgeConfigParams(),  # noqa: B008
         btc_config: BitcoinEnvConfig | None = None,
+        asm_config: AsmEnvConfig | None = None,
     ):
         super().__init__()
         self.num_operators = num_operators
@@ -33,6 +35,7 @@ class BaseEnv(flexitest.EnvConfig):
         self.funding_amount = self.btc_config.funding_amount
         self.initial_blocks = self.btc_config.initial_blocks
         self.finalization_blocks = self.btc_config.finalization_blocks
+        self._asm_config = asm_config
         self._asm_rpc_service = None
         self._sidesystem = None
         self._rollup_params_path = None
@@ -100,7 +103,9 @@ class BaseEnv(flexitest.EnvConfig):
         asm_genesis_height = genesis_height - 1
         self._sidesystem = build_sidesystem(bitcoind_rpc, self.operator_key_infos, genesis_height)
 
-        asm_params = build_asm_params(bitcoind_rpc, self.operator_key_infos, asm_genesis_height)
+        asm_params = build_asm_params(
+            bitcoind_rpc, self.operator_key_infos, asm_genesis_height, self._asm_config
+        )
         envdd_path = Path(ectx.envdd_path)
         asm_params_path = envdd_path / "generated" / "asm-params.json"
         self._rollup_params_path = write_asm_params_json(asm_params_path, asm_params)

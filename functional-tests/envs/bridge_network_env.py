@@ -5,6 +5,7 @@ from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from utils.utils import wait_until_bridge_ready
 
+from .asm_config import AsmEnvConfig
 from .base_env import BaseEnv
 from .btc_config import BitcoinEnvConfig
 
@@ -17,12 +18,14 @@ class BridgeNetworkEnv(BaseEnv):
         bridge_protocol_params=BridgeProtocolParams(),  # noqa: B008
         bridge_config_params=BridgeConfigParams(),  # noqa: B008
         btc_config: BitcoinEnvConfig | None = None,
+        asm_config: AsmEnvConfig | None = None,
     ):
         super().__init__(
             BRIDGE_NETWORK_SIZE,
             bridge_protocol_params,
             bridge_config_params,
             btc_config,
+            asm_config,
         )
 
     def init(self, ectx: flexitest.EnvContext) -> flexitest.LiveEnv:
