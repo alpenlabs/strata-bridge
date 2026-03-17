@@ -9,7 +9,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-permissions: {}
+permissions:
+  checks: write
+  contents: read
 
 jobs:
   supply-chain:
