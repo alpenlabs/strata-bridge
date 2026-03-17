@@ -53,6 +53,9 @@ impl MohoProgram for AsmStfProgram {
         spec: &StrataAsmSpec,
         input: &AsmStepInput,
     ) -> AsmStfOutput {
+        // TODO: (@prajworlg) Consolidate block validation logic in a single place
+        // https://alpenlabs.atlassian.net/browse/STR-2619
+
         // 1. Validate the input
         assert!(input.validate_block());
 
