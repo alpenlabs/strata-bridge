@@ -54,14 +54,14 @@ impl ZkVmProgram for AsmStfProofProgram {
 }
 
 impl AsmStfProofProgram {
-    /// get native host. This can be used for testing
+    /// Native host that can be used for testing
     pub fn native_host(spec: StrataAsmSpec) -> NativeHost {
         NativeHost::new(move |zkvm| {
             process_asm_stf(zkvm, &spec);
         })
     }
 
-    /// Executes the checkpoint program using the native host for testing.
+    /// Executes the program using the native host.
     pub fn execute(
         input: &<Self as ZkVmProgram>::Input,
         spec: StrataAsmSpec,
