@@ -81,8 +81,17 @@ pub(crate) struct CreateAndPublishMockCheckpointArgs {
     )]
     pub(crate) num_withdrawals: usize,
 
+    #[arg(long, default_value = "1", help = "checkpoint epoch")]
+    pub(crate) epoch: u32,
+
     #[arg(long, default_value = "101", help = "genesis L1 height")]
     pub(crate) genesis_l1_height: u32,
+
+    #[arg(long, help = "start OL block slot for the L2 range")]
+    pub(crate) ol_start_slot: u64,
+
+    #[arg(long, help = "end OL block slot for the L2 range")]
+    pub(crate) ol_end_slot: u64,
 
     #[arg(long, default_value_t = Network::Regtest, help = "bitcoin network")]
     pub(crate) network: Network,

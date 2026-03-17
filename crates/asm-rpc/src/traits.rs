@@ -24,8 +24,5 @@ pub trait AssignmentsApi {
 
     /// Return the verified checkpoint tip for the provided Bitcoin block hash.
     #[method(name = "getCheckpointTip")]
-    async fn get_checkpoint_tip(
-        &self,
-        block_hash: BlockHash,
-    ) -> RpcResult<Option<CheckpointTip>>;
+    async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>>;
 }

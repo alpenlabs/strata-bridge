@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 
 from constants import ASM_MAGIC_BYTES
+from rpc.asm_types import CheckpointTip
 
 BINARY_PATH = "dev-cli"
 EE_ADDRESS = "70997970C51812dc3A010C7d01b50e0d17dc79C8"
@@ -80,7 +81,17 @@ class DevCli:
         txid = res.splitlines()[-1].split("=")[-1].strip()
         return txid
 
-    def send_mock_checkpoint(self, num_withdrawals=1, genesis_l1_height=101) -> str:
+    def send_mock_checkpoint(
+        self,
+        checkpoint_tip: CheckpointTip | None,
+        num_ol_slots: int,
+        num_withdrawals: int = 1,
+        genesis_l1_height: int = 101,
+    ) -> str:
+        ol_start_slot = checkpoint_tip.l2_commitment.slot if checkpoint_tip else 0
+        ol_end_slot = ol_start_slot + num_ol_slots
+        epoch = (checkpoint_tip.epoch + 1) if checkpoint_tip else 1
+
         rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
         wallet = self.bitcoind_props.get("walletname", "testwallet")
 
@@ -96,9 +107,28 @@ class DevCli:
             str(num_withdrawals),
             "--genesis-l1-height",
             str(genesis_l1_height),
+            "--ol-start-slot",
+            str(ol_start_slot),
+            "--ol-end-slot",
+            str(ol_end_slot),
+            "--epoch",
+            str(epoch),
         ]
 
         res = self._run_command(args)
         # HACK: (@Rajil1213) parse raw stdout to extract txid
         txid = res.splitlines()[-1].split("=")[-1].strip()
         return txid
+
+    def send_mock_checkpoint_from_tip(
+        self, asm_rpc, block_hash: str, num_ol_slots: int, num_withdrawals=1
+    ) -> str:
+        """Query the current checkpoint tip and send a mock checkpoint advancing by num_ol_slots.
+
+        If no checkpoint tip exists (first checkpoint case), defaults are used (epoch=1, slot=0).
+        """
+        raw_tip = asm_rpc.strata_asm_getCheckpointTip(block_hash)
+        tip = CheckpointTip.from_dict(raw_tip) if raw_tip is not None else None
+        return self.send_mock_checkpoint(
+            checkpoint_tip=tip, num_ol_slots=num_ol_slots, num_withdrawals=num_withdrawals
+        )
