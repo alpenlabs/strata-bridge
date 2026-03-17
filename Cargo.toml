@@ -89,6 +89,7 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-asm-common = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-params = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
+strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-txs-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-txs-checkpoint = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-asm-worker = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }

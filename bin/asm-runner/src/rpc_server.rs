@@ -12,10 +12,13 @@ use jsonrpsee::{
     types::{ErrorObject, ErrorObjectOwned},
 };
 use strata_asm_proto_bridge_v1::{AssignmentEntry, BridgeV1State, DepositEntry};
+use strata_asm_proto_checkpoint::state::CheckpointState;
 use strata_asm_rpc::traits::AssignmentsApiServer;
 use strata_asm_txs_bridge_v1::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_asm_txs_checkpoint::CHECKPOINT_SUBPROTOCOL_ID;
 use strata_asm_worker::{AsmWorkerHandle, AsmWorkerStatus};
 use strata_btc_types::BlockHashExt;
+use strata_checkpoint_types_ssz::CheckpointTip;
 use strata_identifiers::L1BlockCommitment;
 use strata_storage::AsmStateManager;
 use tracing::info;
@@ -55,6 +58,34 @@ impl AsmRpcServer {
         let block_id = block_hash.to_l1_block_id();
         let height = self.bitcoin_client.get_block_height(&block_hash).await? as u32;
         Ok(L1BlockCommitment::new(height, block_id))
+    }
+
+    async fn get_checkpoint_state(
+        &self,
+        block_hash: BlockHash,
+    ) -> RpcResult<Option<CheckpointState>> {
+        let commitment = self
+            .to_block_commitment(block_hash)
+            .await
+            .map_err(to_rpc_error)?;
+        let state = self
+            .asm_manager
+            .get_state(commitment)
+            .map_err(to_rpc_error)?;
+        match state {
+            Some(state) => {
+                let section = state
+                    .state()
+                    .find_section(CHECKPOINT_SUBPROTOCOL_ID)
+                    .expect("checkpoint subprotocol should be enabled");
+
+                let checkpoint_state: CheckpointState = borsh::from_slice(&section.data)
+                    .expect("borsh deserialization should be infallible");
+
+                Ok(Some(checkpoint_state))
+            }
+            None => Ok(None),
+        }
     }
 
     async fn get_bridge_state(&self, block_hash: BlockHash) -> RpcResult<Option<BridgeV1State>> {
@@ -101,6 +132,13 @@ impl AssignmentsApiServer for AsmRpcServer {
 
     async fn get_status(&self) -> RpcResult<AsmWorkerStatus> {
         Ok(self.asm_worker.monitor().get_current())
+    }
+
+    async fn get_checkpoint_tip(&self, block_hash: BlockHash) -> RpcResult<Option<CheckpointTip>> {
+        match self.get_checkpoint_state(block_hash).await? {
+            Some(checkpoint_state) => Ok(Some(*checkpoint_state.verified_tip())),
+            None => Ok(None),
+        }
     }
 }
 
