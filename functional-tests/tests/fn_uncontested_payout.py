@@ -64,8 +64,13 @@ class UnContestedPayoutTest(StrataTestBase):
         deposit_txid = deposit_info.get("status").get("deposit_txid")
         self.logger.info(f"Deposit txid: {deposit_txid}")
 
-        # Now post mock assignment
-        ckp_l1_txn = dev_cli.send_mock_checkpoint()
+        # Now post mock checkpoint
+        recent_block_hash = bitcoin_rpc.proxy.getblockhash(bitcoin_rpc.proxy.getblockcount())
+        ckp_l1_txn = dev_cli.send_mock_checkpoint_from_tip(
+            asm_rpc,
+            recent_block_hash,
+            num_ol_slots=1,
+        )
         ckp_block_hash = wait_for_tx_confirmation(bitcoin_rpc, ckp_l1_txn)
         self.logger.info(f"Checkpoint tx {ckp_l1_txn} included in block {ckp_block_hash}")
 

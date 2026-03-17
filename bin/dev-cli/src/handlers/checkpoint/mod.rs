@@ -22,9 +22,14 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
     .context("failed to connect to bitcoind")?;
 
     // Build mock checkpoint.
-    let builder = mock_checkpoint::MockCheckpointBuilder::new(args.genesis_l1_height);
-    let new_tip = builder.gen_new_tip(0, 1);
-    let payload = builder.build_payload_with_tip(new_tip, args.num_withdrawals);
+    let builder = mock_checkpoint::MockCheckpointBuilder::new();
+    let (prev_tip, new_tip) = builder.gen_tips(
+        args.epoch,
+        args.genesis_l1_height,
+        args.ol_start_slot,
+        args.ol_end_slot,
+    );
+    let payload = builder.build_payload(&prev_tip, &new_tip, args.num_withdrawals);
     let signed_payload = builder.sign_payload(payload);
 
     // Encode and broadcast via taproot envelope.

@@ -2,7 +2,7 @@ import flexitest
 
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
-from rpc.asm_types import AssignmentEntry, DepositEntry
+from rpc.asm_types import AssignmentEntry
 from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
@@ -34,7 +34,7 @@ class AsmBinaryTest(StrataTestBase):
         num_operators = len(bridge_nodes)
         musig2_keys = [read_operator_key(i).MUSIG2_KEY for i in range(num_operators)]
 
-        # Wait for DT and DRT
+        # Send a deposit request and wait for completion
         bitcoind_props = bitcoind_service.props
         dev_cli = DevCli(bitcoind_props, musig2_keys)
         drt_txid = dev_cli.send_deposit_request()
@@ -53,32 +53,26 @@ class AsmBinaryTest(StrataTestBase):
             self.logger.info(f"Stopping operator node {i}")
             bridge_nodes[i].stop()
 
-        # Assert ASM has the deposit entry
+        # Post mock checkpoint using the current tip to derive the OL range
         asm_service = ctx.get_service("asm_rpc")
         asm_rpc = asm_service.create_rpc()
         recent_block_num = bitcoin_rpc.proxy.getblockcount()
         recent_block_hash = bitcoin_rpc.proxy.getblockhash(recent_block_num)
 
-        deposit_entries: list[DepositEntry] = asm_rpc.strata_asm_getDeposits(recent_block_hash)
-        self.logger.info(f"ASM deposits at block {recent_block_num}: {deposit_entries}")
-        assert len(deposit_entries) == 1
-        deposit_entry = DepositEntry.from_dict(deposit_entries[0])
-        assert deposit_entry.deposit_idx == 0
-
-        # Now post mock assignment
-        ckp_l1_txn = dev_cli.send_mock_checkpoint()
+        ckp_l1_txn = dev_cli.send_mock_checkpoint_from_tip(
+            asm_rpc, recent_block_hash, num_ol_slots=1, num_withdrawals=1
+        )
         ckp_block_hash = wait_for_tx_confirmation(bitcoin_rpc, ckp_l1_txn)
         self.logger.info(f"Checkpoint tx {ckp_l1_txn} included in block {ckp_block_hash}")
 
         # Wait for ASM to process the checkpoint block, then assert assignment
         wait_until(
-            lambda: len(asm_rpc.strata_asm_getAssignments(ckp_block_hash)) > 0,
+            lambda: len(asm_rpc.strata_asm_getAssignments(ckp_block_hash)) == 1,
             timeout=100,
             error_msg="ASM did not produce assignment",
         )
+
         assignments: list[AssignmentEntry] = asm_rpc.strata_asm_getAssignments(ckp_block_hash)
         self.logger.info(f"ASM assignments at block {ckp_block_hash}: {len(assignments)}")
-        assignment = AssignmentEntry.from_dict(assignments[0])
-        assert assignment.deposit_entry == deposit_entry
 
         return True

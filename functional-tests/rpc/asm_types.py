@@ -66,6 +66,41 @@ class OperatorBitmap:
 
 
 @dataclass
+class OLBlockCommitment:
+    """OL block commitment with slot and block ID.
+
+    Corresponds to `strata_identifiers::OLBlockCommitment`.
+    """
+
+    slot: int
+    blkid: str
+
+    @classmethod
+    def from_dict(cls, data: dict) -> OLBlockCommitment:
+        return cls(slot=data["slot"], blkid=data["blkid"])
+
+
+@dataclass
+class CheckpointTip:
+    """Verified checkpoint tip position.
+
+    Corresponds to `strata_checkpoint_types_ssz::CheckpointTip`.
+    """
+
+    epoch: int
+    l1_height: int
+    l2_commitment: OLBlockCommitment
+
+    @classmethod
+    def from_dict(cls, data: dict) -> CheckpointTip:
+        return cls(
+            epoch=data["epoch"],
+            l1_height=data["l1_height"],
+            l2_commitment=OLBlockCommitment.from_dict(data["l2_commitment"]),
+        )
+
+
+@dataclass
 class DepositEntry:
     """Deposit entry recorded in ASM.
 

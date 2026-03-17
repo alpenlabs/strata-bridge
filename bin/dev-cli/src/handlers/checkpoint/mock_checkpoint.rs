@@ -14,41 +14,64 @@ use strata_identifiers::{strata_codec::encode_to_vec, Buf32, Buf64, OLBlockCommi
 use strata_ol_chain_types_new::SimpleWithdrawalIntentLogData;
 use strata_primitives::bitcoin_bosd::Descriptor;
 use strata_test_utils::ArbitraryGenerator;
+use tracing::error;
 
 use super::constants::{BRIDGE_GATEWAY_ACCT_SERIAL, MOCK_PREDICATE_KEY};
 
 /// Builds mock signed checkpoint payloads for testing.
-///
-/// TODO: MdTeach: update `verified_tip` after each build to support multi-epoch sequences.
 pub(crate) struct MockCheckpointBuilder {
     sequencer_predicate: SigningKey,
     checkpoint_predicate: SigningKey,
-    verified_tip: CheckpointTip,
 }
 
 impl MockCheckpointBuilder {
-    /// Creates mock checkpoint builder with the given genesis L1 height.
-    pub(crate) fn new(genesis_l1_height: u32) -> Self {
-        let genesis_ol_blkid = OLBlockId::from(Buf32::zero());
-        let genesis_ol_blidx = 0;
-        let genesis_blk = OLBlockCommitment::new(genesis_ol_blidx, genesis_ol_blkid);
-
+    pub(crate) fn new() -> Self {
         // For testing we use ASM on `AlwaysAccept` predicate which accepts any valid schnorr
         // signature
         let sk = SigningKey::from_bytes(&MOCK_PREDICATE_KEY).expect("invalid mock predicate key");
 
-        let genesis_tip = CheckpointTip::new(0, genesis_l1_height, genesis_blk);
         Self {
             sequencer_predicate: sk.clone(),
             checkpoint_predicate: sk,
-            verified_tip: genesis_tip,
         }
     }
 
-    /// Generates a mock checkpoint payload signed by the checkpoint predicate.
-    pub(crate) fn build_payload_with_tip(
+    /// Generates a new checkpoint tip and the previous tip from the given parameters.
+    pub(crate) fn gen_tips(
         &self,
-        new_tip: CheckpointTip,
+        epoch: u32,
+        genesis_l1_height: u32,
+        ol_start_slot: u64,
+        ol_end_slot: u64,
+    ) -> (CheckpointTip, CheckpointTip) {
+        let mut arb = ArbitraryGenerator::new();
+
+        let start_blkid: OLBlockId = if ol_start_slot == 0 {
+            OLBlockId::from(Buf32::zero())
+        } else {
+            arb.generate()
+        };
+        let prev_tip = CheckpointTip::new(
+            epoch.saturating_sub(1),
+            genesis_l1_height,
+            OLBlockCommitment::new(ol_start_slot, start_blkid),
+        );
+
+        let end_blkid: OLBlockId = arb.generate();
+        let new_tip = CheckpointTip::new(
+            epoch,
+            genesis_l1_height,
+            OLBlockCommitment::new(ol_end_slot, end_blkid),
+        );
+
+        (prev_tip, new_tip)
+    }
+
+    /// Generates a mock checkpoint payload signed by the checkpoint predicate.
+    pub(crate) fn build_payload(
+        &self,
+        prev_tip: &CheckpointTip,
+        new_tip: &CheckpointTip,
         num_withdrawals: usize,
     ) -> CheckpointPayload {
         let mut arb = ArbitraryGenerator::new();
@@ -79,6 +102,8 @@ impl MockCheckpointBuilder {
             })
             .collect();
 
+        error!(?ol_logs, "generated OL logs for mock checkpoint");
+
         let state_diff_hash = hash::raw(&state_diff).into();
         let ol_logs_hash = hash::raw(&ol_logs.as_ssz_bytes()).into();
 
@@ -87,7 +112,7 @@ impl MockCheckpointBuilder {
 
         let asm_manifests_hash = compute_asm_manifests_hash(Default::default());
 
-        let l2_range = L2BlockRange::new(self.verified_tip.l2_commitment, new_tip.l2_commitment);
+        let l2_range = L2BlockRange::new(prev_tip.l2_commitment, new_tip.l2_commitment);
         let claim = CheckpointClaim::new(
             new_tip.epoch,
             l2_range,
@@ -102,21 +127,7 @@ impl MockCheckpointBuilder {
             .sign(&claim.as_ssz_bytes())
             .to_vec();
 
-        CheckpointPayload::new(new_tip, sidecar, proof).unwrap()
-    }
-
-    /// Generates a new checkpoint tip that advances from the current verified tip.
-    pub(crate) fn gen_new_tip(&self, l1_blocks: u32, ol_blocks: u64) -> CheckpointTip {
-        let mut arb = ArbitraryGenerator::new();
-        let verified_tip = self.verified_tip;
-
-        let new_epoch = verified_tip.epoch + 1;
-        let new_covered_l1_height = verified_tip.l1_height + l1_blocks;
-        let new_ol_slot = verified_tip.l2_commitment().slot() + ol_blocks;
-        let new_ol_blkid: OLBlockId = arb.generate();
-        let new_ol_block_commitment = OLBlockCommitment::new(new_ol_slot, new_ol_blkid);
-
-        CheckpointTip::new(new_epoch, new_covered_l1_height, new_ol_block_commitment)
+        CheckpointPayload::new(*new_tip, sidecar, proof).unwrap()
     }
 
     /// Signs a checkpoint payload with the sequencer predicate key.

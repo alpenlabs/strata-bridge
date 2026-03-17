@@ -27,6 +27,9 @@ dev-cli create-and-publish-mock-checkpoint \
   --btc-user user \
   --btc-pass password \
   --num-withdrawals 1 \
+  --epoch 1 \
   --genesis-l1-height 101 \
+  --ol-start-slot 0 \
+  --ol-end-slot 1 \
   --network regtest
 ```
