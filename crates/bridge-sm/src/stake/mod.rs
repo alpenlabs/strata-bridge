@@ -9,6 +9,7 @@ mod handlers;
 pub mod machine;
 pub mod state;
 mod transitions;
+mod tx_classifier;
 
 #[cfg(test)]
 mod tests;
