@@ -160,6 +160,7 @@ pub enum DepositState {
     },
     /// This represents the terminal state where the deposit has been spent.
     Spent,
+    /// This represents the terminal state where the payout connector has been spent.
     Aborted,
 }
 
