@@ -2,7 +2,7 @@ import flexitest
 
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
-from rpc.asm_types import AssignmentEntry
+from rpc.asm_types import AssignmentEntry, DepositEntry
 from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
@@ -59,6 +59,14 @@ class AsmBinaryTest(StrataTestBase):
         recent_block_num = bitcoin_rpc.proxy.getblockcount()
         recent_block_hash = bitcoin_rpc.proxy.getblockhash(recent_block_num)
 
+        # Assert ASM has the deposit entry
+        deposit_entries: list[DepositEntry] = asm_rpc.strata_asm_getDeposits(recent_block_hash)
+        self.logger.info(f"ASM deposits at block {recent_block_num}: {deposit_entries}")
+        assert len(deposit_entries) == 1
+        deposit_entry = DepositEntry.from_dict(deposit_entries[0])
+        assert deposit_entry.deposit_idx == 0
+
+        # Post mock checkpoint using the current tip to derive the OL range
         ckp_l1_txn = dev_cli.send_mock_checkpoint_from_tip(
             asm_rpc, recent_block_hash, num_ol_slots=1, num_withdrawals=1
         )
@@ -74,5 +82,7 @@ class AsmBinaryTest(StrataTestBase):
 
         assignments: list[AssignmentEntry] = asm_rpc.strata_asm_getAssignments(ckp_block_hash)
         self.logger.info(f"ASM assignments at block {ckp_block_hash}: {len(assignments)}")
+        assignment = AssignmentEntry.from_dict(assignments[0])
+        assert assignment.deposit_entry == deposit_entry
 
         return True

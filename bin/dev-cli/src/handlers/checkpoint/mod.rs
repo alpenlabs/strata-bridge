@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use ssz::Encode;
 use strata_l1_txfmt::MagicBytes;
 use tracing::info;
@@ -14,6 +14,14 @@ use strata_asm_txs_checkpoint::{CHECKPOINT_SUBPROTOCOL_ID, OL_STF_CHECKPOINT_TX_
 pub(crate) async fn handle_create_and_publish_mock_checkpoint(
     args: CreateAndPublishMockCheckpointArgs,
 ) -> Result<()> {
+    if args.ol_end_slot < args.ol_start_slot {
+        bail!(
+            "ol_end_slot ({}) must be >= ol_start_slot ({})",
+            args.ol_end_slot,
+            args.ol_start_slot
+        );
+    }
+
     // Connect to bitcoind.
     let btc_client = bitcoincore_rpc::Client::new(
         &args.btc_args.url,
