@@ -53,7 +53,7 @@ class AsmBinaryTest(StrataTestBase):
             self.logger.info(f"Stopping operator node {i}")
             bridge_nodes[i].stop()
 
-        # Post mock checkpoint using the current tip to derive the OL range
+        # Set up ASM RPC client and fetch the latest block hash
         asm_service = ctx.get_service("asm_rpc")
         asm_rpc = asm_service.create_rpc()
         recent_block_num = bitcoin_rpc.proxy.getblockcount()
