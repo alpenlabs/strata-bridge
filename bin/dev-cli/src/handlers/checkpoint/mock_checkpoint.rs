@@ -14,9 +14,8 @@ use strata_identifiers::{strata_codec::encode_to_vec, Buf32, Buf64, OLBlockCommi
 use strata_ol_chain_types_new::SimpleWithdrawalIntentLogData;
 use strata_primitives::bitcoin_bosd::Descriptor;
 use strata_test_utils::ArbitraryGenerator;
-use tracing::error;
 
-use super::constants::{BRIDGE_GATEWAY_ACCT_SERIAL, MOCK_PREDICATE_KEY};
+use crate::handlers::checkpoint::constants::{BRIDGE_GATEWAY_ACCT_SERIAL, MOCK_PREDICATE_KEY};
 
 /// Builds mock signed checkpoint payloads for testing.
 pub(crate) struct MockCheckpointBuilder {
@@ -101,8 +100,6 @@ impl MockCheckpointBuilder {
                 )
             })
             .collect();
-
-        error!(?ol_logs, "generated OL logs for mock checkpoint");
 
         let state_diff_hash = hash::raw(&state_diff).into();
         let ol_logs_hash = hash::raw(&ol_logs.as_ssz_bytes()).into();

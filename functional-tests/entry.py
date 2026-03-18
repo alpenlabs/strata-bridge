@@ -73,6 +73,8 @@ def main(argv):
     # Probe and filter tests.
     modules = flexitest.runtime.scan_dir_for_modules(test_dir)
     modules = filter_tests(parsed_args, modules)
+    if parsed_args.groups or parsed_args.tests:
+        logging.info("Filtered tests: %s", list(modules.keys()))
     tests = flexitest.runtime.load_candidate_modules(modules)
 
     # Register factory
