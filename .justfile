@@ -270,6 +270,20 @@ ensure-codespell:
 lint-check-codespell: ensure-codespell
     codespell
 
+# Runs orphan check for Jira-linked TODO/FIXME comments
+[group('code-quality')]
+orphan-check-jira:
+    python3 scripts/orphan_check.py --format jira-link --slugs TODO FIXME
+
+# Runs orphan check for assignee-tagged NOTE/HACK/PERF comments
+[group('code-quality')]
+orphan-check-assignees:
+    python3 scripts/orphan_check.py --format assignee --slugs NOTE HACK PERF --allow-rust-docstrings NOTE
+
+# Runs all orphan checks for comment formatting
+[group('code-quality')]
+orphan-check: orphan-check-jira orphan-check-assignees
+
 # Runs `codespell` to fix spelling errors if possible
 [group('code-quality')]
 lint-fix-codespell: ensure-codespell
@@ -282,7 +296,7 @@ lint-check-toml: ensure-taplo
 
 # Runs all lints and checks for issues without trying to fix them
 [group('code-quality')]
-lint: fmt-check-ws fmt-check-toml lint-check-ws lint-check-codespell
+lint: fmt-check-ws fmt-check-toml lint-check-ws lint-check-codespell orphan-check
     @echo "\n\033[36m======== OK: Lints and Formatting ========\033[0m\n"
 
 # Runs all lints and applies fixes where possible
