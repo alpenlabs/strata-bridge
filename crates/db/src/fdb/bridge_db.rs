@@ -446,7 +446,8 @@ mod tests {
             operator_table in arb_operator_table(),
         ) {
             // only uses simple variants for testing, as the more complex ones would require constructing valid DepositSMs.
-            // TODO: (@Rajil1213) implement Arbitrary for `DepositSM` to allow testing of all variants.
+            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2696>
+            // Implement `Arbitrary` for `DepositSM` to allow testing of all variants.
             let state = match variant_selector {
                 0 => DepositState::Deposited { last_block_height },
                 1 => DepositState::CooperativePathFailed { last_block_height },
@@ -551,7 +552,8 @@ mod tests {
             operator_table in arb_operator_table(),
         ) {
             // Only includes simple variants for testing, as the more complex ones would require constructing valid GraphSMs.
-            // TODO: (@Rajil1213) implement Arbitrary for GraphSM to allow testing of all variants.
+            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2697>
+            // Implement `Arbitrary` for `GraphSM` to allow testing of all variants.
             let state = match variant_selector {
                 0 => GraphState::Created { last_block_height: block_height },
                 1 => GraphState::Withdrawn { payout_txid: txid },

@@ -130,9 +130,10 @@ impl TxClassifier for GraphSM {
                         }
                     });
 
-                    // TODO: (@Rajil1213) we need to define the binary encoding of proof and public
-                    // values. Use that to parse the `proof_and_public_values` into a `ProofReceipt`
-                    // and a struct of public values required for the state transition.
+                    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2679>
+                    // Define the binary encoding of proof and public values, then parse
+                    // `proof_and_public_values` into a `ProofReceipt` and the public values
+                    // needed for the state transition.
                     let proof_receipt = ProofReceipt::new(
                         Proof::new(proof_and_public_values.clone()),
                         PublicValues::new(vec![]),

@@ -14,7 +14,8 @@ def inject_service_create_rpc(svc: flexitest.service.ProcService, rpc_url: str, 
         """
         Hook to check that the process is still running before every call.
         """
-        # TODO: (@Rajil1213) make `timeout` and `step` configurable
+        # TODO: <https://atlassian.alpenlabs.net/browse/STR-2714>
+        # Make `timeout` and `step` configurable.
         wait_until(svc.check_status, timeout=30, step=1, error_msg=f"service '{name}' has stopped")
 
     def _create_rpc() -> JsonrpcClient:

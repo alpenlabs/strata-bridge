@@ -39,7 +39,8 @@ impl DepositData {
     }
 }
 
-// TODO: (@uncomputable) Check in unit test that deposit tx can be parsed by ASM code
+// TODO: <https://atlassian.alpenlabs.net/browse/STR-2709>
+// Add a unit test proving the deposit transaction can be parsed by ASM code.
 // https://github.com/alpenlabs/alpen/blob/b016495114050409e831898436d7d0ac04df8d82/crates/asm/txs/bridge-v1/src/deposit/parse.rs#L85
 /// The deposit transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

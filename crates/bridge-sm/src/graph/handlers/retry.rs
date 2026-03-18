@@ -59,25 +59,26 @@ impl GraphSM {
             GraphState::Claimed {
                 fulfillment_txid, ..
             } if fulfillment_txid.is_none() => {
-                // TODO: (mukeshdroid) pending implementation of the faulty cases in process_claim
-                // (STR-2192). Emits PublishContest.
+                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2192>
+                // Implement the faulty cases in `process_claim`; this emits `PublishContest`.
                 Vec::new()
             }
             GraphState::Contested { .. } => {
-                // TODO: (mukeshdroid) pending implementation of the `GraphEvent::ContestConfirmed`
-                // match arm in `GraphSM::process_event`. Emits PublishBridgeProof.
+                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2675>
+                // Implement the `GraphEvent::ContestConfirmed` match arm in
+                // `GraphSM::process_event`; this emits `PublishBridgeProof`.
                 Vec::new()
             }
             GraphState::BridgeProofPosted { .. } => {
-                // TODO: (mukeshdroid) pending implementation of the
-                // `GraphEvent::BridgeProofConfirmed` match arm
-                // in `GraphSM::process_event`. Emits PublishCounterProof.
+                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2676>
+                // Implement the `GraphEvent::BridgeProofConfirmed` match arm in
+                // `GraphSM::process_event`; this emits `PublishCounterProof`.
                 Vec::new()
             }
             GraphState::CounterProofPosted { .. } => {
-                // TODO: (mukeshdroid) pending implementation of the
-                // `GraphEvent::CounterProofConfirmed` match
-                // arm in `GraphSM::process_event`. Emits PublishCounterProofNack.
+                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2677>
+                // Implement the `GraphEvent::CounterProofConfirmed` match arm in
+                // `GraphSM::process_event`; this emits `PublishCounterProofNack`.
                 Vec::new()
             }
             _ => Vec::new(),

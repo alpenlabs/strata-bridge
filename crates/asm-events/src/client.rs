@@ -11,7 +11,8 @@
 //!   retries/failures in logs/metrics.
 //! - If ASM follows a different fork, the notified block hash may not exist on ASM. This can
 //!   surface as "block not found" responses; we currently log/skip after retries.
-// TODO: (@prajwolrg): explicitly detect lag vs fork divergence and surface a clear health signal.
+// TODO: <https://atlassian.alpenlabs.net/browse/STR-2667>
+// Explicitly detect lag vs. fork divergence and surface a clear health signal.
 
 use std::{marker::PhantomData, sync::Arc};
 

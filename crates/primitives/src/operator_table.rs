@@ -19,8 +19,8 @@ use crate::{
 type OperatorTableEntry = (OperatorIdx, P2POperatorPubKey, secp256k1::PublicKey);
 
 /// A table that maps operator indices to their P2P public keys and bitcoin public keys.
-// TODO(proofofkeags): the derived serialization of this data structure is 3x more expensive than
-// optimal.
+// TODO: <https://atlassian.alpenlabs.net/browse/STR-2702>
+// Replace the derived serialization; it is about 3x more expensive than optimal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct OperatorTable {
     /// The index of this operator.

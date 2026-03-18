@@ -142,7 +142,8 @@ bdk_bitcoind_rpc = "0.18.0"
 bdk_wallet = "1.1.0"
 bincode = "1.3.3"
 blake3 = "1.6.1"
-# TODO(proofofkeags): when updating `bitcoin` to >=0.33.0, go through `btc-tracker` and `tx-driver` and update tests to no longer constrain heights.
+# TODO: <https://atlassian.alpenlabs.net/browse/STR-2658>
+# Update `btc-tracker` and `tx-driver` tests when upgrading `bitcoin` to >=0.33.0.
 bitcoin = { version = "0.32.8", features = ["rand-std", "serde"] }
 bitcoin-bosd = { version = "0.9.0", features = ["address"] }
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
@@ -157,7 +158,8 @@ esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default
   "blocking-https-rustls",
   "async-https-rustls",
 ] }
-# TODO: (@Zk2u) switch to fdb 0.11.0 once released
+# TODO: <https://atlassian.alpenlabs.net/browse/STR-2659>
+# Upgrade to foundationdb 0.11.0 once released.
 foundationdb = { git = "https://github.com/foundationdb-rs/foundationdb-rs", rev = "7e02f866ff08153f4309a429fc74515c77ea8f07", features = [
   "fdb-7_3",
 ] }
@@ -213,7 +215,8 @@ sp1-sdk = "5.2.4"
 sp1-verifier = "5.2.4"
 tempfile = "3.10.1"
 
-# TODO: (@Zk2u) update this once <https://github.com/komora-io/terrors/pull/20> is merged.
+# TODO: <https://atlassian.alpenlabs.net/browse/STR-2660>
+# Update this dependency after the required upstream changes are merged.
 terrors = { version = "0.3.2", git = "https://github.com/alpenlabs/terrors", features = [
   "rkyv_32",
   "rkyv_bytecheck",

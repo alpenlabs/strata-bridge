@@ -25,9 +25,10 @@ mod tests {
         testing::test_transition,
     };
 
-    // TODO:(@MdTeach): Add proptest that asserts `NewBlock` events with
-    // `block_height <= last_processed_block_height` are always rejected,
-    // and otherwise `last_block_height` is updated to the new block height.
+    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2678>
+    // Add a proptest asserting that `NewBlock` events with
+    // `block_height <= last_processed_block_height` are rejected and otherwise update
+    // `last_block_height`.
 
     #[test]
     fn test_new_block_claimed_no_timeout() {

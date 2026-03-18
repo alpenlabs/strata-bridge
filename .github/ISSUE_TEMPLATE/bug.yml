@@ -50,7 +50,8 @@ body:
   - type: textarea
     id: fullnode-version
     attributes:
-      # FIXME: use `--version` instead
+      # TODO: <https://atlassian.alpenlabs.net/browse/STR-2661>
+      # Use `--version` instead.
       label: What is the sha256 checksum of the full node you are running?
     validations:
       required: false

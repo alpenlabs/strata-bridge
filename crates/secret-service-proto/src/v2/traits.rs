@@ -12,7 +12,8 @@ use terrors::OneOf;
 
 use super::wire::ServerMessage;
 
-// FIXME: possible when https://github.com/rust-lang/rust/issues/63063 is stabliized
+// FIXME: <https://atlassian.alpenlabs.net/browse/STR-2705>
+// Revisit this once rust-lang/rust#63063 is stabilized.
 // pub type AsyncResult<T, E = ()> = impl Future<Output = Result<T, E>>;
 
 /// Core interface for the Secret Service, implemented by both the client and the server with

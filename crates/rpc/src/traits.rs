@@ -43,14 +43,16 @@ pub trait StrataBridgeMonitoringApi {
     ) -> RpcResult<RpcDepositInfo>;
 
     /// Get bridge duties.
-    // TODO: refactor this to a new trait since the monitoring API does not use it
-    //       but we'll use it internally for debugging and introspection.
+    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2703>
+    // Move this to a new trait; the monitoring API does not use it and it is for internal
+    // debugging and introspection.
     #[method(name = "bridgeDuties")]
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>>;
 
     /// Get bridge duties assigned to an operator by its [`PublicKey`].
-    // TODO: refactor this to a new trait since the monitoring API does not use it
-    //       but we'll use it internally for debugging and introspection.
+    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2703>
+    // Move this to a new trait; the monitoring API does not use it and it is for internal
+    // debugging and introspection.
     #[method(name = "bridgeDutiesByPk")]
     async fn get_bridge_duties_by_operator_pk(
         &self,

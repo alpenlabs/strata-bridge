@@ -112,7 +112,9 @@ impl CounterproofTx {
                 0,
             )
             .into_iter()
-            .collect() // TODO: (@uncomputable) Avoid allocation
+            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2708>
+            // Avoid this allocation.
+            .collect()
     }
 
     /// Finalizes the transaction with the given witness data.

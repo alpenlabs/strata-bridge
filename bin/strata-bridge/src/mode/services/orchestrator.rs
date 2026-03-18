@@ -150,7 +150,8 @@ pub(crate) async fn init_orchestrator(
 }
 
 pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
-    // FIXME: (@Rajil1213) import this from counterproof module once it's created
+    // FIXME: <https://atlassian.alpenlabs.net/browse/STR-2665>
+    // Import this from the counterproof module once it exists.
     const COUNTERPROOF_N_BYTES: usize = 128 + 32 + 4; // proof bytes (groth16) + deposit_idx (4 bytes) + operator pubkey (32 bytes)
     let network = params.network;
     let magic_bytes = params.protocol.magic_bytes;
@@ -182,8 +183,8 @@ pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
         stake_amount: params.protocol.stake_amount,
     };
 
-    // FIXME: (@Rajil1213) construct adaptor keys and descriptors probably once they're moved out of
-    // Config and into the Context.
+    // FIXME: <https://atlassian.alpenlabs.net/browse/STR-2666>
+    // Construct adaptor keys and descriptors once they move out of `Config` and into `Context`.
     let graph_config = GraphSMCfg {
         game_graph_params,
         operator_fee,

@@ -1,6 +1,6 @@
 //! V2 wire protocol
-// TODO: change all the hardcoded lengths in here to be calculated at compile time when we upgrade
-// our compiler
+// TODO: <https://atlassian.alpenlabs.net/browse/STR-2706>
+// Calculate these hardcoded lengths at compile time once the compiler upgrade lands.
 
 use bitcoin::{taproot::TaprootError, OutPoint, XOnlyPublicKey};
 use rkyv::{Archive, Deserialize, Serialize};

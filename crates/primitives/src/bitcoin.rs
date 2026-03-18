@@ -8,7 +8,8 @@ use serde::{de, Deserialize, Deserializer, Serialize};
 ///
 /// This is created in order to couple addresses with the corresponding network and to preserve that
 /// information across serialization/deserialization.
-// TODO: implement [`arbitrary::Arbitrary`]?
+// TODO: <https://atlassian.alpenlabs.net/browse/STR-2700>
+// Finish or clarify `arbitrary::Arbitrary` support for this type.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BitcoinAddress {
     /// The [`bitcoin::Network`] that this address is valid in.
@@ -35,7 +36,8 @@ impl<'a> Arbitrary<'a> for BitcoinAddress {
         let hash: [u8; 20] = u.arbitrary()?;
         let address = match network {
             Network::Bitcoin | Network::Testnet | Network::Signet | Network::Regtest => {
-                // TODO: find ways to support other types of addresses
+                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2701>
+                // Support additional address types here.
                 Address::p2sh_from_hash(
                     ScriptHash::from_slice(&hash).expect("must have right number of bytes"),
                     network,
