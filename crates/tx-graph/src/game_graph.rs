@@ -48,7 +48,7 @@ pub struct DepositParams {
     /// Game index.
     pub game_index: NonZero<u32>,
     /// UTXO that funds the claim transaction.
-    // NOTE: (@Rajil1213)These funds can be reserved and shared beforehand, however a new funding
+    // NOTE: (Rajil1213) These funds can be reserved and shared beforehand, however a new funding
     // UTXO may need to be generated when a new deposit is observed on chain as the reserve may
     // run out. And so, it is better to treat this as a deposit-time parameter that is
     // generated/shared just in time when a deposit is observed on chain.

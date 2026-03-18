@@ -87,7 +87,7 @@ pub(crate) fn classify_block(
         )?);
 
         // Classify this tx against every active SM via TxClassifier
-        // PERF: (@Rajil1213) this needs benchmarking to make sure that classifying every tx against
+        // PERF: (Rajil1213) this needs benchmarking to make sure that classifying every tx against
         // every SM is not too expensive. If it is, we can optimize by maintaining a cache
         // of all relevant txids/outpoints per SM and only running TxClassifier if the tx contains a
         // relevant txid/outpoint and do it only on the relevant SM. It is too expensive if for a

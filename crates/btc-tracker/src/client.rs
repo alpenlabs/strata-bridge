@@ -468,7 +468,7 @@ mod e2e_tests {
 
         let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;
         let address = bitcoind.client.new_address()?;
-        // NOTE(proofofkeags): for some reason it appears that ZMQ flushes every 5 blocks, or
+        // NOTE: (proofofkeags) for some reason it appears that ZMQ flushes every 5 blocks, or
         // perhaps after a certain number of bytes. This means that even though we should be able to
         // handle everything after [`crate::BIP34_MIN_HEIGHT`], we can't just simply waight for that
         // height since old blocks are still buffered in the zmq socket. It appears to update its

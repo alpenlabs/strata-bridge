@@ -34,8 +34,8 @@ pub enum BridgeTxBuilderError {
     CouldNotAddLeaf,
 
     /// An unexpected error occurred.
-    // HACK: This should only be used while developing, testing or bikeshedding the right variant
-    // for a particular error.
+    // HACK: (Rajil1213) This should only be used while developing, testing or bikeshedding the
+    // right variant for a particular error.
     #[error("unexpected error occurred: {0}")]
     Unexpected(String),
 

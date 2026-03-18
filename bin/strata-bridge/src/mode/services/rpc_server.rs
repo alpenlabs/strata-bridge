@@ -89,8 +89,8 @@ where
     let rpc_handle = rpc_server.start(rpc_module);
 
     // Using `_` for `_stop_tx` as the variable causes it to be dropped immediately!
-    // NOTE: The `_stop_tx` should be used by the shutdown manager (see the `strata-tasks`
-    // crate). At the moment, the impl below just stops the client from stopping.
+    // NOTE: (Rajil1213) The `_stop_tx` should be used by the shutdown manager (see the
+    // `strata-tasks` crate). At the moment, the impl below just stops the client from stopping.
     let (_stop_tx, stop_rx): (oneshot::Sender<bool>, oneshot::Receiver<bool>) = oneshot::channel();
     let _ = stop_rx.await;
     info!("stopping rpc server");

@@ -88,7 +88,7 @@ pub struct FundRawTransactionOptions {
     /// The fee rate to pay per kvB.
     ///
     /// NOTE: This field is converted to camelCase
-    /// when serialized, so it is receeived by fundrawtransaction as `feeRate`,
+    /// when serialized, so it is received by fundrawtransaction as `feeRate`,
     /// which fee rate per kvB, and *not* `fee_rate`, which is per vB.
     #[serde(
         with = "bitcoin::amount::serde::as_btc::opt",

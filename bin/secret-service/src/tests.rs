@@ -395,7 +395,7 @@ async fn musig2() {
 }
 
 /// Dummy certificate verifier that treats any certificate as valid.
-/// NOTE, such verification is vulnerable to MITM attacks, but convenient for testing.
+/// NOTE: Such verification is vulnerable to MITM attacks, but convenient for testing.
 #[derive(Debug)]
 struct SkipServerVerification(Arc<rustls::crypto::CryptoProvider>);
 
