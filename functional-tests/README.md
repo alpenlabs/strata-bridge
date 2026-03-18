@@ -82,20 +82,22 @@ Now you can run tests with:
 
 ```bash
 uv run python entry.py
-````
+```
 
 
 ## Running tests
 ```bash
 # Run all tests
-./run_tests.sh
+./run_test.sh
 
-# Run specific tests by name 
-./run_test.sh fn_rpc_test
+# Run a specific test by path
+./run_test.sh -t tests/bridge/fn_rpc_test.py
 
+# Run all tests in a group (subdirectory)
+./run_test.sh -g asm
 
-# Run specific tests by path 
-./run_test.sh tests/fn_rpc_test.py
+# Run multiple groups
+./run_test.sh -g asm payout
 ```
 
 ## Running with code coverage

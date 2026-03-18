@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import subprocess
@@ -15,8 +16,44 @@ from factory.fdb import FdbFactory
 from factory.s2 import S2Factory
 from utils.logging import setup_root_logger
 
+parser = argparse.ArgumentParser(prog="entry.py")
+parser.add_argument("-g", "--groups", nargs="*", help="Test groups (subdirectory names) to run")
+parser.add_argument("-t", "--tests", nargs="*", help="Specific test files to run")
+
+
+def filter_tests(parsed_args, modules):
+    """Filter discovered test modules by group and/or test name."""
+    arg_groups = frozenset(parsed_args.groups or [])
+    arg_tests = frozenset(
+        os.path.splitext(os.path.basename(t))[0] for t in (parsed_args.tests or [])
+    )
+
+    # If no filters specified, return all modules.
+    if not arg_groups and not arg_tests:
+        return modules
+
+    filtered = {}
+    for test, path in modules.items():
+        # Extract the group (subdirectory) from the test path.
+        path_parts = os.path.normpath(path).split(os.sep)
+        idx = next((i for i, part in enumerate(path_parts) if part == TEST_DIR), None)
+        test_groups = frozenset(path_parts[idx + 1 : -1]) if idx is not None else frozenset()
+
+        take = False
+        if arg_groups and (arg_groups & test_groups):
+            take = True
+        if arg_tests and test in arg_tests:
+            take = True
+
+        if take:
+            filtered[test] = path
+
+    return filtered
+
 
 def main(argv):
+    parsed_args = parser.parse_args(argv[1:])
+
     setup_root_logger()
     root_dir = os.path.dirname(os.path.abspath(__file__))
     test_dir = os.path.join(root_dir, TEST_DIR)
@@ -33,8 +70,9 @@ def main(argv):
     for operator_idx in range(BRIDGE_NETWORK_SIZE):
         generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, operator_idx)
 
-    # Probe tests.
+    # Probe and filter tests.
     modules = flexitest.runtime.scan_dir_for_modules(test_dir)
+    modules = filter_tests(parsed_args, modules)
     tests = flexitest.runtime.load_candidate_modules(modules)
 
     # Register factory
@@ -55,19 +93,11 @@ def main(argv):
     rt.prepare_registered_tests()
 
     # Run the tests and then dump the results.
-    arg_test_names = argv[1:]
-    if len(arg_test_names) > 0:
-        tests = [extract_test_name(arg) for arg in arg_test_names]
     results = rt.run_tests(tests)
     rt.save_json_file("results.json", results)
     flexitest.dump_results(results)
     flexitest.fail_on_error(results)
     return 0
-
-
-def extract_test_name(test_path):
-    """Extract test module name from file path, removing extension."""
-    return os.path.splitext(os.path.basename(test_path))[0]
 
 
 def generate_mtls_credentials(gen_script_path: str, datadir_root: str, operator_index: int) -> None:
