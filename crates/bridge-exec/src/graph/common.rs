@@ -325,10 +325,10 @@ pub(super) async fn publish_claim(
             ExecutorError::WalletErr(format!("sighash error: {e}"))
         })?;
 
-        // TODO: (mukeshdroid) We want to ensure the funding UTXO for the claim to be preserved.
-        // This means that we should not use the general_wallet. Stakechain_signer wallet
-        // has been used as a placeholder for non-general wallet. This implies that the funding
-        // outputs should also be generated from the stakechain_signer wallet.
+        // NOTE: (mukeshdroid) Preserve the funding UTXO for the claim.
+        // This means we should not use the general wallet. `stakechain_signer` is currently used
+        // as a placeholder non-general wallet, so the funding outputs should also be generated
+        // from the `stakechain_signer` wallet.
         let signature = output_handles
             .s2_client
             .stakechain_wallet_signer()

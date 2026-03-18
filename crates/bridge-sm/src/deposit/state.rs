@@ -160,7 +160,6 @@ pub enum DepositState {
     },
     /// This represents the terminal state where the deposit has been spent.
     Spent,
-    /// TODO: (@Rajil1213)
     Aborted,
 }
 
