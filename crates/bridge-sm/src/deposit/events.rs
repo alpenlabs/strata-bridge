@@ -155,6 +155,7 @@ pub enum DepositEvent {
     /// This event notifies that a partial signature from some operator for the cooperative payout
     /// transaction has been received.
     PayoutPartialReceived(PayoutPartialReceivedEvent),
+    /// This event notifies that a payout has been confirmed.
     PayoutConfirmed(PayoutConfirmedEvent),
     /// Event signalling that a new block has been observed on chain.
     ///
