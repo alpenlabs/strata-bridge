@@ -432,8 +432,8 @@ impl BtcNotifySM {
                         // We insert a placeholder because we expect the rawtx event to fill in the
                         // remainder of the details.
                         //
-                        // NOTE(proofofkeags): since we don't have the raw tx yet we can't check for
-                        // predicate matches so this will actually leak
+                        // NOTE: (proofofkeags) since we don't have the raw tx yet we can't check
+                        // for predicate matches so this will actually leak
                         // memory until we clear out these placeholders. However, for every
                         // MempoolAcceptance event we are guaranteed to have a corresponding rawtx
                         // event. So this shouldn't cause a memory leak

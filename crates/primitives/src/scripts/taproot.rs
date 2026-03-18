@@ -165,7 +165,7 @@ where
         .for_each(|witness| witness_stack.push(witness));
 
     // Finalize the psbt as per <https://github.com/rust-bitcoin/rust-bitcoin/blob/bitcoin-0.32.1/bitcoin/examples/taproot-psbt.rs#L315-L327>
-    // NOTE: their ecdsa example states that we should use `miniscript` to finalize
+    // NOTE: (Rajil1213) Their ecdsa example states that we should use `miniscript` to finalize
     // PSBTs in production but they don't mention this for taproot.
 
     // Set final witness

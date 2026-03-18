@@ -81,8 +81,7 @@ pub trait Connector {
     ///
     /// [BIP 342](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#common-signature-message-extension).
     fn code_separator_positions(&self, leaf_index: usize) -> impl IntoIterator<Item = u32> {
-        // NOTE: (@uncomputable)
-        // The default position u32::MAX is included to facilitate signing.
+        // NOTE: (uncomputable) The default position u32::MAX is included to facilitate signing.
         // Using the return value of code_separator_positions() for signing always works.
         // It generalizes nicely; we don't have to remind callers to include u32::MAX.
         let script = &self.leaf_scripts()[leaf_index];
@@ -126,9 +125,9 @@ pub trait Connector {
 
     /// Generates the taproot spend info of the connector.
     fn spend_info(&self) -> TaprootSpendInfo {
-        // NOTE: (@uncomputable)
-        // It seems wasteful to have almost the same function body as [`Connector::address`],
-        // but in practice we only ever need one of the two: the address or the spend info.
+        // NOTE: (uncomputable) It seems wasteful to have almost the same function body as
+        // [`Connector::address`], but in practice we only ever need one of the two: the
+        // address or the spend info.
         // We may want to reimplement `create_taproot_addr` to reduce code duplication.
         create_taproot_addr(
             &self.network(),
@@ -150,8 +149,8 @@ pub trait Connector {
 
     /// Returns the sequence number for the given spend path.
     fn sequence(&self, _spend_path: Self::SpendPath) -> Sequence {
-        // NOTE: (@uncomputable)
-        // Since we have TRUC + full RBF, we don't need to enable RBF via the sequence number.
+        // NOTE: (uncomputable) Since we have TRUC + full RBF, we don't need to enable RBF via
+        // the sequence number.
         // Since we don't use absolute locktime anywhere, we don't need to enable it either.
         Sequence::MAX
     }
@@ -165,8 +164,7 @@ pub trait Connector {
         spend_path: Self::SpendPath,
         input_index: usize,
     ) -> SigningInfo {
-        // NOTE: (@uncomputable)
-        // All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
+        // NOTE: (uncomputable) All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
         // There is no reason to make the sighash type variable.
         let sighash_type = TapSighashType::Default;
         let leaf_index = self.to_leaf_index(spend_path);
@@ -243,8 +241,7 @@ pub trait Connector {
         spend_path: Self::SpendPath,
         input_index: usize,
     ) -> impl IntoIterator<Item = Message> {
-        // NOTE: (@uncomputable)
-        // All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
+        // NOTE: (uncomputable) All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
         // There is no reason to make the sighash type variable.
         let sighash_type = TapSighashType::Default;
         let leaf_index = self

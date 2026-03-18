@@ -38,7 +38,7 @@ jobs:
     needs: [functional-tests, unit-tests]
     timeout-minutes: 10
     steps:
-      # NOTE: codecov action needs source files in the same path as in the lcov.info
+      # NOTE: (MdTeach) codecov action needs source files in the same path as in the lcov.info
       # ensure the source location is same in unit test, functional test and this job
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4

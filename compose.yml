@@ -51,7 +51,7 @@ services:
       - ./docker/vol/fdb/fdb.cluster:/var/fdb/fdb.cluster:ro
       - ./docker/vol/fdb/data:/var/fdb/data
     ports:
-      # NOTE: Keep this port in sync with docker/vol/fdb/fdb.cluster
+      # NOTE: (zk2u) Keep this port in sync with docker/vol/fdb/fdb.cluster
       - "4500:4500"
     networks:
       - bridge

@@ -83,7 +83,8 @@ impl Zeroize for OperatorKeys {
         // These are fine to leave as they are since they are public parameters,
         // and not secret values.
         //
-        // NOTE: `Xpriv.private_key` (`SecretKey`) `non_secure_erase` writes `1`s to the memory.
+        // NOTE: (prajwolrg) `Xpriv.private_key` (`SecretKey`) `non_secure_erase` writes `1`s to the
+        // memory.
 
         // Zeroize base components
         base.depth.zeroize();
@@ -141,7 +142,7 @@ mod tests {
         keys.zeroize();
 
         // Verify fields are zeroed
-        // NOTE: SecretKey::non_secure_erase writes `1`s to the memory.
+        // NOTE: (prajwolrg) SecretKey::non_secure_erase writes `1`s to the memory.
         assert_eq!(keys.base_xpriv().private_key.secret_bytes(), [1u8; 32]);
         assert_eq!(keys.message_signing_key().to_bytes(), [0u8; 32]);
         assert_eq!(*keys.base_xpriv().chain_code.as_bytes(), [0u8; 32]);
