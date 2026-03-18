@@ -3,7 +3,8 @@
 // This was a temporary separation from `strata-bridge-primitives` due to its dependency on `bitvm`,
 // which in turn depends on `tokio`, making it incompatible with compilation inside the ZKVM.
 //
-// **FIXME:** Move this functionality back into `strata-bridge-primitives`.
+// FIXME: <https://atlassian.alpenlabs.net/browse/STR-2671>
+// Move this functionality back into `strata-bridge-primitives`.
 
 mod tx;
 mod utils;

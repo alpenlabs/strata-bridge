@@ -51,8 +51,8 @@ pub(crate) struct BitcoinConfig {
     /// Optional retry interval
     pub retry_interval: Option<Duration>,
     /// Connection string used in `bitcoin.conf => zmqpubrawblock`.
-    // TODO: (@prajwolrg) We should be able to work with `hashblock_connection_string` since ASM
-    // runner used btc-client to fetch the full block. We don't use it here since the BlockEvent is
-    // emitted only on the rawblock connection. Fix that.
+    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2662>
+    // Support `hashblock_connection_string`; ASM runner already uses btc-client to fetch full
+    // blocks, but `BlockEvent` is only emitted on the rawblock connection today.
     pub rawblock_connection_string: String,
 }

@@ -141,7 +141,7 @@ impl GraphSM {
                 Ok(GSMOutput::new())
             }
 
-            // TODO: STR-2340
+            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2340>
             GraphState::BridgeProofPosted { .. } => todo!(""),
 
             GraphState::BridgeProofTimedout {
@@ -173,13 +173,13 @@ impl GraphSM {
                 Ok(GSMOutput::new())
             }
 
-            // TODO: STR-2196
+            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2196>
             GraphState::CounterProofPosted { .. } => todo!(""),
 
-            // TODO: STR-2342
+            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2342>
             GraphState::AllNackd { .. } => todo!(""),
 
-            // TODO: STR-2196
+            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2196>
             GraphState::Acked { .. } => todo!(""),
 
             // Terminal states do not process new blocks

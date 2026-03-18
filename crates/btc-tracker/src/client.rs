@@ -201,13 +201,10 @@ impl BtcNotifyClient<Disconnected> {
 
                                     // Backfill any skipped blocks in the range:
                                     // [cursor, received_height).
-                                    // FIXME: (@Rajil1213) This can consume a lot of resources if
-                                    // the node has been down for a long time. For example, if the
-                                    // node has been down for 1 week, this will consume 2Gb of
-                                    // memory (assuming 2Mb block size) which may trigger an OOM
-                                    // kill. Make sure that the node has enough resources after a
-                                    // prolonged downtime or fix this impl so that massive backlogs
-                                    // are processed in batches instead of all at once.
+                                    // FIXME: <https://atlassian.alpenlabs.net/browse/STR-2680>
+                                    // Process massive backlogs in bounded batches instead of all
+                                    // at once to avoid excessive memory use after prolonged
+                                    // downtime.
                                     let mut blocks =
                                         match join_all((cursor..received_height).map(|height| {
                                             debug!(%height, "fetching lagged block");
@@ -453,7 +450,8 @@ mod e2e_tests {
         let mut bitcoin_conf = corepc_node::Conf::default();
         bitcoin_conf.enable_zmq = true;
 
-        // TODO(proofofkeags): do dynamic port allocation so these can be run in parallel
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2681>
+        // Use dynamic port allocation so these tests can run in parallel.
         let hash_block_socket = "tcp://127.0.0.1:23882";
         let hash_tx_socket = "tcp://127.0.0.1:23883";
         let raw_block_socket = "tcp://127.0.0.1:23884";

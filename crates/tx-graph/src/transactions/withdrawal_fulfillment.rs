@@ -27,7 +27,8 @@ impl WithdrawalFulfillmentData {
     }
 }
 
-// TODO: (@uncomputable) Check in unit test that withdrawal fulfillment tx can be parsed by ASM code
+// TODO: <https://atlassian.alpenlabs.net/browse/STR-2712>
+// Add a unit test proving the withdrawal fulfillment transaction can be parsed by ASM code.
 // https://github.com/alpenlabs/alpen/blob/b016495114050409e831898436d7d0ac04df8d82/crates/asm/txs/bridge-v1/src/withdrawal_fulfillment/parse.rs#L63
 /// The withdrawal fulfillment transaction.
 ///

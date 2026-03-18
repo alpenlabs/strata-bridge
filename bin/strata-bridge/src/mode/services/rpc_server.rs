@@ -306,7 +306,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
-        // TODO: (@Rajil1213) update this based on monitoring requirements
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
+        // Update this based on monitoring requirements.
         Ok(vec![])
     }
 
@@ -314,12 +315,14 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         &self,
         _operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
-        // TODO: (@Rajil1213) update this based on monitoring requirements
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
+        // Update this based on monitoring requirements.
         Ok(vec![])
     }
 
     async fn get_withdrawals(&self) -> RpcResult<Vec<Buf32>> {
-        // TODO: (@Rajil1213) update this based on monitoring requirements
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
+        // Update this based on monitoring requirements.
         Ok(vec![])
     }
 
@@ -327,17 +330,20 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         &self,
         _withdrawal_request_txid: Buf32,
     ) -> RpcResult<Option<RpcWithdrawalInfo>> {
-        // TODO: (@Rajil1213) update this based on monitoring requirements
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
+        // Update this based on monitoring requirements.
         Ok(None)
     }
 
     async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
-        // TODO: (@Rajil1213) update this based on monitoring requirements
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
+        // Update this based on monitoring requirements.
         Ok(vec![])
     }
 
     async fn get_claim_info(&self, _claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>> {
-        // TODO: (@Rajil1213) update this based on monitoring requirements
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
+        // Update this based on monitoring requirements.
         Ok(None)
     }
 }

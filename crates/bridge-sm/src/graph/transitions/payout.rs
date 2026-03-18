@@ -30,7 +30,7 @@ impl GraphSM {
 
                 Ok(GSMOutput::new())
             }
-            // TODO: STR-2196
+            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2196>
             GraphState::BridgeProofPosted { .. } => {
                 todo!()
             }

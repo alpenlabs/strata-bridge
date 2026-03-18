@@ -136,7 +136,8 @@ pub(super) async fn verify_adaptors(
         "verifying adaptor signatures"
     );
 
-    // TODO: (mukeshdroid) Integrate with mosaic service for adaptor verification
+    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2669>
+    // Integrate with the mosaic service for adaptor verification.
 
     info!(
         ?graph_idx,

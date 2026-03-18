@@ -167,10 +167,9 @@ impl TxDriver {
                             } else {
                                 // if the condition is not met, we still need to add the job
                                 // to the active jobs so that we can notify it later.
-                                // FIXME: (@Rajil1213) it may be the case that by the time we
-                                // subscribe to events, the event may already have happened.
-                                // For example, a new block may have been produced that causes the
-                                // transaction to be buried.
+                                // FIXME: <https://atlassian.alpenlabs.net/browse/STR-2687>
+                                // Handle the race where the relevant event may already have
+                                // happened before the subscription is established.
                                 active_tx_subs.push(tx_sub);
                                 active_jobs = active_jobs.merge(job.into());
                             }
@@ -190,14 +189,15 @@ impl TxDriver {
                                 active_jobs = active_jobs.merge(job.into());
                             },
                             Err(err) => {
-                                // TODO(proofofkeags): in this case we may have not hit the mempool
-                                // purge rate and then we have to probably CPFP using anchor from
-                                // the getgo and try again via submit package.
+                                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2688>
+                                // If we have not hit the mempool purge rate, CPFP using the
+                                // anchor from the start and retry as a package.
                                 //
-                                // TODO: (@Rajil1213) it may also be the case that the transaction
-                                // is not valid, in which case we should notify the job submitter.
-                                // So, we need more intelligent error handling here. For now, we
-                                // just inform the caller until we add fee-bumping support.
+                                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2689>
+                                // Distinguish invalid transactions and notify the job submitter
+                                // instead of treating them like fee-bumping work.
+                                // For now, we just inform the caller until we add fee-bumping
+                                // support.
                                 error!(%txid, tx=?rawtx_rpc_client, %err, "could not submit transaction");
                                 // send feedback to the job submitter
                                 if job.respond_on.send(Err(DriveErr::PublishFailed(err))).is_err() {
@@ -217,9 +217,9 @@ impl TxDriver {
                                     }
                                     Err(err) => {
                                         error!(txid=%event.rawtx.compute_txid(), %err, "could not resubmit transaction");
-                                        // TODO(proofofkeags): in this case we need to analyze the
-                                        // reported error. There are a few scenarios that can play
-                                        // out here.
+                                        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2690>
+                                        // Analyze the reported error and classify the submission
+                                        // failure mode.
                                         //
                                         // 1. It failed because one or more of the inputs is double
                                         // spent.
@@ -256,7 +256,8 @@ impl TxDriver {
 
                     }
                     _block = block_subscription.next().fuse() => {
-                        // TODO(proofofkeags): Compare against deadlines and CPFP using anchor.
+                        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2691>
+                        // Compare against deadlines and CPFP using the anchor where needed.
                     }
                 }
             }
@@ -312,8 +313,8 @@ mod e2e_tests {
     use super::*;
     use crate::{client::BlockFetcher, config::BtcNotifyConfig};
 
-    // TODO(proofofkeags): once rust-bitcoin@0.33.x lands this isn't necessary anymore. This is
-    // due to a bug in rust-bitcoin.
+    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2692>
+    // Remove this once rust-bitcoin@0.33.x lands; it works around a rust-bitcoin bug.
     pub(crate) const BIP34_MIN_BLOCKS: usize = 17;
 
     fn setup_fetcher(rpc_url: &str, cookie_file: PathBuf) -> impl BlockFetcher<Error = String> {
@@ -347,7 +348,8 @@ mod e2e_tests {
         let mut bitcoin_conf = corepc_node::Conf::default();
         bitcoin_conf.enable_zmq = true;
 
-        // TODO(proofofkeags): do dynamic port allocation so these can be run in parallel
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2681>
+        // Use dynamic port allocation so these tests can run in parallel.
         let hash_block_socket = "tcp://127.0.0.1:23882";
         let hash_tx_socket = "tcp://127.0.0.1:23883";
         let raw_block_socket = "tcp://127.0.0.1:23884";

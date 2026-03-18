@@ -201,7 +201,8 @@ mod tests {
             stake_funds: OutPoint::default(),
         };
 
-        // FIXME: (@uncomputable) Prevent having to recreate the connectors
+        // FIXME: <https://atlassian.alpenlabs.net/browse/STR-2707>
+        // Avoid having to recreate the connectors.
         let unstaking_intent_output =
             UnstakingIntentOutput::new(setup.network, setup.n_of_n_pubkey, setup.unstaking_image);
 

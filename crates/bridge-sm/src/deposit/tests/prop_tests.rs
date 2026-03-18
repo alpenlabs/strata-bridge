@@ -25,8 +25,10 @@ mod tests {
         get_state,
         test_deposit_sm_cfg(),
         any::<DepositState>(),
-        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
-                              * STFs are implemented */
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2674>
+        // Replace `arb_handled_events()` with `any::<DepositEvent>()` once all STFs are
+        // implemented.
+        arb_handled_events()
     );
 
     // Property: Terminal states reject all events
@@ -35,7 +37,9 @@ mod tests {
         create_sm,
         test_deposit_sm_cfg(),
         arb_terminal_state(),
-        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
-                              * STFs are implemented */
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2674>
+        // Replace `arb_handled_events()` with `any::<DepositEvent>()` once all STFs are
+        // implemented.
+        arb_handled_events()
     );
 }

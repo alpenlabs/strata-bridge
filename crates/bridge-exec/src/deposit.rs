@@ -584,8 +584,8 @@ async fn request_payout_nonces(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, "executing request_payout_nonces duty");
 
-    // TODO (mukeshdroid): Ideally, the s2 client could provide the descriptor directly instead of
-    // simply returning the public key.
+    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2668>
+    // Have the s2 client provide the descriptor directly instead of only the public key.
     // Get the general wallet public key for the payout descriptor
     let pubkey = output_handles
         .s2_client

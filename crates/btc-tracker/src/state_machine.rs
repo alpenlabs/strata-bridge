@@ -10,8 +10,8 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::event::{BlockEvent, BlockStatus, TxEvent, TxStatus};
 
-// TODO(proofofkeags): once rust-bitcoin@0.33.x lands this isn't necessary anymore. This is due to a
-// bug in rust-bitcoin.
+// TODO: <https://atlassian.alpenlabs.net/browse/STR-2683>
+// Remove this once rust-bitcoin@0.33.x lands; it works around a rust-bitcoin bug.
 #[cfg(test)]
 pub(crate) const BIP34_MIN_HEIGHT: u64 = 17;
 
@@ -145,20 +145,17 @@ impl BtcNotifySM {
                 } else {
                     // This implies that we missed a block.
                     //
-                    // TODO(proofofkeags): It's also possible that race conditions in the concurrent
-                    // stream processing would cause this to fire during a
-                    // reorg. Race conditions MUST NOT cause this to fire. This MUST
-                    // be fixed.
+                    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2684>
+                    // Eliminate the race where concurrent stream processing can trigger this path
+                    // during a reorg.
                     trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
                     warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
                     debug_assert!(false, "block's previous block hash does not match the tip");
                 }
             }
-            // TODO(proofofkeags): fix the problem where we can't notice reorgs close to startup
-            // time This is due to the fact that we don't have a full bury depth of
-            // history. Fixing this requires us to backfill the block history at startup
-            // using the RPC interface, or accepting the blocks newer than the
-            // bury depth as an argument to the constructor.
+            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2685>
+            // Handle reorgs close to startup when we do not yet have a full bury-depth of
+            // history.
             None => {
                 trace!(?block, "no tip found, adding block to unburied blocks");
                 self.unburied_blocks.push_front(block);
@@ -424,10 +421,9 @@ impl BtcNotifySM {
                     // In this case we have received a MempoolAcceptance event for this txid, but
                     // haven't yet processed the accompanying rawtx event.
                     //
-                    // TODO(proofofkeags): relax this. In theory it should never happen but I don't
-                    // think it is a material issue if we do. This is currently
-                    // a panic to allow us to quickly discover
-                    // if this assumption doesn't hold and what it means
+                    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2686>
+                    // Replace this panic-only assumption with explicit handling if
+                    // `MempoolAcceptance` arrives before the corresponding `rawtx`.
                     Some(None) => {
                         panic!("invariant violated: MempoolAcceptance received before rawtx")
                     }

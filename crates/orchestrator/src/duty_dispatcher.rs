@@ -10,8 +10,9 @@ use tracing::error;
 
 use crate::sm_types::UnifiedDuty;
 
-// TODO: (@Rajil1213) Add a `duty_tracker` to keep track of which duties have been executed, which
-// are pending, and which have failed, in order to implement retries and better error handling.
+// TODO: <https://atlassian.alpenlabs.net/browse/STR-2698>
+// Add a `duty_tracker` to track executed, pending, and failed duties for retries and better error
+// handling.
 
 /// The `DutyDispatcher` is responsible for dispatching duties emitted by the state machines to the
 /// appropriate executors.

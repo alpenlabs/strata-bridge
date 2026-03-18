@@ -52,7 +52,8 @@ impl BlockFetcher for BtcFetcher {
     type Error = ClientError;
 
     async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
-        // TODO: (@Rajil1213) make these configurable
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2664>
+        // Make these retry settings configurable.
         const MAX_RETRIES: usize = 10;
         const INITIAL_DELAY: Duration = Duration::from_secs(1);
         const MAX_DELAY: Duration = Duration::from_secs(60);
