@@ -15,7 +15,6 @@ strata-p2p.workspace = true
 anyhow.workspace = true
 bitcoin.workspace = true
 libp2p.workspace = true
-libp2p-identity.workspace = true
 musig2.workspace = true
 rkyv.workspace = true
 serde.workspace = true

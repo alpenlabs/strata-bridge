@@ -8,7 +8,7 @@ use libp2p::{
     identity::{ed25519::Keypair as EdKeypair, Keypair},
     Multiaddr, PeerId,
 };
-use strata_bridge_p2p_types::{GossipsubMsg, UnsignedGossipsubMsg};
+use strata_bridge_p2p_types::UnsignedGossipsubMsg;
 use strata_p2p::{
     events::GossipEvent,
     swarm::{
@@ -27,7 +27,6 @@ pub(crate) struct Operator {
     pub(crate) p2p: P2P,
     pub(crate) gossip_handle: GossipHandle,
     pub(crate) req_resp_handle: ReqRespHandle,
-    pub(crate) kp: EdKeypair,
 }
 
 const HEARTBEAT_INITIAL_DELAY: Duration = Duration::from_secs(5);
@@ -90,7 +89,6 @@ impl Operator {
             gossip_handle,
             req_resp_handle,
             p2p,
-            kp: keypair,
         })
     }
 }
@@ -189,8 +187,7 @@ impl Setup {
             tasks.spawn(operator.p2p.listen());
 
             let (ouroboros_tx, ouroboros_rx) = mpsc::unbounded_channel();
-            let handler =
-                MessageHandler::new(ouroboros_tx, operator.gossip_handle.clone(), operator.kp);
+            let handler = MessageHandler::new(ouroboros_tx, operator.gossip_handle.clone());
 
             levers.push(OperatorHandle {
                 handler,
@@ -233,9 +230,9 @@ pub(crate) async fn verify_dispatch(
         for _ in 0..operators_num - 1 {
             let GossipEvent::ReceivedMessage(message) = operator.gossip_handle.next_event().await?;
             let archived =
-                rkyv::access::<rkyv::Archived<GossipsubMsg>, rkyv::rancor::Error>(&message.data)
+                rkyv::access::<rkyv::Archived<UnsignedGossipsubMsg>, rkyv::rancor::Error>(&message.data)
                     .expect("must be able to access archived msg");
-            let _msg = rkyv::deserialize::<GossipsubMsg, rkyv::rancor::Error>(archived)
+            let _msg = rkyv::deserialize::<UnsignedGossipsubMsg, rkyv::rancor::Error>(archived)
                 .expect("must be able to deserialize msg");
         }
 

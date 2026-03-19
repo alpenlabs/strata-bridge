@@ -38,7 +38,7 @@ pub(crate) fn classify(
         UnifiedEvent::GossipMessage { sender, msg } => classify_unsigned_gossip(
             sm_registry,
             &OperatorKey::Peer(sender),
-            &msg.unsigned,
+            msg,
         )
         .into_iter()
         .next(),
@@ -407,7 +407,7 @@ fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent
 
 #[cfg(test)]
 mod tests {
-    use strata_bridge_p2p_types::{GossipsubMsg, PayoutDescriptor, UnsignedGossipsubMsg};
+    use strata_bridge_p2p_types::{PayoutDescriptor, UnsignedGossipsubMsg};
     use strata_bridge_primitives::types::{
         BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey,
     };
@@ -736,11 +736,7 @@ mod tests {
         let unsigned = payout_descriptor_msg(0, OPERATOR_IDX);
         let event = UnifiedEvent::GossipMessage {
             sender: sender_key.clone(),
-            msg: GossipsubMsg {
-                signature: vec![],
-                key: sender_key,
-                unsigned,
-            },
+            msg: unsigned,
         };
 
         let result = classify(&SMId::Deposit(0), &event, &registry);
@@ -768,10 +764,6 @@ mod tests {
             .expect("deposit exists")
             .context()
             .operator_table();
-        let embedded_sender_key = operator_table
-            .idx_to_p2p_key(&EMBEDDED_SENDER_IDX)
-            .expect("embedded sender exists")
-            .clone();
         let authenticated_sender_key = operator_table
             .idx_to_p2p_key(&AUTHENTICATED_SENDER_IDX)
             .expect("authenticated sender exists")
@@ -779,11 +771,7 @@ mod tests {
         let unsigned = payout_descriptor_msg(0, EMBEDDED_SENDER_IDX);
         let event = UnifiedEvent::GossipMessage {
             sender: authenticated_sender_key,
-            msg: GossipsubMsg {
-                signature: vec![],
-                key: embedded_sender_key,
-                unsigned,
-            },
+            msg: unsigned,
         };
 
         let result = classify(&SMId::Deposit(0), &event, &registry);

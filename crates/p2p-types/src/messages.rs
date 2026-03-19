@@ -3,7 +3,6 @@
 use std::fmt;
 
 use bitcoin::hashes::Hash;
-use libp2p_identity::ed25519;
 use proptest_derive::Arbitrary;
 use rkyv::{Archive, Deserialize, Serialize};
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx, P2POperatorPubKey};
@@ -479,17 +478,6 @@ impl UnsignedGossipsubMsg {
         buf
     }
 
-    /// Signs the message with an ed25519 keypair.
-    pub fn sign_ed25519(&self, keypair: &ed25519::Keypair) -> GossipsubMsg {
-        let content = self.content_bytes();
-        let signature = keypair.sign(&content);
-
-        GossipsubMsg {
-            key: keypair.public().clone().into(),
-            signature,
-            unsigned: self.clone(),
-        }
-    }
 }
 
 impl fmt::Debug for UnsignedGossipsubMsg {
@@ -534,63 +522,12 @@ impl fmt::Display for UnsignedGossipsubMsg {
     }
 }
 
-/// Signed gossipsub message wrapper.
-#[derive(Clone, Archive, Serialize, Deserialize)]
-pub struct GossipsubMsg {
-    /// ED25519 signature over the message content (64 bytes).
-    pub signature: Vec<u8>,
-
-    /// Sender's P2P public key (32 bytes).
-    pub key: P2POperatorPubKey,
-
-    /// The unsigned message payload.
-    pub unsigned: UnsignedGossipsubMsg,
-}
-
-impl GossipsubMsg {
-    /// Returns the content bytes for signature verification.
-    pub fn content_bytes(&self) -> Vec<u8> {
-        self.unsigned.content_bytes()
-    }
-
-    /// Verifies the signature using the embedded public key.
-    pub fn verify(&self) -> bool {
-        self.key.verify(&self.content_bytes(), &self.signature)
-    }
-}
-
-impl fmt::Debug for GossipsubMsg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "GossipsubMsg(key: {}, unsigned: {:?})",
-            self.key, self.unsigned
-        )
-    }
-}
-
-impl fmt::Display for GossipsubMsg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use libp2p_identity::ed25519::Keypair;
-    use secp256k1::rand::{rngs::OsRng, Rng};
     use strata_bridge_test_utils::musig2::{generate_partial_signature, generate_pubnonce};
 
     use super::*;
     use crate::{PartialSignature, PayoutDescriptor, PubNonce};
-
-    // Helper to generate random ed25519 keypair for message signing tests.
-    fn test_keypair() -> Keypair {
-        let mut secret_bytes: [u8; 32] = OsRng.gen();
-        let secret =
-            libp2p_identity::ed25519::SecretKey::try_from_bytes(&mut secret_bytes).unwrap();
-        Keypair::from(secret)
-    }
 
     // Helper to create a test PubNonce using test-utils.
     fn test_pubnonce() -> PubNonce {
@@ -894,25 +831,6 @@ mod tests {
 
         // Should just have discriminator + graph_idx
         assert_eq!(content.len(), 1 + 4 + 4);
-    }
-
-    // Verifies GossipsubMsg::content_bytes() delegates to the unsigned message.
-    #[test]
-    fn gossipsub_msg_content_bytes_delegates_to_unsigned() {
-        let keypair = test_keypair();
-        let unsigned = UnsignedGossipsubMsg::PayoutDescriptorExchange {
-            deposit_idx: 1,
-            operator_idx: 2,
-            operator_desc: test_payout_descriptor(),
-        };
-
-        let signed = unsigned.clone().sign_ed25519(&keypair);
-
-        assert_eq!(
-            signed.content_bytes(),
-            unsigned.content_bytes(),
-            "GossipsubMsg::content_bytes should return unsigned message content"
-        );
     }
 
     // Verifies NagRequestPayload::DepositNonce serializes with correct byte layout.

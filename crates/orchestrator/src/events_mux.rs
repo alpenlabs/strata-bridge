@@ -8,7 +8,7 @@ use strata_asm_proto_bridge_v1::AssignmentEntry;
 use strata_bridge_asm_events::event::AssignmentsState;
 use strata_bridge_p2p_service::message_handler::OuroborosMessage;
 use strata_bridge_primitives::types::P2POperatorPubKey;
-use strata_bridge_p2p_types::GossipsubMsg;
+use strata_bridge_p2p_types::UnsignedGossipsubMsg;
 use strata_bridge_primitives::subscription::Subscription;
 use strata_p2p::{
     events::GossipEvent,
@@ -34,7 +34,7 @@ pub enum UnifiedEvent {
         /// Authenticated sender key from `strata-p2p`.
         sender: P2POperatorPubKey,
         /// Bridge payload decoded from the authenticated gossip bytes.
-        msg: GossipsubMsg,
+        msg: UnsignedGossipsubMsg,
     },
     /// Priority 5a: Periodic tick for nagging peers for missing messages.
     NagTick,
@@ -108,7 +108,7 @@ impl EventsMux {
 
                 // Then, we handle gossip messages received from peers.
                 Ok(GossipEvent::ReceivedMessage(message)) = self.gossip_handle.next_event() => {
-                    let Ok(msg) = rkyv::from_bytes::<GossipsubMsg, rancor::Error>(&message.data) else {
+                    let Ok(msg) = rkyv::from_bytes::<UnsignedGossipsubMsg, rancor::Error>(&message.data) else {
                         // If we fail to deserialize the message, we ignore it and continue polling.
                         warn!("received invalid gossip message from peer");
                         continue;

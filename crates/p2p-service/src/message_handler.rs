@@ -2,7 +2,6 @@
 
 use bitcoin::OutPoint;
 use libp2p::futures::SinkExt;
-use libp2p_identity::ed25519::Keypair;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_p2p_types::{
     GraphIdx, MuSig2Nonce, MuSig2Partial, NagRequest, PayoutDescriptor, UnsignedGossipsubMsg,
@@ -27,9 +26,6 @@ pub struct MessageHandler {
 
     /// For direct gossip publishing.
     gossip_handle: GossipHandle,
-
-    /// For signing messages.
-    keypair: Keypair,
 }
 
 impl MessageHandler {
@@ -37,12 +33,10 @@ impl MessageHandler {
     pub const fn new(
         ouroboros_msg_sender: mpsc::UnboundedSender<OuroborosMessage>,
         gossip_handle: GossipHandle,
-        keypair: Keypair,
     ) -> Self {
         Self {
             ouroboros_msg_sender,
             gossip_handle,
-            keypair,
         }
     }
 
@@ -199,15 +193,13 @@ impl MessageHandler {
     ) {
         trace!(%description, ?msg, "sending message via combined dispatch");
 
-        // 1. Sign message (borrows msg)
-        let signed = msg.sign_ed25519(&self.keypair);
         let mut data = Vec::new();
-        if let Err(e) = rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&signed, &mut data) {
-            error!(%description, %e, "failed to serialize signed message");
+        if let Err(e) = rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data) {
+            error!(%description, %e, "failed to serialize message");
             return;
         }
 
-        // 2. Send unsigned to ouroboros for local processing (moves msg)
+        // 1. Send unsigned to ouroboros for local processing (moves msg)
         if let Err(e) = self
             .ouroboros_msg_sender
             .send(OuroborosMessage { publish: msg })
@@ -216,7 +208,7 @@ impl MessageHandler {
             return;
         }
 
-        // 3. Send to network: directed to specific peer OR broadcast to all
+        // 2. Send to network: directed to specific peer OR broadcast to all
         match peer {
             Some(channel) => {
                 // Direct response to requesting peer

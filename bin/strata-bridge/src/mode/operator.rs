@@ -60,7 +60,6 @@ pub(crate) async fn bootstrap(
         command_handle,
         gossip_handle,
         req_resp_handle,
-        keypair,
     } = init_p2p_handles(&config, &params, &s2_client, &executor).await?;
     info!("p2p client initialized, connected to swarm and listening");
 
@@ -76,7 +75,6 @@ pub(crate) async fn bootstrap(
         &s2_client,
         gossip_handle,
         req_resp_handle,
-        keypair,
         operator_wallet,
         btc_rpc_client,
         db.clone(),

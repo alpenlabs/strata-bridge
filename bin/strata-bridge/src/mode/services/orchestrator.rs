@@ -6,7 +6,6 @@ use anyhow::anyhow;
 use bitcoin::{FeeRate, relative};
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
-use libp2p_identity::ed25519::Keypair;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_asm_events::client::AsmEventFeed;
@@ -38,7 +37,6 @@ pub(crate) async fn init_orchestrator(
     s2_client: &SecretServiceClient,
     gossip_handle: GossipHandle,
     req_resp_handle: ReqRespHandle,
-    p2p_keypair: Keypair,
     wallet: OperatorWallet,
     btc_rpc_client: BitcoinClient,
     fdb_client: Arc<FdbClient>,
@@ -66,8 +64,7 @@ pub(crate) async fn init_orchestrator(
     let zmq_client = init_zmq_client(config, start_height).await?;
 
     let (ouroboros_msg_sender, ouroboros_msg_receiver) = mpsc::unbounded_channel();
-    let message_handler =
-        MessageHandler::new(ouroboros_msg_sender, gossip_handle.clone(), p2p_keypair);
+    let message_handler = MessageHandler::new(ouroboros_msg_sender, gossip_handle.clone());
 
     debug!("initializing asm assignments feed");
     let asm_block_feed = zmq_client.subscribe_blocks().await;

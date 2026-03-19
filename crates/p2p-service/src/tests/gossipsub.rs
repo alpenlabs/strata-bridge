@@ -213,18 +213,19 @@ async fn dispatch_direct_peer() -> anyhow::Result<()> {
         UnsignedGossipsubMsg::PayoutDescriptorExchange { .. }
     ));
 
-    // Verify the oneshot channel received the signed serialized bytes
+    // Verify the oneshot channel received the serialized bytes
     let data = rx.await.expect("oneshot should have received data");
     let archived = rkyv::access::<
-        rkyv::Archived<strata_bridge_p2p_types::GossipsubMsg>,
+        rkyv::Archived<strata_bridge_p2p_types::UnsignedGossipsubMsg>,
         rkyv::rancor::Error,
     >(&data)
     .expect("must be able to access archived msg");
-    let msg =
-        rkyv::deserialize::<strata_bridge_p2p_types::GossipsubMsg, rkyv::rancor::Error>(archived)
-            .expect("must be able to deserialize msg");
+    let msg = rkyv::deserialize::<strata_bridge_p2p_types::UnsignedGossipsubMsg, rkyv::rancor::Error>(
+        archived,
+    )
+    .expect("must be able to deserialize msg");
     assert!(matches!(
-        msg.unsigned,
+        msg,
         UnsignedGossipsubMsg::PayoutDescriptorExchange { .. }
     ));
 

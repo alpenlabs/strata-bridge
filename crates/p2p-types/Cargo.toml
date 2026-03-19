@@ -11,7 +11,6 @@ strata-bridge-primitives.workspace = true
 
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
-libp2p-identity.workspace = true
 musig2.workspace = true
 proptest.workspace = true
 proptest-derive.workspace = true
@@ -21,5 +20,4 @@ serde.workspace = true
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
 
-secp256k1 = { workspace = true, features = ["rand"] }
 serde_json.workspace = true

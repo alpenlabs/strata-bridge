@@ -5,7 +5,7 @@ use ed25519_dalek::SigningKey;
 use libp2p::PeerId;
 use libp2p_identity::{
     PublicKey as LibP2pPublicKey,
-    ed25519::{Keypair, PublicKey as LibP2pEdPublicKey},
+    ed25519::PublicKey as LibP2pEdPublicKey,
 };
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{P2PSigner, SecretService};
@@ -29,8 +29,6 @@ pub(in crate::mode) struct P2PHandles {
     pub(in crate::mode) gossip_handle: GossipHandle,
     /// Handle to the request-response subsystem.
     pub(in crate::mode) req_resp_handle: ReqRespHandle,
-    /// [`Keypair`] used as [`PeerId`].
-    pub(in crate::mode) keypair: Keypair,
 }
 
 /// Initializes the p2p handles based on the provided configuration and parameters.
@@ -120,6 +118,5 @@ pub(in crate::mode) async fn init_p2p_handles(
         command_handle: handles.command_handle,
         gossip_handle: handles.gossip_handle,
         req_resp_handle: handles.req_resp_handle,
-        keypair: config.keypair,
     })
 }
