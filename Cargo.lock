@@ -10277,6 +10277,7 @@ dependencies = [
  "bitcoin-bosd",
  "btc-tracker",
  "futures",
+ "libp2p-identity",
  "musig2",
  "rkyv",
  "strata-asm-proto-bridge-v1",

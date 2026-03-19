@@ -102,7 +102,7 @@ impl EventsMux {
 
                 // Then, we handle gossip messages received from peers.
                 Ok(GossipEvent::ReceivedMessage(raw_msg)) = self.gossip_handle.next_event() => {
-                    let Ok(msg) = rkyv::from_bytes::<GossipsubMsg, rancor::Error>(&raw_msg) else {
+                    let Some(msg) = decode_gossip_message(&raw_msg) else {
                         // If we fail to deserialize the message, we ignore it and continue polling.
                         warn!("received invalid gossip message from peer");
                         continue;
@@ -121,5 +121,37 @@ impl EventsMux {
                 _retry_instant = self.retry_tick.tick() => return UnifiedEvent::RetryTick,
             }
         }
+    }
+}
+
+fn decode_gossip_message(raw_msg: &[u8]) -> Option<GossipsubMsg> {
+    rkyv::from_bytes::<GossipsubMsg, rancor::Error>(raw_msg).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use libp2p_identity::ed25519::Keypair;
+    use rkyv::{rancor::Error, to_bytes};
+    use strata_bridge_p2p_types::{PayoutDescriptor, UnsignedGossipsubMsg};
+
+    use super::decode_gossip_message;
+
+    #[test]
+    fn decode_gossip_message_rejects_invalid_inner_signature() {
+        let keypair = Keypair::generate();
+        let unsigned = UnsignedGossipsubMsg::PayoutDescriptorExchange {
+            deposit_idx: 7,
+            operator_idx: 3,
+            operator_desc: PayoutDescriptor::new(vec![0xDE, 0xAD]),
+        };
+        let mut signed = unsigned.sign_ed25519(&keypair);
+        signed.signature[0] ^= 0x01; // mess with the signature to make it invalid
+
+        let raw_msg = to_bytes::<Error>(&signed).expect("serialize gossip message");
+
+        assert!(
+            decode_gossip_message(raw_msg.as_ref()).is_none(),
+            "invalid inner signatures should be rejected before classification"
+        );
     }
 }
