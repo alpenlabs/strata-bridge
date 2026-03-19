@@ -103,8 +103,6 @@ impl EventsMux {
                 // Then, we handle gossip messages received from peers.
                 Ok(GossipEvent::ReceivedMessage(raw_msg)) = self.gossip_handle.next_event() => {
                     let Some(msg) = decode_gossip_message(&raw_msg) else {
-                        // If we fail to deserialize the message, we ignore it and continue polling.
-                        warn!("received invalid gossip message from peer");
                         continue;
                     };
 
@@ -125,7 +123,17 @@ impl EventsMux {
 }
 
 fn decode_gossip_message(raw_msg: &[u8]) -> Option<GossipsubMsg> {
-    rkyv::from_bytes::<GossipsubMsg, rancor::Error>(raw_msg).ok()
+    let Ok(msg) = rkyv::from_bytes::<GossipsubMsg, rancor::Error>(raw_msg) else {
+        warn!("received invalid gossip message from peer");
+        return None;
+    };
+
+    if !msg.verify() {
+        warn!(peer = %msg.key, "received gossip message with invalid signature from peer");
+        return None;
+    }
+
+    Some(msg)
 }
 
 #[cfg(test)]
