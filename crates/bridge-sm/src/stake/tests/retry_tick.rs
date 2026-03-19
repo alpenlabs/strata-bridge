@@ -5,6 +5,7 @@ use crate::stake::{duties::StakeDuty, events::RetryTickEvent, state::StakeState}
 
 #[test]
 fn retry_publish_stake() {
+    let stake_graph = StakeGraph::new(TEST_STAKE_DATA.clone());
     let from_state = StakeState::UnstakingSigned {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
@@ -18,7 +19,7 @@ fn retry_publish_stake() {
         event: RetryTickEvent.into(),
         expected_state,
         expected_duties: vec![StakeDuty::PublishStake {
-            operator_idx: TEST_CTX.operator_idx(),
+            tx: stake_graph.stake.as_ref().clone(),
         }],
         expected_signals: vec![],
     });

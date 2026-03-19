@@ -1,5 +1,6 @@
 //! Duties for the Stake State Machine.
 
+use bitcoin::Transaction;
 use musig2::AggNonce;
 use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
@@ -12,10 +13,10 @@ pub enum StakeDuty {
         /// The operator who owns the stake graph.
         operator_idx: OperatorIdx,
     },
-    /// Publish the stake transaction for a given operator.
+    /// Publish the stake transaction.
     PublishStake {
-        /// The operator who owns the stake graph.
-        operator_idx: OperatorIdx,
+        /// The unsigned stake transaction.
+        tx: Transaction,
     },
     /// Publish the nonces for a given operator.
     PublishUnstakingNonces {
@@ -69,9 +70,7 @@ impl std::fmt::Display for StakeDuty {
             Self::PublishStakeData { operator_idx } => {
                 format!("PublishStakeData (operator_idx: {operator_idx})")
             }
-            Self::PublishStake { operator_idx } => {
-                format!("PublishStake (operator_idx: {operator_idx})")
-            }
+            Self::PublishStake { .. } => "PublishStake".to_string(),
             Self::PublishUnstakingNonces { .. } => "PublishUnstakingNonces".to_string(),
             Self::PublishUnstakingPartials { .. } => "PublishUnstakingPartials".to_string(),
             Self::PublishUnstakingIntent { .. } => "PublishUnstakingIntent".to_string(),
