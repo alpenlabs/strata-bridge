@@ -15,13 +15,9 @@ fn nag_stake_data() {
         last_block_height: STAKE_HEIGHT,
     };
     let expected_state = from_state.clone();
-    let present = BTreeSet::from([TEST_CTX.operator_idx()]);
-    let expected_duties = TEST_CTX
-        .operator_table()
-        .operator_idxs()
-        .difference(&present)
-        .map(|&operator_idx| StakeDuty::Nag(NagDuty::NagStakeData { operator_idx }))
-        .collect::<Vec<_>>();
+    let expected_duties = vec![StakeDuty::Nag(NagDuty::NagStakeData {
+        operator_idx: TEST_CTX.operator_idx(),
+    })];
     test_stake_transition(StakeTransition {
         from_state,
         event: NagTickEvent.into(),
