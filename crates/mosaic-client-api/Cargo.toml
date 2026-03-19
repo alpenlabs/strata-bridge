@@ -1,0 +1,14 @@
+[package]
+edition = "2024"
+name = "strata-mosaic-client-api"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-bridge-primitives = { workspace = true, features = ["async"] }
+
+async-trait.workspace = true
+bitcoin.workspace = true
+thiserror.workspace = true
