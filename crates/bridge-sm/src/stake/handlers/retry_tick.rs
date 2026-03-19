@@ -1,3 +1,5 @@
+use strata_bridge_tx_graph::stake_graph::StakeGraph;
+
 use crate::{
     stake::{
         duties::StakeDuty,
@@ -14,9 +16,12 @@ impl StakeSM {
     /// Emits retriable duties for the current state.
     pub(crate) fn process_retry_tick(&self) -> SSMResult<SSMOutput> {
         let duties = match self.state() {
-            StakeState::UnstakingSigned { .. } => vec![StakeDuty::PublishStake {
-                operator_idx: self.context().operator_idx(),
-            }],
+            StakeState::UnstakingSigned { stake_data, .. } => {
+                let stake_graph = StakeGraph::new(stake_data.clone());
+                vec![StakeDuty::PublishStake {
+                    tx: stake_graph.stake.as_ref().clone(),
+                }]
+            }
             _ => Vec::new(),
         };
 
