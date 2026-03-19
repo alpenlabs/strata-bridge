@@ -14,6 +14,7 @@ members = [
   "crates/proof-db",
   "crates/key-deriv",
   "crates/memory_pprof",
+  "crates/mosaic-client-api",
   "crates/operator-wallet",
   "crates/orchestrator",
   "crates/p2p-service",
@@ -74,6 +75,7 @@ strata-bridge-rpc = { path = "crates/rpc" }
 strata-bridge-sm = { path = "crates/bridge-sm" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
+strata-mosaic-client-api = { path = "crates/mosaic-client-api" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 201c3fa0 (main @ 2026-03-12)
 asm-storage = { git = "https://github.com/alpenlabs/asm.git", rev = "124edbf43be12c2ebad4e5776727ba06259f8dfb" }
