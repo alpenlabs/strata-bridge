@@ -29,10 +29,9 @@ impl StakeSM {
         };
 
         let duties = match self.state() {
-            StakeState::Created { .. } => expected_ids
-                .difference(&present_ids)
-                .map(|&operator_idx| StakeDuty::Nag(NagDuty::NagStakeData { operator_idx }))
-                .collect(),
+            StakeState::Created { .. } => vec![StakeDuty::Nag(NagDuty::NagStakeData {
+                operator_idx: self.context().operator_idx(),
+            })],
             StakeState::StakeGraphGenerated { .. } => expected_ids
                 .difference(&present_ids)
                 .map(|&operator_idx| StakeDuty::Nag(NagDuty::NagUnstakingNonces { operator_idx }))
