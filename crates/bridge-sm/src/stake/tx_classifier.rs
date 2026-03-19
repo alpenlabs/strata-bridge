@@ -25,20 +25,27 @@ impl TxClassifier for StakeSM {
         match self.state() {
             StakeState::Created { .. } => None,
             StakeState::StakeGraphGenerated { .. } => None,
-            StakeState::UnstakingNoncesCollected { .. } => None,
+            // NOTE: (@uncomputable) When an operator submits its partial last and it already has
+            // partials from all other operators, then it will publish the stake transaction.
+            // If the other operators see the stake transaction on chain before receiving the
+            // partial, then they will still be in the UnstakingNoncesCollected state.
+            // We have to handle this case here, even though it is unlikely.
+            StakeState::UnstakingNoncesCollected { stake_data, .. }
+            | StakeState::UnstakingSigned { stake_data, .. } => {
+                let stake_txid = StakeGraph::new(stake_data.clone())
+                    .stake
+                    .as_ref()
+                    .compute_txid();
 
-            StakeState::UnstakingSigned {
-                expected_stake_txid,
-                ..
-            } if txid == *expected_stake_txid => {
-                Some(StakeConfirmedEvent { tx: tx.clone() }.into())
+                (txid == stake_txid).then(|| StakeConfirmedEvent { tx: tx.clone() }.into())
             }
-            StakeState::UnstakingSigned { .. } => None,
-
             StakeState::Confirmed { stake_data, .. } => {
-                let summary = StakeGraph::new(stake_data.clone()).summarize();
+                let unstaking_intent_txid = StakeGraph::new(stake_data.clone())
+                    .unstaking_intent
+                    .as_ref()
+                    .compute_txid();
 
-                (txid == summary.unstaking_intent).then(|| {
+                (txid == unstaking_intent_txid).then(|| {
                     PreimageRevealedEvent {
                         tx: tx.clone(),
                         block_height: height,
@@ -46,7 +53,6 @@ impl TxClassifier for StakeSM {
                     .into()
                 })
             }
-
             StakeState::PreimageRevealed {
                 expected_unstaking_txid,
                 ..
