@@ -17,6 +17,16 @@ fn unstaking_signed_state() -> StakeState {
     }
 }
 
+fn unstaking_nonces_collected_state() -> StakeState {
+    StakeState::UnstakingNoncesCollected {
+        last_block_height: STAKE_HEIGHT,
+        stake_data: TEST_STAKE_DATA.clone(),
+        pub_nonces: TEST_PUB_NONCES_MAP.clone(),
+        agg_nonces: TEST_AGG_NONCES.clone(),
+        partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
+    }
+}
+
 fn confirmed_state() -> StakeState {
     StakeState::Confirmed {
         last_block_height: STAKE_HEIGHT,
@@ -45,13 +55,7 @@ fn all_state_variants() -> Vec<StakeState> {
             stake_data: TEST_STAKE_DATA.clone(),
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
         },
-        StakeState::UnstakingNoncesCollected {
-            last_block_height: STAKE_HEIGHT,
-            stake_data: TEST_STAKE_DATA.clone(),
-            pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-            agg_nonces: TEST_AGG_NONCES.clone(),
-            partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
-        },
+        unstaking_nonces_collected_state(),
         unstaking_signed_state(),
         confirmed_state(),
         preimage_revealed_state(),
@@ -64,13 +68,15 @@ fn all_state_variants() -> Vec<StakeState> {
 
 #[test]
 fn classify_stake_tx() {
-    let sm = create_state_machine(unstaking_signed_state());
-    let result = sm.classify_tx(&TEST_CFG, TEST_GRAPH.stake.as_ref(), CLASSIFICATION_HEIGHT);
+    for state in [unstaking_nonces_collected_state(), unstaking_signed_state()] {
+        let sm = create_state_machine(state.clone());
+        let result = sm.classify_tx(&TEST_CFG, TEST_GRAPH.stake.as_ref(), CLASSIFICATION_HEIGHT);
 
-    assert!(
-        matches!(result, Some(StakeEvent::StakeConfirmed(_))),
-        "expected Some(StakeConfirmed) but got {result:?}"
-    );
+        assert!(
+            matches!(result, Some(StakeEvent::StakeConfirmed(_))),
+            "expected Some(StakeConfirmed) but got {result:?} in state {state}"
+        );
+    }
 }
 
 #[test]
@@ -129,7 +135,10 @@ fn ignore_relevant_tx_in_mismatching_states() {
 
         let stake_result =
             sm.classify_tx(&TEST_CFG, TEST_GRAPH.stake.as_ref(), CLASSIFICATION_HEIGHT);
-        let expect_stake = matches!(state, StakeState::UnstakingSigned { .. });
+        let expect_stake = matches!(
+            state,
+            StakeState::UnstakingNoncesCollected { .. } | StakeState::UnstakingSigned { .. }
+        );
         assert_eq!(
             stake_result.is_some(),
             expect_stake,
