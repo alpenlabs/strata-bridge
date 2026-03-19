@@ -7,6 +7,7 @@ use rkyv::rancor;
 use strata_asm_proto_bridge_v1::AssignmentEntry;
 use strata_bridge_asm_events::event::AssignmentsState;
 use strata_bridge_p2p_service::message_handler::OuroborosMessage;
+use strata_bridge_primitives::types::P2POperatorPubKey;
 use strata_bridge_p2p_types::GossipsubMsg;
 use strata_bridge_primitives::subscription::Subscription;
 use strata_p2p::{
@@ -28,8 +29,13 @@ pub enum UnifiedEvent {
     Block(BlockEvent),
     /// Priority 3: Assignment entries identified by the ASM runner.
     Assignment(Vec<AssignmentEntry>),
-    /// Priority 4a: Gossip messages received from peers.
-    GossipMessage(GossipsubMsg),
+    /// Priority 4a: Gossip messages received from peers together with the authenticated sender.
+    GossipMessage {
+        /// Authenticated sender key from `strata-p2p`.
+        sender: P2POperatorPubKey,
+        /// Bridge payload decoded from the authenticated gossip bytes.
+        msg: GossipsubMsg,
+    },
     /// Priority 5a: Periodic tick for nagging peers for missing messages.
     NagTick,
     /// Priority 5b: Periodic tick for retrying failed duties.
@@ -101,14 +107,19 @@ impl EventsMux {
                 Some(state) = self.assignments_sub.next() => return UnifiedEvent::Assignment(state.assignments),
 
                 // Then, we handle gossip messages received from peers.
-                Ok(GossipEvent::ReceivedMessage(raw_msg)) = self.gossip_handle.next_event() => {
-                    let Ok(msg) = rkyv::from_bytes::<GossipsubMsg, rancor::Error>(&raw_msg) else {
+                Ok(GossipEvent::ReceivedMessage(message)) = self.gossip_handle.next_event() => {
+                    let Ok(msg) = rkyv::from_bytes::<GossipsubMsg, rancor::Error>(&message.data) else {
                         // If we fail to deserialize the message, we ignore it and continue polling.
                         warn!("received invalid gossip message from peer");
                         continue;
                     };
 
-                    return UnifiedEvent::GossipMessage(msg);
+                    let Ok(sender) = message.sender.try_into_ed25519().map(P2POperatorPubKey::from) else {
+                        warn!("received gossip message from unsupported sender key type");
+                        continue;
+                    };
+
+                    return UnifiedEvent::GossipMessage { sender, msg };
                 },
 
                 // Then, we handle the periodic nag tick for nagging peers about missing messages.

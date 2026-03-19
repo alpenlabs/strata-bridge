@@ -35,10 +35,10 @@ pub(crate) fn classify(
                 .next()
         }
 
-        UnifiedEvent::GossipMessage(gossipsub_msg) => classify_unsigned_gossip(
+        UnifiedEvent::GossipMessage { msg, .. } => classify_unsigned_gossip(
             sm_registry,
-            &OperatorKey::Peer(&gossipsub_msg.key),
-            &gossipsub_msg.unsigned,
+            &OperatorKey::Peer(&msg.key),
+            &msg.unsigned,
         )
         .into_iter()
         .next(),
@@ -734,11 +734,14 @@ mod tests {
             .expect("operator exists")
             .clone();
         let unsigned = payout_descriptor_msg(0, OPERATOR_IDX);
-        let event = UnifiedEvent::GossipMessage(GossipsubMsg {
-            signature: vec![],
-            key: sender_key,
-            unsigned,
-        });
+        let event = UnifiedEvent::GossipMessage {
+            sender: sender_key.clone(),
+            msg: GossipsubMsg {
+                signature: vec![],
+                key: sender_key,
+                unsigned,
+            },
+        };
 
         let result = classify(&SMId::Deposit(0), &event, &registry);
         assert!(matches!(
@@ -746,6 +749,48 @@ mod tests {
             Some(SMEvent::Deposit(event))
                 if matches!(*event, DepositEvent::PayoutDescriptorReceived(_))
         ));
+    }
+
+    #[test]
+    fn classify_payout_descriptor_regression_ignores_authenticated_sender() {
+        let registry = test_populated_registry(1);
+        const EMBEDDED_SENDER_IDX: OperatorIdx = 1;
+        const AUTHENTICATED_SENDER_IDX: OperatorIdx = 2;
+        const {
+            assert!(
+                EMBEDDED_SENDER_IDX != AUTHENTICATED_SENDER_IDX,
+                "test setup requires different authenticated and embedded senders"
+            )
+        };
+
+        let operator_table = registry
+            .get_deposit(&0)
+            .expect("deposit exists")
+            .context()
+            .operator_table();
+        let embedded_sender_key = operator_table
+            .idx_to_p2p_key(&EMBEDDED_SENDER_IDX)
+            .expect("embedded sender exists")
+            .clone();
+        let authenticated_sender_key = operator_table
+            .idx_to_p2p_key(&AUTHENTICATED_SENDER_IDX)
+            .expect("authenticated sender exists")
+            .clone();
+        let unsigned = payout_descriptor_msg(0, EMBEDDED_SENDER_IDX);
+        let event = UnifiedEvent::GossipMessage {
+            sender: authenticated_sender_key,
+            msg: GossipsubMsg {
+                signature: vec![],
+                key: embedded_sender_key,
+                unsigned,
+            },
+        };
+
+        let result = classify(&SMId::Deposit(0), &event, &registry);
+        assert!(
+            result.is_none(),
+            "classification should reject mismatched authenticated sender and embedded key"
+        );
     }
 
     // ===== classify_nag_request tests =====

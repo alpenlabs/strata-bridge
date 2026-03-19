@@ -231,9 +231,9 @@ pub(crate) async fn verify_dispatch(
     // Each operator should receive broadcasts from all other operators
     for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let GossipEvent::ReceivedMessage(raw_msg) = operator.gossip_handle.next_event().await?;
+            let GossipEvent::ReceivedMessage(message) = operator.gossip_handle.next_event().await?;
             let archived =
-                rkyv::access::<rkyv::Archived<GossipsubMsg>, rkyv::rancor::Error>(&raw_msg)
+                rkyv::access::<rkyv::Archived<GossipsubMsg>, rkyv::rancor::Error>(&message.data)
                     .expect("must be able to access archived msg");
             let _msg = rkyv::deserialize::<GossipsubMsg, rkyv::rancor::Error>(archived)
                 .expect("must be able to deserialize msg");
