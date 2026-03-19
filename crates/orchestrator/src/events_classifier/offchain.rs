@@ -35,9 +35,9 @@ pub(crate) fn classify(
                 .next()
         }
 
-        UnifiedEvent::GossipMessage { msg, .. } => classify_unsigned_gossip(
+        UnifiedEvent::GossipMessage { sender, msg } => classify_unsigned_gossip(
             sm_registry,
-            &OperatorKey::Peer(&msg.key),
+            &OperatorKey::Peer(sender),
             &msg.unsigned,
         )
         .into_iter()
