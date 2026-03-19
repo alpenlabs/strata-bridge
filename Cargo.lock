@@ -8443,6 +8443,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-mosaic-client-api"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitcoin",
+ "strata-bridge-primitives",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "strata-msg-fmt"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc13#91eebd79a8054b2457983739e5d16f74446c7d37"
