@@ -21,6 +21,10 @@ jsonrpsee = { workspace = true, features = ["client"] }
 tokio.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
+tokio-stream.workspace = true
+
 [features]
 default = []
 client = ["jsonrpsee/client"]
