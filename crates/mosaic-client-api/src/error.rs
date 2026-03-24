@@ -1,8 +1,10 @@
 use std::error::Error;
 
+use strata_bridge_primitives::types::OperatorIdx;
+
 use crate::types::DepositIdx;
 
-/// Errors arising from mosaic deposit operations.
+/// Errors arising from mosaic operations.
 #[derive(Debug, thiserror::Error)]
 pub enum MosaicError {
     /// The mosaic setup was explicitly aborted.
@@ -31,6 +33,9 @@ pub enum MosaicError {
     /// An RPC communication error with the mosaic service.
     #[error("mosaic RPC error")]
     RpcError(#[source] Box<dyn Error + Send + Sync + 'static>),
+    /// Operator could not be resolved.
+    #[error("unknown operator: {0}")]
+    UnknownOperator(OperatorIdx),
 }
 
 impl MosaicError {
