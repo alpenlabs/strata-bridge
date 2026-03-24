@@ -336,6 +336,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
                 RpcTablesetStatus::SetupComplete => {
                     // complete_adaptor_sigs has not yet been processed, wait
                     debug!(%deposit_idx, "waiting for transition from SetupComplete");
+                    tokio::time::sleep(self.retry_delay).await;
                     continue;
                 }
                 RpcTablesetStatus::Contest { deposit } => {
@@ -351,6 +352,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
                     }
                     // adaptor sig completion not complete yet, wait
                     debug!(%deposit_idx, "waiting for transition from Contest");
+                    tokio::time::sleep(self.retry_delay).await;
                     continue;
                 }
                 RpcTablesetStatus::Consumed {
@@ -450,6 +452,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
                 RpcTablesetStatus::SetupComplete => {
                     // `complete_adaptor_sigs` has not yet been processed, wait.
                     debug!(%deposit_idx, "waiting for transition from SetupComplete");
+                    tokio::time::sleep(self.retry_delay).await;
                     continue;
                 }
                 RpcTablesetStatus::Contest { deposit } => {
@@ -465,6 +468,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
                     }
                     // Adaptor sig completion not complete yet, wait.
                     debug!(%deposit_idx, "waiting for transition from Contest");
+                    tokio::time::sleep(self.retry_delay).await;
                     continue;
                 }
                 RpcTablesetStatus::Consumed { deposit, success } => {
