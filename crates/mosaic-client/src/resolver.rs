@@ -24,9 +24,9 @@ pub trait MosaicIdResolver: Send + Sync + 'static {
 
     /// Resolve deposit index to its mosaic deposit id.
     /// Default: copies deposit idx as be bytes.
-    async fn resolve_deposit_id(&self, deposit_idx: DepositIdx) -> Result<DepositId, MosaicError> {
+    fn resolve_deposit_id(&self, deposit_idx: DepositIdx) -> DepositId {
         let mut deposit_id = [0u8; 32];
         deposit_id[28..].copy_from_slice(&deposit_idx.to_be_bytes());
-        Ok(deposit_id)
+        deposit_id
     }
 }
