@@ -67,13 +67,32 @@ pub(crate) fn classify_unsigned_gossip(
         UnsignedGossipsubMsg::GraphDataExchange {
             graph_idx,
             claim_input,
-        } => vec![
-            GraphEvent::GraphDataProduced(GraphEvents::GraphDataGeneratedEvent {
-                graph_idx: *graph_idx,
-                claim_funds: claim_input.inner(),
-            })
-            .into(),
-        ],
+        } => {
+            let Some(sender_idx) = sm_registry.lookup_operator(&SMId::Graph(*graph_idx), key)
+            else {
+                warn!(
+                    %graph_idx,
+                    "Received graph data from unknown sender, ignoring"
+                );
+                return vec![];
+            };
+
+            if sender_idx != graph_idx.operator {
+                warn!(
+                    %graph_idx, %sender_idx,
+                    "Received graph data with sender/operator mismatch, ignoring"
+                );
+                return vec![];
+            }
+
+            vec![
+                GraphEvent::GraphDataProduced(GraphEvents::GraphDataGeneratedEvent {
+                    graph_idx: *graph_idx,
+                    claim_funds: claim_input.inner(),
+                })
+                .into(),
+            ]
+        }
         UnsignedGossipsubMsg::PayoutDescriptorExchange {
             operator_desc,
             operator_idx,
