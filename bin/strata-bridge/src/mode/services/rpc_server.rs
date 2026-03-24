@@ -10,21 +10,27 @@ use jsonrpsee::{
     types::{ErrorCode, ErrorObjectOwned},
 };
 use libp2p::{PeerId, identity::PublicKey as LibP2pPublicKey};
-use secp256k1::Parity;
+use secp256k1::{Parity, schnorr};
 use serde::Serialize;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_orchestrator::{
     persister::Persister,
     sm_registry::{SMConfig, SMRegistry},
 };
+use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_rpc::{
-    traits::{StrataBridgeControlApiServer, StrataBridgeMonitoringApiServer},
+    traits::{
+        StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
+    },
     types::{
-        RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcDepositStatus, RpcOperatorStatus,
-        RpcWithdrawalInfo,
+        RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo,
+        RpcDepositStatus, RpcGraphData, RpcOperatorStatus, RpcWithdrawalInfo,
     },
 };
-use strata_bridge_sm::deposit::state::DepositState;
+use strata_bridge_sm::{
+    deposit::state::DepositState,
+    graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState},
+};
 use strata_p2p::swarm::handle::CommandHandle;
 use strata_primitives::buf::Buf32;
 use strata_tasks::TaskExecutor;
@@ -72,15 +78,22 @@ pub(in crate::mode) async fn init_rpc_server(
 
 async fn start_rpc<T>(rpc_impl: &T, rpc_addr: &str) -> anyhow::Result<()>
 where
-    T: StrataBridgeControlApiServer + StrataBridgeMonitoringApiServer + Clone + Sync + Send,
+    T: StrataBridgeControlApiServer
+        + StrataBridgeMonitoringApiServer
+        + StrataBridgeDaApiServer
+        + Clone
+        + Sync
+        + Send,
 {
     let mut rpc_module = RpcModule::new(rpc_impl.clone());
     let control_api = StrataBridgeControlApiServer::into_rpc(rpc_impl.clone());
     let monitoring_api = StrataBridgeMonitoringApiServer::into_rpc(rpc_impl.clone());
+    let da_api = StrataBridgeDaApiServer::into_rpc(rpc_impl.clone());
     rpc_module.merge(control_api).context("merge control api")?;
     rpc_module
         .merge(monitoring_api)
         .context("merge monitoring api")?;
+    rpc_module.merge(da_api).context("merge da api")?;
     debug!("starting bridge rpc server at {rpc_addr}");
     let rpc_server = jsonrpsee::server::ServerBuilder::new()
         .build(&rpc_addr)
@@ -348,6 +361,89 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 }
 
+#[async_trait]
+impl StrataBridgeDaApiServer for BridgeRpc {
+    async fn get_graph_data(&self, graph_idx: GraphIdx) -> RpcResult<Option<RpcGraphData>> {
+        let cached_registry = self.cached_registry.read().await;
+        let graph_cfg = cached_registry.cfg().graph.clone();
+
+        Ok(cached_registry
+            .get_graph(&graph_idx)
+            .and_then(|gsm| graph_data_response(gsm.context(), gsm.state(), &graph_cfg)))
+    }
+
+    async fn get_aggregate_signatures(
+        &self,
+        graph_idx: GraphIdx,
+    ) -> RpcResult<Option<RpcAggregateSignatures>> {
+        let cached_registry = self.cached_registry.read().await;
+
+        Ok(cached_registry
+            .get_graph(&graph_idx)
+            .and_then(|gsm| aggregate_signatures_response(graph_idx, gsm.state())))
+    }
+}
+
+fn graph_data_response(
+    context: &GraphSMCtx,
+    state: &GraphState,
+    graph_cfg: &GraphSMCfg,
+) -> Option<RpcGraphData> {
+    let graph_data = graph_data_from_state(state)?;
+    let setup = context.generate_setup_params(graph_cfg);
+
+    Some(RpcGraphData {
+        context: context.clone(),
+        setup,
+        deposit: *graph_data,
+    })
+}
+
+fn aggregate_signatures_response(
+    graph_idx: strata_bridge_primitives::types::GraphIdx,
+    state: &GraphState,
+) -> Option<RpcAggregateSignatures> {
+    let signatures = aggregate_signatures_from_state(state)?;
+
+    Some(RpcAggregateSignatures {
+        graph_idx,
+        signatures: signatures.to_vec(),
+    })
+}
+
+const fn graph_data_from_state(
+    state: &GraphState,
+) -> Option<&strata_bridge_tx_graph::game_graph::DepositParams> {
+    match state {
+        GraphState::GraphGenerated { graph_data, .. }
+        | GraphState::AdaptorsVerified { graph_data, .. }
+        | GraphState::NoncesCollected { graph_data, .. }
+        | GraphState::GraphSigned { graph_data, .. }
+        | GraphState::Assigned { graph_data, .. }
+        | GraphState::Fulfilled { graph_data, .. }
+        | GraphState::Claimed { graph_data, .. }
+        | GraphState::Contested { graph_data, .. }
+        | GraphState::BridgeProofPosted { graph_data, .. }
+        | GraphState::BridgeProofTimedout { graph_data, .. }
+        | GraphState::CounterProofPosted { graph_data, .. } => Some(graph_data),
+        _ => None,
+    }
+}
+
+fn aggregate_signatures_from_state(state: &GraphState) -> Option<&[schnorr::Signature]> {
+    match state {
+        GraphState::GraphSigned { signatures, .. }
+        | GraphState::Assigned { signatures, .. }
+        | GraphState::Fulfilled { signatures, .. }
+        | GraphState::Claimed { signatures, .. }
+        | GraphState::Contested { signatures, .. }
+        | GraphState::BridgeProofPosted { signatures, .. }
+        | GraphState::BridgeProofTimedout { signatures, .. }
+        | GraphState::CounterProofPosted { signatures, .. } => Some(signatures),
+        _ => None,
+    }
+}
+
 /// Converts a *MuSig2* operator [`PublicKey`] to a *P2P* [`PeerId`].
 ///
 /// Internally checks if the operator MuSig2 [`PublicKey`] is present in the vector of operator
@@ -378,4 +474,162 @@ fn rpc_error<T: fmt::Display + Serialize>(
     data: T,
 ) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(err_code.code(), message, Some(data))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeMap, num::NonZero};
+
+    use bitcoin::{
+        Amount, Network, OutPoint,
+        hashes::{Hash, sha256},
+        relative,
+    };
+    use secp256k1::schnorr::Signature;
+    use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+    use strata_bridge_sm::graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState};
+    use strata_bridge_test_utils::{
+        bitcoin::generate_xonly_pubkey,
+        bridge_fixtures::{
+            TEST_DEPOSIT_AMOUNT, TEST_MAGIC_BYTES, TEST_OPERATOR_FEE, TEST_POV_IDX,
+            random_p2tr_desc, test_operator_table,
+        },
+        prelude::generate_txid,
+    };
+    use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary, ProtocolParams};
+
+    use super::{aggregate_signatures_response, graph_data_response};
+
+    const DEPOSIT_IDX: DepositIdx = 3;
+    const OPERATOR_IDX: OperatorIdx = 1;
+
+    fn test_graph_idx() -> GraphIdx {
+        GraphIdx {
+            deposit: DEPOSIT_IDX,
+            operator: OPERATOR_IDX,
+        }
+    }
+
+    fn test_graph_data() -> DepositParams {
+        DepositParams {
+            game_index: NonZero::new(DEPOSIT_IDX + 1).expect("non-zero"),
+            claim_funds: OutPoint::new(bitcoin::Txid::all_zeros(), 1),
+            deposit_outpoint: OutPoint::new(bitcoin::Txid::all_zeros(), 1),
+        }
+    }
+
+    fn test_graph_ctx() -> GraphSMCtx {
+        GraphSMCtx {
+            graph_idx: test_graph_idx(),
+            deposit_outpoint: OutPoint::new(bitcoin::Txid::all_zeros(), 7),
+            stake_outpoint: OutPoint::new(bitcoin::Txid::all_zeros(), 8),
+            unstaking_image: sha256::Hash::hash(b"test"),
+            operator_table: test_operator_table(3, TEST_POV_IDX),
+        }
+    }
+
+    fn test_graph_cfg() -> GraphSMCfg {
+        GraphSMCfg {
+            game_graph_params: ProtocolParams {
+                network: Network::Regtest,
+                magic_bytes: TEST_MAGIC_BYTES.into(),
+                contest_timelock: relative::Height::from_height(10),
+                proof_timelock: relative::Height::from_height(5),
+                ack_timelock: relative::Height::from_height(5),
+                nack_timelock: relative::Height::from_height(5),
+                contested_payout_timelock: relative::Height::from_height(10),
+                counterproof_n_bytes: NonZero::new(128).expect("non-zero"),
+                deposit_amount: TEST_DEPOSIT_AMOUNT,
+                stake_amount: Amount::from_sat(20_000),
+            },
+            operator_fee: TEST_OPERATOR_FEE,
+            operator_adaptor_keys: (0..3).map(|_| generate_xonly_pubkey()).collect(),
+            admin_pubkey: generate_xonly_pubkey(),
+            watchtower_fault_pubkeys: (0..2).map(|_| generate_xonly_pubkey()).collect(),
+            payout_descs: (0..3).map(|_| random_p2tr_desc()).collect(),
+        }
+    }
+
+    fn test_graph_summary() -> GameGraphSummary {
+        GameGraphSummary {
+            claim: generate_txid(),
+            contest: generate_txid(),
+            bridge_proof_timeout: generate_txid(),
+            counterproofs: vec![],
+            slash: generate_txid(),
+            uncontested_payout: generate_txid(),
+            contested_payout: generate_txid(),
+        }
+    }
+
+    #[test]
+    fn graph_data_response_returns_graph_data_for_matching_claim() {
+        let graph_ctx = test_graph_ctx();
+        let graph_cfg = test_graph_cfg();
+        let graph_data = test_graph_data();
+        let graph_summary = test_graph_summary();
+        let state = GraphState::GraphGenerated {
+            last_block_height: 100,
+            graph_data,
+            graph_summary: graph_summary.clone(),
+        };
+
+        let response = graph_data_response(&graph_ctx, &state, &graph_cfg)
+            .expect("graph data should be returned");
+
+        assert_eq!(response.context, graph_ctx);
+        assert_eq!(response.setup, graph_ctx.generate_setup_params(&graph_cfg));
+        assert_eq!(response.deposit, graph_data);
+    }
+
+    #[test]
+    fn graph_data_response_returns_none_before_graph_is_generated() {
+        let state = GraphState::Created {
+            last_block_height: 100,
+        };
+
+        let response = graph_data_response(&test_graph_ctx(), &state, &test_graph_cfg());
+
+        assert!(response.is_none());
+    }
+
+    #[test]
+    fn aggregate_signatures_response_returns_hex_signatures_for_matching_claim() {
+        let graph_idx = test_graph_idx();
+        let graph_summary = test_graph_summary();
+        let signatures = vec![
+            Signature::from_slice(&[0x0a; 64]).expect("valid signature"),
+            Signature::from_slice(&[0x0b; 64]).expect("valid signature"),
+        ];
+        let expected_signatures = signatures.clone();
+        let state = GraphState::GraphSigned {
+            last_block_height: 100,
+            graph_data: test_graph_data(),
+            graph_summary: graph_summary.clone(),
+            agg_nonces: vec![],
+            signatures,
+        };
+
+        let response = aggregate_signatures_response(graph_idx, &state)
+            .expect("signatures should be returned");
+
+        assert_eq!(response.graph_idx, graph_idx);
+        assert_eq!(response.signatures, expected_signatures);
+    }
+
+    #[test]
+    fn aggregate_signatures_response_returns_none_before_graph_is_signed() {
+        let state = GraphState::NoncesCollected {
+            last_block_height: 100,
+            graph_data: test_graph_data(),
+            graph_summary: test_graph_summary(),
+            pubnonces: BTreeMap::new(),
+            agg_nonces: vec![],
+            partial_signatures: BTreeMap::new(),
+        };
+
+        let response = aggregate_signatures_response(test_graph_idx(), &state);
+
+        assert!(response.is_none());
+    }
 }
