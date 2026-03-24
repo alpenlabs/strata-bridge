@@ -61,7 +61,7 @@ pub struct DepositParams {
 ///
 /// These need not be generated/shared just in time when a deposit is observed on chain i.e., these
 /// values can be generated earlier and shared with the relevant parties beforehand.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SetupParams {
     /// Operator index.
     pub operator_index: u32,
@@ -72,7 +72,7 @@ pub struct SetupParams {
 }
 
 /// Collection of all public keys and hash images that are used in the game graph.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct KeyData {
     /// N/N key.
     pub n_of_n_pubkey: XOnlyPublicKey,

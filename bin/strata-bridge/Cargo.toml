@@ -53,6 +53,9 @@ tracing.workspace = true
 memory_pprof = { workspace = true, optional = true }
 tikv-jemallocator = "0.6"
 
+[dev-dependencies]
+strata-bridge-test-utils.workspace = true
+
 [features]
 default = []
 # not compatible with windows/msvc

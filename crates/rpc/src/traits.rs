@@ -1,11 +1,13 @@
 //! Traits for the RPC server.
 
-use bitcoin::{taproot::Signature, PublicKey, Transaction, Txid};
+use bitcoin::{PublicKey, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
+use strata_bridge_primitives::types::GraphIdx;
 use strata_primitives::buf::Buf32;
 
 use crate::types::{
-    RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcOperatorStatus, RpcWithdrawalInfo,
+    RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcGraphData,
+    RpcOperatorStatus, RpcWithdrawalInfo,
 };
 
 /// RPCs related to information about the client itself.
@@ -91,11 +93,14 @@ pub trait StrataBridgeMonitoringApi {
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "stratabridge"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "stratabridge"))]
 pub trait StrataBridgeDaApi {
-    /// Query for the unfunded challenge transaction for a particular claim.
-    #[method(name = "challengeTransaction")]
-    async fn get_challenge_tx(&self, claim_txid: Txid) -> RpcResult<Option<Transaction>>;
+    /// Query for the deposit-time graph data for a particular graph.
+    #[method(name = "graphData")]
+    async fn get_graph_data(&self, graph_idx: GraphIdx) -> RpcResult<Option<RpcGraphData>>;
 
-    /// Query for challenge signature for a particular claim.
-    #[method(name = "challengeSignature")]
-    async fn get_challenge_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>>;
+    /// Query for the aggregate graph signatures for a particular graph.
+    #[method(name = "aggregateSignatures")]
+    async fn get_aggregate_signatures(
+        &self,
+        graph_idx: GraphIdx,
+    ) -> RpcResult<Option<RpcAggregateSignatures>>;
 }

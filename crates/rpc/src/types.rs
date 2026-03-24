@@ -1,8 +1,11 @@
 //! Types for the RPC server.
 
 use bitcoin::Txid;
+use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
+use strata_bridge_sm::graph::context::GraphSMCtx;
+use strata_bridge_tx_graph::game_graph::{DepositParams, SetupParams};
 use strata_primitives::buf::Buf32;
 
 /// Enum representing the status of a bridge operator
@@ -148,4 +151,27 @@ pub enum RpcBridgeDutyStatus {
         /// Assigned operator index.
         assigned_operator_idx: OperatorIdx,
     },
+}
+
+/// Graph data needed to reconstruct a game graph for a graph instance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcGraphData {
+    /// Graph state machine context used for graph construction.
+    pub context: GraphSMCtx,
+
+    /// Non-protocol setup parameters required to construct the graph.
+    pub setup: SetupParams,
+
+    /// Deposit-time parameters required to construct the graph.
+    pub deposit: DepositParams,
+}
+
+/// Aggregate signatures needed to finalize presigned graph transactions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcAggregateSignatures {
+    /// Graph identifier for the claim.
+    pub graph_idx: GraphIdx,
+
+    /// Aggregate Schnorr signatures for the graph.
+    pub signatures: Vec<Signature>,
 }
