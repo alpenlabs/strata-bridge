@@ -113,7 +113,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
         deposit_idx: DepositIdx,
     ) -> Result<Option<PubKey>, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx).await?;
+        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
         let rpc_deposit_id = deposit_id.into();
         let rpc = self.rpc.clone();
         let pubkey = retry_with(self.default_retry_strategy(), move || {
@@ -136,7 +136,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
         sighashes: DepositSighashes,
     ) -> Result<PubKey, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx).await?;
+        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
         let deposit_inputs: DepositInputs = deposit_idx.to_le_bytes();
 
         // Initialize evaluator deposit on mosaic with provided configs.
@@ -195,7 +195,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
         adaptor_pubkey: PubKey,
     ) -> Result<(), MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Garbler, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx).await?;
+        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
         let deposit_inputs: DepositInputs = deposit_idx.to_le_bytes();
 
         // Initialize garbler deposit process on mosaic with provided configs.
@@ -272,7 +272,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
         deposit_idx: DepositIdx,
     ) -> Result<(), MosaicError> {
         let tableset_id = self.get_tableset_id(role, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx).await?;
+        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
 
         let rpc = self.rpc.clone();
         let rpc_deposit_id = deposit_id.into();
@@ -296,7 +296,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
         counterproof: G16ProofRaw,
     ) -> Result<CompletedSignatures, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Garbler, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx).await?;
+        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
         let rpc_deposit_id = deposit_id.into();
         let withdrawal_inputs: WithdrawalInputs = counterproof.0;
 
@@ -408,7 +408,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
         tweak: Option<[u8; 32]>,
     ) -> Result<Option<Signature>, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx).await?;
+        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
         let rpc_deposit_id = deposit_id.into();
         let withdrawal_inputs: WithdrawalInputs = counterproof.0;
 
