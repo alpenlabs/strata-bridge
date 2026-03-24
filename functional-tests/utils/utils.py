@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -216,6 +217,43 @@ def wait_until_logs_match(
         step=step,
         error_msg=error_msg,
     )
+
+
+def wait_for_log_capture(
+    logfile: str,
+    pattern: re.Pattern,
+    log_offsets: dict[str, int] | None = None,
+    timeout: int = 300,
+    error_msg: str = "Pattern not found in logs",
+) -> re.Match[str]:
+    """
+    Wait for a log line to match pattern and return the match object.
+
+    Args:
+        logfile: Path to the log file.
+        pattern: Compiled regex pattern with capture group(s).
+        log_offsets: Optional pre-captured log offsets. If None, captures current offset.
+        timeout: Timeout in seconds (default: 300).
+        error_msg: Custom error message for timeout.
+
+    Returns:
+        The match object from the matching log line.
+    """
+    if log_offsets is None:
+        log_offsets = snapshot_log_offsets([logfile])
+
+    captured: dict[str, re.Match[str] | None] = {"value": None}
+
+    def matcher(line: str) -> bool:
+        match = pattern.search(line)
+        if match:
+            captured["value"] = match
+            return True
+        return False
+
+    wait_until_logs_match(log_offsets, matcher, timeout=timeout, error_msg=error_msg)
+    assert captured["value"] is not None, "Pattern matched but no match object captured"
+    return captured["value"]
 
 
 def wait_until_bridge_ready(rpc_client, timeout: int = 120, step: int = 1):
