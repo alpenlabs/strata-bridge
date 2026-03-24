@@ -519,12 +519,10 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
         Ok(Some(signature))
     }
 
-    fn subscribe_events(&self) -> Subscription<MosaicEvent> {
+    async fn subscribe_events(&self) -> Subscription<MosaicEvent> {
         let (send, recv) = mpsc::unbounded_channel();
 
-        // We need to block_in_place or use try_lock since this is now sync.
-        // Since subscribers is behind a Mutex, we use blocking_lock.
-        self.subscribers.blocking_lock().push(send);
+        self.subscribers.lock().await.push(send);
 
         Subscription::from_receiver(recv)
     }

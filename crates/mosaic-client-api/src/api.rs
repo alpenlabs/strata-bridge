@@ -108,5 +108,5 @@ pub trait IMosaicClient: Send + Sync + 'static {
     ) -> Result<Option<Signature>, MosaicError>;
 
     /// Subscribe to mosaic events.
-    fn subscribe_events(&self) -> Subscription<MosaicEvent>;
+    async fn subscribe_events(&self) -> Subscription<MosaicEvent>;
 }

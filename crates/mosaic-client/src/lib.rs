@@ -28,7 +28,7 @@
 //! client.init_garbler_deposit(operator_idx, deposit_idx, sighashes, adaptor_pk).await?;
 //!
 //! // Subscribe to events and spawn the background poller.
-//! let mut events = client.subscribe_events();
+//! let mut events = client.subscribe_events().await;
 //! tokio::spawn(client.clone().poll_watched_deposits());
 //! ```
 
