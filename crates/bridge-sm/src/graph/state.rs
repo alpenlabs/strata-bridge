@@ -206,6 +206,10 @@ pub enum GraphState {
         /// Aggregated final signatures for the graph.
         signatures: Vec<Signature>,
 
+        /// The txid of the fulfillment transaction (None in faulty claim cases).
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        fulfillment_txid: Option<Txid>,
+
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
@@ -233,6 +237,10 @@ pub enum GraphState {
         /// Aggregated final signatures for the graph.
         signatures: Vec<Signature>,
 
+        /// The txid of the fulfillment transaction (None in faulty claim cases).
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        fulfillment_txid: Option<Txid>,
+
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
@@ -257,6 +265,10 @@ pub enum GraphState {
         /// Aggregated final signatures for the graph.
         signatures: Vec<Signature>,
 
+        /// The txid of the fulfillment transaction (None in faulty claim cases).
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        fulfillment_txid: Option<Txid>,
+
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
@@ -267,10 +279,18 @@ pub enum GraphState {
         /// The txids of the counterproof NACK transactions submitted on chain.
         counterproof_nacks: BTreeMap<OperatorIdx, Txid>,
     },
-    /// All possible counterproof transactions have been NACK'd on chain.
+    /// All possible counterproof transactions have been NACK’d on chain.
     AllNackd {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
+
+        /// The transaction ID of the claim transaction.
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        claim_txid: Txid,
+
+        /// The txid of the fulfillment transaction (None in faulty claim cases).
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        fulfillment_txid: Option<Txid>,
 
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
@@ -281,7 +301,7 @@ pub enum GraphState {
         /// The txid of the possible slash transaction.
         possible_slash_txid: Txid,
     },
-    /// A counterproof has been ACK'd on chain.
+    /// A counterproof has been ACK’d on chain.
     Acked {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
@@ -294,6 +314,10 @@ pub enum GraphState {
 
         /// The txid of the claim transaction.
         claim_txid: Txid,
+
+        /// The txid of the fulfillment transaction (None in faulty claim cases).
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        fulfillment_txid: Option<Txid>,
     },
     /// The deposit output has been spent by either uncontested or contested payout.
     Withdrawn {

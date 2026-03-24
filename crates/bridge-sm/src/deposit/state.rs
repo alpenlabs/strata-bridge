@@ -155,6 +155,10 @@ pub enum DepositState {
     /// This happens if the assignee was not able to collect the requisite nonces/partials for
     /// the cooperative payout transaction.
     CooperativePathFailed {
+        /// The index of the operator assigned to fulfill the withdrawal request.
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        assignee: OperatorIdx,
+
         /// The height of the latest block that this state machine is aware of.
         last_block_height: u64,
     },

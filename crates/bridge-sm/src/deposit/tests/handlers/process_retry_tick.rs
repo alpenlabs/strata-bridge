@@ -224,6 +224,7 @@ mod tests {
             },
             DepositState::CooperativePathFailed {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
             },
             DepositState::Spent,
             DepositState::Aborted,

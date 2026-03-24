@@ -16,7 +16,7 @@ impl GraphSM {
                 graph_data,
                 graph_summary,
                 signatures,
-                fulfillment_txid: _,
+                fulfillment_txid,
                 fulfillment_block_height: _,
                 contest_block_height,
             } => {
@@ -39,6 +39,7 @@ impl GraphSM {
                     last_block_height: event.bridge_proof_timeout_block_height,
                     graph_data,
                     signatures,
+                    fulfillment_txid,
                     contest_block_height,
                     expected_slash_txid: graph_summary.slash,
                     claim_txid: graph_summary.claim,

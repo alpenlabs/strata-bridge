@@ -56,7 +56,8 @@ mod tests {
         assert_eq!(
             sm.state(),
             &DepositState::CooperativePathFailed {
-                last_block_height: block_height
+                last_block_height: block_height,
+                assignee: TEST_ASSIGNEE,
             }
         );
 
