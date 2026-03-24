@@ -10985,6 +10985,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-mosaic-client-api",
  "tokio",
+ "tokio-stream",
  "tracing",
 ]
 
