@@ -1,0 +1,26 @@
+[package]
+edition = "2024"
+name = "strata-mosaic-client"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-bridge-primitives = { workspace = true, features = ["async"] }
+strata-mosaic-client-api.workspace = true
+
+bitcoin.workspace = true
+mosaic-rpc-api.workspace = true
+mosaic-rpc-types.workspace = true
+
+algebra.workspace = true
+async-trait.workspace = true
+hex.workspace = true
+jsonrpsee = { workspace = true, features = ["client"] }
+tokio.workspace = true
+tracing.workspace = true
+
+[features]
+default = []
+client = ["jsonrpsee/client"]
