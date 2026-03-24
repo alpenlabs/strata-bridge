@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, num::NonZero, sync::LazyLock};
 
 use musig2::secp256k1::schnorr::Signature;
 use secp256k1::schnorr;
+use strata_bridge_test_utils::prelude::generate_txid;
 use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary};
 
 use super::{
@@ -16,6 +17,8 @@ use crate::graph::{machine::generate_game_graph, state::GraphState};
 
 pub(super) static TEST_GRAPH_SUMMARY: LazyLock<GameGraphSummary> =
     LazyLock::new(test_graph_summary);
+
+pub(super) static TEST_FULFILLMENT_TXID: LazyLock<bitcoin::Txid> = LazyLock::new(generate_txid);
 
 /// Generates a test [`NonceContext`] for use with state builders.
 pub(super) fn test_nonce_context() -> (DepositParams, GameGraphSummary, NonceContext) {
@@ -131,7 +134,7 @@ pub(super) fn contested_state_with(
         graph_data: test_deposit_params(),
         graph_summary: TEST_GRAPH_SUMMARY.clone(),
         signatures,
-        fulfillment_txid: Some(TEST_GRAPH_SUMMARY.claim),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         fulfillment_block_height: Some(LATER_BLOCK_HEIGHT),
         contest_block_height: LATER_BLOCK_HEIGHT,
     }
@@ -145,6 +148,7 @@ pub(super) fn bridge_proof_posted_state() -> GraphState {
         graph_data: test_deposit_params(),
         graph_summary: graph_summary.clone(),
         signatures: Default::default(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         bridge_proof_txid: graph_summary.bridge_proof_timeout,
         bridge_proof_block_height: LATER_BLOCK_HEIGHT,
@@ -167,6 +171,7 @@ pub(super) fn bridge_proof_timedout_state_with(
         graph_data: test_deposit_params(),
         graph_summary: TEST_GRAPH_SUMMARY.clone(),
         signatures,
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
         claim_txid: TEST_GRAPH_SUMMARY.claim,
@@ -180,6 +185,7 @@ pub(super) fn counter_proof_posted_state() -> GraphState {
         graph_data: test_deposit_params(),
         graph_summary: TEST_GRAPH_SUMMARY.clone(),
         signatures: Default::default(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
@@ -191,6 +197,8 @@ pub(super) fn all_nackd_state() -> GraphState {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::AllNackd {
         last_block_height: LATER_BLOCK_HEIGHT,
+        claim_txid: graph_summary.claim,
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         expected_payout_txid: graph_summary.contested_payout,
         possible_slash_txid: graph_summary.slash,
@@ -205,6 +213,7 @@ pub(super) fn acked_state() -> GraphState {
         contest_block_height: LATER_BLOCK_HEIGHT,
         expected_slash_txid: graph_summary.slash,
         claim_txid: graph_summary.claim,
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
     }
 }
 

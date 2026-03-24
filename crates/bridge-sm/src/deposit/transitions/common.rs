@@ -80,6 +80,7 @@ impl DepositSM {
                     // Transition to CooperativePathFailed state
                     self.state = DepositState::CooperativePathFailed {
                         last_block_height: new_block.block_height,
+                        assignee,
                     };
 
                     // activate the graph if the cooperative payout path has failed

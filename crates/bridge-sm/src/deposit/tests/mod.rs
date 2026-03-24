@@ -386,7 +386,8 @@ impl Arbitrary for DepositState {
                 }
             }),
             block_height.prop_map(|height| DepositState::CooperativePathFailed {
-                last_block_height: height
+                last_block_height: height,
+                assignee: TEST_ASSIGNEE,
             }),
             Just(DepositState::Spent),
             Just(DepositState::Aborted),

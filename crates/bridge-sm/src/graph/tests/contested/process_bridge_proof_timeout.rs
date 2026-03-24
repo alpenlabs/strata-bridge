@@ -9,7 +9,8 @@ use crate::graph::{
     tests::{
         GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT,
         mock_states::{
-            TEST_GRAPH_SUMMARY, all_state_variants, bridge_proof_timedout_state, contested_state,
+            TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
+            bridge_proof_timedout_state, contested_state,
         },
         test_deposit_params, test_graph_invalid_transition, test_graph_transition,
     },
@@ -27,6 +28,7 @@ fn event_accepted() {
             last_block_height: u64::MAX,
             graph_data: test_deposit_params(),
             signatures: vec![],
+            fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
             contest_block_height: LATER_BLOCK_HEIGHT,
             expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
             claim_txid: TEST_GRAPH_SUMMARY.claim,
