@@ -3,7 +3,7 @@ use strata_bridge_primitives::types::OperatorIdx;
 use strata_mosaic_client_api::{MosaicEvent, types::*};
 use tracing::{debug, error, info};
 
-use crate::{MosaicClient, MosaicIdResolver, MosaicApi};
+use crate::{MosaicApi, MosaicClient, MosaicIdResolver};
 
 impl<R: MosaicApi, P: MosaicIdResolver> MosaicClient<R, P> {
     /// Polls watched deposits periodically and emits events when their status changes.
@@ -31,13 +31,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> MosaicClient<R, P> {
             debug!(count = snapshot.len(), "polling watched deposits");
 
             for (tableset_id, operator_idx, deposit_idx) in snapshot {
-                let deposit_id = match self.provider.resolve_deposit_id(deposit_idx).await {
-                    Ok(id) => id,
-                    Err(e) => {
-                        error!(%deposit_idx, %e, "failed to resolve deposit_id, skipping");
-                        continue;
-                    }
-                };
+                let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
                 let rpc_deposit_id = deposit_id.into();
                 match self
                     .rpc
