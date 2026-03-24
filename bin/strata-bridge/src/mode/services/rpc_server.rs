@@ -17,14 +17,15 @@ use strata_bridge_orchestrator::{
     persister::Persister,
     sm_registry::{SMConfig, SMRegistry},
 };
-use strata_bridge_primitives::types::GraphIdx;
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_rpc::{
     traits::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
     },
     types::{
-        RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo,
-        RpcDepositStatus, RpcGraphData, RpcOperatorStatus, RpcWithdrawalInfo,
+        RpcActiveClaim, RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcClaimPhase,
+        RpcDepositInfo, RpcDepositStatus, RpcGraphData, RpcOperatorStatus,
+        RpcPendingWithdrawalInfo, RpcWithdrawalInfo,
     },
 };
 use strata_bridge_sm::{
@@ -359,6 +360,144 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         // Update this based on monitoring requirements.
         Ok(None)
     }
+
+    async fn get_pending_withdrawals(&self) -> RpcResult<Vec<DepositIdx>> {
+        Ok(self
+            .cached_registry
+            .read()
+            .await
+            .deposits()
+            .filter_map(|(&deposit_idx, dsm)| {
+                get_assigned_operator(dsm.state()).map(|_assignee| deposit_idx)
+            })
+            .collect())
+    }
+
+    async fn get_pending_withdrawal_info(
+        &self,
+        deposit_idx: DepositIdx,
+    ) -> RpcResult<Option<RpcPendingWithdrawalInfo>> {
+        let cached_registry = self.cached_registry.read().await;
+
+        let Some(deposit_state) = cached_registry
+            .get_deposit(&deposit_idx)
+            .map(|dsm| dsm.state())
+        else {
+            return Ok(None);
+        };
+
+        let Some(assignee) = get_assigned_operator(deposit_state) else {
+            return Ok(None);
+        };
+
+        let mut assigned_claim = None;
+        let mut competing_claims = Vec::new();
+
+        cached_registry
+            .graphs()
+            .filter(|(graph_idx, _gsm)| graph_idx.deposit == deposit_idx)
+            .filter_map(|(graph_idx, gsm)| {
+                active_claim_from_state(graph_idx.operator, gsm.state())
+                    .map(|claim| (graph_idx.operator, claim))
+            })
+            .for_each(|(operator_idx, claim)| {
+                if operator_idx == assignee {
+                    assigned_claim = Some(claim);
+                } else {
+                    competing_claims.push(claim);
+                }
+            });
+
+        let info = RpcPendingWithdrawalInfo {
+            assigned_operator: assignee,
+            assigned_claim,
+            competing_claims,
+        };
+
+        Ok(Some(info))
+    }
+}
+
+const fn get_assigned_operator(state: &DepositState) -> Option<OperatorIdx> {
+    match state {
+        DepositState::Assigned { assignee, .. }
+        | DepositState::Fulfilled { assignee, .. }
+        | DepositState::PayoutDescriptorReceived { assignee, .. }
+        | DepositState::PayoutNoncesCollected { assignee, .. }
+        | DepositState::CooperativePathFailed { assignee, .. } => Some(*assignee),
+        _ => None,
+    }
+}
+
+const fn active_claim_from_state(
+    operator: OperatorIdx,
+    state: &GraphState,
+) -> Option<RpcActiveClaim> {
+    let (claim_txid, fulfillment_txid, phase) = match state {
+        GraphState::Claimed {
+            graph_summary,
+            fulfillment_txid,
+            ..
+        } => (
+            graph_summary.claim,
+            fulfillment_txid,
+            RpcClaimPhase::Claimed,
+        ),
+        GraphState::Contested {
+            graph_summary,
+            fulfillment_txid,
+            ..
+        } => (
+            graph_summary.claim,
+            fulfillment_txid,
+            RpcClaimPhase::Contested,
+        ),
+        GraphState::BridgeProofPosted {
+            graph_summary,
+            fulfillment_txid,
+            ..
+        } => (
+            graph_summary.claim,
+            fulfillment_txid,
+            RpcClaimPhase::BridgeProofPosted,
+        ),
+        GraphState::BridgeProofTimedout {
+            claim_txid,
+            fulfillment_txid,
+            ..
+        } => (
+            *claim_txid,
+            fulfillment_txid,
+            RpcClaimPhase::BridgeProofTimedout,
+        ),
+        GraphState::CounterProofPosted {
+            graph_summary,
+            fulfillment_txid,
+            ..
+        } => (
+            graph_summary.claim,
+            fulfillment_txid,
+            RpcClaimPhase::CounterProofPosted,
+        ),
+        GraphState::AllNackd {
+            claim_txid,
+            fulfillment_txid,
+            ..
+        } => (*claim_txid, fulfillment_txid, RpcClaimPhase::AllNackd),
+        GraphState::Acked {
+            claim_txid,
+            fulfillment_txid,
+            ..
+        } => (*claim_txid, fulfillment_txid, RpcClaimPhase::Acked),
+        _ => return None,
+    };
+
+    Some(RpcActiveClaim {
+        operator,
+        claim_txid,
+        fulfilled: fulfillment_txid.is_some(),
+        phase,
+    })
 }
 
 #[async_trait]
@@ -400,7 +539,7 @@ fn graph_data_response(
 }
 
 fn aggregate_signatures_response(
-    graph_idx: strata_bridge_primitives::types::GraphIdx,
+    graph_idx: GraphIdx,
     state: &GraphState,
 ) -> Option<RpcAggregateSignatures> {
     let signatures = aggregate_signatures_from_state(state)?;
@@ -487,6 +626,7 @@ mod tests {
     };
     use secp256k1::schnorr::Signature;
     use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+    use strata_bridge_rpc::types::RpcClaimPhase;
     use strata_bridge_sm::graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState};
     use strata_bridge_test_utils::{
         bitcoin::generate_xonly_pubkey,
@@ -498,7 +638,7 @@ mod tests {
     };
     use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary, ProtocolParams};
 
-    use super::{aggregate_signatures_response, graph_data_response};
+    use super::{active_claim_from_state, aggregate_signatures_response, graph_data_response};
 
     const DEPOSIT_IDX: DepositIdx = 3;
     const OPERATOR_IDX: OperatorIdx = 1;
@@ -631,5 +771,85 @@ mod tests {
         let response = aggregate_signatures_response(test_graph_idx(), &state);
 
         assert!(response.is_none());
+    }
+
+    #[test]
+    fn active_claim_from_state_returns_fulfilled_claim_in_claimed_state() {
+        let graph_summary = test_graph_summary();
+        let state = GraphState::Claimed {
+            last_block_height: 100,
+            graph_data: test_graph_data(),
+            graph_summary: graph_summary.clone(),
+            signatures: vec![],
+            fulfillment_txid: Some(generate_txid()),
+            fulfillment_block_height: Some(90),
+            claim_block_height: 100,
+        };
+
+        let claim =
+            active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
+
+        assert_eq!(claim.operator, OPERATOR_IDX);
+        assert_eq!(claim.claim_txid, graph_summary.claim);
+        assert!(claim.fulfilled);
+        assert_eq!(claim.phase, RpcClaimPhase::Claimed);
+    }
+
+    #[test]
+    fn active_claim_from_state_returns_unfulfilled_claim_in_claimed_state() {
+        let graph_summary = test_graph_summary();
+        let state = GraphState::Claimed {
+            last_block_height: 100,
+            graph_data: test_graph_data(),
+            graph_summary: graph_summary.clone(),
+            signatures: vec![],
+            fulfillment_txid: None,
+            fulfillment_block_height: None,
+            claim_block_height: 100,
+        };
+
+        let claim =
+            active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
+
+        assert!(!claim.fulfilled);
+        assert_eq!(claim.phase, RpcClaimPhase::Claimed);
+    }
+
+    #[test]
+    fn active_claim_from_state_returns_none_before_claim() {
+        let state = GraphState::Fulfilled {
+            last_block_height: 100,
+            graph_data: test_graph_data(),
+            graph_summary: test_graph_summary(),
+            coop_payout_failed: false,
+            assignee: OPERATOR_IDX,
+            signatures: vec![],
+            fulfillment_txid: generate_txid(),
+            fulfillment_block_height: 90,
+        };
+
+        let claim = active_claim_from_state(OPERATOR_IDX, &state);
+
+        assert!(claim.is_none());
+    }
+
+    #[test]
+    fn active_claim_from_state_returns_contested_phase() {
+        let graph_summary = test_graph_summary();
+        let state = GraphState::Contested {
+            last_block_height: 100,
+            graph_data: test_graph_data(),
+            graph_summary: graph_summary.clone(),
+            signatures: vec![],
+            fulfillment_txid: Some(generate_txid()),
+            fulfillment_block_height: Some(90),
+            contest_block_height: 100,
+        };
+
+        let claim =
+            active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
+
+        assert!(claim.fulfilled);
+        assert_eq!(claim.phase, RpcClaimPhase::Contested);
     }
 }
