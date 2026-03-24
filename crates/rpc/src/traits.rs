@@ -2,12 +2,12 @@
 
 use bitcoin::{PublicKey, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
-use strata_bridge_primitives::types::GraphIdx;
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
 use strata_primitives::buf::Buf32;
 
 use crate::types::{
     RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcGraphData,
-    RpcOperatorStatus, RpcWithdrawalInfo,
+    RpcOperatorStatus, RpcPendingWithdrawalInfo, RpcWithdrawalInfo,
 };
 
 /// RPCs related to information about the client itself.
@@ -85,6 +85,17 @@ pub trait StrataBridgeMonitoringApi {
     /// Get claim details for a given claim transaction ID.
     #[method(name = "claimInfo")]
     async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>>;
+
+    /// Get the withdrawals currently being processed.
+    #[method(name = "pendingWithdrawals")]
+    async fn get_pending_withdrawals(&self) -> RpcResult<Vec<DepositIdx>>;
+
+    /// Get the status of a particular withdrawal by its deposit index.
+    #[method(name = "pendingWithdrawalInfo")]
+    async fn get_pending_withdrawal_info(
+        &self,
+        deposit_idx: DepositIdx,
+    ) -> RpcResult<Option<RpcPendingWithdrawalInfo>>;
 }
 
 /// RPCs required for data availability.

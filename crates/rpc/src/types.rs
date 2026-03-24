@@ -153,6 +153,57 @@ pub enum RpcBridgeDutyStatus {
     },
 }
 
+/// The information about a particular deposit associated with a withdrawal request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcPendingWithdrawalInfo {
+    /// The index of the assigned operator.
+    pub assigned_operator: OperatorIdx,
+
+    /// The assigned operator's reimbursement claim, if active.
+    pub assigned_claim: Option<RpcActiveClaim>,
+
+    /// Claims from non-assigned operators (faulty by definition).
+    pub competing_claims: Vec<RpcActiveClaim>,
+}
+
+/// A single active reimbursement process.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcActiveClaim {
+    /// The operator who made this claim.
+    pub operator: OperatorIdx,
+
+    /// The claim transaction ID.
+    pub claim_txid: Txid,
+
+    /// Whether this operator fulfilled the withdrawal before claiming.
+    ///
+    /// `false` means the claim is faulty regardless of who made it.
+    pub fulfilled: bool,
+
+    /// Current phase of this claim in the challenge-response game.
+    pub phase: RpcClaimPhase,
+}
+
+/// Where an active claim sits in the challenge-response game.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RpcClaimPhase {
+    /// Claim transaction confirmed on chain.
+    Claimed,
+    /// Contest transaction confirmed on chain.
+    Contested,
+    /// Operator's bridge proof posted on chain.
+    BridgeProofPosted,
+    /// Bridge proof timed out without valid proof.
+    BridgeProofTimedout,
+    /// Counter-proof posted by watchtowers.
+    CounterProofPosted,
+    /// All counter-proofs NACK'd on chain.
+    AllNackd,
+    /// A counter-proof ACK'd on chain.
+    Acked,
+}
+
 /// Graph data needed to reconstruct a game graph for a graph instance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcGraphData {
