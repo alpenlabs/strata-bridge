@@ -407,7 +407,10 @@ fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent
 
 #[cfg(test)]
 mod tests {
-    use strata_bridge_p2p_types::{GossipsubMsg, PayoutDescriptor, UnsignedGossipsubMsg};
+    use bitcoin::{OutPoint, Txid, hashes::Hash};
+    use strata_bridge_p2p_types::{
+        ClaimInput, GossipsubMsg, PayoutDescriptor, UnsignedGossipsubMsg,
+    };
     use strata_bridge_primitives::types::{
         BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey,
     };
@@ -746,6 +749,101 @@ mod tests {
             Some(SMEvent::Deposit(event))
                 if matches!(*event, DepositEvent::PayoutDescriptorReceived(_))
         ));
+    }
+
+    // ===== classify_unsigned_gossip() tests for GraphDataExchange =====
+
+    fn graph_data_msg(graph_idx: GraphIdx) -> UnsignedGossipsubMsg {
+        UnsignedGossipsubMsg::GraphDataExchange {
+            graph_idx,
+            claim_input: ClaimInput::from(OutPoint::new(Txid::all_zeros(), 0)),
+        }
+    }
+
+    #[test]
+    fn classify_graph_data_rejects_unknown_sender() {
+        let registry = test_populated_registry(1);
+        let unknown_key = P2POperatorPubKey::from(vec![0xAA; 32]);
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: 0,
+        };
+        let msg = graph_data_msg(graph_idx);
+
+        let events = classify_unsigned_gossip(&registry, &OperatorKey::Peer(&unknown_key), &msg);
+        assert!(
+            events.is_empty(),
+            "should reject graph data from unknown sender"
+        );
+    }
+
+    #[test]
+    fn classify_graph_data_rejects_sender_operator_mismatch() {
+        let registry = test_populated_registry(1);
+
+        // The graph claims operator 0 produced the data, but the actual sender resolves to
+        // operator 1. Without the sender-identity check this would be accepted.
+        const CLAIMED_OPERATOR: OperatorIdx = 0;
+        const ACTUAL_SENDER: OperatorIdx = 1;
+        const {
+            assert!(
+                CLAIMED_OPERATOR != ACTUAL_SENDER,
+                "test setup requires sender/operator mismatch"
+            )
+        };
+
+        let sender_key: P2POperatorPubKey = registry
+            .get_deposit(&0)
+            .expect("deposit exists")
+            .context()
+            .operator_table()
+            .idx_to_p2p_key(&ACTUAL_SENDER)
+            .expect("operator exists")
+            .clone();
+
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: CLAIMED_OPERATOR,
+        };
+        let msg = graph_data_msg(graph_idx);
+
+        let events = classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_key), &msg);
+        assert!(
+            events.is_empty(),
+            "should reject graph data with sender/operator mismatch"
+        );
+    }
+
+    #[test]
+    fn classify_graph_data_accepts_matching_sender() {
+        let registry = test_populated_registry(1);
+        const OPERATOR_IDX: OperatorIdx = 1;
+
+        let sender_key: P2POperatorPubKey = registry
+            .get_deposit(&0)
+            .expect("deposit exists")
+            .context()
+            .operator_table()
+            .idx_to_p2p_key(&OPERATOR_IDX)
+            .expect("operator exists")
+            .clone();
+
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: OPERATOR_IDX,
+        };
+        let msg = graph_data_msg(graph_idx);
+
+        let events = classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_key), &msg);
+        assert_eq!(
+            events.len(),
+            1,
+            "should accept graph data from matching sender"
+        );
+        assert!(
+            matches!(events[0], SMEvent::Graph(ref e) if matches!(**e, GraphEvent::GraphDataProduced(_))),
+            "should produce GraphDataProduced event"
+        );
     }
 
     // ===== classify_nag_request tests =====
