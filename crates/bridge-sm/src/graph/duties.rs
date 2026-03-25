@@ -1,11 +1,14 @@
 //! The duties that need to be performed in the Graph State Machine in response to the state
 //! transitions.
 
+use std::num::NonZero;
+
 use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
 use musig2::{
     AggNonce,
     secp256k1::{Message, schnorr::Signature},
 };
+use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_bridge_primitives::{
     mosaic::Labels,
     scripts::taproot::TaprootTweak,
@@ -172,13 +175,19 @@ pub enum GraphDuty {
         watchtower_index: OperatorIdx,
     },
 
-    /// Publish a bridge proof on-chain to defend against a contest.
-    PublishBridgeProof {
+    /// Generate and publish a bridge proof to defend against a contest.
+    GenerateAndPublishBridgeProof {
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
 
-        /// The bridge proof transaction to be published (unsigned).
-        bridge_proof_tx: Transaction,
+        /// The ID of the contest transaction to spend from.
+        contest_txid: Txid,
+
+        /// The game index for operator key tweaking.
+        game_index: NonZero<u32>,
+
+        /// The contest proof connector needed for signing and finalization.
+        contest_proof_connector: ContestProofConnector,
     },
 
     /// Publish a bridge proof timeout transaction.
@@ -249,7 +258,7 @@ impl std::fmt::Display for GraphDuty {
             GraphDuty::PublishClaim { .. } => "PublishClaim".to_string(),
             GraphDuty::PublishUncontestedPayout { .. } => "PublishUncontestedPayout".to_string(),
             GraphDuty::PublishContest { .. } => "PublishContest".to_string(),
-            GraphDuty::PublishBridgeProof { .. } => "PublishBridgeProof".to_string(),
+            GraphDuty::GenerateAndPublishBridgeProof { .. } => "PublishBridgeProof".to_string(),
             GraphDuty::PublishBridgeProofTimeout { .. } => "PublishBridgeProofTimeout".to_string(),
             GraphDuty::PublishCounterProof { .. } => "PublishCounterProof".to_string(),
             GraphDuty::PublishCounterProofAck { .. } => "PublishCounterProofAck".to_string(),
