@@ -18,6 +18,7 @@ from utils.utils import (
     wait_for_tx_confirmation,
     wait_until,
 )
+from utils.withdrawal import wait_until_active_valid_claim
 
 
 @flexitest.register
@@ -80,11 +81,37 @@ class UnContestedPayoutTest(StrataTestBase):
             timeout=300,
             error_msg="ASM did not produce assignment",
         )
-        assignments: list[AssignmentEntry] = asm_rpc.strata_asm_getAssignments(ckp_block_hash)
+        assignments: list[dict] = asm_rpc.strata_asm_getAssignments(ckp_block_hash)
         self.logger.info(f"ASM assignments at block {ckp_block_hash}: {len(assignments)}")
 
-        # Wait for the deposit UTXO to be spent (contested payout)
+        active_claim = wait_until_active_valid_claim(bridge_rpc)
+        self.logger.info(
+            "Retrieved active claim %s for withdrawal of deposit %s assigned to operator %s",
+            active_claim.claim_txid,
+            active_claim.deposit_idx,
+            active_claim.assigned_operator,
+        )
+
+        claim_block_hash = wait_for_tx_confirmation(
+            bitcoin_rpc,
+            active_claim.claim_txid,
+            timeout=300,
+        )
+        self.logger.info(
+            f"Active claim tx {active_claim.claim_txid} included in block {claim_block_hash}"
+        )
+
+        assignment = AssignmentEntry.from_dict(assignments[0])
+        assert assignment.current_assignee == active_claim.assigned_operator, (
+            "Active claim operator does not match ASM assignment"
+        )
+        assert assignment.deposit_entry.deposit_idx == active_claim.deposit_idx, (
+            "Active claim deposit ID does not match ASM assignment"
+        )
+        self.logger.info("ASM assignment matches RPC result from bridge")
+
+        # Wait for the deposit UTXO to be spent after the uncontested payout path completes.
         wait_until_deposit_utxo_spent(bitcoin_rpc, deposit_txid, timeout=450)
-        self.logger.info("Deposit UTXO confirmed spent after cooperative payout")
+        self.logger.info("Deposit UTXO confirmed spent after uncontested payout")
 
         return True
