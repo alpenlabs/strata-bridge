@@ -11,6 +11,7 @@ use crate::{
     config::Config,
     mode::services::{
         btc_client::init_btc_rpc_client,
+        mosaic_client::{init_mosaic_client, run_mosaic_setup},
         operator_table::init_operator_table,
         operator_wallet::init_operator_wallet,
         orchestrator::init_orchestrator,
@@ -45,6 +46,19 @@ pub(crate) async fn bootstrap(
     let pov_p2p_key = operator_table.pov_p2p_key();
     let agg_key = operator_table.aggregated_btc_key();
     info!(%pov_idx, %pov_p2p_key, %pov_btc_key, %agg_key, "operator table initialized");
+
+    debug!("initializing mosaic client");
+    let mosaic_client = init_mosaic_client(&config.mosaic, &operator_table);
+    info!("mosaic client initialized");
+
+    debug!("running mosaic setup for all operator pairs");
+    run_mosaic_setup(
+        &mosaic_client,
+        &operator_table,
+        config.mosaic.setup_concurrency,
+    )
+    .await?;
+    info!("mosaic setup complete for all operator pairs");
 
     debug!("initializing operator wallet");
     let operator_wallet = init_operator_wallet(&config, &params, &s2_client, &db).await?;

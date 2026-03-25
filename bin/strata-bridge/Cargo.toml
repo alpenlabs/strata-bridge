@@ -23,6 +23,8 @@ strata-bridge-primitives.workspace = true
 strata-bridge-rpc.workspace = true
 strata-bridge-sm.workspace = true
 strata-bridge-tx-graph.workspace = true
+strata-mosaic-client.workspace = true
+strata-mosaic-client-api.workspace = true
 
 strata-l1-txfmt.workspace = true
 strata-p2p.workspace = true
@@ -38,6 +40,7 @@ bitcoind-async-client.workspace = true
 chrono.workspace = true
 clap.workspace = true
 ed25519-dalek.workspace = true
+futures.workspace = true
 hex.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "server"] }
 libp2p.workspace = true
