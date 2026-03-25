@@ -88,6 +88,7 @@ pub(crate) async fn bootstrap(
         &config,
         operator_table,
         &s2_client,
+        &mosaic_client,
         gossip_handle,
         req_resp_handle,
         keypair,

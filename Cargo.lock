@@ -10475,6 +10475,7 @@ dependencies = [
  "strata-bridge-sm",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
+ "strata-mosaic-client-api",
  "strata-p2p",
  "thiserror 2.0.18",
  "tokio",

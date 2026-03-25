@@ -20,6 +20,7 @@ use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_sm::{self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg};
 use strata_bridge_tx_graph::game_graph::ProtocolParams as TxGraphProtocolParams;
+use strata_mosaic_client_api::IMosaicClient;
 use strata_p2p::swarm::handle::{GossipHandle, ReqRespHandle};
 use strata_tasks::TaskExecutor;
 use tokio::{
@@ -36,6 +37,7 @@ pub(crate) async fn init_orchestrator(
     config: &Config,
     operator_table: OperatorTable,
     s2_client: &SecretServiceClient,
+    mosaic_client: &impl IMosaicClient,
     gossip_handle: GossipHandle,
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,
@@ -78,6 +80,8 @@ pub(crate) async fn init_orchestrator(
 
     let orchestrator_block_sub = zmq_client.subscribe_blocks().await;
 
+    let mosaic_event_sub = mosaic_client.subscribe_events().await;
+
     let nag_tick = tokio::time::interval_at(tokio::time::Instant::now(), config.nag_interval);
     let retry_tick = tokio::time::interval_at(tokio::time::Instant::now(), config.retry_interval);
 
@@ -88,6 +92,7 @@ pub(crate) async fn init_orchestrator(
         shutdown_rx: Some(shutdown_receiver),
         block_sub: orchestrator_block_sub,
         assignments_sub,
+        mosaic_event_sub,
         gossip_handle,
         req_resp_handle,
         nag_tick,
