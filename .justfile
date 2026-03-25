@@ -334,17 +334,20 @@ pr: lint rustdocs test-doc test-unit
 
 # Broadcast a mock checkpoint
 [group('bridge')]
-checkpoint:
+checkpoint genesis-l1-height="101" num-withdrawals="1" ol-start-slot="0" ol-end-slot="1" epoch="1":
     RUST_LOG=info \
     cargo r \
-        --bin mock-checkpoint \
+        --bin dev-cli \
         -- \
+        create-and-publish-mock-checkpoint \
         --btc-url http://localhost:18443/wallet/default \
         --btc-user user \
         --btc-pass password \
-        --checkpoint-tag strata-ckpt \
-        --deposit-entries deposit-entries.json \
-        --sequencer-xpriv tprv8ezKDhpQHojBcUwXVZHBHBMg3QJQieAneQt9kkSMBoxdWdfBi1oBTiDev4J1ebeWH9hVV64fDeddyaLjMe7tjuS16QKPwykFAAiM66RcZWi # keep this in sync with `docker/vol/strata-bridge-{1,2,3}/params.toml`
+        --epoch {{ epoch }} \
+        --ol-start-slot {{ ol-start-slot }} \
+        --ol-end-slot {{ ol-end-slot }} \
+        --num-withdrawals {{ num-withdrawals }} \
+        --genesis-l1-height {{ genesis-l1-height }}
 
 # Run bridge-in
 [group('bridge')]
