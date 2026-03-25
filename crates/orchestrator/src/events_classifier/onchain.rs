@@ -38,7 +38,7 @@ use strata_bridge_sm::{
     tx_classifier::TxClassifier,
 };
 use strata_bridge_tx_graph::transactions::prelude::DepositData;
-use tracing::{error, info};
+use tracing::{Level, error, info};
 
 use crate::{
     errors::ProcessError,
@@ -158,7 +158,7 @@ fn try_register_deposit(
 
     let drt_txid = tx.compute_txid();
 
-    let span = tracing::span!(tracing::Level::TRACE, "registering new deposit", drt_txid=%drt_txid);
+    let span = tracing::span!(Level::INFO, "registering new deposit", drt_txid=%drt_txid);
     let _entered = span.entered();
 
     let depositor_pubkey = drt_info.header_aux().recovery_pk();
