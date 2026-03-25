@@ -72,6 +72,9 @@ pub(crate) struct Config {
 
     /// Configuration for the operator wallet.
     pub operator_wallet: OperatorWalletConfig,
+
+    /// Configuration for the mosaic client.
+    pub mosaic: MosaicConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,6 +208,29 @@ pub(crate) struct OperatorWalletConfig {
     pub claim_funding_pool_size: usize,
 }
 
+/// Configuration for the mosaic client.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct MosaicConfig {
+    /// Mosaic RPC HTTP endpoint (local mosaic instance).
+    pub rpc_url: String,
+
+    /// Delay between retries for network/protocol errors.
+    pub retry_delay: Duration,
+
+    /// Maximum number of retries per RPC call.
+    pub max_retries: usize,
+
+    /// Poll interval for watched deposits.
+    pub poll_interval: Duration,
+
+    /// Maximum number of concurrent ensure_mosaic_setup calls during bootstrap.
+    pub setup_concurrency: usize,
+
+    /// Mosaic peer IDs for each operator, ordered by operator index.
+    /// Each entry is a 32-byte hex-encoded peer ID.
+    pub peer_ids: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,6 +299,17 @@ mod tests {
 
             [operator_wallet]
             claim_funding_pool_size = 32
+
+            [mosaic]
+            rpc_url = "http://localhost:7500"
+            retry_delay = { secs = 2, nanos = 0 }
+            max_retries = 5
+            poll_interval = { secs = 5, nanos = 0 }
+            setup_concurrency = 4
+            peer_ids = [
+                "0000000000000000000000000000000000000000000000000000000000000001",
+                "0000000000000000000000000000000000000000000000000000000000000002",
+            ]
         "#;
 
         let config = toml::from_str::<Config>(config);
