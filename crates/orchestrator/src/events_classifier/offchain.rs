@@ -9,9 +9,10 @@ use strata_bridge_p2p_types::{
 };
 use strata_bridge_sm::{
     deposit::events::{self as DepositEvents, DepositEvent, RetryTickEvent},
-    graph::events::{self as GraphEvents, GraphEvent},
+    graph::events::{self as GraphEvents, AdaptorsVerifiedEvent, GraphEvent},
 };
-use tracing::{debug, info, warn};
+use strata_mosaic_client_api::MosaicEvent;
+use tracing::{debug, error, info, warn};
 
 use crate::{
     events_mux::UnifiedEvent,
@@ -46,6 +47,10 @@ pub(crate) fn classify(
         // technically an on-chain event but classified here since it's emitted by the ASM and
         // consumed by the SMs without any direct on-chain interaction
         UnifiedEvent::Assignment(entries) => classify_assignment(sm_id, entries),
+
+        UnifiedEvent::MosaicEvent(MosaicEvent::AdaptorsVerified { .. }) => {
+            classify_mosaic_event(sm_id, sm_registry)
+        }
 
         UnifiedEvent::Block(_) | UnifiedEvent::Shutdown => None,
 
@@ -443,6 +448,18 @@ fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent
         SMId::Graph(_graph_idx) => sm_registry
             .get_graph(_graph_idx)
             .map(|_| GraphEvent::RetryTick(GraphEvents::RetryTickEvent).into()),
+    }
+}
+
+fn classify_mosaic_event(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
+    match sm_id {
+        SMId::Deposit(_) => {
+            error!("got unexpected SMId::Deposit for mosaic event");
+            None
+        }
+        SMId::Graph(graph_idx) => sm_registry
+            .get_graph(graph_idx)
+            .map(|_| GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}).into()),
     }
 }
 

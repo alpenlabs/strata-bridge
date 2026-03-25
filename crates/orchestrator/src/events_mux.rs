@@ -9,6 +9,7 @@ use strata_bridge_asm_events::event::AssignmentsState;
 use strata_bridge_p2p_service::message_handler::OuroborosMessage;
 use strata_bridge_p2p_types::GossipsubMsg;
 use strata_bridge_primitives::subscription::Subscription;
+use strata_mosaic_client_api::MosaicEvent;
 use strata_p2p::{
     events::GossipEvent,
     swarm::handle::{GossipHandle, ReqRespHandle},
@@ -30,6 +31,8 @@ pub enum UnifiedEvent {
     Assignment(Vec<AssignmentEntry>),
     /// Priority 4a: Gossip messages received from peers.
     GossipMessage(GossipsubMsg),
+    /// Priority 4b: Adaptor verified event from mosaic.
+    MosaicEvent(MosaicEvent),
     /// Priority 5a: Periodic tick for nagging peers for missing messages.
     NagTick,
     /// Priority 5b: Periodic tick for retrying failed duties.
@@ -57,6 +60,9 @@ pub struct EventsMux {
 
     /// P2P channel for receiving requests from peers.
     pub req_resp_handle: ReqRespHandle,
+
+    /// Mosaic event stream.
+    pub mosaic_event_sub: Subscription<MosaicEvent>,
 
     /// Timer for nagging peers about missing messages.
     pub nag_tick: tokio::time::Interval,
@@ -108,6 +114,8 @@ impl EventsMux {
 
                     return UnifiedEvent::GossipMessage(msg);
                 },
+
+                Some(evt) = self.mosaic_event_sub.next() => return UnifiedEvent::MosaicEvent(evt),
 
                 // Then, we handle the periodic nag tick for nagging peers about missing messages.
                 // We do this toward the last because it's less urgent and prevents flooding the network
