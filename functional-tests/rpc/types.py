@@ -133,6 +133,48 @@ class RpcClaimInfo:
 
 
 @dataclass
+class RpcActiveClaim:
+    """A single active reimbursement process for a deposit."""
+
+    operator: int
+    claim_txid: str
+    fulfilled: bool
+    phase: str
+
+    @classmethod
+    def from_json(cls, data: dict) -> "RpcActiveClaim":
+        return cls(
+            operator=int(data["operator"]),
+            claim_txid=data["claim_txid"],
+            fulfilled=bool(data["fulfilled"]),
+            phase=data["phase"],
+        )
+
+
+@dataclass
+class RpcPendingWithdrawalInfo:
+    """Info about a pending withdrawal for a deposit."""
+
+    assigned_operator: int
+    assigned_claim: RpcActiveClaim | None
+    competing_claims: list[RpcActiveClaim]
+
+    @classmethod
+    def from_json(cls, data: dict) -> "RpcPendingWithdrawalInfo":
+        assigned_claim = None
+        if data.get("assigned_claim") is not None:
+            assigned_claim = RpcActiveClaim.from_json(data["assigned_claim"])
+
+        competing_claims = [RpcActiveClaim.from_json(c) for c in data.get("competing_claims", [])]
+
+        return cls(
+            assigned_operator=int(data["assigned_operator"]),
+            assigned_claim=assigned_claim,
+            competing_claims=competing_claims,
+        )
+
+
+@dataclass
 class RpcBridgeDutyDeposit:
     """Deposit duty."""
 
