@@ -49,12 +49,12 @@ impl std::error::Error for MockRpcError {}
 struct MockRpcQueues {
     get_tableset_id: VecDeque<Result<RpcTablesetId, MockRpcError>>,
     setup_tableset: VecDeque<Result<RpcTablesetId, MockRpcError>>,
-    get_tableset_status: VecDeque<Result<RpcTablesetStatus, MockRpcError>>,
+    get_tableset_status: VecDeque<Result<Option<RpcTablesetStatus>, MockRpcError>>,
     get_fault_secret_pubkey: VecDeque<Result<Option<XOnlyPublicKey>, MockRpcError>>,
     evaluator_get_adaptor_pubkey: VecDeque<Result<Option<XOnlyPublicKey>, MockRpcError>>,
     init_garbler_deposit: VecDeque<Result<(), MockRpcError>>,
     init_evaluator_deposit: VecDeque<Result<(), MockRpcError>>,
-    get_deposit_status: VecDeque<Result<DepositStatus, MockRpcError>>,
+    get_deposit_status: VecDeque<Result<Option<DepositStatus>, MockRpcError>>,
     mark_deposit_withdrawn: VecDeque<Result<(), MockRpcError>>,
     complete_adaptor_sigs: VecDeque<Result<(), MockRpcError>>,
     get_completed_adaptor_sigs: VecDeque<Result<RpcCompletedSignatures, MockRpcError>>,
@@ -111,7 +111,7 @@ impl MosaicApi for MockRpc {
     async fn get_tableset_status(
         &self,
         _tsid: RpcTablesetId,
-    ) -> Result<RpcTablesetStatus, Self::Error> {
+    ) -> Result<Option<RpcTablesetStatus>, Self::Error> {
         mock_pop!(self, get_tableset_status)
     }
 
@@ -152,7 +152,7 @@ impl MosaicApi for MockRpc {
         &self,
         _tsid: RpcTablesetId,
         _deposit_id: RpcDepositId,
-    ) -> Result<DepositStatus, Self::Error> {
+    ) -> Result<Option<DepositStatus>, Self::Error> {
         mock_pop!(self, get_deposit_status)
     }
 
@@ -335,7 +335,7 @@ async fn test_ensure_setup_immediate_complete() {
         let mut q = rpc.queues();
         q.setup_tableset.push_back(Ok(test_tableset_id()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::SetupComplete));
+            .push_back(Ok(Some(RpcTablesetStatus::SetupComplete)));
     }
 
     let client = test_client(rpc);
@@ -356,11 +356,11 @@ async fn test_ensure_setup_polls_until_complete() {
         let mut q = rpc.queues();
         q.setup_tableset.push_back(Ok(test_tableset_id()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Incomplete {
+            .push_back(Ok(Some(RpcTablesetStatus::Incomplete {
                 details: "step 1".into(),
-            }));
+            })));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::SetupComplete));
+            .push_back(Ok(Some(RpcTablesetStatus::SetupComplete)));
     }
 
     let client = test_client(rpc);
@@ -377,9 +377,9 @@ async fn test_ensure_setup_aborted() {
         let mut q = rpc.queues();
         q.setup_tableset.push_back(Ok(test_tableset_id()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Aborted {
+            .push_back(Ok(Some(RpcTablesetStatus::Aborted {
                 reason: "protocol violation".into(),
-            }));
+            })));
     }
 
     let client = test_client(rpc);
@@ -401,9 +401,9 @@ async fn test_ensure_setup_succeeds_on_contest_state() {
         let mut q = rpc.queues();
         q.setup_tableset.push_back(Ok(test_tableset_id()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Contest {
+            .push_back(Ok(Some(RpcTablesetStatus::Contest {
                 deposit: test_deposit_id(),
-            }));
+            })));
     }
 
     let client = test_client(rpc);
@@ -420,10 +420,10 @@ async fn test_ensure_setup_succeeds_on_consumed_state() {
         let mut q = rpc.queues();
         q.setup_tableset.push_back(Ok(test_tableset_id()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Consumed {
+            .push_back(Ok(Some(RpcTablesetStatus::Consumed {
                 deposit: test_deposit_id(),
                 success: true,
-            }));
+            })));
     }
 
     let client = test_client(rpc);
@@ -476,7 +476,8 @@ async fn test_init_evaluator_deposit_success() {
     {
         let mut q = rpc.queues();
         q.init_evaluator_deposit.push_back(Ok(()));
-        q.get_deposit_status.push_back(Ok(DepositStatus::Ready));
+        q.get_deposit_status
+            .push_back(Ok(Some(DepositStatus::Ready)));
         q.evaluator_get_adaptor_pubkey
             .push_back(Ok(Some(test_pubkey())));
     }
@@ -495,7 +496,8 @@ async fn test_init_evaluator_deposit_missing_adaptor_pubkey() {
     {
         let mut q = rpc.queues();
         q.init_evaluator_deposit.push_back(Ok(()));
-        q.get_deposit_status.push_back(Ok(DepositStatus::Ready));
+        q.get_deposit_status
+            .push_back(Ok(Some(DepositStatus::Ready)));
         q.evaluator_get_adaptor_pubkey.push_back(Ok(None));
     }
 
@@ -521,7 +523,8 @@ async fn test_init_garbler_deposit_ready() {
     {
         let mut q = rpc.queues();
         q.init_garbler_deposit.push_back(Ok(()));
-        q.get_deposit_status.push_back(Ok(DepositStatus::Ready));
+        q.get_deposit_status
+            .push_back(Ok(Some(DepositStatus::Ready)));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Garbler);
@@ -550,9 +553,9 @@ async fn test_init_garbler_deposit_incomplete_adds_to_watched() {
         let mut q = rpc.queues();
         q.init_garbler_deposit.push_back(Ok(()));
         q.get_deposit_status
-            .push_back(Ok(DepositStatus::Incomplete {
+            .push_back(Ok(Some(DepositStatus::Incomplete {
                 details: "pending".into(),
-            }));
+            })));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Garbler);
@@ -575,9 +578,10 @@ async fn test_init_garbler_deposit_aborted() {
     {
         let mut q = rpc.queues();
         q.init_garbler_deposit.push_back(Ok(()));
-        q.get_deposit_status.push_back(Ok(DepositStatus::Aborted {
-            reason: "protocol error".into(),
-        }));
+        q.get_deposit_status
+            .push_back(Ok(Some(DepositStatus::Aborted {
+                reason: "protocol error".into(),
+            })));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Garbler);
@@ -599,7 +603,7 @@ async fn test_init_garbler_deposit_already_withdrawn() {
         let mut q = rpc.queues();
         q.init_garbler_deposit.push_back(Ok(()));
         q.get_deposit_status
-            .push_back(Ok(DepositStatus::UncontestedWithdrawal));
+            .push_back(Ok(Some(DepositStatus::UncontestedWithdrawal)));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Garbler);
@@ -640,10 +644,10 @@ async fn test_complete_adaptor_sigs_success() {
         let mut q = rpc.queues();
         q.complete_adaptor_sigs.push_back(Ok(()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Consumed {
+            .push_back(Ok(Some(RpcTablesetStatus::Consumed {
                 deposit: test_deposit_id(),
                 success: true,
-            }));
+            })));
         q.get_completed_adaptor_sigs
             .push_back(Ok(test_rpc_completed_sigs()));
     }
@@ -665,16 +669,16 @@ async fn test_complete_adaptor_sigs_polls_through_states() {
         q.complete_adaptor_sigs.push_back(Ok(()));
         // Polls: SetupComplete → Contest → Consumed
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::SetupComplete));
+            .push_back(Ok(Some(RpcTablesetStatus::SetupComplete)));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Contest {
+            .push_back(Ok(Some(RpcTablesetStatus::Contest {
                 deposit: test_deposit_id(),
-            }));
+            })));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Consumed {
+            .push_back(Ok(Some(RpcTablesetStatus::Consumed {
                 deposit: test_deposit_id(),
                 success: true,
-            }));
+            })));
         q.get_completed_adaptor_sigs
             .push_back(Ok(test_rpc_completed_sigs()));
     }
@@ -696,9 +700,9 @@ async fn test_complete_adaptor_sigs_wrong_deposit_in_contest() {
         let mut q = rpc.queues();
         q.complete_adaptor_sigs.push_back(Ok(()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Contest {
+            .push_back(Ok(Some(RpcTablesetStatus::Contest {
                 deposit: wrong_deposit_id,
-            }));
+            })));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Garbler);
@@ -720,9 +724,9 @@ async fn test_complete_adaptor_sigs_aborted() {
         let mut q = rpc.queues();
         q.complete_adaptor_sigs.push_back(Ok(()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Aborted {
+            .push_back(Ok(Some(RpcTablesetStatus::Aborted {
                 reason: "setup violation".into(),
-            }));
+            })));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Garbler);
@@ -744,10 +748,10 @@ async fn test_evaluate_and_sign_success() {
         let mut q = rpc.queues();
         q.evaluate_tableset.push_back(Ok(()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Consumed {
+            .push_back(Ok(Some(RpcTablesetStatus::Consumed {
                 deposit: test_deposit_id(),
                 success: true,
-            }));
+            })));
         q.sign_with_fault_secret
             .push_back(Ok(Some(test_schnorr_sig())));
     }
@@ -775,10 +779,10 @@ async fn test_evaluate_and_sign_evaluation_failed() {
         let mut q = rpc.queues();
         q.evaluate_tableset.push_back(Ok(()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Consumed {
+            .push_back(Ok(Some(RpcTablesetStatus::Consumed {
                 deposit: test_deposit_id(),
                 success: false,
-            }));
+            })));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Evaluator);
@@ -805,16 +809,16 @@ async fn test_evaluate_and_sign_polls_through_states() {
         q.evaluate_tableset.push_back(Ok(()));
         // Polls: SetupComplete → Contest → Consumed
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::SetupComplete));
+            .push_back(Ok(Some(RpcTablesetStatus::SetupComplete)));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Contest {
+            .push_back(Ok(Some(RpcTablesetStatus::Contest {
                 deposit: test_deposit_id(),
-            }));
+            })));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Consumed {
+            .push_back(Ok(Some(RpcTablesetStatus::Consumed {
                 deposit: test_deposit_id(),
                 success: true,
-            }));
+            })));
         q.sign_with_fault_secret
             .push_back(Ok(Some(test_schnorr_sig())));
     }
@@ -844,7 +848,8 @@ async fn test_poll_watched_deposits_ready() {
     let rpc = MockRpc::new();
     {
         let mut q = rpc.queues();
-        q.get_deposit_status.push_back(Ok(DepositStatus::Ready));
+        q.get_deposit_status
+            .push_back(Ok(Some(DepositStatus::Ready)));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Garbler);
@@ -938,12 +943,13 @@ async fn test_poll_watched_deposits_failure_counter_resets_on_incomplete() {
         q.get_deposit_status
             .push_back(Err(MockRpcError("transient".into())));
         q.get_deposit_status
-            .push_back(Ok(DepositStatus::Incomplete {
+            .push_back(Ok(Some(DepositStatus::Incomplete {
                 details: "still going".into(),
-            }));
+            })));
         q.get_deposit_status
             .push_back(Err(MockRpcError("transient 2".into())));
-        q.get_deposit_status.push_back(Ok(DepositStatus::Ready));
+        q.get_deposit_status
+            .push_back(Ok(Some(DepositStatus::Ready)));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Garbler);
@@ -1031,9 +1037,9 @@ async fn test_evaluate_and_sign_wrong_deposit_in_contest() {
         let mut q = rpc.queues();
         q.evaluate_tableset.push_back(Ok(()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Contest {
+            .push_back(Ok(Some(RpcTablesetStatus::Contest {
                 deposit: wrong_deposit_id,
-            }));
+            })));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Evaluator);
@@ -1063,10 +1069,10 @@ async fn test_evaluate_and_sign_wrong_deposit_in_consumed() {
         let mut q = rpc.queues();
         q.evaluate_tableset.push_back(Ok(()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Consumed {
+            .push_back(Ok(Some(RpcTablesetStatus::Consumed {
                 deposit: wrong_deposit_id,
                 success: true,
-            }));
+            })));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Evaluator);
@@ -1095,9 +1101,9 @@ async fn test_evaluate_and_sign_aborted() {
         let mut q = rpc.queues();
         q.evaluate_tableset.push_back(Ok(()));
         q.get_tableset_status
-            .push_back(Ok(RpcTablesetStatus::Aborted {
+            .push_back(Ok(Some(RpcTablesetStatus::Aborted {
                 reason: "protocol violation".into(),
-            }));
+            })));
     }
 
     let client = test_client_with_cached_tableset(rpc, Role::Evaluator);
