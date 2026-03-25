@@ -2,7 +2,7 @@ use std::error::Error;
 
 use strata_bridge_primitives::types::OperatorIdx;
 
-use crate::types::DepositIdx;
+use crate::types::{DepositIdx, Role};
 
 /// Errors arising from mosaic operations.
 #[derive(Debug, thiserror::Error)]
@@ -10,9 +10,15 @@ pub enum MosaicError {
     /// The mosaic setup was explicitly aborted.
     #[error("mosaic setup aborted: {0}")]
     Aborted(String),
+    /// The mosaic setup is missing.
+    #[error("mosaic setup missing: {0}|{1}")]
+    SetupMissing(OperatorIdx, Role),
     /// The deposit was aborted before completion.
     #[error("deposit {0} aborted")]
     DepositAborted(DepositIdx),
+    /// The deposit was not seen within timeout.
+    #[error("deposit missing: {0}|{1}|{2}")]
+    DepositMissing(OperatorIdx, Role, DepositIdx),
     /// The deposit has already been withdrawn.
     #[error("deposit {0} already withdrawn")]
     DepositWithdrawn(DepositIdx),
@@ -51,6 +57,11 @@ pub enum MosaicSetupError {
     /// The setup was explicitly aborted.
     #[error("mosaic setup aborted: {0}")]
     Aborted(String),
+
+    /// The mosaic setup is missing.
+    #[error("mosaic setup missing: {0}|{1}")]
+    SetupMissing(OperatorIdx, Role),
+
     /// An RPC communication error during setup.
     #[error("mosaic RPC error")]
     RpcError(#[source] Box<dyn Error + Send + Sync + 'static>),

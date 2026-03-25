@@ -31,7 +31,7 @@ pub trait MosaicApi: Send + Sync + 'static {
     async fn get_tableset_status(
         &self,
         tsid: RpcTablesetId,
-    ) -> Result<RpcTablesetStatus, Self::Error>;
+    ) -> Result<Option<RpcTablesetStatus>, Self::Error>;
 
     /// Get pubkey for the fault secret encoded in the garbling tables.
     async fn get_fault_secret_pubkey(
@@ -67,7 +67,7 @@ pub trait MosaicApi: Send + Sync + 'static {
         &self,
         tsid: RpcTablesetId,
         deposit_id: RpcDepositId,
-    ) -> Result<DepositStatus, Self::Error>;
+    ) -> Result<Option<DepositStatus>, Self::Error>;
 
     /// Mark a deposit as withdrawn without contest.
     async fn mark_deposit_withdrawn(
@@ -127,7 +127,7 @@ impl MosaicApi for jsonrpsee::http_client::HttpClient {
     async fn get_tableset_status(
         &self,
         tsid: RpcTablesetId,
-    ) -> Result<RpcTablesetStatus, Self::Error> {
+    ) -> Result<Option<RpcTablesetStatus>, Self::Error> {
         mosaic_rpc_api::MosaicRpcClient::get_tableset_status(self, tsid).await
     }
 
@@ -169,7 +169,7 @@ impl MosaicApi for jsonrpsee::http_client::HttpClient {
         &self,
         tsid: RpcTablesetId,
         deposit_id: RpcDepositId,
-    ) -> Result<DepositStatus, Self::Error> {
+    ) -> Result<Option<DepositStatus>, Self::Error> {
         mosaic_rpc_api::MosaicRpcClient::get_deposit_status(self, tsid, deposit_id).await
     }
 

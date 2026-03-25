@@ -53,9 +53,13 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
                     rpc.get_tableset_status(tableset_id)
                         .await
                         .map_err(MosaicSetupError::rpc_error)
+                        .map(|maybe_status| {
+                            maybe_status
+                                .ok_or_else(|| MosaicSetupError::SetupMissing(operator_idx, role))
+                        })
                 }
             })
-            .await?;
+            .await??;
 
             match status {
                 RpcTablesetStatus::Incomplete { details } => {
@@ -161,15 +165,20 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
         // If this fails to get any status after exhausting all retries, the deposit init failed or
         // there was a connectivity issue.
         let rpc = self.rpc.clone();
-        let _ = retry_with(self.default_retry_strategy(), move || {
+        let _status = retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
             async move {
                 rpc.get_deposit_status(tableset_id, rpc_deposit_id)
                     .await
                     .map_err(MosaicError::rpc_error)
+                    .map(|maybe_status| {
+                        maybe_status.ok_or_else(|| {
+                            MosaicError::DepositMissing(operator_idx, Role::Garbler, deposit_idx)
+                        })
+                    })
             }
         })
-        .await?;
+        .await??;
 
         // Retrieve the adaptor pubkey for this deposit.
         let rpc = self.rpc.clone();
@@ -227,9 +236,14 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
                 rpc.get_deposit_status(tableset_id, rpc_deposit_id)
                     .await
                     .map_err(MosaicError::rpc_error)
+                    .map(|maybe_status| {
+                        maybe_status.ok_or_else(|| {
+                            MosaicError::DepositMissing(operator_idx, Role::Garbler, deposit_idx)
+                        })
+                    })
             }
         })
-        .await?;
+        .await??;
 
         match status {
             DepositStatus::Aborted { reason } => {
@@ -321,9 +335,15 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
                     rpc.get_tableset_status(tableset_id)
                         .await
                         .map_err(MosaicError::rpc_error)
+                        .map(|maybe_status| {
+                            maybe_status.ok_or_else(|| {
+                                MosaicError::SetupMissing(operator_idx, Role::Garbler)
+                            })
+                        })
                 }
             })
-            .await?;
+            .await??;
+
             match status {
                 RpcTablesetStatus::Incomplete { details } => {
                     error!(%details, "unexpected deposit state");
@@ -437,9 +457,15 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
                     rpc.get_tableset_status(tableset_id)
                         .await
                         .map_err(MosaicError::rpc_error)
+                        .map(|maybe_status| {
+                            maybe_status.ok_or_else(|| {
+                                MosaicError::SetupMissing(operator_idx, Role::Garbler)
+                            })
+                        })
                 }
             })
-            .await?;
+            .await??;
+
             match status {
                 RpcTablesetStatus::Incomplete { details } => {
                     error!(%details, "unexpected deposit state");
