@@ -14,6 +14,10 @@ x-base-asm-runner: &base-asm-runner
     dockerfile: ./docker/asm-runner/Dockerfile
   environment:
     - RUST_LOG=info
+    - PARAMS_FILE=/tmp/asm-params.json
+  # The entrypoint updates asm-params in place. Since asm-params-sample.json is
+  # git-tracked, we copy it to /tmp so that container runs don't dirty the working tree.
+  entrypoint: ["sh", "-c", "cp /app/asm-params-sample.json $$PARAMS_FILE && exec sh /usr/local/bin/entrypoint.sh"]
   ports:
     - 9010:9010
   volumes:
