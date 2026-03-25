@@ -117,7 +117,7 @@ impl Pipeline {
 
             // Stage 6: Dispatch duties
             for duty in all_duties {
-                self.dispatcher.dispatch(duty).await;
+                self.dispatcher.dispatch(duty);
             }
         }
     }

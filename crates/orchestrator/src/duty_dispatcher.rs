@@ -38,34 +38,26 @@ impl DutyDispatcher {
     /// This, however, assumes that each duty execution is **idempotent**. The burden to maintain
     /// this property falls upon the implementers of the duty executors, and it is crucial for
     /// ensuring the robustness and reliability of the overall system.
-    pub async fn dispatch(&self, duty: UnifiedDuty) {
+    pub fn dispatch(&self, duty: UnifiedDuty) {
         let cfg = self.cfg.clone();
         let handles = self.handles.clone();
         match duty {
             UnifiedDuty::Deposit(deposit_duty) => {
-                let _ = tokio::task::spawn(async move {
+                tokio::task::spawn(async move {
                     execute_deposit_duty(cfg.clone(), handles.clone(), &deposit_duty)
                         .await
                         .inspect_err(|err| {
                             error!(%err, ?deposit_duty, "failed to execute deposit duty");
                         })
-                })
-                .await
-                .inspect_err(|e| {
-                    error!(%e, "failed to spawn task for deposit duty");
                 });
             }
             UnifiedDuty::Graph(graph_duty) => {
-                let _ = tokio::task::spawn(async move {
+                tokio::task::spawn(async move {
                     execute_graph_duty(cfg, handles, &graph_duty)
                         .await
                         .inspect_err(|err| {
                             error!(%err, ?graph_duty, "failed to execute graph duty");
                         })
-                })
-                .await
-                .inspect_err(|e| {
-                    error!(%e, "failed to spawn task for graph duty");
                 });
             }
         }
