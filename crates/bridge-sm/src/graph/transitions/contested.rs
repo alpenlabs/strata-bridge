@@ -1,11 +1,82 @@
+use std::sync::Arc;
+
+use strata_bridge_tx_graph::game_graph::GameConnectors;
+
 use crate::graph::{
+    config::GraphSMCfg,
+    duties::GraphDuty,
     errors::{GSMError, GSMResult},
-    events::BridgeProofTimeoutConfirmedEvent,
+    events::{BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent},
     machine::{GSMOutput, GraphSM},
     state::GraphState,
 };
 
 impl GraphSM {
+    /// Processes the event where a contest transaction has been confirmed on-chain.
+    ///
+    /// Only valid from the `Claimed` state transitions to `Contested` state.
+    /// Emits a [`GraphDuty::GenerateAndPublishBridgeProof`] duty if the current operator is the
+    /// graph owner.
+    pub(crate) fn process_contest(
+        &mut self,
+        cfg: Arc<GraphSMCfg>,
+        event: ContestConfirmedEvent,
+    ) -> GSMResult<GSMOutput> {
+        match self.state.clone() {
+            GraphState::Claimed {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                fulfillment_txid,
+                fulfillment_block_height,
+                ..
+            } => {
+                if event.contest_txid != graph_summary.contest {
+                    return Err(GSMError::rejected(
+                        self.state.clone(),
+                        event.into(),
+                        "Invalid contest transaction",
+                    ));
+                }
+
+                self.state = GraphState::Contested {
+                    last_block_height,
+                    graph_data,
+                    graph_summary: graph_summary.clone(),
+                    signatures,
+                    fulfillment_txid,
+                    fulfillment_block_height,
+                    contest_block_height: event.contest_block_height,
+                };
+
+                // The graph owner must publish a bridge proof to defend against the contest
+                let duties =
+                    if self.context().operator_idx() == self.context().operator_table().pov_idx() {
+                        let setup_params = self.context().generate_setup_params(&cfg);
+                        let connectors = GameConnectors::new(
+                            graph_data.game_index,
+                            &cfg.game_graph_params,
+                            &setup_params,
+                        );
+
+                        vec![GraphDuty::GenerateAndPublishBridgeProof {
+                            graph_idx: self.context().graph_idx(),
+                            contest_txid: graph_summary.contest,
+                            game_index: graph_data.game_index,
+                            contest_proof_connector: connectors.contest_proof,
+                        }]
+                    } else {
+                        Vec::new()
+                    };
+
+                Ok(GSMOutput::with_duties(duties))
+            }
+            state @ GraphState::Contested { .. } => Err(GSMError::duplicate(state, event.into())),
+            state => Err(GSMError::invalid_event(state, event.into(), None)),
+        }
+    }
+
     pub(crate) fn process_bridge_proof_timeout(
         &mut self,
         event: BridgeProofTimeoutConfirmedEvent,

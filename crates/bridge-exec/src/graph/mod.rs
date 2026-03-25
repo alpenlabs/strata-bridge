@@ -81,7 +81,7 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishContest { .. } => {
             todo!("PublishContest")
         }
-        GraphDuty::PublishBridgeProof { .. } => {
+        GraphDuty::GenerateAndPublishBridgeProof { .. } => {
             todo!("PublishBridgeProof")
         }
         GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx } => {
