@@ -25,6 +25,15 @@ pub enum Role {
     Evaluator,
 }
 
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Role::Garbler => f.write_str("Garbler"),
+            Role::Evaluator => f.write_str("Evaluator"),
+        }
+    }
+}
+
 /// Inputs for setup input wires. Corresponds to operator pubkey.
 pub type SetupInputs = [u8; N_SETUP_INPUT_WIRES];
 /// Inputs for deposit input wires. Corresponds to deposit idx.

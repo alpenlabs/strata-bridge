@@ -38,12 +38,20 @@ impl<R: MosaicApi, P: MosaicIdResolver> MosaicClient<R, P> {
                     .get_deposit_status(tableset_id, rpc_deposit_id)
                     .await
                 {
-                    Ok(status) => {
+                    Ok(Some(status)) => {
                         self.handle_watched_deposit_status(
                             tableset_id,
                             operator_idx,
                             deposit_idx,
                             status,
+                        )
+                        .await;
+                    }
+                    Ok(None) => {
+                        self.handle_watched_deposit_not_found(
+                            tableset_id,
+                            operator_idx,
+                            deposit_idx,
                         )
                         .await;
                     }
@@ -97,6 +105,34 @@ impl<R: MosaicApi, P: MosaicIdResolver> MosaicClient<R, P> {
                 if let Some(counter) = self.watched_deposits.lock().await.get_mut(&key) {
                     *counter = 0;
                 }
+            }
+        }
+    }
+
+    async fn handle_watched_deposit_not_found(
+        &self,
+        tableset_id: RpcTablesetId,
+        operator_idx: OperatorIdx,
+        deposit_idx: DepositIdx,
+    ) {
+        let key = (tableset_id, operator_idx, deposit_idx);
+        let mut watched = self.watched_deposits.lock().await;
+        if let Some(failure_count) = watched.get_mut(&key) {
+            *failure_count += 1;
+            if *failure_count >= self.max_retries {
+                error!(
+                    %deposit_idx,
+                    attempts = *failure_count,
+                    "watched deposit not found after max retries, removing"
+                );
+                watched.remove(&key);
+            } else {
+                debug!(
+                    %deposit_idx,
+                    attempt = *failure_count,
+                    max = self.max_retries,
+                    "watched deposit not found, will retry"
+                );
             }
         }
     }
