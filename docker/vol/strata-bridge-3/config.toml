@@ -1,6 +1,6 @@
 nag_interval = { secs = 30, nanos = 0 }
 retry_interval = { secs = 1, nanos = 0 }
-min_withdrawal_fulfillment_window = 144
+min_withdrawal_fulfillment_window = 10
 shutdown_timeout = { secs = 30, nanos = 0 }
 cooperative_payout_timeout = 144
 max_fee_rate = 10
