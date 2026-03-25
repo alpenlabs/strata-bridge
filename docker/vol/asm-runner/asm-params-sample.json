@@ -61,7 +61,7 @@
                 ],
                 "denomination": 1000000000,
                 "assignment_duration": 64,
-                "operator_fee": 50000000,
+                "operator_fee": 10000000,
                 "recovery_delay": 1008
             }
         }

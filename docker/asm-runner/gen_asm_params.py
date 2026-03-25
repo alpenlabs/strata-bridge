@@ -7,16 +7,17 @@ import time
 import tomllib
 import urllib.error
 import urllib.request
+from dataclasses import asdict
 from pathlib import Path
 
-from asm_params import build_asm_params, write_asm_params_json
+from asm_params import build_genesis_l1_view
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
+    parser.add_argument("--params", required=True)
     parser.add_argument("--bridge-params", required=True)
-    parser.add_argument("--output", required=True)
     parser.add_argument("--timeout-secs", type=int, default=60)
     return parser.parse_args()
 
@@ -106,29 +107,65 @@ def fetch_chain_context(bitcoin_cfg: dict, genesis_height: int) -> tuple[str, di
     return block_hash, header
 
 
+def validate_params(asm_params: dict, bridge_params: dict) -> None:
+    """
+    Makes sure that the ASM params and the Bridge params are consistent with each other, to avoid
+    subtle misconfigurations that could cause the ASM to fail to start or operate correctly.
+    """
+    bridge = bridge_params["protocol"]
+
+    asm = None
+    for subprotocol in asm_params["subprotocols"]:
+        if "Bridge" in subprotocol:
+            asm = subprotocol["Bridge"]
+            break
+
+    if asm is None:
+        raise RuntimeError("params missing Bridge subprotocol")
+
+    musig2_keys = [f"02{e['musig2']}" for e in bridge_params["keys"]["covenant"]]
+
+    checks = [
+        ("magic", asm_params["magic"], bridge["magic_bytes"]),
+        ("denomination", asm["denomination"], bridge["deposit_amount"]),
+        ("operator_fee", asm["operator_fee"], bridge["operator_fee"]),
+        ("recovery_delay", asm["recovery_delay"], bridge["recovery_delay"]),
+        ("operators", asm["operators"], musig2_keys),
+    ]
+
+    mismatches = [
+        f"{name}: asm={asm_val}, bridge={bridge_val}"
+        for name, asm_val, bridge_val in checks
+        if asm_val != bridge_val
+    ]
+
+    if mismatches:
+        raise RuntimeError(
+            "asm and bridge params are misaligned:\n  " + "\n  ".join(mismatches)
+        )
+
+
 def main() -> None:
     args = parse_args()
 
     config = tomllib.loads(Path(args.config).read_text())
+    params_path = Path(args.params)
+    params = json.loads(params_path.read_text())
     bridge_params = tomllib.loads(Path(args.bridge_params).read_text())
 
+    validate_params(params, bridge_params)
+
+    genesis_height = params["l1_view"]["blk"]["height"]
+
     wait_for_bitcoind(config["bitcoin"], args.timeout_secs)
-    protocol = bridge_params["protocol"]
-    genesis_height = int(bridge_params["genesis_height"])
     wait_for_genesis_height(config["bitcoin"], genesis_height, args.timeout_secs)
-    musig2_keys = [entry["musig2"] for entry in bridge_params["keys"]["covenant"]]
+
     block_hash, header = fetch_chain_context(config["bitcoin"], genesis_height)
-    asm_params = build_asm_params(
-        musig2_keys=musig2_keys,
-        genesis_height=genesis_height,
-        block_hash=block_hash,
-        header=header,
-        magic=protocol["magic_bytes"].upper(),
-        denomination=protocol["deposit_amount"],
-        recovery_delay=protocol["recovery_delay"],
+    params["l1_view"] = asdict(
+        build_genesis_l1_view(genesis_height, block_hash, header)
     )
 
-    write_asm_params_json(args.output, asm_params)
+    params_path.write_text(json.dumps(params, indent=4) + "\n")
 
 
 if __name__ == "__main__":
