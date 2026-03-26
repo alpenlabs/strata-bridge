@@ -83,6 +83,38 @@ mod tests {
         });
     }
 
+    /// Tests that fulfillment is rejected when fulfillment block height exceeds deadline.
+    #[test]
+    fn test_fulfillment_rejected_when_deadline_exceeded() {
+        let fulfillment_tx = generate_spending_tx(OutPoint::default(), &[]);
+        let desc = random_p2tr_desc();
+
+        let fulfillment_height = LATER_BLOCK_HEIGHT;
+        let deadline = fulfillment_height / 2;
+        assert!(
+            fulfillment_height > deadline,
+            "fulfillment_height ({}) must be greater than deadline ({}) for this test",
+            fulfillment_height,
+            deadline
+        );
+
+        let state = DepositState::Assigned {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_POV_IDX,
+            deadline,
+            recipient_desc: desc,
+        };
+
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: state,
+            event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
+                fulfillment_transaction: fulfillment_tx,
+                fulfillment_height,
+            }),
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
+    }
+
     /// tests that all states apart from Assigned should NOT accept the FulfillmentConfirmed event.
     #[test]
     fn test_fulfillment_confirmed_invalid_from_other_states() {

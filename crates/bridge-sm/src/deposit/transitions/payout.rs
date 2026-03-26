@@ -89,8 +89,25 @@ impl DepositSM {
             DepositState::Assigned {
                 last_block_height,
                 assignee,
+                deadline,
                 ..
             } => {
+                let fulfillment_height = fulfillment.fulfillment_height;
+
+                // Reject fulfillment if the block height exceeds the deadline
+                // This prevents the node from making a faulty claim and thereby being slashed if
+                // the fulfillment transaction does not settle on chain in time.
+                if fulfillment_height > *deadline {
+                    return Err(DSMError::rejected(
+                        self.state().clone(),
+                        fulfillment.into(),
+                        format!(
+                            "Fulfillment block height {} exceeds deadline {}",
+                            fulfillment_height, deadline
+                        ),
+                    ));
+                }
+
                 let assignee = *assignee;
                 let timeout = cfg.cooperative_payout_timeout_blocks();
 

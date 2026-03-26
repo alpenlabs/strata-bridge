@@ -77,6 +77,28 @@ mod tests {
         );
     }
 
+    /// Tests that fulfillment is rejected when fulfillment block height exceeds deadline.
+    #[test]
+    fn test_fulfillment_rejected_when_deadline_exceeded() {
+        let fulfillment_block_height = FULFILLMENT_BLOCK_HEIGHT;
+        let deadline = fulfillment_block_height / 2;
+        assert!(
+            fulfillment_block_height > deadline,
+            "fulfillment_block_height ({}) must be greater than deadline ({}) for this test",
+            fulfillment_block_height,
+            deadline
+        );
+
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: assigned_state(TEST_POV_IDX, deadline, test_recipient_desc(1)),
+            event: GraphEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
+                fulfillment_txid: generate_txid(),
+                fulfillment_block_height,
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
     #[test]
     fn test_duplicate_fulfillment() {
         let fulfillment_txid = generate_txid();
