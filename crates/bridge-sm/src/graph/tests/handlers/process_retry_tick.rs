@@ -205,15 +205,7 @@ mod tests {
                 let (_, _, nonce_ctx) = test_nonce_context();
                 graph_signed_state(&nonce_ctx)
             },
-            {
-                let (_, _, nonce_ctx) = test_nonce_context();
-                assigned_state(
-                    &nonce_ctx,
-                    TEST_ASSIGNEE,
-                    LATER_BLOCK_HEIGHT,
-                    test_recipient_desc(1),
-                )
-            },
+            assigned_state(TEST_ASSIGNEE, LATER_BLOCK_HEIGHT, test_recipient_desc(1)),
         ];
 
         for state in non_retriable_states {

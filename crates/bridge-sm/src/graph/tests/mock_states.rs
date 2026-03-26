@@ -34,14 +34,13 @@ pub(super) fn graph_signed_state(nonce_ctx: &NonceContext) -> GraphState {
         last_block_height: INITIAL_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
         graph_summary: test_graph_summary(),
-        agg_nonces: nonce_ctx.agg_nonces.clone(),
+        agg_nonces: Some(nonce_ctx.agg_nonces.clone()),
         signatures: Default::default(),
     }
 }
 
-/// Builds a mock `Assigned` state with the given assignment fields and nonce context.
+/// Builds a mock `Assigned` state with the given assignment fields.
 pub(super) fn assigned_state(
-    nonce_ctx: &NonceContext,
     assignee: u32,
     deadline: u64,
     recipient_desc: bitcoin_bosd::Descriptor,
@@ -50,7 +49,6 @@ pub(super) fn assigned_state(
         last_block_height: INITIAL_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
         graph_summary: TEST_GRAPH_SUMMARY.clone(),
-        agg_nonces: nonce_ctx.agg_nonces.clone(),
         signatures: Default::default(),
         assignee,
         deadline,
@@ -254,7 +252,7 @@ pub(super) fn pre_signing_states() -> Vec<GraphState> {
             last_block_height: LATER_BLOCK_HEIGHT,
             graph_data: params,
             graph_summary: summary,
-            agg_nonces: Default::default(),
+            agg_nonces: Some(Default::default()),
             signatures: Default::default(),
         },
     ]
@@ -279,11 +277,9 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
 
 /// States that may observe a claim tx.
 pub(super) fn claim_detecting_states() -> Vec<GraphState> {
-    let (_, _, nonce_ctx) = test_nonce_context();
     let mut states = pre_signing_states();
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     states.push(assigned_state(
-        &nonce_ctx,
         TEST_ASSIGNEE,
         LATER_BLOCK_HEIGHT + 15,
         test_recipient_desc(1),
@@ -332,13 +328,11 @@ pub(super) fn payout_connector_spent_states() -> Vec<GraphState> {
 /// One representative of every state variant.
 pub(super) fn all_state_variants() -> Vec<GraphState> {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
-    let (_, _, nonce_ctx) = test_nonce_context();
     let mut states = vec![GraphState::Created {
         last_block_height: LATER_BLOCK_HEIGHT,
     }];
     states.extend(pre_signing_states());
     states.push(assigned_state(
-        &nonce_ctx,
         TEST_ASSIGNEE,
         LATER_BLOCK_HEIGHT + 15,
         test_recipient_desc(1),

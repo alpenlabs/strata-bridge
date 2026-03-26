@@ -10,7 +10,7 @@ mod tests {
         tests::{
             ASSIGNMENT_DEADLINE, CLAIM_BLOCK_HEIGHT, GraphInvalidTransition, GraphTransition,
             INITIAL_BLOCK_HEIGHT, TEST_POV_IDX,
-            mock_states::{assigned_state, claimed_state, test_nonce_context},
+            mock_states::{assigned_state, claimed_state},
             test_deposit_params, test_graph_invalid_transition, test_graph_summary,
             test_graph_transition, test_recipient_desc,
         },
@@ -62,13 +62,7 @@ mod tests {
 
     #[test]
     fn test_payout_from_invalid_state() {
-        let (_, _, nonce_ctx) = test_nonce_context();
-        let state = assigned_state(
-            &nonce_ctx,
-            TEST_POV_IDX,
-            ASSIGNMENT_DEADLINE,
-            test_recipient_desc(1),
-        );
+        let state = assigned_state(TEST_POV_IDX, ASSIGNMENT_DEADLINE, test_recipient_desc(1));
 
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,

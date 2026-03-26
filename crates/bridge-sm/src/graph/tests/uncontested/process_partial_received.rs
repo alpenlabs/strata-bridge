@@ -109,7 +109,7 @@ mod tests {
         } = seq.state()
         {
             assert_eq!(signatures.len(), nonce_ctx.signing_infos.len());
-            assert_eq!(agg_nonces, &nonce_ctx.agg_nonces);
+            assert_eq!(agg_nonces.as_ref(), Some(&nonce_ctx.agg_nonces));
         }
 
         assert!(seq.all_duties().is_empty());

@@ -72,7 +72,7 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Deposit-time data required to generate the game’s transaction graph.
+        /// Deposit-time data required to generate the game's transaction graph.
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
@@ -80,7 +80,13 @@ pub enum GraphState {
         graph_summary: GameGraphSummary,
 
         /// Aggregated nonces retained to respond to nag for graph partial signatures.
-        agg_nonces: Vec<AggNonce>,
+        ///
+        /// This is `Some` when the state was reached via the normal signing flow
+        /// (`NoncesCollected` -> `GraphSigned`) and `None` when reached via reversion
+        /// from `Assigned` (when a different assignee is assigned). The presence of
+        /// `agg_nonces` determines whether the GSM should respond to nag requests for
+        /// graph partials.
+        agg_nonces: Option<Vec<AggNonce>>,
 
         /// Aggregated final signatures for the graph.
         signatures: Vec<Signature>,
@@ -90,15 +96,12 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
-        /// Deposit-time data required to generate the game’s transaction graph.
+        /// Deposit-time data required to generate the game's transaction graph.
         graph_data: DepositParams,
 
         /// Collection of the IDs of all transactions of a
         /// [`strata_bridge_tx_graph::game_graph::GameGraph`].
         graph_summary: GameGraphSummary,
-
-        /// Aggregated nonces retained to respond to nag for graph partial signature.
-        agg_nonces: Vec<AggNonce>,
 
         /// Aggregated final signatures for the graph.
         signatures: Vec<Signature>,

@@ -175,10 +175,14 @@ impl GraphSM {
                 graph_data,
                 agg_nonces,
                 ..
-            }
-            | GraphState::GraphSigned {
+            } => Ok(vec![self.build_publish_graph_partials_duty(
+                cfg,
+                *graph_data,
+                agg_nonces.clone(),
+            )]),
+            GraphState::GraphSigned {
                 graph_data,
-                agg_nonces,
+                agg_nonces: Some(agg_nonces),
                 ..
             } => Ok(vec![self.build_publish_graph_partials_duty(
                 cfg,
@@ -192,7 +196,7 @@ impl GraphSM {
                 );
                 Err(self.reject_nag(
                     event,
-                    "Inapplicable GraphPartials nag; expected state(s): NoncesCollected | GraphSigned",
+                    "Inapplicable GraphPartials nag; expected state(s): NoncesCollected | GraphSigned (with agg_nonces)",
                 ))
             }
         }

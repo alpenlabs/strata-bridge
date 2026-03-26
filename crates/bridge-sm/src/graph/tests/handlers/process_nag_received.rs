@@ -169,7 +169,7 @@ mod tests {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     graph_data: deposit_params,
                     graph_summary,
-                    agg_nonces: nonce_ctx.agg_nonces,
+                    agg_nonces: Some(nonce_ctx.agg_nonces),
                     signatures: vec![],
                 },
                 event: GraphEvent::NagReceived(create_nag_event(
@@ -194,7 +194,7 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 graph_data: deposit_params,
                 graph_summary,
-                agg_nonces: nonce_ctx.agg_nonces,
+                agg_nonces: Some(nonce_ctx.agg_nonces),
                 signatures: vec![],
             },
             event: GraphEvent::NagReceived(create_nag_event(NagRequestPayload::GraphNonces {
@@ -329,7 +329,6 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: test_graph_summary(),
-                agg_nonces: vec![],
                 signatures: vec![],
                 assignee: TEST_ASSIGNEE,
                 deadline: LATER_BLOCK_HEIGHT,
@@ -355,7 +354,6 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: test_graph_summary(),
-                agg_nonces: vec![],
                 signatures: vec![],
                 assignee: TEST_ASSIGNEE,
                 deadline: LATER_BLOCK_HEIGHT,
@@ -416,7 +414,7 @@ mod tests {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     graph_data: deposit_params,
                     graph_summary,
-                    agg_nonces: expected_agg_nonces.clone(),
+                    agg_nonces: Some(expected_agg_nonces.clone()),
                     signatures: vec![],
                 },
                 event: GraphEvent::NagReceived(create_nag_event(
