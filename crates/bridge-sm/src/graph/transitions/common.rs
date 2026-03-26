@@ -1,13 +1,11 @@
 use std::sync::Arc;
 
-use strata_bridge_tx_graph::musig_functor::GameFunctor;
-
 use crate::graph::{
     config::GraphSMCfg,
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
     events::NewBlockEvent,
-    machine::{GSMOutput, GraphSM, generate_game_graph},
+    machine::{GSMOutput, GraphSM, unpack_game},
     state::GraphState,
 };
 
@@ -72,17 +70,10 @@ impl GraphSM {
                 let contest_timeout = u64::from(cfg.game_graph_params.contest_timelock.value());
 
                 if new_block_event.block_height > claim_height + contest_timeout {
-                    let game_graph = generate_game_graph(&cfg, &graph_ctx, graph_data);
-                    let uncontested_signatures = GameFunctor::unpack(
-                        signatures.clone(),
-                        graph_ctx.watchtower_pubkeys().len(),
-                    )
-                    .expect("Failed to retrieve uncontested payout signatures")
-                    .uncontested_payout;
-
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
                     let signed_uncontested_payout_tx = game_graph
                         .uncontested_payout
-                        .finalize(uncontested_signatures);
+                        .finalize(sigs.uncontested_payout);
 
                     return Ok(GSMOutput::with_duties(vec![
                         GraphDuty::PublishUncontestedPayout {
@@ -107,14 +98,8 @@ impl GraphSM {
                 let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
 
                 if new_block_event.block_height > *contest_block_height + payout_timelock {
-                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
-                    let slash_signatures = GameFunctor::unpack(
-                        signatures.clone(),
-                        graph_ctx.watchtower_pubkeys().len(),
-                    )
-                    .expect("Number of signatures is consistent with number of watchtowers")
-                    .slash;
-                    let signed_slash_tx = game_graph.slash.finalize(slash_signatures);
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
 
                     return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
                         signed_slash_tx,
@@ -122,16 +107,10 @@ impl GraphSM {
                 }
 
                 if new_block_event.block_height > *contest_block_height + proof_timelock {
-                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
-                    let bridge_proof_timeout_signatures = GameFunctor::unpack(
-                        signatures.clone(),
-                        graph_ctx.watchtower_pubkeys().len(),
-                    )
-                    .expect("Number of signatures is consistent with number of watchtowers")
-                    .bridge_proof_timeout;
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
                     let signed_timeout_tx = game_graph
                         .bridge_proof_timeout
-                        .finalize(bridge_proof_timeout_signatures);
+                        .finalize(sigs.bridge_proof_timeout);
 
                     return Ok(GSMOutput::with_duties(vec![
                         GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx },
@@ -158,14 +137,8 @@ impl GraphSM {
                 if !is_own_graph
                     && new_block_event.block_height > *contest_block_height + payout_timelock
                 {
-                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
-                    let slash_signatures = GameFunctor::unpack(
-                        signatures.clone(),
-                        graph_ctx.watchtower_pubkeys().len(),
-                    )
-                    .expect("Number of signatures is consistent with number of watchtowers")
-                    .slash;
-                    let signed_slash_tx = game_graph.slash.finalize(slash_signatures);
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
 
                     return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
                         signed_slash_tx,
@@ -176,16 +149,9 @@ impl GraphSM {
                 if is_own_graph
                     && new_block_event.block_height > *contest_block_height + ack_timelock
                 {
-                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
-                    let contested_payout_signatures = GameFunctor::unpack(
-                        signatures.clone(),
-                        graph_ctx.watchtower_pubkeys().len(),
-                    )
-                    .expect("Number of signatures is consistent with number of watchtowers")
-                    .contested_payout;
-                    let signed_contested_payout_tx = game_graph
-                        .contested_payout
-                        .finalize(contested_payout_signatures);
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let signed_contested_payout_tx =
+                        game_graph.contested_payout.finalize(sigs.contested_payout);
 
                     return Ok(GSMOutput::with_duties(vec![
                         GraphDuty::PublishContestedPayout {
@@ -209,14 +175,8 @@ impl GraphSM {
                     u64::from(cfg.game_graph_params.contested_payout_timelock.value());
 
                 if new_block_event.block_height > *contest_block_height + payout_timelock {
-                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
-                    let slash_signatures = GameFunctor::unpack(
-                        signatures.clone(),
-                        graph_ctx.watchtower_pubkeys().len(),
-                    )
-                    .expect("Number of signatures is consistent with number of watchtowers")
-                    .slash;
-                    let signed_slash_tx = game_graph.slash.finalize(slash_signatures);
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
 
                     return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
                         signed_slash_tx,

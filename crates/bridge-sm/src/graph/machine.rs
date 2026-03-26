@@ -2,9 +2,13 @@
 
 use std::sync::Arc;
 
+use musig2::secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
-use strata_bridge_tx_graph::game_graph::{DepositParams, GameData, GameGraph};
+use strata_bridge_tx_graph::{
+    game_graph::{DepositParams, GameData, GameGraph},
+    musig_functor::GameFunctor,
+};
 
 use crate::{
     error_policy::soften_peer_event_error,
@@ -163,4 +167,21 @@ pub(crate) fn generate_game_graph(
 
     let (game_graph, _) = GameGraph::new(graph_data);
     game_graph
+}
+
+/// Generates the [`GameGraph`] and unpacks the corresponding [`GameFunctor`] signatures.
+///
+/// This is a convenience wrapper that combines [`generate_game_graph`] with
+/// [`GameFunctor::unpack`] to avoid repeating the same two-step pattern across
+/// multiple state transition handlers.
+pub(crate) fn unpack_game(
+    cfg: &GraphSMCfg,
+    ctx: &GraphSMCtx,
+    deposit_params: DepositParams,
+    signatures: &[Signature],
+) -> (GameGraph, GameFunctor<Signature>) {
+    let game_graph = generate_game_graph(cfg, ctx, deposit_params);
+    let sigs = GameFunctor::unpack(signatures.to_vec(), ctx.watchtower_pubkeys().len())
+        .expect("Number of signatures is consistent with number of watchtowers");
+    (game_graph, sigs)
 }
