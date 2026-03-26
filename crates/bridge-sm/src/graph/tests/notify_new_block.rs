@@ -13,14 +13,14 @@ mod tests {
             state::GraphState,
             tests::{
                 CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS, GraphInvalidTransition,
-                GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, create_sm, get_state,
-                mock_game_signatures,
+                GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, create_nonpov_sm,
+                create_sm, get_state, mock_game_signatures,
                 mock_states::{
                     bridge_proof_posted_state_with, bridge_proof_timedout_state_with,
                     claimed_state, contested_state_with,
                 },
-                create_nonpov_sm, test_deposit_params, test_graph_invalid_transition,
-                test_graph_sm_cfg, test_graph_sm_ctx, test_graph_transition,
+                test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
+                test_graph_sm_ctx, test_graph_transition,
             },
         },
         testing::test_transition,
@@ -360,16 +360,14 @@ mod tests {
         let cfg = test_graph_sm_cfg();
         let ctx = test_graph_sm_ctx();
         let contest_height = LATER_BLOCK_HEIGHT;
-        let payout_timelock =
-            u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
         let new_height = contest_height + payout_timelock + 1;
 
         let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
-        let slash_sigs =
-            GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
-                .expect("Failed to unpack signatures")
-                .slash;
+        let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
+            .expect("Failed to unpack signatures")
+            .slash;
         let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
 
         // Non-POV should slash (not own graph)
@@ -394,8 +392,7 @@ mod tests {
         let cfg = test_graph_sm_cfg();
         let ctx = test_graph_sm_ctx();
         let contest_height = LATER_BLOCK_HEIGHT;
-        let payout_timelock =
-            u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
         // Exceeds both timelocks; POV should emit contested payout, not slash
         let new_height = contest_height + payout_timelock + 1;
 

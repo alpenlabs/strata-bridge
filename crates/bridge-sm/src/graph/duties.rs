@@ -258,7 +258,9 @@ impl std::fmt::Display for GraphDuty {
             GraphDuty::PublishClaim { .. } => "PublishClaim".to_string(),
             GraphDuty::PublishUncontestedPayout { .. } => "PublishUncontestedPayout".to_string(),
             GraphDuty::PublishContest { .. } => "PublishContest".to_string(),
-            GraphDuty::GenerateAndPublishBridgeProof { .. } => "PublishBridgeProof".to_string(),
+            GraphDuty::GenerateAndPublishBridgeProof { .. } => {
+                "GenerateAndPublishBridgeProof".to_string()
+            }
             GraphDuty::PublishBridgeProofTimeout { .. } => "PublishBridgeProofTimeout".to_string(),
             GraphDuty::PublishCounterProof { .. } => "PublishCounterProof".to_string(),
             GraphDuty::PublishCounterProofAck { .. } => "PublishCounterProofAck".to_string(),
