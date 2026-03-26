@@ -635,8 +635,23 @@ impl GraphSM {
                 graph_summary,
                 signatures,
                 assignee,
+                deadline,
                 ..
             } => {
+                let fulfillment_block_height = fulfillment.fulfillment_block_height;
+
+                // Reject fulfillment if the block height exceeds the deadline
+                if fulfillment_block_height > *deadline {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        fulfillment.into(),
+                        format!(
+                            "Fulfillment block height {} exceeds deadline {}",
+                            fulfillment_block_height, deadline
+                        ),
+                    ));
+                }
+
                 self.state = GraphState::Fulfilled {
                     last_block_height: *last_block_height,
                     graph_data: *graph_data,
@@ -645,7 +660,7 @@ impl GraphSM {
                     assignee: *assignee,
                     signatures: signatures.clone(),
                     fulfillment_txid: fulfillment.fulfillment_txid,
-                    fulfillment_block_height: fulfillment.fulfillment_block_height,
+                    fulfillment_block_height,
                 };
 
                 Ok(GSMOutput::default())
