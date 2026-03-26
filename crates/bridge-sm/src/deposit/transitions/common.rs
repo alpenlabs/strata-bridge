@@ -36,13 +36,30 @@ impl DepositSM {
             | DepositState::Deposited {
                 last_block_height, ..
             }
-            | DepositState::Assigned {
-                last_block_height, ..
-            }
             | DepositState::CooperativePathFailed {
                 last_block_height, ..
             } => {
                 *last_block_height = new_block.block_height;
+
+                Ok(SMOutput {
+                    duties: vec![],
+                    signals: vec![],
+                })
+            }
+
+            DepositState::Assigned {
+                last_block_height,
+                deadline,
+                ..
+            } => {
+                // If deadline has elapsed, revert to Deposited state
+                if new_block.block_height >= *deadline {
+                    self.state = DepositState::Deposited {
+                        last_block_height: new_block.block_height,
+                    };
+                } else {
+                    *last_block_height = new_block.block_height;
+                }
 
                 Ok(SMOutput {
                     duties: vec![],

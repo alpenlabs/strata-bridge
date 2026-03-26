@@ -45,13 +45,34 @@ impl GraphSM {
             | GraphState::GraphSigned {
                 last_block_height, ..
             }
-            | GraphState::Assigned {
-                last_block_height, ..
-            }
             | GraphState::Fulfilled {
                 last_block_height, ..
             } => {
                 *last_block_height = new_block_event.block_height;
+                Ok(GSMOutput::new())
+            }
+
+            GraphState::Assigned {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                deadline,
+                ..
+            } => {
+                // If deadline has elapsed, revert to GraphSigned state
+                if new_block_event.block_height >= *deadline {
+                    self.state = GraphState::GraphSigned {
+                        last_block_height: new_block_event.block_height,
+                        graph_data: *graph_data,
+                        graph_summary: graph_summary.clone(),
+                        agg_nonces: None,
+                        signatures: signatures.clone(),
+                    };
+                } else {
+                    *last_block_height = new_block_event.block_height;
+                }
+
                 Ok(GSMOutput::new())
             }
 

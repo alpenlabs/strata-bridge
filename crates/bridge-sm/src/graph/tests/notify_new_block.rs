@@ -13,14 +13,14 @@ mod tests {
             state::GraphState,
             tests::{
                 CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS, GraphInvalidTransition,
-                GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, create_nonpov_sm,
-                create_sm, get_state, mock_game_signatures,
+                GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_POV_IDX,
+                create_nonpov_sm, create_sm, get_state, mock_game_signatures,
                 mock_states::{
-                    bridge_proof_posted_state_with, bridge_proof_timedout_state_with,
-                    claimed_state, contested_state_with,
+                    assigned_state, bridge_proof_posted_state_with,
+                    bridge_proof_timedout_state_with, claimed_state, contested_state_with,
                 },
                 test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
-                test_graph_sm_ctx, test_graph_transition,
+                test_graph_sm_ctx, test_graph_summary, test_graph_transition, test_recipient_desc,
             },
         },
         testing::test_transition,
@@ -284,6 +284,31 @@ mod tests {
         });
     }
 
+    // ===== Assigned State Deadline Tests =====
+
+    /// Tests that Assigned state reverts to GraphSigned when fulfillment deadline expires
+    #[test]
+    fn test_new_block_reverts_assigned_to_graph_signed_when_deadline_exceeded() {
+        let deadline = INITIAL_BLOCK_HEIGHT + 10;
+        let block_height_after_deadline = deadline + 1;
+
+        test_graph_transition(GraphTransition {
+            from_state: assigned_state(TEST_POV_IDX, deadline, test_recipient_desc(1)),
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: block_height_after_deadline,
+            }),
+            expected_state: GraphState::GraphSigned {
+                last_block_height: block_height_after_deadline,
+                graph_data: test_deposit_params(),
+                graph_summary: test_graph_summary(),
+                agg_nonces: None,
+                signatures: Default::default(),
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
     #[test]
     fn bridge_proof_posted_already_processed() {
         test_graph_invalid_transition(GraphInvalidTransition {
@@ -421,5 +446,52 @@ mod tests {
                 expected_signals: vec![],
             },
         );
+    }
+
+    /// Tests that Assigned state reverts to GraphSigned when fulfillment deadline is reached
+    #[test]
+    fn test_new_block_reverts_assigned_to_graph_signed_when_deadline_reached() {
+        let deadline = INITIAL_BLOCK_HEIGHT + 10;
+
+        test_graph_transition(GraphTransition {
+            from_state: assigned_state(TEST_POV_IDX, deadline, test_recipient_desc(1)),
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: deadline,
+            }),
+            expected_state: GraphState::GraphSigned {
+                last_block_height: deadline,
+                graph_data: test_deposit_params(),
+                graph_summary: test_graph_summary(),
+                agg_nonces: None,
+                signatures: Default::default(),
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
+    /// Tests that Assigned state stays in Assigned when deadline has not expired
+    #[test]
+    fn test_new_block_keeps_assigned_when_deadline_not_exceeded() {
+        let deadline = LATER_BLOCK_HEIGHT;
+        let block_height_before_deadline = deadline - 1;
+
+        test_graph_transition(GraphTransition {
+            from_state: assigned_state(TEST_POV_IDX, deadline, test_recipient_desc(1)),
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: block_height_before_deadline,
+            }),
+            expected_state: GraphState::Assigned {
+                last_block_height: block_height_before_deadline,
+                graph_data: test_deposit_params(),
+                graph_summary: test_graph_summary(),
+                signatures: Default::default(),
+                assignee: TEST_POV_IDX,
+                deadline,
+                recipient_desc: test_recipient_desc(1),
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
 }
