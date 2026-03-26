@@ -84,14 +84,13 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: test_graph_summary(),
-                agg_nonces: nonce_ctx.agg_nonces.clone(),
+                agg_nonces: Some(nonce_ctx.agg_nonces.clone()),
                 signatures: signatures.clone(),
             },
             GraphState::Assigned {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: test_graph_summary(),
-                agg_nonces: nonce_ctx.agg_nonces.clone(),
                 signatures: signatures.clone(),
                 assignee: TEST_POV_IDX,
                 deadline: ASSIGNMENT_DEADLINE,
@@ -189,7 +188,7 @@ mod tests {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     graph_data: test_deposit_params(),
                     graph_summary: graph_summary.clone(),
-                    agg_nonces: nonce_ctx.agg_nonces.clone(),
+                    agg_nonces: Some(nonce_ctx.agg_nonces.clone()),
                     signatures: signatures.clone(),
                 },
                 event: GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
@@ -220,12 +219,7 @@ mod tests {
         let (_, _, nonce_ctx) = test_nonce_context();
         let from_states = [
             graph_signed_state(&nonce_ctx),
-            assigned_state(
-                &nonce_ctx,
-                TEST_POV_IDX,
-                ASSIGNMENT_DEADLINE,
-                test_recipient_desc(1),
-            ),
+            assigned_state(TEST_POV_IDX, ASSIGNMENT_DEADLINE, test_recipient_desc(1)),
         ];
 
         for from_state in from_states {
@@ -265,12 +259,7 @@ mod tests {
         let from_states = [
             fulfilled_state(TEST_POV_IDX, generate_txid()),
             graph_signed_state(&nonce_ctx),
-            assigned_state(
-                &nonce_ctx,
-                TEST_POV_IDX,
-                ASSIGNMENT_DEADLINE,
-                test_recipient_desc(1),
-            ),
+            assigned_state(TEST_POV_IDX, ASSIGNMENT_DEADLINE, test_recipient_desc(1)),
         ];
 
         for from_state in from_states {

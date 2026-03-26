@@ -8,15 +8,16 @@ mod tests {
         events::{GraphEvent, WithdrawalAssignedEvent},
         state::GraphState,
         tests::{
-            GraphInvalidTransition, GraphTransition, TEST_NONPOV_IDX, TEST_POV_IDX,
+            GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, TEST_NONPOV_IDX,
+            TEST_POV_IDX,
             mock_states::{
                 acked_state, all_nackd_state, assigned_state, bridge_proof_posted_state,
                 bridge_proof_timedout_state, claimed_state, contested_state,
                 counter_proof_posted_state, fulfilled_state, graph_signed_state,
                 pre_signing_states, terminal_states, test_nonce_context,
             },
-            random_p2tr_desc, test_graph_invalid_transition, test_graph_transition,
-            test_recipient_desc,
+            random_p2tr_desc, test_deposit_params, test_graph_invalid_transition,
+            test_graph_summary, test_graph_transition, test_recipient_desc,
         },
     };
 
@@ -36,7 +37,7 @@ mod tests {
                 deadline: REASSIGNMENT_DEADLINE,
                 recipient_desc: desc.clone(),
             }),
-            expected_state: assigned_state(&nonce_ctx, TEST_POV_IDX, REASSIGNMENT_DEADLINE, desc),
+            expected_state: assigned_state(TEST_POV_IDX, REASSIGNMENT_DEADLINE, desc),
             expected_duties: vec![],
             expected_signals: vec![],
         });
@@ -60,27 +61,16 @@ mod tests {
 
     #[test]
     fn test_reassignment_same_assignee_different_deadline() {
-        let (_, _, nonce_ctx) = test_nonce_context();
         let desc = random_p2tr_desc();
 
         test_graph_transition(GraphTransition {
-            from_state: assigned_state(
-                &nonce_ctx,
-                TEST_POV_IDX,
-                REASSIGNMENT_DEADLINE,
-                desc.clone(),
-            ),
+            from_state: assigned_state(TEST_POV_IDX, REASSIGNMENT_DEADLINE, desc.clone()),
             event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_POV_IDX,
                 deadline: UPDATED_REASSIGNMENT_DEADLINE,
                 recipient_desc: desc.clone(),
             }),
-            expected_state: assigned_state(
-                &nonce_ctx,
-                TEST_POV_IDX,
-                UPDATED_REASSIGNMENT_DEADLINE,
-                desc,
-            ),
+            expected_state: assigned_state(TEST_POV_IDX, UPDATED_REASSIGNMENT_DEADLINE, desc),
             expected_duties: vec![],
             expected_signals: vec![],
         });
@@ -88,13 +78,12 @@ mod tests {
 
     #[test]
     fn test_reassignment_rejected_when_recipient_changes() {
-        let (_, _, nonce_ctx) = test_nonce_context();
         let old_desc = random_p2tr_desc();
         let new_desc = random_p2tr_desc();
         assert_ne!(old_desc, new_desc, "descriptors must differ");
 
         test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: assigned_state(&nonce_ctx, TEST_POV_IDX, REASSIGNMENT_DEADLINE, old_desc),
+            from_state: assigned_state(TEST_POV_IDX, REASSIGNMENT_DEADLINE, old_desc),
             event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_POV_IDX,
                 deadline: UPDATED_REASSIGNMENT_DEADLINE,
@@ -106,22 +95,24 @@ mod tests {
 
     #[test]
     fn test_reassignment_different_assignee_reverts_to_graph_signed() {
-        let (_, _, nonce_ctx) = test_nonce_context();
         let desc = test_recipient_desc(1);
 
         test_graph_transition(GraphTransition {
-            from_state: assigned_state(
-                &nonce_ctx,
-                TEST_NONPOV_IDX,
-                REASSIGNMENT_DEADLINE,
-                desc.clone(),
-            ),
+            from_state: assigned_state(TEST_NONPOV_IDX, REASSIGNMENT_DEADLINE, desc.clone()),
             event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_POV_IDX,
                 deadline: UPDATED_REASSIGNMENT_DEADLINE,
                 recipient_desc: desc,
             }),
-            expected_state: graph_signed_state(&nonce_ctx),
+            // GraphSigned state after reversion has agg_nonces: None
+            // since all signing has already completed.
+            expected_state: GraphState::GraphSigned {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: test_graph_summary(),
+                agg_nonces: None,
+                signatures: Default::default(),
+            },
             expected_duties: vec![],
             expected_signals: vec![],
         });
@@ -129,16 +120,10 @@ mod tests {
 
     #[test]
     fn test_reassignment_rejected_when_invalid_deadline() {
-        let (_, _, nonce_ctx) = test_nonce_context();
         let desc = random_p2tr_desc();
 
         test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: assigned_state(
-                &nonce_ctx,
-                TEST_POV_IDX,
-                REASSIGNMENT_DEADLINE,
-                desc.clone(),
-            ),
+            from_state: assigned_state(TEST_POV_IDX, REASSIGNMENT_DEADLINE, desc.clone()),
             event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_POV_IDX,
                 deadline: REASSIGNMENT_DEADLINE - 50,
@@ -150,16 +135,10 @@ mod tests {
 
     #[test]
     fn test_reassignment_different_assignee_rejected_when_invalid_deadline() {
-        let (_, _, nonce_ctx) = test_nonce_context();
         let desc = test_recipient_desc(1);
 
         test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: assigned_state(
-                &nonce_ctx,
-                TEST_NONPOV_IDX,
-                REASSIGNMENT_DEADLINE,
-                desc.clone(),
-            ),
+            from_state: assigned_state(TEST_NONPOV_IDX, REASSIGNMENT_DEADLINE, desc.clone()),
             event: GraphEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_POV_IDX,
                 deadline: REASSIGNMENT_DEADLINE - 50,

@@ -190,9 +190,7 @@ mod tests {
     #[test]
     fn classify_tx_recognizes_fulfillment_in_assigned() {
         let cfg = test_graph_sm_cfg();
-        let (_, _, nonce_ctx) = test_nonce_context();
         let sm = create_sm(assigned_state(
-            &nonce_ctx,
             TEST_ASSIGNEE,
             LATER_BLOCK_HEIGHT + 15,
             test_recipient_desc(1),
