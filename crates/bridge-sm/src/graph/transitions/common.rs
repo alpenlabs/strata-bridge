@@ -141,8 +141,61 @@ impl GraphSM {
                 Ok(GSMOutput::new())
             }
 
-            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2340>
-            GraphState::BridgeProofPosted { .. } => todo!(""),
+            GraphState::BridgeProofPosted {
+                last_block_height,
+                contest_block_height,
+                graph_data,
+                signatures,
+                ..
+            } => {
+                *last_block_height = new_block_event.block_height;
+                let payout_timelock =
+                    u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+                let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
+                let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
+
+                // check if slashing is possible
+                if !is_own_graph
+                    && new_block_event.block_height > *contest_block_height + payout_timelock
+                {
+                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
+                    let slash_signatures = GameFunctor::unpack(
+                        signatures.clone(),
+                        graph_ctx.watchtower_pubkeys().len(),
+                    )
+                    .expect("Number of signatures is consistent with number of watchtowers")
+                    .slash;
+                    let signed_slash_tx = game_graph.slash.finalize(slash_signatures);
+
+                    return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
+                        signed_slash_tx,
+                    }]));
+                }
+
+                // check if contested payout is possible
+                if is_own_graph
+                    && new_block_event.block_height > *contest_block_height + ack_timelock
+                {
+                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
+                    let contested_payout_signatures = GameFunctor::unpack(
+                        signatures.clone(),
+                        graph_ctx.watchtower_pubkeys().len(),
+                    )
+                    .expect("Number of signatures is consistent with number of watchtowers")
+                    .contested_payout;
+                    let signed_contested_payout_tx = game_graph
+                        .contested_payout
+                        .finalize(contested_payout_signatures);
+
+                    return Ok(GSMOutput::with_duties(vec![
+                        GraphDuty::PublishContestedPayout {
+                            signed_contested_payout_tx,
+                        },
+                    ]));
+                }
+
+                Ok(GSMOutput::new())
+            }
 
             GraphState::BridgeProofTimedout {
                 last_block_height,

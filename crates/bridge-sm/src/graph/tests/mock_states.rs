@@ -142,12 +142,20 @@ pub(super) fn contested_state_with(
 
 /// Builds a mock `BridgeProofPosted` state with default test values.
 pub(super) fn bridge_proof_posted_state() -> GraphState {
+    bridge_proof_posted_state_with(LATER_BLOCK_HEIGHT, Default::default())
+}
+
+/// Builds a mock `BridgeProofPosted` state with the given parameters.
+pub(super) fn bridge_proof_posted_state_with(
+    last_block_height: u64,
+    signatures: Vec<schnorr::Signature>,
+) -> GraphState {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::BridgeProofPosted {
-        last_block_height: LATER_BLOCK_HEIGHT,
+        last_block_height,
         graph_data: test_deposit_params(),
         graph_summary: graph_summary.clone(),
-        signatures: Default::default(),
+        signatures,
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         bridge_proof_txid: graph_summary.bridge_proof_timeout,
