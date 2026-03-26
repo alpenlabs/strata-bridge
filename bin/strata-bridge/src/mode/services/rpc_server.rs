@@ -746,7 +746,7 @@ mod tests {
             last_block_height: 100,
             graph_data: test_graph_data(),
             graph_summary: graph_summary.clone(),
-            agg_nonces: vec![],
+            agg_nonces: Some(vec![]),
             signatures,
         };
 
