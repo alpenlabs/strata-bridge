@@ -778,36 +778,43 @@ mod e2e_tests {
         let pred = |tx: &Transaction| !tx.is_coinbase();
         let mut tx_sub = client.subscribe_transactions(pred).await;
 
+        const EXPECTED_TX_COUNT: usize = 20;
+
         // Launch a task to issue 20 new transactions paying to the originally created address.
+        // `bitcoind` is moved in to keep the node alive; `client` stays on the main task so the
+        // monitoring thread isn't aborted before all events are delivered.
         let mine_task = tokio::task::spawn_blocking(move || {
-            // Submit 20 transactions.
-            for _ in 0..20 {
+            for _ in 0..EXPECTED_TX_COUNT {
                 bitcoind
                     .client
                     .send_to_address(&new_address, bitcoin::Amount::ONE_BTC)
                     .unwrap();
             }
-
-            // Explicitly drop the client here to prevent rustc from "optimizing" the code and
-            // dropping it earlier, aborting the producer thread. This is done in the
-            // mining thread so that the subscription stream terminates.
-            drop(client);
         });
 
-        // Count all of the transactions that come over the subscription, waiting for the
-        // subscription to terminate.
+        // Wait for all expected transactions to be delivered, with a timeout to guard against
+        // hangs if ZMQ delivery is slower than expected.
         let mut n_tx = 0;
-        while tx_sub.next().await.is_some() {
-            n_tx += 1;
-        }
+        let delivery_result = tokio::time::timeout(Duration::from_secs(30), async {
+            while tx_sub.next().await.is_some() {
+                n_tx += 1;
+                if n_tx == EXPECTED_TX_COUNT {
+                    return;
+                }
+            }
+        })
+        .await;
 
-        // Wait for the mining task to complete.
         mine_task.await?;
 
-        // Assert that we received all 20 transactions over with a Mempool and Mined status for
-        // each.
-        assert_eq!(n_tx, 20);
+        assert!(
+            delivery_result.is_ok(),
+            "timed out waiting for transactions: received {n_tx}/{EXPECTED_TX_COUNT}"
+        );
+        assert_eq!(n_tx, EXPECTED_TX_COUNT);
 
+        // `client` is dropped here, cleanly aborting the monitoring thread after all
+        // expected events have been received.
         Ok(())
     }
 
