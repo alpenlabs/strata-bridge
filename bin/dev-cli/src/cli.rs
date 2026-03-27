@@ -115,6 +115,9 @@ pub(crate) struct ContestArgs {
     #[arg(long, help = "url of the bridge node RPC")]
     pub(crate) bridge_node_url: String,
 
+    #[arg(long, help = "the path to the params file")]
+    pub(crate) params: PathBuf,
+
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,
 }

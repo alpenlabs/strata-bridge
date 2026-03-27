@@ -3514,6 +3514,7 @@ dependencies = [
  "strata-bridge-key-deriv",
  "strata-bridge-primitives",
  "strata-bridge-rpc",
+ "strata-bridge-tx-graph",
  "strata-checkpoint-types-ssz",
  "strata-crypto",
  "strata-identifiers",

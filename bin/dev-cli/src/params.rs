@@ -17,6 +17,12 @@ pub(crate) struct Params {
 
     pub(crate) tag: String,
 
+    pub(crate) contest_timelock: u16,
+    pub(crate) proof_timelock: u16,
+    pub(crate) ack_timelock: u16,
+    pub(crate) nack_timelock: u16,
+    pub(crate) contested_payout_timelock: u16,
+
     #[serde(serialize_with = "serialize_keys")]
     #[serde(deserialize_with = "deserialize_keys")]
     pub(crate) musig2_keys: Vec<XOnlyPublicKey>,
