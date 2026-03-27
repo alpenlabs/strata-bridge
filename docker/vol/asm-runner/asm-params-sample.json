@@ -2,7 +2,7 @@
     "magic": "ALPN",
     "l1_view": {
         "blk": {
-            "height": 100,
+            "height": 101,
             "blkid": "f2c22acbe3b24e429349296b958c40b692356436086750bd7564ebfceb915100"
         },
         "next_target": 545259519,
@@ -48,7 +48,7 @@
             "Checkpoint": {
                 "sequencer_predicate": "AlwaysAccept",
                 "checkpoint_predicate": "AlwaysAccept",
-                "genesis_l1_height": 100,
+                "genesis_l1_height": 101,
                 "genesis_ol_blkid": "0000000000000000000000000000000000000000000000000000000000000000"
             }
         },
