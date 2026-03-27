@@ -1,4 +1,5 @@
 use bitcoincore_rpc::{Auth, Client};
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 
 pub(crate) fn get_btc_client(
     url: &str,
@@ -10,4 +11,10 @@ pub(crate) fn get_btc_client(
         .map_err(|e| anyhow::anyhow!("Failed to create RPC client: {}", e))?;
 
     Ok(btc_client)
+}
+
+pub(crate) fn get_bridge_client(url: &str) -> Result<HttpClient, anyhow::Error> {
+    HttpClientBuilder::default()
+        .build(url)
+        .map_err(|e| anyhow::anyhow!("Failed to create bridge RPC client: {}", e))
 }
