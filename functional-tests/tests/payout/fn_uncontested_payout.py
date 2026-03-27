@@ -29,7 +29,7 @@ class UnContestedPayoutTest(StrataTestBase):
     def __init__(self, ctx: flexitest.InitContext):
         ctx.set_env(
             BridgeNetworkEnv(
-                bridge_protocol_params=BridgeProtocolParams(contest_timelock=5),
+                bridge_protocol_params=BridgeProtocolParams(contest_timelock=6),
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=0,
                 ),
@@ -86,5 +86,9 @@ class UnContestedPayoutTest(StrataTestBase):
         # Wait for the deposit UTXO to be spent (contested payout)
         wait_until_deposit_utxo_spent(bitcoin_rpc, deposit_txid, timeout=450)
         self.logger.info("Deposit UTXO confirmed spent after cooperative payout")
+
+        import time
+
+        time.sleep(120)
 
         return True
