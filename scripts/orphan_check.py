@@ -158,10 +158,19 @@ def format_label(format_name: str) -> str:
 
 
 def example_formats(format_name: str, slugs: Sequence[str]) -> list[str]:
+    comment_prefixes = ["//", "#"]
     if format_name == "jira-link":
-        return [f"// {slug}: <{JIRA_LINK_PREFIX}1234>" for slug in slugs]
+        return [
+            f"{prefix} {slug}: <{JIRA_LINK_PREFIX}1234>"
+            for prefix in comment_prefixes
+            for slug in slugs
+        ]
     if format_name == "assignee":
-        return [f"// {slug}: (github_id) Description" for slug in slugs]
+        return [
+            f"{prefix} {slug}: (github_id) Description"
+            for prefix in comment_prefixes
+            for slug in slugs
+        ]
     raise ValueError(f"unsupported format: {format_name}")
 
 
