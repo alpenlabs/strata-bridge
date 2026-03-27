@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict
 from pathlib import Path
+import logging
 
 from asm_params import build_genesis_l1_view
 
@@ -127,6 +128,14 @@ def validate_params(asm_params: dict, bridge_params: dict) -> None:
 
     checks = [
         ("magic", asm_params["magic"], bridge["magic_bytes"]),
+        (
+            "genesis_height",
+            # TODO: <https://atlassian.alpenlabs.net/browse/STR-2572>
+            # set these to be equal after the above bug is fixed
+            # for now, just check that the ASM genesis height is 1 less than the Bridge genesis height
+            asm_params["l1_view"]["blk"]["height"] - 1,  # must start sooner
+            bridge_params["genesis_height"],
+        ),
         ("denomination", asm["denomination"], bridge["deposit_amount"]),
         ("operator_fee", asm["operator_fee"], bridge["operator_fee"]),
         ("recovery_delay", asm["recovery_delay"], bridge["recovery_delay"]),
@@ -148,23 +157,36 @@ def validate_params(asm_params: dict, bridge_params: dict) -> None:
 def main() -> None:
     args = parse_args()
 
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
+    logging.info("Starting ASM params generation")
+
     config = tomllib.loads(Path(args.config).read_text())
     params_path = Path(args.params)
     params = json.loads(params_path.read_text())
     bridge_params = tomllib.loads(Path(args.bridge_params).read_text())
 
+    logging.info("Validating ASM params against Bridge params")
     validate_params(params, bridge_params)
 
     genesis_height = params["l1_view"]["blk"]["height"]
 
+    logging.info("Waiting for bitcoind to be ready")
     wait_for_bitcoind(config["bitcoin"], args.timeout_secs)
+
+    logging.info(f"Waiting for bitcoind to reach genesis height {genesis_height}")
     wait_for_genesis_height(config["bitcoin"], genesis_height, args.timeout_secs)
 
+    logging.info("Fetching chain context for genesis height")
     block_hash, header = fetch_chain_context(config["bitcoin"], genesis_height)
+
+    logging.info("Updating ASM params with chain context")
     params["l1_view"] = asdict(
         build_genesis_l1_view(genesis_height, block_hash, header)
     )
 
+    logging.info(f"Writing updated ASM params to {params_path}")
     params_path.write_text(json.dumps(params, indent=4) + "\n")
 
 
