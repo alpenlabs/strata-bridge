@@ -22,6 +22,8 @@ enum SigningContext {
     Payout = 0x01,
     /// Transaction graph signing.
     Graph = 0x02,
+    /// Unstaking graph signing.
+    Unstake = 0x03,
 }
 
 /// Gossipsub message kind discriminator for cryptographic domain separation.
@@ -40,6 +42,8 @@ enum GossipsubMsgKind {
     GraphDataExchange = 0x03,
     /// Nag request exchange.
     NagRequest = 0x04,
+    /// Unstaking graph data exchange.
+    UnstakingDataExchange = 0x05,
 }
 
 /// Nag request payload discriminator for cryptographic domain separation.
@@ -62,6 +66,12 @@ enum NagPayloadKind {
     GraphNonces = 0x05,
     /// Request missing graph partial signatures.
     GraphPartials = 0x06,
+    /// Request missing unstaking graph data.
+    UnstakingData = 0x07,
+    /// Request missing unstaking graph nonces.
+    UnstakingNonces = 0x08,
+    /// Request missing unstaking graph partial signatures.
+    UnstakingPartials = 0x09,
 }
 
 /// MuSig2 nonce variants for different signing contexts.
@@ -81,11 +91,18 @@ pub enum MuSig2Nonce {
         /// The public nonce.
         nonce: PubNonce,
     },
-    /// Multiple nonces for graph signing (one per graph transaction).
+    /// Multiple nonces for graph signing (one per graph transaction input).
     Graph {
         /// The graph index to identify the instance of the graph.
         graph_idx: GraphIdx,
-        /// One nonce per transaction in the graph.
+        /// One nonce per transaction input in the graph.
+        nonces: Vec<PubNonce>,
+    },
+    /// Multiple nonces for unstaking graph signing (one per graph transaction input).
+    Unstake {
+        /// The index of the staking operator.
+        operator_idx: OperatorIdx,
+        /// One nonce per transaction input in the unstaking graph.
         nonces: Vec<PubNonce>,
     },
 }
@@ -116,6 +133,16 @@ impl MuSig2Nonce {
                     buf.extend(nonce.to_bytes());
                 }
             }
+            Self::Unstake {
+                operator_idx,
+                nonces,
+            } => {
+                buf.push(SigningContext::Unstake as u8);
+                buf.extend(operator_idx.to_le_bytes());
+                for nonce in nonces {
+                    buf.extend(nonce.to_bytes());
+                }
+            }
         }
         buf
     }
@@ -136,6 +163,17 @@ impl fmt::Debug for MuSig2Nonce {
                     "MuSig2Nonce::Graph(graph_idx: ({}, {}), nonces: {})",
                     graph_idx.operator,
                     graph_idx.deposit,
+                    nonces.len()
+                )
+            }
+            Self::Unstake {
+                operator_idx,
+                nonces,
+            } => {
+                write!(
+                    f,
+                    "MuSig2Nonce::Unstake(operator_idx: {}, nonces: {})",
+                    operator_idx,
                     nonces.len()
                 )
             }
@@ -160,11 +198,18 @@ pub enum MuSig2Partial {
         /// The partial signature.
         partial: PartialSignature,
     },
-    /// Multiple partials for graph signing (one per graph transaction).
+    /// Multiple partials for graph signing (one per graph transaction input).
     Graph {
         /// The graph index to identify the instance of the graph.
         graph_idx: GraphIdx,
-        /// One partial signature per transaction in the graph.
+        /// One partial signature per transaction input in the graph.
+        partials: Vec<PartialSignature>,
+    },
+    /// Multiple partials for unstaking graph signing (one per graph transaction input).
+    Unstake {
+        /// The index of the staking operator.
+        operator_idx: OperatorIdx,
+        /// One partial signature per transaction input in the unstaking graph.
         partials: Vec<PartialSignature>,
     },
 }
@@ -204,6 +249,16 @@ impl MuSig2Partial {
                     buf.extend(partial.to_bytes());
                 }
             }
+            Self::Unstake {
+                operator_idx,
+                partials,
+            } => {
+                buf.push(SigningContext::Unstake as u8);
+                buf.extend(operator_idx.to_le_bytes());
+                for partial in partials {
+                    buf.extend(partial.to_bytes());
+                }
+            }
         }
         buf
     }
@@ -227,6 +282,17 @@ impl fmt::Debug for MuSig2Partial {
                     "MuSig2Partial::Graph(graph_idx: ({}, {}), partials: {})",
                     graph_idx.operator,
                     graph_idx.deposit,
+                    partials.len()
+                )
+            }
+            Self::Unstake {
+                operator_idx,
+                partials,
+            } => {
+                write!(
+                    f,
+                    "MuSig2Partial::Unstake(operator_idx: {}, partials: {})",
+                    operator_idx,
                     partials.len()
                 )
             }
@@ -272,6 +338,21 @@ pub enum NagRequestPayload {
         /// The graph index for identifying the graph instance.
         graph_idx: GraphIdx,
     },
+    /// Request missing unstaking graph data.
+    UnstakingData {
+        /// The index of the staking operator whose unstaking graph data is missing.
+        operator_idx: OperatorIdx,
+    },
+    /// Request missing unstaking graph nonces.
+    UnstakingNonces {
+        /// The index of the staking operator whose unstaking graph nonces are missing.
+        operator_idx: OperatorIdx,
+    },
+    /// Request missing unstaking graph partial signatures.
+    UnstakingPartials {
+        /// The index of the staking operator whose unstaking graph partial signatures are missing.
+        operator_idx: OperatorIdx,
+    },
 }
 
 impl NagRequestPayload {
@@ -312,6 +393,18 @@ impl NagRequestPayload {
                 buf.push(NagPayloadKind::GraphPartials as u8);
                 buf.extend(graph_idx.operator.to_le_bytes());
                 buf.extend(graph_idx.deposit.to_le_bytes());
+            }
+            Self::UnstakingData { operator_idx } => {
+                buf.push(NagPayloadKind::UnstakingData as u8);
+                buf.extend(operator_idx.to_le_bytes());
+            }
+            Self::UnstakingNonces { operator_idx } => {
+                buf.push(NagPayloadKind::UnstakingNonces as u8);
+                buf.extend(operator_idx.to_le_bytes());
+            }
+            Self::UnstakingPartials { operator_idx } => {
+                buf.push(NagPayloadKind::UnstakingPartials as u8);
+                buf.extend(operator_idx.to_le_bytes());
             }
         }
         buf
@@ -364,6 +457,27 @@ impl fmt::Debug for NagRequestPayload {
                     f,
                     "NagRequestPayload::GraphPartials(graph_idx: ({}, {}))",
                     graph_idx.operator, graph_idx.deposit
+                )
+            }
+            Self::UnstakingData { operator_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::UnstakingData(operator_idx: {})",
+                    operator_idx
+                )
+            }
+            Self::UnstakingNonces { operator_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::UnstakingNonces(operator_idx: {})",
+                    operator_idx
+                )
+            }
+            Self::UnstakingPartials { operator_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::UnstakingPartials(operator_idx: {})",
+                    operator_idx
                 )
             }
         }
