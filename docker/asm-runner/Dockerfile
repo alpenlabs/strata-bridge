@@ -26,5 +26,6 @@ COPY functional-tests/factory/common/asm_params.py /usr/local/bin/asm_params.py
 COPY functional-tests/constants.py /usr/local/bin/constants.py
 COPY docker/asm-runner/gen_asm_params.py /usr/local/bin/gen_asm_params.py
 COPY docker/asm-runner/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/strata-asm-runner /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["sh", "/usr/local/bin/entrypoint.sh"]

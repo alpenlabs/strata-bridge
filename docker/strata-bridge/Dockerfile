@@ -17,5 +17,6 @@ FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 # Copy the built binaries from the builder stage
 COPY --from=builder /app/strata-bridge /usr/local/bin/strata-bridge
 COPY docker/strata-bridge/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/strata-bridge /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["sh", "/usr/local/bin/entrypoint.sh"]
