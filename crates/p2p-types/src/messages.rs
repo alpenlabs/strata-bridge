@@ -727,6 +727,7 @@ impl fmt::Display for GossipsubMsg {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::{hashes::sha256, OutPoint, Txid};
     use libp2p_identity::ed25519::Keypair;
     use secp256k1::rand::{rngs::OsRng, Rng};
     use strata_bridge_test_utils::musig2::{generate_partial_signature, generate_pubnonce};
@@ -755,6 +756,18 @@ mod tests {
     // Helper to create a test PayoutDescriptor.
     fn test_payout_descriptor() -> PayoutDescriptor {
         PayoutDescriptor::new(vec![1, 2, 3, 4, 5])
+    }
+
+    // Helper to create a test UnstakingInput.
+    fn test_unstaking_input() -> UnstakingInput {
+        UnstakingInput {
+            stake_funds: bitcoin::OutPoint {
+                txid: Txid::from_byte_array([0xAA; 32]),
+                vout: 0,
+            },
+            unstaking_image: sha256::Hash::from_byte_array([0xBB; 32]),
+            unstaking_operator_desc: test_payout_descriptor(),
+        }
     }
 
     // ==================== Domain Separation Tests ====================
@@ -817,6 +830,17 @@ mod tests {
         assert_eq!(content[0], 0x01, "Payout should have prefix 0x01");
     }
 
+    // Verifies MuSig2Nonce::Unstake uses discriminator 0x03.
+    #[test]
+    fn musig2_nonce_unstake_has_correct_prefix() {
+        let nonce = MuSig2Nonce::Unstake {
+            operator_idx: 42,
+            nonces: vec![test_pubnonce()],
+        };
+        let content = nonce.content_bytes();
+        assert_eq!(content[0], 0x03, "Unstake should have prefix 0x03");
+    }
+
     // Verifies MuSig2Partial::Graph uses discriminator 0x02.
     #[test]
     fn musig2_partial_graph_has_correct_prefix() {
@@ -829,6 +853,17 @@ mod tests {
         };
         let content = partial.content_bytes();
         assert_eq!(content[0], 0x02, "Graph should have prefix 0x02");
+    }
+
+    // Verifies MuSig2Partial::Unstake uses discriminator 0x03.
+    #[test]
+    fn musig2_partial_unstake_has_correct_prefix() {
+        let partial = MuSig2Partial::Unstake {
+            operator_idx: 42,
+            partials: vec![test_partial_signature()],
+        };
+        let content = partial.content_bytes();
+        assert_eq!(content[0], 0x03, "Unstake should have prefix 0x03");
     }
 
     // Verifies PayoutDescriptorExchange uses discriminator 0x00.
@@ -886,6 +921,70 @@ mod tests {
             content[0], 0x04,
             "NagRequestExchange should have prefix 0x03"
         );
+    }
+
+    // Verifies UnstakingDataExchange uses discriminator 0x05.
+    #[test]
+    fn unsigned_msg_unstaking_data_has_correct_prefix() {
+        let msg = UnsignedGossipsubMsg::UnstakingDataExchange {
+            operator_idx: 1,
+            unstaking_input: test_unstaking_input(),
+        };
+        let content = msg.content_bytes();
+        assert_eq!(
+            content[0], 0x05,
+            "UnstakingDataExchange should have prefix 0x05"
+        );
+    }
+
+    // Verifies UnstakingDataExchange serializes all fields of UnstakingInput.
+    #[test]
+    fn unsigned_msg_unstaking_data_serializes_all_fields() {
+        use bitcoin::hashes::Hash as _;
+
+        let desc = test_payout_descriptor();
+        let desc_bytes = desc.content_bytes().to_vec();
+
+        let image = [0xAB; 32];
+        let stake_funds_txid = [0xCD; 32];
+        let stake_funds_vout = 1;
+        let stake_funds = OutPoint {
+            txid: Txid::from_byte_array(stake_funds_txid),
+            vout: stake_funds_vout,
+        };
+        let unstaking_input = UnstakingInput {
+            stake_funds,
+            unstaking_image: sha256::Hash::from_byte_array(image),
+            unstaking_operator_desc: desc,
+        };
+
+        let operator_idx: OperatorIdx = 3;
+        let msg = UnsignedGossipsubMsg::UnstakingDataExchange {
+            operator_idx,
+            unstaking_input,
+        };
+        let content = msg.content_bytes();
+
+        // Structure: discriminator (1) + operator_idx (4) + txid (32) + vout (4) + image (32) +
+        // desc
+        let expected_len = 1 + 4 + 32 + 4 + 32 + desc_bytes.len();
+        assert_eq!(content.len(), expected_len);
+
+        let mut offset = 0;
+        assert_eq!(content[offset], 0x05); // discriminator
+        offset += 1;
+        assert_eq!(&content[offset..offset + 4], &operator_idx.to_le_bytes());
+        offset += 4;
+        assert_eq!(&content[offset..offset + 32], &stake_funds_txid);
+        offset += 32;
+        assert_eq!(
+            &content[offset..offset + 4],
+            &stake_funds_vout.to_le_bytes()
+        );
+        offset += 4;
+        assert_eq!(&content[offset..offset + 32], &image);
+        offset += 32;
+        assert_eq!(&content[offset..], &desc_bytes);
     }
 
     // Verifies NagRequestPayload::DepositNonce uses discriminator 0x00.
@@ -959,6 +1058,33 @@ mod tests {
         assert_eq!(content[0], 0x06, "GraphPartials should have prefix 0x06");
     }
 
+    // Verifies NagRequestPayload::UnstakingData uses discriminator 0x07.
+    #[test]
+    fn nag_payload_unstaking_data_has_correct_prefix() {
+        let payload = NagRequestPayload::UnstakingData { operator_idx: 42 };
+        let content = payload.content_bytes();
+        assert_eq!(content[0], 0x07, "UnstakingData should have prefix 0x07");
+    }
+
+    // Verifies NagRequestPayload::UnstakingNonces uses discriminator 0x08.
+    #[test]
+    fn nag_payload_unstaking_nonces_has_correct_prefix() {
+        let payload = NagRequestPayload::UnstakingNonces { operator_idx: 42 };
+        let content = payload.content_bytes();
+        assert_eq!(content[0], 0x08, "UnstakingNonces should have prefix 0x08");
+    }
+
+    // Verifies NagRequestPayload::UnstakingPartials uses discriminator 0x09.
+    #[test]
+    fn nag_payload_unstaking_partials_has_correct_prefix() {
+        let payload = NagRequestPayload::UnstakingPartials { operator_idx: 42 };
+        let content = payload.content_bytes();
+        assert_eq!(
+            content[0], 0x09,
+            "UnstakingPartials should have prefix 0x09"
+        );
+    }
+
     // ==================== Content Serialization Tests ====================
 
     // Verifies MuSig2Nonce::Deposit serializes with correct byte layout.
@@ -1012,6 +1138,64 @@ mod tests {
         // 32)
         assert_eq!(content.len(), 1 + 4 + 4 + 2 * 32);
         assert_eq!(content[0], 0x02);
+    }
+
+    // Verifies MuSig2Nonce::Unstake serializes all nonces into content bytes.
+    #[test]
+    fn musig2_nonce_unstake_serializes_multiple_nonces() {
+        let nonces = vec![test_pubnonce(), test_pubnonce(), test_pubnonce()];
+        let nonce = MuSig2Nonce::Unstake {
+            operator_idx: 10,
+            nonces: nonces.clone(),
+        };
+        let content = nonce.content_bytes();
+
+        // Check structure: discriminator (1) + operator_idx (4) + nonces (3 * 66)
+        assert_eq!(content.len(), 1 + 4 + 3 * 66);
+        assert_eq!(content[0], 0x03);
+        assert_eq!(&content[1..5], &10u32.to_le_bytes());
+    }
+
+    // Verifies MuSig2Partial::Unstake serializes all partials into content bytes.
+    #[test]
+    fn musig2_partial_unstake_serializes_multiple_partials() {
+        let partials = vec![test_partial_signature(), test_partial_signature()];
+        let partial = MuSig2Partial::Unstake {
+            operator_idx: 5,
+            partials: partials.clone(),
+        };
+        let content = partial.content_bytes();
+
+        // Check structure: discriminator (1) + operator_idx (4) + partials (2 * 32)
+        assert_eq!(content.len(), 1 + 4 + 2 * 32);
+        assert_eq!(content[0], 0x03);
+        assert_eq!(&content[1..5], &5u32.to_le_bytes());
+    }
+
+    // Verifies MuSig2Nonce::Unstake handles empty nonces vector correctly.
+    #[test]
+    fn empty_nonces_unstake() {
+        let nonce = MuSig2Nonce::Unstake {
+            operator_idx: 1,
+            nonces: vec![],
+        };
+        let content = nonce.content_bytes();
+
+        // Should just have discriminator + operator_idx
+        assert_eq!(content.len(), 1 + 4);
+    }
+
+    // Verifies MuSig2Partial::Unstake handles empty partials vector correctly.
+    #[test]
+    fn empty_partials_unstake() {
+        let partial = MuSig2Partial::Unstake {
+            operator_idx: 1,
+            partials: vec![],
+        };
+        let content = partial.content_bytes();
+
+        // Should just have discriminator + operator_idx
+        assert_eq!(content.len(), 1 + 4);
     }
 
     // Verifies MuSig2Nonce::Graph handles empty nonces vector correctly.
@@ -1131,6 +1315,31 @@ mod tests {
             partials.content_bytes(),
             vec![0x06, 1, 0, 0, 0, 2, 0, 0, 0],
             "GraphPartials must serialize as [0x06][operator_idx LE][deposit_idx LE]"
+        );
+    }
+
+    // Verifies unstaking nag payload bytes are stable and ordered as
+    // [discriminator][operator_idx].
+    #[test]
+    fn nag_payload_unstaking_content_bytes_stability() {
+        let data = NagRequestPayload::UnstakingData { operator_idx: 1 };
+        let nonces = NagRequestPayload::UnstakingNonces { operator_idx: 1 };
+        let partials = NagRequestPayload::UnstakingPartials { operator_idx: 1 };
+
+        assert_eq!(
+            data.content_bytes(),
+            vec![0x07, 1, 0, 0, 0],
+            "UnstakingData must serialize as [0x07][operator_idx LE]"
+        );
+        assert_eq!(
+            nonces.content_bytes(),
+            vec![0x08, 1, 0, 0, 0],
+            "UnstakingNonces must serialize as [0x08][operator_idx LE]"
+        );
+        assert_eq!(
+            partials.content_bytes(),
+            vec![0x09, 1, 0, 0, 0],
+            "UnstakingPartials must serialize as [0x09][operator_idx LE]"
         );
     }
 
