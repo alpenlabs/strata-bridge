@@ -6,9 +6,11 @@ use bitcoin::hashes::Hash;
 use libp2p_identity::ed25519;
 use proptest_derive::Arbitrary;
 use rkyv::{Archive, Deserialize, Serialize};
-use strata_bridge_primitives::types::{DepositIdx, OperatorIdx, P2POperatorPubKey};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey};
 
-use crate::{ClaimInput, GraphIdx, PartialSignature, PayoutDescriptor, PubNonce};
+use crate::{
+    unstaking_data::UnstakingInput, ClaimInput, PartialSignature, PayoutDescriptor, PubNonce,
+};
 
 /// Signing context discriminator for cryptographic domain separation.
 ///
@@ -529,13 +531,21 @@ pub enum UnsignedGossipsubMsg {
         operator_desc: PayoutDescriptor,
     },
 
-    /// Graph data exchange.
+    /// Data required to construct the transaction graph.
     GraphDataExchange {
         /// The graph index to identify the instance of the graph.
         graph_idx: GraphIdx,
 
         /// The input to the claim transaction.
         claim_input: ClaimInput,
+    },
+
+    /// Data required to construct the Unstaking Graph.
+    UnstakingDataExchange {
+        /// The index of the staking operator.
+        operator_idx: OperatorIdx,
+        /// The input that funds the stake transaction.
+        unstaking_input: UnstakingInput,
     },
 
     /// MuSig2 nonces exchange.
@@ -576,6 +586,22 @@ impl UnsignedGossipsubMsg {
                 buf.extend(graph_idx.operator.to_le_bytes());
                 buf.extend(outpoint.txid.to_raw_hash().to_byte_array()); // txid
                 buf.extend(outpoint.vout.to_le_bytes()); // vout
+            }
+            Self::UnstakingDataExchange {
+                operator_idx,
+                unstaking_input,
+            } => {
+                buf.push(GossipsubMsgKind::UnstakingDataExchange as u8);
+                buf.extend(operator_idx.to_le_bytes());
+                let UnstakingInput {
+                    stake_funds,
+                    unstaking_image,
+                    unstaking_operator_desc,
+                } = unstaking_input;
+                buf.extend(stake_funds.txid.to_raw_hash().to_byte_array());
+                buf.extend(stake_funds.vout.to_le_bytes());
+                buf.extend(unstaking_image.to_byte_array());
+                buf.extend(unstaking_operator_desc.content_bytes());
             }
             Self::Musig2NoncesExchange(nonce) => {
                 buf.push(GossipsubMsgKind::Musig2Nonces as u8);
@@ -627,6 +653,16 @@ impl fmt::Debug for UnsignedGossipsubMsg {
                     f,
                     "GraphDataExchange(graph_idx: {:?}, claim_input: {:?})",
                     graph_idx, claim_input
+                )
+            }
+            Self::UnstakingDataExchange {
+                operator_idx,
+                unstaking_input,
+            } => {
+                write!(
+                    f,
+                    "UnstakingDataExchange(operator_idx: {}, unstaking_input: {:?})",
+                    operator_idx, unstaking_input
                 )
             }
             Self::Musig2NoncesExchange(nonce) => {
