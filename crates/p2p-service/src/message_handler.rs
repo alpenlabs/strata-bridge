@@ -5,9 +5,9 @@ use libp2p::futures::SinkExt;
 use libp2p_identity::ed25519::Keypair;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_p2p_types::{
-    GraphIdx, MuSig2Nonce, MuSig2Partial, NagRequest, PayoutDescriptor, UnsignedGossipsubMsg,
+    MuSig2Nonce, MuSig2Partial, NagRequest, PayoutDescriptor, UnsignedGossipsubMsg,
 };
-use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_p2p::{commands::GossipCommand, swarm::handle::GossipHandle};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, trace};
