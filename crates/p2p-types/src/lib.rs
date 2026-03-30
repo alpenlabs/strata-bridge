@@ -7,6 +7,7 @@ mod bitcoin;
 mod descriptor;
 mod graph_data;
 mod messages;
+mod rkyv_wrappers;
 
 pub use bitcoin::{PartialSignature, PubNonce};
 pub use descriptor::PayoutDescriptor;
