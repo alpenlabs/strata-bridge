@@ -7,6 +7,7 @@ use secret_service_proto::v2::traits::{SecretService, StakeChainPreimages};
 
 use crate::errors::ExecutorError;
 
+/// Fetches the preimage from the secret service given an [`OutPoint`] as the seed.
 pub(super) async fn get_preimage(
     s2_client: &SecretServiceClient,
     outpoint: OutPoint,

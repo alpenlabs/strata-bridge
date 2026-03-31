@@ -342,14 +342,16 @@ impl OperatorWallet {
             .find(|utxo| utxo.txout.value == self.config.s_value)
     }
 
-    /// Creates a new prestake transaction by paying funds from the general wallet into the
+    /// Creates a new transaction by paying funds from the general wallet into the
     /// stakechain wallet (excludes anchor outputs). This will create a [Self::s_utxo].
+    ///
+    /// This can be used to fund the stake transaction.
     ///
     /// # Notes
     ///
     /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
     /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
-    pub fn create_prestake_tx(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
+    pub fn create_stake_funding_tx(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
         let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
         let mut tx_builder = self.general_wallet.build_tx();
         // Set transaction version to 3 for CPFP 1P1C TRUC transactions.

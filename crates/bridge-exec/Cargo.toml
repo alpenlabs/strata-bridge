@@ -25,7 +25,7 @@ strata-l1-txfmt.workspace = true
 
 bdk_wallet.workspace = true
 bitcoin.workspace = true
-bitcoin-bosd.workspace = true
+bitcoin-bosd = { workspace = true, features = ["address"] }
 bitcoind-async-client.workspace = true
 foundationdb.workspace = true
 futures.workspace = true
