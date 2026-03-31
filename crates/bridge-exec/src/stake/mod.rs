@@ -4,6 +4,7 @@
 mod nag;
 mod staking;
 mod unstaking;
+mod utils;
 
 use std::sync::Arc;
 
@@ -30,14 +31,13 @@ pub async fn execute_stake_duty(
         } => {
             staking::publish_unstaking_partials(&cfg, &output_handles, stake_data, agg_nonces).await
         }
-        StakeDuty::PublishStake { tx } => staking::publish_stake(&cfg, &output_handles, tx).await,
+        StakeDuty::PublishStake { tx } => staking::publish_stake(&output_handles, tx).await,
         StakeDuty::PublishUnstakingIntent {
             unsigned_tx,
             stake_funds,
             n_of_n_signature,
         } => {
             unstaking::publish_unstaking_intent(
-                &cfg,
                 &output_handles,
                 *stake_funds,
                 (**unsigned_tx).clone(),
@@ -46,7 +46,7 @@ pub async fn execute_stake_duty(
             .await
         }
         StakeDuty::PublishUnstakingTx { signed_tx } => {
-            unstaking::publish_unstaking_tx(&cfg, &output_handles, signed_tx).await
+            unstaking::publish_unstaking_tx(&output_handles, signed_tx).await
         }
         StakeDuty::Nag(nag_duty) => nag::execute_nag_duty(&cfg, &output_handles, nag_duty).await,
     }
