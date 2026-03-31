@@ -1,4 +1,4 @@
-//! Unit Tests for process_payout (from Claimed and BridgeProofPosted states)
+//! Unit Tests for process_payout transitions.
 #[cfg(test)]
 mod tests {
     use strata_bridge_test_utils::bitcoin::generate_txid;
@@ -10,7 +10,9 @@ mod tests {
         tests::{
             ASSIGNMENT_DEADLINE, CLAIM_BLOCK_HEIGHT, GraphInvalidTransition, GraphTransition,
             INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_POV_IDX, dummy_proof_receipt,
-            mock_states::{assigned_state, bridge_proof_posted_state, claimed_state},
+            mock_states::{
+                all_nackd_state, assigned_state, bridge_proof_posted_state, claimed_state,
+            },
             test_deposit_params, test_graph_invalid_transition, test_graph_summary,
             test_graph_transition, test_recipient_desc,
         },
@@ -42,6 +44,30 @@ mod tests {
     fn test_payout_rejected_invalid_txid() {
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: claimed_state(INITIAL_BLOCK_HEIGHT, generate_txid(), Default::default()),
+            event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent {
+                payout_txid: generate_txid(),
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    #[test]
+    fn test_payout_from_all_nackd() {
+        let payout_txid = test_graph_summary().contested_payout;
+
+        test_graph_transition(GraphTransition {
+            from_state: all_nackd_state(),
+            event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
+            expected_state: GraphState::Withdrawn { payout_txid },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
+    #[test]
+    fn test_payout_from_all_nackd_rejected_invalid_txid() {
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: all_nackd_state(),
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent {
                 payout_txid: generate_txid(),
             }),
