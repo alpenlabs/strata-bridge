@@ -4,11 +4,15 @@
 //! the stake transaction.
 
 use bitcoin::Transaction;
+use btc_tracker::event::TxStatus;
 use musig2::AggNonce;
 use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
 
-use crate::{config::ExecutionConfig, errors::ExecutorError, output_handles::OutputHandles};
+use crate::{
+    chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
+    output_handles::OutputHandles,
+};
 
 pub(crate) async fn publish_stake_data(
     _cfg: &ExecutionConfig,
@@ -42,9 +46,14 @@ pub(crate) async fn publish_unstaking_partials(
 }
 
 pub(crate) async fn publish_stake(
-    _cfg: &ExecutionConfig,
-    _output_handles: &OutputHandles,
-    _tx: &Transaction,
+    output_handles: &OutputHandles,
+    tx: &Transaction,
 ) -> Result<(), ExecutorError> {
-    todo!()
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        tx,
+        "stake tx",
+        TxStatus::is_buried,
+    )
+    .await
 }
