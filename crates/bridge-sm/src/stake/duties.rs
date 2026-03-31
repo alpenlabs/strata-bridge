@@ -1,9 +1,12 @@
 //! Duties for the Stake State Machine.
 
-use bitcoin::Transaction;
+use bitcoin::{OutPoint, Transaction, secp256k1::schnorr};
 use musig2::AggNonce;
 use strata_bridge_primitives::types::OperatorIdx;
-use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
+use strata_bridge_tx_graph::{
+    stake_graph::{StakeData, StakeGraph},
+    transactions::prelude::UnstakingIntentTx,
+};
 
 /// A duty of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,13 +35,19 @@ pub enum StakeDuty {
     },
     /// Publish the unstaking intent transaction.
     PublishUnstakingIntent {
-        /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        /// The unsigned unstaking intent transaction.
+        unsigned_tx: Box<UnstakingIntentTx>,
+
+        /// The stake funding outpoint used to seed the preimage generation in secret-service.
+        stake_funds: OutPoint,
+
+        /// The N/N signature for the unstaking intent transaction.
+        n_of_n_signature: schnorr::Signature,
     },
     /// Publish the unstaking transaction.
     PublishUnstakingTx {
-        /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        /// The signed unstaking transaction.
+        signed_tx: Transaction,
     },
     /// Nag a given operator to provide missing data.
     Nag(NagDuty),

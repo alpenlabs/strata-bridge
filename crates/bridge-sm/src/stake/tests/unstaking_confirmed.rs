@@ -12,6 +12,7 @@ fn preimage_revealed_state() -> StakeState {
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
         expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        signatures: TEST_FINAL_SIGS.clone(),
     }
 }
 
@@ -42,6 +43,7 @@ fn invalid_states() -> [StakeState; 5] {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             stake_txid: TEST_GRAPH_SUMMARY.stake,
+            signatures: TEST_FINAL_SIGS.clone(),
         },
     ]
 }

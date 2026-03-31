@@ -92,6 +92,7 @@ fn dont_nag_when_nothing_is_missing() {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             stake_txid: TEST_GRAPH_SUMMARY.stake,
+            signatures: TEST_FINAL_SIGS.clone(),
         },
         StakeState::PreimageRevealed {
             last_block_height: STAKE_HEIGHT,
@@ -99,6 +100,7 @@ fn dont_nag_when_nothing_is_missing() {
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
             expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+            signatures: TEST_FINAL_SIGS.clone(),
         },
         StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,
