@@ -28,7 +28,10 @@ class PublishContestTest(StrataTestBase):
     def __init__(self, ctx: flexitest.InitContext):
         ctx.set_env(
             BridgeNetworkEnv(
-                bridge_protocol_params=BridgeProtocolParams(contest_timelock=5),
+                bridge_protocol_params=BridgeProtocolParams(
+                    contest_timelock=5,
+                    ack_timelock=10,
+                ),
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=0,
                 ),
@@ -52,7 +55,10 @@ class PublishContestTest(StrataTestBase):
         dev_cli = DevCli(
             bitcoind_props,
             musig2_keys,
-            bridge_protocol_params=BridgeProtocolParams(contest_timelock=5),
+            bridge_protocol_params=BridgeProtocolParams(
+                contest_timelock=5,
+                ack_timelock=10,
+            ),
         )
         drt_txid = dev_cli.send_deposit_request()
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
@@ -126,9 +132,5 @@ class PublishContestTest(StrataTestBase):
             timeout=300,
         )
         self.logger.info(f"Contest tx {contest_txid} confirmed in block {contest_block_hash}")
-
-        import time
-
-        time.sleep(150)  # wait for the bridge to process the contest
 
         return True

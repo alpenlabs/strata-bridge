@@ -17,7 +17,10 @@ use crate::{
     errors::ExecutorError,
     graph::{
         common::{publish_claim, publish_graph_nonces, publish_graph_partials, verify_adaptors},
-        contested::{publish_bridge_proof_timeout, publish_contested_payout},
+        contested::{
+            generate_and_publish_bridge_proof, publish_bridge_proof_timeout,
+            publish_contested_payout,
+        },
         uncontested::publish_uncontested_payout,
     },
     output_handles::OutputHandles,
@@ -81,8 +84,19 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishContest { .. } => {
             todo!("PublishContest")
         }
-        GraphDuty::GenerateAndPublishBridgeProof { .. } => {
-            todo!("PublishBridgeProof")
+        GraphDuty::GenerateAndPublishBridgeProof {
+            graph_idx: _,
+            contest_txid,
+            game_index,
+            contest_proof_connector,
+        } => {
+            generate_and_publish_bridge_proof(
+                &output_handles,
+                *contest_txid,
+                *game_index,
+                *contest_proof_connector,
+            )
+            .await
         }
         GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx } => {
             publish_bridge_proof_timeout(&output_handles, signed_timeout_tx).await
