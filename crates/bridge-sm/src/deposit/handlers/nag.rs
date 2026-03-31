@@ -132,6 +132,12 @@ impl DepositSM {
             | NagRequestPayload::GraphPartials { .. } => {
                 Err(self.reject_nag(&event, "Graph-domain nag is not applicable to DepositSM"))
             }
+            NagRequestPayload::UnstakingData { .. }
+            | NagRequestPayload::UnstakingNonces { .. }
+            | NagRequestPayload::UnstakingPartials { .. } => Err(self.reject_nag(
+                &event,
+                "Unstaking-domain nag is not applicable to DepositSM",
+            )),
         }?;
 
         Ok(DSMOutput::with_duties(duties))

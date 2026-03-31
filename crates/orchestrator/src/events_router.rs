@@ -58,15 +58,24 @@ fn route_gossipsub_msg(
         UnsignedGossipsubMsg::PayoutDescriptorExchange { deposit_idx, .. } => {
             SMId::Deposit(*deposit_idx)
         }
+        UnsignedGossipsubMsg::UnstakingDataExchange { operator_idx, .. } => {
+            todo!("STR-2924: route unstaking data exchange for operator {operator_idx}")
+        }
         UnsignedGossipsubMsg::Musig2NoncesExchange(musig2_nonce) => match musig2_nonce {
             MuSig2Nonce::Deposit { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Nonce::Payout { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Nonce::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
+            MuSig2Nonce::Unstake { operator_idx, .. } => {
+                todo!("STR-2924: route unstaking nonce for operator {operator_idx}")
+            }
         },
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => match musig2_partial {
             MuSig2Partial::Deposit { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Partial::Payout { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Partial::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
+            MuSig2Partial::Unstake { operator_idx, .. } => {
+                todo!("STR-2924: route unstaking partial for operator {operator_idx}")
+            }
         },
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => match &nag_request.payload {
             NagRequestPayload::DepositNonce { deposit_idx }
@@ -76,6 +85,11 @@ fn route_gossipsub_msg(
             NagRequestPayload::GraphData { graph_idx }
             | NagRequestPayload::GraphNonces { graph_idx }
             | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
+            NagRequestPayload::UnstakingData { operator_idx }
+            | NagRequestPayload::UnstakingNonces { operator_idx }
+            | NagRequestPayload::UnstakingPartials { operator_idx } => {
+                todo!("STR-2924: route unstaking nag for operator {operator_idx}")
+            }
         },
     };
 
@@ -97,10 +111,8 @@ fn route_gossipsub_msg(
 #[cfg(test)]
 mod tests {
     use strata_asm_proto_bridge_v1::AssignmentEntry;
-    use strata_bridge_p2p_types::{
-        GraphIdx, NagRequest, NagRequestPayload, PayoutDescriptor, PubNonce,
-    };
-    use strata_bridge_primitives::types::P2POperatorPubKey;
+    use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, PayoutDescriptor, PubNonce};
+    use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
     use strata_bridge_test_utils::{
         arbitrary_generator::ArbitraryGenerator, musig2::generate_pubnonce,
     };

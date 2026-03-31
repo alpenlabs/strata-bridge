@@ -18,10 +18,9 @@ use bitcoin::{
 };
 use btc_tracker::event::BlockEvent;
 use strata_asm_txs_bridge_v1::deposit_request::parse_drt;
-use strata_bridge_p2p_types::GraphIdx;
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
-    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{
     deposit::{
