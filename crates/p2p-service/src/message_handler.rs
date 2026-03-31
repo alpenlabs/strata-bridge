@@ -5,7 +5,7 @@ use libp2p::futures::SinkExt;
 use libp2p_identity::ed25519::Keypair;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_p2p_types::{
-    MuSig2Nonce, MuSig2Partial, NagRequest, PayoutDescriptor, UnsignedGossipsubMsg,
+    MuSig2Nonce, MuSig2Partial, NagRequest, PayoutDescriptor, UnsignedGossipsubMsg, UnstakingInput,
 };
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_p2p::{commands::GossipCommand, swarm::handle::GossipHandle};
@@ -189,6 +189,21 @@ impl MessageHandler {
             partials: partials.into_iter().map(Into::into).collect(),
         });
         self.dispatch(msg, peer, "graph partials").await;
+    }
+
+    /// Sends unstaking input data for generating the unstaking transaction graph.
+    pub async fn send_unstaking_input(
+        &mut self,
+        operator_idx: OperatorIdx,
+        unstaking_input: UnstakingInput,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
+    ) {
+        let msg = UnsignedGossipsubMsg::UnstakingDataExchange {
+            operator_idx,
+            unstaking_input,
+        };
+
+        self.dispatch(msg, peer, "stake data exchange").await;
     }
 
     async fn dispatch(
