@@ -115,6 +115,12 @@ pub(crate) struct ContestArgs {
     #[arg(long, help = "url of the bridge node RPC")]
     pub(crate) bridge_node_url: String,
 
+    #[arg(long, help = "index of the operator node contesting the claim")]
+    pub(crate) contester_node_idx: u32,
+
+    #[arg(long, help = "hex-encoded seed of the contesting operator")]
+    pub(crate) seed: String,
+
     #[arg(long, help = "the path to the params file")]
     pub(crate) params: PathBuf,
 
