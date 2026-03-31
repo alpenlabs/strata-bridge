@@ -101,6 +101,11 @@ impl GraphSM {
             | NagRequestPayload::PayoutPartial { .. } => {
                 Err(self.reject_nag(&event, "Deposit-domain nag is not applicable to GraphSM"))
             }
+            NagRequestPayload::UnstakingData { .. }
+            | NagRequestPayload::UnstakingNonces { .. }
+            | NagRequestPayload::UnstakingPartials { .. } => {
+                Err(self.reject_nag(&event, "Unstaking-domain nag is not applicable to GraphSM"))
+            }
         }?;
 
         Ok(GSMOutput::with_duties(duties))

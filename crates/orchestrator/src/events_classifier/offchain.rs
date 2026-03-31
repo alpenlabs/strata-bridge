@@ -133,6 +133,9 @@ pub(crate) fn classify_unsigned_gossip(
                 vec![]
             }
         }
+        UnsignedGossipsubMsg::UnstakingDataExchange { operator_idx, .. } => {
+            todo!("STR-2924: classify unstaking data exchange for operator {operator_idx}")
+        }
         UnsignedGossipsubMsg::Musig2NoncesExchange(musig2_nonce) => match musig2_nonce {
             MuSig2Nonce::Deposit { deposit_idx, nonce } => sm_registry
                 .lookup_operator(&(*deposit_idx).into(), key)
@@ -204,6 +207,10 @@ pub(crate) fn classify_unsigned_gossip(
                         })
                 })
                 .collect(),
+
+            MuSig2Nonce::Unstake { operator_idx, .. } => {
+                todo!("STR-2924: classify unstaking nonce for operator {operator_idx}")
+            }
         },
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => {
             match musig2_partial {
@@ -282,6 +289,10 @@ pub(crate) fn classify_unsigned_gossip(
                         ).into())
                     })
                     .collect(),
+
+                MuSig2Partial::Unstake { operator_idx, .. } => {
+                    todo!("STR-2924: classify unstaking partial for operator {operator_idx}")
+                }
             }
         }
 
@@ -294,6 +305,11 @@ pub(crate) fn classify_unsigned_gossip(
                 NagRequestPayload::GraphData { graph_idx }
                 | NagRequestPayload::GraphNonces { graph_idx }
                 | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
+                NagRequestPayload::UnstakingData { operator_idx }
+                | NagRequestPayload::UnstakingNonces { operator_idx }
+                | NagRequestPayload::UnstakingPartials { operator_idx } => {
+                    todo!("STR-2924: route unstaking nag for operator {operator_idx}")
+                }
             };
 
             info!(
@@ -365,6 +381,12 @@ pub(crate) fn classify_unsigned_gossip(
                         sender_operator_idx,
                     })
                     .into()
+                }
+                NagRequestPayload::UnstakingData { .. }
+                | NagRequestPayload::UnstakingNonces { .. }
+                | NagRequestPayload::UnstakingPartials { .. } => {
+                    // unreachable: the sm_id match above already todo!()s for unstaking payloads
+                    todo!("STR-2924: classify unstaking nag into SM event")
                 }
             };
 
@@ -867,7 +889,8 @@ mod tests {
 
     // ===== classify_nag_request tests =====
     mod nag_request_tests {
-        use strata_bridge_p2p_types::{GraphIdx, NagRequest, NagRequestPayload};
+        use strata_bridge_p2p_types::{NagRequest, NagRequestPayload};
+        use strata_bridge_primitives::types::GraphIdx;
 
         use super::*;
         use crate::testing::{
