@@ -14,7 +14,6 @@ mod unstaking_partials_received;
 use std::{
     array,
     collections::BTreeMap,
-    num::NonZero,
     sync::{Arc, LazyLock},
 };
 
@@ -116,10 +115,17 @@ static TEST_OPERATOR_TABLE: LazyLock<OperatorTable> = LazyLock::new(|| {
 
     OperatorTable::new(operators, |entry| entry.0 == TEST_POV_IDX).expect("operator table is valid")
 });
+const TEST_NETWORK: Network = Network::Regtest;
+
 /// Stake state machine configuration.
 static TEST_CFG: LazyLock<Arc<StakeSMCfg>> = LazyLock::new(|| {
     Arc::new(StakeSMCfg {
-        unstaking_timelock: relative::Height::from_height(TEST_UNSTAKING_TIMELOCK as u16), /* cast safety: TEST_GAME_TIMELOCK <= u16::MAX */
+        protocol_params: ProtocolParams {
+            network: TEST_NETWORK,
+            magic_bytes: TEST_MAGIC_BYTES.into(),
+            game_timelock: relative::Height::from_height(TEST_UNSTAKING_TIMELOCK as u16), /* cast safety: TEST_UNSTAKING_TIMELOCK <= u16::MAX */
+            stake_amount: Amount::from_int_btc(TEST_STAKE_BTC_AMOUNT),
+        },
     })
 });
 /// Stake state machine context.
@@ -134,8 +140,6 @@ static TEST_CTX: LazyLock<StakeSMCtx> =
 const TEST_UNSTAKING_TIMELOCK: u64 = 100;
 /// Stake amount in BTC.
 const TEST_STAKE_BTC_AMOUNT: u64 = 1;
-/// Game index.
-const TEST_GAME_INDEX: NonZero<u32> = NonZero::new(1).expect("1 is not zero");
 /// Preimage for the unstaking intent transaction.
 const TEST_UNSTAKING_PREIMAGE: [u8; 32] = [0; 32];
 /// Operator payout descriptor.
@@ -143,27 +147,19 @@ static TEST_UNSTAKING_OPERATOR_DESCRIPTOR: LazyLock<Descriptor> = LazyLock::new(
 /// UTXO that funds the stake transaction.
 static TEST_STAKE_FUNDS: LazyLock<OutPoint> = LazyLock::new(OutPoint::null);
 /// Data for the stake transaction graph.
-static TEST_STAKE_DATA: LazyLock<StakeData> = LazyLock::new(|| {
-    StakeData {
-        protocol: ProtocolParams {
-            game_timelock: relative::Height::from_height(TEST_UNSTAKING_TIMELOCK as u16), /* cast safety: TEST_GAME_TIMELOCK <= u16::MAX */
-            stake_amount: Amount::from_int_btc(TEST_STAKE_BTC_AMOUNT),
-        },
-        setup: SetupParams {
-            network: Network::Regtest,
-            magic_bytes: TEST_MAGIC_BYTES.into(),
-            game_index: TEST_GAME_INDEX,
-            operator_index: TEST_POV_IDX,
-            n_of_n_pubkey: TEST_CTX
-                .operator_table()
-                .aggregated_btc_key()
-                .x_only_public_key()
-                .0,
-            unstaking_image: sha256::Hash::hash(&TEST_UNSTAKING_PREIMAGE),
-            unstaking_operator_descriptor: TEST_UNSTAKING_OPERATOR_DESCRIPTOR.clone(),
-            stake_funds: *TEST_STAKE_FUNDS,
-        },
-    }
+static TEST_STAKE_DATA: LazyLock<StakeData> = LazyLock::new(|| StakeData {
+    protocol: TEST_CFG.protocol_params,
+    setup: SetupParams {
+        operator_index: TEST_POV_IDX,
+        n_of_n_pubkey: TEST_CTX
+            .operator_table()
+            .aggregated_btc_key()
+            .x_only_public_key()
+            .0,
+        unstaking_image: sha256::Hash::hash(&TEST_UNSTAKING_PREIMAGE),
+        unstaking_operator_descriptor: TEST_UNSTAKING_OPERATOR_DESCRIPTOR.clone(),
+        stake_funds: *TEST_STAKE_FUNDS,
+    },
 });
 /// Stake transaction graph.
 static TEST_GRAPH: LazyLock<StakeGraph> =

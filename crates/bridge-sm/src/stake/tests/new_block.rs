@@ -105,7 +105,8 @@ fn accept_new_height() {
 
 #[test]
 fn preimage_revealed_timelock_immature() {
-    let new_height = UNSTAKING_INTENT_HEIGHT + u64::from(TEST_CFG.unstaking_timelock.value());
+    let new_height =
+        UNSTAKING_INTENT_HEIGHT + u64::from(TEST_CFG.protocol_params.game_timelock.value());
     let from_state = preimage_revealed_state(STAKE_HEIGHT, UNSTAKING_INTENT_HEIGHT);
     let expected_state = preimage_revealed_state(new_height, UNSTAKING_INTENT_HEIGHT);
 

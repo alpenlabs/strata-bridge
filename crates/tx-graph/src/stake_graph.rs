@@ -1,8 +1,7 @@
 //! This module contains the staking graph.
 
-use std::num::NonZero;
-
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
+use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::{
     n_of_n::NOfNConnector,
     prelude::{UnstakingIntentOutput, UnstakingOutput},
@@ -31,12 +30,6 @@ pub struct StakeData {
 /// Parameters that are known at setup time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SetupParams {
-    /// Used bitcoin network.
-    pub network: Network,
-    /// Magic bytes that identify the bridge.
-    pub magic_bytes: MagicBytes,
-    /// Game index.
-    pub game_index: NonZero<u32>,
     /// Operator index.
     pub operator_index: u32,
     /// N/N key.
@@ -50,8 +43,12 @@ pub struct SetupParams {
 }
 
 /// Parameters that are inherent from the protocol.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProtocolParams {
+    /// Used bitcoin network.
+    pub network: Network,
+    /// Magic bytes that identify the bridge.
+    pub magic_bytes: MagicBytes,
     /// Timelock for the entire game.
     pub game_timelock: relative::Height,
     /// Stake amount.
@@ -90,11 +87,17 @@ impl StakeGraph {
         let setup = data.setup;
 
         let stake_connector =
-            NOfNConnector::new(setup.network, setup.n_of_n_pubkey, protocol.stake_amount);
-        let unstaking_intent_output =
-            UnstakingIntentOutput::new(setup.network, setup.n_of_n_pubkey, setup.unstaking_image);
-        let unstaking_output =
-            UnstakingOutput::new(setup.network, setup.n_of_n_pubkey, protocol.game_timelock);
+            NOfNConnector::new(protocol.network, setup.n_of_n_pubkey, protocol.stake_amount);
+        let unstaking_intent_output = UnstakingIntentOutput::new(
+            protocol.network,
+            setup.n_of_n_pubkey,
+            setup.unstaking_image,
+        );
+        let unstaking_output = UnstakingOutput::new(
+            protocol.network,
+            setup.n_of_n_pubkey,
+            protocol.game_timelock,
+        );
 
         let stake_data = crate::transactions::stake::StakeData {
             stake_funds: setup.stake_funds,
@@ -104,7 +107,7 @@ impl StakeGraph {
         let unstaking_intent_data = UnstakingIntentData {
             operator_idx: setup.operator_index,
             stake_txid: stake.as_ref().compute_txid(),
-            magic_bytes: setup.magic_bytes,
+            magic_bytes: protocol.magic_bytes,
         };
         let unstaking_intent = UnstakingIntentTx::new(
             unstaking_intent_data,
@@ -186,14 +189,13 @@ mod tests {
 
     fn get_stake_data(node: &mut BitcoinNode, signer: &Signer) -> StakeData {
         let protocol = ProtocolParams {
+            network: Network::Regtest,
+            magic_bytes: (*b"ALPN").into(),
             game_timelock: GAME_TIMELOCK,
             stake_amount: Amount::from_int_btc(1),
         };
         let wallet_descriptor = Descriptor::try_from(node.wallet_address().clone()).unwrap();
         let mut setup = SetupParams {
-            network: Network::Regtest,
-            magic_bytes: (*b"ALPN").into(),
-            game_index: NonZero::new(1).unwrap(),
             operator_index: 0,
             n_of_n_pubkey: signer.n_of_n_keypair.x_only_public_key().0,
             unstaking_image: sha256::Hash::hash(&signer.unstaking_preimage),
@@ -203,8 +205,11 @@ mod tests {
 
         // FIXME: <https://atlassian.alpenlabs.net/browse/STR-2707>
         // Avoid having to recreate the connectors.
-        let unstaking_intent_output =
-            UnstakingIntentOutput::new(setup.network, setup.n_of_n_pubkey, setup.unstaking_image);
+        let unstaking_intent_output = UnstakingIntentOutput::new(
+            protocol.network,
+            setup.n_of_n_pubkey,
+            setup.unstaking_image,
+        );
 
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                       Funding Transaction                         │
