@@ -55,7 +55,7 @@ fn accept_nonces() {
         from_state: stake_graph_generated_state(BTreeMap::from([(0, operator_pub_nonces(0))])),
         event: UnstakingNoncesReceivedEvent {
             operator_idx: 1,
-            pub_nonces: operator_pub_nonces(1),
+            pub_nonces: operator_pub_nonces(1).into(),
         }
         .into(),
         expected_state: stake_graph_generated_state(BTreeMap::from([
@@ -76,7 +76,7 @@ fn accept_nonces_all_collected() {
         ])),
         event: UnstakingNoncesReceivedEvent {
             operator_idx: 2,
-            pub_nonces: operator_pub_nonces(2),
+            pub_nonces: operator_pub_nonces(2).into(),
         }
         .into(),
         expected_state: StakeState::UnstakingNoncesCollected {
@@ -100,7 +100,7 @@ fn reject_invalid_operator() {
         from_state: stake_graph_generated_state(BTreeMap::new()),
         event: UnstakingNoncesReceivedEvent {
             operator_idx: 3,
-            pub_nonces: operator_pub_nonces(0),
+            pub_nonces: operator_pub_nonces(0).into(),
         }
         .into(),
         expected_error: |e| matches!(e, SSMError::Rejected { .. }),
@@ -113,7 +113,7 @@ fn reject_duplicate_nonces() {
         from_state: stake_graph_generated_state(BTreeMap::from([(0, operator_pub_nonces(0))])),
         event: UnstakingNoncesReceivedEvent {
             operator_idx: 0,
-            pub_nonces: operator_pub_nonces(0),
+            pub_nonces: operator_pub_nonces(0).into(),
         }
         .into(),
         expected_error: |e| matches!(e, SSMError::Duplicate { .. }),
@@ -132,7 +132,7 @@ fn reject_duplicate_in_collected_nonces() {
         },
         event: UnstakingNoncesReceivedEvent {
             operator_idx: 0,
-            pub_nonces: operator_pub_nonces(0),
+            pub_nonces: operator_pub_nonces(0).into(),
         }
         .into(),
         expected_error: |e| matches!(e, SSMError::Duplicate { .. }),
@@ -146,7 +146,7 @@ fn reject_invalid_states() {
             from_state,
             event: UnstakingNoncesReceivedEvent {
                 operator_idx: 0,
-                pub_nonces: operator_pub_nonces(0),
+                pub_nonces: operator_pub_nonces(0).into(),
             }
             .into(),
             expected_error: |e| matches!(e, SSMError::Rejected { .. }),

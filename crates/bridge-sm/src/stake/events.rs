@@ -25,7 +25,7 @@ pub struct UnstakingNoncesReceivedEvent {
     /// The operator who submitted the nonces.
     pub operator_idx: OperatorIdx,
     /// 1 public nonce per musig transaction input.
-    pub pub_nonces: [PubNonce; StakeGraph::N_MUSIG_INPUTS],
+    pub pub_nonces: Box<[PubNonce; StakeGraph::N_MUSIG_INPUTS]>,
 }
 
 /// Event notifying that partial signatures were received from an operator.
