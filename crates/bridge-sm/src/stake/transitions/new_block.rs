@@ -47,7 +47,8 @@ impl StakeSM {
             ..
         } = self.state()
             && event.block_height
-                > *unstaking_intent_block_height + u64::from(cfg.unstaking_timelock.value())
+                > *unstaking_intent_block_height
+                    + u64::from(cfg.protocol_params.game_timelock.value())
         {
             return Ok(SMOutput::with_duties(vec![StakeDuty::PublishUnstakingTx {
                 stake_data: stake_data.clone(),
