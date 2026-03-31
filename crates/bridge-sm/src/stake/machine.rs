@@ -37,7 +37,7 @@ impl StateMachine for StakeSM {
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
-            StakeEvent::StakeDataReceived(event) => self.process_stake_data(event),
+            StakeEvent::StakeDataReceived(event) => self.process_stake_data(&cfg, event),
             StakeEvent::UnstakingNoncesReceived(event) => {
                 self.process_unstaking_nonces_received(event)
             }

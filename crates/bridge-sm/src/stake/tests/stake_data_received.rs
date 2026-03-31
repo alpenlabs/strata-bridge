@@ -46,7 +46,9 @@ fn accept_stake_data() {
             last_block_height: STAKE_HEIGHT,
         },
         event: StakeDataReceivedEvent {
-            stake_data: TEST_STAKE_DATA.clone(),
+            stake_funds: TEST_STAKE_DATA.setup.stake_funds,
+            unstaking_image: TEST_STAKE_DATA.setup.unstaking_image,
+            unstaking_output_desc: TEST_STAKE_DATA.setup.unstaking_operator_descriptor.clone(),
         }
         .into(),
         expected_state: StakeState::StakeGraphGenerated {
@@ -63,6 +65,7 @@ fn accept_stake_data() {
 
 #[test]
 fn reject_duplicate_data() {
+    let setup_params = TEST_STAKE_DATA.setup.clone();
     test_stake_invalid_transition(StakeInvalidTransition {
         from_state: StakeState::StakeGraphGenerated {
             last_block_height: STAKE_HEIGHT,
@@ -70,7 +73,9 @@ fn reject_duplicate_data() {
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
         },
         event: StakeDataReceivedEvent {
-            stake_data: TEST_STAKE_DATA.clone(),
+            stake_funds: setup_params.stake_funds,
+            unstaking_image: setup_params.unstaking_image,
+            unstaking_output_desc: setup_params.unstaking_operator_descriptor,
         }
         .into(),
         expected_error: |e| matches!(e, SSMError::Duplicate { .. }),
@@ -79,11 +84,14 @@ fn reject_duplicate_data() {
 
 #[test]
 fn reject_invalid_states() {
+    let setup_params = TEST_STAKE_DATA.setup.clone();
     for from_state in invalid_states() {
         test_stake_invalid_transition(StakeInvalidTransition {
             from_state,
             event: StakeDataReceivedEvent {
-                stake_data: TEST_STAKE_DATA.clone(),
+                stake_funds: setup_params.stake_funds,
+                unstaking_image: setup_params.unstaking_image,
+                unstaking_output_desc: setup_params.unstaking_operator_descriptor.clone(),
             }
             .into(),
             expected_error: |e| matches!(e, SSMError::Rejected { .. }),
