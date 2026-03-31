@@ -38,7 +38,7 @@ impl StakeSM {
                     return Err(SSMError::duplicate(self.state().clone(), event.into()));
                 }
 
-                pub_nonces.insert(event.operator_idx, event.pub_nonces);
+                pub_nonces.insert(event.operator_idx, *event.pub_nonces);
 
                 if pub_nonces.len() == n_operators {
                     let agg_nonces = Box::new(array::from_fn(|txin_idx| {
