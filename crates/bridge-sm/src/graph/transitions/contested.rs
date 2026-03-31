@@ -6,9 +6,12 @@ use crate::graph::{
     config::GraphSMCfg,
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
-    events::{BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent},
+    events::{
+        BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent, CounterProofAckConfirmedEvent,
+    },
     machine::{GSMOutput, GraphSM},
     state::GraphState,
+    watchtower::watchtower_slot_for_operator,
 };
 
 impl GraphSM {
@@ -122,6 +125,74 @@ impl GraphSM {
             state @ GraphState::BridgeProofTimedout { .. } => {
                 Err(GSMError::duplicate(state, event.into()))
             }
+            state => Err(GSMError::invalid_event(state, event.into(), None)),
+        }
+    }
+
+    /// Processes the event where a counterproof ACK transaction has been confirmed on-chain.
+    ///
+    /// Only valid from the `CounterProofPosted` state, transitioning to `Acked`.
+    pub(crate) fn process_counterproof_ack(
+        &mut self,
+        event: CounterProofAckConfirmedEvent,
+    ) -> GSMResult<GSMOutput> {
+        self.check_operator_idx(event.counterprover_idx, &event)?;
+
+        match self.state.clone() {
+            GraphState::CounterProofPosted {
+                graph_summary,
+                fulfillment_txid,
+                contest_block_height,
+                ..
+            } => {
+                let graph_owner_idx = self.context().operator_idx();
+                let watchtower_slot =
+                    watchtower_slot_for_operator(graph_owner_idx, event.counterprover_idx)
+                        .ok_or_else(|| {
+                            GSMError::rejected(
+                                self.state.clone(),
+                                event.clone().into(),
+                                format!(
+                                    "operator index {} has no watchtower slot in this graph",
+                                    event.counterprover_idx
+                                ),
+                            )
+                        })?;
+
+                let expected_ack_txid = graph_summary
+                    .counterproofs
+                    .get(watchtower_slot)
+                    .map(|summary| summary.counterproof_ack)
+                    .ok_or_else(|| {
+                        GSMError::rejected(
+                            self.state.clone(),
+                            event.clone().into(),
+                            format!(
+                                "missing counterproof ACK mapping for operator index {}",
+                                event.counterprover_idx
+                            ),
+                        )
+                    })?;
+
+                if event.counterproof_ack_txid != expected_ack_txid {
+                    return Err(GSMError::rejected(
+                        self.state.clone(),
+                        event.into(),
+                        "Invalid counterproof ACK transaction",
+                    ));
+                }
+
+                self.state = GraphState::Acked {
+                    last_block_height: event.counterproof_ack_block_height,
+                    contest_block_height,
+                    expected_slash_txid: graph_summary.slash,
+                    claim_txid: graph_summary.claim,
+                    fulfillment_txid,
+                };
+
+                Ok(GSMOutput::new())
+            }
+            state @ GraphState::Acked { .. } => Err(GSMError::duplicate(state, event.into())),
             state => Err(GSMError::invalid_event(state, event.into(), None)),
         }
     }
