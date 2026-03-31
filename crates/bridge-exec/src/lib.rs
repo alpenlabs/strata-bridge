@@ -15,3 +15,4 @@ pub mod deposit;
 pub mod errors;
 pub mod graph;
 pub mod output_handles;
+pub mod stake;
