@@ -3,7 +3,10 @@ use ssz::Encode;
 use strata_l1_txfmt::MagicBytes;
 use tracing::info;
 
-use crate::{cli::CreateAndPublishMockCheckpointArgs, handlers::checkpoint::constants::BRIDGE_TAG};
+use crate::{
+    cli::CreateAndPublishMockCheckpointArgs,
+    handlers::{checkpoint::constants::BRIDGE_TAG, rpc::get_btc_client},
+};
 
 mod constants;
 pub(crate) mod envelope;
@@ -23,9 +26,10 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
     }
 
     // Connect to bitcoind.
-    let btc_client = bitcoincore_rpc::Client::new(
+    let btc_client = get_btc_client(
         &args.btc_args.url,
-        bitcoincore_rpc::Auth::UserPass(args.btc_args.user.clone(), args.btc_args.pass.clone()),
+        args.btc_args.user.clone(),
+        args.btc_args.pass.clone(),
     )
     .context("failed to connect to bitcoind")?;
 

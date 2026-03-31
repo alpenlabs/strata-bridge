@@ -1,9 +1,9 @@
 use std::{num::NonZero, str::FromStr};
 
 use anyhow::bail;
-use bitcoin::{Address, relative};
+use bitcoin::{bip32::Xpriv, relative, Network};
 use bitcoincore_rpc::RpcApi;
-use secp256k1::{Keypair, SECP256K1};
+use strata_bridge_key_deriv::{Musig2Keypair, Musig2Keys, OperatorKeys};
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_rpc::traits::{StrataBridgeControlApiClient, StrataBridgeDaApiClient};
 use strata_bridge_tx_graph::{
@@ -15,11 +15,17 @@ use tracing::info;
 
 use crate::{cli, handlers::rpc, params::Params};
 
+/// Publish a contest transaction for the given graph idx.
+///
+/// Reconstructs the game graph from on-chain data and pre-signed aggregate signatures,
+/// then signs the contest transaction with the derived watchtower key and broadcasts it.
 pub(crate) async fn handle_contest(args: cli::ContestArgs) -> anyhow::Result<()> {
+    let params = Params::from_path(&args.params)?;
+    let watchtower_keypair = derive_musig2_keypair(&args.seed, params.network)?;
+
     let btc_client =
         rpc::get_btc_client(&args.btc_args.url, args.btc_args.user, args.btc_args.pass)?;
     let bridge_rpc_client = rpc::get_bridge_client(&args.bridge_node_url)?;
-    let params = Params::from_path(&args.params)?;
 
     if let Err(e) = btc_client.get_blockchain_info() {
         bail!(
@@ -67,7 +73,7 @@ pub(crate) async fn handle_contest(args: cli::ContestArgs) -> anyhow::Result<()>
     };
     info!(?graph_idx, "fetched aggregate signatures");
 
-    let protocol = ProtocolParams {
+    let protocol_params = ProtocolParams {
         network: params.network,
         magic_bytes: MagicBytes::from_str(&params.tag)?,
         contest_timelock: relative::Height::from(params.contest_timelock),
@@ -82,28 +88,21 @@ pub(crate) async fn handle_contest(args: cli::ContestArgs) -> anyhow::Result<()>
         stake_amount: params.stake_amount,
     };
 
-    let graph_ctx = graph_data.context.clone();
     let game_data = GameData {
-        protocol,
+        protocol: protocol_params,
         setup: graph_data.setup,
         deposit: graph_data.deposit,
     };
     let (game_graph, _connectors) = GameGraph::new(game_data);
     info!(?graph_idx, "reconstructed game graph");
 
-    let graph_owner_idx = graph_ctx.operator_idx();
-    let pov_idx = graph_ctx.operator_table().pov_idx();
-    if pov_idx == graph_owner_idx {
-        bail!(
-            "cannot contest own graph: owner index {} equals local index {}",
-            graph_owner_idx,
-            pov_idx
-        );
-    }
-    let watchtower_index = if pov_idx < graph_owner_idx {
-        pov_idx
+    // Watchtower index: contester's position excluding the graph owner
+    let graph_owner_idx = args.operator_idx;
+    let contester = args.contester_node_idx;
+    let watchtower_index = if contester < graph_owner_idx {
+        contester
     } else {
-        pov_idx - 1
+        contester - 1
     };
 
     let contest = game_graph.contest;
@@ -119,17 +118,10 @@ pub(crate) async fn handle_contest(args: cli::ContestArgs) -> anyhow::Result<()>
                 watchtower_index
             )
         })?;
-
-    let watchtower_btc_key = graph_ctx
-        .operator_table()
-        .idx_to_btc_key(&pov_idx)
-        .ok_or_else(|| anyhow::anyhow!("missing BTC key for local operator index {}", pov_idx))?;
-    let watchtower_xonly = watchtower_btc_key.x_only_public_key().0;
-    let watchtower_addr = Address::p2tr(SECP256K1, watchtower_xonly, None, params.network);
-    let watchtower_privkey = btc_client
-        .dump_private_key(&watchtower_addr)
-        .map_err(|e| anyhow::anyhow!("failed to fetch private key for {}: {}", watchtower_addr, e))?;
-    let watchtower_keypair = Keypair::from_secret_key(SECP256K1, &watchtower_privkey.inner);
+    info!(
+        ?n_of_n_signature,
+        watchtower_index, "retrieved contest n-of-n signature"
+    );
 
     let signing_info = contest.signing_info(watchtower_index);
     let watchtower_signature = signing_info.sign(&watchtower_keypair);
@@ -141,4 +133,16 @@ pub(crate) async fn handle_contest(args: cli::ContestArgs) -> anyhow::Result<()>
     info!(?graph_idx, ?txid, "broadcast contest transaction");
 
     Ok(())
+}
+
+fn derive_musig2_keypair(seed_hex: &str, network: Network) -> anyhow::Result<Musig2Keypair> {
+    let seed_bytes =
+        hex::decode(seed_hex).map_err(|e| anyhow::anyhow!("invalid hex for seed: {}", e))?;
+    let xpriv = Xpriv::new_master(network, &seed_bytes)
+        .map_err(|e| anyhow::anyhow!("failed to derive master key from seed: {}", e))?;
+    let operator_keys = OperatorKeys::new(&xpriv)
+        .map_err(|e| anyhow::anyhow!("failed to derive operator keys: {}", e))?;
+    let musig2_keys = Musig2Keys::derive(operator_keys.base_xpriv())
+        .map_err(|e| anyhow::anyhow!("failed to derive musig2 keys: {}", e))?;
+    Ok(musig2_keys.keypair)
 }
