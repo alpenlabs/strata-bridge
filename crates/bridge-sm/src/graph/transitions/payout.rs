@@ -1,4 +1,4 @@
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::graph::{
     errors::{GSMError, GSMResult},
@@ -30,9 +30,26 @@ impl GraphSM {
 
                 Ok(GSMOutput::new())
             }
-            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2196>
-            GraphState::BridgeProofPosted { .. } => {
-                todo!()
+            GraphState::BridgeProofPosted { graph_summary, .. } => {
+                if payout_event.payout_txid != graph_summary.contested_payout {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        payout_event.into(),
+                        "Invalid contested payout transaction",
+                    ));
+                }
+
+                info!(
+                    graph_idx = ?self.context().graph_idx(),
+                    payout_txid = %payout_event.payout_txid,
+                    "Contested payout posted after bridge proof"
+                );
+
+                self.state = GraphState::Withdrawn {
+                    payout_txid: payout_event.payout_txid,
+                };
+
+                Ok(GSMOutput::new())
             }
             GraphState::AllNackd {
                 expected_payout_txid,
