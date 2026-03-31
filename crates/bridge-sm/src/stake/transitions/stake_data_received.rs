@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
+use strata_bridge_tx_graph::stake_graph::StakeData;
+
 use crate::{
     stake::{
+        config::StakeSMCfg,
         duties::StakeDuty,
         errors::{SSMError, SSMResult},
         events::StakeDataReceivedEvent,
@@ -19,13 +22,27 @@ impl StakeSM {
     /// presigning flow.
     pub(crate) fn process_stake_data(
         &mut self,
+        cfg: &StakeSMCfg,
         event: StakeDataReceivedEvent,
     ) -> SSMResult<SSMOutput> {
         match self.state() {
             StakeState::Created {
                 last_block_height, ..
             } => {
-                let stake_data = event.stake_data;
+                let StakeDataReceivedEvent {
+                    stake_funds,
+                    unstaking_image,
+                    unstaking_output_desc,
+                } = event;
+                let setup = self.context().generate_setup_params(
+                    stake_funds,
+                    unstaking_image,
+                    unstaking_output_desc,
+                );
+                let stake_data = StakeData {
+                    setup,
+                    protocol: cfg.protocol_params,
+                };
 
                 self.state = StakeState::StakeGraphGenerated {
                     last_block_height: *last_block_height,
