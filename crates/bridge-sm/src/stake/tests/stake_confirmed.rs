@@ -12,7 +12,17 @@ fn signed_state() -> StakeState {
     }
 }
 
-fn rejected_states() -> [StakeState; 3] {
+fn nonces_collected_state() -> StakeState {
+    StakeState::UnstakingNoncesCollected {
+        last_block_height: STAKE_HEIGHT,
+        stake_data: TEST_STAKE_DATA.clone(),
+        pub_nonces: TEST_PUB_NONCES_MAP.clone(),
+        agg_nonces: TEST_AGG_NONCES.clone(),
+        partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
+    }
+}
+
+fn rejected_states() -> [StakeState; 2] {
     [
         StakeState::Created {
             last_block_height: STAKE_HEIGHT,
@@ -21,13 +31,6 @@ fn rejected_states() -> [StakeState; 3] {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-        },
-        StakeState::UnstakingNoncesCollected {
-            last_block_height: STAKE_HEIGHT,
-            stake_data: TEST_STAKE_DATA.clone(),
-            pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-            agg_nonces: TEST_AGG_NONCES.clone(),
-            partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
         },
     ]
 }
@@ -50,32 +53,36 @@ fn invalid_states() -> [StakeState; 2] {
 
 #[test]
 fn accept_stake_tx() {
-    test_stake_transition(StakeTransition {
-        from_state: signed_state(),
-        event: StakeConfirmedEvent {
-            tx: TEST_GRAPH.stake.as_ref().clone(),
-        }
-        .into(),
-        expected_state: StakeState::Confirmed {
-            last_block_height: STAKE_HEIGHT,
-            stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
-        },
-        expected_duties: vec![],
-        expected_signals: vec![],
-    });
+    for from_state in [signed_state(), nonces_collected_state()] {
+        test_stake_transition(StakeTransition {
+            from_state,
+            event: StakeConfirmedEvent {
+                tx: TEST_GRAPH.stake.as_ref().clone(),
+            }
+            .into(),
+            expected_state: StakeState::Confirmed {
+                last_block_height: STAKE_HEIGHT,
+                stake_data: TEST_STAKE_DATA.clone(),
+                stake_txid: TEST_GRAPH_SUMMARY.stake,
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
 }
 
 #[test]
 fn reject_mismatching_stake_tx() {
-    test_stake_invalid_transition(StakeInvalidTransition {
-        from_state: signed_state(),
-        event: StakeConfirmedEvent {
-            tx: TEST_GRAPH.unstaking.as_ref().clone(),
-        }
-        .into(),
-        expected_error: |e| matches!(e, SSMError::Rejected { .. }),
-    });
+    for from_state in [signed_state(), nonces_collected_state()] {
+        test_stake_invalid_transition(StakeInvalidTransition {
+            from_state,
+            event: StakeConfirmedEvent {
+                tx: TEST_GRAPH.unstaking.as_ref().clone(),
+            }
+            .into(),
+            expected_error: |e| matches!(e, SSMError::Rejected { .. }),
+        });
+    }
 }
 
 #[test]

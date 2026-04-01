@@ -1,3 +1,5 @@
+use strata_bridge_tx_graph::stake_graph::StakeGraph;
+
 use crate::{
     stake::{
         errors::{SSMError, SSMResult},
@@ -11,20 +13,30 @@ use crate::{
 impl StakeSM {
     /// Processes the [`StakeConfirmedEvent`].
     ///
-    /// The machine transitions from [`StakeState::UnstakingSigned`] to [`StakeState::Confirmed`]
-    /// when the confirmed stake transaction matches the expected ID.
+    /// The machine transitions from [`StakeState::UnstakingNoncesCollected`] or
+    /// [`StakeState::UnstakingSigned`] to [`StakeState::Confirmed`] when the confirmed
+    /// stake transaction matches the expected ID.
     pub(crate) fn process_stake_confirmed(
         &mut self,
         event: StakeConfirmedEvent,
     ) -> SSMResult<SSMOutput> {
         match self.state() {
-            StakeState::UnstakingSigned {
+            StakeState::UnstakingNoncesCollected {
                 last_block_height,
                 stake_data,
-                expected_stake_txid,
+                ..
+            }
+            | StakeState::UnstakingSigned {
+                last_block_height,
+                stake_data,
                 ..
             } => {
-                if event.tx.compute_txid() != *expected_stake_txid {
+                let expected_stake_txid = StakeGraph::new(stake_data.clone())
+                    .stake
+                    .as_ref()
+                    .compute_txid();
+
+                if event.tx.compute_txid() != expected_stake_txid {
                     return Err(SSMError::rejected(
                         self.state().clone(),
                         event.into(),
@@ -35,7 +47,7 @@ impl StakeSM {
                 self.state = StakeState::Confirmed {
                     last_block_height: *last_block_height,
                     stake_data: stake_data.clone(),
-                    stake_txid: *expected_stake_txid,
+                    stake_txid: expected_stake_txid,
                 };
 
                 Ok(SMOutput::new())
