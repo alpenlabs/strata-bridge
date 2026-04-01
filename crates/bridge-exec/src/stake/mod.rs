@@ -29,7 +29,6 @@ pub async fn execute_stake_duty(
             ordered_pubkeys,
         } => {
             staking::publish_unstaking_nonces(
-                &cfg,
                 &output_handles,
                 *operator_idx,
                 **graph_inpoints,
