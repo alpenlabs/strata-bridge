@@ -11,7 +11,7 @@ fn confirmed_state() -> StakeState {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
         stake_txid: TEST_GRAPH_SUMMARY.stake,
-        signatures: TEST_FINAL_SIGS.clone(),
+        signatures: Some(*TEST_FINAL_SIGS).into(),
     }
 }
 
@@ -22,7 +22,18 @@ fn revealed_state() -> StakeState {
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
         expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-        signatures: TEST_FINAL_SIGS.clone(),
+        signatures: Some(*TEST_FINAL_SIGS).into(),
+    }
+}
+
+fn revealed_state_without_signatures() -> StakeState {
+    StakeState::PreimageRevealed {
+        last_block_height: UNSTAKING_INTENT_HEIGHT,
+        stake_data: TEST_STAKE_DATA.clone(),
+        preimage: TEST_UNSTAKING_PREIMAGE,
+        unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
+        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        signatures: None.into(),
     }
 }
 
@@ -39,6 +50,7 @@ fn invalid_states() -> [StakeState; 5] {
         StakeState::UnstakingNoncesCollected {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
+            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
             agg_nonces: TEST_AGG_NONCES.clone(),
             partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
@@ -47,7 +59,7 @@ fn invalid_states() -> [StakeState; 5] {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Box::new(*TEST_FINAL_SIGS),
         },
         StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,
@@ -76,6 +88,26 @@ fn accept_preimage_revealed() {
         }
         .into(),
         expected_state: revealed_state(),
+        expected_duties: vec![],
+        expected_signals: vec![],
+    });
+}
+
+#[test]
+fn accept_preimage_revealed_without_signatures() {
+    test_nonpov_stake_transition(StakeTransition {
+        from_state: StakeState::Confirmed {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            stake_txid: TEST_GRAPH_SUMMARY.stake,
+            signatures: None.into(),
+        },
+        event: PreimageRevealedEvent {
+            tx: unstaking_intent_tx(),
+            block_height: UNSTAKING_INTENT_HEIGHT,
+        }
+        .into(),
+        expected_state: revealed_state_without_signatures(),
         expected_duties: vec![],
         expected_signals: vec![],
     });

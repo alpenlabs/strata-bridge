@@ -16,6 +16,7 @@ fn states_with_last_block_height(last_block_height: u64) -> [StakeState; 6] {
         StakeState::UnstakingNoncesCollected {
             last_block_height,
             stake_data: TEST_STAKE_DATA.clone(),
+            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
             agg_nonces: TEST_AGG_NONCES.clone(),
             partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
@@ -24,13 +25,13 @@ fn states_with_last_block_height(last_block_height: u64) -> [StakeState; 6] {
             last_block_height,
             stake_data: TEST_STAKE_DATA.clone(),
             expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Box::new(*TEST_FINAL_SIGS),
         },
         StakeState::Confirmed {
             last_block_height,
             stake_data: TEST_STAKE_DATA.clone(),
             stake_txid: TEST_GRAPH_SUMMARY.stake,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::PreimageRevealed {
             last_block_height,
@@ -38,7 +39,7 @@ fn states_with_last_block_height(last_block_height: u64) -> [StakeState; 6] {
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
             expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Some(*TEST_FINAL_SIGS).into(),
         },
     ]
 }
@@ -53,7 +54,7 @@ fn preimage_revealed_state(
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height,
         expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-        signatures: TEST_FINAL_SIGS.clone(),
+        signatures: Some(*TEST_FINAL_SIGS).into(),
     }
 }
 
@@ -145,6 +146,38 @@ fn preimage_revealed_timelock_mature() {
         expected_duties: vec![StakeDuty::PublishUnstakingTx {
             signed_tx: unstaking_tx,
         }],
+        expected_signals: vec![],
+    });
+}
+
+#[test]
+fn preimage_revealed_timelock_mature_nonpov_no_duty() {
+    let new_height = UNSTAKING_INTENT_HEIGHT + TEST_UNSTAKING_TIMELOCK + 1;
+    let from_state = StakeState::PreimageRevealed {
+        last_block_height: STAKE_HEIGHT,
+        stake_data: TEST_STAKE_DATA.clone(),
+        preimage: TEST_UNSTAKING_PREIMAGE,
+        unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
+        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        signatures: None.into(),
+    };
+    let expected_state = StakeState::PreimageRevealed {
+        last_block_height: new_height,
+        stake_data: TEST_STAKE_DATA.clone(),
+        preimage: TEST_UNSTAKING_PREIMAGE,
+        unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
+        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        signatures: None.into(),
+    };
+
+    test_nonpov_stake_transition(StakeTransition {
+        from_state,
+        event: NewBlockEvent {
+            block_height: new_height,
+        }
+        .into(),
+        expected_state,
+        expected_duties: vec![],
         expected_signals: vec![],
     });
 }

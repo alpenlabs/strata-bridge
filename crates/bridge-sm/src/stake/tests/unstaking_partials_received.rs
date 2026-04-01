@@ -15,6 +15,7 @@ fn nonces_collected_state(
         stake_data: TEST_STAKE_DATA.clone(),
         pub_nonces: TEST_PUB_NONCES_MAP.clone(),
         agg_nonces: TEST_AGG_NONCES.clone(),
+        expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
         partial_signatures,
     }
 }
@@ -33,7 +34,7 @@ fn invalid_states() -> [StakeState; 5] {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             stake_txid: TEST_GRAPH_SUMMARY.stake,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::PreimageRevealed {
             last_block_height: STAKE_HEIGHT,
@@ -41,7 +42,7 @@ fn invalid_states() -> [StakeState; 5] {
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
             expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,
@@ -84,7 +85,7 @@ fn accept_partials_all_collected() {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Box::new(*TEST_FINAL_SIGS),
         },
         expected_duties: vec![],
         expected_signals: vec![],
@@ -137,7 +138,7 @@ fn reject_duplicate_in_signed_partials() {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Box::new(*TEST_FINAL_SIGS),
         },
         event: UnstakingPartialsReceivedEvent {
             operator_idx: 0,

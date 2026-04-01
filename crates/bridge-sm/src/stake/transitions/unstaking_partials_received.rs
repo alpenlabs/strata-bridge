@@ -46,6 +46,7 @@ impl StakeSM {
                 pub_nonces,
                 agg_nonces,
                 partial_signatures,
+                ..
             } => {
                 if partial_signatures.contains_key(&event.operator_idx) {
                     return Err(SSMError::duplicate(

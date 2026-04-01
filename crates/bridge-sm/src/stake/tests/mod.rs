@@ -61,6 +61,14 @@ fn create_state_machine(state: StakeState) -> StakeSM {
     }
 }
 
+/// Creates a non-POV [`StakeSM`] in the given state.
+fn create_nonpov_state_machine(state: StakeState) -> StakeSM {
+    StakeSM {
+        context: TEST_NONPOV_CTX.clone(),
+        state,
+    }
+}
+
 /// Gets the state from a [`StakeSM`].
 const fn get_state(sm: &StakeSM) -> &StakeState {
     sm.state()
@@ -91,12 +99,26 @@ fn test_stake_invalid_transition(invalid: StakeInvalidTransition) {
     );
 }
 
+/// Test a valid non-POV [`StakeSM`] transition with pre-configured test helpers.
+fn test_nonpov_stake_transition(transition: StakeTransition) {
+    test_transition::<StakeSM, _, _, _, _, _, _, _>(
+        create_nonpov_state_machine,
+        get_state,
+        TEST_CFG.clone(),
+        transition,
+    );
+}
+
 // ┌───────────────────────────────────────────────────────────────────┐
 // │                            Operators                              │
 // └───────────────────────────────────────────────────────────────────┘
 
 /// Number of operators.
 const TEST_N_OPERATORS: usize = 3;
+/// Operator index representing a non-POV operator in tests.
+const TEST_NONPOV_IDX: u32 = 1;
+// Compile-time assertion: TEST_NONPOV_IDX must differ from TEST_POV_IDX.
+const _: () = assert!(TEST_NONPOV_IDX != TEST_POV_IDX);
 /// Operator keypairs.
 static TEST_KEYPAIRS: LazyLock<[Keypair; TEST_N_OPERATORS]> =
     LazyLock::new(|| array::from_fn(|_| generate_keypair()));
@@ -115,6 +137,22 @@ static TEST_OPERATOR_TABLE: LazyLock<OperatorTable> = LazyLock::new(|| {
 
     OperatorTable::new(operators, |entry| entry.0 == TEST_POV_IDX).expect("operator table is valid")
 });
+/// Operator table as seen by a non-POV operator tracking the POV operator's stake.
+static TEST_NONPOV_OPERATOR_TABLE: LazyLock<OperatorTable> = LazyLock::new(|| {
+    let operators = TEST_KEYPAIRS
+        .iter()
+        .enumerate()
+        .map(|(idx, keypair)| {
+            let public_key = keypair.public_key();
+            let p2p_key = P2POperatorPubKey::from(public_key.serialize().to_vec());
+
+            (idx as u32, p2p_key, public_key)
+        })
+        .collect();
+
+    OperatorTable::new(operators, |entry| entry.0 == TEST_NONPOV_IDX)
+        .expect("operator table is valid")
+});
 const TEST_NETWORK: Network = Network::Regtest;
 
 /// Stake state machine configuration.
@@ -131,6 +169,9 @@ static TEST_CFG: LazyLock<Arc<StakeSMCfg>> = LazyLock::new(|| {
 /// Stake state machine context.
 static TEST_CTX: LazyLock<StakeSMCtx> =
     LazyLock::new(|| StakeSMCtx::new(TEST_POV_IDX, TEST_OPERATOR_TABLE.clone()));
+/// Stake state machine context for a non-POV operator tracking the POV operator's stake.
+static TEST_NONPOV_CTX: LazyLock<StakeSMCtx> =
+    LazyLock::new(|| StakeSMCtx::new(TEST_POV_IDX, TEST_NONPOV_OPERATOR_TABLE.clone()));
 
 // ┌───────────────────────────────────────────────────────────────────┐
 // │                          Stake Graph                              │
@@ -253,17 +294,16 @@ static TEST_PARTIAL_SIGS_MAP: LazyLock<
         .collect()
 });
 /// 1 final signature for each Musig transaction input in the stake graph.
-static TEST_FINAL_SIGS: LazyLock<Box<[Signature; StakeGraph::N_MUSIG_INPUTS]>> =
-    LazyLock::new(|| {
-        Box::new(array::from_fn(|txin_idx| {
-            aggregate_partial_signatures(
-                &TEST_KEY_AGG_CTXS[txin_idx],
-                &TEST_AGG_NONCES[txin_idx],
-                TEST_PARTIAL_SIGS_MAP
-                    .values()
-                    .map(|operator_partial_sigs| operator_partial_sigs[txin_idx]),
-                TEST_SIGNING_INFOS[txin_idx].sighash.as_ref(),
-            )
-            .expect("test partial signatures must aggregate")
-        }))
-    });
+static TEST_FINAL_SIGS: LazyLock<[Signature; StakeGraph::N_MUSIG_INPUTS]> = LazyLock::new(|| {
+    array::from_fn(|txin_idx| {
+        aggregate_partial_signatures(
+            &TEST_KEY_AGG_CTXS[txin_idx],
+            &TEST_AGG_NONCES[txin_idx],
+            TEST_PARTIAL_SIGS_MAP
+                .values()
+                .map(|operator_partial_sigs| operator_partial_sigs[txin_idx]),
+            TEST_SIGNING_INFOS[txin_idx].sighash.as_ref(),
+        )
+        .expect("test partial signatures must aggregate")
+    })
+});

@@ -64,7 +64,7 @@ impl StakeSM {
                     preimage,
                     unstaking_intent_block_height: event.block_height,
                     expected_unstaking_txid: summary.unstaking,
-                    signatures: signatures.clone(),
+                    signatures: Box::new(*signatures.clone()),
                 };
 
                 Ok(SMOutput::new())
