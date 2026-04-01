@@ -15,7 +15,7 @@ fn nag_stake_data() {
         last_block_height: STAKE_HEIGHT,
     };
     let expected_state = from_state.clone();
-    let expected_duties = vec![StakeDuty::Nag(NagDuty::NagStakeData {
+    let expected_duties = vec![StakeDuty::Nag(NagDuty::NagUnstakingData {
         operator_idx: TEST_CTX.operator_idx(),
         operator_pubkey: TEST_CTX
             .operator_table()

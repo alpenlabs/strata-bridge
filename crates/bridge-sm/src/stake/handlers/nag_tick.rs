@@ -32,7 +32,7 @@ impl StakeSM {
             StakeState::Created { .. } => {
                 let operator_idx = self.context().operator_idx();
 
-                vec![StakeDuty::Nag(NagDuty::NagStakeData {
+                vec![StakeDuty::Nag(NagDuty::NagUnstakingData {
                     operator_idx,
                     operator_pubkey: self
                         .context()
