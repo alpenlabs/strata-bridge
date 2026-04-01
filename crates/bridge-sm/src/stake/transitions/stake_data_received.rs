@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use strata_bridge_tx_graph::stake_graph::StakeData;
+use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
 
 use crate::{
     stake::{
@@ -50,8 +50,37 @@ impl StakeSM {
                     pub_nonces: BTreeMap::new(),
                 };
 
+                let stake_graph = StakeGraph::new(stake_data);
+                let graph_inpoints = stake_graph
+                    .musig_inpoints()
+                    .pack()
+                    .try_into()
+                    .expect("number of musig inputs is correct by construction");
+
+                let graph_tweaks = stake_graph
+                    .musig_signing_info()
+                    .pack()
+                    .iter()
+                    .map(|m| m.tweak)
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .expect("number of musig inputs is correct by construction");
+
+                let ordered_pubkeys = self
+                    .context()
+                    .operator_table()
+                    .btc_keys()
+                    .into_iter()
+                    .map(|k| k.x_only_public_key().0)
+                    .collect();
+
                 Ok(SMOutput::with_duties(vec![
-                    StakeDuty::PublishUnstakingNonces { stake_data },
+                    StakeDuty::PublishUnstakingNonces {
+                        operator_idx: self.context().operator_idx(),
+                        graph_inpoints,
+                        graph_tweaks,
+                        ordered_pubkeys,
+                    },
                 ]))
             }
             StakeState::StakeGraphGenerated { .. } => {

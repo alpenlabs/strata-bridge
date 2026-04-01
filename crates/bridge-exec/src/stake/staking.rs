@@ -7,6 +7,7 @@ use bitcoin::{
     Address, FeeRate, OutPoint, Psbt, TapSighashType, Transaction,
     hashes::{Hash, sha256},
     key::TapTweak,
+    secp256k1::XOnlyPublicKey,
     sighash::{Prevouts, SighashCache},
 };
 use bitcoin_bosd::Descriptor;
@@ -16,7 +17,7 @@ use musig2::AggNonce;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_p2p_types::UnstakingInput;
 use strata_bridge_primitives::{
-    scripts::taproot::{create_key_spend_hash, finalize_input},
+    scripts::taproot::{TaprootTweak, create_key_spend_hash, finalize_input},
     types::OperatorIdx,
 };
 use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
@@ -184,7 +185,10 @@ async fn sign_with_general_wallet(
 pub(crate) async fn publish_unstaking_nonces(
     _cfg: &ExecutionConfig,
     _output_handles: &OutputHandles,
-    _stake_data: &StakeData,
+    _operator_idx: OperatorIdx,
+    _graph_inpoints: [bitcoin::OutPoint; StakeGraph::N_MUSIG_INPUTS],
+    _graph_tweaks: [TaprootTweak; StakeGraph::N_MUSIG_INPUTS],
+    _ordered_pubkeys: Vec<XOnlyPublicKey>,
 ) -> Result<(), ExecutorError> {
     // generate nonces for each transaction input in the stake transaction graph via s2.
     todo!("Submit to p2p after STR-2643")
