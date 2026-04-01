@@ -22,7 +22,7 @@ fn revealed_state() -> StakeState {
     }
 }
 
-fn invalid_states() -> [StakeState; 5] {
+fn invalid_states() -> [StakeState; 4] {
     [
         StakeState::Created {
             last_block_height: STAKE_HEIGHT,
@@ -44,11 +44,14 @@ fn invalid_states() -> [StakeState; 5] {
             stake_data: TEST_STAKE_DATA.clone(),
             signatures: TEST_FINAL_SIGS.clone(),
         },
-        StakeState::Unstaked {
-            preimage: TEST_UNSTAKING_PREIMAGE,
-            unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-        },
     ]
+}
+
+fn rejected_states() -> [StakeState; 1] {
+    [StakeState::Unstaked {
+        preimage: TEST_UNSTAKING_PREIMAGE,
+        unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+    }]
 }
 
 fn unstaking_intent_tx() -> Transaction {
@@ -121,6 +124,21 @@ fn reject_duplicate_preimage_revealed() {
 #[test]
 fn reject_invalid_states() {
     for from_state in invalid_states() {
+        test_stake_invalid_transition(StakeInvalidTransition {
+            from_state,
+            event: PreimageRevealedEvent {
+                tx: unstaking_intent_tx(),
+                block_height: UNSTAKING_INTENT_HEIGHT,
+            }
+            .into(),
+            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
+        });
+    }
+}
+
+#[test]
+fn reject_rejected_states() {
+    for from_state in rejected_states() {
         test_stake_invalid_transition(StakeInvalidTransition {
             from_state,
             event: PreimageRevealedEvent {
