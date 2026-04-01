@@ -13,15 +13,16 @@ use bitcoin::{
 use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
-use musig2::AggNonce;
-use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
+use futures::{FutureExt, future::try_join_all};
+use musig2::{AggNonce, PubNonce};
+use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_p2p_types::UnstakingInput;
 use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, create_key_spend_hash, finalize_input},
     types::OperatorIdx,
 };
 use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
@@ -183,15 +184,49 @@ async fn sign_with_general_wallet(
 }
 
 pub(crate) async fn publish_unstaking_nonces(
-    _cfg: &ExecutionConfig,
-    _output_handles: &OutputHandles,
-    _operator_idx: OperatorIdx,
-    _graph_inpoints: [bitcoin::OutPoint; StakeGraph::N_MUSIG_INPUTS],
-    _graph_tweaks: [TaprootTweak; StakeGraph::N_MUSIG_INPUTS],
-    _ordered_pubkeys: Vec<XOnlyPublicKey>,
+    output_handles: &OutputHandles,
+    operator_idx: OperatorIdx,
+    graph_inpoints: [bitcoin::OutPoint; StakeGraph::N_MUSIG_INPUTS],
+    graph_tweaks: [TaprootTweak; StakeGraph::N_MUSIG_INPUTS],
+    ordered_pubkeys: Vec<XOnlyPublicKey>,
 ) -> Result<(), ExecutorError> {
-    // generate nonces for each transaction input in the stake transaction graph via s2.
-    todo!("Submit to p2p after STR-2643")
+    info!(%operator_idx, "generating and publishing unstaking nonces for the stake graph");
+
+    let musig_signer = output_handles.s2_client.musig2_signer();
+
+    let nonce_futures = graph_inpoints
+        .iter()
+        .zip(graph_tweaks.iter())
+        .map(|(inpoint, tweak)| {
+            let params = Musig2Params {
+                ordered_pubkeys: ordered_pubkeys.clone(),
+                tweak: *tweak,
+                input: *inpoint,
+            };
+
+            musig_signer.get_pub_nonce(params).map(move |res| match res {
+                Ok(inner) => inner.map_err(|_| {
+                    warn!(%operator_idx, %inpoint, "failed to get pub nonce from secret-service: our pubkey missing from params");
+                    ExecutorError::OurPubKeyNotInParams
+                }),
+                Err(e) => {
+                    warn!(%operator_idx, %inpoint, ?e, "failed to get pub nonce from secret-service");
+                    Err(ExecutorError::SecretServiceErr(e))
+                }
+            })
+        });
+
+    let nonces: Vec<PubNonce> = try_join_all(nonce_futures).await?;
+
+    output_handles
+        .msg_handler
+        .write()
+        .await
+        .send_unstaking_nonces(operator_idx, nonces, None)
+        .await;
+    info!(%operator_idx, "successfully published unstaking nonces for the stake graph");
+
+    Ok(())
 }
 
 pub(crate) async fn publish_unstaking_partials(

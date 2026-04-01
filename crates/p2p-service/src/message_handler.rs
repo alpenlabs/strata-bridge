@@ -206,6 +206,21 @@ impl MessageHandler {
         self.dispatch(msg, peer, "stake data exchange").await;
     }
 
+    /// Sends unstaking nonces for signing the unstaking transaction graph.
+    pub async fn send_unstaking_nonces(
+        &mut self,
+        operator_idx: OperatorIdx,
+        nonces: Vec<PubNonce>,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
+    ) {
+        let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Unstake {
+            operator_idx,
+            nonces: nonces.into_iter().map(Into::into).collect(),
+        });
+
+        self.dispatch(msg, peer, "unstaking nonces").await;
+    }
+
     async fn dispatch(
         &mut self,
         msg: UnsignedGossipsubMsg,
