@@ -134,7 +134,7 @@ fn preimage_revealed_timelock_mature() {
         .into(),
         expected_state,
         expected_duties: vec![StakeDuty::PublishUnstakingTx {
-            stake_data: TEST_STAKE_DATA.clone(),
+            tx: TEST_GRAPH.unstaking.as_ref().clone(),
         }],
         expected_signals: vec![],
     });
