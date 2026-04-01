@@ -73,6 +73,6 @@ pub async fn execute_stake_duty(
         StakeDuty::PublishUnstakingTx { signed_tx } => {
             unstaking::publish_unstaking_tx(&output_handles, signed_tx).await
         }
-        StakeDuty::Nag(nag_duty) => nag::execute_nag_duty(&cfg, &output_handles, nag_duty).await,
+        StakeDuty::Nag(nag_duty) => nag::execute_nag_duty(&output_handles, nag_duty).await,
     }
 }

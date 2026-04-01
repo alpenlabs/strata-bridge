@@ -5,7 +5,10 @@ use bitcoin::{
     secp256k1::{Message, XOnlyPublicKey, schnorr},
 };
 use musig2::AggNonce;
-use strata_bridge_primitives::{scripts::taproot::TaprootTweak, types::OperatorIdx};
+use strata_bridge_primitives::{
+    scripts::taproot::TaprootTweak,
+    types::{OperatorIdx, P2POperatorPubKey},
+};
 use strata_bridge_tx_graph::{stake_graph::StakeGraph, transactions::prelude::UnstakingIntentTx};
 
 /// A duty of a Stake State Machine.
@@ -84,16 +87,22 @@ pub enum NagDuty {
     NagStakeData {
         /// The operator who is nagged.
         operator_idx: OperatorIdx,
+        /// The p2p key of the operator who is nagged, used to target the nag message.
+        operator_pubkey: P2POperatorPubKey,
     },
     /// Nag an operator for missing nonces.
     NagUnstakingNonces {
         /// The operator who is nagged.
         operator_idx: OperatorIdx,
+        /// The p2p key of the operator who is nagged, used to target the nag message.
+        operator_pubkey: P2POperatorPubKey,
     },
     /// Nag an operator for missing partial signatures.
     NagUnstakingPartials {
         /// The operator who is nagged.
         operator_idx: OperatorIdx,
+        /// The p2p key of the operator who is nagged, used to target the nag message.
+        operator_pubkey: P2POperatorPubKey,
     },
 }
 
@@ -118,13 +127,13 @@ impl std::fmt::Display for StakeDuty {
 impl std::fmt::Display for NagDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NagStakeData { operator_idx } => {
+            Self::NagStakeData { operator_idx, .. } => {
                 write!(f, "NagStakeData (operator_idx: {operator_idx})")
             }
-            Self::NagUnstakingNonces { operator_idx } => {
+            Self::NagUnstakingNonces { operator_idx, .. } => {
                 write!(f, "NagUnstakingNonces (operator_idx: {operator_idx})")
             }
-            Self::NagUnstakingPartials { operator_idx } => {
+            Self::NagUnstakingPartials { operator_idx, .. } => {
                 write!(f, "NagUnstakingPartials (operator_idx: {operator_idx})")
             }
         }

@@ -17,6 +17,11 @@ fn nag_stake_data() {
     let expected_state = from_state.clone();
     let expected_duties = vec![StakeDuty::Nag(NagDuty::NagStakeData {
         operator_idx: TEST_CTX.operator_idx(),
+        operator_pubkey: TEST_CTX
+            .operator_table()
+            .idx_to_p2p_key(&TEST_CTX.operator_idx())
+            .unwrap()
+            .clone(),
     })];
     test_stake_transition(StakeTransition {
         from_state,
@@ -35,7 +40,16 @@ fn nag_unstaking_nonces() {
         .operator_table()
         .operator_idxs()
         .difference(&present)
-        .map(|&operator_idx| StakeDuty::Nag(NagDuty::NagUnstakingNonces { operator_idx }))
+        .map(|&operator_idx| {
+            StakeDuty::Nag(NagDuty::NagUnstakingNonces {
+                operator_idx,
+                operator_pubkey: TEST_CTX
+                    .operator_table()
+                    .idx_to_p2p_key(&operator_idx)
+                    .unwrap()
+                    .clone(),
+            })
+        })
         .collect::<Vec<_>>();
     let from_state = StakeState::StakeGraphGenerated {
         last_block_height: STAKE_HEIGHT,
@@ -60,7 +74,16 @@ fn nag_unstaking_partials() {
         .operator_table()
         .operator_idxs()
         .difference(&present)
-        .map(|&operator_idx| StakeDuty::Nag(NagDuty::NagUnstakingPartials { operator_idx }))
+        .map(|&operator_idx| {
+            StakeDuty::Nag(NagDuty::NagUnstakingPartials {
+                operator_idx,
+                operator_pubkey: TEST_CTX
+                    .operator_table()
+                    .idx_to_p2p_key(&operator_idx)
+                    .unwrap()
+                    .clone(),
+            })
+        })
         .collect::<Vec<_>>();
     let from_state = StakeState::UnstakingNoncesCollected {
         last_block_height: STAKE_HEIGHT,
