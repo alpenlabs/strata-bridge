@@ -21,7 +21,7 @@ use strata_btc_types::BlockHashExt;
 use strata_checkpoint_types_ssz::CheckpointTip;
 use strata_identifiers::L1BlockCommitment;
 use strata_storage::AsmStateManager;
-use tracing::info;
+use tracing::{debug, error, info, warn};
 
 /// Convert any error to an RPC error
 fn to_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
@@ -117,9 +117,25 @@ impl AsmRpcServer {
 #[async_trait]
 impl AssignmentsApiServer for AsmRpcServer {
     async fn get_assignments(&self, block_hash: BlockHash) -> RpcResult<Vec<AssignmentEntry>> {
-        match self.get_bridge_state(block_hash).await? {
-            Some(bridge_state) => Ok(bridge_state.assignments().assignments().to_vec()),
-            None => Ok(vec![]),
+        match self
+            .get_bridge_state(block_hash)
+            .await
+            .inspect_err(|e| error!(?e, "could not get bridge state"))?
+        {
+            Some(bridge_state) => {
+                let assignments = bridge_state.assignments().assignments();
+                debug!(%block_hash, num_assignments = assignments.len(), "number of assignments in ASM state");
+                Ok(assignments.to_vec())
+            }
+            // Treat missing ASM state as a transient fetch failure instead of an empty snapshot.
+            // The bridge client retries RPC errors, but it treats `Ok([])` as a completed fetch
+            // and will not revisit that block hash.
+            None => {
+                warn!(%block_hash, "ASM state not available yet for block");
+                Err(to_rpc_error(format!(
+                    "ASM state not available yet for block {block_hash}"
+                )))
+            }
         }
     }
 
