@@ -60,7 +60,7 @@
                     "02a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
                 ],
                 "denomination": 1000000000,
-                "assignment_duration": 64,
+                "assignment_duration": 288,
                 "operator_fee": 10000000,
                 "recovery_delay": 1008
             }
