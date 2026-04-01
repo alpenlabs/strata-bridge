@@ -84,7 +84,7 @@ pub enum StakeDuty {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NagDuty {
     /// Nag an operator for missing stake data.
-    NagStakeData {
+    NagUnstakingData {
         /// The operator who is nagged.
         operator_idx: OperatorIdx,
         /// The p2p key of the operator who is nagged, used to target the nag message.
@@ -127,8 +127,8 @@ impl std::fmt::Display for StakeDuty {
 impl std::fmt::Display for NagDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NagStakeData { operator_idx, .. } => {
-                write!(f, "NagStakeData (operator_idx: {operator_idx})")
+            Self::NagUnstakingData { operator_idx, .. } => {
+                write!(f, "NagUnstakingData (operator_idx: {operator_idx})")
             }
             Self::NagUnstakingNonces { operator_idx, .. } => {
                 write!(f, "NagUnstakingNonces (operator_idx: {operator_idx})")

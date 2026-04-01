@@ -11,7 +11,7 @@ pub(crate) async fn execute_nag_duty(
     nag_duty: &NagDuty,
 ) -> Result<(), ExecutorError> {
     let (operator_pubkey, payload) = match nag_duty {
-        NagDuty::NagStakeData {
+        NagDuty::NagUnstakingData {
             operator_idx,
             operator_pubkey,
         } => {
