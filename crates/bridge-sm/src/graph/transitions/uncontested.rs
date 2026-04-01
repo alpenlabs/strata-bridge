@@ -1,7 +1,8 @@
 use std::{collections::BTreeMap, num::NonZero, sync::Arc};
 
 use musig2::{
-    AggNonce, aggregate_partial_signatures,
+    AggNonce, aggregate_partial_signatures, compute_challenge_hash_tweak,
+    secp::{MaybeScalar, Point},
     secp256k1::{Message, schnorr},
     verify_partial,
 };
@@ -420,6 +421,29 @@ impl GraphSM {
                 {
                     let key_agg_ctx = create_agg_ctx(btc_keys.iter().copied(), &signing_info.tweak)
                         .expect("must be able to create key aggregation context");
+                    let aggregated_pubkey = key_agg_ctx.aggregated_pubkey();
+                    let key_coeff = key_agg_ctx
+                        .key_coefficient(operator_pubkey)
+                        .expect("operator key must be in key aggregation context");
+                    let binding_factor: MaybeScalar = agg_nonce
+                        .nonce_coefficient(aggregated_pubkey, signing_info.sighash.as_ref());
+                    let final_nonce: Point = agg_nonce.final_nonce(binding_factor);
+                    let challenge: MaybeScalar = compute_challenge_hash_tweak(
+                        &final_nonce.serialize_xonly(),
+                        &aggregated_pubkey,
+                        signing_info.sighash.as_ref(),
+                    );
+
+                    tracing::debug!(
+                        graph_idx = %graph_ctx.graph_idx(),
+                        op_idx = %partials_received_event.operator_idx,
+                        sig_idx = i,
+                        key_coeff_hex = %format!("{:x}", key_coeff),
+                        binding_factor_hex = %format!("{:x}", binding_factor),
+                        challenge_hex = %format!("{:x}", challenge),
+                        nonce_parity = if final_nonce.has_odd_y() { -1 } else { 1 },
+                        "graph signing coefficients"
+                    );
 
                     if verify_partial(
                         &key_agg_ctx,

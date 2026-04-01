@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import os
 import subprocess
@@ -19,6 +20,47 @@ from utils.logging import setup_root_logger
 parser = argparse.ArgumentParser(prog="entry.py")
 parser.add_argument("-g", "--groups", nargs="*", help="Test groups (subdirectory names) to run")
 parser.add_argument("-t", "--tests", nargs="*", help="Specific test files to run")
+
+
+def get_mtls_operator_count(root_dir: str) -> int:
+    """
+    Determine how many operator mTLS credential sets should be generated.
+
+    We need credentials for every operator key that tests may use, not only the
+    default bridge network size.
+    """
+    keys_file = os.path.join(root_dir, "artifacts", "keys.json")
+    try:
+        with open(keys_file) as f:
+            keys = json.load(f)
+    except OSError as exc:
+        logging.warning(
+            "Could not read operator key file '%s': %s; falling back to BRIDGE_NETWORK_SIZE=%s",
+            keys_file,
+            exc,
+            BRIDGE_NETWORK_SIZE,
+        )
+        return BRIDGE_NETWORK_SIZE
+    except json.JSONDecodeError as exc:
+        logging.warning(
+            "Could not parse operator key file '%s': %s; falling back to BRIDGE_NETWORK_SIZE=%s",
+            keys_file,
+            exc,
+            BRIDGE_NETWORK_SIZE,
+        )
+        return BRIDGE_NETWORK_SIZE
+
+    key_count = len(keys)
+    if key_count < BRIDGE_NETWORK_SIZE:
+        logging.warning(
+            "Operator key count (%s) is lower than BRIDGE_NETWORK_SIZE (%s); "
+            "using BRIDGE_NETWORK_SIZE",
+            key_count,
+            BRIDGE_NETWORK_SIZE,
+        )
+        return BRIDGE_NETWORK_SIZE
+
+    return key_count
 
 
 def filter_tests(parsed_args, modules):
@@ -66,8 +108,9 @@ def main(argv):
         os.path.join(root_dir, "..", "docker", "gen_s2_tls.sh")
     )
 
-    # generate mtls cred
-    for operator_idx in range(BRIDGE_NETWORK_SIZE):
+    # Generate mTLS credentials for all available operator keys.
+    mtls_operator_count = get_mtls_operator_count(root_dir)
+    for operator_idx in range(mtls_operator_count):
         generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, operator_idx)
 
     # Probe and filter tests.

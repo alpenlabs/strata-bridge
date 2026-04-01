@@ -1,6 +1,7 @@
 //! Classification of off-chain events (P2P gossip, requests, assignments) into state-machine-
 //! specific events.
 
+use bitcoin::hex::DisplayHex;
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
 use strata_asm_proto_bridge_v1::AssignmentEntry;
@@ -199,6 +200,16 @@ pub(crate) fn classify_unsigned_gossip(
                         })
                         .ok()
                         .map(|pubnonces| {
+                            debug!(
+                                %graph_idx,
+                                op_idx = %op_idx,
+                                nonces_hex = %pubnonces
+                                    .iter()
+                                    .map(|n| n.serialize().to_lower_hex_string())
+                                    .collect::<Vec<_>>()
+                                    .join(","),
+                                "received graph nonces from operator"
+                            );
                             GraphEvent::NoncesReceived(GraphEvents::GraphNoncesReceivedEvent {
                                 pubnonces,
                                 operator_idx: op_idx,
@@ -212,89 +223,101 @@ pub(crate) fn classify_unsigned_gossip(
                 todo!("STR-2924: classify unstaking nonce for operator {operator_idx}")
             }
         },
-        UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => {
-            match musig2_partial {
-                MuSig2Partial::Deposit {
-                    deposit_idx,
-                    partial,
-                } => sm_registry
-                    .lookup_operator(&(*deposit_idx).into(), key)
-                    .into_iter()
-                    .filter_map(|op_idx| {
-                        PartialSignature::try_from(*partial)
-                            .inspect_err(|_| {
-                                warn!(
-                                    %deposit_idx, %op_idx,
-                                    "Received invalid deposit partial signature, discarding message"
-                                )
+        UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => match musig2_partial {
+            MuSig2Partial::Deposit {
+                deposit_idx,
+                partial,
+            } => sm_registry
+                .lookup_operator(&(*deposit_idx).into(), key)
+                .into_iter()
+                .filter_map(|op_idx| {
+                    PartialSignature::try_from(*partial)
+                        .inspect_err(|_| {
+                            warn!(
+                                %deposit_idx, %op_idx,
+                                "Received invalid deposit partial signature, discarding message"
+                            )
+                        })
+                        .ok()
+                        .map(|partial_sig| {
+                            DepositEvent::PartialReceived(DepositEvents::PartialReceivedEvent {
+                                partial_sig,
+                                operator_idx: op_idx,
                             })
-                            .ok()
-                            .map(|partial_sig| {
-                                DepositEvent::PartialReceived(DepositEvents::PartialReceivedEvent {
-                                    partial_sig,
+                            .into()
+                        })
+                })
+                .collect(),
+
+            MuSig2Partial::Payout {
+                deposit_idx,
+                partial,
+            } => sm_registry
+                .lookup_operator(&(*deposit_idx).into(), key)
+                .into_iter()
+                .filter_map(|op_idx| {
+                    PartialSignature::try_from(*partial)
+                        .inspect_err(|_| {
+                            warn!(
+                                %deposit_idx, %op_idx,
+                                "Received invalid payout partial signature, discarding message"
+                            )
+                        })
+                        .ok()
+                        .map(|partial_sig| {
+                            DepositEvent::PayoutPartialReceived(
+                                DepositEvents::PayoutPartialReceivedEvent {
+                                    partial_signature: partial_sig,
                                     operator_idx: op_idx,
-                                })
-                                .into()
-                            })
-                    })
-                    .collect(),
+                                },
+                            )
+                            .into()
+                        })
+                })
+                .collect(),
 
-                MuSig2Partial::Payout {
-                    deposit_idx,
-                    partial,
-                } => sm_registry
-                    .lookup_operator(&(*deposit_idx).into(), key)
-                    .into_iter()
-                    .filter_map(|op_idx| {
-                        PartialSignature::try_from(*partial)
-                            .inspect_err(|_| {
-                                warn!(
-                                    %deposit_idx, %op_idx,
-                                    "Received invalid payout partial signature, discarding message"
-                                )
-                            })
-                            .ok()
-                            .map(|partial_sig| {
-                                DepositEvent::PayoutPartialReceived(
-                                    DepositEvents::PayoutPartialReceivedEvent {
-                                        partial_signature: partial_sig,
-                                        operator_idx: op_idx,
-                                    },
-                                )
-                                .into()
-                            })
-                    })
-                    .collect(),
-
-                MuSig2Partial::Graph {
-                    graph_idx,
-                    partials,
-                } => sm_registry
-                    .lookup_operator(&(*graph_idx).into(), key)
-                    .into_iter()
-                    .filter_map(|op_idx| {
-                        partials.iter()
+            MuSig2Partial::Graph {
+                graph_idx,
+                partials,
+            } => sm_registry
+                .lookup_operator(&(*graph_idx).into(), key)
+                .into_iter()
+                .filter_map(|op_idx| {
+                    partials
+                        .iter()
                         .map(|p| PartialSignature::try_from(*p))
                         .collect::<Result<Vec<_>, _>>()
-                        .inspect_err(|_| warn!(
-                            %graph_idx, %op_idx,
-                            "Received invalid partial signature for graph, discarding message"
-                        ))
+                        .inspect_err(|_| {
+                            warn!(
+                                %graph_idx, %op_idx,
+                                "Received invalid partial signature for graph, discarding message"
+                            )
+                        })
                         .ok()
-                        .map(|partial_signatures| GraphEvent::PartialsReceived(
-                            GraphEvents::GraphPartialsReceivedEvent {
+                        .map(|partial_signatures| {
+                            debug!(
+                                %graph_idx,
+                                op_idx = %op_idx,
+                                partials_hex = %partial_signatures
+                                    .iter()
+                                    .map(|p| p.serialize().to_lower_hex_string())
+                                    .collect::<Vec<_>>()
+                                    .join(","),
+                                "received graph partials from operator"
+                            );
+                            GraphEvent::PartialsReceived(GraphEvents::GraphPartialsReceivedEvent {
                                 partial_signatures,
                                 operator_idx: op_idx,
-                            },
-                        ).into())
-                    })
-                    .collect(),
+                            })
+                            .into()
+                        })
+                })
+                .collect(),
 
-                MuSig2Partial::Unstake { operator_idx, .. } => {
-                    todo!("STR-2924: classify unstaking partial for operator {operator_idx}")
-                }
+            MuSig2Partial::Unstake { operator_idx, .. } => {
+                todo!("STR-2924: classify unstaking partial for operator {operator_idx}")
             }
-        }
+        },
 
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => {
             let sm_id = match &nag_request.payload {
