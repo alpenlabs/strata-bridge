@@ -18,6 +18,18 @@ impl StakeSM {
         event: UnstakingConfirmedEvent,
     ) -> SSMResult<SSMOutput> {
         match self.state() {
+            StakeState::Created { .. }
+            | StakeState::StakeGraphGenerated { .. }
+            | StakeState::UnstakingNoncesCollected { .. }
+            | StakeState::UnstakingSigned { .. }
+            | StakeState::Confirmed { .. } => Err(SSMError::invalid_event(
+                self.state().clone(),
+                event.into(),
+                Some(format!(
+                    "Unstaking confirmation is invalid before preimage revelation: {}",
+                    self.state()
+                )),
+            )),
             StakeState::PreimageRevealed {
                 preimage,
                 expected_unstaking_txid,
@@ -38,13 +50,10 @@ impl StakeSM {
 
                 Ok(SMOutput::new())
             }
-            StakeState::Unstaked { .. } => {
-                Err(SSMError::duplicate(self.state.clone(), event.into()))
-            }
-            _ => Err(SSMError::rejected(
+            StakeState::Unstaked { .. } => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
-                format!("Invalid state for unstaking confirmation: {}", self.state()),
+                "Terminal state rejects all incoming events",
             )),
         }
     }
