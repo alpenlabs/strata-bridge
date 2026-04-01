@@ -77,14 +77,14 @@ fn reject_mismatching_unstaking_tx() {
 }
 
 #[test]
-fn reject_duplicate_unstaking_confirmed() {
+fn reject_rejected_states() {
     test_stake_invalid_transition(StakeInvalidTransition {
         from_state: StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },
         event: UnstakingConfirmedEvent { tx: unstaking_tx() }.into(),
-        expected_error: |e| matches!(e, SSMError::Duplicate { .. }),
+        expected_error: |e| matches!(e, SSMError::Rejected { .. }),
     });
 }
 
@@ -94,7 +94,7 @@ fn reject_invalid_states() {
         test_stake_invalid_transition(StakeInvalidTransition {
             from_state,
             event: UnstakingConfirmedEvent { tx: unstaking_tx() }.into(),
-            expected_error: |e| matches!(e, SSMError::Rejected { .. }),
+            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
         });
     }
 }
