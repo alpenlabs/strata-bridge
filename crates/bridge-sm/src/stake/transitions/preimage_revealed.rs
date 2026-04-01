@@ -24,7 +24,6 @@ impl StakeSM {
             StakeState::Confirmed {
                 last_block_height: _,
                 stake_data,
-                stake_txid: _,
             } => {
                 let summary = StakeGraph::new(stake_data.clone()).summarize();
 
@@ -62,7 +61,6 @@ impl StakeSM {
                     stake_data: stake_data.clone(),
                     preimage,
                     unstaking_intent_block_height: event.block_height,
-                    expected_unstaking_txid: summary.unstaking,
                 };
 
                 Ok(SMOutput::new())

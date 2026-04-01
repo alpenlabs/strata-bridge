@@ -47,7 +47,6 @@ impl StakeSM {
                 self.state = StakeState::Confirmed {
                     last_block_height: *last_block_height,
                     stake_data: stake_data.clone(),
-                    stake_txid: expected_stake_txid,
                 };
 
                 Ok(SMOutput::new())

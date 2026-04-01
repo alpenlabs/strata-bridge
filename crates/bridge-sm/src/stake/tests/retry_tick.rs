@@ -9,7 +9,6 @@ fn retry_publish_stake() {
     let from_state = StakeState::UnstakingSigned {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
-        expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
         signatures: TEST_FINAL_SIGS.clone(),
     };
     let expected_state = from_state.clone();
@@ -46,14 +45,12 @@ fn retry_nothing() {
         StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
         },
         StakeState::PreimageRevealed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-            expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },
         StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,

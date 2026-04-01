@@ -1,3 +1,5 @@
+use strata_bridge_tx_graph::stake_graph::StakeGraph;
+
 use crate::{
     stake::{
         errors::{SSMError, SSMResult},
@@ -19,11 +21,16 @@ impl StakeSM {
     ) -> SSMResult<SSMOutput> {
         match self.state() {
             StakeState::PreimageRevealed {
+                stake_data,
                 preimage,
-                expected_unstaking_txid,
                 ..
             } => {
-                if event.tx.compute_txid() != *expected_unstaking_txid {
+                let expected_unstaking_txid = StakeGraph::new(stake_data.clone())
+                    .unstaking
+                    .as_ref()
+                    .compute_txid();
+
+                if event.tx.compute_txid() != expected_unstaking_txid {
                     return Err(SSMError::rejected(
                         self.state().clone(),
                         event.into(),
@@ -33,7 +40,7 @@ impl StakeSM {
 
                 self.state = StakeState::Unstaked {
                     preimage: *preimage,
-                    unstaking_txid: *expected_unstaking_txid,
+                    unstaking_txid: expected_unstaking_txid,
                 };
 
                 Ok(SMOutput::new())

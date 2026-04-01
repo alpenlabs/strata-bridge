@@ -48,8 +48,6 @@ pub enum StakeState {
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
         stake_data: StakeData,
-        /// ID of the expected stake transaction.
-        expected_stake_txid: Txid,
         /// 1 signature per musig transaction input.
         signatures: Box<[Signature; StakeGraph::N_MUSIG_INPUTS]>,
     },
@@ -59,8 +57,6 @@ pub enum StakeState {
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
         stake_data: StakeData,
-        /// ID of the confirmed stake transaction.
-        stake_txid: Txid,
     },
     /// The unstaking preimage has been revealed on-chain.
     PreimageRevealed {
@@ -72,8 +68,6 @@ pub enum StakeState {
         preimage: [u8; 32],
         /// Block height where the unstaking intent transaction was confirmed.
         unstaking_intent_block_height: BitcoinBlockHeight,
-        /// ID of the expected unstaking transaction.
-        expected_unstaking_txid: Txid,
     },
     /// The unstaking transaction has been confirmed on the bitcoin blockchain.
     Unstaked {

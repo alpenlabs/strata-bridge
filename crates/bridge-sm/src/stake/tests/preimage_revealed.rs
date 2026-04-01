@@ -10,7 +10,6 @@ fn confirmed_state() -> StakeState {
     StakeState::Confirmed {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
-        stake_txid: TEST_GRAPH_SUMMARY.stake,
     }
 }
 
@@ -20,7 +19,6 @@ fn revealed_state() -> StakeState {
         stake_data: TEST_STAKE_DATA.clone(),
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
     }
 }
 
@@ -44,7 +42,6 @@ fn invalid_states() -> [StakeState; 5] {
         StakeState::UnstakingSigned {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
             signatures: TEST_FINAL_SIGS.clone(),
         },
         StakeState::Unstaked {

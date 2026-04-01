@@ -7,7 +7,6 @@ fn signed_state() -> StakeState {
     StakeState::UnstakingSigned {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
-        expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
         signatures: TEST_FINAL_SIGS.clone(),
     }
 }
@@ -42,7 +41,6 @@ fn invalid_states() -> [StakeState; 2] {
             stake_data: TEST_STAKE_DATA.clone(),
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-            expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },
         StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,
@@ -63,7 +61,6 @@ fn accept_stake_tx() {
             expected_state: StakeState::Confirmed {
                 last_block_height: STAKE_HEIGHT,
                 stake_data: TEST_STAKE_DATA.clone(),
-                stake_txid: TEST_GRAPH_SUMMARY.stake,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -91,7 +88,6 @@ fn reject_duplicate_stake_confirmed() {
         from_state: StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
         },
         event: StakeConfirmedEvent {
             tx: TEST_GRAPH.stake.as_ref().clone(),
