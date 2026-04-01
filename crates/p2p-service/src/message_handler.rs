@@ -221,6 +221,21 @@ impl MessageHandler {
         self.dispatch(msg, peer, "unstaking nonces").await;
     }
 
+    /// Sends unstaking partial signatures for signing the unstaking transaction graph.
+    pub async fn send_unstaking_partials(
+        &mut self,
+        operator_idx: OperatorIdx,
+        partials: Vec<PartialSignature>,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
+    ) {
+        let msg = UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Unstake {
+            operator_idx,
+            partials: partials.into_iter().map(Into::into).collect(),
+        });
+
+        self.dispatch(msg, peer, "unstaking partials").await;
+    }
+
     async fn dispatch(
         &mut self,
         msg: UnsignedGossipsubMsg,

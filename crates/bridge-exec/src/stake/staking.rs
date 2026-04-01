@@ -7,7 +7,7 @@ use bitcoin::{
     Address, FeeRate, OutPoint, Psbt, TapSighashType, Transaction,
     hashes::{Hash, sha256},
     key::TapTweak,
-    secp256k1::XOnlyPublicKey,
+    secp256k1::{Message, XOnlyPublicKey},
     sighash::{Prevouts, SighashCache},
 };
 use bitcoin_bosd::Descriptor;
@@ -21,7 +21,7 @@ use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, create_key_spend_hash, finalize_input},
     types::OperatorIdx,
 };
-use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
+use strata_bridge_tx_graph::stake_graph::StakeGraph;
 use tracing::{info, warn};
 
 use crate::{
@@ -230,14 +230,62 @@ pub(crate) async fn publish_unstaking_nonces(
 }
 
 pub(crate) async fn publish_unstaking_partials(
-    _cfg: &ExecutionConfig,
-    _output_handles: &OutputHandles,
-    _stake_data: &StakeData,
-    _agg_nonces: &[AggNonce; StakeGraph::N_MUSIG_INPUTS],
+    output_handles: &OutputHandles,
+    operator_idx: OperatorIdx,
+    graph_inpoints: [bitcoin::OutPoint; StakeGraph::N_MUSIG_INPUTS],
+    graph_tweaks: [TaprootTweak; StakeGraph::N_MUSIG_INPUTS],
+    sighashes: [Message; StakeGraph::N_MUSIG_INPUTS],
+    agg_nonces: &[AggNonce; StakeGraph::N_MUSIG_INPUTS],
+    ordered_pubkeys: Vec<XOnlyPublicKey>,
 ) -> Result<(), ExecutorError> {
-    // Generate partial signatures for each transaction input in the stake transaction graph via
-    // s2.
-    todo!("Submit to p2p after STR-2643")
+    info!(%operator_idx, "generating and publishing unstaking partial signatures for the stake graph");
+
+    let musig_signer = output_handles.s2_client.musig2_signer();
+    let partial_futures = graph_inpoints
+        .iter()
+        .zip(graph_tweaks.iter())
+        .zip(sighashes.iter())
+        .zip(agg_nonces.iter())
+        .map(|(((inpoint, tweak), sighash), agg_nonce)| {
+            let params = Musig2Params {
+                ordered_pubkeys: ordered_pubkeys.clone(),
+                tweak: *tweak,
+                input: *inpoint,
+            };
+
+            musig_signer
+                .get_our_partial_sig(params, agg_nonce.clone(), *sighash.as_ref())
+                .map(move |res| match res {
+                    Ok(inner) => inner.map_err(|e| match e.to_enum() {
+                        terrors::E2::A(_) => {
+                            warn!(?operator_idx, %inpoint, "secret service rejected partial sig request: our pubkey missing from params");
+                            ExecutorError::OurPubKeyNotInParams
+                        }
+                        terrors::E2::B(_) => {
+                            warn!(?operator_idx, %inpoint, "secret service rejected partial sig request: self-verification failed");
+                            ExecutorError::SelfVerifyFailed
+                        }
+                    }),
+                    Err(e) => {
+                        warn!(%operator_idx, %inpoint, ?e, "failed to get partial signature from secret-service");
+                        Err(ExecutorError::SecretServiceErr(e))
+                    }
+                })
+        },
+    );
+
+    let partials = try_join_all(partial_futures).await?;
+    info!(%operator_idx, "successfully generated unstaking partial signatures for the stake graph");
+
+    output_handles
+        .msg_handler
+        .write()
+        .await
+        .send_unstaking_partials(operator_idx, partials, None)
+        .await;
+    info!(%operator_idx, "successfully published unstaking partial signatures for the stake graph");
+
+    Ok(())
 }
 
 pub(crate) async fn publish_stake(

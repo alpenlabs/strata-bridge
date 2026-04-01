@@ -2,14 +2,11 @@
 
 use bitcoin::{
     OutPoint, Transaction,
-    secp256k1::{XOnlyPublicKey, schnorr},
+    secp256k1::{Message, XOnlyPublicKey, schnorr},
 };
 use musig2::AggNonce;
 use strata_bridge_primitives::{scripts::taproot::TaprootTweak, types::OperatorIdx};
-use strata_bridge_tx_graph::{
-    stake_graph::{StakeData, StakeGraph},
-    transactions::prelude::UnstakingIntentTx,
-};
+use strata_bridge_tx_graph::{stake_graph::StakeGraph, transactions::prelude::UnstakingIntentTx};
 
 /// A duty of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,8 +38,22 @@ pub enum StakeDuty {
     },
     /// Publish the partial signatures for a given operator.
     PublishUnstakingPartials {
-        /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        /// The index of the operator that owns the stake.
+        operator_idx: OperatorIdx,
+
+        /// The inpoints of the unstaking transaction graph used to retrieve the musig2 session
+        /// from the secret-service.
+        graph_inpoints: Box<[OutPoint; StakeGraph::N_MUSIG_INPUTS]>,
+
+        /// The tweak required for taproot spend per input being signed.
+        graph_tweaks: Box<[TaprootTweak; StakeGraph::N_MUSIG_INPUTS]>,
+
+        /// Sighashes that need to signed.
+        sighashes: Box<[Message; StakeGraph::N_MUSIG_INPUTS]>,
+
+        /// The ordered public keys of all operators for MuSig2 aggregation.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
+
         /// 1 aggregated per musig transaction input.
         agg_nonces: Box<[AggNonce; StakeGraph::N_MUSIG_INPUTS]>,
     },
