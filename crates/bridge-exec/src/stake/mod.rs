@@ -22,8 +22,21 @@ pub async fn execute_stake_duty(
         StakeDuty::PublishStakeData { operator_idx } => {
             staking::publish_stake_data(&cfg, &output_handles, *operator_idx).await
         }
-        StakeDuty::PublishUnstakingNonces { stake_data } => {
-            staking::publish_unstaking_nonces(&cfg, &output_handles, stake_data).await
+        StakeDuty::PublishUnstakingNonces {
+            operator_idx,
+            graph_inpoints,
+            graph_tweaks,
+            ordered_pubkeys,
+        } => {
+            staking::publish_unstaking_nonces(
+                &cfg,
+                &output_handles,
+                *operator_idx,
+                **graph_inpoints,
+                **graph_tweaks,
+                ordered_pubkeys.clone(),
+            )
+            .await
         }
         StakeDuty::PublishUnstakingPartials {
             stake_data,

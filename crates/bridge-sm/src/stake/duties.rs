@@ -1,8 +1,11 @@
 //! Duties for the Stake State Machine.
 
-use bitcoin::{OutPoint, Transaction, secp256k1::schnorr};
+use bitcoin::{
+    OutPoint, Transaction,
+    secp256k1::{XOnlyPublicKey, schnorr},
+};
 use musig2::AggNonce;
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::{scripts::taproot::TaprootTweak, types::OperatorIdx};
 use strata_bridge_tx_graph::{
     stake_graph::{StakeData, StakeGraph},
     transactions::prelude::UnstakingIntentTx,
@@ -23,8 +26,18 @@ pub enum StakeDuty {
     },
     /// Publish the nonces for a given operator.
     PublishUnstakingNonces {
-        /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        /// The index of the operator that owns the stake.
+        operator_idx: OperatorIdx,
+
+        /// The inpoints of the unstaking transaction graph used to retrieve the musig2 session
+        /// from the secret-service.
+        graph_inpoints: Box<[OutPoint; StakeGraph::N_MUSIG_INPUTS]>,
+
+        /// The tweak required for taproot spend per input being signed.
+        graph_tweaks: Box<[TaprootTweak; StakeGraph::N_MUSIG_INPUTS]>,
+
+        /// The ordered public keys of all operators for MuSig2 aggregation.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
     /// Publish the partial signatures for a given operator.
     PublishUnstakingPartials {
