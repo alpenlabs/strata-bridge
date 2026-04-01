@@ -48,16 +48,17 @@ impl StakeSM {
                         AggNonce::sum(pub_nonces.values().map(|nonces| nonces[txin_idx].clone()))
                     }));
                     let stake_data = stake_data.clone();
+                    let stake_graph = StakeGraph::new(stake_data.clone());
 
                     self.state = StakeState::UnstakingNoncesCollected {
                         last_block_height: *last_block_height,
-                        stake_data: stake_data.clone(),
+                        stake_data,
                         pub_nonces: pub_nonces.clone(),
                         agg_nonces: agg_nonces.clone(),
                         partial_signatures: BTreeMap::new(),
+                        expected_stake_txid: stake_graph.stake.as_ref().compute_txid(),
                     };
 
-                    let stake_graph = StakeGraph::new(stake_data);
                     let graph_inpoints = stake_graph
                         .musig_inpoints()
                         .pack()

@@ -37,6 +37,12 @@ pub enum StakeState {
         pub_nonces: BTreeMap<OperatorIdx, [PubNonce; StakeGraph::N_MUSIG_INPUTS]>,
         /// 1 aggregated nonce per musig transaction input.
         agg_nonces: Box<[AggNonce; StakeGraph::N_MUSIG_INPUTS]>,
+        /// The ID of the expected stake transaction.
+        ///
+        /// A stake transaction may make it on chain if the operator who owns the stake broadcasts
+        /// their partial signature _after_ broadcasting the stake transaction, or withholds their
+        /// partial signature entirely.
+        expected_stake_txid: Txid,
         /// Maps each operator to their partial signatures.
         partial_signatures: BTreeMap<OperatorIdx, [PartialSignature; StakeGraph::N_MUSIG_INPUTS]>,
     },
@@ -62,7 +68,10 @@ pub enum StakeState {
         /// ID of the confirmed stake transaction.
         stake_txid: Txid,
         /// 1 signature per musig transaction input.
-        signatures: Box<[Signature; StakeGraph::N_MUSIG_INPUTS]>,
+        ///
+        /// The signatures may be absent if an operator chooses to withhold their partial signature
+        /// or broadcasts is too late.
+        signatures: Box<Option<[Signature; StakeGraph::N_MUSIG_INPUTS]>>,
     },
     /// The unstaking preimage has been revealed on-chain.
     PreimageRevealed {
@@ -77,7 +86,10 @@ pub enum StakeState {
         /// ID of the expected unstaking transaction.
         expected_unstaking_txid: Txid,
         /// 1 signature per musig transaction input.
-        signatures: Box<[Signature; StakeGraph::N_MUSIG_INPUTS]>,
+        ///
+        /// The signatures may be absent if an operator chose to withhold their partial signature
+        /// or broadcasted it too late.
+        signatures: Box<Option<[Signature; StakeGraph::N_MUSIG_INPUTS]>>,
     },
     /// The unstaking transaction has been confirmed on the bitcoin blockchain.
     Unstaked {

@@ -13,6 +13,7 @@ fn invalid_states() -> [StakeState; 5] {
         StakeState::UnstakingNoncesCollected {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
+            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
             agg_nonces: TEST_AGG_NONCES.clone(),
             partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
@@ -21,13 +22,13 @@ fn invalid_states() -> [StakeState; 5] {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Box::new(*TEST_FINAL_SIGS),
         },
         StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             stake_txid: TEST_GRAPH_SUMMARY.stake,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::PreimageRevealed {
             last_block_height: STAKE_HEIGHT,
@@ -35,7 +36,7 @@ fn invalid_states() -> [StakeState; 5] {
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
             expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,

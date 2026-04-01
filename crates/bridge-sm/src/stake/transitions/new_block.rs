@@ -43,6 +43,12 @@ impl StakeSM {
             Some(last_block_height) => *last_block_height = event.block_height,
         }
 
+        // not my graph, so no duties to perform, but we still want to update the last processed
+        // block height and reject old heights (above).
+        if self.context.operator_idx() != self.context.operator_table().pov_idx() {
+            return Ok(SMOutput::new());
+        }
+
         if let StakeState::PreimageRevealed {
             stake_data,
             unstaking_intent_block_height,
@@ -54,8 +60,12 @@ impl StakeSM {
                     + u64::from(cfg.protocol_params.game_timelock.value())
         {
             let stake_graph = StakeGraph::new(stake_data.clone());
-            let unstaking_sig_functor = StakeFunctor::unpack(signatures.to_vec())
-                .expect("signatures already in state must be valid");
+            let unstaking_sig_functor = StakeFunctor::unpack(
+                signatures
+                    .expect("own signatures must be present in state")
+                    .to_vec(),
+            )
+            .expect("signatures already in state must be valid");
             let unstaking_tx = stake_graph
                 .unstaking
                 .finalize(unstaking_sig_functor.unstaking);

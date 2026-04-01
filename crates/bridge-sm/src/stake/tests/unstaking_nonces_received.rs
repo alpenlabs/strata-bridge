@@ -32,13 +32,13 @@ fn invalid_states() -> [StakeState; 5] {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Box::new(*TEST_FINAL_SIGS),
         },
         StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             stake_txid: TEST_GRAPH_SUMMARY.stake,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::PreimageRevealed {
             last_block_height: STAKE_HEIGHT,
@@ -46,7 +46,7 @@ fn invalid_states() -> [StakeState; 5] {
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
             expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-            signatures: TEST_FINAL_SIGS.clone(),
+            signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,
@@ -93,15 +93,22 @@ fn accept_nonces_all_collected() {
     seq.process(TEST_CFG.clone(), event);
 
     let new_state = seq.state();
-    assert!(
-        matches!(new_state, StakeState::UnstakingNoncesCollected { last_block_height, stake_data, pub_nonces, agg_nonces, partial_signatures } if {
-            *last_block_height == STAKE_HEIGHT
-            && *stake_data == TEST_STAKE_DATA.clone()
-            && *pub_nonces ==  TEST_PUB_NONCES_MAP.clone()
-            && *agg_nonces == TEST_AGG_NONCES.clone()
-            && partial_signatures.is_empty()
-        })
-    );
+    assert!(matches!(new_state,
+        StakeState::UnstakingNoncesCollected {
+            last_block_height,
+            stake_data,
+            pub_nonces,
+            agg_nonces,
+            partial_signatures,
+            expected_stake_txid
+        } if (
+        *last_block_height == STAKE_HEIGHT
+        && *stake_data == TEST_STAKE_DATA.clone()
+        && *pub_nonces ==  TEST_PUB_NONCES_MAP.clone()
+        && *agg_nonces == TEST_AGG_NONCES.clone()
+        && *expected_stake_txid == TEST_GRAPH_SUMMARY.stake
+        && partial_signatures.is_empty()
+    )));
 
     let duties = seq.all_duties();
     assert!(
@@ -145,6 +152,7 @@ fn reject_duplicate_in_collected_nonces() {
             stake_data: TEST_STAKE_DATA.clone(),
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
             agg_nonces: TEST_AGG_NONCES.clone(),
+            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
             partial_signatures: BTreeMap::new(),
         },
         event: UnstakingNoncesReceivedEvent {
