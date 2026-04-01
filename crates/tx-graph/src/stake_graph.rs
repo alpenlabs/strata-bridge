@@ -1,5 +1,7 @@
 //! This module contains the staking graph.
 
+use std::array;
+
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::{
@@ -147,6 +149,23 @@ impl StakeGraph {
         StakeFunctor {
             unstaking_intent: self.unstaking_intent.signing_info(),
             unstaking: self.unstaking.signing_info(),
+        }
+    }
+
+    /// Generates a functor of the inpoints of each input in the unstaking graph that needs a
+    /// MuSig2-aggregated signature.
+    ///
+    /// In any [`StakeGraph`], the inpoints are guaranteed to be unique.
+    pub fn musig_inpoints(&self) -> StakeFunctor<OutPoint> {
+        StakeFunctor {
+            unstaking_intent: array::from_fn(|i| OutPoint {
+                txid: self.unstaking_intent.as_ref().compute_txid(),
+                vout: i as u32,
+            }),
+            unstaking: array::from_fn(|i| OutPoint {
+                txid: self.unstaking.as_ref().compute_txid(),
+                vout: i as u32,
+            }),
         }
     }
 }
