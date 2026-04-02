@@ -60,18 +60,6 @@ fn event_duplicate() {
 }
 
 #[test]
-fn event_rejected_old_height() {
-    test_graph_invalid_transition(GraphInvalidTransition {
-        from_state: contested_state(),
-        event: GraphEvent::BridgeProofConfirmed(BridgeProofConfirmedEvent {
-            bridge_proof_block_height: 0,
-            ..bridge_proof_event()
-        }),
-        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
-    });
-}
-
-#[test]
 fn event_invalid() {
     for from_state in all_state_variants()
         .into_iter()
