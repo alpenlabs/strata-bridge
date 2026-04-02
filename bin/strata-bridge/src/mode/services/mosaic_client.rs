@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use futures::stream::{self, StreamExt, TryStreamExt};
+use futures::future;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
 use strata_mosaic_client::{MosaicClient, MosaicIdResolver, PeerId};
@@ -109,14 +109,13 @@ pub(crate) fn init_mosaic_client(
         .build()
 }
 
-/// Run [`ensure_mosaic_setup`] for every `(other_operator, role)` pair with bounded concurrency.
+/// Run [`ensure_mosaic_setup`] for every `(other_operator, role)` pair concurrently.
 ///
 /// Skips the point-of-view operator (self). Fails fast on the first error — remaining in-flight
 /// futures are dropped.
 pub(crate) async fn run_mosaic_setup(
     client: &MosaicClient<HttpClient, BridgeMosaicIdResolver>,
     operator_table: &OperatorTable,
-    concurrency: usize,
 ) -> anyhow::Result<()> {
     let pov_idx = operator_table.pov_idx();
 
@@ -131,22 +130,19 @@ pub(crate) async fn run_mosaic_setup(
     info!(
         %pov_idx,
         total,
-        concurrency,
         "starting mosaic setup for all operator pairs"
     );
 
-    stream::iter(pairs)
-        .map(Ok)
-        .try_for_each_concurrent(concurrency, |(idx, role)| async move {
-            info!(%idx, ?role, "starting mosaic setup");
-            client.ensure_mosaic_setup(idx, role).await.map_err(|e| {
-                error!(%idx, ?role, %e, "mosaic setup failed");
-                anyhow::anyhow!("mosaic setup failed for operator {idx} role {role:?}: {e}")
-            })?;
-            info!(%idx, ?role, "mosaic setup complete");
-            Ok::<(), anyhow::Error>(())
-        })
-        .await?;
+    future::try_join_all(pairs.into_iter().map(|(idx, role)| async move {
+        info!(%idx, ?role, "starting mosaic setup");
+        client.ensure_mosaic_setup(idx, role).await.map_err(|e| {
+            error!(%idx, ?role, %e, "mosaic setup failed");
+            anyhow::anyhow!("mosaic setup failed for operator {idx} role {role:?}: {e}")
+        })?;
+        info!(%idx, ?role, "mosaic setup complete");
+        Ok::<(), anyhow::Error>(())
+    }))
+    .await?;
 
     info!("mosaic setup completed successfully for all {total} pairs");
     Ok(())
