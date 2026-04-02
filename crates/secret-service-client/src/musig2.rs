@@ -96,6 +96,27 @@ impl SchnorrSigner<Client> for Musig2Client {
         }
     }
 
+    async fn sign_with_key_tweak(
+        &self,
+        digest: &[u8; 32],
+        key_tweak: &[u8; 32],
+        tap_tweak: Option<TapNodeHash>,
+    ) -> <Client as Origin>::Container<Signature> {
+        let msg = ClientMessage::SchnorrSignerSignWithKeyTweak {
+            target: SignerTarget::Musig2,
+            digest: *digest,
+            key_tweak: *key_tweak,
+            tap_tweak: tap_tweak.map(|t| t.to_raw_hash().to_byte_array()),
+        };
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        match res {
+            ServerMessage::SchnorrSignerSign { sig } => {
+                Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
+            }
+            _ => Err(ClientError::WrongMessage(res.into())),
+        }
+    }
+
     async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
         let msg = ClientMessage::SchnorrSignerSignNoTweak {
             target: SignerTarget::Musig2,
