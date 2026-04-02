@@ -32,3 +32,17 @@ pub(super) async fn publish_contested_payout(
     )
     .await
 }
+
+/// Publishes the signed counterproof ACK transaction to Bitcoin.
+pub(super) async fn publish_counterproof_ack(
+    output_handles: &OutputHandles,
+    signed_counter_proof_ack_tx: &Transaction,
+) -> Result<(), ExecutorError> {
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        signed_counter_proof_ack_tx,
+        "counterproof ack",
+        TxStatus::is_buried,
+    )
+    .await
+}
