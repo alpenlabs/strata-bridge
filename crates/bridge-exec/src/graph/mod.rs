@@ -19,7 +19,7 @@ use crate::{
         common::{publish_claim, publish_graph_nonces, publish_graph_partials, verify_adaptors},
         contested::{
             generate_and_publish_bridge_proof, publish_bridge_proof_timeout,
-            publish_contested_payout, publish_counterproof_ack,
+            publish_contested_payout, publish_counterproof_ack, publish_slash,
         },
         uncontested::publish_uncontested_payout,
     },
@@ -110,8 +110,8 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishCounterProofNack { .. } => {
             todo!("PublishCounterProofNack")
         }
-        GraphDuty::PublishSlash { .. } => {
-            todo!("PublishSlash")
+        GraphDuty::PublishSlash { signed_slash_tx } => {
+            publish_slash(&output_handles, signed_slash_tx).await
         }
         GraphDuty::PublishContestedPayout {
             signed_contested_payout_tx,
