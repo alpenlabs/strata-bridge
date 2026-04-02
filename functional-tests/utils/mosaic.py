@@ -3,7 +3,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # ensure no colllsion
-MOSAIC_PORT_BASE = 12900
+MOSAIC_PORT_BASE = 11900
+
+MOSAIC_KEYS_PATH = Path(__file__).parent.parent / "artifacts" / "mosaic.json"
 
 
 @dataclass
@@ -23,8 +25,7 @@ def read_mosaic_keys(operator_idx: int) -> MosaicPeerInfo:
         MosaicPeerInfo containing peer signing key and peer_id
     """
 
-    keys_path = Path(__file__).parent.parent / "artifacts" / "mosaic.json"
-    with open(keys_path) as f:
+    with open(MOSAIC_KEYS_PATH) as f:
         mosaic_keys = json.load(f)
 
     return MosaicPeerInfo(**mosaic_keys[operator_idx])
@@ -47,6 +48,13 @@ def get_peer_configs(num_operators: int) -> dict[int, PeerConfig]:
             peer_id=peer_info.PEER_ID,
         )
     return peers
+
+
+def get_peer_ids(num_operators: int) -> list[str]:
+    with open(MOSAIC_KEYS_PATH) as f:
+        mosaic_keys = json.load(f)
+
+    return [entry["PEER_ID"] for entry in mosaic_keys[:num_operators]]
 
 
 def get_circuit_path() -> str:
