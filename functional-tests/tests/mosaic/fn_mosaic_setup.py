@@ -113,7 +113,6 @@ class MosaicSetupTest(StrataTestBase):
             timeout=timeout,
             step=step,
             error_msg=(
-                f"Not all setups reached SetupComplete within {timeout}s."
-                f" Still pending: {pending}"
+                f"Not all setups reached SetupComplete within {timeout}s. Still pending: {pending}"
             ),
         )

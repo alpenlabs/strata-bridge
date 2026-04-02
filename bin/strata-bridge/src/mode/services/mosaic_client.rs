@@ -109,7 +109,7 @@ pub(crate) fn init_mosaic_client(
         .build()
 }
 
-/// Run [`ensure_mosaic_setup`] for every `(other_operator, role)` pair concurrently.
+/// Run `ensure_mosaic_setup` for every `(other_operator, role)` pair concurrently.
 ///
 /// Skips the point-of-view operator (self). Fails fast on the first error — remaining in-flight
 /// futures are dropped.

@@ -3,7 +3,7 @@ use strata_mosaic_client_api::types::{Role, SetupInputs};
 
 use crate::resolver::PeerId;
 
-/// Mosaic currenly only supports 1 instance per (role, peerId)
+/// Mosaic currently only supports 1 instance per (role, peerId)
 pub(crate) const DEFAULT_INSTANCE: [u8; 32] = [0; 32];
 
 pub(crate) const fn to_cac_role(role: Role) -> CacRole {
