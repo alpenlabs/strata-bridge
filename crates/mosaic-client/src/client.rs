@@ -27,12 +27,17 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
             .resolve_peer_id(operator_idx)
             .await
             .map_err(MosaicSetupError::rpc_error)?;
-        let operator_pubkey = self
+        // setup_inputs must be the evaluator's pubkey so both sides agree.
+        let evaluator_idx = match role {
+            Role::Garbler => operator_idx,   // other operator is the evaluator
+            Role::Evaluator => self.pov_idx, // we are the evaluator
+        };
+        let evaluator_pubkey = self
             .provider
-            .resolve_operator_pubkey(operator_idx)
+            .resolve_operator_pubkey(evaluator_idx)
             .await
             .map_err(MosaicSetupError::rpc_error)?;
-        let setup_inputs: SetupInputs = operator_pubkey;
+        let setup_inputs: SetupInputs = evaluator_pubkey;
 
         // Initialize tableset setup for a given peer_id and role.
         // This call is a no-op in mosaic if the setup already exists.
