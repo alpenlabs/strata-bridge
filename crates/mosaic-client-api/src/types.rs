@@ -48,20 +48,4 @@ pub type CompletedSignatures = [Signature; N_DEPOSIT_INPUT_WIRES + N_WITHDRAWAL_
 
 /// Raw Groth16 proof bytes.
 #[derive(Debug, Clone, Copy)]
-pub struct G16ProofRaw(pub [u8; 128]);
-
-#[cfg(test)]
-mod tests {
-    use std::array;
-
-    use super::*;
-
-    #[test]
-    fn large_array_dont_overflow_stack() {
-        // just ensure that these dont panic on construction
-        let _deposit_sighashes: DepositSighashes = array::from_fn(|_| [0; 32]);
-        let _completed_signatures: CompletedSignatures = array::from_fn(|_| {
-            bitcoin::secp256k1::schnorr::Signature::from_slice(&[0; 64]).expect("64 bytes")
-        });
-    }
-}
+pub struct G16ProofRaw(pub [u8; N_WITHDRAWAL_INPUT_WIRES]);

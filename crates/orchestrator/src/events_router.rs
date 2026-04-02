@@ -4,7 +4,7 @@
 //! [`EventsMux`]: crate::events_mux::EventsMux
 
 use strata_bridge_p2p_types::{
-    GraphIdx, MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
+    MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
 use strata_mosaic_client_api::MosaicEvent;
 use tracing::warn;
@@ -112,14 +112,8 @@ fn route_gossipsub_msg(
 }
 
 fn route_mosaic_event(registry: &SMRegistry, evt: &MosaicEvent) -> Vec<SMId> {
-    let MosaicEvent::AdaptorsVerified {
-        operator_idx,
-        deposit_idx,
-    } = evt;
-    let sm_id = SMId::Graph(GraphIdx {
-        operator: *operator_idx,
-        deposit: *deposit_idx,
-    });
+    let MosaicEvent::AdaptorsVerified(graph_idx) = evt;
+    let sm_id = SMId::Graph(*graph_idx);
     if registry.contains_id(&sm_id) {
         vec![sm_id]
     } else {

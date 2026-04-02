@@ -10981,15 +10981,12 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "async-trait",
- "bitcoin",
  "hex",
- "jsonrpsee",
  "mosaic-rpc-api",
  "mosaic-rpc-types",
  "strata-bridge-primitives",
  "strata-mosaic-client-api",
  "tokio",
- "tokio-stream",
  "tracing",
 ]
 

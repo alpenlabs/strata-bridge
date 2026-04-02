@@ -20,7 +20,7 @@ use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_sm::{self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg};
 use strata_bridge_tx_graph::game_graph::ProtocolParams as TxGraphProtocolParams;
-use strata_mosaic_client_api::IMosaicClient;
+use strata_mosaic_client_api::MosaicClientApi;
 use strata_p2p::swarm::handle::{GossipHandle, ReqRespHandle};
 use strata_tasks::TaskExecutor;
 use tokio::{
@@ -37,7 +37,7 @@ pub(crate) async fn init_orchestrator(
     config: &Config,
     operator_table: OperatorTable,
     s2_client: &SecretServiceClient,
-    mosaic_client: &impl IMosaicClient,
+    mosaic_client: &impl MosaicClientApi,
     gossip_handle: GossipHandle,
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,

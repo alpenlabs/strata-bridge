@@ -5,7 +5,7 @@ use crate::{MosaicError, MosaicEvent, MosaicSetupError, types::*};
 
 /// Mosaic client interface.
 #[async_trait]
-pub trait IMosaicClient: Send + Sync + 'static {
+pub trait MosaicClientApi: Send + Sync + 'static {
     // ---- Setup ----
 
     /// Ensures that a mosaic tableset is set up for the given operator and role.
@@ -43,23 +43,23 @@ pub trait IMosaicClient: Send + Sync + 'static {
         deposit_idx: DepositIdx,
     ) -> Result<Option<PubKey>, MosaicError>;
 
-    /// Initializes a deposit on an evaluator tableset and returns the adaptor pubkey
-    /// after deposit is accepted by mosaic.
+    /// Initializes a deposit on an evaluator tableset and returns after deposit is accepted by
+    /// mosaic.
     async fn init_evaluator_deposit(
         &self,
         operator_idx: OperatorIdx,
         deposit_idx: DepositIdx,
         sighashes: DepositSighashes,
-    ) -> Result<PubKey, MosaicError>;
+    ) -> Result<(), MosaicError>;
 
     /// Initializes a deposit on a garbler tableset and returns after deposit is
     /// accepted by mosaic.
     ///
     /// On mosaic side, it waits for adaptor signatures from the evaluator and
-    /// verifies them. If verification succeeds, emits
-    /// [`MosaicEvent::AdaptorsVerified`]. If verification fails or never completes,
-    /// the deposit is stuck and the operator must manually verify and resolve the
-    /// issue.
+    /// verifies them.
+    /// If verification succeeds, [`MosaicEvent`] subscribers will receive
+    /// [`MosaicEvent::AdaptorsVerified`]. If verification fails or never completes, the deposit
+    /// is stuck and the operator must manually verify and resolve the issue.
     async fn init_garbler_deposit(
         &self,
         operator_idx: OperatorIdx,
