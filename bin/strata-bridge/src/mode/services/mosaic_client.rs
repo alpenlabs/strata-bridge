@@ -1,6 +1,6 @@
 //! Mosaic client initialization and setup for the bridge operator.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
@@ -17,7 +17,7 @@ use crate::config::MosaicConfig;
 /// Peer IDs come from the bridge config; operator pubkeys come from the operator table.
 pub(crate) struct BridgeMosaicIdResolver {
     /// `(mosaic_peer_id, xonly_pubkey_bytes)` indexed by `OperatorIdx`.
-    operators: Vec<(PeerId, [u8; 32])>,
+    operators: HashMap<OperatorIdx, (PeerId, [u8; 32])>,
 }
 
 impl BridgeMosaicIdResolver {
@@ -36,7 +36,9 @@ impl BridgeMosaicIdResolver {
             operator_table.cardinality(),
         );
 
-        let operators = (0..operator_table.cardinality() as OperatorIdx)
+        let operators = operator_table
+            .operator_idxs()
+            .into_iter()
             .map(|idx| {
                 let peer_id_hex = &config.peer_ids[idx as usize];
                 let peer_id_bytes: [u8; 32] = hex::decode(peer_id_hex)
@@ -56,7 +58,7 @@ impl BridgeMosaicIdResolver {
                     .unwrap_or_else(|| panic!("operator index {idx} not found in operator table"));
                 let xonly_bytes = btc_key.x_only_public_key().0.serialize();
 
-                (peer_id_bytes, xonly_bytes)
+                (idx, (peer_id_bytes, xonly_bytes))
             })
             .collect();
 
@@ -68,7 +70,7 @@ impl BridgeMosaicIdResolver {
 impl MosaicIdResolver for BridgeMosaicIdResolver {
     async fn resolve_peer_id(&self, operator_idx: OperatorIdx) -> Result<PeerId, MosaicError> {
         self.operators
-            .get(operator_idx as usize)
+            .get(&operator_idx)
             .map(|(peer_id, _)| *peer_id)
             .ok_or(MosaicError::UnknownOperator(operator_idx))
     }
@@ -78,7 +80,7 @@ impl MosaicIdResolver for BridgeMosaicIdResolver {
         operator_idx: OperatorIdx,
     ) -> Result<[u8; 32], MosaicError> {
         self.operators
-            .get(operator_idx as usize)
+            .get(&operator_idx)
             .map(|(_, pubkey)| *pubkey)
             .ok_or(MosaicError::UnknownOperator(operator_idx))
     }
