@@ -185,12 +185,15 @@ impl GraphSM {
 
         match self.state.clone() {
             GraphState::CounterProofPosted {
+                graph_data,
                 graph_summary,
+                signatures,
                 fulfillment_txid,
                 contest_block_height,
                 ..
             } => {
                 let graph_owner_idx = self.context().operator_idx();
+
                 let watchtower_slot =
                     watchtower_slot_for_operator(graph_owner_idx, event.counterprover_idx)
                         .ok_or_else(|| {
@@ -229,6 +232,8 @@ impl GraphSM {
 
                 self.state = GraphState::Acked {
                     last_block_height: event.counterproof_ack_block_height,
+                    graph_data,
+                    signatures,
                     contest_block_height,
                     expected_slash_txid: graph_summary.slash,
                     claim_txid: graph_summary.claim,
