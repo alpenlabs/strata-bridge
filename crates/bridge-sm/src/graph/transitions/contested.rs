@@ -8,6 +8,7 @@ use crate::graph::{
     errors::{GSMError, GSMResult},
     events::{
         BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent, CounterProofAckConfirmedEvent,
+        SlashConfirmedEvent,
     },
     machine::{GSMOutput, GraphSM},
     state::GraphState,
@@ -198,6 +199,53 @@ impl GraphSM {
                 Ok(GSMOutput::new())
             }
             state @ GraphState::Acked { .. } => Err(GSMError::duplicate(state, event.into())),
+            state => Err(GSMError::invalid_event(state, event.into(), None)),
+        }
+    }
+
+    pub(crate) fn process_slash(&mut self, event: SlashConfirmedEvent) -> GSMResult<GSMOutput> {
+        match self.state.clone() {
+            GraphState::BridgeProofTimedout {
+                expected_slash_txid,
+                ..
+            }
+            | GraphState::Acked {
+                expected_slash_txid,
+                ..
+            } => {
+                if event.slash_txid != expected_slash_txid {
+                    return Err(GSMError::rejected(
+                        self.state.clone(),
+                        event.into(),
+                        "Invalid slash transaction",
+                    ));
+                }
+
+                self.state = GraphState::Slashed {
+                    slash_txid: event.slash_txid,
+                };
+
+                Ok(GSMOutput::new())
+            }
+            GraphState::AllNackd {
+                possible_slash_txid,
+                ..
+            } => {
+                if event.slash_txid != possible_slash_txid {
+                    return Err(GSMError::rejected(
+                        self.state.clone(),
+                        event.into(),
+                        "Invalid slash transaction",
+                    ));
+                }
+
+                self.state = GraphState::Slashed {
+                    slash_txid: event.slash_txid,
+                };
+
+                Ok(GSMOutput::new())
+            }
+            state @ GraphState::Slashed { .. } => Err(GSMError::duplicate(state, event.into())),
             state => Err(GSMError::invalid_event(state, event.into(), None)),
         }
     }
