@@ -10996,6 +10996,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bitcoin",
+ "mosaic-common",
  "strata-bridge-primitives",
  "thiserror 2.0.18",
 ]

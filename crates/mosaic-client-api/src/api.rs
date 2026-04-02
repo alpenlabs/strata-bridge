@@ -103,8 +103,8 @@ pub trait MosaicClientApi: Send + Sync + 'static {
         deposit_idx: DepositIdx,
         counterproof: G16ProofRaw,
         completed_signatures: CompletedSignatures,
-        sighash: [u8; 32],
-        tweak: Option<[u8; 32]>,
+        sighash: Sighash,
+        tweak: Option<Tweak>,
     ) -> Result<Option<Signature>, MosaicError>;
 
     /// Subscribe to mosaic events.

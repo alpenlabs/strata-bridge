@@ -110,6 +110,8 @@ strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0
 strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-test-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 
+# Dependencies from alpenlabs/mosaic
+mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "8f8c3d17ca022125ffefb1a555d6f8560ae2339b" }
 mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "8f8c3d17ca022125ffefb1a555d6f8560ae2339b" }
 mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "8f8c3d17ca022125ffefb1a555d6f8560ae2339b" }
 
