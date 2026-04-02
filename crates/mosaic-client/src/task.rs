@@ -1,11 +1,12 @@
+use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::{DepositStatus, RpcTablesetId};
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
 use strata_mosaic_client_api::{MosaicEvent, types::*};
 use tracing::{debug, error, info};
 
-use crate::{MosaicApi, MosaicClient, MosaicIdResolver};
+use crate::{MosaicClient, MosaicIdResolver};
 
-impl<R: MosaicApi, P: MosaicIdResolver> MosaicClient<R, P> {
+impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClient<R, P> {
     /// Polls watched deposits periodically and emits events when their status changes.
     ///
     /// - `Ready` → emits [`MosaicEvent::AdaptorsVerified`] and removes the deposit.
@@ -81,10 +82,10 @@ impl<R: MosaicApi, P: MosaicIdResolver> MosaicClient<R, P> {
             DepositStatus::Ready => {
                 info!(%deposit_idx, "watched deposit adaptors verified");
                 self.watched_deposits.lock().await.remove(&key);
-                self.emit(MosaicEvent::AdaptorsVerified {
-                    operator_idx,
-                    deposit_idx,
-                })
+                self.emit(MosaicEvent::AdaptorsVerified(GraphIdx {
+                    operator: operator_idx,
+                    deposit: deposit_idx,
+                }))
                 .await;
             }
             DepositStatus::Aborted { reason } => {
@@ -142,7 +143,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> MosaicClient<R, P> {
         tableset_id: RpcTablesetId,
         operator_idx: OperatorIdx,
         deposit_idx: DepositIdx,
-        rpc_err: R::Error,
+        rpc_err: impl std::error::Error,
     ) {
         let key = (tableset_id, operator_idx, deposit_idx);
         let mut watched = self.watched_deposits.lock().await;

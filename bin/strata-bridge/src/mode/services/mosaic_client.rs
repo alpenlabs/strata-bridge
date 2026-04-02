@@ -7,7 +7,7 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
 use strata_mosaic_client::{MosaicClient, MosaicIdResolver, PeerId};
-use strata_mosaic_client_api::{IMosaicClient, MosaicError, types::Role};
+use strata_mosaic_client_api::{MosaicClientApi, MosaicError, types::Role};
 use tracing::{error, info};
 
 use crate::config::MosaicConfig;
