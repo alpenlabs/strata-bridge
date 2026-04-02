@@ -414,8 +414,8 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         deposit_idx: DepositIdx,
         counterproof: G16ProofRaw,
         completed_signatures: CompletedSignatures,
-        sighash: [u8; 32],
-        tweak: Option<[u8; 32]>,
+        sighash: Sighash,
+        tweak: Option<Tweak>,
     ) -> Result<Option<Signature>, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
         let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
