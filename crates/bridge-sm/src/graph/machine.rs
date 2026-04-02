@@ -72,7 +72,9 @@ impl StateMachine for GraphSM {
             }
             GraphEvent::ClaimConfirmed(claim) => self.process_claim(cfg, claim),
             GraphEvent::ContestConfirmed(contest) => self.process_contest(cfg, contest),
-            GraphEvent::BridgeProofConfirmed(_bridge_proof) => todo!(),
+            GraphEvent::BridgeProofConfirmed(bridge_proof) => {
+                self.process_bridge_proof(cfg, bridge_proof)
+            }
             GraphEvent::BridgeProofTimeoutConfirmed(timeout) => {
                 self.process_bridge_proof_timeout(timeout)
             }
