@@ -56,13 +56,13 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     rpc.get_tableset_status(tableset_id)
                         .await
                         .map_err(MosaicSetupError::rpc_error)
-                        .map(|maybe_status| {
+                        .and_then(|maybe_status| {
                             maybe_status
                                 .ok_or_else(|| MosaicSetupError::SetupMissing(operator_idx, role))
                         })
                 }
             })
-            .await??;
+            .await?;
 
             match status {
                 RpcTablesetStatus::Incomplete { details } => {
@@ -174,14 +174,14 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                 rpc.get_deposit_status(tableset_id, rpc_deposit_id)
                     .await
                     .map_err(MosaicError::rpc_error)
-                    .map(|maybe_status| {
+                    .and_then(|maybe_status| {
                         maybe_status.ok_or_else(|| {
                             MosaicError::DepositMissing(operator_idx, Role::Garbler, deposit_idx)
                         })
                     })
             }
         })
-        .await??;
+        .await?;
 
         Ok(())
     }
@@ -226,14 +226,14 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                 rpc.get_deposit_status(tableset_id, rpc_deposit_id)
                     .await
                     .map_err(MosaicError::rpc_error)
-                    .map(|maybe_status| {
+                    .and_then(|maybe_status| {
                         maybe_status.ok_or_else(|| {
                             MosaicError::DepositMissing(operator_idx, Role::Garbler, deposit_idx)
                         })
                     })
             }
         })
-        .await??;
+        .await?;
 
         match status {
             DepositStatus::Aborted { reason } => {
@@ -325,14 +325,14 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     rpc.get_tableset_status(tableset_id)
                         .await
                         .map_err(MosaicError::rpc_error)
-                        .map(|maybe_status| {
+                        .and_then(|maybe_status| {
                             maybe_status.ok_or_else(|| {
                                 MosaicError::SetupMissing(operator_idx, Role::Garbler)
                             })
                         })
                 }
             })
-            .await??;
+            .await?;
 
             match status {
                 RpcTablesetStatus::Incomplete { details } => {
@@ -447,14 +447,14 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     rpc.get_tableset_status(tableset_id)
                         .await
                         .map_err(MosaicError::rpc_error)
-                        .map(|maybe_status| {
+                        .and_then(|maybe_status| {
                             maybe_status.ok_or_else(|| {
                                 MosaicError::SetupMissing(operator_idx, Role::Garbler)
                             })
                         })
                 }
             })
-            .await??;
+            .await?;
 
             match status {
                 RpcTablesetStatus::Incomplete { details } => {
