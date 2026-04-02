@@ -223,9 +223,6 @@ pub(crate) struct MosaicConfig {
     /// Poll interval for watched deposits.
     pub poll_interval: Duration,
 
-    /// Maximum number of concurrent ensure_mosaic_setup calls during bootstrap.
-    pub setup_concurrency: usize,
-
     /// Mosaic peer IDs for each operator, ordered by operator index.
     /// Each entry is a 32-byte hex-encoded peer ID.
     pub peer_ids: Vec<String>,
@@ -305,7 +302,6 @@ mod tests {
             retry_delay = { secs = 2, nanos = 0 }
             max_retries = 5
             poll_interval = { secs = 5, nanos = 0 }
-            setup_concurrency = 4
             peer_ids = [
                 "0000000000000000000000000000000000000000000000000000000000000001",
                 "0000000000000000000000000000000000000000000000000000000000000002",
