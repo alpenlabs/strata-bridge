@@ -46,3 +46,17 @@ pub(super) async fn publish_counterproof_ack(
     )
     .await
 }
+
+/// Publishes the signed slash transaction to Bitcoin.
+pub(super) async fn publish_slash(
+    output_handles: &OutputHandles,
+    signed_slash_tx: &Transaction,
+) -> Result<(), ExecutorError> {
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        signed_slash_tx,
+        "slash",
+        TxStatus::is_buried,
+    )
+    .await
+}
