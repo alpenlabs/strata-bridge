@@ -249,8 +249,8 @@ where
                 key_tweak,
                 tap_tweak,
             } => {
-                let tap_tweak =
-                    tap_tweak.map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
+                let tap_tweak = tap_tweak
+                    .map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
                 let sig = match target {
                     SignerTarget::General => {
                         service

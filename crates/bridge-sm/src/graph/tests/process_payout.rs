@@ -1,4 +1,4 @@
-//! Unit Tests for process_payout (from Claimed state)
+//! Unit Tests for process_payout (from Claimed and BridgeProofPosted states)
 #[cfg(test)]
 mod tests {
     use strata_bridge_test_utils::bitcoin::generate_txid;
@@ -9,8 +9,8 @@ mod tests {
         state::GraphState,
         tests::{
             ASSIGNMENT_DEADLINE, CLAIM_BLOCK_HEIGHT, GraphInvalidTransition, GraphTransition,
-            INITIAL_BLOCK_HEIGHT, TEST_POV_IDX,
-            mock_states::{assigned_state, claimed_state},
+            INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_POV_IDX, dummy_proof_receipt,
+            mock_states::{assigned_state, bridge_proof_posted_state, claimed_state},
             test_deposit_params, test_graph_invalid_transition, test_graph_summary,
             test_graph_transition, test_recipient_desc,
         },
@@ -57,6 +57,41 @@ mod tests {
             from_state: GraphState::Withdrawn { payout_txid },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
             expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
+        });
+    }
+
+    #[test]
+    fn test_payout_from_bridge_proof_posted() {
+        let graph_summary = test_graph_summary();
+        let payout_txid = graph_summary.uncontested_payout;
+
+        test_graph_transition(GraphTransition {
+            from_state: GraphState::BridgeProofPosted {
+                last_block_height: LATER_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary,
+                signatures: Default::default(),
+                fulfillment_txid: Some(generate_txid()),
+                contest_block_height: LATER_BLOCK_HEIGHT,
+                bridge_proof_txid: generate_txid(),
+                bridge_proof_block_height: LATER_BLOCK_HEIGHT,
+                proof: dummy_proof_receipt(),
+            },
+            event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
+            expected_state: GraphState::Withdrawn { payout_txid },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
+    #[test]
+    fn test_payout_from_bridge_proof_posted_rejected_invalid_txid() {
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: bridge_proof_posted_state(),
+            event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent {
+                payout_txid: generate_txid(),
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
     }
 
