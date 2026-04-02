@@ -243,6 +243,39 @@ where
                 }
             }
 
+            ClientMessage::SchnorrSignerSignWithKeyTweak {
+                target,
+                digest,
+                key_tweak,
+                tap_tweak,
+            } => {
+                let tap_tweak =
+                    tap_tweak.map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
+                let sig = match target {
+                    SignerTarget::General => {
+                        service
+                            .general_wallet_signer()
+                            .sign_with_key_tweak(&digest, key_tweak, tap_tweak)
+                            .await
+                    }
+                    SignerTarget::Stakechain => {
+                        service
+                            .stakechain_wallet_signer()
+                            .sign_with_key_tweak(&digest, key_tweak, tap_tweak)
+                            .await
+                    }
+                    SignerTarget::Musig2 => {
+                        service
+                            .musig2_signer()
+                            .sign_with_key_tweak(&digest, key_tweak, tap_tweak)
+                            .await
+                    }
+                };
+                ServerMessage::SchnorrSignerSign {
+                    sig: sig.serialize(),
+                }
+            }
+
             ClientMessage::SchnorrSignerSignNoTweak { target, digest } => {
                 let sig = match target {
                     SignerTarget::General => {

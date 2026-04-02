@@ -36,11 +36,16 @@ pub(super) async fn generate_and_publish_bridge_proof(
     let tap_tweak = contest_proof_connector.tweak();
     let bridge_proof_tx = BridgeProofTx::new(data, contest_proof_connector);
     let signing_info = bridge_proof_tx.signing_info_partial();
+    let operator_key_tweak = bridge_proof_tx.operator_key_tweak();
 
     let signature = output_handles
         .s2_client
-        .stakechain_wallet_signer()
-        .sign(signing_info.sighash.as_ref(), tap_tweak)
+        .musig2_signer()
+        .sign_with_key_tweak(
+            signing_info.sighash.as_ref(),
+            operator_key_tweak.to_be_bytes(),
+            tap_tweak,
+        )
         .await
         .map_err(|e| {
             warn!(

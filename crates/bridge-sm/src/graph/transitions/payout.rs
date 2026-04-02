@@ -30,9 +30,20 @@ impl GraphSM {
 
                 Ok(GSMOutput::new())
             }
-            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2196>
-            GraphState::BridgeProofPosted { .. } => {
-                todo!()
+            GraphState::BridgeProofPosted { graph_summary, .. } => {
+                if payout_event.payout_txid != graph_summary.uncontested_payout {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        payout_event.into(),
+                        "Invalid uncontested payout transaction",
+                    ));
+                }
+
+                self.state = GraphState::Withdrawn {
+                    payout_txid: payout_event.payout_txid,
+                };
+
+                Ok(GSMOutput::new())
             }
             GraphState::AllNackd {
                 expected_payout_txid,

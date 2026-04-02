@@ -69,6 +69,18 @@ pub trait SchnorrSigner<O: Origin>: Send {
         tweak: Option<TapNodeHash>,
     ) -> impl Future<Output = O::Container<Signature>> + Send;
 
+    /// Signs a `digest` after first applying a scalar `key_tweak` to the secret key,
+    /// then applying the taproot `tap_tweak`.
+    ///
+    /// This is needed when the internal key used in the taproot output was derived by adding
+    /// a scalar tweak to the operator's base public key (e.g., tweaked by a game index).
+    fn sign_with_key_tweak(
+        &self,
+        digest: &[u8; 32],
+        key_tweak: [u8; 32],
+        tap_tweak: Option<TapNodeHash>,
+    ) -> impl Future<Output = O::Container<Signature>> + Send;
+
     /// Signs a digest using the operator's [`SecretKey`] assuming that the tweak is not necessary.
     ///
     /// A common use case is when the key is part of a taproot script (i.e., in a script path

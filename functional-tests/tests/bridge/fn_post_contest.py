@@ -8,6 +8,7 @@ from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
+    wait_until_deposit_utxo_spent,
     wait_until_drt_recognized,
 )
 from utils.dev_cli import DevCli
@@ -132,5 +133,9 @@ class PublishContestTest(StrataTestBase):
             timeout=300,
         )
         self.logger.info(f"Contest tx {contest_txid} confirmed in block {contest_block_hash}")
+
+        # Wait for the deposit UTXO to be spent after the contested payout path completes.
+        wait_until_deposit_utxo_spent(bitcoin_rpc, deposit_txid, timeout=450)
+        self.logger.info("Deposit UTXO confirmed spent after contested payout")
 
         return True
