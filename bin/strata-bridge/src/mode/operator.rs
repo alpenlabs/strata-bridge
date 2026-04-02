@@ -47,19 +47,6 @@ pub(crate) async fn bootstrap(
     let agg_key = operator_table.aggregated_btc_key();
     info!(%pov_idx, %pov_p2p_key, %pov_btc_key, %agg_key, "operator table initialized");
 
-    debug!("initializing mosaic client");
-    let mosaic_client = init_mosaic_client(&config.mosaic, &operator_table);
-    info!("mosaic client initialized");
-
-    debug!("running mosaic setup for all operator pairs");
-    run_mosaic_setup(
-        &mosaic_client,
-        &operator_table,
-        config.mosaic.setup_concurrency,
-    )
-    .await?;
-    info!("mosaic setup complete for all operator pairs");
-
     debug!("initializing operator wallet");
     let operator_wallet = init_operator_wallet(&config, &params, &s2_client, &db).await?;
     info!("operator wallet initialized");
@@ -81,6 +68,19 @@ pub(crate) async fn bootstrap(
     debug!("starting rpc server");
     init_rpc_server(&params, &config, db.clone(), command_handle, &executor).await?;
     info!(addr=%config.rpc.rpc_addr, "rpc server started and listening for requests");
+
+    debug!("initializing mosaic client");
+    let mosaic_client = init_mosaic_client(&config.mosaic, &operator_table);
+    info!("mosaic client initialized");
+
+    debug!("running mosaic setup for all operator pairs");
+    run_mosaic_setup(
+        &mosaic_client,
+        &operator_table,
+        config.mosaic.setup_concurrency,
+    )
+    .await?;
+    info!("mosaic setup complete for all operator pairs");
 
     debug!("starting orchestrator pipeline");
     init_orchestrator(
