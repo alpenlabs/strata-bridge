@@ -21,7 +21,7 @@ from utils.withdrawal import wait_until_active_valid_claim
 
 
 @flexitest.register
-class ContestedPayoutCompletesWithoutCounterproof(StrataTestBase):
+class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
     """
     Test that a contested payout completes successfully when no counterproof
     is submitted within the contest timelock period.
