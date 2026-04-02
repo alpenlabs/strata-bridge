@@ -6,7 +6,7 @@ use crate::graph::{
     config::GraphSMCfg,
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
-    events::{BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent},
+    events::{BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent},
     machine::{GSMOutput, GraphSM},
     state::GraphState,
 };
@@ -73,6 +73,59 @@ impl GraphSM {
                 Ok(GSMOutput::with_duties(duties))
             }
             state @ GraphState::Contested { .. } => Err(GSMError::duplicate(state, event.into())),
+            state => Err(GSMError::invalid_event(state, event.into(), None)),
+        }
+    }
+
+    /// Processes the event where a bridge proof transaction has been confirmed on-chain.
+    ///
+    /// Only valid from the `Contested` state, transitions to `BridgeProofPosted`.
+    /// Emits a [`GraphDuty::PublishCounterProof`] duty if the current operator is not the
+    /// graph owner (i.e., is a watchtower).
+    pub(crate) fn process_bridge_proof(
+        &mut self,
+        _cfg: Arc<GraphSMCfg>,
+        event: BridgeProofConfirmedEvent,
+    ) -> GSMResult<GSMOutput> {
+        match self.state.clone() {
+            GraphState::Contested {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                fulfillment_txid,
+                contest_block_height,
+                ..
+            } => {
+                if event.bridge_proof_block_height < last_block_height {
+                    return Err(GSMError::rejected(
+                        self.state.clone(),
+                        event.into(),
+                        "event has old block height",
+                    ));
+                }
+
+                self.state = GraphState::BridgeProofPosted {
+                    last_block_height: event.bridge_proof_block_height,
+                    graph_data,
+                    graph_summary: graph_summary.clone(),
+                    signatures: signatures.clone(),
+                    fulfillment_txid,
+                    contest_block_height,
+                    bridge_proof_txid: event.bridge_proof_txid,
+                    bridge_proof_block_height: event.bridge_proof_block_height,
+                    proof: event.proof.clone(),
+                };
+
+                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2342>
+                // If the POV is not the graph owner, first verify the bridge proof;
+                // if verification fails, publish a counterproof to challenge
+                // the invalid bridge proof
+                Ok(GSMOutput::new())
+            }
+            state @ GraphState::BridgeProofPosted { .. } => {
+                Err(GSMError::duplicate(state, event.into()))
+            }
             state => Err(GSMError::invalid_event(state, event.into(), None)),
         }
     }
