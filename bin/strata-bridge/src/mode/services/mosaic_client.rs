@@ -90,6 +90,7 @@ impl MosaicIdResolver for BridgeMosaicIdResolver {
 pub(crate) fn init_mosaic_client(
     config: &MosaicConfig,
     operator_table: &OperatorTable,
+    pov_idx: OperatorIdx,
 ) -> MosaicClient<HttpClient, BridgeMosaicIdResolver> {
     let http_client = HttpClientBuilder::default()
         .build(&config.rpc_url)
@@ -102,7 +103,7 @@ pub(crate) fn init_mosaic_client(
 
     let resolver = BridgeMosaicIdResolver::new(config, operator_table);
 
-    MosaicClient::builder(Arc::new(http_client), resolver)
+    MosaicClient::builder(Arc::new(http_client), resolver, pov_idx)
         .retry_delay(config.retry_delay)
         .max_retries(config.max_retries)
         .poll_interval(config.poll_interval)

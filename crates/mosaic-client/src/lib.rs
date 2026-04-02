@@ -15,7 +15,7 @@
 //! use std::sync::Arc;
 //! use std::time::Duration;
 //!
-//! let client = MosaicClient::builder(rpc_client, provider)
+//! let client = MosaicClient::builder(rpc_client, provider, pov_idx)
 //!     .retry_delay(Duration::from_secs(3))
 //!     .max_retries(10)
 //!     .poll_interval(Duration::from_secs(10))
@@ -69,6 +69,8 @@ pub struct MosaicClient<R: MosaicRpcClient, P: MosaicIdResolver> {
     rpc: Arc<R>,
     // resolve operator related data
     provider: P,
+    // this operator's own index (point-of-view)
+    pov_idx: OperatorIdx,
     // cache of known tableset ids
     tablesets: Arc<RwLock<HashMap<(Role, OperatorIdx), RpcTablesetId>>>,
     // deposits pending adaptor verification watched in background
@@ -88,6 +90,7 @@ pub struct MosaicClient<R: MosaicRpcClient, P: MosaicIdResolver> {
 pub struct MosaicClientBuilder<R: MosaicRpcClient, Provider: MosaicIdResolver> {
     rpc: Arc<R>,
     provider: Provider,
+    pov_idx: OperatorIdx,
     retry_delay: Duration,
     max_retries: usize,
     poll_interval: Duration,
@@ -95,10 +98,11 @@ pub struct MosaicClientBuilder<R: MosaicRpcClient, Provider: MosaicIdResolver> {
 
 impl<R: MosaicRpcClient, P: MosaicIdResolver> MosaicClientBuilder<R, P> {
     /// Create a new builder with the required RPC client and ID provider.
-    pub const fn new(client: Arc<R>, provider: P) -> Self {
+    pub const fn new(client: Arc<R>, provider: P, pov_idx: OperatorIdx) -> Self {
         Self {
             rpc: client,
             provider,
+            pov_idx,
             retry_delay: DEFAULT_RETRY_DELAY,
             max_retries: DEFAULT_MAX_RETRIES,
             poll_interval: DEFAULT_POLL_INTERVAL,
@@ -128,6 +132,7 @@ impl<R: MosaicRpcClient, P: MosaicIdResolver> MosaicClientBuilder<R, P> {
         MosaicClient {
             rpc: self.rpc,
             provider: self.provider,
+            pov_idx: self.pov_idx,
             subscribers: Arc::new(Mutex::new(Vec::new())),
             tablesets: Arc::new(RwLock::new(HashMap::new())),
             watched_deposits: Arc::new(Mutex::new(HashMap::new())),
@@ -140,8 +145,12 @@ impl<R: MosaicRpcClient, P: MosaicIdResolver> MosaicClientBuilder<R, P> {
 
 impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClient<R, P> {
     /// Create a [`MosaicClientBuilder`].
-    pub const fn builder(client: Arc<R>, provider: P) -> MosaicClientBuilder<R, P> {
-        MosaicClientBuilder::new(client, provider)
+    pub const fn builder(
+        client: Arc<R>,
+        provider: P,
+        pov_idx: OperatorIdx,
+    ) -> MosaicClientBuilder<R, P> {
+        MosaicClientBuilder::new(client, provider, pov_idx)
     }
 
     async fn emit(&self, evt: MosaicEvent) {

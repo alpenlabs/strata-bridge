@@ -70,7 +70,8 @@ pub(crate) async fn bootstrap(
     info!(addr=%config.rpc.rpc_addr, "rpc server started and listening for requests");
 
     debug!("initializing mosaic client");
-    let mosaic_client = init_mosaic_client(&config.mosaic, &operator_table);
+    let mosaic_client =
+        init_mosaic_client(&config.mosaic, &operator_table, operator_table.pov_idx());
     info!("mosaic client initialized");
 
     debug!("running mosaic setup for all operator pairs");
