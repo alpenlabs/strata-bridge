@@ -6,6 +6,7 @@ BLOCK_GENERATION_INTERVAL_SECS = 2
 BRIDGE_NETWORK_SIZE = 3
 DEFAULT_LOG_LEVEL = "DEBUG"
 ASM_MAGIC_BYTES = "ALPN"
+MOSAIC_DIR = "mosaic"
 
 # Deposit Transaction output indices
 DT_DEPOSIT_VOUT = 1  # Deposit funds locked in N/N taproot
