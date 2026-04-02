@@ -33,6 +33,8 @@ fn event_accepted() {
         }),
         expected_state: GraphState::Acked {
             last_block_height: ACK_BLOCK_HEIGHT,
+            graph_data: crate::graph::tests::test_deposit_params(),
+            signatures: Default::default(),
             contest_block_height: LATER_BLOCK_HEIGHT,
             expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
             claim_txid: TEST_GRAPH_SUMMARY.claim,
@@ -58,6 +60,8 @@ fn event_accepted_nonpov() {
             }),
             expected_state: GraphState::Acked {
                 last_block_height: ACK_BLOCK_HEIGHT,
+                graph_data: crate::graph::tests::test_deposit_params(),
+                signatures: Default::default(),
                 contest_block_height: LATER_BLOCK_HEIGHT,
                 expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
                 claim_txid: TEST_GRAPH_SUMMARY.claim,

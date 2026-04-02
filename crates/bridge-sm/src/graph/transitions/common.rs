@@ -7,6 +7,7 @@ use crate::graph::{
     events::NewBlockEvent,
     machine::{GSMOutput, GraphSM, unpack_game},
     state::GraphState,
+    watchtower::watchtower_slot_for_operator,
 };
 
 impl GraphSM {
@@ -207,14 +208,164 @@ impl GraphSM {
                 Ok(GSMOutput::new())
             }
 
-            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2196>
-            GraphState::CounterProofPosted { .. } => todo!(""),
+            GraphState::CounterProofPosted {
+                last_block_height,
+                graph_data,
+                signatures,
+                contest_block_height,
+                counterproofs_and_confs,
+                ..
+            } => {
+                *last_block_height = new_block_event.block_height;
+
+                let payout_timelock =
+                    u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+                let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
+                let nack_timelock = u64::from(cfg.game_graph_params.nack_timelock.value());
+                let pov_idx = graph_ctx.operator_table().pov_idx();
+                let is_own_graph = graph_ctx.operator_idx() == pov_idx;
+
+                // If pov operator doesn't own the graph, they will attempt to slash payout
+                // timelock has expired.
+                if !is_own_graph
+                    && new_block_event.block_height > *contest_block_height + payout_timelock
+                {
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
+
+                    return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
+                        signed_slash_tx,
+                    }]));
+                }
+
+                // If pov operator owns the graph, they will attempt to publish the contested
+                // payout if the ack timelock has expired.
+                if is_own_graph
+                    && new_block_event.block_height > *contest_block_height + ack_timelock
+                {
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let signed_contested_payout_tx =
+                        game_graph.contested_payout.finalize(sigs.contested_payout);
+
+                    return Ok(GSMOutput::with_duties(vec![
+                        GraphDuty::PublishContestedPayout {
+                            signed_contested_payout_tx,
+                        },
+                    ]));
+                }
+
+                // If the pov operator has NOT submitted a counterproof, return early with no
+                // duties.
+                let Some((_, pov_counterproof_height)) = counterproofs_and_confs.get(&pov_idx)
+                else {
+                    return Ok(GSMOutput::new());
+                };
+
+                // There is no-op for non-graph owners until the nack timelock has expired. The
+                // graph owner should publish counterproof nack but this duty is handled in the
+                // process_counterproof_confirmed and retry. Hence, return with no duties.
+                if new_block_event.block_height <= pov_counterproof_height + nack_timelock {
+                    return Ok(GSMOutput::new());
+                }
+
+                // NACK window has elapsed, so the counterprover can now publish ACK.
+                let graph_idx = graph_ctx.graph_idx();
+                let graph_owner_idx = graph_ctx.operator_idx();
+                let watchtower_slot = watchtower_slot_for_operator(graph_owner_idx, pov_idx)
+                    .unwrap_or_else(|| {
+                        tracing::error!(
+                            ?graph_idx,
+                            graph_owner_idx,
+                            pov_idx,
+                            block_height = new_block_event.block_height,
+                            "recorded POV counterproof but missing watchtower slot mapping"
+                        );
+                        panic!(
+                            "recorded POV counterproof but missing watchtower slot \
+                             (graph_idx={graph_idx:?}, graph_owner_idx={graph_owner_idx}, pov_idx={pov_idx},
+                             block_height={})",
+                            new_block_event.block_height,
+                        )
+                    });
+
+                let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                let counterproof_graph =
+                    game_graph
+                        .counterproofs
+                        .get(watchtower_slot)
+                        .unwrap_or_else(|| {
+                            tracing::error!(
+                                ?graph_idx,
+                                graph_owner_idx,
+                                pov_idx,
+                                block_height = new_block_event.block_height,
+                                watchtower_slot,
+                                "missing counterproof graph for computed watchtower slot"
+                            );
+                            panic!(
+                                "missing counterproof graph for computed watchtower slot (graph_idx={graph_idx:?}, \
+                                    graph_owner_idx={graph_owner_idx}, pov_idx={pov_idx}, block_height={}, slot={watchtower_slot})",
+                                new_block_event.block_height,
+                            )
+                        });
+
+                let watchtower_sigs = sigs.watchtowers.get(watchtower_slot).unwrap_or_else(|| {
+                    tracing::error!(
+                        ?graph_idx,
+                        graph_owner_idx,
+                        pov_idx,
+                        block_height = new_block_event.block_height,
+                        watchtower_slot,
+                        "missing watchtower signatures for computed watchtower slot"
+                    );
+                    panic!(
+                        "missing watchtower signatures for computed watchtower slot \
+                         (graph_idx={graph_idx:?}, graph_owner_idx={graph_owner_idx}, pov_idx={pov_idx}, block_height={}, slot={watchtower_slot})",
+                        new_block_event.block_height,
+                    )
+                });
+
+                let signed_counter_proof_ack_tx = counterproof_graph
+                    .counterproof_ack
+                    .clone()
+                    .finalize(watchtower_sigs.counterproof_ack);
+
+                Ok(GSMOutput::with_duties(vec![
+                    GraphDuty::PublishCounterProofAck {
+                        signed_counter_proof_ack_tx,
+                    },
+                ]))
+            }
 
             // TODO: <https://atlassian.alpenlabs.net/browse/STR-2342>
             GraphState::AllNackd { .. } => todo!(""),
 
-            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2196>
-            GraphState::Acked { .. } => todo!(""),
+            GraphState::Acked {
+                last_block_height,
+                graph_data,
+                signatures,
+                contest_block_height,
+                ..
+            } => {
+                *last_block_height = new_block_event.block_height;
+                let payout_timelock =
+                    u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+                let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
+
+                // Non-graph owners publish slash once the payout timelock has expired.
+                if !is_own_graph
+                    && new_block_event.block_height > *contest_block_height + payout_timelock
+                {
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
+
+                    return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
+                        signed_slash_tx,
+                    }]));
+                }
+
+                Ok(GSMOutput::new())
+            }
 
             // Terminal states do not process new blocks
             GraphState::Withdrawn { .. }
