@@ -81,6 +81,8 @@ class BridgeOperatorFactory(flexitest.Factory):
         genesis_height: int,
         bridge_protocol_params: BridgeProtocolParams,
         bridge_config_params: BridgeConfigParams,
+        mosaic_rpc: str,
+        mosaic_peers: list[str],
     ) -> flexitest.Service:
         bridge_operator_name = get_operator_service_name(operator_idx, BRIDGE_NODE_DIR)
         rpc_port = self.next_port()
@@ -112,6 +114,8 @@ class BridgeOperatorFactory(flexitest.Factory):
             config_toml_path,
             mtls_cred_path,
             bridge_config_params,
+            mosaic_peers,
+            mosaic_rpc,
             heartbeat_delay_factor,
         )
 

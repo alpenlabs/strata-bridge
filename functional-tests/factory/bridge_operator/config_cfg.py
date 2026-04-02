@@ -86,6 +86,15 @@ class OperatorWalletConfig:
 
 
 @dataclass
+class MosaicConfig:
+    rpc_url: str
+    retry_delay: Duration
+    max_retries: int
+    poll_interval: Duration
+    peer_ids: list[str]
+
+
+@dataclass
 class BridgeConfigParams:
     min_withdrawal_fulfillment_window: int = 144
     cooperative_payout_timeout: int = 144
@@ -111,3 +120,4 @@ class BridgeOperatorConfig:
     asm_rpc: AsmRpcConfig
     btc_zmq: BtcZmqConfig
     operator_wallet: OperatorWalletConfig
+    mosaic: MosaicConfig

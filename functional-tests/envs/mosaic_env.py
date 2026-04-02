@@ -20,13 +20,11 @@ class MosaicEnv(BaseEnv):
         fdb = self.setup_fdb(ectx, "mosaic")
         svcs["fdb"] = fdb
 
-        # Create mosaic peer config
-        peers = get_peer_configs(self.num_operators)
-
+        # Create mosaic config
         mosaic_factory_config = MosaicFactoryConfig(
             circuit_path=get_circuit_path(),
             storage_cluster_file=fdb.props["cluster_file"],
-            all_peers=peers,
+            all_peers=get_peer_configs(self.num_operators),
         )
 
         # Create mosaic instances based on configuration
