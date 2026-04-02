@@ -42,7 +42,7 @@ class BridgeNetworkEnv(BaseEnv):
 
         # Create operators dynamically based on configuration
         for i in range(self.num_operators):
-            s2_service, bridge_node, asm_service = self.create_operator(
+            s2_service, bridge_node, asm_service, mosaic_service = self.create_operator(
                 ectx, i, bitcoind.props, brpc, fdb.props
             )
 
@@ -57,5 +57,6 @@ class BridgeNetworkEnv(BaseEnv):
             svcs[f"s2_{i}"] = s2_service
             svcs[f"bridge_node_{i}"] = bridge_node
             svcs["asm_rpc"] = asm_service
+            svcs[f"mosaic_{i}"] = mosaic_service
 
         return StrataLiveEnv(svcs, miner)

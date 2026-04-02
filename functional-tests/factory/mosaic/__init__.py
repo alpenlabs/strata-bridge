@@ -52,7 +52,10 @@ class MosaicFactory(flexitest.Factory):
             config_toml,
         ]
 
-        props = {"rpc_port": rpc_port}
+        props = {
+            "rpc_port": rpc_port,
+            "rpc_url": rpc_url,
+        }
 
         svc = ProcServiceWithEnv(
             props,
