@@ -2,17 +2,15 @@
 
 use bitcoin::XOnlyPublicKey;
 pub use bitcoin::secp256k1::schnorr::Signature;
+pub use mosaic_common::constants::{
+    N_DEPOSIT_INPUT_WIRES, N_SETUP_INPUT_WIRES, N_WITHDRAWAL_INPUT_WIRES,
+};
 pub use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
-
-/// Number of setup input wire groups.
-pub const N_SETUP_INPUT_WIRES: usize = 32;
-/// Number of deposit input wire groups.
-pub const N_DEPOSIT_INPUT_WIRES: usize = 4;
-/// Number of withdrawal input wire groups.
-pub const N_WITHDRAWAL_INPUT_WIRES: usize = 128;
 
 /// A Txn sighash to be signed.
 pub type Sighash = [u8; 32];
+/// Tweak for schnorr signatures
+pub type Tweak = [u8; 32];
 /// A Public key for Schnorr signatures.
 pub type PubKey = XOnlyPublicKey;
 
