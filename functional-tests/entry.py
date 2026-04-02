@@ -13,6 +13,7 @@ from factory.asm_rpc import AsmRpcFactory
 from factory.bitcoin import BitcoinFactory
 from factory.bridge_operator import BridgeOperatorFactory
 from factory.fdb import FdbFactory
+from factory.mosaic import MosaicFactory
 from factory.s2 import S2Factory
 from utils.logging import setup_root_logger
 
@@ -83,7 +84,15 @@ def main(argv):
     bofac = BridgeOperatorFactory([12500 + i for i in range(100)])
     asmfac = AsmRpcFactory([12600 + i for i in range(100)])
     fdbfac = FdbFactory([12700 + i for i in range(100)])
-    factories = {"bitcoin": bfac, "s2": s2fac, "bofac": bofac, "asm_rpc": asmfac, "fdb": fdbfac}
+    mosaicfac = MosaicFactory([12800 + i for i in range(100)])
+    factories = {
+        "bitcoin": bfac,
+        "s2": s2fac,
+        "bofac": bofac,
+        "asm_rpc": asmfac,
+        "fdb": fdbfac,
+        "mosaic": mosaicfac,
+    }
 
     # Register envs
     basic_env = BasicEnv()
