@@ -33,6 +33,21 @@ RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO
 RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-asm-runner $CARGO_ARGS
 cargo build --bin dev-cli $CARGO_ARGS
 
+# check if mosaic is in PATH, else install from source
+if ! command -v mosaic &> /dev/null; then
+    echo "mosaic not found, installing..."
+    mkdir -p functional-tests/.bin
+    CARGO_LOCAL_BIN=$(realpath "functional-tests/.bin")
+    export PATH="$CARGO_LOCAL_BIN/bin:$PATH"
+    RUSTFLAGS="" cargo install \
+        --git https://github.com/alpenlabs/mosaic \
+        --rev 0be9fbfdea678fe5fc98f35266c5c1b73f9dcebc \
+        --bin mosaic \
+        --features=reduced-circuits \
+        --root "$CARGO_LOCAL_BIN" \
+        mosaic
+fi
+
 export PATH=$BIN_PATH:$PATH
 popd > /dev/null
 uv run python entry.py "$@"
