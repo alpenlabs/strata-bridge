@@ -81,7 +81,8 @@ pub(crate) async fn handle_contest(args: cli::ContestArgs) -> anyhow::Result<()>
         ack_timelock: relative::Height::from(params.ack_timelock),
         nack_timelock: relative::Height::from(params.nack_timelock),
         contested_payout_timelock: relative::Height::from(params.contested_payout_timelock),
-        // TODO: use the COUNTERPROOF_N_BYTES constant in a future refactor
+        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2945>
+        // use the COUNTERPROOF_N_BYTES constant in a future refactor
         // proof bytes (groth16) + deposit_idx (4 bytes) + operator pubkey (32 bytes)
         counterproof_n_bytes: NonZero::new(128 + 32 + 4).expect("non-zero"),
         deposit_amount: params.deposit_amount,
