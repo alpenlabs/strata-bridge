@@ -74,12 +74,7 @@ pub(crate) async fn bootstrap(
     info!("mosaic client initialized");
 
     debug!("running mosaic setup for all operator pairs");
-    run_mosaic_setup(
-        &mosaic_client,
-        &operator_table,
-        config.mosaic.setup_concurrency,
-    )
-    .await?;
+    run_mosaic_setup(&mosaic_client, &operator_table).await?;
     info!("mosaic setup complete for all operator pairs");
 
     debug!("starting orchestrator pipeline");
