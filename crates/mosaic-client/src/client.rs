@@ -1,19 +1,22 @@
 use algebra::retry::retry_with;
+use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::{
     DepositStatus, EvaluatorDepositConfig, EvaluatorWithdrawalConfig, GarblerDepositConfig,
     RpcTablesetStatus,
 };
-use strata_bridge_primitives::subscription::Subscription;
+use strata_bridge_primitives::{subscription::Subscription, types::GraphIdx};
 use strata_mosaic_client_api::{
-    IMosaicClient, MosaicError, MosaicEvent, MosaicSetupError, types::*,
+    MosaicClientApi, MosaicError, MosaicEvent, MosaicSetupError, types::*,
 };
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
-use crate::{DepositId, MosaicApi, MosaicClient, MosaicIdResolver, util::make_setup_config};
+use crate::{DepositId, MosaicClient, MosaicIdResolver, util::make_setup_config};
 
 #[async_trait::async_trait]
-impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
+impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClientApi
+    for MosaicClient<R, P>
+{
     async fn ensure_mosaic_setup(
         &self,
         operator_idx: OperatorIdx,
@@ -138,7 +141,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
         operator_idx: OperatorIdx,
         deposit_idx: DepositIdx,
         sighashes: DepositSighashes,
-    ) -> Result<PubKey, MosaicError> {
+    ) -> Result<(), MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
         let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
         let deposit_inputs: DepositInputs = deposit_idx.to_le_bytes();
@@ -180,20 +183,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
         })
         .await??;
 
-        // Retrieve the adaptor pubkey for this deposit.
-        let rpc = self.rpc.clone();
-        let pubkey = retry_with(self.default_retry_strategy(), move || {
-            let rpc = rpc.clone();
-            async move {
-                rpc.evaluator_get_adaptor_pubkey(tableset_id, rpc_deposit_id)
-                    .await
-                    .map_err(MosaicError::rpc_error)
-            }
-        })
-        .await?
-        .ok_or(MosaicError::UnexpectedMissingFinalSecret(deposit_idx))?;
-
-        Ok(pubkey)
+        Ok(())
     }
 
     async fn init_garbler_deposit(
@@ -266,10 +256,10 @@ impl<R: MosaicApi, P: MosaicIdResolver> IMosaicClient for MosaicClient<R, P> {
             DepositStatus::Ready => {
                 // deposit is already ready, emit verified event directly.
                 info!(%deposit_idx, "deposit adaptors verified");
-                self.emit(MosaicEvent::AdaptorsVerified {
-                    operator_idx,
-                    deposit_idx,
-                })
+                self.emit(MosaicEvent::AdaptorsVerified(GraphIdx {
+                    operator: operator_idx,
+                    deposit: deposit_idx,
+                }))
                 .await;
             }
         }

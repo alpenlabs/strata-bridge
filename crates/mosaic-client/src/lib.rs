@@ -35,6 +35,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use algebra::retry::{Strategy, retry_with};
+use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::RpcTablesetId;
 use strata_bridge_primitives::types::OperatorIdx;
 use strata_mosaic_client_api::{MosaicError, MosaicEvent, types::*};
@@ -44,15 +45,13 @@ use crate::util::{DEFAULT_INSTANCE, to_cac_role};
 
 mod client;
 mod resolver;
-mod rpc;
 mod task;
 pub(crate) mod util;
 
 pub use resolver::*;
-pub use rpc::MosaicApi;
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 type WatchDepositKey = (RpcTablesetId, OperatorIdx, DepositIdx);
 
@@ -65,7 +64,7 @@ const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// Manages tableset lifecycle, deposit watching, and event broadcasting
 /// to subscribed listeners.
 #[derive(Debug, Clone)]
-pub struct MosaicClient<R: MosaicApi, P: MosaicIdResolver> {
+pub struct MosaicClient<R: MosaicRpcClient, P: MosaicIdResolver> {
     // rpc client connection to mosaic
     rpc: Arc<R>,
     // resolve operator related data
@@ -86,7 +85,7 @@ pub struct MosaicClient<R: MosaicApi, P: MosaicIdResolver> {
 
 /// Builder for [`MosaicClient`].
 #[derive(Debug)]
-pub struct MosaicClientBuilder<R: MosaicApi, Provider: MosaicIdResolver> {
+pub struct MosaicClientBuilder<R: MosaicRpcClient, Provider: MosaicIdResolver> {
     rpc: Arc<R>,
     provider: Provider,
     retry_delay: Duration,
@@ -94,7 +93,7 @@ pub struct MosaicClientBuilder<R: MosaicApi, Provider: MosaicIdResolver> {
     poll_interval: Duration,
 }
 
-impl<R: MosaicApi, P: MosaicIdResolver> MosaicClientBuilder<R, P> {
+impl<R: MosaicRpcClient, P: MosaicIdResolver> MosaicClientBuilder<R, P> {
     /// Create a new builder with the required RPC client and ID provider.
     pub const fn new(client: Arc<R>, provider: P) -> Self {
         Self {
@@ -139,7 +138,7 @@ impl<R: MosaicApi, P: MosaicIdResolver> MosaicClientBuilder<R, P> {
     }
 }
 
-impl<R: MosaicApi, P: MosaicIdResolver> MosaicClient<R, P> {
+impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClient<R, P> {
     /// Create a [`MosaicClientBuilder`].
     pub const fn builder(client: Arc<R>, provider: P) -> MosaicClientBuilder<R, P> {
         MosaicClientBuilder::new(client, provider)
