@@ -29,16 +29,46 @@ impl StakeSM {
         };
 
         let duties = match self.state() {
-            StakeState::Created { .. } => vec![StakeDuty::Nag(NagDuty::NagStakeData {
-                operator_idx: self.context().operator_idx(),
-            })],
+            StakeState::Created { .. } => {
+                let operator_idx = self.context().operator_idx();
+
+                vec![StakeDuty::Nag(NagDuty::NagUnstakingData {
+                    operator_idx,
+                    operator_pubkey: self
+                        .context()
+                        .operator_table()
+                        .idx_to_p2p_key(&operator_idx)
+                        .expect("graph owner idx must exist in operator table")
+                        .clone(),
+                })]
+            }
             StakeState::StakeGraphGenerated { .. } => expected_ids
                 .difference(&present_ids)
-                .map(|&operator_idx| StakeDuty::Nag(NagDuty::NagUnstakingNonces { operator_idx }))
+                .map(|&operator_idx| {
+                    StakeDuty::Nag(NagDuty::NagUnstakingNonces {
+                        operator_idx,
+                        operator_pubkey: self
+                            .context()
+                            .operator_table()
+                            .idx_to_p2p_key(&operator_idx)
+                            .expect("operator idx from table must exist")
+                            .clone(),
+                    })
+                })
                 .collect(),
             StakeState::UnstakingNoncesCollected { .. } => expected_ids
                 .difference(&present_ids)
-                .map(|&operator_idx| StakeDuty::Nag(NagDuty::NagUnstakingPartials { operator_idx }))
+                .map(|&operator_idx| {
+                    StakeDuty::Nag(NagDuty::NagUnstakingPartials {
+                        operator_idx,
+                        operator_pubkey: self
+                            .context()
+                            .operator_table()
+                            .idx_to_p2p_key(&operator_idx)
+                            .expect("operator idx from table must exist")
+                            .clone(),
+                    })
+                })
                 .collect(),
             _ => Vec::new(),
         };

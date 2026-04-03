@@ -1,21 +1,11 @@
 //! Configuration shared across all Stake State Machines instances.
 
-use bitcoin::relative::Height;
-
-/// Default timelock for the unstaking transaction.
-pub const DEFAULT_UNSTAKING_TIMELOCK: Height = Height::from_height(3_024);
+use serde::{Deserialize, Serialize};
+use strata_bridge_tx_graph::stake_graph::ProtocolParams;
 
 /// Bridge-wide configuration shared across all Stake State Machine instances.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StakeSMCfg {
-    /// Timelock for the unstaking transaction.
-    pub unstaking_timelock: Height,
-}
-
-impl Default for StakeSMCfg {
-    fn default() -> Self {
-        Self {
-            unstaking_timelock: DEFAULT_UNSTAKING_TIMELOCK,
-        }
-    }
+    /// The static configurations of the unstaking graph that are inherent to the protocol.
+    pub protocol_params: ProtocolParams,
 }

@@ -1,0 +1,78 @@
+//! This module contains the executors for performing duties emitted by the Stake State Machine
+//! transitions.
+
+mod nag;
+mod staking;
+mod unstaking;
+mod utils;
+
+use std::sync::Arc;
+
+use strata_bridge_sm::stake::duties::StakeDuty;
+
+use crate::{config::ExecutionConfig, errors::ExecutorError, output_handles::OutputHandles};
+
+/// Executes the given stake duty.
+pub async fn execute_stake_duty(
+    cfg: Arc<ExecutionConfig>,
+    output_handles: Arc<OutputHandles>,
+    duty: &StakeDuty,
+) -> Result<(), ExecutorError> {
+    match duty {
+        StakeDuty::PublishStakeData { operator_idx } => {
+            staking::publish_stake_data(&cfg, &output_handles, *operator_idx).await
+        }
+        StakeDuty::PublishUnstakingNonces {
+            operator_idx,
+            graph_inpoints,
+            graph_tweaks,
+            ordered_pubkeys,
+        } => {
+            staking::publish_unstaking_nonces(
+                &output_handles,
+                *operator_idx,
+                **graph_inpoints,
+                **graph_tweaks,
+                ordered_pubkeys.clone(),
+            )
+            .await
+        }
+        StakeDuty::PublishUnstakingPartials {
+            operator_idx,
+            graph_inpoints,
+            graph_tweaks,
+            sighashes,
+            ordered_pubkeys,
+            agg_nonces,
+        } => {
+            staking::publish_unstaking_partials(
+                &output_handles,
+                *operator_idx,
+                **graph_inpoints,
+                **graph_tweaks,
+                **sighashes,
+                agg_nonces,
+                ordered_pubkeys.clone(),
+            )
+            .await
+        }
+        StakeDuty::PublishStake { tx } => staking::publish_stake(&output_handles, tx).await,
+        StakeDuty::PublishUnstakingIntent {
+            unsigned_tx,
+            stake_funds,
+            n_of_n_signature,
+        } => {
+            unstaking::publish_unstaking_intent(
+                &output_handles,
+                *stake_funds,
+                (**unsigned_tx).clone(),
+                n_of_n_signature,
+            )
+            .await
+        }
+        StakeDuty::PublishUnstakingTx { signed_tx } => {
+            unstaking::publish_unstaking_tx(&output_handles, signed_tx).await
+        }
+        StakeDuty::Nag(nag_duty) => nag::execute_nag_duty(&output_handles, nag_duty).await,
+    }
+}

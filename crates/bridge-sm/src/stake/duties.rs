@@ -1,9 +1,15 @@
 //! Duties for the Stake State Machine.
 
-use bitcoin::Transaction;
+use bitcoin::{
+    OutPoint, Transaction,
+    secp256k1::{Message, XOnlyPublicKey, schnorr},
+};
 use musig2::AggNonce;
-use strata_bridge_primitives::types::OperatorIdx;
-use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
+use strata_bridge_primitives::{
+    scripts::taproot::TaprootTweak,
+    types::{OperatorIdx, P2POperatorPubKey},
+};
+use strata_bridge_tx_graph::{stake_graph::StakeGraph, transactions::prelude::UnstakingIntentTx};
 
 /// A duty of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,25 +26,55 @@ pub enum StakeDuty {
     },
     /// Publish the nonces for a given operator.
     PublishUnstakingNonces {
-        /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        /// The index of the operator that owns the stake.
+        operator_idx: OperatorIdx,
+
+        /// The inpoints of the unstaking transaction graph used to retrieve the musig2 session
+        /// from the secret-service.
+        graph_inpoints: Box<[OutPoint; StakeGraph::N_MUSIG_INPUTS]>,
+
+        /// The tweak required for taproot spend per input being signed.
+        graph_tweaks: Box<[TaprootTweak; StakeGraph::N_MUSIG_INPUTS]>,
+
+        /// The ordered public keys of all operators for MuSig2 aggregation.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
     },
     /// Publish the partial signatures for a given operator.
     PublishUnstakingPartials {
-        /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        /// The index of the operator that owns the stake.
+        operator_idx: OperatorIdx,
+
+        /// The inpoints of the unstaking transaction graph used to retrieve the musig2 session
+        /// from the secret-service.
+        graph_inpoints: Box<[OutPoint; StakeGraph::N_MUSIG_INPUTS]>,
+
+        /// The tweak required for taproot spend per input being signed.
+        graph_tweaks: Box<[TaprootTweak; StakeGraph::N_MUSIG_INPUTS]>,
+
+        /// Sighashes that need to signed.
+        sighashes: Box<[Message; StakeGraph::N_MUSIG_INPUTS]>,
+
+        /// The ordered public keys of all operators for MuSig2 aggregation.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
+
         /// 1 aggregated per musig transaction input.
         agg_nonces: Box<[AggNonce; StakeGraph::N_MUSIG_INPUTS]>,
     },
     /// Publish the unstaking intent transaction.
     PublishUnstakingIntent {
-        /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        /// The unsigned unstaking intent transaction.
+        unsigned_tx: Box<UnstakingIntentTx>,
+
+        /// The stake funding outpoint used to seed the preimage generation in secret-service.
+        stake_funds: OutPoint,
+
+        /// The N/N signature for the unstaking intent transaction.
+        n_of_n_signature: schnorr::Signature,
     },
     /// Publish the unstaking transaction.
     PublishUnstakingTx {
-        /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        /// The signed unstaking transaction.
+        signed_tx: Transaction,
     },
     /// Nag a given operator to provide missing data.
     Nag(NagDuty),
@@ -48,19 +84,25 @@ pub enum StakeDuty {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NagDuty {
     /// Nag an operator for missing stake data.
-    NagStakeData {
+    NagUnstakingData {
         /// The operator who is nagged.
         operator_idx: OperatorIdx,
+        /// The p2p key of the operator who is nagged, used to target the nag message.
+        operator_pubkey: P2POperatorPubKey,
     },
     /// Nag an operator for missing nonces.
     NagUnstakingNonces {
         /// The operator who is nagged.
         operator_idx: OperatorIdx,
+        /// The p2p key of the operator who is nagged, used to target the nag message.
+        operator_pubkey: P2POperatorPubKey,
     },
     /// Nag an operator for missing partial signatures.
     NagUnstakingPartials {
         /// The operator who is nagged.
         operator_idx: OperatorIdx,
+        /// The p2p key of the operator who is nagged, used to target the nag message.
+        operator_pubkey: P2POperatorPubKey,
     },
 }
 
@@ -85,13 +127,13 @@ impl std::fmt::Display for StakeDuty {
 impl std::fmt::Display for NagDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NagStakeData { operator_idx } => {
-                write!(f, "NagStakeData (operator_idx: {operator_idx})")
+            Self::NagUnstakingData { operator_idx, .. } => {
+                write!(f, "NagUnstakingData (operator_idx: {operator_idx})")
             }
-            Self::NagUnstakingNonces { operator_idx } => {
+            Self::NagUnstakingNonces { operator_idx, .. } => {
                 write!(f, "NagUnstakingNonces (operator_idx: {operator_idx})")
             }
-            Self::NagUnstakingPartials { operator_idx } => {
+            Self::NagUnstakingPartials { operator_idx, .. } => {
                 write!(f, "NagUnstakingPartials (operator_idx: {operator_idx})")
             }
         }

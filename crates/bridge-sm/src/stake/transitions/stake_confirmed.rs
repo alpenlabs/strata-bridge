@@ -22,6 +22,7 @@ impl StakeSM {
                 last_block_height,
                 stake_data,
                 expected_stake_txid,
+                signatures,
                 ..
             } => {
                 if event.tx.compute_txid() != *expected_stake_txid {
@@ -36,6 +37,7 @@ impl StakeSM {
                     last_block_height: *last_block_height,
                     stake_data: stake_data.clone(),
                     stake_txid: *expected_stake_txid,
+                    signatures: signatures.clone(),
                 };
 
                 Ok(SMOutput::new())

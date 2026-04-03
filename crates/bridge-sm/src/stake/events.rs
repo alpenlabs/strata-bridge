@@ -1,15 +1,22 @@
 //! Events for the Stake State Machine.
 
-use bitcoin::Transaction;
+use bitcoin::{OutPoint, Transaction, hashes::sha256};
+use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
+use strata_bridge_tx_graph::stake_graph::StakeGraph;
 
 /// Event notifying that stake data has been received.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StakeDataReceivedEvent {
-    /// Data that is required to construct the stake graph.
-    pub stake_data: StakeData,
+    /// The funding input for the stake transaction.
+    pub stake_funds: OutPoint,
+
+    /// The unstaking hash image for the stake transaction.
+    pub unstaking_image: sha256::Hash,
+
+    /// The descriptor where the operator wants to receive the staked funds after unstaking.
+    pub unstaking_output_desc: Descriptor,
 }
 
 /// Event notifying that public nonces were received from an operator.
@@ -18,7 +25,7 @@ pub struct UnstakingNoncesReceivedEvent {
     /// The operator who submitted the nonces.
     pub operator_idx: OperatorIdx,
     /// 1 public nonce per musig transaction input.
-    pub pub_nonces: [PubNonce; StakeGraph::N_MUSIG_INPUTS],
+    pub pub_nonces: Box<[PubNonce; StakeGraph::N_MUSIG_INPUTS]>,
 }
 
 /// Event notifying that partial signatures were received from an operator.

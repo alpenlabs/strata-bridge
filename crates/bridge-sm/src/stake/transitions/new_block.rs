@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use strata_bridge_tx_graph::{musig_functor::StakeFunctor, stake_graph::StakeGraph};
+
 use crate::{
     stake::{
         config::StakeSMCfg,
@@ -44,13 +46,22 @@ impl StakeSM {
         if let StakeState::PreimageRevealed {
             stake_data,
             unstaking_intent_block_height,
+            signatures,
             ..
         } = self.state()
             && event.block_height
-                > *unstaking_intent_block_height + u64::from(cfg.unstaking_timelock.value())
+                > *unstaking_intent_block_height
+                    + u64::from(cfg.protocol_params.game_timelock.value())
         {
+            let stake_graph = StakeGraph::new(stake_data.clone());
+            let unstaking_sig_functor = StakeFunctor::unpack(signatures.to_vec())
+                .expect("signatures already in state must be valid");
+            let unstaking_tx = stake_graph
+                .unstaking
+                .finalize(unstaking_sig_functor.unstaking);
+
             return Ok(SMOutput::with_duties(vec![StakeDuty::PublishUnstakingTx {
-                stake_data: stake_data.clone(),
+                signed_tx: unstaking_tx,
             }]));
         }
 
