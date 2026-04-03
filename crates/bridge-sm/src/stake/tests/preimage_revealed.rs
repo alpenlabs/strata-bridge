@@ -10,7 +10,6 @@ fn confirmed_state() -> StakeState {
     StakeState::Confirmed {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
-        stake_txid: TEST_GRAPH_SUMMARY.stake,
     }
 }
 
@@ -20,11 +19,10 @@ fn revealed_state() -> StakeState {
         stake_data: TEST_STAKE_DATA.clone(),
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
     }
 }
 
-fn invalid_states() -> [StakeState; 5] {
+fn invalid_states() -> [StakeState; 4] {
     [
         StakeState::Created {
             last_block_height: STAKE_HEIGHT,
@@ -44,14 +42,16 @@ fn invalid_states() -> [StakeState; 5] {
         StakeState::UnstakingSigned {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
             signatures: TEST_FINAL_SIGS.clone(),
         },
-        StakeState::Unstaked {
-            preimage: TEST_UNSTAKING_PREIMAGE,
-            unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-        },
     ]
+}
+
+fn rejected_states() -> [StakeState; 1] {
+    [StakeState::Unstaked {
+        preimage: TEST_UNSTAKING_PREIMAGE,
+        unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+    }]
 }
 
 fn unstaking_intent_tx() -> Transaction {
@@ -124,6 +124,21 @@ fn reject_duplicate_preimage_revealed() {
 #[test]
 fn reject_invalid_states() {
     for from_state in invalid_states() {
+        test_stake_invalid_transition(StakeInvalidTransition {
+            from_state,
+            event: PreimageRevealedEvent {
+                tx: unstaking_intent_tx(),
+                block_height: UNSTAKING_INTENT_HEIGHT,
+            }
+            .into(),
+            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
+        });
+    }
+}
+
+#[test]
+fn reject_rejected_states() {
+    for from_state in rejected_states() {
         test_stake_invalid_transition(StakeInvalidTransition {
             from_state,
             event: PreimageRevealedEvent {

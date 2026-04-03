@@ -11,7 +11,6 @@ fn preimage_revealed_state() -> StakeState {
         stake_data: TEST_STAKE_DATA.clone(),
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
     }
 }
 
@@ -35,13 +34,11 @@ fn invalid_states() -> [StakeState; 5] {
         StakeState::UnstakingSigned {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
             signatures: TEST_FINAL_SIGS.clone(),
         },
         StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
         },
     ]
 }
@@ -80,14 +77,14 @@ fn reject_mismatching_unstaking_tx() {
 }
 
 #[test]
-fn reject_duplicate_unstaking_confirmed() {
+fn reject_rejected_states() {
     test_stake_invalid_transition(StakeInvalidTransition {
         from_state: StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },
         event: UnstakingConfirmedEvent { tx: unstaking_tx() }.into(),
-        expected_error: |e| matches!(e, SSMError::Duplicate { .. }),
+        expected_error: |e| matches!(e, SSMError::Rejected { .. }),
     });
 }
 
@@ -97,7 +94,7 @@ fn reject_invalid_states() {
         test_stake_invalid_transition(StakeInvalidTransition {
             from_state,
             event: UnstakingConfirmedEvent { tx: unstaking_tx() }.into(),
-            expected_error: |e| matches!(e, SSMError::Rejected { .. }),
+            expected_error: |e| matches!(e, SSMError::InvalidEvent { .. }),
         });
     }
 }

@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use strata_bridge_tx_graph::stake_graph::StakeGraph;
+
 use crate::{
     stake::{
         config::StakeSMCfg,
@@ -49,8 +51,13 @@ impl StakeSM {
             && event.block_height
                 > *unstaking_intent_block_height + u64::from(cfg.unstaking_timelock.value())
         {
+            let tx = StakeGraph::new(stake_data.clone())
+                .unstaking
+                .as_ref()
+                .clone();
+
             return Ok(SMOutput::with_duties(vec![StakeDuty::PublishUnstakingTx {
-                stake_data: stake_data.clone(),
+                tx,
             }]));
         }
 

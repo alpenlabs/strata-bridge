@@ -85,20 +85,17 @@ fn dont_nag_when_nothing_is_missing() {
         StakeState::UnstakingSigned {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
             signatures: TEST_FINAL_SIGS.clone(),
         },
         StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
         },
         StakeState::PreimageRevealed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-            expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },
         StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,

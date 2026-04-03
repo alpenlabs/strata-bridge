@@ -118,7 +118,6 @@ impl StakeSM {
                     self.state = StakeState::UnstakingSigned {
                         last_block_height: *last_block_height,
                         stake_data: stake_data.clone(),
-                        expected_stake_txid: stake_graph.stake.as_ref().compute_txid(),
                         signatures,
                     };
                 }

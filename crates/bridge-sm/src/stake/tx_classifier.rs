@@ -53,14 +53,15 @@ impl TxClassifier for StakeSM {
                     .into()
                 })
             }
-            StakeState::PreimageRevealed {
-                expected_unstaking_txid,
-                ..
-            } if txid == *expected_unstaking_txid => {
-                Some(UnstakingConfirmedEvent { tx: tx.clone() }.into())
-            }
+            StakeState::PreimageRevealed { stake_data, .. } => {
+                let unstaking_txid = StakeGraph::new(stake_data.clone())
+                    .unstaking
+                    .as_ref()
+                    .compute_txid();
 
-            StakeState::PreimageRevealed { .. } | StakeState::Unstaked { .. } => None,
+                (txid == unstaking_txid).then(|| UnstakingConfirmedEvent { tx: tx.clone() }.into())
+            }
+            StakeState::Unstaked { .. } => None,
         }
     }
 }

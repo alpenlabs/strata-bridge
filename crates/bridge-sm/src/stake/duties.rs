@@ -32,13 +32,13 @@ pub enum StakeDuty {
     },
     /// Publish the unstaking intent transaction.
     PublishUnstakingIntent {
-        /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        /// The unsigned unstaking intent transaction.
+        tx: Transaction,
     },
     /// Publish the unstaking transaction.
     PublishUnstakingTx {
-        /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        /// The unsigned unstaking transaction.
+        tx: Transaction,
     },
     /// Nag a given operator to provide missing data.
     Nag(NagDuty),

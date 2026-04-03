@@ -21,10 +21,20 @@ impl StakeSM {
         event: PreimageRevealedEvent,
     ) -> SSMResult<SSMOutput> {
         match self.state() {
+            StakeState::Created { .. }
+            | StakeState::StakeGraphGenerated { .. }
+            | StakeState::UnstakingNoncesCollected { .. }
+            | StakeState::UnstakingSigned { .. } => Err(SSMError::invalid_event(
+                self.state().clone(),
+                event.into(),
+                Some(format!(
+                    "Preimage revelation is invalid before stake is confirmed: {}",
+                    self.state()
+                )),
+            )),
             StakeState::Confirmed {
                 last_block_height: _,
                 stake_data,
-                stake_txid: _,
             } => {
                 let summary = StakeGraph::new(stake_data.clone()).summarize();
 
@@ -62,7 +72,6 @@ impl StakeSM {
                     stake_data: stake_data.clone(),
                     preimage,
                     unstaking_intent_block_height: event.block_height,
-                    expected_unstaking_txid: summary.unstaking,
                 };
 
                 Ok(SMOutput::new())
@@ -70,10 +79,10 @@ impl StakeSM {
             StakeState::PreimageRevealed { .. } => {
                 Err(SSMError::duplicate(self.state().clone(), event.into()))
             }
-            _ => Err(SSMError::rejected(
+            StakeState::Unstaked { .. } => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
-                format!("Invalid state for preimage revelation: {}", self.state()),
+                "Terminal states reject all incoming events",
             )),
         }
     }

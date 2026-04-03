@@ -21,20 +21,17 @@ fn states_with_last_block_height(last_block_height: u64) -> [StakeState; 6] {
         StakeState::UnstakingSigned {
             last_block_height,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
             signatures: TEST_FINAL_SIGS.clone(),
         },
         StakeState::Confirmed {
             last_block_height,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
         },
         StakeState::PreimageRevealed {
             last_block_height,
             stake_data: TEST_STAKE_DATA.clone(),
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-            expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },
     ]
 }
@@ -48,7 +45,6 @@ fn preimage_revealed_state(
         stake_data: TEST_STAKE_DATA.clone(),
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height,
-        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
     }
 }
 
@@ -134,7 +130,7 @@ fn preimage_revealed_timelock_mature() {
         .into(),
         expected_state,
         expected_duties: vec![StakeDuty::PublishUnstakingTx {
-            stake_data: TEST_STAKE_DATA.clone(),
+            tx: TEST_GRAPH.unstaking.as_ref().clone(),
         }],
         expected_signals: vec![],
     });
