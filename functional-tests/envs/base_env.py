@@ -8,12 +8,11 @@ from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from factory.bridge_operator.sidesystem_cfg import build_sidesystem
 from factory.common.asm_params import write_asm_params_json
 from factory.fdb import generate_fdb_root_directory
-from factory.mosaic import MosaicFactoryConfig
 from utils import (
     generate_blocks,
     wait_until_bitcoind_ready,
 )
-from utils.mosaic import get_circuit_path, get_peer_configs, get_peer_ids
+from utils.mosaic import get_peer_ids
 from utils.utils import generate_p2p_ports, read_operator_key
 
 from .asm_config import AsmEnvConfig
@@ -124,11 +123,11 @@ class BaseEnv(flexitest.EnvConfig):
         bitcoind_props,
         bitcoind_rpc,
         fdb_props,
+        mosaic_rpc: str,
     ):
         """Create a single bridge operator (S2 service + Bridge node + ASM RPC)."""
         s2_fac = ectx.get_factory("s2")
         bo_fac = ectx.get_factory("bofac")
-        mosaic_fac = ectx.get_factory("mosaic")
 
         # Use pre-loaded operator key
         operator_key = self.operator_key_infos[operator_idx]
@@ -155,15 +154,6 @@ class BaseEnv(flexitest.EnvConfig):
 
         s2_service = s2_fac.create_s2_service(operator_idx, operator_key)
 
-        # Create mosaic factory config
-        mosaic_factory_config = MosaicFactoryConfig(
-            circuit_path=get_circuit_path(),
-            storage_cluster_file=fdb_props["cluster_file"],
-            all_peers=get_peer_configs(self.num_operators),
-        )
-
-        mosaic_service = mosaic_fac.create_mosaic_service(operator_idx, mosaic_factory_config)
-
         bridge_operator = bo_fac.create_server(
             operator_idx,
             bitcoind_props,
@@ -175,11 +165,11 @@ class BaseEnv(flexitest.EnvConfig):
             sidesystem=self._sidesystem,
             bridge_protocol_params=self._bridge_protocol_params,
             bridge_config_params=self._bridge_config_params,
-            mosaic_rpc=mosaic_service.props["rpc_url"],
+            mosaic_rpc=mosaic_rpc,
             mosaic_peers=self.mosaic_peer_ids,
         )
 
-        return s2_service, bridge_operator, self._asm_rpc_service, mosaic_service
+        return s2_service, bridge_operator, self._asm_rpc_service
 
     def fund_operator(self, brpc, bridge_operator_props, wallet_addr):
         """Fund an operator's wallets."""
