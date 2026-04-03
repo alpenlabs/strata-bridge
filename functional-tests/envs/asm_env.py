@@ -3,7 +3,7 @@ import flexitest
 from utils.service_names import get_operator_dir_name
 
 from .base_env import BaseEnv
-from .basic_env import StrataLiveEnv
+from .live_env import StrataLiveEnv
 
 
 class AsmEnv(BaseEnv):
