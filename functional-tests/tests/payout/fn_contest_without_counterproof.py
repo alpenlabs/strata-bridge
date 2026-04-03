@@ -23,23 +23,24 @@ from utils.withdrawal import wait_until_active_valid_claim
 @flexitest.register
 class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
     """
-    Test that a contested payout completes successfully when no counterproof
-    is submitted within the contest timelock period.
+    Test that a contested payout completes when no counterproof is submitted.
+
+    Cooperative payout is disabled (timeout=0) to force the contested path.
 
     Steps:
     1. Complete a deposit
-    2. Stop one bridge node to trigger the contested payout path
-    3. Submit a contest against the active claim
-    4. Verify the deposit UTXO is spent after the contest timelock expires
+    2. Submit a contest against the active claim
+    3. Verify the deposit UTXO is spent after the contest timelock expires
     """
 
     def __init__(self, ctx: flexitest.InitContext):
+        self.bridge_protocol_params = BridgeProtocolParams(
+            contest_timelock=5,
+            ack_timelock=10,
+        )
         ctx.set_env(
             BridgeNetworkEnv(
-                bridge_protocol_params=BridgeProtocolParams(
-                    contest_timelock=5,
-                    ack_timelock=10,
-                ),
+                bridge_protocol_params=self.bridge_protocol_params,
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=0,
                 ),
@@ -63,10 +64,7 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
         dev_cli = DevCli(
             bitcoind_props,
             musig2_keys,
-            bridge_protocol_params=BridgeProtocolParams(
-                contest_timelock=5,
-                ack_timelock=10,
-            ),
+            bridge_protocol_params=self.bridge_protocol_params,
         )
         drt_txid = dev_cli.send_deposit_request()
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
@@ -80,9 +78,6 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
         self.logger.info("Deposit completed")
         deposit_txid = deposit_info.get("status").get("deposit_txid")
         self.logger.info(f"Deposit txid: {deposit_txid}")
-
-        # Stop one of the bridge node so we trigger contested path
-        bridge_nodes[-1].stop()
 
         # Now post mock checkpoint so that a withdrawal is assigned
         recent_block_hash = bitcoin_rpc.proxy.getblockhash(bitcoin_rpc.proxy.getblockcount())

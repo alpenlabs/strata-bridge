@@ -1,0 +1,14 @@
+network = "signet"
+bridge_out_addr = "0x5400000000000000000000000000000000000001"
+deposit_amount = 1_000_000_000                                 # 10 BTC
+stake_amount = 100_000_000                                     # 1 BTC
+refund_delay = 1_008
+
+tag = "ALPN" # same as magic bytes in rollup
+
+# these keys are the same as in the `[[keys.covenant]]` section of the bridge operators' `params.toml` file
+musig2_keys = [
+  "9effefe15777e7089762079f895f2f0636035052d5124fbca553f04752e48a8a",
+  "2d2eefc1957d519357a1f69b243a2be8cb8ed1d5004eff6c2a0dc15136e96e41",
+  "887e79c5945c94e0715de84d47409d2cd46f4efead26bac89d42d26f934fd898",
+]
