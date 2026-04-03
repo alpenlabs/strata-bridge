@@ -7,7 +7,7 @@ import sys
 import flexitest
 
 from constants import BRIDGE_NETWORK_SIZE, TEST_DIR
-from envs import BasicEnv, BridgeNetworkEnv
+from envs import AsmEnv, BasicEnv, BridgeNetworkEnv
 from envs.testenv import StrataTestRuntime
 from factory.asm_rpc import AsmRpcFactory
 from factory.bitcoin import BitcoinFactory
@@ -96,9 +96,10 @@ def main(argv):
     }
 
     # Register envs
+    asm_env = AsmEnv()
     basic_env = BasicEnv()
     network_env = BridgeNetworkEnv()
-    env_configs = {"basic": basic_env, "network": network_env}
+    env_configs = {"asm": asm_env, "basic": basic_env, "network": network_env}
 
     # Set up the runtime and prepare tests.
     rt = StrataTestRuntime(env_configs, datadir_root, factories)
