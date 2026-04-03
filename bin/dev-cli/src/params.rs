@@ -1,7 +1,7 @@
 use std::{fs, path::Path, str::FromStr};
 
 use anyhow::anyhow;
-use bitcoin::{relative::LockTime, secp256k1::XOnlyPublicKey, Amount, Network};
+use bitcoin::{secp256k1::XOnlyPublicKey, Amount, Network};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,10 +9,7 @@ pub(crate) struct Params {
     pub(crate) network: Network,
     pub(crate) bridge_out_addr: String,
     pub(crate) deposit_amount: Amount,
-    pub(crate) burn_amount: Amount,
     pub(crate) stake_amount: Amount,
-    pub(crate) stake_chain_delta: LockTime,
-    pub(crate) payout_timelock: u32,
     pub(crate) refund_delay: u16,
 
     pub(crate) tag: String,
