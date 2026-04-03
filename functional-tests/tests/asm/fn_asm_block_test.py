@@ -15,7 +15,7 @@ class AsmBlockProcessingTest(StrataTestBase):
     """
 
     def __init__(self, ctx: flexitest.InitContext):
-        ctx.set_env("basic")
+        ctx.set_env("asm")
 
     def main(self, ctx: flexitest.RunContext):
         # Get services
