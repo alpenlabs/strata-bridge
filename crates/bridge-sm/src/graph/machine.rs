@@ -77,9 +77,9 @@ impl StateMachine for GraphSM {
                 self.process_bridge_proof_timeout(timeout)
             }
             GraphEvent::CounterProofConfirmed(_counterproof) => todo!(),
-            GraphEvent::CounterProofAckConfirmed(_ack) => todo!(),
+            GraphEvent::CounterProofAckConfirmed(ack) => self.process_counterproof_ack(ack),
             GraphEvent::CounterProofNackConfirmed(_nack) => todo!(),
-            GraphEvent::SlashConfirmed(_slash) => todo!(),
+            GraphEvent::SlashConfirmed(slash) => self.process_slash(slash),
             GraphEvent::PayoutConfirmed(payout) => self.process_payout(payout),
             GraphEvent::PayoutConnectorSpent(_connector_spent) => todo!(),
             GraphEvent::NewBlock(new_block) => self.notify_new_block(cfg, new_block),

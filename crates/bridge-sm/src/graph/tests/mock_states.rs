@@ -216,6 +216,8 @@ pub(super) fn acked_state() -> GraphState {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::Acked {
         last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        signatures: Default::default(),
         contest_block_height: LATER_BLOCK_HEIGHT,
         expected_slash_txid: graph_summary.slash,
         claim_txid: graph_summary.claim,

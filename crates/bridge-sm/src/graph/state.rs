@@ -309,6 +309,12 @@ pub enum GraphState {
         /// Latest Bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
 
+        /// Deposit-time data required to generate the game’s transaction graph.
+        graph_data: DepositParams,
+
+        /// Aggregated final signatures for the graph.
+        signatures: Vec<Signature>,
+
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 

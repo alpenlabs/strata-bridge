@@ -1,6 +1,9 @@
 //! Unit Tests for notify_new_block in Claimed state
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use musig2::secp256k1::schnorr::Signature;
     use strata_bridge_test_utils::bitcoin::generate_txid;
     use strata_bridge_tx_graph::musig_functor::GameFunctor;
 
@@ -13,18 +16,67 @@ mod tests {
             state::GraphState,
             tests::{
                 CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS, GraphInvalidTransition,
-                GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_POV_IDX,
-                create_nonpov_sm, create_sm, get_state, mock_game_signatures,
+                GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
+                TEST_POV_IDX, create_nonpov_sm, create_sm, get_state, mock_game_signatures,
                 mock_states::{
-                    assigned_state, bridge_proof_posted_state_with,
+                    acked_state, assigned_state, bridge_proof_posted_state_with,
                     bridge_proof_timedout_state_with, claimed_state, contested_state_with,
+                    counter_proof_posted_state,
                 },
                 test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
                 test_graph_sm_ctx, test_graph_summary, test_graph_transition, test_recipient_desc,
             },
+            watchtower::watchtower_slot_for_operator,
         },
         testing::test_transition,
     };
+
+    fn counter_proof_posted_state_with(
+        last_block_height: u64,
+        contest_block_height: u64,
+        signatures: Vec<Signature>,
+        counterproofs_and_confs: BTreeMap<u32, (bitcoin::Txid, u64)>,
+    ) -> GraphState {
+        let mut state = counter_proof_posted_state();
+        if let GraphState::CounterProofPosted {
+            last_block_height: state_last_block_height,
+            signatures: state_signatures,
+            contest_block_height: state_contest_block_height,
+            counterproofs_and_confs: state_counterproofs_and_confs,
+            ..
+        } = &mut state
+        {
+            *state_last_block_height = last_block_height;
+            *state_signatures = signatures;
+            *state_contest_block_height = contest_block_height;
+            *state_counterproofs_and_confs = counterproofs_and_confs;
+        } else {
+            panic!("expected CounterProofPosted state");
+        }
+        state
+    }
+
+    fn acked_state_with(
+        last_block_height: u64,
+        contest_block_height: u64,
+        signatures: Vec<Signature>,
+    ) -> GraphState {
+        let mut state = acked_state();
+        if let GraphState::Acked {
+            last_block_height: state_last_block_height,
+            signatures: state_signatures,
+            contest_block_height: state_contest_block_height,
+            ..
+        } = &mut state
+        {
+            *state_last_block_height = last_block_height;
+            *state_signatures = signatures;
+            *state_contest_block_height = contest_block_height;
+        } else {
+            panic!("expected Acked state");
+        }
+        state
+    }
 
     // TODO: <https://atlassian.alpenlabs.net/browse/STR-2678>
     // Add a proptest asserting that `NewBlock` events with
@@ -446,6 +498,429 @@ mod tests {
                 expected_signals: vec![],
             },
         );
+    }
+
+    // ===== CounterProofPosted Tests =====
+
+    /// Graph owner publishes contested payout after ack timelock expires.
+    #[test]
+    fn counterproof_posted_pov_contested_payout() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
+        let new_height = contest_height + ack_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let contested_payout_sigs =
+            GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
+                .expect("Failed to unpack signatures")
+                .contested_payout;
+        let signed_contested_payout_tx =
+            game_graph.contested_payout.finalize(contested_payout_sigs);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_state_with(
+                    contest_height,
+                    contest_height,
+                    signatures.clone(),
+                    BTreeMap::new(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_state_with(
+                    new_height,
+                    contest_height,
+                    signatures,
+                    BTreeMap::new(),
+                ),
+                expected_duties: vec![GraphDuty::PublishContestedPayout {
+                    signed_contested_payout_tx,
+                }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Non-owner does not publish contested payout even after ack timelock.
+    #[test]
+    fn counterproof_posted_nonpov_no_contested_payout() {
+        let cfg = test_graph_sm_cfg();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
+        let new_height = contest_height + ack_timelock + 1;
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_state_with(
+                    contest_height,
+                    contest_height,
+                    Default::default(),
+                    BTreeMap::new(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_state_with(
+                    new_height,
+                    contest_height,
+                    Default::default(),
+                    BTreeMap::new(),
+                ),
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Non-owner publishes slash after payout timelock expires.
+    #[test]
+    fn counterproof_posted_nonpov_slash() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
+            .expect("Failed to unpack signatures")
+            .slash;
+        let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_state_with(
+                    contest_height,
+                    contest_height,
+                    signatures.clone(),
+                    BTreeMap::new(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_state_with(
+                    new_height,
+                    contest_height,
+                    signatures,
+                    BTreeMap::new(),
+                ),
+                expected_duties: vec![GraphDuty::PublishSlash { signed_slash_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Counterprover publishes ACK after nack timelock expires.
+    #[test]
+    fn counterproof_posted_nonpov_ack_viable_after_nack_timeout() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let graph_summary = test_graph_summary();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let nack_timelock = u64::from(cfg.game_graph_params.nack_timelock.value());
+        let counterproof_conf_height = contest_height + 1;
+        let new_height = counterproof_conf_height + nack_timelock + 1;
+
+        let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, TEST_NONPOV_IDX)
+            .expect("non-POV operator should map to watchtower slot");
+        let counterproofs_and_confs = BTreeMap::from([(
+            TEST_NONPOV_IDX,
+            (
+                graph_summary.counterproofs[watchtower_slot].counterproof,
+                counterproof_conf_height,
+            ),
+        )]);
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
+            .expect("Failed to unpack signatures");
+        let signed_counter_proof_ack_tx = game_graph.counterproofs[watchtower_slot]
+            .counterproof_ack
+            .clone()
+            .finalize(sigs.watchtowers[watchtower_slot].counterproof_ack);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_state_with(
+                    contest_height,
+                    contest_height,
+                    signatures.clone(),
+                    counterproofs_and_confs.clone(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_state_with(
+                    new_height,
+                    contest_height,
+                    signatures,
+                    counterproofs_and_confs,
+                ),
+                expected_duties: vec![GraphDuty::PublishCounterProofAck {
+                    signed_counter_proof_ack_tx,
+                }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// ACK not allowed exactly at nack timelock boundary.
+    #[test]
+    fn counterproof_posted_nonpov_ack_not_viable_at_nack_timeout_boundary() {
+        let cfg = test_graph_sm_cfg();
+        let graph_summary = test_graph_summary();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let nack_timelock = u64::from(cfg.game_graph_params.nack_timelock.value());
+        let counterproof_conf_height = contest_height + 1;
+        let new_height = counterproof_conf_height + nack_timelock;
+        let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, TEST_NONPOV_IDX)
+            .expect("non-POV operator should map to watchtower slot");
+
+        let counterproofs_and_confs = BTreeMap::from([(
+            TEST_NONPOV_IDX,
+            (
+                graph_summary.counterproofs[watchtower_slot].counterproof,
+                counterproof_conf_height,
+            ),
+        )]);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_state_with(
+                    contest_height,
+                    contest_height,
+                    Default::default(),
+                    counterproofs_and_confs.clone(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_state_with(
+                    new_height,
+                    contest_height,
+                    Default::default(),
+                    counterproofs_and_confs,
+                ),
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// ACK not allowed before nack timelock expires.
+    #[test]
+    fn counterproof_posted_nonpov_ack_not_viable_before_nack_timeout() {
+        let cfg = test_graph_sm_cfg();
+        let graph_summary = test_graph_summary();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let nack_timelock = u64::from(cfg.game_graph_params.nack_timelock.value());
+        let counterproof_conf_height = contest_height + 1;
+        let new_height = counterproof_conf_height + nack_timelock - 1;
+        let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, TEST_NONPOV_IDX)
+            .expect("non-POV operator should map to watchtower slot");
+
+        let counterproofs_and_confs = BTreeMap::from([(
+            TEST_NONPOV_IDX,
+            (
+                graph_summary.counterproofs[watchtower_slot].counterproof,
+                counterproof_conf_height,
+            ),
+        )]);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_state_with(
+                    contest_height,
+                    contest_height,
+                    Default::default(),
+                    counterproofs_and_confs.clone(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_state_with(
+                    new_height,
+                    contest_height,
+                    Default::default(),
+                    counterproofs_and_confs,
+                ),
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Graph owner does not publish ACK even after nack timelock expires.
+    #[test]
+    fn counterproof_posted_owner_no_ack_before_ack_timeout_even_after_nack_timeout() {
+        let cfg = test_graph_sm_cfg();
+        let graph_summary = test_graph_summary();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let nack_timelock = u64::from(cfg.game_graph_params.nack_timelock.value());
+        let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
+        let counterproof_conf_height = contest_height + 1;
+        let new_height = counterproof_conf_height + nack_timelock + 1;
+        assert!(new_height <= contest_height + ack_timelock);
+
+        let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, TEST_NONPOV_IDX)
+            .expect("non-POV operator should map to watchtower slot");
+        let counterproofs_and_confs = BTreeMap::from([(
+            TEST_NONPOV_IDX,
+            (
+                graph_summary.counterproofs[watchtower_slot].counterproof,
+                counterproof_conf_height,
+            ),
+        )]);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_state_with(
+                    contest_height,
+                    contest_height,
+                    Default::default(),
+                    counterproofs_and_confs.clone(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_state_with(
+                    new_height,
+                    contest_height,
+                    Default::default(),
+                    counterproofs_and_confs,
+                ),
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Rejects blocks at or below previously processed height.
+    #[test]
+    fn counterproof_posted_already_processed() {
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: counter_proof_posted_state(),
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: LATER_BLOCK_HEIGHT,
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    // ===== Acked Tests =====
+
+    /// Updates block height without triggering slash before payout timelock.
+    #[test]
+    fn acked_simple_update() {
+        let cfg = test_graph_sm_cfg();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock;
+
+        test_graph_transition(GraphTransition {
+            from_state: acked_state_with(contest_height, contest_height, Default::default()),
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: new_height,
+            }),
+            expected_state: acked_state_with(new_height, contest_height, Default::default()),
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
+    /// Non-owner publishes slash after payout timelock expires in Acked state.
+    #[test]
+    fn acked_nonpov_payout_timeout_triggers_slash() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
+            .expect("Failed to unpack signatures")
+            .slash;
+        let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: acked_state_with(contest_height, contest_height, signatures.clone()),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: acked_state_with(new_height, contest_height, signatures),
+                expected_duties: vec![GraphDuty::PublishSlash { signed_slash_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Graph owner does not slash themselves even after payout timelock.
+    #[test]
+    fn acked_pov_payout_timeout_no_slash() {
+        let cfg = test_graph_sm_cfg();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock + 1;
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: acked_state_with(contest_height, contest_height, Default::default()),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: acked_state_with(new_height, contest_height, Default::default()),
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Rejects blocks at or below previously processed height.
+    #[test]
+    fn acked_already_processed() {
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: acked_state(),
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: LATER_BLOCK_HEIGHT,
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
     }
 
     /// Tests that Assigned state reverts to GraphSigned when fulfillment deadline is reached
