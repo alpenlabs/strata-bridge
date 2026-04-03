@@ -1,6 +1,8 @@
 import flexitest
 
+from factory.mosaic import MosaicFactoryConfig
 from utils import generate_blocks
+from utils.mosaic import get_circuit_path, get_peer_configs
 from utils.service_names import get_operator_dir_name
 from utils.utils import MinerThread, wait_until_bridge_ready
 
@@ -50,9 +52,19 @@ class BasicEnv(BaseEnv):
         bridge_operator_name = get_operator_dir_name(operator_idx)
         ectx.make_service_dir(bridge_operator_name)
 
+        # need min 2 mosaic instances
+        mosaic_fac = ectx.get_factory("mosaic")
+        mosaic_factory_config = MosaicFactoryConfig(
+            circuit_path=get_circuit_path(),
+            storage_cluster_file=fdb.props["cluster_file"],
+            all_peers=get_peer_configs(2),
+        )
+
+        mosaic_service_0 = mosaic_fac.create_mosaic_service(0, mosaic_factory_config)
+
         # Create single operator
         s2_service, bridge_node, asm_service = self.create_operator(
-            ectx, operator_idx, bitcoind.props, brpc, fdb.props
+            ectx, operator_idx, bitcoind.props, brpc, fdb.props, mosaic_service_0.props["rpc_url"]
         )
 
         # Fund operator
