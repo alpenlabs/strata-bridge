@@ -24,6 +24,9 @@ pub(crate) enum Commands {
 
     /// Create and publish a mock checkpoint.
     CreateAndPublishMockCheckpoint(CreateAndPublishMockCheckpointArgs),
+
+    /// Contest a claim transaction.
+    Contest(ContestArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -95,6 +98,31 @@ pub(crate) struct CreateAndPublishMockCheckpointArgs {
 
     #[arg(long, default_value_t = Network::Regtest, help = "bitcoin network")]
     pub(crate) network: Network,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(about = "Contest a claim transaction", version)]
+pub(crate) struct ContestArgs {
+    #[arg(long, help = "deposit index of the graph")]
+    pub(crate) deposit_idx: u32,
+
+    #[arg(long, help = "operator index of the graph")]
+    pub(crate) operator_idx: u32,
+
+    #[arg(long, help = "url of the bridge node RPC")]
+    pub(crate) bridge_node_url: String,
+
+    #[arg(long, help = "index of the operator node contesting the claim")]
+    pub(crate) contester_node_idx: u32,
+
+    #[arg(long, help = "hex-encoded seed of the contesting operator")]
+    pub(crate) seed: String,
+
+    #[arg(long, help = "the path to the params file")]
+    pub(crate) params: PathBuf,
 
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,

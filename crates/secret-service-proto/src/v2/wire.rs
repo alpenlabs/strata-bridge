@@ -81,6 +81,22 @@ pub enum ClientMessage {
         tweak: Option<[u8; 32]>,
     },
 
+    /// Request for
+    /// [`SchnorrSigner::sign_with_key_tweak`](super::traits::SchnorrSigner::sign_with_key_tweak).
+    SchnorrSignerSignWithKeyTweak {
+        /// Which Schnorr key to use
+        target: SignerTarget,
+
+        /// The digest of the data the client wants signed.
+        digest: [u8; 32],
+
+        /// The scalar tweak to apply to the secret key before signing.
+        key_tweak: [u8; 32],
+
+        /// The tap tweak used to sign the message.
+        tap_tweak: Option<[u8; 32]>,
+    },
+
     /// Request for [`SchnorrSigner::sign_no_tweak`](super::traits::SchnorrSigner::sign_no_tweak).
     SchnorrSignerSignNoTweak {
         /// Which Schnorr key to use

@@ -11,9 +11,12 @@ name = "dev-cli"
 path = "src/main.rs"
 
 [dependencies]
+jsonrpsee = { workspace = true, features = ["http-client"] }
 strata-bridge-common.workspace = true
 strata-bridge-key-deriv.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-rpc = { workspace = true, features = ["client"] }
+strata-bridge-tx-graph.workspace = true
 
 ssz.workspace = true
 strata-asm-txs-bridge-v1.workspace = true

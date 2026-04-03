@@ -10,12 +10,17 @@ EE_ADDRESS = "70997970C51812dc3A010C7d01b50e0d17dc79C8"
 
 DEV_CLI_PARAMS_TEMPLATE = """network = "regtest"
 bridge_out_addr = "0x5400000000000000000000000000000000000001"
-deposit_amount = 1_000_000_000                                 # 10 BTC
-stake_amount = 100_000_000                                     # 1 BTC
-burn_amount = 10_000_000                                       # 0.1 BTC
-refund_delay = 1_008
+deposit_amount = {deposit_amount}
+stake_amount = {stake_amount}
+burn_amount = {operator_fee}
+refund_delay = {recovery_delay}
 stake_chain_delta = {{ Blocks = 6 }}
 payout_timelock = 1_008
+contest_timelock = {contest_timelock}
+proof_timelock = {proof_timelock}
+ack_timelock = {ack_timelock}
+nack_timelock = {nack_timelock}
+contested_payout_timelock = {contested_payout_timelock}
 
 tag = "{tag}"
 
@@ -24,9 +29,15 @@ musig2_keys = {musig2_keys}
 
 
 class DevCli:
-    def __init__(self, bitcoind_props: dict, musig2_keys: list[str]):
+    def __init__(
+        self,
+        bitcoind_props: dict,
+        musig2_keys: list[str],
+        bridge_protocol_params=None,
+    ):
         self.bitcoind_props = bitcoind_props
         self.musig2_keys = musig2_keys
+        self.bridge_protocol_params = bridge_protocol_params
         self.temp_dir = tempfile.mkdtemp()
         self.params_path = self._create_params_file()
 
@@ -36,7 +47,22 @@ class DevCli:
             keys_str += f'  "{key}",\n'
         keys_str += "]"
 
-        params_content = DEV_CLI_PARAMS_TEMPLATE.format(tag=ASM_MAGIC_BYTES, musig2_keys=keys_str)
+        from factory.bridge_operator.params_cfg import BridgeProtocolParams
+
+        p = self.bridge_protocol_params or BridgeProtocolParams()
+        params_content = DEV_CLI_PARAMS_TEMPLATE.format(
+            tag=ASM_MAGIC_BYTES,
+            musig2_keys=keys_str,
+            deposit_amount=p.deposit_amount,
+            stake_amount=p.stake_amount,
+            operator_fee=p.operator_fee,
+            recovery_delay=p.recovery_delay,
+            contest_timelock=p.contest_timelock,
+            proof_timelock=p.proof_timelock,
+            ack_timelock=p.ack_timelock,
+            nack_timelock=p.nack_timelock,
+            contested_payout_timelock=p.contested_payout_timelock,
+        )
 
         params_path = os.path.join(self.temp_dir, "params.toml")
         with open(params_path, "w") as f:
@@ -132,3 +158,41 @@ class DevCli:
         return self.send_mock_checkpoint(
             checkpoint_tip=tip, num_ol_slots=num_ol_slots, num_withdrawals=num_withdrawals
         )
+
+    def send_contest(
+        self,
+        deposit_idx: int,
+        operator_idx: int,
+        bridge_node_url: str,
+        contester_node_idx: int,
+        seed: str = "",
+    ):
+        rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
+        wallet = self.bitcoind_props.get("walletname", "testwallet")
+
+        args = [
+            "contest",
+            "--btc-url",
+            f"http://127.0.0.1:{rpc_port}/wallet/{wallet}",
+            "--btc-user",
+            self.bitcoind_props.get("rpc_user", "user"),
+            "--btc-pass",
+            self.bitcoind_props.get("rpc_password", "password"),
+            "--params",
+            self.params_path,
+            "--deposit-idx",
+            str(deposit_idx),
+            "--operator-idx",
+            str(operator_idx),
+            "--bridge-node-url",
+            bridge_node_url,
+            "--contester-node-idx",
+            str(contester_node_idx),
+            "--seed",
+            seed,
+        ]
+
+        res = self._run_command(args)
+        # HACK: (@Rajil1213) parse raw stdout to extract txid
+        txid = res.splitlines()[-1].split("=")[-1].strip()
+        return txid
