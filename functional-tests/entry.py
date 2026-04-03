@@ -84,7 +84,7 @@ def main(argv):
     bofac = BridgeOperatorFactory([12500 + i for i in range(100)])
     asmfac = AsmRpcFactory([12600 + i for i in range(100)])
     fdbfac = FdbFactory([12700 + i for i in range(100)])
-    # NOTE: 12800.. range is used by bridge operator p2p
+    # 12800 range is used by bridge operator p2p
     mosaicfac = MosaicFactory([12900 + i for i in range(100)])
     factories = {
         "bitcoin": bfac,
