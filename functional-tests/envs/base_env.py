@@ -12,6 +12,7 @@ from utils import (
     generate_blocks,
     wait_until_bitcoind_ready,
 )
+from utils.mosaic import get_peer_ids
 from utils.utils import generate_p2p_ports, read_operator_key
 
 from .asm_config import AsmEnvConfig
@@ -52,6 +53,8 @@ class BaseEnv(flexitest.EnvConfig):
         # Generate unique root directory prefix for this environment's FDB data.
         # Each operator derives its own namespace from this prefix.
         self.fdb_root_directory_prefix: str | None = None
+
+        self.mosaic_peer_ids = get_peer_ids(num_operators)
 
     def setup_bitcoin(self, ectx: flexitest.EnvContext):
         """Setup Bitcoin node with wallet and initial funding."""
@@ -120,6 +123,7 @@ class BaseEnv(flexitest.EnvConfig):
         bitcoind_props,
         bitcoind_rpc,
         fdb_props,
+        mosaic_rpc: str,
     ):
         """Create a single bridge operator (S2 service + Bridge node + ASM RPC)."""
         s2_fac = ectx.get_factory("s2")
@@ -149,6 +153,7 @@ class BaseEnv(flexitest.EnvConfig):
         asm_props = self._asm_rpc_service.props
 
         s2_service = s2_fac.create_s2_service(operator_idx, operator_key)
+
         bridge_operator = bo_fac.create_server(
             operator_idx,
             bitcoind_props,
@@ -160,6 +165,8 @@ class BaseEnv(flexitest.EnvConfig):
             sidesystem=self._sidesystem,
             bridge_protocol_params=self._bridge_protocol_params,
             bridge_config_params=self._bridge_config_params,
+            mosaic_rpc=mosaic_rpc,
+            mosaic_peers=self.mosaic_peer_ids,
         )
 
         return s2_service, bridge_operator, self._asm_rpc_service

@@ -17,6 +17,8 @@ members = [
   "crates/proof-db",
   "crates/key-deriv",
   "crates/memory_pprof",
+  "crates/mosaic-client",
+  "crates/mosaic-client-api",
   "crates/operator-wallet",
   "crates/orchestrator",
   "crates/p2p-service",
@@ -84,6 +86,8 @@ strata-bridge-rpc = { path = "crates/rpc" }
 strata-bridge-sm = { path = "crates/bridge-sm" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
+strata-mosaic-client = { path = "crates/mosaic-client" }
+strata-mosaic-client-api = { path = "crates/mosaic-client-api" }
 
 # Dependencies from alpenlabs/alpen pinned to commit 201c3fa0 (main @ 2026-03-12)
 strata-asm-common = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
@@ -105,6 +109,11 @@ strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "201
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-storage = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
 strata-test-utils = { git = "https://github.com/alpenlabs/alpen.git", rev = "201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17" }
+
+# Dependencies from alpenlabs/mosaic
+mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "25230aa65c7eadc5da36b8b45b6f7623f35de842" }
+mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "25230aa65c7eadc5da36b8b45b6f7623f35de842" }
+mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "25230aa65c7eadc5da36b8b45b6f7623f35de842" }
 
 # Dependencies from alpenlabs/strata-common
 strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
@@ -166,7 +175,7 @@ foundationdb = { git = "https://github.com/foundationdb-rs/foundationdb-rs", rev
 futures = "0.3.31"
 hex = { version = "0.4.3", features = ["serde"] }
 indexmap = "2.8.0"
-jsonrpsee = "0.24.7"
+jsonrpsee = "0.26.0"
 libp2p = { version = "0.56.0", features = [
   "noise",
   "gossipsub",

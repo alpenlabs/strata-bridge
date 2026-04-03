@@ -14,6 +14,7 @@ from .config_cfg import (
     DbConfig,
     Duration,
     FdbRetryConfig,
+    MosaicConfig,
     OperatorWalletConfig,
     P2pConfig,
     RpcConfig,
@@ -40,6 +41,8 @@ def generate_config_toml(
     output_path: str,
     tls_dir: str,
     bridge_config_params: BridgeConfigParams,
+    mosaic_peers: list[str],
+    mosaic_rpc: str,
     heartbeat_delay_factor: int = 1,  # no delay by default
 ):
     mtls_dir = Path(tls_dir)
@@ -114,6 +117,13 @@ def generate_config_toml(
             sequence_connection_string=zmq_connection_string(bitcoind_props["zmq_sequence"]),
         ),
         operator_wallet=OperatorWalletConfig(claim_funding_pool_size=32),
+        mosaic=MosaicConfig(
+            rpc_url=mosaic_rpc,
+            peer_ids=mosaic_peers,
+            retry_delay=Duration(secs=2, nanos=0),
+            max_retries=1000,
+            poll_interval=Duration(secs=2, nanos=0),
+        ),
     )
 
     with open(output_path, "w") as f:

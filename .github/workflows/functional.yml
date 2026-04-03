@@ -163,6 +163,11 @@ jobs:
           RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin strata-asm-runner --target-dir "$COV_TARGET_DIR"
           cargo build --locked --bin dev-cli --target-dir "$COV_TARGET_DIR"
 
+      - name: Install mosaic binary
+        run: |
+          cargo install --git https://github.com/alpenlabs/mosaic --bin mosaic --rev 0be9fbfdea678fe5fc98f35266c5c1b73f9dcebc --features=mosaic-common/reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
+          echo "$GITHUB_WORKSPACE/target/mosaic/bin" >> "$GITHUB_PATH"
+
       - name: Run functional tests
         id: funcTestsRun
         continue-on-error: true

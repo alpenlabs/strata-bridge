@@ -6,6 +6,7 @@
 use strata_bridge_p2p_types::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
+use strata_mosaic_client_api::MosaicEvent;
 use tracing::warn;
 
 use crate::{events_mux::UnifiedEvent, sm_registry::SMRegistry, sm_types::SMId};
@@ -41,6 +42,8 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
                 [SMId::Deposit(deposit_idx)].into_iter().chain(graph_ids)
             })
             .collect(),
+
+        UnifiedEvent::MosaicEvent(evt) => route_mosaic_event(registry, evt),
 
         UnifiedEvent::OuroborosMessage(msg) => route_gossipsub_msg(registry, &msg.publish),
         UnifiedEvent::GossipMessage(gossipsub_msg) => {
@@ -104,6 +107,21 @@ fn route_gossipsub_msg(
                 "dropping nag request in router: target state machine not found"
             );
         }
+        vec![]
+    }
+}
+
+fn route_mosaic_event(registry: &SMRegistry, evt: &MosaicEvent) -> Vec<SMId> {
+    let MosaicEvent::AdaptorsVerified(graph_idx) = evt;
+    let sm_id = SMId::Graph(*graph_idx);
+    if registry.contains_id(&sm_id) {
+        vec![sm_id]
+    } else {
+        warn!(
+            target_sm = %sm_id,
+            "dropping mosaic adaptors verified event in router: target state machine not found"
+        );
+
         vec![]
     }
 }

@@ -3,12 +3,14 @@ import flexitest
 from constants import BRIDGE_NETWORK_SIZE
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
+from factory.mosaic import MosaicFactoryConfig
+from utils.mosaic import get_circuit_path, get_peer_configs
 from utils.utils import wait_until_bridge_ready
 
 from .asm_config import AsmEnvConfig
 from .base_env import BaseEnv
-from .basic_env import StrataLiveEnv
 from .btc_config import BitcoinEnvConfig
+from .live_env import StrataLiveEnv
 
 
 class BridgeNetworkEnv(BaseEnv):
@@ -40,10 +42,20 @@ class BridgeNetworkEnv(BaseEnv):
         fdb = self.setup_fdb(ectx, "network")
         svcs["fdb"] = fdb
 
+        mosaic_fac = ectx.get_factory("mosaic")
+        # Create mosaic factory config
+        mosaic_factory_config = MosaicFactoryConfig(
+            circuit_path=get_circuit_path(),
+            storage_cluster_file=fdb.props["cluster_file"],
+            all_peers=get_peer_configs(self.num_operators),
+        )
+
         # Create operators dynamically based on configuration
         for i in range(self.num_operators):
+            mosaic_service = mosaic_fac.create_mosaic_service(i, mosaic_factory_config)
+
             s2_service, bridge_node, asm_service = self.create_operator(
-                ectx, i, bitcoind.props, brpc, fdb.props
+                ectx, i, bitcoind.props, brpc, fdb.props, mosaic_service.props["rpc_url"]
             )
 
             # Fund operator
@@ -57,5 +69,6 @@ class BridgeNetworkEnv(BaseEnv):
             svcs[f"s2_{i}"] = s2_service
             svcs[f"bridge_node_{i}"] = bridge_node
             svcs["asm_rpc"] = asm_service
+            svcs[f"mosaic_{i}"] = mosaic_service
 
         return StrataLiveEnv(svcs, miner)
