@@ -9,8 +9,8 @@ from utils.utils import wait_until_bridge_ready
 
 from .asm_config import AsmEnvConfig
 from .base_env import BaseEnv
-from .basic_env import StrataLiveEnv
 from .btc_config import BitcoinEnvConfig
+from .live_env import StrataLiveEnv
 
 
 class BridgeNetworkEnv(BaseEnv):
