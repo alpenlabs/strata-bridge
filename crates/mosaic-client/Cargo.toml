@@ -7,13 +7,13 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+algebra.workspace = true
 strata-bridge-primitives = { workspace = true, features = ["async"] }
 strata-mosaic-client-api.workspace = true
 
 mosaic-rpc-api.workspace = true
 mosaic-rpc-types.workspace = true
 
-algebra.workspace = true
 async-trait.workspace = true
 hex.workspace = true
 tokio.workspace = true

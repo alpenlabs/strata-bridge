@@ -92,9 +92,9 @@ strata-checkpoint-types-ssz = { git = "https://github.com/alpenlabs/asm.git", re
 strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "124edbf43be12c2ebad4e5776727ba06259f8dfb" }
 
 # Dependencies from alpenlabs/mosaic
-mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "8f8c3d17ca022125ffefb1a555d6f8560ae2339b" }
-mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "8f8c3d17ca022125ffefb1a555d6f8560ae2339b" }
-mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "8f8c3d17ca022125ffefb1a555d6f8560ae2339b" }
+mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "25230aa65c7eadc5da36b8b45b6f7623f35de842" }
+mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "25230aa65c7eadc5da36b8b45b6f7623f35de842" }
+mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "25230aa65c7eadc5da36b8b45b6f7623f35de842" }
 
 # Dependencies from alpenlabs/strata-common
 strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }

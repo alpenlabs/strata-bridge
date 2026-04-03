@@ -41,7 +41,7 @@ pub type WithdrawalInputs = [u8; N_WITHDRAWAL_INPUT_WIRES];
 
 /// Txn sighashes to be used in adaptor signatures.
 pub type DepositSighashes = [Sighash; N_DEPOSIT_INPUT_WIRES + N_WITHDRAWAL_INPUT_WIRES];
-/// Completed adaptor signatures corresponding to the [`DeposiSighashes`].
+/// Completed adaptor signatures corresponding to the [`DepositSighashes`].
 pub type CompletedSignatures = [Signature; N_DEPOSIT_INPUT_WIRES + N_WITHDRAWAL_INPUT_WIRES];
 
 /// Raw Groth16 proof bytes.
