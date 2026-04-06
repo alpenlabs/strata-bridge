@@ -17,7 +17,7 @@ from utils.utils import (
     wait_for_tx_confirmation,
     wait_until,
 )
-from utils.withdrawal import wait_until_active_valid_claim
+from utils.withdrawal import wait_until_active_valid_claim, wait_until_bridge_proof_posted
 
 
 @flexitest.register
@@ -136,8 +136,21 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
         )
         self.logger.info(f"Contest tx {contest_txid} confirmed in block {contest_block_hash}")
 
+        # Verify the bridge state transitions to BridgeProofPosted before payout.
+        wait_until_bridge_proof_posted(bridge_rpc, active_claim.deposit_idx)
+        self.logger.info("pendingWithdrawalInfo confirms phase is bridge_proof_posted")
+
         # Wait for the deposit UTXO to be spent after the contested payout path completes.
         wait_until_deposit_utxo_spent(bitcoin_rpc, deposit_txid, timeout=450)
         self.logger.info("Deposit UTXO confirmed spent after contested payout")
+
+        # Verify pendingWithdrawals is empty after withdrawal completes.
+        wait_until(
+            lambda: len(bridge_rpc.stratabridge_pendingWithdrawals()) == 0,
+            timeout=60,
+            step=1,
+            error_msg="pendingWithdrawals did not become empty after withdrawal",
+        )
+        self.logger.info("pendingWithdrawals confirmed empty after withdrawal")
 
         return True
