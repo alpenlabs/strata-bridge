@@ -152,11 +152,10 @@ mod tests {
     fn test_assignment_invalid_from_other_states() {
         let desc = random_p2tr_desc();
 
-        let mut invalid_states: Vec<_> = pre_signing_states()
+        let invalid_states: Vec<_> = pre_signing_states()
             .into_iter()
             .filter(|s| !matches!(s, GraphState::GraphSigned { .. }))
             .collect();
-        invalid_states.extend(terminal_states());
 
         for state in invalid_states {
             test_graph_invalid_transition(GraphInvalidTransition {
@@ -175,7 +174,7 @@ mod tests {
     fn test_assignment_duplicate_from_post_assignment_states() {
         let desc = random_p2tr_desc();
 
-        let post_assignment_states = vec![
+        let mut post_assignment_states = vec![
             fulfilled_state(TEST_POV_IDX, generate_txid()),
             claimed_state(100, generate_txid(), vec![]),
             contested_state(),
@@ -185,6 +184,7 @@ mod tests {
             all_nackd_state(),
             acked_state(),
         ];
+        post_assignment_states.extend(terminal_states());
 
         for state in post_assignment_states {
             test_graph_invalid_transition(GraphInvalidTransition {
