@@ -608,7 +608,11 @@ impl GraphSM {
             | GraphState::BridgeProofTimedout { .. }
             | GraphState::CounterProofPosted { .. }
             | GraphState::AllNackd { .. }
-            | GraphState::Acked { .. } => Err(GSMError::duplicate(
+            | GraphState::Acked { .. }
+            // Terminal states: the graph has completed its lifecycle.
+            | GraphState::Withdrawn { .. }
+            | GraphState::Slashed { .. }
+            | GraphState::Aborted { .. } => Err(GSMError::duplicate(
                 self.state().clone(),
                 assignment_event.into(),
             )),
