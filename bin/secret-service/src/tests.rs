@@ -10,10 +10,10 @@ use std::{
 use bitcoin::{
     hashes::Hash,
     key::{Parity, Secp256k1, TapTweak},
-    Network, OutPoint, Txid, XOnlyPublicKey,
+    Network, OutPoint, TapNodeHash, Txid, XOnlyPublicKey,
 };
 use musig2::{
-    secp256k1::{Message, SecretKey, SECP256K1},
+    secp256k1::{Message, Scalar, SecretKey, SECP256K1},
     AggNonce, FirstRound, KeyAggContext, LiftedSignature, PartialSignature, SecNonceSpices,
 };
 use rand::{thread_rng, Rng};
@@ -179,6 +179,103 @@ async fn schnorr_signers() {
     for handle in handles {
         handle.await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn schnorr_signers_with_key_tweak() {
+    let client = setup().await;
+
+    let general_wallet_signer = client.general_wallet_signer();
+    let stakechain_wallet_signer = client.stakechain_wallet_signer();
+    let musig2_signer = client.musig2_signer();
+    let general_pubkey = general_wallet_signer.pubkey().await.expect("good response");
+    let stakechain_pubkey = stakechain_wallet_signer
+        .pubkey()
+        .await
+        .expect("good response");
+    let musig2_pubkey = musig2_signer.pubkey().await.expect("good response");
+
+    let key_tweak = [1u8; 32];
+    let scalar = Scalar::from_be_bytes(key_tweak).expect("valid scalar");
+
+    // Compute key-tweaked pubkeys
+    let general_key_tweaked = general_pubkey
+        .add_tweak(SECP256K1, &scalar)
+        .expect("valid tweak")
+        .0;
+    let stakechain_key_tweaked = stakechain_pubkey
+        .add_tweak(SECP256K1, &scalar)
+        .expect("valid tweak")
+        .0;
+    let musig2_key_tweaked = musig2_pubkey
+        .add_tweak(SECP256K1, &scalar)
+        .expect("valid tweak")
+        .0;
+
+    let secp_ctx = Secp256k1::verification_only();
+    let to_sign: [u8; 32] = thread_rng().gen();
+    let msg = Message::from_digest(to_sign);
+    let tap_hash = TapNodeHash::from_byte_array(thread_rng().gen());
+
+    // sign general wallet with key tweak
+    let (expected, _) = general_key_tweaked.tap_tweak(SECP256K1, None);
+    let sig = general_wallet_signer
+        .sign_with_key_tweak(&to_sign, &key_tweak, None)
+        .await
+        .expect("good response");
+    assert!(secp_ctx
+        .verify_schnorr(&sig, &msg, &expected.to_x_only_public_key())
+        .is_ok());
+
+    // sign general wallet with key tweak and tap tweak
+    let (expected, _) = general_key_tweaked.tap_tweak(SECP256K1, Some(tap_hash));
+    let sig = general_wallet_signer
+        .sign_with_key_tweak(&to_sign, &key_tweak, Some(tap_hash))
+        .await
+        .expect("good response");
+    assert!(secp_ctx
+        .verify_schnorr(&sig, &msg, &expected.to_x_only_public_key())
+        .is_ok());
+
+    // sign stakechain wallet with key tweak
+    let (expected, _) = stakechain_key_tweaked.tap_tweak(SECP256K1, None);
+    let sig = stakechain_wallet_signer
+        .sign_with_key_tweak(&to_sign, &key_tweak, None)
+        .await
+        .expect("good response");
+    assert!(secp_ctx
+        .verify_schnorr(&sig, &msg, &expected.to_x_only_public_key())
+        .is_ok());
+
+    // sign stakechain wallet with key tweak and tap tweak
+    let (expected, _) = stakechain_key_tweaked.tap_tweak(SECP256K1, Some(tap_hash));
+    let sig = stakechain_wallet_signer
+        .sign_with_key_tweak(&to_sign, &key_tweak, Some(tap_hash))
+        .await
+        .expect("good response");
+    assert!(secp_ctx
+        .verify_schnorr(&sig, &msg, &expected.to_x_only_public_key())
+        .is_ok());
+
+    // sign musig2 with key tweak
+    let (expected, _) = musig2_key_tweaked.tap_tweak(SECP256K1, None);
+    let sig = musig2_signer
+        .sign_with_key_tweak(&to_sign, &key_tweak, None)
+        .await
+        .expect("good response");
+    assert!(secp_ctx
+        .verify_schnorr(&sig, &msg, &expected.to_x_only_public_key())
+        .is_ok());
+
+    // sign musig2 with key tweak and tap tweak
+    let (expected, _) = musig2_key_tweaked.tap_tweak(SECP256K1, Some(tap_hash));
+    let sig = musig2_signer
+        .sign_with_key_tweak(&to_sign, &key_tweak, Some(tap_hash))
+        .await
+        .expect("good response");
+    assert!(secp_ctx
+        .verify_schnorr(&sig, &msg, &expected.to_x_only_public_key())
+        .is_ok());
 }
 
 #[tokio::test]
