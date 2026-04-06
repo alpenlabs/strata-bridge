@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn test_payout_from_bridge_proof_posted() {
         let graph_summary = test_graph_summary();
-        let payout_txid = graph_summary.uncontested_payout;
+        let payout_txid = graph_summary.contested_payout;
 
         test_graph_transition(GraphTransition {
             from_state: GraphState::BridgeProofPosted {

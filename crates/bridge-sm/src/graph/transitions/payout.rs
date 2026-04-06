@@ -31,11 +31,11 @@ impl GraphSM {
                 Ok(GSMOutput::new())
             }
             GraphState::BridgeProofPosted { graph_summary, .. } => {
-                if payout_event.payout_txid != graph_summary.uncontested_payout {
+                if payout_event.payout_txid != graph_summary.contested_payout {
                     return Err(GSMError::rejected(
                         self.state().clone(),
                         payout_event.into(),
-                        "Invalid uncontested payout transaction",
+                        "Invalid contested payout transaction",
                     ));
                 }
 
