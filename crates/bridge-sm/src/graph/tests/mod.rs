@@ -8,6 +8,7 @@ pub(super) mod utils;
 mod deposit_signal;
 mod notify_new_block;
 mod process_payout;
+mod process_payout_connector_spent;
 mod tx_classifier;
 
 use std::{num::NonZero, sync::Arc};
