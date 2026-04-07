@@ -2,7 +2,7 @@ use tracing::warn;
 
 use crate::graph::{
     errors::{GSMError, GSMResult},
-    events::PayoutConfirmedEvent,
+    events::{PayoutConfirmedEvent, PayoutConnectorSpentEvent},
     machine::{GSMOutput, GraphSM},
     state::GraphState,
 };
@@ -76,6 +76,43 @@ impl GraphSM {
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 payout_event.into(),
+                None,
+            )),
+        }
+    }
+
+    /// Processes the event where the payout connector has been spent by an
+    /// unexpected transaction.
+    ///
+    /// Note: The ordering of payout checks vs payout connector spent checks is
+    /// enforced by the tx_classifier, which checks for valid payout transactions
+    /// before checking for payout connector spend.
+    pub(crate) fn process_payout_connector_spent(
+        &mut self,
+        event: PayoutConnectorSpentEvent,
+    ) -> GSMResult<GSMOutput> {
+        match self.state() {
+            // States that can observe payout connector spend
+            GraphState::Claimed { .. }
+            | GraphState::Contested { .. }
+            | GraphState::BridgeProofPosted { .. }
+            | GraphState::BridgeProofTimedout { .. }
+            | GraphState::CounterProofPosted { .. } => {
+                self.state = GraphState::Aborted {
+                    payout_connector_spend_txid: event.spending_txid,
+                    reason: "Payout connector spent".to_string(),
+                };
+
+                Ok(GSMOutput::new())
+            }
+            // Already aborted - duplicate event
+            GraphState::Aborted { .. } => {
+                Err(GSMError::duplicate(self.state().clone(), event.into()))
+            }
+            // Invalid state for this event
+            _ => Err(GSMError::invalid_event(
+                self.state().clone(),
+                event.into(),
                 None,
             )),
         }
