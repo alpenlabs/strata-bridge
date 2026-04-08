@@ -125,10 +125,12 @@ impl DepositSM {
                     fulfillment_height: fulfillment.fulfillment_height,
                     cooperative_payout_deadline: cooperative_payment_deadline,
                 };
-                // Dispatch the duty to request the payout nonces if the assignee is the pov
-                // operator, otherwise no duties or signals need to be dispatched.
+                // Dispatch the duty to request the payout nonces if:
+                // 1. The assignee is the pov operator, AND
+                // 2. The cooperative payout timeout is non-zero (otherwise skip the cooperative
+                //    path)
                 let pov_operator_idx = self.context.operator_table().pov_idx();
-                if pov_operator_idx == assignee {
+                if pov_operator_idx == assignee && timeout > 0 {
                     Ok(DSMOutput::with_duties(vec![
                         DepositDuty::RequestPayoutNonces {
                             deposit_idx: self.context.deposit_idx(),
