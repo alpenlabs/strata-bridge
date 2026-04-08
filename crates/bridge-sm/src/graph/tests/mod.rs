@@ -14,7 +14,7 @@ mod tx_classifier;
 use std::{num::NonZero, sync::Arc};
 
 use bitcoin::{
-    Amount, Network, OutPoint, ScriptBuf, Transaction,
+    Amount, Network, OutPoint, ScriptBuf, Transaction, TxIn,
     hashes::{Hash, sha256},
     relative,
 };
@@ -223,6 +223,26 @@ pub(super) fn test_bridge_proof_tx() -> Transaction {
     tx.output.push(bitcoin::TxOut {
         value: Amount::from_sat(0),
         script_pubkey: proof_output,
+    });
+
+    tx
+}
+
+pub(super) fn test_bridge_proof_timeout_tx() -> Transaction {
+    let mut tx = generate_spending_tx(
+        OutPoint {
+            txid: test_graph_summary().contest,
+            vout: ContestTx::PROOF_VOUT,
+        },
+        &[],
+    );
+
+    tx.input.push(TxIn {
+        previous_output: OutPoint {
+            txid: test_graph_summary().contest,
+            vout: ContestTx::PAYOUT_VOUT,
+        },
+        ..Default::default()
     });
 
     tx
