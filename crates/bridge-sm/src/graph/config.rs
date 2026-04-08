@@ -39,6 +39,6 @@ pub struct GraphSMCfg {
     /// Descriptor to which payouts are to be sent in case of a successful peg out.
     pub payout_descs: Vec<Descriptor>,
 
-    /// Predicate key used to verify bridge proofs.
+    /// Predicate key used to verify bridge proof.
     pub bridge_proof_predicate: PredicateKey,
 }

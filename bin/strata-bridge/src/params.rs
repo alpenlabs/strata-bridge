@@ -80,7 +80,7 @@ pub(crate) struct ProtocolParams {
     /// becomes viable.
     pub contested_payout_timelock: u16,
 
-    /// Predicate key used to verify bridge proofs.
+    /// Predicate key used to verify bridge proof.
     #[serde(default = "PredicateKey::always_accept")]
     pub bridge_proof_predicate: PredicateKey,
 }
