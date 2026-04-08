@@ -181,7 +181,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     .map_err(MosaicError::rpc_error)
                     .and_then(|maybe_status| {
                         maybe_status.ok_or_else(|| {
-                            MosaicError::DepositMissing(operator_idx, Role::Garbler, deposit_idx)
+                            MosaicError::DepositMissing(operator_idx, Role::Evaluator, deposit_idx)
                         })
                     })
             }
@@ -454,7 +454,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                         .map_err(MosaicError::rpc_error)
                         .and_then(|maybe_status| {
                             maybe_status.ok_or_else(|| {
-                                MosaicError::SetupMissing(operator_idx, Role::Garbler)
+                                MosaicError::SetupMissing(operator_idx, Role::Evaluator)
                             })
                         })
                 }

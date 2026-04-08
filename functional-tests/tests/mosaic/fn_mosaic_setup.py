@@ -25,7 +25,7 @@ class MosaicSetupTest(StrataTestBase):
         for i in range(num_nodes):
             svc = ctx.get_service(f"mosaic_{i}")
             rpc = svc.create_rpc()
-            self.wait_unit_mosaic_ready(rpc)
+            self.wait_until_mosaic_ready(rpc)
             rpcs[i] = rpc
 
         # Get peer IDs
@@ -67,7 +67,7 @@ class MosaicSetupTest(StrataTestBase):
 
         return True
 
-    def wait_unit_mosaic_ready(self, mosaic_rpc, timeout=60):
+    def wait_until_mosaic_ready(self, mosaic_rpc, timeout=60):
         """Wait until MOSAIC RPC service responds."""
 
         def check_ready():
