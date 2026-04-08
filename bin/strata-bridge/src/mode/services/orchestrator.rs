@@ -66,7 +66,7 @@ pub(crate) async fn init_orchestrator(
         })
         .min()
         .unwrap_or(params.genesis_height);
-    let zmq_client = init_zmq_client(config, start_height).await?;
+    let zmq_client = init_zmq_client(config, params.protocol.bury_depth, start_height).await?;
 
     let (ouroboros_msg_sender, ouroboros_msg_receiver) = mpsc::unbounded_channel();
     let message_handler =

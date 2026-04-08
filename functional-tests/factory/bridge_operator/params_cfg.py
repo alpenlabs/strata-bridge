@@ -20,6 +20,7 @@ class Keys:
 
 @dataclass
 class BridgeProtocolParams:
+    bury_depth: int = 2
     magic_bytes: str = ASM_MAGIC_BYTES
     deposit_amount: int = 1_000_000_000
     stake_amount: int = 100_000_000

@@ -54,6 +54,10 @@ impl Params {
 /// break consensus among bridge operators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtocolParams {
+    /// The number of blocks that must be built on top of a block before the bridge considers it
+    /// "final".
+    pub bury_depth: usize,
+
     /// The "magic bytes" used in the OP_RETURN of the transactions to identify it as relevant to
     /// the bridge.
     #[serde(serialize_with = "serialize_magic_bytes")]
@@ -286,6 +290,7 @@ mod tests {
             payout_descriptor = "{desc_2}"
 
             [protocol]
+            bury_depth = 6
             magic_bytes = "ALPN"
             deposit_amount = {deposit_amount}
             stake_amount = 100_000_000
@@ -322,6 +327,8 @@ mod tests {
             2,
             "must have 2 covenant key entries"
         );
+
+        assert_eq!(params.protocol.bury_depth, 6, "bury depth must round-trip");
     }
 
     /// Construct a P2TR BOSD descriptor string from an x-only public key hex string.

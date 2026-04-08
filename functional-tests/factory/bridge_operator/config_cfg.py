@@ -62,7 +62,6 @@ class RpcConfig:
 
 @dataclass
 class BtcZmqConfig:
-    bury_depth: int
     hashblock_connection_string: str
     hashtx_connection_string: str
     rawblock_connection_string: str
@@ -99,7 +98,6 @@ class BridgeConfigParams:
     min_withdrawal_fulfillment_window: int = 144
     cooperative_payout_timeout: int = 144
     max_fee_rate: int = 10
-    bury_depth: int = 2
 
 
 @dataclass

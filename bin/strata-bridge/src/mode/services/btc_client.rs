@@ -6,7 +6,10 @@ use algebra::retry::{Strategy, retry_with};
 use anyhow::anyhow;
 use bitcoin::Block;
 use bitcoind_async_client::{Auth, Client as BitcoinClient, error::ClientError, traits::Reader};
-use btc_tracker::client::{BlockFetcher, BtcNotifyClient, Connected};
+use btc_tracker::{
+    client::{BlockFetcher, BtcNotifyClient, Connected},
+    config::BtcNotifyConfig,
+};
 
 use crate::config::Config;
 
@@ -31,17 +34,45 @@ pub(in crate::mode) fn init_btc_rpc_client(config: &Config) -> anyhow::Result<Bi
 /// specified height.
 pub(in crate::mode) async fn init_zmq_client(
     config: &Config,
+    bury_depth: usize,
     start_height: u64,
 ) -> anyhow::Result<BtcNotifyClient<Connected>> {
     // We have no awareness of what blocks are unburied at startup, so we start with an empty list.
     let unburied_blocks = VecDeque::new();
-    let zmq_client = BtcNotifyClient::new(&config.btc_zmq, unburied_blocks);
+    let zmq_cfg = btc_notify_config(config, bury_depth);
+    let zmq_client = BtcNotifyClient::new(&zmq_cfg, unburied_blocks);
 
     let btc_rpc_client = init_btc_rpc_client(config)?;
     zmq_client
         .connect(start_height, BtcFetcher(btc_rpc_client.clone()))
         .await
         .map_err(|e| anyhow!("zmq client could not connect to bitcoin node due to {e:?}"))
+}
+
+fn btc_notify_config(config: &Config, bury_depth: usize) -> BtcNotifyConfig {
+    let mut zmq_cfg = BtcNotifyConfig::default().with_bury_depth(bury_depth);
+
+    if let Some(conn) = &config.btc_zmq.hashblock_connection_string {
+        zmq_cfg = zmq_cfg.with_hashblock_connection_string(conn);
+    }
+
+    if let Some(conn) = &config.btc_zmq.hashtx_connection_string {
+        zmq_cfg = zmq_cfg.with_hashtx_connection_string(conn);
+    }
+
+    if let Some(conn) = &config.btc_zmq.rawblock_connection_string {
+        zmq_cfg = zmq_cfg.with_rawblock_connection_string(conn);
+    }
+
+    if let Some(conn) = &config.btc_zmq.rawtx_connection_string {
+        zmq_cfg = zmq_cfg.with_rawtx_connection_string(conn);
+    }
+
+    if let Some(conn) = &config.btc_zmq.sequence_connection_string {
+        zmq_cfg = zmq_cfg.with_sequence_connection_string(conn);
+    }
+
+    zmq_cfg
 }
 
 #[derive(Debug)]
