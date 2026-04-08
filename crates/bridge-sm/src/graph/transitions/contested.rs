@@ -210,6 +210,50 @@ impl GraphSM {
         }
     }
 
+    /// Processes the event where a counterproof transaction has been confirmed on-chain.
+    pub(crate) fn process_counterproof(
+        &mut self,
+        _cfg: Arc<GraphSMCfg>,
+        event: CounterProofConfirmedEvent,
+    ) -> GSMResult<GSMOutput> {
+        self.check_operator_idx(event.counterprover_idx, &event)?;
+
+        match self.state.clone() {
+            GraphState::BridgeProofPosted {
+                graph_data: _,
+                graph_summary: _,
+                signatures: _,
+                fulfillment_txid: _,
+                contest_block_height: _,
+                ..
+            } => {
+                todo!(
+                    "Handle first counterproof: validate txid, transition to CounterProofPosted, emit PublishCounterProofNack duty for POV"
+                )
+            }
+            GraphState::CounterProofPosted {
+                counterproofs_and_confs,
+                graph_data: _,
+                graph_summary: _,
+                signatures: _,
+                fulfillment_txid: _,
+                contest_block_height: _,
+                counterproof_nacks: _,
+                ..
+            } => {
+                // Reject duplicate counterproofs from the same operator
+                if counterproofs_and_confs.contains_key(&event.counterprover_idx) {
+                    return Err(GSMError::duplicate(self.state.clone(), event.into()));
+                }
+
+                todo!(
+                    "Handle additional counterproof: validate txid, update counterproofs_and_confs, emit PublishCounterProofNack duty for POV"
+                )
+            }
+            state => Err(GSMError::invalid_event(state, event.into(), None)),
+        }
+    }
+
     /// Processes the event where a counterproof ACK transaction has been confirmed on-chain.
     ///
     /// Only valid from the `CounterProofPosted` state, transitioning to `Acked`.
