@@ -9,11 +9,10 @@ use algebra::category;
 use bitcoin::{Network, XOnlyPublicKey};
 use musig2::KeyAggContext;
 use serde::{Deserialize, Serialize};
-use strata_bridge_types::PublickeyTable;
 
 use crate::{
     build_context::TxBuildContext,
-    types::{OperatorIdx, P2POperatorPubKey},
+    types::{OperatorIdx, P2POperatorPubKey, PublickeyTable},
 };
 
 type OperatorTableEntry = (OperatorIdx, P2POperatorPubKey, secp256k1::PublicKey);
@@ -147,7 +146,7 @@ impl OperatorTable {
 
     /// Returns the public key table for the operators in the table.
     pub fn public_key_table(&self) -> PublickeyTable {
-        PublickeyTable(self.idx_key.iter().map(|(k, v)| (*k, v.1.into())).collect())
+        PublickeyTable(self.idx_key.iter().map(|(k, v)| (*k, v.1)).collect())
     }
 
     /// Returns the aggregated bitcoin public key for the operators in the table.

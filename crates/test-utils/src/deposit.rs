@@ -11,16 +11,15 @@ use strata_bridge_primitives::{
         general::{drt_take_back, get_aggregated_pubkey},
         prelude::{create_taproot_addr, SpendPath},
     },
-    types::OperatorIdx,
+    types::{OperatorIdx, PublickeyTable},
 };
-use strata_bridge_types::PublickeyTable;
 
 /// Generates a public key table from a slice of public keys.
 pub fn generate_pubkey_table(table: &[PublicKey]) -> PublickeyTable {
     let pubkey_table = table
         .iter()
         .enumerate()
-        .map(|(i, pk)| (i as OperatorIdx, (*pk).into()))
+        .map(|(i, pk)| (i as OperatorIdx, *pk))
         .collect::<BTreeMap<OperatorIdx, _>>();
 
     PublickeyTable::from(pubkey_table)
@@ -32,7 +31,7 @@ pub fn create_drt_taproot_output(
     recovery_xonly_pubkey: XOnlyPublicKey,
     refund_delay: u16,
 ) -> (BitcoinAddress, TapNodeHash) {
-    let aggregated_pubkey = get_aggregated_pubkey(pubkeys.0.values().map(|k| k.as_ref()).cloned());
+    let aggregated_pubkey = get_aggregated_pubkey(pubkeys.0.values().copied());
     let takeback_script = drt_take_back(recovery_xonly_pubkey, refund_delay);
     let takeback_script_hash = TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
 

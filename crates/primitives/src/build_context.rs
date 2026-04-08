@@ -2,9 +2,11 @@
 
 use bitcoin::Network;
 use secp256k1::XOnlyPublicKey;
-use strata_bridge_types::PublickeyTable;
 
-use crate::{scripts::general::get_aggregated_pubkey, types::OperatorIdx};
+use crate::{
+    scripts::general::get_aggregated_pubkey,
+    types::{OperatorIdx, PublickeyTable},
+};
 
 /// Provides methods that allows access to components required to build a transaction in the context
 /// of a bitcoin MuSig2 address.
@@ -52,8 +54,7 @@ impl TxBuildContext {
     /// Create a new [`TxBuildContext`] with the context required to build transactions of various
     /// kinds.
     pub fn new(network: Network, operator_pubkeys: PublickeyTable, own_index: OperatorIdx) -> Self {
-        let aggregated_pubkey =
-            get_aggregated_pubkey(operator_pubkeys.0.values().map(|k| k.as_ref()).cloned());
+        let aggregated_pubkey = get_aggregated_pubkey(operator_pubkeys.0.values().copied());
 
         Self {
             network,
