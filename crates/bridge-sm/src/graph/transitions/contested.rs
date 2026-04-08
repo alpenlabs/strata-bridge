@@ -102,13 +102,13 @@ impl GraphSM {
 
                 let is_watchtower =
                     self.context().operator_idx() != self.context().operator_table().pov_idx();
-                let is_proof_invalid =
+                let is_proof_valid =
                     verify_bridge_proof(&cfg.bridge_proof_predicate, &bridge_proof);
 
                 let mut duties = Vec::new();
 
                 // Watchtower challenges an invalid bridge proof by publishing a counterproof
-                if is_watchtower && !is_proof_invalid {
+                if is_watchtower && !is_proof_valid {
                     let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
                     let watchtower_idx = self.context().watchtower_index();
 
