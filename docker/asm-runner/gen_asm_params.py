@@ -11,7 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 import logging
 
-from asm_params import build_genesis_l1_view
+from asm_params import build_l1_anchor
 
 
 def parse_args() -> argparse.Namespace:
@@ -133,7 +133,7 @@ def validate_params(asm_params: dict, bridge_params: dict) -> None:
             # TODO: <https://atlassian.alpenlabs.net/browse/STR-2572>
             # set these to be equal after the above bug is fixed
             # for now, just check that the ASM genesis height is 1 less than the Bridge genesis height
-            asm_params["l1_view"]["blk"]["height"],  # must start sooner
+            asm_params["anchor"]["block"]["height"],  # must start sooner
             bridge_params["genesis_height"] - 1,
         ),
         ("denomination", asm["denomination"], bridge["deposit_amount"]),
@@ -170,7 +170,7 @@ def main() -> None:
     logging.info("Validating ASM params against Bridge params")
     validate_params(params, bridge_params)
 
-    genesis_height = params["l1_view"]["blk"]["height"]
+    genesis_height = params["anchor"]["block"]["height"]
 
     logging.info("Waiting for bitcoind to be ready")
     wait_for_bitcoind(config["bitcoin"], args.timeout_secs)
@@ -182,9 +182,7 @@ def main() -> None:
     block_hash, header = fetch_chain_context(config["bitcoin"], genesis_height)
 
     logging.info("Updating ASM params with chain context")
-    params["l1_view"] = asdict(
-        build_genesis_l1_view(genesis_height, block_hash, header)
-    )
+    params["anchor"] = asdict(build_l1_anchor(genesis_height, block_hash, header))
 
     logging.info(f"Writing updated ASM params to {params_path}")
     params_path.write_text(json.dumps(params, indent=4) + "\n")
