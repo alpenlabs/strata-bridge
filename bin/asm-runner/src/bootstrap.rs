@@ -11,7 +11,7 @@ use crate::{
     block_driver::{drive_asm_from_btc_tracker, setup_btc_tracker},
     config::{AsmRpcConfig, BitcoinConfig},
     rpc_server::run_rpc_server,
-    storage::create_storage_managers,
+    storage::create_storage,
     worker_context::AsmWorkerContext,
 };
 pub(crate) async fn bootstrap(
@@ -19,8 +19,8 @@ pub(crate) async fn bootstrap(
     params: AsmParams,
     executor: TaskExecutor,
 ) -> Result<()> {
-    // 1. Create storage managers (AsmStateManager + MmrHandle)
-    let (asm_manager, mmr_handle) = create_storage_managers(&config.database)?;
+    // 1. Create storage
+    let (state_db, mmr_db) = create_storage(&config.database)?;
 
     // 2. Connect to Bitcoin node
     let bitcoin_client = Arc::new(connect_bitcoin(&config.bitcoin).await?);
@@ -30,8 +30,8 @@ pub(crate) async fn bootstrap(
     let worker_context = AsmWorkerContext::new(
         runtime_handle.clone(),
         bitcoin_client.clone(),
-        asm_manager.clone(),
-        mmr_handle,
+        state_db.clone(),
+        mmr_db.clone(),
     );
 
     // 4. Launch ASM worker
@@ -43,7 +43,7 @@ pub(crate) async fn bootstrap(
     // 5. Set up BtcTracker to drive ASM
     let start_height = match asm_worker.monitor().get_current().cur_block {
         Some(blk) => blk.height(),
-        None => params.l1_view.height(),
+        None => params.anchor.block.height() + 1,
     };
     let btc_tracker = Arc::new(
         setup_btc_tracker(&config.bitcoin, bitcoin_client.clone(), start_height as u64).await?,
@@ -63,7 +63,7 @@ pub(crate) async fn bootstrap(
     let rpc_port = config.rpc.port;
     executor.spawn_critical_async(
         "rpc_server",
-        run_rpc_server(asm_manager, asm_worker, bitcoin_client, rpc_host, rpc_port),
+        run_rpc_server(state_db, asm_worker, bitcoin_client, rpc_host, rpc_port),
     );
 
     Ok(())
