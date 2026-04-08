@@ -25,10 +25,7 @@ pub enum Role {
 
 impl std::fmt::Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Role::Garbler => f.write_str("Garbler"),
-            Role::Evaluator => f.write_str("Evaluator"),
-        }
+        write!(f, "{:?}", self)
     }
 }
 
