@@ -112,7 +112,7 @@ impl CounterproofTx {
                 0,
             )
             .into_iter()
-            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2708>
+            // TODO: <https://alpenlabs.atlassian.net/browse/STR-2708>
             // Avoid this allocation.
             .collect()
     }

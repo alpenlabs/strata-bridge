@@ -64,7 +64,7 @@ pub(super) async fn generate_and_publish_bridge_proof(
         "generating and publishing bridge proof transaction"
     );
 
-    // TODO: <https://atlassian.alpenlabs.net/browse/STR-1977>
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-1977>
     // Replace with real ZK proof generation.
     let proof_bytes: Vec<u8> = vec![0u8; 32];
 

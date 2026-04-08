@@ -78,7 +78,7 @@ mod tests {
         state
     }
 
-    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2678>
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2678>
     // Add a proptest asserting that `NewBlock` events with
     // `block_height <= last_processed_block_height` are rejected and otherwise update
     // `last_block_height`.

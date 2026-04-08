@@ -20,7 +20,7 @@ pub struct OutputHandles {
     pub wallet: RwLock<OperatorWallet>,
 
     /// Handle for accessing the database.
-    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2670>
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2670>
     // Make this generic over `BridgeDb` instead of tying it to `FdbClient`.
     pub db: Arc<FdbClient>,
 

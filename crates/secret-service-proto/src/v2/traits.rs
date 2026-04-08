@@ -12,7 +12,7 @@ use terrors::OneOf;
 
 use super::wire::ServerMessage;
 
-// FIXME: <https://atlassian.alpenlabs.net/browse/STR-2705>
+// FIXME: <https://alpenlabs.atlassian.net/browse/STR-2705>
 // Revisit this once rust-lang/rust#63063 is stabilized.
 // pub type AsyncResult<T, E = ()> = impl Future<Output = Result<T, E>>;
 

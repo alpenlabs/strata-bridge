@@ -34,7 +34,7 @@ mod signer {
         /// Connector of the signer.
         type Connector: Connector;
 
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2694>
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2694>
         // Replace this with `arbitrary::Arbitrary`.
         /// Generates a random signer instance.
         fn generate() -> Self;
@@ -160,7 +160,7 @@ impl Default for BitcoinNode {
 }
 
 impl BitcoinNode {
-    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2695>
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2695>
     // Accept an `Option<Conf>` argument.
     /// Creates a new bitcoin node.
     ///

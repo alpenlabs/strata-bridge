@@ -54,7 +54,7 @@ impl Default for LoggerConfig {
 pub fn init(config: LoggerConfig) {
     let filt = tracing_subscriber::EnvFilter::from_default_env();
 
-    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2693>
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2693>
     // Switch to using subscribers everywhere instead of layers.
     //let mut loggers: Vec<Box<dyn tracing::Subscriber + 'static>> = Vec::new();
 

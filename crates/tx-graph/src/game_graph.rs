@@ -659,7 +659,7 @@ mod tests {
             slash_watchtower_descriptors: vec![wallet_descriptor; N_WATCHTOWERS],
         };
 
-        // FIXME: <https://atlassian.alpenlabs.net/browse/STR-2707>
+        // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2707>
         // Avoid having to recreate the connectors.
         let deposit_connector =
             NOfNConnector::new(protocol.network, keys.n_of_n_pubkey, DEPOSIT_AMOUNT);

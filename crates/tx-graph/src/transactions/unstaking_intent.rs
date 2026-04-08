@@ -40,7 +40,7 @@ impl UnstakingIntentData {
     }
 }
 
-// TODO: <https://atlassian.alpenlabs.net/browse/STR-2711>
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-2711>
 // Add a unit test proving the unstaking intent transaction can be parsed by ASM code.
 // https://github.com/alpenlabs/alpen/blob/b016495114050409e831898436d7d0ac04df8d82/crates/asm/txs/bridge-v1/src/unstake/parse.rs#L34
 /// The unstaking  intent transaction.

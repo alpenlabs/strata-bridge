@@ -87,7 +87,7 @@ pub(super) const TEST_ARBITRARY_OPERATOR_IDX: OperatorIdx = 1;
 const _: () = assert!(TEST_NONPOV_IDX != TEST_POV_IDX);
 // Compile-time assertion: TEST_NON_ASSIGNEE_IDX must differ from TEST_ASSIGNEE
 const _: () = assert!(TEST_NON_ASSIGNEE_IDX != TEST_ASSIGNEE);
-// TODO: <https://atlassian.alpenlabs.net/browse/STR-2672>
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-2672>
 // Remove this once rust-bitcoin@0.33.x lands; it works around rust-bitcoin issue #4148.
 const BIP34_MIN_BLOCK_HEIGHT: u64 = 17;
 /// Deadline offset (in blocks) used for tests.
@@ -490,7 +490,7 @@ pub(super) fn arb_terminal_state() -> impl Strategy<Value = DepositState> {
 }
 
 /// Strategy for generating only events which have been handled in STFs.
-// TODO: <https://atlassian.alpenlabs.net/browse/STR-2673>
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-2673>
 // Remove this once all STFs have been implemented.
 pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
     let outpoint = OutPoint::default();

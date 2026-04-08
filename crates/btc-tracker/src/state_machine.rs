@@ -10,7 +10,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::event::{BlockEvent, BlockStatus, TxEvent, TxStatus};
 
-// TODO: <https://atlassian.alpenlabs.net/browse/STR-2683>
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-2683>
 // Remove this once rust-bitcoin@0.33.x lands; it works around a rust-bitcoin bug.
 #[cfg(test)]
 pub(crate) const BIP34_MIN_HEIGHT: u64 = 17;
@@ -145,7 +145,7 @@ impl BtcNotifySM {
                 } else {
                     // This implies that we missed a block.
                     //
-                    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2684>
+                    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2684>
                     // Eliminate the race where concurrent stream processing can trigger this path
                     // during a reorg.
                     trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
@@ -153,7 +153,7 @@ impl BtcNotifySM {
                     debug_assert!(false, "block's previous block hash does not match the tip");
                 }
             }
-            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2685>
+            // TODO: <https://alpenlabs.atlassian.net/browse/STR-2685>
             // Handle reorgs close to startup when we do not yet have a full bury-depth of
             // history.
             None => {
@@ -421,7 +421,7 @@ impl BtcNotifySM {
                     // In this case we have received a MempoolAcceptance event for this txid, but
                     // haven't yet processed the accompanying rawtx event.
                     //
-                    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2686>
+                    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2686>
                     // Replace this panic-only assumption with explicit handling if
                     // `MempoolAcceptance` arrives before the corresponding `rawtx`.
                     Some(None) => {
