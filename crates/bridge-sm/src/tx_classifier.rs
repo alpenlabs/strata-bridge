@@ -65,11 +65,11 @@ pub fn is_deposit_spend(deposit_outpoint: OutPoint, tx: &Transaction) -> bool {
         .any(|input| input.previous_output == deposit_outpoint)
 }
 
-/// Checks if the transaction is a bridge proof transaction
+/// Checks if the transaction spends the contest proof connector (the output at a known vout of the
+/// contest transaction).
 ///
-/// A bridge proof transaction is not presigned (no fixed txid) but it spends the output of the
-/// contest transaction at a known vout.
-pub fn is_bridge_proof_tx(contest_txid: Txid, tx: &Transaction) -> bool {
+/// This is spent by either the `Bridge Proof` or `Bridge Proof Timeout` transaction.
+pub fn spends_contest_proof_connector(contest_txid: Txid, tx: &Transaction) -> bool {
     let contest_proof_outpoint = OutPoint {
         txid: contest_txid,
         vout: ContestTx::PROOF_VOUT,
