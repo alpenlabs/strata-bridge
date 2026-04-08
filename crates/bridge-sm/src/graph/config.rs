@@ -2,14 +2,14 @@
 
 use bitcoin::{Amount, XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
-use strata_bridge_primitives::proof::BridgeProofPredicate;
 use strata_bridge_tx_graph::game_graph::ProtocolParams;
+use strata_predicate::PredicateKey;
 
 /// Bridge-wide configuration shared across all graph state machines.
 ///
 /// These configurations are static over the lifetime of the bridge protocol
 /// and apply uniformly to all graph state machine instances.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphSMCfg {
     /// Parameters of the Game Graph that are inherent to the protocol.
     pub game_graph_params: ProtocolParams,
@@ -39,6 +39,6 @@ pub struct GraphSMCfg {
     /// Descriptor to which payouts are to be sent in case of a successful peg out.
     pub payout_descs: Vec<Descriptor>,
 
-    /// Predicate used to verify bridge proofs.
-    pub bridge_proof_predicate: BridgeProofPredicate,
+    /// Predicate key used to verify bridge proofs.
+    pub bridge_proof_predicate: PredicateKey,
 }
