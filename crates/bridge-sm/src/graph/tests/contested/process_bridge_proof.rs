@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use bitcoin::{Txid, hashes::Hash};
-use strata_bridge_primitives::proof::BridgeProofPredicate;
+use strata_predicate::{PredicateKey, PredicateTypeId};
 
 use crate::{
     graph::{
@@ -40,9 +40,7 @@ fn bridge_proof_event() -> BridgeProofConfirmedEvent {
 /// Creates a config with an invalid Sp1Groth16 vkey so proof verification always rejects.
 fn cfg_with_reject_predicate() -> Arc<crate::graph::config::GraphSMCfg> {
     let mut cfg = (*test_graph_sm_cfg()).clone();
-    cfg.bridge_proof_predicate = BridgeProofPredicate::Sp1Groth16 {
-        program_vk_hash: [0xAB; 32],
-    };
+    cfg.bridge_proof_predicate = PredicateKey::new(PredicateTypeId::Sp1Groth16, vec![0xAB; 32]);
     Arc::new(cfg)
 }
 
