@@ -8,18 +8,17 @@ use ssz::Encode;
 use strata_bridge_primitives::constants::BRIDGE_DENOMINATION;
 use strata_checkpoint_types_ssz::{
     compute_asm_manifests_hash, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
-    CheckpointTip, L2BlockRange, OLLog, SignedCheckpointPayload, TerminalHeaderComplement,
+    CheckpointTip, L2BlockRange, OLLog, SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
 };
+use strata_codec::encode_to_vec;
 use strata_crypto::hash;
-use strata_identifiers::{strata_codec::encode_to_vec, Buf32, Buf64, OLBlockCommitment, OLBlockId};
-use strata_ol_chain_types_new::SimpleWithdrawalIntentLogData;
-use strata_test_utils::ArbitraryGenerator;
+use strata_identifiers::{Buf32, OLBlockCommitment, OLBlockId};
+use strata_test_utils_arb::ArbitraryGenerator;
 
 use crate::handlers::checkpoint::constants::{BRIDGE_GATEWAY_ACCT_SERIAL, MOCK_PREDICATE_KEY};
 
 /// Builds mock signed checkpoint payloads for testing.
 pub(crate) struct MockCheckpointBuilder {
-    sequencer_predicate: SigningKey,
     checkpoint_predicate: SigningKey,
 }
 
@@ -30,7 +29,6 @@ impl MockCheckpointBuilder {
         let sk = SigningKey::from_bytes(&MOCK_PREDICATE_KEY).expect("invalid mock predicate key");
 
         Self {
-            sequencer_predicate: sk.clone(),
             checkpoint_predicate: sk,
         }
     }
@@ -126,16 +124,5 @@ impl MockCheckpointBuilder {
             .to_vec();
 
         CheckpointPayload::new(*new_tip, sidecar, proof).unwrap()
-    }
-
-    /// Signs a checkpoint payload with the sequencer predicate key.
-    pub(crate) fn sign_payload(&self, payload: CheckpointPayload) -> SignedCheckpointPayload {
-        let signature = self
-            .sequencer_predicate
-            .sign(&payload.as_ssz_bytes())
-            .to_vec();
-        let mut sig = [0u8; 64];
-        sig.copy_from_slice(&signature[..64]);
-        SignedCheckpointPayload::new(payload, Buf64::from(sig))
     }
 }

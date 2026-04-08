@@ -13,7 +13,6 @@ use futures::StreamExt;
 use strata_asm_worker::AsmWorkerHandle;
 use strata_btc_types::BlockHashExt;
 use strata_identifiers::L1BlockCommitment;
-use strata_state::BlockSubmitter;
 use tracing::{debug, error, info};
 
 use crate::config::BitcoinConfig;

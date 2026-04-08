@@ -10,7 +10,7 @@ use musig2::KeyAggContext;
 use secp256k1::{Keypair, Parity, XOnlyPublicKey, SECP256K1};
 use strata_asm_txs_bridge_v1::deposit_request::DrtHeaderAux;
 use strata_bridge_common::params::Params;
-use strata_identifiers::{AccountSerial, DepositDescriptor, SubjectIdBytes};
+use strata_codec::VarVec;
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 use tracing::info;
 
@@ -70,16 +70,11 @@ fn build_sps50_metadata(
     ee_address: &EvmAddress,
     recovery_pubkey: &XOnlyPublicKey,
 ) -> Result<Vec<u8>> {
-    let alpen_subject_bytes =
-        SubjectIdBytes::try_new(ee_address.to_vec()).expect("must be valid subject bytes");
-    let deposit_descriptor = DepositDescriptor::new(AccountSerial::zero(), alpen_subject_bytes)
-        .expect("AccountSerial::zero() is always within valid range");
+    let destination = VarVec::from_vec(ee_address.to_vec())
+        .expect("EVM address must fit in DRT destination bytes");
 
-    let header_aux = DrtHeaderAux::new(
-        recovery_pubkey.serialize(),
-        deposit_descriptor.encode_to_varvec(),
-    )
-    .expect("header aux creation should succeed");
+    let header_aux = DrtHeaderAux::new(recovery_pubkey.serialize(), destination)
+        .expect("header aux creation should succeed");
 
     let tag_data = header_aux.build_tag_data();
     let config = ParseConfig::new(magic_bytes);

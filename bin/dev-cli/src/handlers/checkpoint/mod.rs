@@ -3,10 +3,7 @@ use ssz::Encode;
 use strata_l1_txfmt::MagicBytes;
 use tracing::info;
 
-use crate::{
-    cli::CreateAndPublishMockCheckpointArgs,
-    handlers::{checkpoint::constants::BRIDGE_TAG, rpc::get_btc_client},
-};
+use crate::{cli::CreateAndPublishMockCheckpointArgs, handlers::checkpoint::constants::BRIDGE_TAG};
 
 mod constants;
 pub(crate) mod envelope;
@@ -26,10 +23,9 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
     }
 
     // Connect to bitcoind.
-    let btc_client = get_btc_client(
+    let btc_client = bitcoincore_rpc::Client::new(
         &args.btc_args.url,
-        args.btc_args.user.clone(),
-        args.btc_args.pass.clone(),
+        bitcoincore_rpc::Auth::UserPass(args.btc_args.user.clone(), args.btc_args.pass.clone()),
     )
     .context("failed to connect to bitcoind")?;
 
@@ -47,10 +43,9 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
         args.num_withdrawals,
         args.assignee_node_idx,
     );
-    let signed_payload = builder.sign_payload(payload);
 
     // Encode and broadcast via taproot envelope.
-    let encoded_checkpoint = signed_payload.as_ssz_bytes();
+    let encoded_checkpoint = payload.as_ssz_bytes();
     info!(
         epoch = new_tip.epoch,
         num_withdrawals = args.num_withdrawals,

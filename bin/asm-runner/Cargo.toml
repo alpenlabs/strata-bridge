@@ -11,6 +11,7 @@ btc-tracker.workspace = true
 strata-asm-rpc.workspace = true
 strata-bridge-common.workspace = true
 
+asm-storage.workspace = true
 strata-asm-common.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
@@ -20,24 +21,21 @@ strata-asm-txs-checkpoint.workspace = true
 strata-asm-worker.workspace = true
 strata-btc-types.workspace = true
 strata-checkpoint-types-ssz.workspace = true
-strata-db-store-sled.workspace = true
 strata-identifiers.workspace = true
 strata-merkle.workspace = true
-strata-state.workspace = true
-strata-storage.workspace = true
 strata-tasks.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
 bitcoin.workspace = true
 bitcoind-async-client.workspace = true
-borsh.workspace = true
 clap.workspace = true
 futures.workspace = true
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
 serde.workspace = true
 serde_json.workspace = true
-threadpool = "1.8"
+sled.workspace = true
+ssz.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
