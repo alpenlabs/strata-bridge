@@ -637,6 +637,7 @@ mod tests {
         prelude::generate_txid,
     };
     use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary, ProtocolParams};
+    use strata_predicate::PredicateKey;
 
     use super::{active_claim_from_state, aggregate_signatures_response, graph_data_response};
 
@@ -687,7 +688,7 @@ mod tests {
             admin_pubkey: generate_xonly_pubkey(),
             watchtower_fault_pubkeys: (0..2).map(|_| generate_xonly_pubkey()).collect(),
             payout_descs: (0..3).map(|_| random_p2tr_desc()).collect(),
-            bridge_proof_predicate: Default::default(),
+            bridge_proof_predicate: PredicateKey::always_accept(),
         }
     }
 

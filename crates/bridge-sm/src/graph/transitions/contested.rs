@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use strata_bridge_primitives::proof::verify_bridge_proof;
 use strata_bridge_tx_graph::game_graph::GameConnectors;
 
 use crate::graph::{
@@ -101,7 +102,8 @@ impl GraphSM {
 
                 let is_watchtower =
                     self.context().operator_idx() != self.context().operator_table().pov_idx();
-                let is_proof_invalid = cfg.bridge_proof_predicate.verify(&bridge_proof);
+                let is_proof_invalid =
+                    verify_bridge_proof(&cfg.bridge_proof_predicate, &bridge_proof);
 
                 let mut duties = Vec::new();
 

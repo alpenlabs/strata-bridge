@@ -11,10 +11,7 @@ use bitcoin::{
     hashes::{Hash, sha256},
     relative,
 };
-use strata_bridge_primitives::{
-    proof::BridgeProofPredicate,
-    types::{DepositIdx, GraphIdx, OperatorIdx},
-};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, machine::DepositSM},
     graph::{config::GraphSMCfg, context::GraphSMCtx, machine::GraphSM},
@@ -28,6 +25,7 @@ use strata_bridge_test_utils::{
     bitcoin::generate_xonly_pubkey, bridge_fixtures::TEST_RECOVERY_DELAY,
 };
 use strata_bridge_tx_graph::{game_graph::ProtocolParams, transactions::prelude::DepositData};
+use strata_predicate::PredicateKey;
 
 use crate::sm_registry::{SMConfig, SMRegistry};
 
@@ -83,7 +81,7 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
         operator_fee: TEST_OPERATOR_FEE,
         watchtower_fault_pubkeys,
         payout_descs,
-        bridge_proof_predicate: BridgeProofPredicate::AlwaysAccept,
+        bridge_proof_predicate: PredicateKey::always_accept(),
     })
 }
 

@@ -23,6 +23,7 @@ strata-bridge-primitives.workspace = true
 strata-bridge-rpc.workspace = true
 strata-bridge-sm.workspace = true
 strata-bridge-tx-graph.workspace = true
+strata-predicate.workspace = true
 
 strata-l1-txfmt.workspace = true
 strata-p2p.workspace = true

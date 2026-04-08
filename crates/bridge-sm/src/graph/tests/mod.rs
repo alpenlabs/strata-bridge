@@ -20,7 +20,6 @@ use bitcoin::{
 use musig2::secp256k1::schnorr::Signature;
 use secp256k1::SecretKey;
 use strata_bridge_primitives::{
-    proof::BridgeProofPredicate,
     secp::EvenSecretKey,
     types::{GraphIdx, OperatorIdx},
 };
@@ -34,6 +33,7 @@ use strata_bridge_tx_graph::{
     },
     transactions::prelude::{ClaimTx, ContestTx, CounterproofTx},
 };
+use strata_predicate::PredicateKey;
 use zkaleido::{Proof, ProofReceipt, PublicValues};
 
 pub(super) use crate::testing::fixtures::{
@@ -125,7 +125,7 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
         operator_fee: TEST_OPERATOR_FEE,
         watchtower_fault_pubkeys,
         payout_descs,
-        bridge_proof_predicate: BridgeProofPredicate::AlwaysAccept,
+        bridge_proof_predicate: PredicateKey::always_accept(),
     })
 }
 

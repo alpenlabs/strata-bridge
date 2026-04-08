@@ -12,6 +12,7 @@ strata-bridge-connectors.workspace = true
 strata-bridge-p2p-types.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-tx-graph.workspace = true
+strata-predicate.workspace = true
 
 strata-asm-common.workspace = true
 strata-asm-txs-bridge-v1.workspace = true

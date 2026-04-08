@@ -9,8 +9,8 @@ use bitcoin_bosd::Descriptor;
 use libp2p::identity::ed25519::PublicKey as Libp2pKey;
 use secp256k1::XOnlyPublicKey;
 use serde::{Deserialize, Deserializer, Serialize};
-use strata_bridge_primitives::proof::BridgeProofPredicate;
 use strata_l1_txfmt::MagicBytes;
+use strata_predicate::PredicateKey;
 
 /// The consensus-critical parameters that dictate the behavior of the bridge node.
 ///
@@ -80,9 +80,9 @@ pub(crate) struct ProtocolParams {
     /// becomes viable.
     pub contested_payout_timelock: u16,
 
-    /// Predicate used to verify bridge proofs.
-    #[serde(default)]
-    pub bridge_proof_predicate: BridgeProofPredicate,
+    /// Predicate key used to verify bridge proofs.
+    #[serde(default = "PredicateKey::always_accept")]
+    pub bridge_proof_predicate: PredicateKey,
 }
 
 /// The keys used by the operators.
