@@ -202,6 +202,7 @@ pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
             .iter()
             .map(|cov| cov.payout_descriptor.clone())
             .collect(),
+        bridge_proof_predicate: params.protocol.bridge_proof_predicate.clone(),
     };
 
     SMConfig {

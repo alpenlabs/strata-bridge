@@ -687,6 +687,7 @@ mod tests {
             admin_pubkey: generate_xonly_pubkey(),
             watchtower_fault_pubkeys: (0..2).map(|_| generate_xonly_pubkey()).collect(),
             payout_descs: (0..3).map(|_| random_p2tr_desc()).collect(),
+            bridge_proof_predicate: Default::default(),
         }
     }
 
