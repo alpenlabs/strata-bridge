@@ -1,6 +1,8 @@
 //! Proof-related types used across the bridge.
 
 use strata_identifiers::L1BlockCommitment;
+use strata_predicate::{PredicateKey, PredicateTypeId};
+use zkaleido::ProofReceipt;
 
 /// Predicate that determines how bridge proofs are verified.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default)]
@@ -14,6 +16,22 @@ pub enum BridgeProofPredicate {
         /// The SP1 program verifying key hash (32 bytes).
         program_vk_hash: [u8; 32],
     },
+}
+
+impl BridgeProofPredicate {
+    /// Returns `true` if the proof is valid according to this predicate.
+    pub fn verify(&self, proof: &ProofReceipt) -> bool {
+        let predicate_key = match self {
+            Self::AlwaysAccept => PredicateKey::always_accept(),
+            Self::Sp1Groth16 { program_vk_hash } => {
+                PredicateKey::new(PredicateTypeId::Sp1Groth16, program_vk_hash.to_vec())
+            }
+        };
+
+        predicate_key
+            .verify_claim_witness(proof.public_values().as_bytes(), proof.proof().as_bytes())
+            .is_ok()
+    }
 }
 
 /// An opaque ASM step proof for a range of L1 blocks.

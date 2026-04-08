@@ -18,15 +18,11 @@ impl GraphSM {
             {
                 let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
                 let pov_operator_idx = self.context().operator_table().pov_idx();
-                let pov_counterproof_idx = if self.context().operator_idx() <= pov_operator_idx {
-                    pov_operator_idx - 1
-                } else {
-                    pov_operator_idx
-                };
+                let counterproof_idx = self.context().watchtower_index();
 
                 let pov_counterproof_graph = game_graph
                     .counterproofs
-                    .get(pov_counterproof_idx as usize)
+                    .get(counterproof_idx as usize)
                     .ok_or_else(|| {
                         GSMError::rejected(
                             self.state().clone(),
