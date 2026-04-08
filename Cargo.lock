@@ -8201,7 +8201,6 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "serde_json",
- "strata-bridge-types",
  "strata-crypto",
  "strata-identifiers",
  "strata-predicate",
@@ -8277,7 +8276,6 @@ dependencies = [
  "serde",
  "serde_json",
  "strata-bridge-primitives",
- "strata-bridge-types",
  "tokio",
  "tracing",
 ]

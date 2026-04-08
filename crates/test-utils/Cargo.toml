@@ -9,8 +9,6 @@ workspace = true
 [dependencies]
 strata-bridge-primitives.workspace = true
 
-strata-bridge-types.workspace = true
-
 arbitrary.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
