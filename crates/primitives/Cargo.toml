@@ -12,6 +12,10 @@ strata-crypto.workspace = true
 strata-identifiers.workspace = true
 strata-primitives.workspace = true
 
+musig2 = { workspace = true, features = ["serde"] }
+strata-predicate.workspace = true
+zkaleido.workspace = true
+
 algebra.workspace = true
 anyhow.workspace = true
 arbitrary.workspace = true
@@ -21,16 +25,13 @@ futures = { workspace = true, optional = true }
 hex.workspace = true
 libp2p-identity.workspace = true
 miniscript.workspace = true
-musig2 = { workspace = true, features = ["serde"] }
 proptest.workspace = true
 proptest-derive.workspace = true
 rkyv.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
-strata-predicate.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, optional = true }
-zkaleido.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
