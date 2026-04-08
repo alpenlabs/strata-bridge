@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures::future;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
-use strata_mosaic_client::{MosaicClient, MosaicIdResolver, PeerId};
+use strata_mosaic_client::{MosaicClient, MosaicIdResolver, PeerId, PubkeyBytes};
 use strata_mosaic_client_api::{MosaicClientApi, MosaicError, types::Role};
 use tracing::{error, info};
 
@@ -78,7 +78,7 @@ impl MosaicIdResolver for BridgeMosaicIdResolver {
     async fn resolve_operator_pubkey(
         &self,
         operator_idx: OperatorIdx,
-    ) -> Result<[u8; 32], MosaicError> {
+    ) -> Result<PubkeyBytes, MosaicError> {
         self.operators
             .get(&operator_idx)
             .map(|(_, pubkey)| *pubkey)

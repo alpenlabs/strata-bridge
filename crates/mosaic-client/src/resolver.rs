@@ -6,6 +6,8 @@ use strata_mosaic_client_api::MosaicError;
 pub type PeerId = [u8; 32];
 /// Identify a deposit on mosaic.
 pub type DepositId = [u8; 32];
+/// Pubkey as bytes.
+pub type PubkeyBytes = [u8; 32];
 
 /// Resolves bridge-internal indices to mosaic-native identifiers.
 ///
@@ -20,7 +22,7 @@ pub trait MosaicIdResolver: Send + Sync + 'static {
     async fn resolve_operator_pubkey(
         &self,
         operator_idx: OperatorIdx,
-    ) -> Result<[u8; 32], MosaicError>;
+    ) -> Result<PubkeyBytes, MosaicError>;
 
     /// Resolve deposit index to its mosaic deposit id.
     /// Default: copies deposit idx as be bytes.
