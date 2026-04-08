@@ -114,11 +114,15 @@ impl GraphSM {
                 // Watchtower challenges an invalid bridge proof by publishing a counterproof
                 if is_watchtower && !is_proof_valid {
                     let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
-                    let watchtower_idx = self.context().watchtower_index();
+                    let watchtower_idx = watchtower_slot_for_operator(
+                        self.context().operator_idx(),
+                        self.context().operator_table().pov_idx(),
+                    )
+                    .expect("graph owner has no watchtower index");
 
                     let counterproof_graph = game_graph
                         .counterproofs
-                        .get(watchtower_idx as usize)
+                        .get(watchtower_idx)
                         .ok_or_else(|| {
                             GSMError::rejected(
                                 self.state.clone(),

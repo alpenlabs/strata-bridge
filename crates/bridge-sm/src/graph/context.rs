@@ -118,28 +118,6 @@ impl GraphSMCtx {
         }
     }
 
-    /// Returns the POV operator's index into the counterproof array.
-    ///
-    /// The counterproof array excludes the graph owner, so the index is adjusted
-    /// based on whether the POV operator comes before or after the owner.
-    ///
-    /// # Panics
-    ///
-    /// Debug-asserts that the POV is not the graph owner, since the owner has no
-    /// valid position in the counterproof array.
-    pub const fn watchtower_index(&self) -> OperatorIdx {
-        let pov_idx = self.operator_table().pov_idx();
-        debug_assert!(
-            self.operator_idx() != pov_idx,
-            "graph owner has no watchtower index"
-        );
-        if self.operator_idx() <= pov_idx {
-            pov_idx - 1
-        } else {
-            pov_idx
-        }
-    }
-
     /// Returns the list of watchtower pubkeys for this graph.
     pub fn watchtower_pubkeys(&self) -> Vec<XOnlyPublicKey> {
         let owner_idx = self.operator_idx();

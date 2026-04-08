@@ -22,6 +22,7 @@ use crate::{
             test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
             test_graph_transition,
         },
+        watchtower::watchtower_slot_for_operator,
     },
     testing::test_transition,
 };
@@ -103,8 +104,12 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
     let sm = create_nonpov_sm(contested_state());
 
     let game_graph = generate_game_graph(&cfg, sm.context(), test_deposit_params());
-    let watchtower_idx = sm.context().watchtower_index();
-    let expected_counterproof_tx = game_graph.counterproofs[watchtower_idx as usize]
+    let watchtower_idx = watchtower_slot_for_operator(
+        sm.context().operator_idx(),
+        sm.context().operator_table().pov_idx(),
+    )
+    .expect("graph owner has no watchtower index");
+    let expected_counterproof_tx = game_graph.counterproofs[watchtower_idx]
         .counterproof
         .as_ref()
         .clone();

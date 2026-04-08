@@ -7,6 +7,7 @@ use crate::graph::{
     events::RetryTickEvent,
     machine::{GSMOutput, GraphSM, generate_game_graph},
     state::GraphState,
+    watchtower::watchtower_slot_for_operator,
 };
 
 impl GraphSM {
@@ -18,11 +19,15 @@ impl GraphSM {
             {
                 let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
                 let pov_operator_idx = self.context().operator_table().pov_idx();
-                let counterproof_idx = self.context().watchtower_index();
+                let counterproof_idx = watchtower_slot_for_operator(
+                    self.context().operator_idx(),
+                    self.context().operator_table().pov_idx(),
+                )
+                .expect("graph owner has no watchtower index");
 
                 let pov_counterproof_graph = game_graph
                     .counterproofs
-                    .get(counterproof_idx as usize)
+                    .get(counterproof_idx)
                     .ok_or_else(|| {
                         GSMError::rejected(
                             self.state().clone(),
