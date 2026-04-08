@@ -222,7 +222,7 @@ mod tests {
             stake_funds: OutPoint::default(),
         };
 
-        // FIXME: <https://atlassian.alpenlabs.net/browse/STR-2707>
+        // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2707>
         // Avoid having to recreate the connectors.
         let unstaking_intent_output = UnstakingIntentOutput::new(
             protocol.network,

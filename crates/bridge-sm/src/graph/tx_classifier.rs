@@ -139,7 +139,7 @@ impl TxClassifier for GraphSM {
                         }
                     });
 
-                    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2679>
+                    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2679>
                     // Define the binary encoding of proof and public values, then parse
                     // `proof_and_public_values` into a `ProofReceipt` and the public values
                     // needed for the state transition.

@@ -201,7 +201,7 @@ impl BtcNotifyClient<Disconnected> {
 
                                     // Backfill any skipped blocks in the range:
                                     // [cursor, received_height).
-                                    // FIXME: <https://atlassian.alpenlabs.net/browse/STR-2680>
+                                    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2680>
                                     // Process massive backlogs in bounded batches instead of all
                                     // at once to avoid excessive memory use after prolonged
                                     // downtime.
@@ -450,7 +450,7 @@ mod e2e_tests {
         let mut bitcoin_conf = corepc_node::Conf::default();
         bitcoin_conf.enable_zmq = true;
 
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2681>
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2681>
         // Use dynamic port allocation so these tests can run in parallel.
         let hash_block_socket = "tcp://127.0.0.1:23882";
         let hash_tx_socket = "tcp://127.0.0.1:23883";

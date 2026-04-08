@@ -1,5 +1,5 @@
 //! V2 wire protocol
-// TODO: <https://atlassian.alpenlabs.net/browse/STR-2706>
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-2706>
 // Calculate these hardcoded lengths at compile time once the compiler upgrade lands.
 
 use bitcoin::{taproot::TaprootError, OutPoint, XOnlyPublicKey};

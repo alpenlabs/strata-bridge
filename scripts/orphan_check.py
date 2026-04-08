@@ -15,7 +15,7 @@ EXCLUDED_PATHS = {
 }
 COMMENT_PREFIXES = ("///", "//!", "//", "#", "*")
 RUST_DOC_PREFIXES = {"///", "//!"}
-JIRA_LINK_PREFIX = "https://atlassian.alpenlabs.net/browse/STR-"
+JIRA_LINK_PREFIX = "https://alpenlabs.atlassian.net/browse/STR-"
 SUPPORTED_SLUGS = ("TODO", "FIXME", "NOTE", "HACK", "PERF")
 SUPPORTED_FORMATS = ("jira-link", "assignee")
 

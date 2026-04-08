@@ -20,7 +20,7 @@ pub(crate) fn build_game_graph(
         contested_payout_timelock: relative::Height::from(
             params.protocol.contested_payout_timelock,
         ),
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2945>
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2945>
         // use the COUNTERPROOF_N_BYTES constant in a future refactor
         // proof bytes (groth16) + deposit_idx (4 bytes) + operator pubkey (32 bytes)
         counterproof_n_bytes: NonZero::new(128 + 32 + 4).expect("non-zero"),

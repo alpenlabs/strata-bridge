@@ -10,7 +10,7 @@ use tracing::error;
 
 use crate::sm_types::UnifiedDuty;
 
-// TODO: <https://atlassian.alpenlabs.net/browse/STR-2698>
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-2698>
 // Add a `duty_tracker` to track executed, pending, and failed duties for retries and better error
 // handling.
 

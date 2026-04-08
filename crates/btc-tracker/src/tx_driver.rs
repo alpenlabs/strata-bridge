@@ -167,7 +167,7 @@ impl TxDriver {
                             } else {
                                 // if the condition is not met, we still need to add the job
                                 // to the active jobs so that we can notify it later.
-                                // FIXME: <https://atlassian.alpenlabs.net/browse/STR-2687>
+                                // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2687>
                                 // Handle the race where the relevant event may already have
                                 // happened before the subscription is established.
                                 active_tx_subs.push(tx_sub);
@@ -189,11 +189,11 @@ impl TxDriver {
                                 active_jobs = active_jobs.merge(job.into());
                             },
                             Err(err) => {
-                                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2688>
+                                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2688>
                                 // If we have not hit the mempool purge rate, CPFP using the
                                 // anchor from the start and retry as a package.
                                 //
-                                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2689>
+                                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2689>
                                 // Distinguish invalid transactions and notify the job submitter
                                 // instead of treating them like fee-bumping work.
                                 // For now, we just inform the caller until we add fee-bumping
@@ -217,7 +217,7 @@ impl TxDriver {
                                     }
                                     Err(err) => {
                                         error!(txid=%event.rawtx.compute_txid(), %err, "could not resubmit transaction");
-                                        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2690>
+                                        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2690>
                                         // Analyze the reported error and classify the submission
                                         // failure mode.
                                         //
@@ -256,7 +256,7 @@ impl TxDriver {
 
                     }
                     _block = block_subscription.next().fuse() => {
-                        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2691>
+                        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2691>
                         // Compare against deadlines and CPFP using the anchor where needed.
                     }
                 }
@@ -313,7 +313,7 @@ mod e2e_tests {
     use super::*;
     use crate::{client::BlockFetcher, config::BtcNotifyConfig};
 
-    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2692>
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2692>
     // Remove this once rust-bitcoin@0.33.x lands; it works around a rust-bitcoin bug.
     pub(crate) const BIP34_MIN_BLOCKS: usize = 17;
 
@@ -348,7 +348,7 @@ mod e2e_tests {
         let mut bitcoin_conf = corepc_node::Conf::default();
         bitcoin_conf.enable_zmq = true;
 
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2681>
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2681>
         // Use dynamic port allocation so these tests can run in parallel.
         let hash_block_socket = "tcp://127.0.0.1:23882";
         let hash_tx_socket = "tcp://127.0.0.1:23883";

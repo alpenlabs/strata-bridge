@@ -17,7 +17,7 @@ pub enum RpcOperatorStatus {
 
     /// Operator is offline and not processing transactions.
     Offline,
-    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2704>
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2704>
     // Add a `Faulty` status.
 }
 

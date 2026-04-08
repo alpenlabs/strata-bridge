@@ -116,7 +116,7 @@ pub(crate) fn classify_block(
 fn get_mocked_stake_data(
     initial_operator_table: &OperatorTable,
 ) -> (BTreeMap<u32, OutPoint>, BTreeMap<u32, sha256::Hash>) {
-    // TODO: <https://atlassian.alpenlabs.net/browse/STR-2699>
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2699>
     // Query the Operator and Stake state machines for operator table and stake data instead of
     // using static values.
 

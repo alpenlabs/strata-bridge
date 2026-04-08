@@ -60,24 +60,24 @@ impl GraphSM {
             GraphState::Claimed {
                 fulfillment_txid, ..
             } if fulfillment_txid.is_none() => {
-                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2192>
+                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2192>
                 // Implement the faulty cases in `process_claim`; this emits `PublishContest`.
                 Vec::new()
             }
             GraphState::Contested { .. } => {
-                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2675>
+                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2675>
                 // Implement the `GraphEvent::ContestConfirmed` match arm in
                 // `GraphSM::process_event`; this emits `PublishBridgeProof`.
                 Vec::new()
             }
             GraphState::BridgeProofPosted { .. } => {
-                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2676>
+                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2676>
                 // Implement the `GraphEvent::BridgeProofConfirmed` match arm in
                 // `GraphSM::process_event`; this emits `PublishCounterProof`.
                 Vec::new()
             }
             GraphState::CounterProofPosted { .. } => {
-                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2677>
+                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2677>
                 // Implement the `GraphEvent::CounterProofConfirmed` match arm in
                 // `GraphSM::process_event`; this emits `PublishCounterProofNack`.
                 Vec::new()

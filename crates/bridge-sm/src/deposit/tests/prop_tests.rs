@@ -25,7 +25,7 @@ mod tests {
         get_state,
         test_deposit_sm_cfg(),
         any::<DepositState>(),
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2674>
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2674>
         // Replace `arb_handled_events()` with `any::<DepositEvent>()` once all STFs are
         // implemented.
         arb_handled_events()
@@ -37,7 +37,7 @@ mod tests {
         create_sm,
         test_deposit_sm_cfg(),
         arb_terminal_state(),
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2674>
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2674>
         // Replace `arb_handled_events()` with `any::<DepositEvent>()` once all STFs are
         // implemented.
         arb_handled_events()

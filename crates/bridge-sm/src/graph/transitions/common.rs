@@ -316,7 +316,7 @@ impl GraphSM {
                 ]))
             }
 
-            // TODO: <https://atlassian.alpenlabs.net/browse/STR-2342>
+            // TODO: <https://alpenlabs.atlassian.net/browse/STR-2342>
             GraphState::AllNackd { .. } => todo!(""),
 
             GraphState::Acked {
