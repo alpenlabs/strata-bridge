@@ -7,7 +7,7 @@ use crate::graph::{
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
     events::{BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent},
-    machine::{GSMOutput, GraphSM},
+    machine::{GSMOutput, GraphSM, generate_game_graph},
     state::GraphState,
 };
 
@@ -80,11 +80,12 @@ impl GraphSM {
     /// Processes the event where a bridge proof transaction has been confirmed on-chain.
     ///
     /// Only valid from the `Contested` state, transitions to `BridgeProofPosted`.
-    /// Emits a [`GraphDuty::PublishCounterProof`] duty if the current operator is not the
-    /// graph owner (i.e., is a watchtower).
+    /// If the current operator is a watchtower, verifies the bridge proof using the
+    /// configured predicate and emits a [`GraphDuty::PublishCounterProof`] duty if
+    /// verification fails.
     pub(crate) fn process_bridge_proof(
         &mut self,
-        _cfg: Arc<GraphSMCfg>,
+        cfg: Arc<GraphSMCfg>,
         event: BridgeProofConfirmedEvent,
     ) -> GSMResult<GSMOutput> {
         match self.state.clone() {
@@ -96,6 +97,39 @@ impl GraphSM {
                 contest_block_height,
                 ..
             } => {
+                let bridge_proof = event.proof.clone();
+
+                let is_watchtower =
+                    self.context().operator_idx() != self.context().operator_table().pov_idx();
+                let is_proof_invalid = cfg.bridge_proof_predicate.verify(&bridge_proof);
+
+                let mut duties = Vec::new();
+
+                // Watchtower challenges an invalid bridge proof by publishing a counterproof
+                if is_watchtower && !is_proof_invalid {
+                    let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
+                    let watchtower_idx = self.context().watchtower_index();
+
+                    let counterproof_graph = game_graph
+                        .counterproofs
+                        .get(watchtower_idx as usize)
+                        .ok_or_else(|| {
+                            GSMError::rejected(
+                                self.state.clone(),
+                                event.clone().into(),
+                                format!(
+                                    "missing counterproof graph for watchtower {watchtower_idx}"
+                                ),
+                            )
+                        })?;
+
+                    duties.push(GraphDuty::PublishCounterProof {
+                        graph_idx: self.context().graph_idx(),
+                        counterproof_tx: counterproof_graph.counterproof.as_ref().clone(),
+                        proof: bridge_proof.clone(),
+                    });
+                }
+
                 self.state = GraphState::BridgeProofPosted {
                     last_block_height: event.bridge_proof_block_height,
                     graph_data,
@@ -105,14 +139,10 @@ impl GraphSM {
                     contest_block_height,
                     bridge_proof_txid: event.bridge_proof_txid,
                     bridge_proof_block_height: event.bridge_proof_block_height,
-                    proof: event.proof.clone(),
+                    proof: bridge_proof,
                 };
 
-                // TODO: <https://atlassian.alpenlabs.net/browse/STR-2342>
-                // If the POV is not the graph owner, first verify the bridge proof;
-                // if verification fails, publish a counterproof to challenge
-                // the invalid bridge proof
-                Ok(GSMOutput::new())
+                Ok(GSMOutput::with_duties(duties))
             }
             state @ GraphState::BridgeProofPosted { .. } => {
                 Err(GSMError::duplicate(state, event.into()))

@@ -40,8 +40,5 @@ pub struct GraphSMCfg {
     pub payout_descs: Vec<Descriptor>,
 
     /// Predicate used to verify bridge proofs.
-    ///
-    /// Determines whether watchtowers perform actual ZK proof verification
-    /// (`Sp1Groth16`) or skip verification (`AlwaysAccept`).
     pub bridge_proof_predicate: BridgeProofPredicate,
 }

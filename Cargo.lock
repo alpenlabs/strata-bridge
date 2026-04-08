@@ -10364,9 +10364,11 @@ dependencies = [
  "strata-bridge-types",
  "strata-crypto",
  "strata-identifiers",
+ "strata-predicate",
  "strata-primitives",
  "thiserror 2.0.18",
  "tokio",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
 ]
 
 [[package]]
