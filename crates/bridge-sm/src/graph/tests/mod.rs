@@ -21,6 +21,7 @@ use bitcoin::{
 use musig2::secp256k1::schnorr::Signature;
 use secp256k1::SecretKey;
 use strata_bridge_primitives::{
+    proof::BridgeProofPredicate,
     secp::EvenSecretKey,
     types::{GraphIdx, OperatorIdx},
 };
@@ -125,6 +126,7 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
         operator_fee: TEST_OPERATOR_FEE,
         watchtower_fault_pubkeys,
         payout_descs,
+        bridge_proof_predicate: BridgeProofPredicate::AlwaysAccept,
     })
 }
 
