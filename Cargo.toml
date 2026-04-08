@@ -115,7 +115,7 @@ strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "
 ] }
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc9" }
 
-strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.6", features = [
+strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.7", features = [
   "quic",
   "request-response",
   "gossipsub",

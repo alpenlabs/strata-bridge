@@ -151,6 +151,7 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
         ),
         protocol_name: None,
         channel_timeout: None,
+        transport_allowlist: Some(config.allowlist.clone()),
         gossipsub_topic: None,
         gossipsub_max_transmit_size: Some(GOSSIPSUB_MAX_TRANSMIT_SIZE),
         gossipsub_score_params,
