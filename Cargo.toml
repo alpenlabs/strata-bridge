@@ -6,9 +6,6 @@ members = [
   "crates/asm-events",
   "crates/asm-rpc",
   "crates/bridge-exec",
-  "crates/bridge-proof/primitives",
-  "crates/bridge-proof/protocol",
-  "crates/bridge-proof/snark",
   "crates/bridge-sm",
   "crates/btc-tracker",
   "crates/common",
@@ -34,11 +31,8 @@ members = [
   "bin/dev-cli",
   "bin/secret-service",
 
-  "bridge-guest-builder",
-
   # test utilities
   "crates/test-utils",
-  "crates/bridge-proof/test-utils",
 ]
 
 default-members = ["bin/strata-bridge", "bin/dev-cli", "bin/asm-runner"]
@@ -60,7 +54,6 @@ algebra = { path = "crates/algebra" }
 btc-tracker = { path = "crates/btc-tracker" }
 memory_pprof = { path = "crates/memory_pprof" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
-prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
 secret-service-proto = { path = "crates/secret-service-proto" }
 secret-service-server = { path = "crates/secret-service-server" }
@@ -77,9 +70,6 @@ strata-bridge-p2p-service = { path = "crates/p2p-service" }
 strata-bridge-p2p-types = { path = "crates/p2p-types" }
 strata-bridge-primitives = { path = "crates/primitives" }
 strata-bridge-proof-db = { path = "crates/proof-db" }
-strata-bridge-proof-primitives = { path = "crates/bridge-proof/primitives" }
-strata-bridge-proof-protocol = { path = "crates/bridge-proof/protocol" }
-strata-bridge-proof-snark = { path = "crates/bridge-proof/snark" }
 strata-bridge-rpc = { path = "crates/rpc" }
 strata-bridge-sm = { path = "crates/bridge-sm" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
