@@ -196,15 +196,16 @@ impl TxClassifier for GraphSM {
             }
 
             // expects a slash or a payout burn
-            GraphState::BridgeProofTimedout { graph_summary, .. } => {
-                if graph_summary.bridge_proof_timeout == txid {
-                    Some(GraphEvent::BridgeProofTimeoutConfirmed(
-                        BridgeProofTimeoutConfirmedEvent {
-                            bridge_proof_timeout_txid: txid,
-                            bridge_proof_timeout_block_height: height,
-                        },
-                    ))
-                } else if is_payout_connector_spent(&graph_summary.claim, tx) {
+            GraphState::BridgeProofTimedout {
+                expected_slash_txid,
+                claim_txid,
+                ..
+            } => {
+                if txid == *expected_slash_txid {
+                    Some(GraphEvent::SlashConfirmed(SlashConfirmedEvent {
+                        slash_txid: txid,
+                    }))
+                } else if is_payout_connector_spent(claim_txid, tx) {
                     Some(GraphEvent::PayoutConnectorSpent(
                         PayoutConnectorSpentEvent {
                             spending_txid: txid,
