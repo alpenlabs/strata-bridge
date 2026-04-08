@@ -111,6 +111,15 @@ pub(super) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
     })
 }
 
+/// Creates a test bridge-wide configuration with a custom cooperative payout timeout.
+pub(super) fn test_deposit_sm_cfg_with_timeout(timeout: u64) -> Arc<DepositSMCfg> {
+    let base_cfg = test_deposit_sm_cfg();
+    Arc::new(DepositSMCfg {
+        cooperative_payout_timeout_blocks: timeout,
+        ..(*base_cfg).clone()
+    })
+}
+
 /// Creates a test per-instance context for DepositSM.
 pub(super) fn test_sm_ctx() -> DepositSMCtx {
     DepositSMCtx {
@@ -259,6 +268,14 @@ pub(super) fn test_deposit_transition(transition: DepositTransition) {
         test_deposit_sm_cfg(),
         transition,
     );
+}
+
+/// Test a valid DepositSM transition with a custom configuration.
+pub(super) fn test_deposit_transition_with_cfg(
+    cfg: Arc<DepositSMCfg>,
+    transition: DepositTransition,
+) {
+    test_transition::<DepositSM, _, _, _, _, _, _, _>(create_sm, get_state, cfg, transition);
 }
 
 /// Test an invalid DepositSM transition with pre-configured test helpers.

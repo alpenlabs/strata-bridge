@@ -11,7 +11,10 @@ mod tests {
         errors::DSMError,
         events::{DepositEvent, FulfillmentConfirmedEvent},
         state::DepositState,
-        tests::*,
+        tests::{
+            DepositTransition, test_deposit_sm_cfg_with_timeout, test_deposit_transition_with_cfg,
+            *,
+        },
     };
 
     /// tests correct transition from Assigned to Fulfilled state when FulfillmentConfirmed event
@@ -189,5 +192,46 @@ mod tests {
                 expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
             });
         }
+    }
+
+    /// Tests that no RequestPayoutNonces duty is emitted when cooperative_payout_timeout = 0,
+    /// even when the POV operator is the assignee. This ensures the cooperative path is
+    /// skipped entirely when the timeout is set to zero.
+    #[test]
+    fn test_fulfillment_confirmed_no_duty_when_timeout_is_zero() {
+        let fulfillment_tx = generate_spending_tx(OutPoint::default(), &[]);
+        let desc = random_p2tr_desc();
+
+        let state = DepositState::Assigned {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_POV_IDX,
+            deadline: LATER_BLOCK_HEIGHT,
+            recipient_desc: desc,
+        };
+
+        // Use a config with cooperative_payout_timeout_blocks = 0
+        let cfg = test_deposit_sm_cfg_with_timeout(0);
+
+        test_deposit_transition_with_cfg(
+            cfg,
+            DepositTransition {
+                from_state: state,
+                event: DepositEvent::FulfillmentConfirmed(FulfillmentConfirmedEvent {
+                    fulfillment_transaction: fulfillment_tx.clone(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                }),
+                expected_state: DepositState::Fulfilled {
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
+                    assignee: TEST_POV_IDX,
+                    fulfillment_txid: fulfillment_tx.compute_txid(),
+                    fulfillment_height: LATER_BLOCK_HEIGHT,
+                    // With timeout = 0, deadline equals fulfillment_height
+                    cooperative_payout_deadline: LATER_BLOCK_HEIGHT,
+                },
+                // No duty should be emitted when timeout is 0
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
     }
 }
