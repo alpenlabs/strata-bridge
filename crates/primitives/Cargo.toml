@@ -12,7 +12,6 @@ strata-crypto.workspace = true
 strata-identifiers.workspace = true
 strata-primitives.workspace = true
 
-musig2 = { workspace = true, features = ["serde"] }
 strata-predicate.workspace = true
 zkaleido.workspace = true
 
@@ -25,6 +24,7 @@ futures = { workspace = true, optional = true }
 hex.workspace = true
 libp2p-identity.workspace = true
 miniscript.workspace = true
+musig2 = { workspace = true, features = ["serde"] }
 proptest.workspace = true
 proptest-derive.workspace = true
 rkyv.workspace = true
