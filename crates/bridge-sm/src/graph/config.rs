@@ -2,6 +2,7 @@
 
 use bitcoin::{Amount, XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
+use strata_bridge_primitives::proof::BridgeProofPredicate;
 use strata_bridge_tx_graph::game_graph::ProtocolParams;
 
 /// Bridge-wide configuration shared across all graph state machines.
@@ -37,4 +38,10 @@ pub struct GraphSMCfg {
 
     /// Descriptor to which payouts are to be sent in case of a successful peg out.
     pub payout_descs: Vec<Descriptor>,
+
+    /// Predicate used to verify bridge proofs.
+    ///
+    /// Determines whether watchtowers perform actual ZK proof verification
+    /// (`Sp1Groth16`) or skip verification (`AlwaysAccept`).
+    pub bridge_proof_predicate: BridgeProofPredicate,
 }

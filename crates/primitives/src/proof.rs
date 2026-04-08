@@ -2,6 +2,20 @@
 
 use strata_identifiers::L1BlockCommitment;
 
+/// Predicate that determines how bridge proofs are verified.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default)]
+pub enum BridgeProofPredicate {
+    /// Always accepts the proof without verification. Used for testing/development.
+    #[default]
+    AlwaysAccept,
+
+    /// Verifies the proof using SP1 Groth16 verification. Used in production.
+    Sp1Groth16 {
+        /// The SP1 program verifying key hash (32 bytes).
+        program_vk_hash: [u8; 32],
+    },
+}
+
 /// An opaque ASM step proof for a range of L1 blocks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsmProof(pub Vec<u8>);
