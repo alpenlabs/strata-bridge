@@ -327,6 +327,20 @@ pub(super) fn payout_connector_spent_states() -> Vec<GraphState> {
     ]
 }
 
+/// States that detect a slash transaction.
+///
+/// These states use either `graph_summary.slash`, `expected_slash_txid`, or
+/// `possible_slash_txid` to identify the slash transaction.
+pub(super) fn slash_detecting_states() -> Vec<GraphState> {
+    vec![
+        contested_state(),
+        bridge_proof_posted_state(),
+        counter_proof_posted_state(),
+        all_nackd_state(),
+        acked_state(),
+    ]
+}
+
 /// One representative of every state variant.
 pub(super) fn all_state_variants() -> Vec<GraphState> {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
