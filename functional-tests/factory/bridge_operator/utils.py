@@ -20,7 +20,6 @@ from .config_cfg import (
     SecretServiceClientConfig,
 )
 from .params_cfg import BridgeOperatorParams, BridgeProtocolParams, CovenantKeys, Keys
-from .sidesystem_cfg import Sidesystem
 
 DEFAULT_INITIAL_HEARBEAT_DELAY_SECS = 10
 
@@ -126,7 +125,7 @@ def generate_config_toml(
 def generate_params_toml(
     output_path: str,
     operator_key_infos: list[OperatorKeyInfo],
-    sidesystem: Sidesystem,
+    genesis_height: int,
     bridge_protocol_params: BridgeProtocolParams,
 ):
     """
@@ -135,7 +134,7 @@ def generate_params_toml(
     Args:
         output_path: Path to write the params.toml file
         operator_key_infos: List of OperatorKeys containing MUSIG2_KEY and P2P_KEY
-        sidesystem: Pre-built sidesystem params to embed
+        genesis_height: Bridge genesis height used for chain scanning start
         bridge_protocol_params: Bridge parameters for this test env
     """
     covenant = [
@@ -151,7 +150,7 @@ def generate_params_toml(
 
     params = BridgeOperatorParams(
         network="regtest",
-        genesis_height=sidesystem.genesis_l1_anchor.block.height,
+        genesis_height=genesis_height,
         keys=Keys(admin=operator_key_infos[0].MUSIG2_KEY, covenant=covenant),
         protocol=bridge_protocol_params,
     )

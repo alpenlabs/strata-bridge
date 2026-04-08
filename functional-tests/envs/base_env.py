@@ -5,7 +5,6 @@ import flexitest
 from factory.bridge_operator.asm_cfg import build_asm_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
-from factory.bridge_operator.sidesystem_cfg import build_sidesystem
 from factory.common.asm_params import write_asm_params_json
 from factory.fdb import generate_fdb_root_directory
 from utils import (
@@ -37,7 +36,7 @@ class BaseEnv(flexitest.EnvConfig):
         self.finalization_blocks = self.btc_config.finalization_blocks
         self._asm_config = asm_config
         self._asm_rpc_service = None
-        self._sidesystem = None
+        self._bridge_genesis_height = None
         self._rollup_params_path = None
         self._bridge_protocol_params = bridge_protocol_params
         self._bridge_config_params = bridge_config_params
@@ -95,19 +94,15 @@ class BaseEnv(flexitest.EnvConfig):
         return fdb
 
     def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
-        """Build sidesystem/ASM params and write asm-params.json once per environment."""
-        if self._sidesystem is not None and self._rollup_params_path is not None:
+        """Build bridge/ASM params and write asm-params.json once per environment."""
+        if self._bridge_genesis_height is not None and self._rollup_params_path is not None:
             return
 
         genesis_height = int(self.initial_blocks)
-        # HACK: (STR-2572) ASM RPC panics when queried with its genesis block ID.
-        # This workaround will be resolved in STR-2572. Until then,
-        # bridge_genesis_l1_height must be < asm_genesis_l1_height
-        asm_genesis_height = genesis_height - 1
-        self._sidesystem = build_sidesystem(bitcoind_rpc, self.operator_key_infos, genesis_height)
+        self._bridge_genesis_height = genesis_height
 
         asm_params = build_asm_params(
-            bitcoind_rpc, self.operator_key_infos, asm_genesis_height, self._asm_config
+            bitcoind_rpc, self.operator_key_infos, genesis_height, self._asm_config
         )
         envdd_path = Path(ectx.envdd_path)
         asm_params_path = envdd_path / "generated" / "asm-params.json"
@@ -128,8 +123,11 @@ class BaseEnv(flexitest.EnvConfig):
         # Use pre-loaded operator key
         operator_key = self.operator_key_infos[operator_idx]
 
-        # Build sidesystem + rollup params once using live bitcoind data.
+        # Build bridge/ASM params once using live bitcoind data.
         self._ensure_rollup_params(ectx, bitcoind_rpc)
+
+        if self._bridge_genesis_height is None:
+            raise RuntimeError("Bridge genesis height must be initialized before operators")
 
         if self.fdb_root_directory_prefix is None:
             raise RuntimeError("FDB root directory prefix must be initialized before operators")
@@ -157,7 +155,7 @@ class BaseEnv(flexitest.EnvConfig):
             asm_props,
             self.operator_key_infos,
             self.p2p_ports,
-            sidesystem=self._sidesystem,
+            genesis_height=self._bridge_genesis_height,
             bridge_protocol_params=self._bridge_protocol_params,
             bridge_config_params=self._bridge_config_params,
         )

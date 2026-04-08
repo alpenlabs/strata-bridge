@@ -12,7 +12,6 @@ from utils.utils import OperatorKeyInfo
 
 from .config_cfg import BridgeConfigParams
 from .params_cfg import BridgeProtocolParams
-from .sidesystem_cfg import Sidesystem
 from .utils import generate_config_toml, generate_params_toml
 
 
@@ -79,7 +78,7 @@ class BridgeOperatorFactory(flexitest.Factory):
         operator_key_infos: list[OperatorKeyInfo],
         p2p_ports: list[str],
         ectx: flexitest.EnvContext,
-        sidesystem: Sidesystem,
+        genesis_height: int,
         bridge_protocol_params: BridgeProtocolParams,
         bridge_config_params: BridgeConfigParams,
     ) -> flexitest.Service:
@@ -119,7 +118,7 @@ class BridgeOperatorFactory(flexitest.Factory):
         # write bridge operator params
         params_toml_path = str((envdd_path / bridge_operator_name / "params.toml").resolve())
         generate_params_toml(
-            params_toml_path, operator_key_infos, sidesystem, bridge_protocol_params
+            params_toml_path, operator_key_infos, genesis_height, bridge_protocol_params
         )
 
         logfile_path = os.path.join(dd, "service.log")
