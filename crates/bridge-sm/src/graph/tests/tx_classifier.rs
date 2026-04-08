@@ -229,6 +229,22 @@ mod tests {
     }
 
     #[test]
+    fn classify_tx_recognizes_bridge_proof_timeout_in_contested() {
+        let cfg = test_graph_sm_cfg();
+        let timeout_tx = test_bridge_proof_timeout_tx();
+
+        let mut graph_summary = test_graph_summary();
+        graph_summary.bridge_proof_timeout = timeout_tx.compute_txid();
+
+        let sm = create_sm(replace_graph_summary(contested_state(), graph_summary));
+        let result = sm.classify_tx(&cfg, &timeout_tx, LATER_BLOCK_HEIGHT);
+        assert!(
+            matches!(result, Some(GraphEvent::BridgeProofTimeoutConfirmed(_))),
+            "expected Some(BridgeProofTimeoutConfirmed) but got {result:?}"
+        );
+    }
+
+    #[test]
     fn classify_tx_recognizes_counterproof_in_contested_and_bridge_proof_posted() {
         let cfg = test_graph_sm_cfg();
         for state in counterproof_detecting_states() {
@@ -280,17 +296,13 @@ mod tests {
     }
 
     #[test]
-    fn classify_tx_recognizes_bridge_proof_timeout() {
+    fn classify_tx_recognizes_slash_in_bridge_proof_timedout() {
         let cfg = test_graph_sm_cfg();
         let sm = create_sm(bridge_proof_timedout_state());
-        let result = sm.classify_tx(
-            &cfg,
-            &TestGraphTxKind::BridgeProofTimeout.into(),
-            LATER_BLOCK_HEIGHT,
-        );
+        let result = sm.classify_tx(&cfg, &TestGraphTxKind::Slash.into(), LATER_BLOCK_HEIGHT);
         assert!(
-            matches!(result, Some(GraphEvent::BridgeProofTimeoutConfirmed(_))),
-            "expected Some(BridgeProofTimeoutConfirmed) but got {result:?}"
+            matches!(result, Some(GraphEvent::SlashConfirmed(_))),
+            "expected Some(SlashConfirmed) but got {result:?}"
         );
     }
 
