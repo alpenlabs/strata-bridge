@@ -169,6 +169,7 @@ jobs:
           if os.environ["BUILD_BASE"] == "true":
               items.append({
                   "component": "base",
+                  "display_name": "bridge-base",
                   "repository": "bridge-base",
                   "dockerfile": "docker/base.Dockerfile",
                   "cache_scope": "bridge-base-linux-amd64",
@@ -176,6 +177,7 @@ jobs:
           if os.environ["BUILD_RT"] == "true":
               items.append({
                   "component": "rt",
+                  "display_name": "bridge-rt",
                   "repository": "bridge-rt",
                   "dockerfile": "docker/rt.Dockerfile",
                   "cache_scope": "bridge-rt-linux-amd64",
@@ -190,6 +192,7 @@ jobs:
           if os.environ["BUILD_STRATA_BRIDGE"] == "true":
               items.append({
                   "component": "strata-bridge",
+                  "display_name": "strata-bridge",
                   "repository": "strata-bridge",
                   "dockerfile": "docker/strata-bridge/Dockerfile",
                   "local_tag": "strata-bridge:latest",
@@ -197,6 +200,7 @@ jobs:
           if os.environ["BUILD_ASM_RUNNER"] == "true":
               items.append({
                   "component": "strata-asm-runner",
+                  "display_name": "strata-asm-runner",
                   "repository": "strata-asm-runner",
                   "dockerfile": "docker/asm-runner/Dockerfile",
                   "local_tag": "strata-asm-runner:latest",
@@ -204,6 +208,7 @@ jobs:
           if os.environ["BUILD_SECRET_SERVICE"] == "true":
               items.append({
                   "component": "secret-service",
+                  "display_name": "secret-service",
                   "repository": "secret-service",
                   "dockerfile": "docker/secret-service/Dockerfile",
                   "local_tag": "secret-service:latest",
@@ -237,7 +242,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
   build_dependencies:
-    name: Build and Push Dependency Images
+    name: "Build Dependency Image: ${{ matrix.display_name }}"
     needs: plan
     if: needs.plan.outputs.dependency_matrix != '[]'
     runs-on: ubuntu-latest
@@ -280,7 +285,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Build and push dependency image
+      - name: Build and push ${{ matrix.display_name }}
         env:
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
         run: |
@@ -295,7 +300,7 @@ jobs:
             --push \
             .
 
-      - name: Run Trivy scan
+      - name: Run Trivy scan for ${{ matrix.display_name }}
         env:
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
         run: |
@@ -311,13 +316,13 @@ jobs:
             --output "/workdir/${{ matrix.component }}.sarif" \
             "${image_ref}"
 
-      - name: Upload Trivy SARIF
+      - name: Upload Trivy SARIF for ${{ matrix.display_name }}
         uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
         with:
           sarif_file: trivy-results/${{ matrix.component }}.sarif
           category: bridge-ecr-${{ matrix.component }}
 
-      - name: Upload scan artifact
+      - name: Upload scan artifact for ${{ matrix.display_name }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
@@ -334,7 +339,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
   build_app_images:
-    name: Build and Push Bridge Images
+    name: "Build Bridge Image: ${{ matrix.display_name }}"
     needs:
       - plan
       - build_dependencies
@@ -391,7 +396,7 @@ jobs:
           docker tag "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-base:${DEPENDENCY_TAG}" bridge-base:latest
           docker tag "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-rt:${DEPENDENCY_TAG}" bridge-rt:latest
 
-      - name: Build final image
+      - name: Build ${{ matrix.display_name }}
         run: |
           docker buildx build \
             --platform "${DOCKER_PLATFORM}" \
@@ -402,7 +407,7 @@ jobs:
             --load \
             .
 
-      - name: Tag and push image
+      - name: Tag and push ${{ matrix.display_name }}
         env:
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
         run: |
@@ -410,7 +415,7 @@ jobs:
           docker tag "${{ matrix.local_tag }}" "${image_ref}"
           docker push "${image_ref}"
 
-      - name: Run Trivy scan
+      - name: Run Trivy scan for ${{ matrix.display_name }}
         env:
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
         run: |
@@ -426,13 +431,13 @@ jobs:
             --output "/workdir/${{ matrix.component }}.sarif" \
             "${image_ref}"
 
-      - name: Upload Trivy SARIF
+      - name: Upload Trivy SARIF for ${{ matrix.display_name }}
         uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
         with:
           sarif_file: trivy-results/${{ matrix.component }}.sarif
           category: bridge-ecr-${{ matrix.component }}
 
-      - name: Upload scan artifact
+      - name: Upload scan artifact for ${{ matrix.display_name }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
