@@ -16,8 +16,8 @@ use crate::{
         state::GraphState,
     },
     tx_classifier::{
-        TxClassifier, counterproof_ack_operator_idx, counterproof_operator_idx, is_bridge_proof_tx,
-        is_fulfillment, is_payout_connector_spent, nack_counterprover_idx,
+        TxClassifier, counterproof_ack_operator_idx, counterproof_operator_idx, is_fulfillment,
+        is_payout_connector_spent, nack_counterprover_idx, spends_contest_proof_connector,
     },
 };
 
@@ -125,7 +125,9 @@ impl TxClassifier for GraphSM {
                             bridge_proof_timeout_block_height: height,
                         },
                     ))
-                } else if is_bridge_proof_tx(graph_summary.contest, tx) {
+                // if it's not a Bridge Proof Timeout tx and still spends the contest proof
+                // connector, then it has to be a Bridge Proof tx.
+                } else if spends_contest_proof_connector(graph_summary.contest, tx) {
                     let mut proof_and_public_values = vec![];
                     tx.output.iter().for_each(|output| {
                         if output.script_pubkey.is_op_return() {
