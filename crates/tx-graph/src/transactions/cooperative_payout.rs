@@ -6,13 +6,13 @@ use bitcoin::{
     transaction::Version,
     OutPoint, Psbt, Transaction, TxIn, TxOut,
 };
+use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::{
     prelude::{NOfNConnector, NOfNSpend, P2AConnector},
     Connector, ParentTx, SigningInfo,
 };
-use strata_primitives::bitcoin_bosd::Descriptor;
 
 /// Data that is needed to construct a [`CooperativePayoutTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

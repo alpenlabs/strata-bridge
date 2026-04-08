@@ -3,6 +3,7 @@
 use std::array;
 
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::{
     n_of_n::NOfNConnector,
@@ -10,7 +11,6 @@ use strata_bridge_connectors::{
     SigningInfo,
 };
 use strata_l1_txfmt::MagicBytes;
-use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
     musig_functor::StakeFunctor,
@@ -176,6 +176,7 @@ mod tests {
         hashes::{sha256, Hash},
         relative, Amount, Network, OutPoint, TxOut,
     };
+    use bitcoin_bosd::Descriptor;
     use secp256k1::{rand::random, Keypair};
     use strata_bridge_connectors::{
         prelude::{UnstakingIntentOutput, UnstakingIntentWitness},
@@ -184,7 +185,6 @@ mod tests {
     };
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins};
     use strata_bridge_test_utils::prelude::generate_keypair;
-    use strata_primitives::bitcoin_bosd::Descriptor;
 
     use super::*;
 

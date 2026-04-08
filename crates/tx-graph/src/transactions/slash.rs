@@ -6,6 +6,7 @@ use bitcoin::{
     transaction::Version,
     Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut, Txid,
 };
+use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
 use strata_asm_txs_bridge_v1::slash::SlashTxHeaderAux;
 use strata_bridge_connectors::{
@@ -16,7 +17,6 @@ use strata_bridge_connectors::{
     Connector, ParentTx, SigningInfo,
 };
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
-use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::transactions::{prelude::ContestTx, PresignedTx};
 

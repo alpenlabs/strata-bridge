@@ -1,3 +1,4 @@
+use bitcoin_bosd::Descriptor;
 use k256::{
     ecdsa::signature::SignatureEncoding,
     schnorr::{signature::Signer, SigningKey},
@@ -12,7 +13,6 @@ use strata_checkpoint_types_ssz::{
 use strata_crypto::hash;
 use strata_identifiers::{strata_codec::encode_to_vec, Buf32, Buf64, OLBlockCommitment, OLBlockId};
 use strata_ol_chain_types_new::SimpleWithdrawalIntentLogData;
-use strata_primitives::bitcoin_bosd::Descriptor;
 use strata_test_utils::ArbitraryGenerator;
 
 use crate::handlers::checkpoint::constants::{BRIDGE_GATEWAY_ACCT_SERIAL, MOCK_PREDICATE_KEY};

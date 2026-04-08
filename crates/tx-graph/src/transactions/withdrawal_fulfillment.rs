@@ -1,9 +1,9 @@
 //! This module contains the withdrawal fulfillment transaction.
 
 use bitcoin::{absolute, transaction::Version, Amount, ScriptBuf, Transaction, TxOut};
+use bitcoin_bosd::Descriptor;
 use strata_asm_txs_bridge_v1::withdrawal_fulfillment::WithdrawalFulfillmentTxHeaderAux;
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
-use strata_primitives::bitcoin_bosd::Descriptor;
 
 /// Data needed to construct an unfunded [`WithdrawalFulfillmentTx`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
