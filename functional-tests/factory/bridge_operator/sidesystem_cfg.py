@@ -8,8 +8,8 @@ from typing import Any
 from constants import ASM_MAGIC_BYTES
 from utils.utils import OperatorKeyInfo
 
-from ..common.asm_params import Block, GenesisL1View
-from ..common.asm_params import build_genesis_l1_view as build_genesis_l1_view_common
+from ..common.asm_params import Block, L1Anchor
+from ..common.asm_params import build_l1_anchor as build_l1_anchor_common
 
 
 @dataclass
@@ -29,7 +29,7 @@ class Sidesystem:
     evm_genesis_block_state_root: str
     recovery_delay: int
     operators: list[str]
-    genesis_l1_view: GenesisL1View
+    genesis_l1_anchor: L1Anchor
 
     @classmethod
     def default(cls) -> Sidesystem:
@@ -51,20 +51,20 @@ class Sidesystem:
             evm_genesis_block_hash="0x46c0dc60fb131be4ccc55306a345fcc20e44233324950f978ba5f185aa2af4dc",
             evm_genesis_block_state_root="0x351714af72d74259f45cd7eab0b04527cd40e74836a45abcae50f92d919d988f",
             operators=[],
-            genesis_l1_view=GenesisL1View(
-                blk=Block(height=0, blkid=""),
+            genesis_l1_anchor=L1Anchor(
+                block=Block(height=0, blkid=""),
                 next_target=0,
                 epoch_start_timestamp=0,
-                last_11_timestamps=[0] * 11,
+                network="regtest",
             ),
         )
 
 
-def build_genesis_l1_view(bitcoind_rpc: Any, genesis_height: int) -> GenesisL1View:
-    """Build a GenesisL1View using the live bitcoind RPC."""
+def build_genesis_l1_anchor(bitcoind_rpc: Any, genesis_height: int) -> L1Anchor:
+    """Build an L1Anchor using the live bitcoind RPC."""
     block_hash = bitcoind_rpc.proxy.getblockhash(genesis_height)
     header = bitcoind_rpc.proxy.getblockheader(block_hash)
-    return build_genesis_l1_view_common(
+    return build_l1_anchor_common(
         genesis_height=genesis_height,
         block_hash=block_hash,
         header=header,
@@ -78,7 +78,7 @@ def build_sidesystem(
 ) -> Sidesystem:
     """Create sidesystem params aligned with the current regtest chain."""
     sidesystem = Sidesystem.default()
-    sidesystem.genesis_l1_view = build_genesis_l1_view(bitcoind_rpc, genesis_height)
+    sidesystem.genesis_l1_anchor = build_genesis_l1_anchor(bitcoind_rpc, genesis_height)
     sidesystem.operators = [key.MUSIG2_KEY for key in operator_key_infos]
     return sidesystem
 

@@ -151,7 +151,7 @@ def generate_params_toml(
 
     params = BridgeOperatorParams(
         network="regtest",
-        genesis_height=sidesystem.genesis_l1_view.blk.height,
+        genesis_height=sidesystem.genesis_l1_anchor.block.height,
         keys=Keys(admin=operator_key_infos[0].MUSIG2_KEY, covenant=covenant),
         protocol=bridge_protocol_params,
     )
