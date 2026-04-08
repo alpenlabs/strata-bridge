@@ -49,6 +49,7 @@ impl Operator {
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: Some(5),
             listening_addrs: vec![local_addr],
+            transport_allowlist: None,
             connect_to,
             dial_timeout,
             general_timeout,
