@@ -2,7 +2,7 @@ import flexitest
 
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
-from factory.bridge_operator.config_cfg import BridgeConfigParams
+from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drts_recognized
@@ -53,8 +53,8 @@ class ConcurrentDepositTest(StrataTestBase):
 
     def __init__(self, ctx: flexitest.InitContext):
         # Use higher burial depth to make sequential processing more apparent
-        bridge_config = BridgeConfigParams(bury_depth=TEST_BURY_DEPTH)
-        ctx.set_env(BridgeNetworkEnv(bridge_config_params=bridge_config))
+        bridge_protocol = BridgeProtocolParams(bury_depth=TEST_BURY_DEPTH)
+        ctx.set_env(BridgeNetworkEnv(bridge_protocol_params=bridge_protocol))
 
     def main(self, ctx: flexitest.RunContext):
         CONCURRENT_DRT_COUNT = 3

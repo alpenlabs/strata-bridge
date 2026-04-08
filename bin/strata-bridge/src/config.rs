@@ -4,7 +4,6 @@
 //! different operators.
 use std::{path::PathBuf, time::Duration};
 
-use btc_tracker::config::BtcNotifyConfig;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
@@ -68,7 +67,7 @@ pub(crate) struct Config {
     pub asm_rpc: AsmRpcConfig,
 
     /// Configuration for the Bitcoin ZMQ client.
-    pub btc_zmq: BtcNotifyConfig,
+    pub btc_zmq: BtcZmqConfig,
 
     /// Configuration for the operator wallet.
     pub operator_wallet: OperatorWalletConfig,
@@ -115,6 +114,30 @@ pub(crate) struct BtcClientConfig {
 
     /// Optional retry interval for failed requests.
     pub retry_interval: Option<u64>,
+}
+
+/// Configuration for the Bitcoin ZMQ client.
+///
+/// The burial threshold is intentionally excluded from this node-local config because it is
+/// consensus-critical for the bridge. It lives in [`strata_bridge_common::params::ProtocolParams`]
+/// instead.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BtcZmqConfig {
+    /// Connection string used in `bitcoin.conf => zmqpubhashblock`.
+    pub hashblock_connection_string: Option<String>,
+
+    /// Connection string used in `bitcoin.conf => zmqpubhashtx`.
+    pub hashtx_connection_string: Option<String>,
+
+    /// Connection string used in `bitcoin.conf => zmqpubrawblock`.
+    pub rawblock_connection_string: Option<String>,
+
+    /// Connection string used in `bitcoin.conf => zmqpubrawtx`.
+    pub rawtx_connection_string: Option<String>,
+
+    /// Connection string used in `bitcoin.conf => zmqpubsequence`.
+    pub sequence_connection_string: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -287,7 +310,6 @@ mod tests {
             retry_multiplier = 2
 
             [btc_zmq]
-            bury_depth = 6
             hashblock_connection_string = "tcp://127.0.0.1:28332"
             hashtx_connection_string = "tcp://127.0.0.1:28333"
             rawblock_connection_string = "tcp://127.0.0.1:28334"

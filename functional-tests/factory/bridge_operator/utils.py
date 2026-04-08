@@ -108,7 +108,6 @@ def generate_config_toml(
             retry_multiplier=2,
         ),
         btc_zmq=BtcZmqConfig(
-            bury_depth=bridge_config_params.bury_depth,
             hashblock_connection_string=zmq_connection_string(bitcoind_props["zmq_hashblock"]),
             hashtx_connection_string=zmq_connection_string(bitcoind_props["zmq_hashtx"]),
             rawblock_connection_string=zmq_connection_string(bitcoind_props["zmq_rawblock"]),
