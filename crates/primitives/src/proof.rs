@@ -11,6 +11,22 @@ pub fn verify_bridge_proof(predicate_key: &PredicateKey, proof: &ProofReceipt) -
         .is_ok()
 }
 
+impl BridgeProofPredicate {
+    /// Returns `true` if the proof is valid according to this predicate.
+    pub fn verify(&self, proof: &ProofReceipt) -> bool {
+        let predicate_key = match self {
+            Self::AlwaysAccept => PredicateKey::always_accept(),
+            Self::Sp1Groth16 { program_vk_hash } => {
+                PredicateKey::new(PredicateTypeId::Sp1Groth16, program_vk_hash.to_vec())
+            }
+        };
+
+        predicate_key
+            .verify_claim_witness(proof.public_values().as_bytes(), proof.proof().as_bytes())
+            .is_ok()
+    }
+}
+
 /// An opaque ASM step proof for a range of L1 blocks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsmProof(pub Vec<u8>);
