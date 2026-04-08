@@ -1,6 +1,6 @@
 use bitcoin::{consensus::Encodable, hashes::Hash, Transaction, WitnessCommitment};
 use strata_crypto::hash::sha256d;
-use strata_primitives::buf::Buf32;
+use strata_identifiers::Buf32;
 
 /// Scans the given coinbase transaction for a witness commitment and returns it if found.
 ///

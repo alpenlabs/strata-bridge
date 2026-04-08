@@ -6,8 +6,8 @@ use std::fs;
 use bitcoin::{block::Header, Block};
 use borsh::BorshDeserialize;
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
+use strata_identifiers::Buf64;
 use strata_params::RollupParams;
-use strata_primitives::buf::Buf64;
 
 /// Loads and deserializes a list of Bitcoin blocks from a binary test data file.
 pub fn load_test_blocks() -> Vec<Block> {

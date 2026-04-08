@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
 use strata_bridge_sm::graph::context::GraphSMCtx;
 use strata_bridge_tx_graph::game_graph::{DepositParams, SetupParams};
-use strata_primitives::buf::Buf32;
+use strata_identifiers::Buf32;
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]

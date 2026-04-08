@@ -33,8 +33,8 @@ use strata_bridge_sm::{
     deposit::state::DepositState,
     graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState},
 };
+use strata_identifiers::Buf32;
 use strata_p2p::swarm::handle::CommandHandle;
-use strata_primitives::buf::Buf32;
 use strata_tasks::TaskExecutor;
 use tokio::{
     sync::{RwLock, oneshot},

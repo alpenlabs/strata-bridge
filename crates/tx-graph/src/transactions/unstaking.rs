@@ -6,12 +6,12 @@ use bitcoin::{
     transaction::Version,
     OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
+use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
 use strata_bridge_connectors::{
     prelude::{NOfNConnector, NOfNSpend, TimelockedSpendPath, TimelockedWitness, UnstakingOutput},
     Connector, ParentTx, SigningInfo,
 };
-use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::transactions::{
     prelude::{StakeTx, UnstakingIntentTx},

@@ -4,11 +4,9 @@ use std::marker::PhantomData;
 
 use bitcoin::{block::Header, hashes::Hash, Transaction};
 use borsh::{BorshDeserialize, BorshSerialize};
+use strata_btc_types::{TxidExt, WtxidExt};
 use strata_crypto::hash::sha256d;
-use strata_primitives::{
-    buf::Buf32,
-    l1::{TxidExt, WtxidExt},
-};
+use strata_identifiers::Buf32;
 
 use crate::{tx::BitcoinTx, utils::witness_commitment_from_coinbase};
 
@@ -367,7 +365,7 @@ impl L1TxWithProofBundle {
 #[cfg(test)]
 mod tests {
     use bitcoin::Block;
-    use strata_primitives::Buf32;
+    use strata_identifiers::Buf32;
 
     use super::*;
 

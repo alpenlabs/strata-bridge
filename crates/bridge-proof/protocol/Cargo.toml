@@ -9,8 +9,8 @@ workspace = true
 [dependencies]
 strata-bridge-proof-primitives.workspace = true
 
+strata-identifiers.workspace = true
 strata-params.workspace = true
-strata-primitives.workspace = true
 
 zkaleido.workspace = true
 zkaleido-native-adapter.workspace = true

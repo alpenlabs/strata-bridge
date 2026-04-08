@@ -60,7 +60,7 @@ mod test {
         header_verification_state, load_test_chainstate, load_test_rollup_params,
     };
     use strata_bridge_proof_protocol::BridgeProofInput;
-    use strata_primitives::buf::Buf64;
+    use strata_identifiers::Buf64;
 
     use super::*;
 

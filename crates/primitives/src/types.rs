@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, fmt, fmt::Display};
 
 use bitcoin::XOnlyPublicKey;
+use bitcoin_bosd::{Descriptor, DescriptorError, DescriptorType};
 use hex::ToHex;
 use libp2p_identity::ed25519::PublicKey as P2pPublicKey;
 use musig2::{errors::KeyAggError, KeyAggContext};
@@ -10,7 +11,6 @@ use proptest_derive::Arbitrary;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
-use strata_primitives::bitcoin_bosd::{Descriptor, DescriptorError, DescriptorType};
 
 /// The index of an operator.
 pub type OperatorIdx = u32;

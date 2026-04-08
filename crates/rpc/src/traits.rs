@@ -3,7 +3,7 @@
 use bitcoin::{PublicKey, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
-use strata_primitives::buf::Buf32;
+use strata_identifiers::Buf32;
 
 use crate::types::{
     RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcGraphData,

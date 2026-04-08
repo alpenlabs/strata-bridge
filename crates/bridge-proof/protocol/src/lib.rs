@@ -30,8 +30,8 @@ use bitcoin::{block::Header, consensus::deserialize};
 use borsh::{BorshDeserialize, BorshSerialize};
 use statement::process_bridge_proof;
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
+use strata_identifiers::{Buf32, Buf64};
 use strata_params::RollupParams;
-use strata_primitives::buf::{Buf32, Buf64};
 use zkaleido::{ZkVmEnvBorsh, ZkVmEnvSerde};
 
 /// Represents the private inputs required by the `BridgeProver` to generate a proof.
