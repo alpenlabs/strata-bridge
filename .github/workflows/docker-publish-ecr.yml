@@ -312,9 +312,94 @@ jobs:
             aquasec/trivy:0.65.0 \
             image \
             --scanners vuln,secret,misconfig \
+            --format json \
+            --output "/workdir/${{ matrix.component }}.json" \
+            "${image_ref}"
+          docker run --rm \
+            -v "${PWD}/trivy-results:/workdir" \
+            -v "${HOME}/.docker:/root/.docker:ro" \
+            aquasec/trivy:0.65.0 \
+            image \
+            --scanners vuln,secret,misconfig \
             --format sarif \
             --output "/workdir/${{ matrix.component }}.sarif" \
             "${image_ref}"
+
+      - name: Summarize Trivy results for ${{ matrix.display_name }}
+        env:
+          SUMMARY_PATH: ${{ github.step_summary }}
+        run: |
+          python3 - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+          import os
+
+          component = "${{ matrix.display_name }}"
+          image_ref = "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${{ needs.plan.outputs.image_tag }}"
+          results = json.loads(Path("trivy-results/${{ matrix.component }}.json").read_text())
+          severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
+          counts = Counter()
+          findings = []
+
+          for target in results.get("Results", []):
+              target_name = target.get("Target", "unknown")
+              target_type = target.get("Type", "")
+
+              for vuln in target.get("Vulnerabilities", []) or []:
+                  severity = vuln.get("Severity", "UNKNOWN")
+                  counts[severity] += 1
+                  findings.append({
+                      "severity": severity,
+                      "target": target_name,
+                      "kind": "vuln",
+                      "id": vuln.get("VulnerabilityID", "unknown"),
+                      "title": vuln.get("PkgName") or vuln.get("Title") or vuln.get("InstalledVersion") or "unknown",
+                  })
+
+              for misconfig in target.get("Misconfigurations", []) or []:
+                  severity = misconfig.get("Severity", "UNKNOWN")
+                  counts[severity] += 1
+                  findings.append({
+                      "severity": severity,
+                      "target": target_name,
+                      "kind": "misconfig",
+                      "id": misconfig.get("ID", "unknown"),
+                      "title": misconfig.get("Title") or misconfig.get("Message") or target_type or "unknown",
+                  })
+
+              for secret in target.get("Secrets", []) or []:
+                  severity = secret.get("Severity", "UNKNOWN")
+                  counts[severity] += 1
+                  findings.append({
+                      "severity": severity,
+                      "target": target_name,
+                      "kind": "secret",
+                      "id": secret.get("RuleID", "secret"),
+                      "title": secret.get("Title") or secret.get("Match") or "secret finding",
+                  })
+
+          findings.sort(key=lambda item: (severity_order.index(item["severity"]) if item["severity"] in severity_order else len(severity_order), item["id"], item["target"]))
+
+          with open(os.environ["SUMMARY_PATH"], "a", encoding="utf-8") as summary:
+              summary.write(f"### Trivy Summary: {component}\n\n")
+              summary.write(f"`{image_ref}`\n\n")
+              summary.write("| CRITICAL | HIGH | MEDIUM | LOW | UNKNOWN |\n")
+              summary.write("| --- | --- | --- | --- | --- |\n")
+              summary.write("| " + " | ".join(str(counts.get(level, 0)) for level in severity_order) + " |\n\n")
+
+              if findings:
+                  summary.write("Top findings:\n\n")
+                  summary.write("| Severity | Type | ID | Target |\n")
+                  summary.write("| --- | --- | --- | --- |\n")
+                  for finding in findings[:10]:
+                      summary.write(
+                          f"| {finding['severity']} | {finding['kind']} | `{finding['id']}` | `{finding['target']}` |\n"
+                      )
+                  summary.write("\n")
+              else:
+                  summary.write("No Trivy findings detected.\n\n")
+          PY
 
       - name: Upload Trivy SARIF for ${{ matrix.display_name }}
         uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
@@ -427,9 +512,94 @@ jobs:
             aquasec/trivy:0.65.0 \
             image \
             --scanners vuln,secret,misconfig \
+            --format json \
+            --output "/workdir/${{ matrix.component }}.json" \
+            "${image_ref}"
+          docker run --rm \
+            -v "${PWD}/trivy-results:/workdir" \
+            -v "${HOME}/.docker:/root/.docker:ro" \
+            aquasec/trivy:0.65.0 \
+            image \
+            --scanners vuln,secret,misconfig \
             --format sarif \
             --output "/workdir/${{ matrix.component }}.sarif" \
             "${image_ref}"
+
+      - name: Summarize Trivy results for ${{ matrix.display_name }}
+        env:
+          SUMMARY_PATH: ${{ github.step_summary }}
+        run: |
+          python3 - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+          import os
+
+          component = "${{ matrix.display_name }}"
+          image_ref = "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${{ needs.plan.outputs.image_tag }}"
+          results = json.loads(Path("trivy-results/${{ matrix.component }}.json").read_text())
+          severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
+          counts = Counter()
+          findings = []
+
+          for target in results.get("Results", []):
+              target_name = target.get("Target", "unknown")
+              target_type = target.get("Type", "")
+
+              for vuln in target.get("Vulnerabilities", []) or []:
+                  severity = vuln.get("Severity", "UNKNOWN")
+                  counts[severity] += 1
+                  findings.append({
+                      "severity": severity,
+                      "target": target_name,
+                      "kind": "vuln",
+                      "id": vuln.get("VulnerabilityID", "unknown"),
+                      "title": vuln.get("PkgName") or vuln.get("Title") or vuln.get("InstalledVersion") or "unknown",
+                  })
+
+              for misconfig in target.get("Misconfigurations", []) or []:
+                  severity = misconfig.get("Severity", "UNKNOWN")
+                  counts[severity] += 1
+                  findings.append({
+                      "severity": severity,
+                      "target": target_name,
+                      "kind": "misconfig",
+                      "id": misconfig.get("ID", "unknown"),
+                      "title": misconfig.get("Title") or misconfig.get("Message") or target_type or "unknown",
+                  })
+
+              for secret in target.get("Secrets", []) or []:
+                  severity = secret.get("Severity", "UNKNOWN")
+                  counts[severity] += 1
+                  findings.append({
+                      "severity": severity,
+                      "target": target_name,
+                      "kind": "secret",
+                      "id": secret.get("RuleID", "secret"),
+                      "title": secret.get("Title") or secret.get("Match") or "secret finding",
+                  })
+
+          findings.sort(key=lambda item: (severity_order.index(item["severity"]) if item["severity"] in severity_order else len(severity_order), item["id"], item["target"]))
+
+          with open(os.environ["SUMMARY_PATH"], "a", encoding="utf-8") as summary:
+              summary.write(f"### Trivy Summary: {component}\n\n")
+              summary.write(f"`{image_ref}`\n\n")
+              summary.write("| CRITICAL | HIGH | MEDIUM | LOW | UNKNOWN |\n")
+              summary.write("| --- | --- | --- | --- | --- |\n")
+              summary.write("| " + " | ".join(str(counts.get(level, 0)) for level in severity_order) + " |\n\n")
+
+              if findings:
+                  summary.write("Top findings:\n\n")
+                  summary.write("| Severity | Type | ID | Target |\n")
+                  summary.write("| --- | --- | --- | --- |\n")
+                  for finding in findings[:10]:
+                      summary.write(
+                          f"| {finding['severity']} | {finding['kind']} | `{finding['id']}` | `{finding['target']}` |\n"
+                      )
+                  summary.write("\n")
+              else:
+                  summary.write("No Trivy findings detected.\n\n")
+          PY
 
       - name: Upload Trivy SARIF for ${{ matrix.display_name }}
         uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
