@@ -1,0 +1,57 @@
+[logging]
+filter = "info"
+
+[circuit]
+path = "/etc/mosaic/circuit.v5c"
+
+[network]
+signing_key_hex = "2222222222222222222222222222222222222222222222222222222222222222"
+bind_addr = "0.0.0.0:7000"
+keep_alive_interval_secs = 1
+idle_timeout_secs = 5
+reconnect_backoff_secs = 1
+
+[network.client]
+open_timeout_secs = 5
+ack_timeout_secs = 10
+
+[[network.peers]]
+peer_id_hex = "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"
+addr = "mosaic-1:7000"
+
+[[network.peers]]
+peer_id_hex = "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce"
+addr = "mosaic-3:7002"
+
+[storage]
+cluster_file = "/etc/foundationdb/fdb.cluster"
+global_path = ["mosaic", "node-2"]
+
+[table_store]
+backend = "local_filesystem"
+root = "/etc/mosaic/tables"
+prefix = "garbling-tables"
+
+[job_scheduler]
+submission_queue_size = 256
+completion_queue_size = 256
+
+[job_scheduler.light]
+threads = 1
+concurrency_per_worker = 32
+
+[job_scheduler.heavy]
+threads = 2
+concurrency_per_worker = 8
+
+[job_scheduler.garbling]
+worker_threads = 2
+max_concurrent = 2
+batch_timeout_ms = 500
+chunk_timeout_secs = 30
+
+[sm_executor]
+command_queue_size = 256
+
+[rpc]
+bind_addr = "0.0.0.0:8000"

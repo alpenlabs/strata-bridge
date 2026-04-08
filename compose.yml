@@ -45,9 +45,18 @@ x-base-bridge-node: &base-bridge-node
     - foundationdb
     - asm-runner
 
+x-base-mosaic: &base-mosaic
+  build:
+    # NOTE: (sapinb) update revision after everything is merged in mosaic
+    context: https://github.com/alpenlabs/mosaic.git#7c8d7e570cdc163e4b76909246ae67cbe8cefd8b
+    dockerfile: docker/Dockerfile
+  depends_on:
+    foundationdb:
+      condition: service_healthy
+
 services:
   foundationdb:
-    image: foundationdb/foundationdb:7.3.43
+    image: foundationdb/foundationdb:7.3.75
     environment:
       - FDB_NETWORKING_MODE=container
       - FDB_CLUSTER_FILE=/var/fdb/fdb.cluster
@@ -161,6 +170,36 @@ services:
       - AUTOMINE=5 # every 5 seconds, set to 0 to disable auto generating blocks, keep in alignment with `block_time` in sidesystem params
     networks:
       - bridge
+
+  mosaic-1:
+    <<: *base-mosaic
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - ./functional-tests/artifacts/mosaic_depositidx_ckt.v5c:/etc/mosaic/circuit.v5c:ro
+      - ./docker/vol/fdb/fdb.cluster:/etc/foundationdb/fdb.cluster:ro
+      - ./docker/vol/mosaic-1/config.toml:/etc/mosaic/config.toml:ro
+      - ./docker/vol/mosaic-1/data:/etc/mosaic/tables:rw
+
+  mosaic-2:
+    <<: *base-mosaic
+    ports:
+      - "127.0.0.1:8002:8000"
+    volumes:
+      - ./functional-tests/artifacts/mosaic_depositidx_ckt.v5c:/etc/mosaic/circuit.v5c:ro
+      - ./docker/vol/fdb/fdb.cluster:/etc/foundationdb/fdb.cluster:ro
+      - ./docker/vol/mosaic-2/config.toml:/etc/mosaic/config.toml:ro
+      - ./docker/vol/mosaic-2/data:/etc/mosaic/tables:rw
+
+  mosaic-3:
+    <<: *base-mosaic
+    ports:
+      - "127.0.0.1:8003:8000"
+    volumes:
+      - ./functional-tests/artifacts/mosaic_depositidx_ckt.v5c:/etc/mosaic/circuit.v5c:ro
+      - ./docker/vol/fdb/fdb.cluster:/etc/foundationdb/fdb.cluster:ro
+      - ./docker/vol/mosaic-3/config.toml:/etc/mosaic/config.toml:ro
+      - ./docker/vol/mosaic-3/data:/etc/mosaic/tables:rw
 
 networks:
   bridge:
