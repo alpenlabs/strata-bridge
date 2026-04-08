@@ -384,70 +384,85 @@ jobs:
           severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
           counts = Counter()
           findings = []
+          markdown_lines = []
 
-          with open(os.environ["SUMMARY_PATH"], "a", encoding="utf-8") as summary:
-              summary.write(f"### Trivy Summary: {component}\n\n")
-              summary.write(f"`{image_ref}`\n\n")
-              summary.write(f"- Status: `{os.environ.get('TRIVY_STATUS', 'unknown')}`\n")
-              summary.write(f"- Scanners: `{os.environ['TRIVY_SCANNERS']}`\n")
-              summary.write(f"- Timeout: `{os.environ['TRIVY_TIMEOUT']}`\n")
-              summary.write(f"- Exit codes: json=`{os.environ.get('TRIVY_JSON_RC', '')}` sarif=`{os.environ.get('TRIVY_SARIF_RC', '')}`\n\n")
+          markdown_lines.append(f"### Trivy Summary: {component}")
+          markdown_lines.append("")
+          markdown_lines.append(f"`{image_ref}`")
+          markdown_lines.append("")
+          markdown_lines.append(f"- Status: `{os.environ.get('TRIVY_STATUS', 'unknown')}`")
+          markdown_lines.append(f"- Scanners: `{os.environ['TRIVY_SCANNERS']}`")
+          markdown_lines.append(f"- Timeout: `{os.environ['TRIVY_TIMEOUT']}`")
+          markdown_lines.append(f"- Exit codes: json=`{os.environ.get('TRIVY_JSON_RC', '')}` sarif=`{os.environ.get('TRIVY_SARIF_RC', '')}`")
+          markdown_lines.append("")
 
-              if os.environ.get("TRIVY_JSON_EXISTS") != "true":
-                  summary.write("Trivy did not produce a JSON report for this image.\n\n")
+          if os.environ.get("TRIVY_JSON_EXISTS") != "true":
+              markdown_lines.append("Trivy did not produce a JSON report for this image.")
+              markdown_lines.append("")
+          else:
+              results = json.loads(Path("trivy-results/${{ matrix.component }}.json").read_text())
+              for target in results.get("Results", []):
+                  target_name = target.get("Target", "unknown")
+                  target_type = target.get("Type", "")
+
+                  for vuln in target.get("Vulnerabilities", []) or []:
+                      severity = vuln.get("Severity", "UNKNOWN")
+                      counts[severity] += 1
+                      findings.append({
+                          "severity": severity,
+                          "target": target_name,
+                          "kind": "vuln",
+                          "id": vuln.get("VulnerabilityID", "unknown"),
+                      })
+
+                  for misconfig in target.get("Misconfigurations", []) or []:
+                      severity = misconfig.get("Severity", "UNKNOWN")
+                      counts[severity] += 1
+                      findings.append({
+                          "severity": severity,
+                          "target": target_name,
+                          "kind": "misconfig",
+                          "id": misconfig.get("ID", "unknown"),
+                      })
+
+                  for secret in target.get("Secrets", []) or []:
+                      severity = secret.get("Severity", "UNKNOWN")
+                      counts[severity] += 1
+                      findings.append({
+                          "severity": severity,
+                          "target": target_name,
+                          "kind": "secret",
+                          "id": secret.get("RuleID", "secret"),
+                      })
+
+              findings.sort(key=lambda item: (severity_order.index(item["severity"]) if item["severity"] in severity_order else len(severity_order), item["id"], item["target"]))
+              markdown_lines.append("| CRITICAL | HIGH | MEDIUM | LOW | UNKNOWN |")
+              markdown_lines.append("| --- | --- | --- | --- | --- |")
+              markdown_lines.append("| " + " | ".join(str(counts.get(level, 0)) for level in severity_order) + " |")
+              markdown_lines.append("")
+
+              if findings:
+                  markdown_lines.append("Top findings:")
+                  markdown_lines.append("")
+                  markdown_lines.append("| Severity | Type | ID | Target |")
+                  markdown_lines.append("| --- | --- | --- | --- |")
+                  for finding in findings[:10]:
+                      markdown_lines.append(
+                          f"| {finding['severity']} | {finding['kind']} | `{finding['id']}` | `{finding['target']}` |"
+                      )
+                  markdown_lines.append("")
               else:
-                  results = json.loads(Path("trivy-results/${{ matrix.component }}.json").read_text())
-                  for target in results.get("Results", []):
-                      target_name = target.get("Target", "unknown")
-                      target_type = target.get("Type", "")
+                  markdown_lines.append("No Trivy findings detected.")
+                  markdown_lines.append("")
 
-                      for vuln in target.get("Vulnerabilities", []) or []:
-                          severity = vuln.get("Severity", "UNKNOWN")
-                          counts[severity] += 1
-                          findings.append({
-                              "severity": severity,
-                              "target": target_name,
-                              "kind": "vuln",
-                              "id": vuln.get("VulnerabilityID", "unknown"),
-                          })
-
-                      for misconfig in target.get("Misconfigurations", []) or []:
-                          severity = misconfig.get("Severity", "UNKNOWN")
-                          counts[severity] += 1
-                          findings.append({
-                              "severity": severity,
-                              "target": target_name,
-                              "kind": "misconfig",
-                              "id": misconfig.get("ID", "unknown"),
-                          })
-
-                      for secret in target.get("Secrets", []) or []:
-                          severity = secret.get("Severity", "UNKNOWN")
-                          counts[severity] += 1
-                          findings.append({
-                              "severity": severity,
-                              "target": target_name,
-                              "kind": "secret",
-                              "id": secret.get("RuleID", "secret"),
-                          })
-
-                  findings.sort(key=lambda item: (severity_order.index(item["severity"]) if item["severity"] in severity_order else len(severity_order), item["id"], item["target"]))
-                  summary.write("| CRITICAL | HIGH | MEDIUM | LOW | UNKNOWN |\n")
-                  summary.write("| --- | --- | --- | --- | --- |\n")
-                  summary.write("| " + " | ".join(str(counts.get(level, 0)) for level in severity_order) + " |\n\n")
-
-                  if findings:
-                      summary.write("Top findings:\n\n")
-                      summary.write("| Severity | Type | ID | Target |\n")
-                      summary.write("| --- | --- | --- | --- |\n")
-                      for finding in findings[:10]:
-                          summary.write(
-                              f"| {finding['severity']} | {finding['kind']} | `{finding['id']}` | `{finding['target']}` |\n"
-                          )
-                      summary.write("\n")
-                  else:
-                      summary.write("No Trivy findings detected.\n\n")
+          markdown = "\n".join(markdown_lines) + "\n"
+          Path("trivy-results/${{ matrix.component }}.md").write_text(markdown, encoding="utf-8")
+          with open(os.environ["SUMMARY_PATH"], "a", encoding="utf-8") as summary:
+              summary.write(markdown)
           PY
+          echo "::group::Trivy summary for ${{ matrix.display_name }}"
+          cat "trivy-results/${{ matrix.component }}.md"
+          echo "::endgroup::"
 
       - name: Upload Trivy SARIF for ${{ matrix.display_name }}
         if: always() && steps.trivy_outputs.outputs.sarif_exists == 'true'
@@ -457,11 +472,15 @@ jobs:
           category: bridge-ecr-${{ matrix.component }}
 
       - name: Upload scan artifact for ${{ matrix.display_name }}
-        if: always() && steps.trivy_outputs.outputs.sarif_exists == 'true'
+        if: always() && (steps.trivy_outputs.outputs.json_exists == 'true' || steps.trivy_outputs.outputs.sarif_exists == 'true')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
-          path: trivy-results/${{ matrix.component }}.sarif
+          if-no-files-found: warn
+          path: |
+            trivy-results/${{ matrix.component }}.json
+            trivy-results/${{ matrix.component }}.sarif
+            trivy-results/${{ matrix.component }}.md
 
       - name: Append publish summary
         if: always()
@@ -621,70 +640,85 @@ jobs:
           severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
           counts = Counter()
           findings = []
+          markdown_lines = []
 
-          with open(os.environ["SUMMARY_PATH"], "a", encoding="utf-8") as summary:
-              summary.write(f"### Trivy Summary: {component}\n\n")
-              summary.write(f"`{image_ref}`\n\n")
-              summary.write(f"- Status: `{os.environ.get('TRIVY_STATUS', 'unknown')}`\n")
-              summary.write(f"- Scanners: `{os.environ['TRIVY_SCANNERS']}`\n")
-              summary.write(f"- Timeout: `{os.environ['TRIVY_TIMEOUT']}`\n")
-              summary.write(f"- Exit codes: json=`{os.environ.get('TRIVY_JSON_RC', '')}` sarif=`{os.environ.get('TRIVY_SARIF_RC', '')}`\n\n")
+          markdown_lines.append(f"### Trivy Summary: {component}")
+          markdown_lines.append("")
+          markdown_lines.append(f"`{image_ref}`")
+          markdown_lines.append("")
+          markdown_lines.append(f"- Status: `{os.environ.get('TRIVY_STATUS', 'unknown')}`")
+          markdown_lines.append(f"- Scanners: `{os.environ['TRIVY_SCANNERS']}`")
+          markdown_lines.append(f"- Timeout: `{os.environ['TRIVY_TIMEOUT']}`")
+          markdown_lines.append(f"- Exit codes: json=`{os.environ.get('TRIVY_JSON_RC', '')}` sarif=`{os.environ.get('TRIVY_SARIF_RC', '')}`")
+          markdown_lines.append("")
 
-              if os.environ.get("TRIVY_JSON_EXISTS") != "true":
-                  summary.write("Trivy did not produce a JSON report for this image.\n\n")
+          if os.environ.get("TRIVY_JSON_EXISTS") != "true":
+              markdown_lines.append("Trivy did not produce a JSON report for this image.")
+              markdown_lines.append("")
+          else:
+              results = json.loads(Path("trivy-results/${{ matrix.component }}.json").read_text())
+              for target in results.get("Results", []):
+                  target_name = target.get("Target", "unknown")
+                  target_type = target.get("Type", "")
+
+                  for vuln in target.get("Vulnerabilities", []) or []:
+                      severity = vuln.get("Severity", "UNKNOWN")
+                      counts[severity] += 1
+                      findings.append({
+                          "severity": severity,
+                          "target": target_name,
+                          "kind": "vuln",
+                          "id": vuln.get("VulnerabilityID", "unknown"),
+                      })
+
+                  for misconfig in target.get("Misconfigurations", []) or []:
+                      severity = misconfig.get("Severity", "UNKNOWN")
+                      counts[severity] += 1
+                      findings.append({
+                          "severity": severity,
+                          "target": target_name,
+                          "kind": "misconfig",
+                          "id": misconfig.get("ID", "unknown"),
+                      })
+
+                  for secret in target.get("Secrets", []) or []:
+                      severity = secret.get("Severity", "UNKNOWN")
+                      counts[severity] += 1
+                      findings.append({
+                          "severity": severity,
+                          "target": target_name,
+                          "kind": "secret",
+                          "id": secret.get("RuleID", "secret"),
+                      })
+
+              findings.sort(key=lambda item: (severity_order.index(item["severity"]) if item["severity"] in severity_order else len(severity_order), item["id"], item["target"]))
+              markdown_lines.append("| CRITICAL | HIGH | MEDIUM | LOW | UNKNOWN |")
+              markdown_lines.append("| --- | --- | --- | --- | --- |")
+              markdown_lines.append("| " + " | ".join(str(counts.get(level, 0)) for level in severity_order) + " |")
+              markdown_lines.append("")
+
+              if findings:
+                  markdown_lines.append("Top findings:")
+                  markdown_lines.append("")
+                  markdown_lines.append("| Severity | Type | ID | Target |")
+                  markdown_lines.append("| --- | --- | --- | --- |")
+                  for finding in findings[:10]:
+                      markdown_lines.append(
+                          f"| {finding['severity']} | {finding['kind']} | `{finding['id']}` | `{finding['target']}` |"
+                      )
+                  markdown_lines.append("")
               else:
-                  results = json.loads(Path("trivy-results/${{ matrix.component }}.json").read_text())
-                  for target in results.get("Results", []):
-                      target_name = target.get("Target", "unknown")
-                      target_type = target.get("Type", "")
+                  markdown_lines.append("No Trivy findings detected.")
+                  markdown_lines.append("")
 
-                      for vuln in target.get("Vulnerabilities", []) or []:
-                          severity = vuln.get("Severity", "UNKNOWN")
-                          counts[severity] += 1
-                          findings.append({
-                              "severity": severity,
-                              "target": target_name,
-                              "kind": "vuln",
-                              "id": vuln.get("VulnerabilityID", "unknown"),
-                          })
-
-                      for misconfig in target.get("Misconfigurations", []) or []:
-                          severity = misconfig.get("Severity", "UNKNOWN")
-                          counts[severity] += 1
-                          findings.append({
-                              "severity": severity,
-                              "target": target_name,
-                              "kind": "misconfig",
-                              "id": misconfig.get("ID", "unknown"),
-                          })
-
-                      for secret in target.get("Secrets", []) or []:
-                          severity = secret.get("Severity", "UNKNOWN")
-                          counts[severity] += 1
-                          findings.append({
-                              "severity": severity,
-                              "target": target_name,
-                              "kind": "secret",
-                              "id": secret.get("RuleID", "secret"),
-                          })
-
-                  findings.sort(key=lambda item: (severity_order.index(item["severity"]) if item["severity"] in severity_order else len(severity_order), item["id"], item["target"]))
-                  summary.write("| CRITICAL | HIGH | MEDIUM | LOW | UNKNOWN |\n")
-                  summary.write("| --- | --- | --- | --- | --- |\n")
-                  summary.write("| " + " | ".join(str(counts.get(level, 0)) for level in severity_order) + " |\n\n")
-
-                  if findings:
-                      summary.write("Top findings:\n\n")
-                      summary.write("| Severity | Type | ID | Target |\n")
-                      summary.write("| --- | --- | --- | --- |\n")
-                      for finding in findings[:10]:
-                          summary.write(
-                              f"| {finding['severity']} | {finding['kind']} | `{finding['id']}` | `{finding['target']}` |\n"
-                          )
-                      summary.write("\n")
-                  else:
-                      summary.write("No Trivy findings detected.\n\n")
+          markdown = "\n".join(markdown_lines) + "\n"
+          Path("trivy-results/${{ matrix.component }}.md").write_text(markdown, encoding="utf-8")
+          with open(os.environ["SUMMARY_PATH"], "a", encoding="utf-8") as summary:
+              summary.write(markdown)
           PY
+          echo "::group::Trivy summary for ${{ matrix.display_name }}"
+          cat "trivy-results/${{ matrix.component }}.md"
+          echo "::endgroup::"
 
       - name: Upload Trivy SARIF for ${{ matrix.display_name }}
         if: always() && steps.trivy_outputs.outputs.sarif_exists == 'true'
@@ -694,11 +728,15 @@ jobs:
           category: bridge-ecr-${{ matrix.component }}
 
       - name: Upload scan artifact for ${{ matrix.display_name }}
-        if: always() && steps.trivy_outputs.outputs.sarif_exists == 'true'
+        if: always() && (steps.trivy_outputs.outputs.json_exists == 'true' || steps.trivy_outputs.outputs.sarif_exists == 'true')
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
-          path: trivy-results/${{ matrix.component }}.sarif
+          if-no-files-found: warn
+          path: |
+            trivy-results/${{ matrix.component }}.json
+            trivy-results/${{ matrix.component }}.sarif
+            trivy-results/${{ matrix.component }}.md
 
       - name: Append publish summary
         if: always()
@@ -712,3 +750,95 @@ jobs:
             echo "  scan: advisory status \`${TRIVY_STATUS:-unknown}\`"
             echo "  artifact: \`trivy-${{ matrix.component }}-${IMAGE_TAG}\` (uploaded when SARIF exists)"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+  publish_report:
+    name: Publish Scan Summary
+    needs:
+      - plan
+      - build_dependencies
+      - build_app_images
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download Trivy artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v5.0.0
+        with:
+          path: trivy-artifacts
+          pattern: trivy-*-${{ needs.plan.outputs.image_tag }}
+          merge-multiple: false
+
+      - name: Render aggregated Trivy summary
+        env:
+          SUMMARY_PATH: ${{ github.step_summary }}
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from collections import Counter
+          from pathlib import Path
+
+          severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
+          root = Path("trivy-artifacts")
+          rows = []
+
+          for artifact_dir in sorted([p for p in root.iterdir() if p.is_dir()] if root.exists() else []):
+              json_files = list(artifact_dir.glob("*.json"))
+              component = artifact_dir.name
+              if component.startswith("trivy-") and component.endswith(f"-{os.environ['IMAGE_TAG']}"):
+                  component = component[len("trivy-") : -(len(os.environ["IMAGE_TAG"]) + 1)]
+
+              counts = Counter()
+              if json_files:
+                  data = json.loads(json_files[0].read_text())
+                  for target in data.get("Results", []):
+                      for vuln in target.get("Vulnerabilities", []) or []:
+                          counts[vuln.get("Severity", "UNKNOWN")] += 1
+                      for misconfig in target.get("Misconfigurations", []) or []:
+                          counts[misconfig.get("Severity", "UNKNOWN")] += 1
+                      for secret in target.get("Secrets", []) or []:
+                          counts[secret.get("Severity", "UNKNOWN")] += 1
+                  status = "report available"
+              else:
+                  status = "no json report"
+
+              rows.append({
+                  "component": component,
+                  "status": status,
+                  "counts": counts,
+              })
+
+          lines = []
+          lines.append("## Trivy Rollup")
+          lines.append("")
+          if not rows:
+              lines.append("No Trivy artifacts were downloaded for this run.")
+              lines.append("")
+          else:
+              lines.append("| Image | Status | Critical | High | Medium | Low | Unknown |")
+              lines.append("| --- | --- | --- | --- | --- | --- | --- |")
+              for row in rows:
+                  lines.append(
+                      "| {component} | {status} | {critical} | {high} | {medium} | {low} | {unknown} |".format(
+                          component=row["component"],
+                          status=row["status"],
+                          critical=row["counts"].get("CRITICAL", 0),
+                          high=row["counts"].get("HIGH", 0),
+                          medium=row["counts"].get("MEDIUM", 0),
+                          low=row["counts"].get("LOW", 0),
+                          unknown=row["counts"].get("UNKNOWN", 0),
+                      )
+                  )
+              lines.append("")
+              lines.append("Artifacts contain the raw `.json`, `.sarif`, and per-image Markdown summaries.")
+              lines.append("")
+
+          markdown = "\n".join(lines) + "\n"
+          Path("trivy-rollup.md").write_text(markdown, encoding="utf-8")
+          with open(os.environ["SUMMARY_PATH"], "a", encoding="utf-8") as summary:
+              summary.write(markdown)
+          PY
+          echo "::group::Aggregated Trivy rollup"
+          cat trivy-rollup.md
+          echo "::endgroup::"
