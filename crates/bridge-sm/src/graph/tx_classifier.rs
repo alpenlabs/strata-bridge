@@ -118,7 +118,14 @@ impl TxClassifier for GraphSM {
             // expects a bridge proof, a (faulty) counterproof or a bridge proof timeout or a payout
             // burn
             GraphState::Contested { graph_summary, .. } => {
-                if is_bridge_proof_tx(graph_summary.contest, tx) {
+                if txid == graph_summary.bridge_proof_timeout {
+                    Some(GraphEvent::BridgeProofTimeoutConfirmed(
+                        BridgeProofTimeoutConfirmedEvent {
+                            bridge_proof_timeout_txid: txid,
+                            bridge_proof_timeout_block_height: height,
+                        },
+                    ))
+                } else if is_bridge_proof_tx(graph_summary.contest, tx) {
                     let mut proof_and_public_values = vec![];
                     tx.output.iter().for_each(|output| {
                         if output.script_pubkey.is_op_return() {
