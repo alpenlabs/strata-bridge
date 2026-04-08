@@ -27,8 +27,10 @@ proptest-derive.workspace = true
 rkyv.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
+strata-predicate.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, optional = true }
+zkaleido.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
