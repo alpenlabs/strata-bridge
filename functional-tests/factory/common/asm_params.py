@@ -15,11 +15,11 @@ class Block:
 
 
 @dataclass
-class GenesisL1View:
-    blk: Block
+class L1Anchor:
+    block: Block
     next_target: int
     epoch_start_timestamp: int
-    last_11_timestamps: list[int]
+    network: str
 
 
 @dataclass
@@ -56,13 +56,13 @@ class BridgeSubprotocol:
 @dataclass
 class AsmParams:
     magic: str
-    l1_view: GenesisL1View
+    anchor: L1Anchor
     subprotocols: list[dict[str, Any]]
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "magic": self.magic,
-            "l1_view": asdict(self.l1_view),
+            "anchor": asdict(self.anchor),
             "subprotocols": self.subprotocols,
         }
 
@@ -73,20 +73,20 @@ def parse_bits_to_target(bits: int | str) -> int:
     return int(bits)
 
 
-def build_genesis_l1_view(
+def build_l1_anchor(
     genesis_height: int,
     block_hash: str,
     header: dict[str, Any],
-) -> GenesisL1View:
+    network: str = "regtest",
+) -> L1Anchor:
     header_time = int(header["time"])
     next_target = parse_bits_to_target(header["bits"])
-    history_time = header_time - 1 if header_time > 0 else header_time
 
-    return GenesisL1View(
-        blk=Block(height=genesis_height, blkid=block_hash),
+    return L1Anchor(
+        block=Block(height=genesis_height, blkid=block_hash),
         next_target=next_target,
         epoch_start_timestamp=header_time,
-        last_11_timestamps=[history_time] * 11,
+        network=network,
     )
 
 
@@ -148,7 +148,7 @@ def build_asm_params(
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
 ) -> AsmParams:
-    l1_view = build_genesis_l1_view(genesis_height, block_hash, header)
+    anchor = build_l1_anchor(genesis_height, block_hash, header)
     subprotocols = build_subprotocols(
         musig2_keys,
         genesis_height,
@@ -159,7 +159,7 @@ def build_asm_params(
     )
     return AsmParams(
         magic=magic,
-        l1_view=l1_view,
+        anchor=anchor,
         subprotocols=subprotocols,
     )
 
