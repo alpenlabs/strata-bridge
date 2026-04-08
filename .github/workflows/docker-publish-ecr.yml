@@ -1,0 +1,449 @@
+name: Docker Publish to ECR
+
+on:
+  push:
+    branches:
+      - str-3011-ci-build-ecr-push
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git branch, tag, or commit SHA to build. Defaults to the selected branch in the UI.
+        required: false
+        type: string
+      components:
+        description: Comma-separated components to build. Use any of base,rt,strata-bridge,strata-asm-runner,secret-service,all.
+        required: false
+        default: all
+        type: string
+      dependency_tag:
+        description: Existing ECR tag for bridge-base and bridge-rt when they are not rebuilt in this run.
+        required: false
+        type: string
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  ECR_REGISTRY: ${{ vars.ECR_REGISTRY || '888577024788.dkr.ecr.us-east-1.amazonaws.com' }}
+  ECR_REPOSITORY_PREFIX: ${{ vars.ECR_REPOSITORY_PREFIX || 'tn1' }}
+  DOCKER_PLATFORM: linux/amd64
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+concurrency:
+  group: docker-publish-ecr-${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Resolve Build Plan
+    runs-on: ubuntu-latest
+    outputs:
+      checkout_ref: ${{ steps.plan.outputs.checkout_ref }}
+      resolved_sha: ${{ steps.plan.outputs.resolved_sha }}
+      image_tag: ${{ steps.plan.outputs.image_tag }}
+      dependency_tag: ${{ steps.plan.outputs.dependency_tag }}
+      dependency_matrix: ${{ steps.plan.outputs.dependency_matrix }}
+      app_matrix: ${{ steps.plan.outputs.app_matrix }}
+    steps:
+      - name: Validate manual inputs
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_DEPENDENCY_TAG: ${{ inputs.dependency_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${INPUT_REF}" ]]; then
+            if [[ "${INPUT_REF}" =~ [[:space:]] ]]; then
+              echo "::error::ref must not contain whitespace"
+              exit 1
+            fi
+            if [[ ! "${INPUT_REF}" =~ ^[A-Za-z0-9._/@:-]+$ ]]; then
+              echo "::error::ref contains unsupported characters"
+              exit 1
+            fi
+          fi
+
+          if [[ -n "${INPUT_DEPENDENCY_TAG}" ]]; then
+            if [[ "${INPUT_DEPENDENCY_TAG}" =~ [[:space:]] ]]; then
+              echo "::error::dependency_tag must not contain whitespace"
+              exit 1
+            fi
+            if [[ ! "${INPUT_DEPENDENCY_TAG}" =~ ^[A-Za-z0-9._-]{1,128}$ ]]; then
+              echo "::error::dependency_tag must match [A-Za-z0-9._-]{1,128}"
+              exit 1
+            fi
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Resolve plan
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_COMPONENTS: ${{ inputs.components }}
+          INPUT_DEPENDENCY_TAG: ${{ inputs.dependency_tag }}
+        run: |
+          set -euo pipefail
+
+          checkout_ref="${INPUT_REF:-${GITHUB_REF}}"
+          if [[ -z "${checkout_ref}" ]]; then
+            checkout_ref="${GITHUB_SHA}"
+          fi
+
+          resolved_sha="$(git rev-parse HEAD)"
+          image_tag="$(git rev-parse --short=8 HEAD)"
+
+          if [[ "${EVENT_NAME}" == "push" ]]; then
+            components="all"
+          else
+            components="${INPUT_COMPONENTS// /}"
+            if [[ -z "${components}" ]]; then
+              components="strata-bridge,strata-asm-runner,secret-service"
+            fi
+          fi
+
+          build_base=false
+          build_rt=false
+          build_strata_bridge=false
+          build_asm_runner=false
+          build_secret_service=false
+
+          if [[ "${components}" == "all" ]]; then
+            build_base=true
+            build_rt=true
+            build_strata_bridge=true
+            build_asm_runner=true
+            build_secret_service=true
+          else
+            IFS=',' read -r -a requested <<< "${components}"
+            for component in "${requested[@]}"; do
+              case "${component}" in
+                base) build_base=true ;;
+                rt) build_rt=true ;;
+                strata-bridge) build_strata_bridge=true ;;
+                strata-asm-runner) build_asm_runner=true ;;
+                secret-service) build_secret_service=true ;;
+                "") ;;
+                *)
+                  echo "::error::Unsupported component: ${component}"
+                  exit 1
+                  ;;
+              esac
+            done
+          fi
+
+          if [[ "${build_strata_bridge}" == "true" || "${build_asm_runner}" == "true" || "${build_secret_service}" == "true" ]]; then
+            if [[ "${build_base}" == "true" || "${build_rt}" == "true" ]]; then
+              build_base=true
+              build_rt=true
+            fi
+          fi
+
+          dependency_tag="${INPUT_DEPENDENCY_TAG:-}"
+          if [[ "${build_base}" == "true" || "${build_rt}" == "true" ]]; then
+            dependency_tag="${image_tag}"
+          elif [[ "${build_strata_bridge}" == "true" || "${build_asm_runner}" == "true" || "${build_secret_service}" == "true" ]]; then
+            if [[ -z "${dependency_tag}" ]]; then
+              echo "::error::dependency_tag is required when building final images without rebuilding base and rt"
+              exit 1
+            fi
+          fi
+
+          export BUILD_BASE="${build_base}"
+          export BUILD_RT="${build_rt}"
+          export BUILD_STRATA_BRIDGE="${build_strata_bridge}"
+          export BUILD_ASM_RUNNER="${build_asm_runner}"
+          export BUILD_SECRET_SERVICE="${build_secret_service}"
+
+          dependency_matrix="$(python3 - <<'PY'
+          import json, os
+          items = []
+          if os.environ["BUILD_BASE"] == "true":
+              items.append({
+                  "component": "base",
+                  "repository": "bridge-base",
+                  "dockerfile": "docker/base.Dockerfile",
+                  "cache_scope": "bridge-base-linux-amd64",
+              })
+          if os.environ["BUILD_RT"] == "true":
+              items.append({
+                  "component": "rt",
+                  "repository": "bridge-rt",
+                  "dockerfile": "docker/rt.Dockerfile",
+                  "cache_scope": "bridge-rt-linux-amd64",
+              })
+          print(json.dumps(items))
+          PY
+          )"
+
+          app_matrix="$(python3 - <<'PY'
+          import json, os
+          items = []
+          if os.environ["BUILD_STRATA_BRIDGE"] == "true":
+              items.append({
+                  "component": "strata-bridge",
+                  "repository": "strata-bridge",
+                  "dockerfile": "docker/strata-bridge/Dockerfile",
+                  "local_tag": "strata-bridge:latest",
+              })
+          if os.environ["BUILD_ASM_RUNNER"] == "true":
+              items.append({
+                  "component": "strata-asm-runner",
+                  "repository": "strata-asm-runner",
+                  "dockerfile": "docker/asm-runner/Dockerfile",
+                  "local_tag": "strata-asm-runner:latest",
+              })
+          if os.environ["BUILD_SECRET_SERVICE"] == "true":
+              items.append({
+                  "component": "secret-service",
+                  "repository": "secret-service",
+                  "dockerfile": "docker/secret-service/Dockerfile",
+                  "local_tag": "secret-service:latest",
+              })
+          print(json.dumps(items))
+          PY
+          )"
+
+          {
+            echo "checkout_ref=${checkout_ref}"
+            echo "resolved_sha=${resolved_sha}"
+            echo "image_tag=${image_tag}"
+            echo "dependency_tag=${dependency_tag}"
+            echo "dependency_matrix=${dependency_matrix}"
+            echo "app_matrix=${app_matrix}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Initialize publish summary
+        run: |
+          {
+            echo "## Docker Publish to ECR"
+            echo
+            echo "- Workflow ref: \`${{ github.ref }}\`"
+            echo "- Checkout ref: \`${{ steps.plan.outputs.checkout_ref }}\`"
+            echo "- Resolved commit: \`${{ steps.plan.outputs.resolved_sha }}\`"
+            echo "- Image tag: \`${{ steps.plan.outputs.image_tag }}\`"
+            echo "- Dependency tag: \`${{ steps.plan.outputs.dependency_tag }}\`"
+            echo "- Scan mode: advisory"
+            echo
+            echo "### Selected Images"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  build_dependencies:
+    name: Build and Push Dependency Images
+    needs: plan
+    if: needs.plan.outputs.dependency_matrix != '[]'
+    runs-on: ubuntu-latest
+    environment: AWS
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.dependency_matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.plan.outputs.checkout_ref }}
+
+      - name: Cleanup space
+        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+
+      - name: Validate AWS publish configuration
+        env:
+          AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [[ -z "${AWS_ROLE_TO_ASSUME}" ]]; then
+            echo "::error::Repository variable AWS_ROLE_TO_ASSUME is required for ECR publishing"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region "${AWS_REGION}" \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build and push dependency image
+        env:
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
+        run: |
+          image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
+          docker buildx build \
+            --platform "${DOCKER_PLATFORM}" \
+            --file "${{ matrix.dockerfile }}" \
+            --cache-from "type=gha,scope=${{ matrix.cache_scope }}" \
+            --cache-to "type=gha,scope=${{ matrix.cache_scope }},mode=max" \
+            --tag "${image_ref}" \
+            --pull \
+            --push \
+            .
+
+      - name: Run Trivy scan
+        env:
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
+        run: |
+          mkdir -p trivy-results
+          image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
+          docker run --rm \
+            -v "${PWD}/trivy-results:/workdir" \
+            -v "${HOME}/.docker:/root/.docker:ro" \
+            aquasec/trivy:0.65.0 \
+            image \
+            --scanners vuln,secret,misconfig \
+            --format sarif \
+            --output "/workdir/${{ matrix.component }}.sarif" \
+            "${image_ref}"
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
+        with:
+          sarif_file: trivy-results/${{ matrix.component }}.sarif
+          category: bridge-ecr-${{ matrix.component }}
+
+      - name: Upload scan artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
+          path: trivy-results/${{ matrix.component }}.sarif
+
+      - name: Append publish summary
+        env:
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
+        run: |
+          image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
+          {
+            echo "- \`${image_ref}\`"
+            echo "  scan: advisory SARIF uploaded as \`trivy-${{ matrix.component }}-${IMAGE_TAG}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  build_app_images:
+    name: Build and Push Bridge Images
+    needs:
+      - plan
+      - build_dependencies
+    if: |
+      always() &&
+      needs.plan.outputs.app_matrix != '[]' &&
+      (needs.build_dependencies.result == 'success' || needs.build_dependencies.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: AWS
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.app_matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.plan.outputs.checkout_ref }}
+
+      - name: Cleanup space
+        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+
+      - name: Validate AWS publish configuration
+        env:
+          AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [[ -z "${AWS_ROLE_TO_ASSUME}" ]]; then
+            echo "::error::Repository variable AWS_ROLE_TO_ASSUME is required for ECR publishing"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region "${AWS_REGION}" \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Pull dependency images
+        env:
+          DEPENDENCY_TAG: ${{ needs.plan.outputs.dependency_tag }}
+        run: |
+          docker pull "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-base:${DEPENDENCY_TAG}"
+          docker pull "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-rt:${DEPENDENCY_TAG}"
+          docker tag "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-base:${DEPENDENCY_TAG}" bridge-base:latest
+          docker tag "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-rt:${DEPENDENCY_TAG}" bridge-rt:latest
+
+      - name: Build final image
+        run: |
+          docker buildx build \
+            --platform "${DOCKER_PLATFORM}" \
+            --file "${{ matrix.dockerfile }}" \
+            --cache-from "type=gha,scope=${{ matrix.component }}-linux-amd64" \
+            --cache-to "type=gha,scope=${{ matrix.component }}-linux-amd64,mode=max" \
+            --tag "${{ matrix.local_tag }}" \
+            --load \
+            .
+
+      - name: Tag and push image
+        env:
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
+        run: |
+          image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
+          docker tag "${{ matrix.local_tag }}" "${image_ref}"
+          docker push "${image_ref}"
+
+      - name: Run Trivy scan
+        env:
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
+        run: |
+          mkdir -p trivy-results
+          image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
+          docker run --rm \
+            -v "${PWD}/trivy-results:/workdir" \
+            -v "${HOME}/.docker:/root/.docker:ro" \
+            aquasec/trivy:0.65.0 \
+            image \
+            --scanners vuln,secret,misconfig \
+            --format sarif \
+            --output "/workdir/${{ matrix.component }}.sarif" \
+            "${image_ref}"
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
+        with:
+          sarif_file: trivy-results/${{ matrix.component }}.sarif
+          category: bridge-ecr-${{ matrix.component }}
+
+      - name: Upload scan artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
+          path: trivy-results/${{ matrix.component }}.sarif
+
+      - name: Append publish summary
+        env:
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
+        run: |
+          image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
+          {
+            echo "- \`${image_ref}\`"
+            echo "  scan: advisory SARIF uploaded as \`trivy-${{ matrix.component }}-${IMAGE_TAG}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
