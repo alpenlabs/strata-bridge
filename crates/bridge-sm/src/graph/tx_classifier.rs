@@ -163,12 +163,16 @@ impl TxClassifier for GraphSM {
                             spending_txid: txid,
                         },
                     ))
+                } else if txid == graph_summary.slash {
+                    Some(GraphEvent::SlashConfirmed(SlashConfirmedEvent {
+                        slash_txid: txid,
+                    }))
                 } else {
                     None
                 }
             }
 
-            // expects a counterproof or a contested payout or a payout burn
+            // expects a counterproof or a contested payout or a payout burn or a slash
             GraphState::BridgeProofPosted { graph_summary, .. } => {
                 if let Some(counterprover_idx) =
                     counterproof_operator_idx(graph_summary, &txid, self.context().operator_idx())
@@ -190,6 +194,10 @@ impl TxClassifier for GraphSM {
                             spending_txid: txid,
                         },
                     ))
+                } else if txid == graph_summary.slash {
+                    Some(GraphEvent::SlashConfirmed(SlashConfirmedEvent {
+                        slash_txid: txid,
+                    }))
                 } else {
                     None
                 }
@@ -235,6 +243,10 @@ impl TxClassifier for GraphSM {
                             spending_txid: txid,
                         },
                     ))
+                } else if txid == graph_summary.slash {
+                    Some(GraphEvent::SlashConfirmed(SlashConfirmedEvent {
+                        slash_txid: txid,
+                    }))
                 } else {
                     nack_counterprover_idx(graph_summary, self.context().operator_idx(), tx).map(
                         |counterprover_idx| {

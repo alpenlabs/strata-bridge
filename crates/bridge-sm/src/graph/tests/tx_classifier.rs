@@ -346,23 +346,18 @@ mod tests {
     }
 
     #[test]
-    fn classify_tx_recognizes_slash_in_all_nackd_and_acked() {
+    fn classify_tx_recognizes_slash_in_slash_detecting_states() {
         let cfg = test_graph_sm_cfg();
         let slash_tx = TestGraphTxKind::Slash.into();
 
-        let sm = create_sm(all_nackd_state());
-        let result = sm.classify_tx(&cfg, &slash_tx, LATER_BLOCK_HEIGHT);
-        assert!(
-            matches!(result, Some(GraphEvent::SlashConfirmed(_))),
-            "expected Some(SlashConfirmed) in AllNackd but got {result:?}"
-        );
-
-        let sm = create_sm(acked_state());
-        let result = sm.classify_tx(&cfg, &slash_tx, LATER_BLOCK_HEIGHT);
-        assert!(
-            matches!(result, Some(GraphEvent::SlashConfirmed(_))),
-            "expected Some(SlashConfirmed) in Acked but got {result:?}"
-        );
+        for state in slash_detecting_states() {
+            let sm = create_sm(state.clone());
+            let result = sm.classify_tx(&cfg, &slash_tx, LATER_BLOCK_HEIGHT);
+            assert!(
+                matches!(result, Some(GraphEvent::SlashConfirmed(_))),
+                "expected Some(SlashConfirmed) in {state:?} but got {result:?}"
+            );
+        }
     }
 
     #[test]
