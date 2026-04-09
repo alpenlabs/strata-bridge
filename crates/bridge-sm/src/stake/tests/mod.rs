@@ -33,15 +33,18 @@ use strata_bridge_test_utils::{
     bridge_fixtures::{TEST_MAGIC_BYTES, TEST_POV_IDX, random_p2tr_desc},
     prelude::generate_keypair,
 };
-use strata_bridge_tx_graph::stake_graph::{
-    ProtocolParams, SetupParams, StakeData, StakeGraph, StakeGraphSummary,
-};
+use strata_bridge_tx_graph::stake_graph::{ProtocolParams, StakeGraph, StakeGraphSummary};
 
 use crate::{
     signals::Signal,
     stake::{
-        config::StakeSMCfg, context::StakeSMCtx, duties::StakeDuty, errors::SSMError,
-        events::StakeEvent, machine::StakeSM, state::StakeState,
+        config::StakeSMCfg,
+        context::{MinimumStakeData, StakeSMCtx},
+        duties::StakeDuty,
+        errors::SSMError,
+        events::StakeEvent,
+        machine::StakeSM,
+        state::StakeState,
     },
     testing::{
         signer::TestMusigSigner,
@@ -187,24 +190,15 @@ const TEST_UNSTAKING_PREIMAGE: [u8; 32] = [0; 32];
 static TEST_UNSTAKING_OPERATOR_DESCRIPTOR: LazyLock<Descriptor> = LazyLock::new(random_p2tr_desc);
 /// UTXO that funds the stake transaction.
 static TEST_STAKE_FUNDS: LazyLock<OutPoint> = LazyLock::new(OutPoint::null);
-/// Data for the stake transaction graph.
-static TEST_STAKE_DATA: LazyLock<StakeData> = LazyLock::new(|| StakeData {
-    protocol: TEST_CFG.protocol_params,
-    setup: SetupParams {
-        operator_index: TEST_POV_IDX,
-        n_of_n_pubkey: TEST_CTX
-            .operator_table()
-            .aggregated_btc_key()
-            .x_only_public_key()
-            .0,
-        unstaking_image: sha256::Hash::hash(&TEST_UNSTAKING_PREIMAGE),
-        unstaking_operator_descriptor: TEST_UNSTAKING_OPERATOR_DESCRIPTOR.clone(),
-        stake_funds: *TEST_STAKE_FUNDS,
-    },
+/// Minimum data for the stake transaction graph.
+static TEST_STAKE_DATA: LazyLock<MinimumStakeData> = LazyLock::new(|| MinimumStakeData {
+    stake_funds: *TEST_STAKE_FUNDS,
+    unstaking_image: sha256::Hash::hash(&TEST_UNSTAKING_PREIMAGE),
+    unstaking_operator_desc: TEST_UNSTAKING_OPERATOR_DESCRIPTOR.clone(),
 });
 /// Stake transaction graph.
 static TEST_GRAPH: LazyLock<StakeGraph> =
-    LazyLock::new(|| StakeGraph::new(TEST_STAKE_DATA.clone()));
+    LazyLock::new(|| StakeGraph::new(TEST_STAKE_DATA.expand(**TEST_CFG, &TEST_CTX)));
 /// Stake transaction graph summary.
 static TEST_GRAPH_SUMMARY: LazyLock<StakeGraphSummary> = LazyLock::new(|| TEST_GRAPH.summarize());
 /// Block height of the stake transaction.

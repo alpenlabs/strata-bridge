@@ -8,7 +8,9 @@ use std::{
 use bitcoin::{Txid, secp256k1::schnorr::Signature};
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph, StakeGraphSummary};
+use strata_bridge_tx_graph::stake_graph::{StakeGraph, StakeGraphSummary};
+
+use crate::stake::context::MinimumStakeData;
 
 /// The state of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +25,7 @@ pub enum StakeState {
         /// Latest bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        stake_data: MinimumStakeData,
         /// Collection of all TXIDs in the stake graph.
         summary: StakeGraphSummary,
         /// Maps each operator to their public nonces.
@@ -34,7 +36,7 @@ pub enum StakeState {
         /// Latest bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        stake_data: MinimumStakeData,
         /// Collection of all TXIDs in the stake graph.
         summary: StakeGraphSummary,
         /// Maps each operator to their public nonces.
@@ -51,7 +53,7 @@ pub enum StakeState {
         /// Latest bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        stake_data: MinimumStakeData,
         /// Collection of all TXIDs in the stake graph.
         summary: StakeGraphSummary,
         /// 1 signature per musig transaction input.
@@ -62,7 +64,7 @@ pub enum StakeState {
         /// Latest bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        stake_data: MinimumStakeData,
         /// Collection of all TXIDs in the stake graph.
         summary: StakeGraphSummary,
         /// 1 signature per musig transaction input.
@@ -76,7 +78,7 @@ pub enum StakeState {
         /// Latest bitcoin block height observed by the state machine.
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
-        stake_data: StakeData,
+        stake_data: MinimumStakeData,
         /// The revealed unstaking preimage.
         preimage: [u8; 32],
         /// Block height where the unstaking intent transaction was confirmed.

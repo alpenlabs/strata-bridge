@@ -6,6 +6,7 @@ use strata_bridge_tx_graph::stake_graph::StakeGraph;
 
 use crate::{
     stake::{
+        config::StakeSMCfg,
         errors::{SSMError, SSMResult},
         events::UnstakingPartialsReceivedEvent,
         machine::{SSMOutput, StakeSM},
@@ -22,9 +23,11 @@ impl StakeSM {
     /// partial signatures, the machine transitions to [`StakeState::UnstakingSigned`].
     pub(crate) fn process_unstaking_partials_received(
         &mut self,
+        cfg: &StakeSMCfg,
         event: UnstakingPartialsReceivedEvent,
     ) -> SSMResult<SSMOutput> {
         self.check_operator_idx(event.operator_idx, &event)?;
+        let context = self.context().clone();
 
         let n_operators = self.context().operator_table().cardinality();
         let operator_pubkeys: Vec<_> = self
@@ -59,7 +62,7 @@ impl StakeSM {
                 let operator_pub_nonces = pub_nonces
                     .get(&event.operator_idx)
                     .expect("operator index has been validated above");
-                let stake_graph = StakeGraph::new(stake_data.clone());
+                let stake_graph = StakeGraph::new(stake_data.expand(*cfg, &context));
                 let signing_infos = stake_graph.musig_signing_info().pack();
 
                 for (txin_idx, (((signing_info, partial_sig), agg_nonce), pub_nonce)) in
