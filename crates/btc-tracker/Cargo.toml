@@ -12,7 +12,7 @@ strata-bridge-primitives = { workspace = true, features = ["async"] }
 
 async-trait.workspace = true
 bitcoin.workspace = true
-bitcoincore-zmq = { version = "1.5.2", features = ["async"] }
+bitcoincore-zmq = { version = "1.5.4", features = ["async"] }
 bitcoind-async-client.workspace = true
 futures.workspace = true
 serde.workspace = true
