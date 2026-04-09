@@ -24,6 +24,7 @@ class MosaicEnv(BaseEnv):
         mosaic_factory_config = MosaicFactoryConfig(
             circuit_path=get_circuit_path(),
             storage_cluster_file=fdb.props["cluster_file"],
+            fdb_prefix=self.fdb_root_directory_prefix,
             all_peers=get_peer_configs(self.num_operators),
         )
 

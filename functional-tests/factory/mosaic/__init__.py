@@ -18,6 +18,7 @@ from .mosaic_config import *
 class MosaicFactoryConfig:
     circuit_path: str
     storage_cluster_file: str
+    fdb_prefix: str
     all_peers: dict[int, PeerConfig]
 
 
@@ -71,7 +72,11 @@ class MosaicFactory(flexitest.Factory):
 
 
 def generate_config(
-    output_path: str, operator_idx: int, config: MosaicFactoryConfig, rpc_port: int, fs_storage_root
+    output_path: str,
+    operator_idx: int,
+    config: MosaicFactoryConfig,
+    rpc_port: int,
+    fs_storage_root: str,
 ):
     own_peer = config.all_peers[operator_idx]
     other_peers = [config.all_peers[idx] for idx in config.all_peers if idx != operator_idx]
@@ -87,7 +92,7 @@ def generate_config(
         ),
         storage=StorageConfig(
             cluster_file=config.storage_cluster_file,
-            global_path=[f"mosaic-{operator_idx}"],
+            global_path=[config.fdb_prefix, f"mosaic-{operator_idx}"],
         ),
         table_store=LocalFilesystemBackend(root=fs_storage_root),
         rpc=RpcConfig(bind_addr=f"127.0.0.1:{rpc_port}"),
