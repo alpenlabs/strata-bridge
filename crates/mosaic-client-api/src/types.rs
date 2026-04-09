@@ -14,12 +14,16 @@ pub type Tweak = [u8; 32];
 /// A Public key for Schnorr signatures.
 pub type PubKey = XOnlyPublicKey;
 
-/// Mosaic Role.
+/// The role of the *local* (self) operator in a mosaic operation.
+///
+/// In [`MosaicClientApi`](crate::api::MosaicClientApi) methods, `Role`
+/// always refers to the caller's own role — garbler (watchtower) or
+/// evaluator (operator) — never the remote party's role.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Role {
-    /// Garbler
+    /// The garbler (watchtower) side of a tableset.
     Garbler,
-    /// Evaluator
+    /// The evaluator (operator) side of a tableset.
     Evaluator,
 }
 
