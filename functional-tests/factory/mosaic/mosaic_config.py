@@ -106,7 +106,6 @@ class JobSchedulerSection:
 @dataclass
 class SmExecutorSection:
     command_queue_size: int = DEFAULT_COMMAND_QUEUE_SIZE
-    restore_interval_secs: int | None = DEFAULT_RESTORE_INTERVAL_SEC
 
 
 @dataclass

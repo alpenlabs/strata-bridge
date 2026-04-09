@@ -165,7 +165,7 @@ jobs:
 
       - name: Install mosaic binary
         run: |
-          cargo install --git https://github.com/alpenlabs/mosaic --bin mosaic --rev 0be9fbfdea678fe5fc98f35266c5c1b73f9dcebc --features=mosaic-common/reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
+          cargo install --git https://github.com/alpenlabs/mosaic --bin mosaic --rev f786c8866be24d646a89cecb0f9327afd8622558 --features=mosaic-common/reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
           echo "$GITHUB_WORKSPACE/target/mosaic/bin" >> "$GITHUB_PATH"
 
       - name: Run functional tests
