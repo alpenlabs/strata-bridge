@@ -2,7 +2,7 @@ use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::{DepositStatus, RpcTablesetId};
 use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
 use strata_mosaic_client_api::{MosaicEvent, types::*};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{MosaicClient, MosaicIdResolver};
 
@@ -121,7 +121,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         if let Some(failure_count) = watched.get_mut(&key) {
             *failure_count += 1;
             if *failure_count >= self.max_retries {
-                error!(
+                warn!(
                     %deposit_idx,
                     attempts = *failure_count,
                     "watched deposit not found after max retries, removing"
@@ -150,7 +150,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         if let Some(failure_count) = watched.get_mut(&key) {
             *failure_count += 1;
             if *failure_count >= self.max_retries {
-                error!(
+                warn!(
                     %deposit_idx,
                     attempts = *failure_count,
                     %rpc_err,
