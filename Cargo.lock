@@ -2122,7 +2122,7 @@ checksum = "4955734f97b2baed3f36d16ae7c203fdde31ae85391ac44ee3cbcaf0886db5ce"
 dependencies = [
  "bdk_core",
  "bitcoin",
- "miniscript",
+ "miniscript 12.3.5",
  "serde",
 ]
 
@@ -2145,7 +2145,7 @@ checksum = "461b92c4e47b688a92740b204f4580e0a51775df16b67dde1d2db6ede1f0ba09"
 dependencies = [
  "bdk_chain",
  "bitcoin",
- "miniscript",
+ "miniscript 12.3.5",
  "rand_core 0.6.4",
  "serde",
  "serde_json",
@@ -2240,7 +2240,7 @@ dependencies = [
  "bitcoin-io",
  "bitcoin-units",
  "bitcoin_hashes",
- "hex-conservative",
+ "hex-conservative 0.2.2",
  "hex_lit",
  "secp256k1 0.29.1",
  "serde",
@@ -2255,7 +2255,7 @@ dependencies = [
  "arbitrary",
  "bitcoin",
  "borsh",
- "hex-conservative",
+ "hex-conservative 0.2.2",
  "secp256k1 0.29.1",
  "serde",
 ]
@@ -2302,7 +2302,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb18c03d0db0247e147a21a6faafd5a7eb851c743db062de72018b6b7e8e4d16"
 dependencies = [
  "bitcoin-io",
- "hex-conservative",
+ "hex-conservative 0.2.2",
  "serde",
 ]
 
@@ -2353,7 +2353,7 @@ dependencies = [
  "bitcoin",
  "bitreq",
  "corepc-types",
- "hex-conservative",
+ "hex-conservative 0.2.2",
  "secp256k1 0.29.1",
  "serde",
  "serde_json",
@@ -3513,7 +3513,7 @@ dependencies = [
  "jsonrpsee",
  "k256",
  "libp2p-identity",
- "miniscript",
+ "miniscript 13.0.0",
  "musig2",
  "rand 0.8.5",
  "secp256k1 0.29.1",
@@ -4605,6 +4605,12 @@ checksum = "fda06d18ac606267c40c04e41b9947729bf8b9efe74bd4e82b61a5f26a510b9f"
 dependencies = [
  "arrayvec",
 ]
+
+[[package]]
+name = "hex-conservative"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "366fa3443ac84474447710ec17bb00b05dfbd096137817981e86f992f21a2793"
 
 [[package]]
 name = "hex-literal"
@@ -6200,13 +6206,24 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "miniscript"
-version = "12.3.3"
+version = "12.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16137581c4511d1ed210f2452669006fca0f1e2bb28e00ee37a9e3b87a6e7e8c"
+checksum = "487906208f38448e186e3deb02f2b8ef046a9078b0de00bdb28bf4fb9b76951c"
 dependencies = [
  "bech32",
  "bitcoin",
  "serde",
+]
+
+[[package]]
+name = "miniscript"
+version = "13.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "867b1f11e0545ad5ebbddd8a9f18756d9657a6758bf10d96cf15ddd0b726b650"
+dependencies = [
+ "bech32",
+ "bitcoin",
+ "hex-conservative 1.0.1",
 ]
 
 [[package]]
@@ -10405,7 +10422,7 @@ dependencies = [
  "futures",
  "hex",
  "libp2p-identity",
- "miniscript",
+ "miniscript 13.0.0",
  "musig2",
  "proptest",
  "proptest-derive",
