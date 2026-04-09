@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
-use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
+use strata_bridge_tx_graph::stake_graph::StakeGraph;
 
 use crate::{
     stake::{
         config::StakeSMCfg,
+        context::MinimumStakeData,
         duties::StakeDuty,
         errors::{SSMError, SSMResult},
         events::StakeDataReceivedEvent,
@@ -34,20 +35,16 @@ impl StakeSM {
                     unstaking_image,
                     unstaking_output_desc,
                 } = event;
-                let setup = self.context().generate_setup_params(
+                let stake_data = MinimumStakeData {
                     stake_funds,
                     unstaking_image,
-                    unstaking_output_desc,
-                );
-                let stake_data = StakeData {
-                    setup,
-                    protocol: cfg.protocol_params,
+                    unstaking_operator_desc: unstaking_output_desc,
                 };
-                let stake_graph = StakeGraph::new(stake_data.clone());
+                let stake_graph = StakeGraph::new(stake_data.expand(*cfg, self.context()));
 
                 self.state = StakeState::StakeGraphGenerated {
                     last_block_height: *last_block_height,
-                    stake_data: stake_data.clone(),
+                    stake_data,
                     summary: stake_graph.summarize(),
                     pub_nonces: BTreeMap::new(),
                 };

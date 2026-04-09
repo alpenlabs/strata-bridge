@@ -104,7 +104,7 @@ fn accept_nonces_all_collected() {
             partial_signatures,
         } if (
         *last_block_height == STAKE_HEIGHT
-        && *stake_data == TEST_STAKE_DATA.clone()
+        && *stake_data == *TEST_STAKE_DATA
         && *summary == *TEST_GRAPH_SUMMARY
         && *pub_nonces ==  TEST_PUB_NONCES_MAP.clone()
         && *agg_nonces == TEST_AGG_NONCES.clone()

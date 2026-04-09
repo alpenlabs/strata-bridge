@@ -59,7 +59,7 @@ impl StakeSM {
                 > *unstaking_intent_block_height
                     + u64::from(cfg.protocol_params.game_timelock.value())
         {
-            let stake_graph = StakeGraph::new(stake_data.clone());
+            let stake_graph = StakeGraph::new(stake_data.expand(*cfg, self.context()));
             let unstaking_sig_functor = StakeFunctor::unpack(
                 signatures
                     .expect("own signatures must be present in state")

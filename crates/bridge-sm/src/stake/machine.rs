@@ -39,17 +39,17 @@ impl StateMachine for StakeSM {
         match event {
             StakeEvent::StakeDataReceived(event) => self.process_stake_data(&cfg, event),
             StakeEvent::UnstakingNoncesReceived(event) => {
-                self.process_unstaking_nonces_received(event)
+                self.process_unstaking_nonces_received(&cfg, event)
             }
             StakeEvent::UnstakingPartialsReceived(event) => {
-                self.process_unstaking_partials_received(event)
+                self.process_unstaking_partials_received(&cfg, event)
             }
             StakeEvent::StakeConfirmed(event) => self.process_stake_confirmed(event),
             StakeEvent::PreimageRevealed(event) => self.process_preimage_revealed(event),
             StakeEvent::UnstakingConfirmed(event) => self.process_unstaking_confirmed(event),
             StakeEvent::NewBlock(event) => self.process_new_block(cfg, event),
             StakeEvent::NagTick(NagTickEvent) => self.process_nag_tick(),
-            StakeEvent::RetryTick(RetryTickEvent) => self.process_retry_tick(),
+            StakeEvent::RetryTick(RetryTickEvent) => self.process_retry_tick(&cfg),
         }
     }
 }
