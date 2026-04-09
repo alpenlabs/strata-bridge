@@ -19,7 +19,7 @@ corepc-node.workspace = true
 hex.workspace = true
 musig2.workspace = true
 proptest.workspace = true
-rand_core = { version = "0.9.1", default-features = false, features = [
+rand_core = { version = "0.9.5", default-features = false, features = [
   "os_rng",
 ] }
 secp256k1.workspace = true
