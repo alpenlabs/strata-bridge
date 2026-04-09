@@ -249,7 +249,6 @@ jobs:
             echo "- Scan mode: advisory"
             echo
             echo "### Selected Images"
-            # Individual image lines are appended by the build_dependencies and build_app_images jobs below.
           } >> "${GITHUB_STEP_SUMMARY}"
 
   build_dependencies:
@@ -304,10 +303,6 @@ jobs:
         env:
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
         run: |
-          # buildx is used here (rather than plain docker build) to enable GitHub Actions layer caching
-          # via --cache-from/--cache-to. App images (build_app_images job) use plain BuildKit docker build
-          # because their base images (bridge-base, bridge-rt) are pulled into the Docker daemon as local
-          # tags and are not accessible to the buildx container driver.
           image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
           docker buildx build \
             --platform "${DOCKER_PLATFORM}" \
@@ -416,10 +411,6 @@ jobs:
 
       - name: Build ${{ matrix.display_name }}
         run: |
-          # GHA layer cache (type=gha) is not used here because it requires the buildx container driver,
-          # which cannot access the locally-tagged bridge-base and bridge-rt images pulled into the Docker
-          # daemon above. The Rust compilation cost is already paid inside the bridge-rt base image, so
-          # app layer builds are fast and do not benefit significantly from an additional cache.
           DOCKER_BUILDKIT=1 docker build \
             --platform "${DOCKER_PLATFORM}" \
             --file "${{ matrix.dockerfile }}" \
@@ -430,7 +421,6 @@ jobs:
         id: trivy
         uses: ./.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
         with:
-          # Scan the locally-built image before pushing so that we don't publish a vulnerable image.
           image_ref: ${{ matrix.local_tag }}
           display_name: ${{ matrix.display_name }}
           component: ${{ matrix.component }}
