@@ -7,7 +7,7 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-axum = "0.7"
+axum = "0.8"
 jemalloc_pprof = { version = "0.7", features = ["flamegraph"] }
 tokio.workspace = true
 tracing.workspace = true
