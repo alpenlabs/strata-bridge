@@ -11,7 +11,7 @@ use strata_mosaic_client_api::{
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
-use crate::{DepositId, MosaicClient, MosaicIdResolver, util::make_setup_config};
+use crate::{MosaicClient, MosaicIdResolver, util::make_setup_config};
 
 #[async_trait::async_trait]
 impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClientApi
@@ -321,82 +321,14 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         })
         .await?;
 
-        loop {
-            let rpc = self.rpc.clone();
-            let status = retry_with(self.default_retry_strategy(), move || {
-                let rpc = rpc.clone();
-
-                async move {
-                    rpc.get_tableset_status(tableset_id)
-                        .await
-                        .map_err(MosaicError::rpc_error)
-                        .and_then(|maybe_status| {
-                            maybe_status.ok_or_else(|| {
-                                MosaicError::SetupMissing(operator_idx, Role::Garbler)
-                            })
-                        })
-                }
-            })
-            .await?;
-
-            match status {
-                RpcTablesetStatus::Incomplete { details } => {
-                    error!(%details, "unexpected deposit state");
-                    debug_assert!(
-                        false,
-                        "mosaic garbler deposit cannot be in incomplete state at this point"
-                    );
-                    return Err(MosaicError::UnexpectedDepositState(details));
-                }
-                RpcTablesetStatus::SetupComplete => {
-                    // complete_adaptor_sigs has not yet been processed, wait
-                    debug!(%deposit_idx, "waiting for transition from SetupComplete");
-                    tokio::time::sleep(self.retry_delay).await;
-                    continue;
-                }
-                RpcTablesetStatus::Contest { deposit } => {
-                    // setup is being contested
-                    let actual_deposit_id: DepositId = deposit.into();
-                    if deposit_id != actual_deposit_id {
-                        // deposit being contested is NOT this deposit
-                        error!(expected = %hex::encode(deposit_id), actual = %hex::encode(actual_deposit_id), "unexpected deposit_id being contested");
-                        return Err(MosaicError::UnexpectedDepositContest {
-                            expected: hex::encode(deposit_id),
-                            actual: hex::encode(actual_deposit_id),
-                        });
-                    }
-                    // adaptor sig completion not complete yet, wait
-                    debug!(%deposit_idx, "waiting for transition from Contest");
-                    tokio::time::sleep(self.retry_delay).await;
-                    continue;
-                }
-                RpcTablesetStatus::Consumed {
-                    deposit,
-                    success: _,
-                } => {
-                    // setup is consumed
-                    let actual_deposit_id: DepositId = deposit.into();
-                    if deposit_id != actual_deposit_id {
-                        // consumed deposit is NOT this deposit
-                        error!(expected = %hex::encode(deposit_id), actual = %hex::encode(actual_deposit_id), "unexpected deposit_id consumed");
-                        return Err(MosaicError::UnexpectedDepositContest {
-                            expected: hex::encode(deposit_id),
-                            actual: hex::encode(actual_deposit_id),
-                        });
-                    }
-                    info!(
-                        %deposit_idx,
-                        "setup consumed; signed adaptors should be ready"
-                    );
-                    break;
-                }
-                RpcTablesetStatus::Aborted { reason } => {
-                    // this setup has already been aborted
-                    error!(%reason, "setup aborted");
-                    return Err(MosaicError::Aborted(reason));
-                }
-            }
-        }
+        self.poll_until_consumed(
+            tableset_id,
+            deposit_id,
+            operator_idx,
+            Role::Garbler,
+            deposit_idx,
+        )
+        .await?;
 
         let rpc = self.rpc.clone();
         let completed_sigs = retry_with(self.default_retry_strategy(), move || {
@@ -444,83 +376,19 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         })
         .await?;
 
-        loop {
-            let rpc = self.rpc.clone();
-            let status = retry_with(self.default_retry_strategy(), move || {
-                let rpc = rpc.clone();
-                async move {
-                    rpc.get_tableset_status(tableset_id)
-                        .await
-                        .map_err(MosaicError::rpc_error)
-                        .and_then(|maybe_status| {
-                            maybe_status.ok_or_else(|| {
-                                MosaicError::SetupMissing(operator_idx, Role::Evaluator)
-                            })
-                        })
-                }
-            })
+        let success = self
+            .poll_until_consumed(
+                tableset_id,
+                deposit_id,
+                operator_idx,
+                Role::Evaluator,
+                deposit_idx,
+            )
             .await?;
 
-            match status {
-                RpcTablesetStatus::Incomplete { details } => {
-                    error!(%details, "unexpected deposit state");
-                    debug_assert!(
-                        false,
-                        "mosaic evaluator deposit sm cannot be in incomplete state at this point"
-                    );
-                    return Err(MosaicError::UnexpectedDepositState(details));
-                }
-                RpcTablesetStatus::SetupComplete => {
-                    // `complete_adaptor_sigs` has not yet been processed, wait.
-                    debug!(%deposit_idx, "waiting for transition from SetupComplete");
-                    tokio::time::sleep(self.retry_delay).await;
-                    continue;
-                }
-                RpcTablesetStatus::Contest { deposit } => {
-                    // Setup is being contested.
-                    let actual_deposit_id: DepositId = deposit.into();
-                    if deposit_id != actual_deposit_id {
-                        // Deposit being contested is NOT this deposit.
-                        error!(expected = %hex::encode(deposit_id), actual = %hex::encode(actual_deposit_id), "unexpected deposit_id being contested");
-                        return Err(MosaicError::UnexpectedDepositContest {
-                            expected: hex::encode(deposit_id),
-                            actual: hex::encode(actual_deposit_id),
-                        });
-                    }
-                    // Adaptor sig completion not complete yet, wait.
-                    debug!(%deposit_idx, "waiting for transition from Contest");
-                    tokio::time::sleep(self.retry_delay).await;
-                    continue;
-                }
-                RpcTablesetStatus::Consumed { deposit, success } => {
-                    // Setup is already consumed.
-                    let actual_deposit_id: DepositId = deposit.into();
-                    if deposit_id != actual_deposit_id {
-                        // Consumed deposit is NOT this deposit.
-                        error!(expected = %hex::encode(deposit_id), actual = %hex::encode(actual_deposit_id), "unexpected deposit_id consumed");
-                        return Err(MosaicError::UnexpectedDepositContest {
-                            expected: hex::encode(deposit_id),
-                            actual: hex::encode(actual_deposit_id),
-                        });
-                    }
-
-                    // Garbling table evaluation failed to extract fault secret.
-                    if !success {
-                        error!(%operator_idx, %deposit_idx, "evaluation failed to extract fault secret");
-                        return Ok(None);
-                    }
-                    info!(
-                        %deposit_idx,
-                        "setup consumed; signed adaptors should be ready"
-                    );
-                    break;
-                }
-                RpcTablesetStatus::Aborted { reason } => {
-                    // this setup has already been aborted
-                    error!(%reason, "setup aborted");
-                    return Err(MosaicError::Aborted(reason));
-                }
-            }
+        if !success {
+            error!(%operator_idx, %deposit_idx, "evaluation failed to extract fault secret");
+            return Ok(None);
         }
 
         let rpc = self.rpc.clone();

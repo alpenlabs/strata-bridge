@@ -36,10 +36,11 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use algebra::retry::{Strategy, retry_with};
 use mosaic_rpc_api::MosaicRpcClient;
-use mosaic_rpc_types::RpcTablesetId;
+use mosaic_rpc_types::{RpcTablesetId, RpcTablesetStatus};
 use strata_bridge_primitives::types::OperatorIdx;
 use strata_mosaic_client_api::{MosaicError, MosaicEvent, types::*};
 use tokio::sync::{Mutex, RwLock, mpsc};
+use tracing::{debug, error, info};
 
 use crate::util::{DEFAULT_INSTANCE, to_cac_role};
 
@@ -197,5 +198,88 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
 
     fn default_retry_strategy<T: Send + Sync + 'static>(&self) -> Strategy<T> {
         Strategy::fixed_delay(self.retry_delay).with_max_retries(self.max_retries)
+    }
+
+    /// Polls `get_tableset_status` in a loop until the tableset reaches the
+    /// `Consumed` state, validating the deposit ID at each step.
+    ///
+    /// Returns the `success` flag from the `Consumed` variant.
+    async fn poll_until_consumed(
+        &self,
+        tableset_id: RpcTablesetId,
+        expected_deposit_id: DepositId,
+        operator_idx: OperatorIdx,
+        role: Role,
+        deposit_idx: DepositIdx,
+    ) -> Result<bool, MosaicError> {
+        loop {
+            let rpc = self.rpc.clone();
+            let status = retry_with(self.default_retry_strategy(), move || {
+                let rpc = rpc.clone();
+                async move {
+                    rpc.get_tableset_status(tableset_id)
+                        .await
+                        .map_err(MosaicError::rpc_error)
+                        .and_then(|maybe_status| {
+                            maybe_status
+                                .ok_or_else(|| MosaicError::SetupMissing(operator_idx, role))
+                        })
+                }
+            })
+            .await?;
+
+            match status {
+                RpcTablesetStatus::Incomplete { details } => {
+                    error!(%details, "unexpected deposit state");
+                    debug_assert!(
+                        false,
+                        "mosaic deposit sm cannot be in incomplete state at this point"
+                    );
+                    return Err(MosaicError::UnexpectedDepositState(details));
+                }
+                RpcTablesetStatus::SetupComplete => {
+                    debug!(%deposit_idx, "waiting for transition from SetupComplete");
+                    tokio::time::sleep(self.retry_delay).await;
+                    continue;
+                }
+                RpcTablesetStatus::Contest { deposit } => {
+                    let actual_deposit_id: DepositId = deposit.into();
+                    if expected_deposit_id != actual_deposit_id {
+                        error!(
+                            expected = %hex::encode(expected_deposit_id),
+                            actual = %hex::encode(actual_deposit_id),
+                            "unexpected deposit_id being contested"
+                        );
+                        return Err(MosaicError::UnexpectedDepositContest {
+                            expected: hex::encode(expected_deposit_id),
+                            actual: hex::encode(actual_deposit_id),
+                        });
+                    }
+                    debug!(%deposit_idx, "waiting for transition from Contest");
+                    tokio::time::sleep(self.retry_delay).await;
+                    continue;
+                }
+                RpcTablesetStatus::Consumed { deposit, success } => {
+                    let actual_deposit_id: DepositId = deposit.into();
+                    if expected_deposit_id != actual_deposit_id {
+                        error!(
+                            expected = %hex::encode(expected_deposit_id),
+                            actual = %hex::encode(actual_deposit_id),
+                            "unexpected deposit_id consumed"
+                        );
+                        return Err(MosaicError::UnexpectedDepositContest {
+                            expected: hex::encode(expected_deposit_id),
+                            actual: hex::encode(actual_deposit_id),
+                        });
+                    }
+                    info!(%deposit_idx, "setup consumed; signed adaptors should be ready");
+                    return Ok(success);
+                }
+                RpcTablesetStatus::Aborted { reason } => {
+                    error!(%reason, "setup aborted");
+                    return Err(MosaicError::Aborted(reason));
+                }
+            }
+        }
     }
 }
