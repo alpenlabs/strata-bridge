@@ -2173,6 +2173,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bincode"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd6a120d2e16b3e1b4a24bd70f23b12d3e16b81f113364a26935f8db7245452d"
+
+[[package]]
 name = "bindgen"
 version = "0.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7645,7 +7651,7 @@ dependencies = [
 name = "prover-test-utils"
 version = "0.1.0"
 dependencies = [
- "bincode",
+ "bincode 3.0.0",
  "bitcoin",
  "borsh",
  "serde_json",
@@ -9225,7 +9231,7 @@ version = "5.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca2363566d0d4213d0ffd93cfcc1a5e413e2af8682213d3e65b90ac0af5623e3"
 dependencies = [
- "bincode",
+ "bincode 1.3.3",
  "bytemuck",
  "clap",
  "elf",
@@ -9264,7 +9270,7 @@ version = "5.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bd3ff75c100e24b89a7b513e082ec3e040c4c9f1cd779b6ba475c5bdc1aa7ad"
 dependencies = [
- "bincode",
+ "bincode 1.3.3",
  "cbindgen",
  "cc",
  "cfg-if 1.0.1",
@@ -9320,7 +9326,7 @@ version = "5.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7d3b98d9dd20856176aa7048e2da05d0c3e497f500ea8590292ffbd25002ec1"
 dependencies = [
- "bincode",
+ "bincode 1.3.3",
  "ctrlc",
  "prost",
  "serde",
@@ -9369,7 +9375,7 @@ version = "5.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0fd8bc101e5603ccf2dc1836ea06410f25ce2298755b2dac626add9be2424b4"
 dependencies = [
- "bincode",
+ "bincode 1.3.3",
  "elliptic-curve",
  "serde",
  "sp1-primitives",
@@ -9381,7 +9387,7 @@ version = "5.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e69a03098f827102c54c31a5e57280eb45b2c085de433b3f702e4f9e3ec1641"
 dependencies = [
- "bincode",
+ "bincode 1.3.3",
  "blake3",
  "cfg-if 1.0.1",
  "hex",
@@ -9402,7 +9408,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66f439f716cfc44c38d2aea975f1c4a9ed2cc40074ca7e4df8a37a3ff3795eb"
 dependencies = [
  "anyhow",
- "bincode",
+ "bincode 1.3.3",
  "clap",
  "dirs",
  "enum-map",
@@ -9558,7 +9564,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "933ef703fb1c7a25e987a76ad705e60bb53730469766363b771baf3082a50fa0"
 dependencies = [
  "anyhow",
- "bincode",
+ "bincode 1.3.3",
  "bindgen 0.70.1",
  "cc",
  "cfg-if 1.0.1",
@@ -9593,7 +9599,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-kms",
  "backoff",
- "bincode",
+ "bincode 1.3.3",
  "cfg-if 1.0.1",
  "dirs",
  "eventsource-stream",
@@ -10440,7 +10446,7 @@ name = "strata-bridge-proof-primitives"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "bincode",
+ "bincode 3.0.0",
  "bitcoin",
  "borsh",
  "strata-bridge-test-utils",
@@ -10721,7 +10727,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17#201c3fa0af3b1a2173e8e5ae3cdb5d20c311ed17"
 dependencies = [
  "anyhow",
- "bincode",
+ "bincode 1.3.3",
  "borsh",
  "sled",
  "ssz",
@@ -13234,7 +13240,7 @@ source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20#d5b463
 dependencies = [
  "arbitrary",
  "async-trait",
- "bincode",
+ "bincode 1.3.3",
  "borsh",
  "serde",
  "thiserror 1.0.69",
@@ -13246,7 +13252,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21#fdd5003444e7ab60bd84cead503a3da7d6676c18"
 dependencies = [
  "async-trait",
- "bincode",
+ "bincode 1.3.3",
  "borsh",
  "serde",
  "thiserror 1.0.69",
@@ -13258,7 +13264,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21#fdd5003444e7ab60bd84cead503a3da7d6676c18"
 dependencies = [
  "async-trait",
- "bincode",
+ "bincode 1.3.3",
  "hex",
  "k256",
  "rand_core 0.6.4",
@@ -13301,7 +13307,7 @@ name = "zkaleido-sp1-host"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21#fdd5003444e7ab60bd84cead503a3da7d6676c18"
 dependencies = [
- "bincode",
+ "bincode 1.3.3",
  "serde",
  "sp1-sdk",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
