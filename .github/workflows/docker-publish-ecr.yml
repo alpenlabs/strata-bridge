@@ -24,7 +24,6 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   ECR_REGISTRY: ${{ vars.ECR_REGISTRY || '888577024788.dkr.ecr.us-east-1.amazonaws.com' }}
   ECR_REPOSITORY_PREFIX: ${{ vars.ECR_REPOSITORY_PREFIX || 'tn1' }}
-  PUBLIC_AWS_ROLE_TO_ASSUME: ${{ vars.PUBLIC_AWS_ROLE_TO_ASSUME || 'arn:aws:iam::496607027995:role/github-actions-ecr-push' }}
   PUBLIC_ECR_REGISTRY: public.ecr.aws
   PUBLIC_ECR_NAMESPACE: z5c7y9u9
   PUBLIC_ECR_REGION: us-east-1
@@ -282,9 +281,14 @@ jobs:
       - name: Validate AWS publish configuration
         env:
           AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          PUBLIC_AWS_ROLE_TO_ASSUME: ${{ vars.PUBLIC_AWS_ROLE_TO_ASSUME }}
         run: |
           if [[ -z "${AWS_ROLE_TO_ASSUME}" ]]; then
             echo "::error::Repository variable AWS_ROLE_TO_ASSUME is required for ECR publishing"
+            exit 1
+          fi
+          if [[ -z "${PUBLIC_AWS_ROLE_TO_ASSUME}" ]]; then
+            echo "::error::Repository variable PUBLIC_AWS_ROLE_TO_ASSUME is required for public ECR publishing"
             exit 1
           fi
 
@@ -573,6 +577,8 @@ jobs:
           docker push "${image_ref}"
 
       - name: Configure public ECR credentials
+        env:
+          PUBLIC_AWS_ROLE_TO_ASSUME: ${{ vars.PUBLIC_AWS_ROLE_TO_ASSUME }}
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
         with:
           role-to-assume: ${{ env.PUBLIC_AWS_ROLE_TO_ASSUME }}
