@@ -134,7 +134,7 @@ fn preimage_revealed_timelock_mature() {
     let new_height = UNSTAKING_INTENT_HEIGHT + TEST_UNSTAKING_TIMELOCK + 1;
     let from_state = preimage_revealed_state(STAKE_HEIGHT, UNSTAKING_INTENT_HEIGHT);
     let expected_state = preimage_revealed_state(new_height, UNSTAKING_INTENT_HEIGHT);
-    let stake_graph = StakeGraph::new(TEST_STAKE_DATA.clone());
+    let stake_graph = TEST_GRAPH.clone();
     let stake_sig_functor = StakeFunctor::unpack(TEST_FINAL_SIGS.to_vec()).unwrap();
     let unstaking_tx = stake_graph.unstaking.finalize(stake_sig_functor.unstaking);
     test_stake_transition(StakeTransition {

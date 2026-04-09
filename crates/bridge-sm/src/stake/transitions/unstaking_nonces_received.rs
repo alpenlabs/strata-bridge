@@ -7,6 +7,7 @@ use strata_bridge_tx_graph::stake_graph::StakeGraph;
 
 use crate::{
     stake::{
+        config::StakeSMCfg,
         duties::StakeDuty,
         errors::{SSMError, SSMResult},
         events::UnstakingNoncesReceivedEvent,
@@ -25,9 +26,11 @@ impl StakeSM {
     /// [`StakeDuty::PublishUnstakingPartials`].
     pub(crate) fn process_unstaking_nonces_received(
         &mut self,
+        cfg: &StakeSMCfg,
         event: UnstakingNoncesReceivedEvent,
     ) -> SSMResult<SSMOutput> {
         self.check_operator_idx(event.operator_idx, &event)?;
+        let context = self.context().clone();
 
         let n_operators = self.context().operator_table().cardinality();
 
@@ -48,12 +51,11 @@ impl StakeSM {
                     let agg_nonces = Box::new(array::from_fn(|txin_idx| {
                         AggNonce::sum(pub_nonces.values().map(|nonces| nonces[txin_idx].clone()))
                     }));
-                    let stake_data = stake_data.clone();
-                    let stake_graph = StakeGraph::new(stake_data.clone());
+                    let stake_graph = StakeGraph::new(stake_data.expand(*cfg, &context));
 
                     self.state = StakeState::UnstakingNoncesCollected {
                         last_block_height: *last_block_height,
-                        stake_data,
+                        stake_data: stake_data.clone(),
                         summary: *summary,
                         pub_nonces: pub_nonces.clone(),
                         agg_nonces: agg_nonces.clone(),
