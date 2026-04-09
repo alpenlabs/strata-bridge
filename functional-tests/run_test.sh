@@ -41,7 +41,7 @@ if ! command -v mosaic &> /dev/null; then
     export PATH="$CARGO_LOCAL_BIN/bin:$PATH"
     RUSTFLAGS="" cargo install \
         --git https://github.com/alpenlabs/mosaic \
-        --rev 0be9fbfdea678fe5fc98f35266c5c1b73f9dcebc \
+        --rev f786c8866be24d646a89cecb0f9327afd8622558 \
         --bin mosaic \
         --features=reduced-circuits \
         --root "$CARGO_LOCAL_BIN" \
