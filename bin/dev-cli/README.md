@@ -34,6 +34,22 @@ dev-cli create-and-publish-mock-checkpoint \
   --network regtest
 ```
 
+### `claim`
+
+Post a claim transaction for a given deposit by reconstructing the game graph, signing the claim with the operator's watchtower key and broadcasting it.
+
+```bash
+dev-cli claim \
+  --deposit-idx 0 \
+  --operator-idx 0 \
+  --bridge-node-url http://127.0.0.1:4781 \
+  --seed <HEX_ENCODED_SEED> \
+  --params ./params.toml \
+  --btc-url http://127.0.0.1:18443/wallet/testwallet \
+  --btc-user user \
+  --btc-pass password
+```
+
 ### `contest`
 
 Contest a claim transaction by signing and broadcasting a challenge via the game graph.
