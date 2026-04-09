@@ -18,7 +18,7 @@ from .mosaic_config import *
 class MosaicFactoryConfig:
     circuit_path: str
     storage_cluster_file: str
-    fdb_prefix: str
+    fdb_prefix: str | None
     all_peers: dict[int, PeerConfig]
 
 
@@ -92,7 +92,7 @@ def generate_config(
         ),
         storage=StorageConfig(
             cluster_file=config.storage_cluster_file,
-            global_path=[config.fdb_prefix, f"mosaic-{operator_idx}"],
+            global_path=[f"{config.fdb_prefix}-mosaic-{operator_idx}"],
         ),
         table_store=LocalFilesystemBackend(root=fs_storage_root),
         rpc=RpcConfig(bind_addr=f"127.0.0.1:{rpc_port}"),
