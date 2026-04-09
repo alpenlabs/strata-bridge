@@ -33,20 +33,23 @@ RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO
 RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-asm-runner $CARGO_ARGS
 cargo build --bin dev-cli $CARGO_ARGS
 
-# check if mosaic is in PATH, else install from source
-if ! command -v mosaic &> /dev/null; then
-    echo "mosaic not found, installing..."
-    mkdir -p functional-tests/.bin
-    CARGO_LOCAL_BIN=$(realpath "functional-tests/.bin")
-    export PATH="$CARGO_LOCAL_BIN/bin:$PATH"
-    RUSTFLAGS="" cargo install \
-        --git https://github.com/alpenlabs/mosaic \
-        --rev f786c8866be24d646a89cecb0f9327afd8622558 \
-        --bin mosaic \
-        --features=reduced-circuits \
-        --root "$CARGO_LOCAL_BIN" \
-        mosaic
+# Extract mosaic rev from Cargo.toml to avoid hardcoding
+MOSAIC_REV=$(grep 'mosaic-rpc-api.*rev' Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/')
+if [ -z "$MOSAIC_REV" ]; then
+    echo "ERROR: failed to extract mosaic rev from Cargo.toml" >&2
+    exit 1
 fi
+
+echo "installing mosaic (rev $MOSAIC_REV)"
+mkdir -p functional-tests/_dd/.bin
+CARGO_LOCAL_BIN=$(realpath "functional-tests/_dd/.bin")
+export PATH="$CARGO_LOCAL_BIN/bin:$PATH"
+RUSTFLAGS="" cargo install \
+    --git https://github.com/alpenlabs/mosaic \
+    --rev "$MOSAIC_REV" \
+    --features=reduced-circuits \
+    --root "$CARGO_LOCAL_BIN" \
+    mosaic
 
 export PATH=$BIN_PATH:$PATH
 popd > /dev/null
