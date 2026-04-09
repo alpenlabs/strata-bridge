@@ -1,9 +1,6 @@
 name: Docker Publish to ECR
 
 on:
-  push:
-    branches:
-      - str-3011-ci-build-ecr-push
   workflow_dispatch:
     inputs:
       ref:
