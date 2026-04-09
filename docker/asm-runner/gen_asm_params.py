@@ -130,11 +130,8 @@ def validate_params(asm_params: dict, bridge_params: dict) -> None:
         ("magic", asm_params["magic"], bridge["magic_bytes"]),
         (
             "genesis_height",
-            # TODO: <https://atlassian.alpenlabs.net/browse/STR-2572>
-            # set these to be equal after the above bug is fixed
-            # for now, just check that the ASM genesis height is 1 less than the Bridge genesis height
-            asm_params["anchor"]["block"]["height"],  # must start sooner
-            bridge_params["genesis_height"] - 1,
+            asm_params["anchor"]["block"]["height"],
+            bridge_params["genesis_height"],
         ),
         ("denomination", asm["denomination"], bridge["deposit_amount"]),
         ("operator_fee", asm["operator_fee"], bridge["operator_fee"]),

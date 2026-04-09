@@ -7943,7 +7943,6 @@ dependencies = [
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
  "strata-identifiers",
- "strata-l1-txfmt",
  "strata-p2p",
  "strata-predicate",
  "strata-tasks",
