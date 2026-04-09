@@ -3397,7 +3397,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 2.0.117",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -6677,7 +6677,7 @@ version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77e878c846a8abae00dd069496dbe8751b16ac1c3d6bd2a7283a938e8228f90d"
 dependencies = [
- "proc-macro-crate 3.3.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -10482,7 +10482,7 @@ dependencies = [
  "strata-bridge-proof-protocol",
  "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
- "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23)",
  "zkaleido-sp1-host",
 ]
 
@@ -13253,6 +13253,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "zkaleido"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23#aa78497efed37c3d194d6d759ab0de75eccc7242"
+dependencies = [
+ "bincode",
+ "borsh",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "zkaleido-native-adapter"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21#fdd5003444e7ab60bd84cead503a3da7d6676c18"
@@ -13284,7 +13295,7 @@ dependencies = [
 [[package]]
 name = "zkaleido-sp1-groth16-verifier"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21#fdd5003444e7ab60bd84cead503a3da7d6676c18"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23#aa78497efed37c3d194d6d759ab0de75eccc7242"
 dependencies = [
  "blake3",
  "borsh",
@@ -13293,7 +13304,7 @@ dependencies = [
  "sha2",
  "substrate-bn",
  "thiserror 1.0.69",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc21)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc23)",
 ]
 
 [[package]]
