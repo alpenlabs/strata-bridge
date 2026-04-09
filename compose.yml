@@ -47,8 +47,7 @@ x-base-bridge-node: &base-bridge-node
 
 x-base-mosaic: &base-mosaic
   build:
-    # NOTE: (sapinb) update revision after everything is merged in mosaic
-    context: https://github.com/alpenlabs/mosaic.git#ac365df4fdd92e9e1d175ecb629f7ae646708c7
+    context: https://github.com/alpenlabs/mosaic.git#060ce5f1310e2ceed92137d16324a0f58b413e0f
     dockerfile: docker/Dockerfile
   depends_on:
     foundationdb:

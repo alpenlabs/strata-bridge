@@ -179,7 +179,7 @@ The `network.signing_key_hex` and its corresponding `peer_id` can be generated u
 
 ```sh
 # install mosaic-peer-id
-$ cargo install --git https://github.com/alpenlabs/mosaic --rev f786c8866be24d646a89cecb0f9327afd8622558 mosaic-peer-id
+$ cargo install --git https://github.com/alpenlabs/mosaic --rev 060ce5f1310e2ceed92137d16324a0f58b413e0f mosaic-peer-id
 
 # generate new random keypair 
 $ mosaic-peer-id
