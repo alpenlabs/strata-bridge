@@ -28,8 +28,6 @@ env:
 
 permissions:
   contents: read
-  id-token: write
-  security-events: write
 
 concurrency:
   group: docker-publish-ecr-${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
@@ -240,15 +238,21 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Initialize publish summary
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+          CHECKOUT_REF: ${{ steps.plan.outputs.checkout_ref }}
+          RESOLVED_SHA: ${{ steps.plan.outputs.resolved_sha }}
+          IMAGE_TAG: ${{ steps.plan.outputs.image_tag }}
+          DEPENDENCY_TAG: ${{ steps.plan.outputs.dependency_tag }}
         run: |
           {
             echo "## Docker Publish to ECR"
             echo
-            echo "- Workflow ref: \`${{ github.ref }}\`"
-            echo "- Checkout ref: \`${{ steps.plan.outputs.checkout_ref }}\`"
-            echo "- Resolved commit: \`${{ steps.plan.outputs.resolved_sha }}\`"
-            echo "- Image tag: \`${{ steps.plan.outputs.image_tag }}\`"
-            echo "- Dependency tag: \`${{ steps.plan.outputs.dependency_tag }}\`"
+            echo "- Workflow ref: \`${WORKFLOW_REF}\`"
+            echo "- Checkout ref: \`${CHECKOUT_REF}\`"
+            echo "- Resolved commit: \`${RESOLVED_SHA}\`"
+            echo "- Image tag: \`${IMAGE_TAG}\`"
+            echo "- Dependency tag: \`${DEPENDENCY_TAG}\`"
             echo "- Scan mode: advisory"
             echo
             echo "### Selected Images"
@@ -260,6 +264,10 @@ jobs:
     if: needs.plan.outputs.dependency_matrix != '[]'
     runs-on: ubuntu-latest
     environment: AWS
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -513,6 +521,10 @@ jobs:
       (needs.build_dependencies.result == 'success' || needs.build_dependencies.result == 'skipped')
     runs-on: ubuntu-latest
     environment: AWS
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
     timeout-minutes: 180
     strategy:
       fail-fast: false
