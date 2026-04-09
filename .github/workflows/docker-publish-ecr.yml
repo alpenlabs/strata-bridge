@@ -381,6 +381,10 @@ jobs:
       - name: Summarize Trivy results for ${{ matrix.display_name }}
         if: always()
         env:
+          COMPONENT_DISPLAY_NAME: ${{ matrix.display_name }}
+          COMPONENT_NAME: ${{ matrix.component }}
+          IMAGE_REPOSITORY: ${{ matrix.repository }}
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
           TRIVY_STATUS: ${{ steps.trivy_scan.outputs.status }}
           TRIVY_JSON_RC: ${{ steps.trivy_scan.outputs.json_rc }}
           TRIVY_SARIF_RC: ${{ steps.trivy_scan.outputs.sarif_rc }}
@@ -394,8 +398,9 @@ jobs:
           from pathlib import Path
           import os
 
-          component = "${{ matrix.display_name }}"
-          image_ref = "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${{ needs.plan.outputs.image_tag }}"
+          component = os.environ["COMPONENT_DISPLAY_NAME"]
+          component_name = os.environ["COMPONENT_NAME"]
+          image_ref = f"{os.environ['ECR_REGISTRY']}/{os.environ['ECR_REPOSITORY_PREFIX']}/{os.environ['IMAGE_REPOSITORY']}:{os.environ['IMAGE_TAG']}"
           severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
           counts = Counter()
           findings = []
@@ -415,7 +420,7 @@ jobs:
               markdown_lines.append("Trivy did not produce a JSON report for this image.")
               markdown_lines.append("")
           else:
-              results = json.loads(Path("trivy-results/${{ matrix.component }}.json").read_text())
+              results = json.loads(Path(f"trivy-results/{component_name}.json").read_text())
               for target in results.get("Results", []):
                   target_name = target.get("Target", "unknown")
                   target_type = target.get("Type", "")
@@ -471,7 +476,7 @@ jobs:
                   markdown_lines.append("")
 
           markdown = "\n".join(markdown_lines) + "\n"
-          Path("trivy-results/${{ matrix.component }}.md").write_text(markdown, encoding="utf-8")
+          Path(f"trivy-results/{component_name}.md").write_text(markdown, encoding="utf-8")
           PY
           echo "::group::Trivy summary for ${{ matrix.display_name }}"
           cat "trivy-results/${{ matrix.component }}.md"
@@ -661,6 +666,10 @@ jobs:
       - name: Summarize Trivy results for ${{ matrix.display_name }}
         if: always()
         env:
+          COMPONENT_DISPLAY_NAME: ${{ matrix.display_name }}
+          COMPONENT_NAME: ${{ matrix.component }}
+          IMAGE_REPOSITORY: ${{ matrix.repository }}
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
           TRIVY_STATUS: ${{ steps.trivy_scan.outputs.status }}
           TRIVY_JSON_RC: ${{ steps.trivy_scan.outputs.json_rc }}
           TRIVY_SARIF_RC: ${{ steps.trivy_scan.outputs.sarif_rc }}
@@ -674,8 +683,9 @@ jobs:
           from pathlib import Path
           import os
 
-          component = "${{ matrix.display_name }}"
-          image_ref = "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${{ needs.plan.outputs.image_tag }}"
+          component = os.environ["COMPONENT_DISPLAY_NAME"]
+          component_name = os.environ["COMPONENT_NAME"]
+          image_ref = f"{os.environ['ECR_REGISTRY']}/{os.environ['ECR_REPOSITORY_PREFIX']}/{os.environ['IMAGE_REPOSITORY']}:{os.environ['IMAGE_TAG']}"
           severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
           counts = Counter()
           findings = []
@@ -695,7 +705,7 @@ jobs:
               markdown_lines.append("Trivy did not produce a JSON report for this image.")
               markdown_lines.append("")
           else:
-              results = json.loads(Path("trivy-results/${{ matrix.component }}.json").read_text())
+              results = json.loads(Path(f"trivy-results/{component_name}.json").read_text())
               for target in results.get("Results", []):
                   target_name = target.get("Target", "unknown")
                   target_type = target.get("Type", "")
@@ -751,7 +761,7 @@ jobs:
                   markdown_lines.append("")
 
           markdown = "\n".join(markdown_lines) + "\n"
-          Path("trivy-results/${{ matrix.component }}.md").write_text(markdown, encoding="utf-8")
+          Path(f"trivy-results/{component_name}.md").write_text(markdown, encoding="utf-8")
           PY
           echo "::group::Trivy summary for ${{ matrix.display_name }}"
           cat "trivy-results/${{ matrix.component }}.md"
