@@ -9,7 +9,7 @@ use strata_mosaic_client_api::{
     MosaicClientApi, MosaicError, MosaicEvent, MosaicSetupError, types::*,
 };
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 use crate::{MosaicClient, MosaicIdResolver, util::make_setup_config};
 
@@ -17,6 +17,7 @@ use crate::{MosaicClient, MosaicIdResolver, util::make_setup_config};
 impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClientApi
     for MosaicClient<R, P>
 {
+    #[instrument(skip_all, fields(%operator_idx, %role))]
     async fn ensure_mosaic_setup(
         &self,
         operator_idx: OperatorIdx,
@@ -99,6 +100,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         }
     }
 
+    #[instrument(skip_all, fields(%operator_idx, %role))]
     async fn get_fault_pubkey(
         &self,
         operator_idx: OperatorIdx,
@@ -119,6 +121,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(pubkey)
     }
 
+    #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
     async fn get_adaptor_pubkey(
         &self,
         operator_idx: OperatorIdx,
@@ -141,6 +144,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(pubkey)
     }
 
+    #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
     async fn init_evaluator_deposit(
         &self,
         operator_idx: OperatorIdx,
@@ -191,6 +195,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(())
     }
 
+    #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
     async fn init_garbler_deposit(
         &self,
         operator_idx: OperatorIdx,
@@ -242,17 +247,17 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
 
         match status {
             DepositStatus::Aborted { reason } => {
-                error!(%reason, %deposit_idx, "deposit aborted on mosaic");
+                error!(%reason, "deposit aborted on mosaic");
                 return Err(MosaicError::DepositAborted(deposit_idx));
             }
             DepositStatus::UncontestedWithdrawal | DepositStatus::Consumed { .. } => {
-                error!(%deposit_idx, "deposit is already withdrawn");
+                error!("deposit is already withdrawn");
                 return Err(MosaicError::DepositWithdrawn(deposit_idx));
             }
             DepositStatus::Incomplete { details } => {
                 // deposit is incomplete
                 // add to watched deposits to emit verified event when ready.
-                debug!(%details, %deposit_idx, "deposit process pending");
+                debug!(%details, "deposit process pending");
                 self.watched_deposits
                     .lock()
                     .await
@@ -260,7 +265,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
             }
             DepositStatus::Ready => {
                 // deposit is already ready, emit verified event directly.
-                info!(%deposit_idx, "deposit adaptors verified");
+                info!("deposit adaptors verified");
                 self.emit(MosaicEvent::AdaptorsVerified(GraphIdx {
                     operator: operator_idx,
                     deposit: deposit_idx,
@@ -274,6 +279,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
 
     // ---- Withdrawal ----
 
+    #[instrument(skip_all, fields(%operator_idx, %role, %deposit_idx))]
     async fn mark_deposit_withdrawn(
         &self,
         operator_idx: OperatorIdx,
@@ -298,6 +304,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(())
     }
 
+    #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
     async fn complete_adaptor_sigs(
         &self,
         operator_idx: OperatorIdx,
@@ -321,14 +328,8 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         })
         .await?;
 
-        self.poll_until_consumed(
-            tableset_id,
-            deposit_id,
-            operator_idx,
-            Role::Garbler,
-            deposit_idx,
-        )
-        .await?;
+        self.poll_until_consumed(tableset_id, deposit_id, operator_idx, Role::Garbler)
+            .await?;
 
         let rpc = self.rpc.clone();
         let completed_sigs = retry_with(self.default_retry_strategy(), move || {
@@ -345,6 +346,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(completed_sigs)
     }
 
+    #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
     async fn evaluate_and_sign(
         &self,
         operator_idx: OperatorIdx,
@@ -377,17 +379,11 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         .await?;
 
         let success = self
-            .poll_until_consumed(
-                tableset_id,
-                deposit_id,
-                operator_idx,
-                Role::Evaluator,
-                deposit_idx,
-            )
+            .poll_until_consumed(tableset_id, deposit_id, operator_idx, Role::Evaluator)
             .await?;
 
         if !success {
-            error!(%operator_idx, %deposit_idx, "evaluation failed to extract fault secret");
+            error!("evaluation failed to extract fault secret");
             return Ok(None);
         }
 
