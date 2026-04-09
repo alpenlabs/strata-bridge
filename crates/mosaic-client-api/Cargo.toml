@@ -7,8 +7,9 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-mosaic-common.workspace = true
 strata-bridge-primitives = { workspace = true, features = ["async"] }
+
+mosaic-common.workspace = true
 
 async-trait.workspace = true
 bitcoin.workspace = true

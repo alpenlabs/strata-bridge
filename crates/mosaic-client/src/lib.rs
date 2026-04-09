@@ -50,9 +50,6 @@ pub(crate) mod util;
 
 pub use resolver::*;
 
-// #[cfg(test)]
-// mod tests;
-
 type WatchDepositKey = (RpcTablesetId, OperatorIdx, DepositIdx);
 
 const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(2);
