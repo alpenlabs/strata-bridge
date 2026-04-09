@@ -8,7 +8,7 @@ use std::{
 use bitcoin::{Txid, secp256k1::schnorr::Signature};
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph};
+use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph, StakeGraphSummary};
 
 /// The state of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +24,8 @@ pub enum StakeState {
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
         stake_data: StakeData,
+        /// Collection of all TXIDs in the stake graph.
+        summary: StakeGraphSummary,
         /// Maps each operator to their public nonces.
         pub_nonces: BTreeMap<OperatorIdx, [PubNonce; StakeGraph::N_MUSIG_INPUTS]>,
     },
@@ -33,16 +35,12 @@ pub enum StakeState {
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
         stake_data: StakeData,
+        /// Collection of all TXIDs in the stake graph.
+        summary: StakeGraphSummary,
         /// Maps each operator to their public nonces.
         pub_nonces: BTreeMap<OperatorIdx, [PubNonce; StakeGraph::N_MUSIG_INPUTS]>,
         /// 1 aggregated nonce per musig transaction input.
         agg_nonces: Box<[AggNonce; StakeGraph::N_MUSIG_INPUTS]>,
-        /// The ID of the expected stake transaction.
-        ///
-        /// A stake transaction may make it on chain if the operator who owns the stake broadcasts
-        /// their partial signature _after_ broadcasting the stake transaction, or withholds their
-        /// partial signature entirely.
-        expected_stake_txid: Txid,
         /// Maps each operator to their partial signatures.
         partial_signatures: BTreeMap<OperatorIdx, [PartialSignature; StakeGraph::N_MUSIG_INPUTS]>,
     },
@@ -54,8 +52,8 @@ pub enum StakeState {
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
         stake_data: StakeData,
-        /// ID of the expected stake transaction.
-        expected_stake_txid: Txid,
+        /// Collection of all TXIDs in the stake graph.
+        summary: StakeGraphSummary,
         /// 1 signature per musig transaction input.
         signatures: Box<[Signature; StakeGraph::N_MUSIG_INPUTS]>,
     },
@@ -65,8 +63,8 @@ pub enum StakeState {
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
         stake_data: StakeData,
-        /// ID of the confirmed stake transaction.
-        stake_txid: Txid,
+        /// Collection of all TXIDs in the stake graph.
+        summary: StakeGraphSummary,
         /// 1 signature per musig transaction input.
         ///
         /// The signatures may be absent if an operator chooses to withhold their partial signature

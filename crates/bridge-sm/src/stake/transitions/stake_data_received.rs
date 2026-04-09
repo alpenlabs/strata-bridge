@@ -43,14 +43,15 @@ impl StakeSM {
                     setup,
                     protocol: cfg.protocol_params,
                 };
+                let stake_graph = StakeGraph::new(stake_data.clone());
 
                 self.state = StakeState::StakeGraphGenerated {
                     last_block_height: *last_block_height,
                     stake_data: stake_data.clone(),
+                    summary: stake_graph.summarize(),
                     pub_nonces: BTreeMap::new(),
                 };
 
-                let stake_graph = StakeGraph::new(stake_data);
                 let graph_inpoints = stake_graph
                     .musig_inpoints()
                     .pack()

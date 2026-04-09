@@ -2,7 +2,6 @@
 
 use bitcoin::Transaction;
 use strata_bridge_primitives::types::BitcoinBlockHeight;
-use strata_bridge_tx_graph::stake_graph::StakeGraph;
 
 use crate::{
     stake::{
@@ -30,22 +29,12 @@ impl TxClassifier for StakeSM {
             // If the other operators see the stake transaction on chain before receiving the
             // partial, then they will still be in the UnstakingNoncesCollected state.
             // We have to handle this case here, even though it is unlikely.
-            StakeState::UnstakingNoncesCollected { stake_data, .. }
-            | StakeState::UnstakingSigned { stake_data, .. } => {
-                let stake_txid = StakeGraph::new(stake_data.clone())
-                    .stake
-                    .as_ref()
-                    .compute_txid();
-
-                (txid == stake_txid).then(|| StakeConfirmedEvent { tx: tx.clone() }.into())
+            StakeState::UnstakingNoncesCollected { summary, .. }
+            | StakeState::UnstakingSigned { summary, .. } => {
+                (txid == summary.stake).then(|| StakeConfirmedEvent { tx: tx.clone() }.into())
             }
-            StakeState::Confirmed { stake_data, .. } => {
-                let unstaking_intent_txid = StakeGraph::new(stake_data.clone())
-                    .unstaking_intent
-                    .as_ref()
-                    .compute_txid();
-
-                (txid == unstaking_intent_txid).then(|| {
+            StakeState::Confirmed { summary, .. } => {
+                (txid == summary.unstaking_intent).then(|| {
                     PreimageRevealedEvent {
                         tx: tx.clone(),
                         block_height: height,

@@ -9,7 +9,7 @@ fn retry_publish_stake() {
     let from_state = StakeState::UnstakingSigned {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
-        expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+        summary: *TEST_GRAPH_SUMMARY,
         signatures: Box::new(*TEST_FINAL_SIGS),
     };
     let expected_state = from_state.clone();
@@ -34,12 +34,13 @@ fn retry_nothing() {
         StakeState::StakeGraphGenerated {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
         },
         StakeState::UnstakingNoncesCollected {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
             agg_nonces: TEST_AGG_NONCES.clone(),
             partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
@@ -47,7 +48,7 @@ fn retry_nothing() {
         StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::PreimageRevealed {

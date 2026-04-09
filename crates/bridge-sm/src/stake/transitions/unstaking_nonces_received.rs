@@ -35,6 +35,7 @@ impl StakeSM {
             StakeState::StakeGraphGenerated {
                 last_block_height,
                 stake_data,
+                summary,
                 pub_nonces,
             } => {
                 if pub_nonces.contains_key(&event.operator_idx) {
@@ -53,10 +54,10 @@ impl StakeSM {
                     self.state = StakeState::UnstakingNoncesCollected {
                         last_block_height: *last_block_height,
                         stake_data,
+                        summary: *summary,
                         pub_nonces: pub_nonces.clone(),
                         agg_nonces: agg_nonces.clone(),
                         partial_signatures: BTreeMap::new(),
-                        expected_stake_txid: stake_graph.stake.as_ref().compute_txid(),
                     };
 
                     let graph_inpoints = stake_graph

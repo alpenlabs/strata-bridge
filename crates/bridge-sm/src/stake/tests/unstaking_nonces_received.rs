@@ -15,6 +15,7 @@ fn stake_graph_generated_state(
     StakeState::StakeGraphGenerated {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
+        summary: *TEST_GRAPH_SUMMARY,
         pub_nonces,
     }
 }
@@ -31,13 +32,13 @@ fn invalid_states() -> [StakeState; 5] {
         StakeState::UnstakingSigned {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Box::new(*TEST_FINAL_SIGS),
         },
         StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::PreimageRevealed {
@@ -97,16 +98,16 @@ fn accept_nonces_all_collected() {
         StakeState::UnstakingNoncesCollected {
             last_block_height,
             stake_data,
+            summary,
             pub_nonces,
             agg_nonces,
             partial_signatures,
-            expected_stake_txid
         } if (
         *last_block_height == STAKE_HEIGHT
         && *stake_data == TEST_STAKE_DATA.clone()
+        && *summary == *TEST_GRAPH_SUMMARY
         && *pub_nonces ==  TEST_PUB_NONCES_MAP.clone()
         && *agg_nonces == TEST_AGG_NONCES.clone()
-        && *expected_stake_txid == TEST_GRAPH_SUMMARY.stake
         && partial_signatures.is_empty()
     )));
 
@@ -152,7 +153,7 @@ fn reject_duplicate_in_collected_nonces() {
             stake_data: TEST_STAKE_DATA.clone(),
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
             agg_nonces: TEST_AGG_NONCES.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             partial_signatures: BTreeMap::new(),
         },
         event: UnstakingNoncesReceivedEvent {

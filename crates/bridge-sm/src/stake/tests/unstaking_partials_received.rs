@@ -15,7 +15,7 @@ fn nonces_collected_state(
         stake_data: TEST_STAKE_DATA.clone(),
         pub_nonces: TEST_PUB_NONCES_MAP.clone(),
         agg_nonces: TEST_AGG_NONCES.clone(),
-        expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+        summary: *TEST_GRAPH_SUMMARY,
         partial_signatures,
     }
 }
@@ -28,12 +28,13 @@ fn invalid_states() -> [StakeState; 5] {
         StakeState::StakeGraphGenerated {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
         },
         StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::PreimageRevealed {
@@ -84,7 +85,7 @@ fn accept_partials_all_collected() {
         expected_state: StakeState::UnstakingSigned {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Box::new(*TEST_FINAL_SIGS),
         },
         expected_duties: vec![],
@@ -137,7 +138,7 @@ fn reject_duplicate_in_signed_partials() {
         from_state: StakeState::UnstakingSigned {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Box::new(*TEST_FINAL_SIGS),
         },
         event: UnstakingPartialsReceivedEvent {
