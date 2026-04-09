@@ -54,6 +54,7 @@ fn nag_unstaking_nonces() {
     let from_state = StakeState::StakeGraphGenerated {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
+        summary: *TEST_GRAPH_SUMMARY,
         pub_nonces,
     };
     let expected_state = from_state.clone();
@@ -88,7 +89,7 @@ fn nag_unstaking_partials() {
     let from_state = StakeState::UnstakingNoncesCollected {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
-        expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+        summary: *TEST_GRAPH_SUMMARY,
         pub_nonces: TEST_PUB_NONCES_MAP.clone(),
         agg_nonces: TEST_AGG_NONCES.clone(),
         partial_signatures,
@@ -109,13 +110,13 @@ fn dont_nag_when_nothing_is_missing() {
         StakeState::UnstakingSigned {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: (*TEST_FINAL_SIGS).into(),
         },
         StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::PreimageRevealed {

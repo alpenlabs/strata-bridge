@@ -11,12 +11,13 @@ fn states_with_last_block_height(last_block_height: u64) -> [StakeState; 6] {
         StakeState::StakeGraphGenerated {
             last_block_height,
             stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
         },
         StakeState::UnstakingNoncesCollected {
             last_block_height,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
             agg_nonces: TEST_AGG_NONCES.clone(),
             partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
@@ -24,13 +25,13 @@ fn states_with_last_block_height(last_block_height: u64) -> [StakeState; 6] {
         StakeState::UnstakingSigned {
             last_block_height,
             stake_data: TEST_STAKE_DATA.clone(),
-            expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Box::new(*TEST_FINAL_SIGS),
         },
         StakeState::Confirmed {
             last_block_height,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::PreimageRevealed {

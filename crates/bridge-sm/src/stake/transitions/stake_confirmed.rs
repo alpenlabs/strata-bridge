@@ -1,5 +1,3 @@
-use strata_bridge_tx_graph::stake_graph::StakeGraph;
-
 use crate::{
     stake::{
         errors::{SSMError, SSMResult},
@@ -24,14 +22,10 @@ impl StakeSM {
             StakeState::UnstakingNoncesCollected {
                 last_block_height,
                 stake_data,
+                summary,
                 ..
             } => {
-                let expected_stake_txid = StakeGraph::new(stake_data.clone())
-                    .stake
-                    .as_ref()
-                    .compute_txid();
-
-                if event.tx.compute_txid() != expected_stake_txid {
+                if event.tx.compute_txid() != summary.stake {
                     return Err(SSMError::rejected(
                         self.state().clone(),
                         event.into(),
@@ -52,7 +46,7 @@ impl StakeSM {
                 self.state = StakeState::Confirmed {
                     last_block_height: *last_block_height,
                     stake_data: stake_data.clone(),
-                    stake_txid: expected_stake_txid,
+                    summary: *summary,
                     signatures: Box::new(None),
                 };
 
@@ -61,11 +55,11 @@ impl StakeSM {
             StakeState::UnstakingSigned {
                 last_block_height,
                 stake_data,
-                expected_stake_txid,
+                summary: txids,
                 signatures,
                 ..
             } => {
-                if event.tx.compute_txid() != *expected_stake_txid {
+                if event.tx.compute_txid() != txids.stake {
                     return Err(SSMError::rejected(
                         self.state().clone(),
                         event.into(),
@@ -76,7 +70,7 @@ impl StakeSM {
                 self.state = StakeState::Confirmed {
                     last_block_height: *last_block_height,
                     stake_data: stake_data.clone(),
-                    stake_txid: *expected_stake_txid,
+                    summary: *txids,
                     signatures: Box::new(Some(*signatures.clone())),
                 };
 

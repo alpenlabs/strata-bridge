@@ -1,5 +1,3 @@
-use strata_bridge_tx_graph::stake_graph::StakeGraph;
-
 use crate::{
     stake::{
         errors::{SSMError, SSMResult},
@@ -35,11 +33,10 @@ impl StakeSM {
             StakeState::Confirmed {
                 last_block_height: _,
                 stake_data,
+                summary,
                 signatures,
                 ..
             } => {
-                let summary = StakeGraph::new(stake_data.clone()).summarize();
-
                 if event.tx.compute_txid() != summary.unstaking_intent {
                     return Err(SSMError::invalid_event(
                         self.state().clone(),

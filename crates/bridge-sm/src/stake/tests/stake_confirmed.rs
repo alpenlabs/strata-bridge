@@ -7,7 +7,7 @@ fn signed_state() -> StakeState {
     StakeState::UnstakingSigned {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
-        expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+        summary: *TEST_GRAPH_SUMMARY,
         signatures: Box::new(*TEST_FINAL_SIGS),
     }
 }
@@ -16,7 +16,7 @@ fn nonces_collected_state() -> StakeState {
     StakeState::UnstakingNoncesCollected {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
-        expected_stake_txid: TEST_GRAPH_SUMMARY.stake,
+        summary: *TEST_GRAPH_SUMMARY,
         pub_nonces: TEST_PUB_NONCES_MAP.clone(),
         agg_nonces: TEST_AGG_NONCES.clone(),
         partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
@@ -31,6 +31,7 @@ fn rejected_states() -> [StakeState; 2] {
         StakeState::StakeGraphGenerated {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
         },
     ]
@@ -64,7 +65,7 @@ fn accept_stake_tx_from_signed() {
         expected_state: StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         expected_duties: vec![],
@@ -83,7 +84,7 @@ fn accept_stake_tx_from_nonces_collected_for_nonpov() {
         expected_state: StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: None.into(),
         },
         expected_duties: vec![],
@@ -123,7 +124,7 @@ fn reject_duplicate_stake_confirmed() {
         from_state: StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
-            stake_txid: TEST_GRAPH_SUMMARY.stake,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         event: StakeConfirmedEvent {
