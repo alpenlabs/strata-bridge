@@ -215,7 +215,7 @@ serial_test = "3.4.0"
 sha2 = "0.10"
 sled = "0.34.7"
 sp1-sdk = "5.2.4"
-sp1-verifier = "5.2.4"
+sp1-verifier = "6.0.2"
 tempfile = "3.23.0"
 
 # TODO: <https://atlassian.alpenlabs.net/browse/STR-2660>
