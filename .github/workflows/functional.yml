@@ -165,7 +165,12 @@ jobs:
 
       - name: Install mosaic binary
         run: |
-          cargo install --git https://github.com/alpenlabs/mosaic --bin mosaic --rev f786c8866be24d646a89cecb0f9327afd8622558 --features=mosaic-common/reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
+          MOSAIC_REV=$(grep 'mosaic-rpc-api.*rev' Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/')
+          if [ -z "$MOSAIC_REV" ]; then
+            echo "ERROR: failed to extract mosaic rev from Cargo.toml" >&2
+            exit 1
+          fi
+          cargo install --git https://github.com/alpenlabs/mosaic --rev "$MOSAIC_REV" --features=reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
           echo "$GITHUB_WORKSPACE/target/mosaic/bin" >> "$GITHUB_PATH"
 
       - name: Run functional tests
