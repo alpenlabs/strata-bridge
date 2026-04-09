@@ -372,7 +372,6 @@ jobs:
       - name: Summarize Trivy results for ${{ matrix.display_name }}
         if: always()
         env:
-          SUMMARY_PATH: ${{ github.step_summary }}
           TRIVY_STATUS: ${{ steps.trivy_scan.outputs.status }}
           TRIVY_JSON_RC: ${{ steps.trivy_scan.outputs.json_rc }}
           TRIVY_SARIF_RC: ${{ steps.trivy_scan.outputs.sarif_rc }}
@@ -464,8 +463,6 @@ jobs:
 
           markdown = "\n".join(markdown_lines) + "\n"
           Path("trivy-results/${{ matrix.component }}.md").write_text(markdown, encoding="utf-8")
-          with open(os.environ["SUMMARY_PATH"], "a", encoding="utf-8") as summary:
-              summary.write(markdown)
           PY
           echo "::group::Trivy summary for ${{ matrix.display_name }}"
           cat "trivy-results/${{ matrix.component }}.md"
@@ -499,7 +496,9 @@ jobs:
           {
             echo "- \`${image_ref}\`"
             echo "  scan: advisory status \`${TRIVY_STATUS:-unknown}\`"
-            echo "  artifact: \`trivy-${{ matrix.component }}-${IMAGE_TAG}\` (uploaded when SARIF exists)"
+            echo "  artifact: \`trivy-${{ matrix.component }}-${IMAGE_TAG}\`"
+            echo
+            cat "trivy-results/${{ matrix.component }}.md"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   build_app_images:
@@ -647,7 +646,6 @@ jobs:
       - name: Summarize Trivy results for ${{ matrix.display_name }}
         if: always()
         env:
-          SUMMARY_PATH: ${{ github.step_summary }}
           TRIVY_STATUS: ${{ steps.trivy_scan.outputs.status }}
           TRIVY_JSON_RC: ${{ steps.trivy_scan.outputs.json_rc }}
           TRIVY_SARIF_RC: ${{ steps.trivy_scan.outputs.sarif_rc }}
@@ -739,8 +737,6 @@ jobs:
 
           markdown = "\n".join(markdown_lines) + "\n"
           Path("trivy-results/${{ matrix.component }}.md").write_text(markdown, encoding="utf-8")
-          with open(os.environ["SUMMARY_PATH"], "a", encoding="utf-8") as summary:
-              summary.write(markdown)
           PY
           echo "::group::Trivy summary for ${{ matrix.display_name }}"
           cat "trivy-results/${{ matrix.component }}.md"
@@ -776,7 +772,9 @@ jobs:
             echo "- \`${image_ref}\`"
             echo "  public: \`${public_image_ref}\`"
             echo "  scan: advisory status \`${TRIVY_STATUS:-unknown}\`"
-            echo "  artifact: \`trivy-${{ matrix.component }}-${IMAGE_TAG}\` (uploaded when SARIF exists)"
+            echo "  artifact: \`trivy-${{ matrix.component }}-${IMAGE_TAG}\`"
+            echo
+            cat "trivy-results/${{ matrix.component }}.md"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   publish_report:
