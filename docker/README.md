@@ -171,6 +171,31 @@ GENERAL_WALLET_3=bcrt1...
 
 These addresses are funded in the Docker bitcoind startup flow.
 
+### Mosaic Configs
+
+Each Mosaic node needs to be configured with network signing key and all peers' `peer_id` and network address.
+
+The `network.signing_key_hex` and its corresponding `peer_id` can be generated using `mosaic-peer-id` binary from mosaic repo.
+
+```sh
+# install mosaic-peer-id
+$ cargo install --git https://github.com/alpenlabs/mosaic --rev f786c8866be24d646a89cecb0f9327afd8622558 mosaic-peer-id
+
+# generate new random keypair 
+$ mosaic-peer-id
+# Output:
+# signing_key_hex=be604bd494ab4d37c54f7aedc2543d7cb00bd09def08b3f70ae8cceb9176a0e0
+# peer_id=1d87ff8aeff334dbdf72d3a51dd62e66910a907997fef3d3175d8419d32b78c5
+
+# get peer_id for a signing key
+$ mosaic-peer-id --signing-key be604bd494ab4d37c54f7aedc2543d7cb00bd09def08b3f70ae8cceb9176a0e0
+# Output:
+# signing_key_hex=be604bd494ab4d37c54f7aedc2543d7cb00bd09def08b3f70ae8cceb9176a0e0
+# peer_id=1d87ff8aeff334dbdf72d3a51dd62e66910a907997fef3d3175d8419d32b78c5
+```
+
+> Each mosaic config should contain info for all other peers in the network. The peer ids MUST match the peer ids provided in the mosaic section of bridge config.
+
 ### Memory Profiling
 
 The bridge operators and secret services are built with memory profiling enabled using `jemalloc`. This feature exposes HTTP endpoints for heap profiling on port `3000` for each service.
