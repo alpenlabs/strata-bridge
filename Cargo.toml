@@ -214,7 +214,7 @@ serde_json = { version = "1.0", default-features = false, features = [
 serial_test = "3.4.0"
 sha2 = "0.10"
 sled = "0.34.7"
-sp1-sdk = "5.2.4"
+sp1-sdk = "6.0.2"
 sp1-verifier = "5.2.4"
 tempfile = "3.23.0"
 
