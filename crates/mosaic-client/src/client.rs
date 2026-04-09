@@ -72,7 +72,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
             match status {
                 RpcTablesetStatus::Incomplete { details } => {
                     // setup is incomplete, keep retrying
-                    debug!(%details, "setup incomplete, retrying");
+                    debug!(%details, retry_after = ?self.retry_delay, "setup incomplete, retrying");
                     tokio::time::sleep(self.retry_delay).await;
                     continue;
                 }
@@ -80,7 +80,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     // Mosaic setup has aborted due to a protocol violation.
                     // This setup cannot be used again, needs manual intervention to resolve and
                     // retry.
-                    error!(%reason, "setup aborted");
+                    error!(%reason, "setup aborted due to a protocol violation, manual intervention required");
                     return Err(MosaicSetupError::Aborted(reason));
                 }
                 RpcTablesetStatus::SetupComplete
