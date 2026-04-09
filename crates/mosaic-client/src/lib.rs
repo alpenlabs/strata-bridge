@@ -210,7 +210,6 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         expected_deposit_id: DepositId,
         operator_idx: OperatorIdx,
         role: Role,
-        deposit_idx: DepositIdx,
     ) -> Result<bool, MosaicError> {
         loop {
             let rpc = self.rpc.clone();
@@ -238,7 +237,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     return Err(MosaicError::UnexpectedDepositState(details));
                 }
                 RpcTablesetStatus::SetupComplete => {
-                    debug!(%deposit_idx, "waiting for transition from SetupComplete");
+                    debug!("waiting for transition from SetupComplete");
                     tokio::time::sleep(self.retry_delay).await;
                     continue;
                 }
@@ -255,7 +254,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                             actual: hex::encode(actual_deposit_id),
                         });
                     }
-                    debug!(%deposit_idx, "waiting for transition from Contest");
+                    debug!("waiting for transition from Contest");
                     tokio::time::sleep(self.retry_delay).await;
                     continue;
                 }
@@ -272,7 +271,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                             actual: hex::encode(actual_deposit_id),
                         });
                     }
-                    info!(%deposit_idx, "setup consumed; signed adaptors should be ready");
+                    info!("setup consumed; signed adaptors should be ready");
                     return Ok(success);
                 }
                 RpcTablesetStatus::Aborted { reason } => {

@@ -80,7 +80,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         let key = (tableset_id, operator_idx, deposit_idx);
         match status {
             DepositStatus::Ready => {
-                info!(%deposit_idx, "watched deposit adaptors verified");
+                info!(%operator_idx, %deposit_idx, "watched deposit adaptors verified");
                 self.watched_deposits.lock().await.remove(&key);
                 self.emit(MosaicEvent::AdaptorsVerified(GraphIdx {
                     operator: operator_idx,
@@ -89,20 +89,20 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                 .await;
             }
             DepositStatus::Aborted { reason } => {
-                error!(%reason, %deposit_idx, "watched deposit aborted");
+                error!(%operator_idx, %deposit_idx, %reason, "watched deposit aborted");
                 self.watched_deposits.lock().await.remove(&key);
             }
             DepositStatus::UncontestedWithdrawal => {
-                error!(%deposit_idx, "watched deposit withdrawn");
+                error!(%operator_idx, %deposit_idx, "watched deposit withdrawn");
                 self.watched_deposits.lock().await.remove(&key);
             }
             DepositStatus::Consumed { .. } => {
-                error!(%deposit_idx, "watched deposit consumed");
+                error!(%operator_idx, %deposit_idx, "watched deposit consumed");
                 self.watched_deposits.lock().await.remove(&key);
             }
             DepositStatus::Incomplete { details } => {
                 // Deposit exists but isn't ready yet — reset failure counter, keep watching.
-                debug!(%details, %deposit_idx, "watched deposit still incomplete");
+                debug!(%operator_idx, %deposit_idx, %details, "watched deposit still incomplete");
                 if let Some(counter) = self.watched_deposits.lock().await.get_mut(&key) {
                     *counter = 0;
                 }
@@ -122,6 +122,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
             *failure_count += 1;
             if *failure_count >= self.max_retries {
                 warn!(
+                    %operator_idx,
                     %deposit_idx,
                     attempts = *failure_count,
                     "watched deposit not found after max retries, removing"
@@ -129,6 +130,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                 watched.remove(&key);
             } else {
                 debug!(
+                    %operator_idx,
                     %deposit_idx,
                     attempt = *failure_count,
                     max = self.max_retries,
@@ -151,6 +153,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
             *failure_count += 1;
             if *failure_count >= self.max_retries {
                 warn!(
+                    %operator_idx,
                     %deposit_idx,
                     attempts = *failure_count,
                     %rpc_err,
@@ -159,6 +162,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                 watched.remove(&key);
             } else {
                 debug!(
+                    %operator_idx,
                     %deposit_idx,
                     attempt = *failure_count,
                     max = self.max_retries,
