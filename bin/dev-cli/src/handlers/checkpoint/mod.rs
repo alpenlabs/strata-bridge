@@ -1,5 +1,7 @@
 use anyhow::{bail, Context, Result};
 use ssz::Encode;
+use strata_checkpoint_types_ssz::CheckpointPayload;
+use strata_codec::{encode_to_vec, Varint};
 use strata_l1_txfmt::MagicBytes;
 use tracing::info;
 
@@ -10,6 +12,16 @@ pub(crate) mod envelope;
 pub(crate) mod mock_checkpoint;
 
 use strata_asm_txs_checkpoint::{CHECKPOINT_SUBPROTOCOL_ID, OL_STF_CHECKPOINT_TX_TYPE};
+
+fn encode_checkpoint_payload(payload: &CheckpointPayload) -> Result<Vec<u8>> {
+    let checkpoint_ssz = payload.as_ssz_bytes();
+    let payload_len = Varint::new_usize(checkpoint_ssz.len())
+        .context("checkpoint payload too large to encode as varint")?;
+    let mut encoded_checkpoint =
+        encode_to_vec(&payload_len).context("failed to encode checkpoint payload length")?;
+    encoded_checkpoint.extend_from_slice(&checkpoint_ssz);
+    Ok(encoded_checkpoint)
+}
 
 pub(crate) async fn handle_create_and_publish_mock_checkpoint(
     args: CreateAndPublishMockCheckpointArgs,
@@ -45,7 +57,7 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
     );
 
     // Encode and broadcast via taproot envelope.
-    let encoded_checkpoint = payload.as_ssz_bytes();
+    let encoded_checkpoint = encode_checkpoint_payload(&payload)?;
     info!(
         epoch = new_tip.epoch,
         num_withdrawals = args.num_withdrawals,
