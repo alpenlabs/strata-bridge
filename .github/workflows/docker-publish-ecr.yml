@@ -24,6 +24,10 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   ECR_REGISTRY: ${{ vars.ECR_REGISTRY || '888577024788.dkr.ecr.us-east-1.amazonaws.com' }}
   ECR_REPOSITORY_PREFIX: ${{ vars.ECR_REPOSITORY_PREFIX || 'tn1' }}
+  PUBLIC_AWS_ROLE_TO_ASSUME: ${{ vars.PUBLIC_AWS_ROLE_TO_ASSUME || 'arn:aws:iam::496607027995:role/github-actions-ecr-push' }}
+  PUBLIC_ECR_REGISTRY: public.ecr.aws
+  PUBLIC_ECR_NAMESPACE: z5c7y9u9
+  PUBLIC_ECR_REGION: us-east-1
   DOCKER_PLATFORM: linux/amd64
 
 permissions:
@@ -198,6 +202,7 @@ jobs:
                   "component": "strata-bridge",
                   "display_name": "strata-bridge",
                   "repository": "strata-bridge",
+                  "public_repository": "strata-bridge",
                   "dockerfile": "docker/strata-bridge/Dockerfile",
                   "local_tag": "strata-bridge:latest",
                   "trivy_scanners": "vuln,secret,misconfig",
@@ -208,6 +213,7 @@ jobs:
                   "component": "strata-asm-runner",
                   "display_name": "strata-asm-runner",
                   "repository": "strata-asm-runner",
+                  "public_repository": "strata-asm-runner",
                   "dockerfile": "docker/asm-runner/Dockerfile",
                   "local_tag": "strata-asm-runner:latest",
                   "trivy_scanners": "vuln,secret,misconfig",
@@ -218,6 +224,7 @@ jobs:
                   "component": "secret-service",
                   "display_name": "secret-service",
                   "repository": "secret-service",
+                  "public_repository": "secret-service",
                   "dockerfile": "docker/secret-service/Dockerfile",
                   "local_tag": "secret-service:latest",
                   "trivy_scanners": "vuln,secret,misconfig",
@@ -566,6 +573,25 @@ jobs:
           docker tag "${{ matrix.local_tag }}" "${image_ref}"
           docker push "${image_ref}"
 
+      - name: Configure public ECR credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ env.PUBLIC_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.PUBLIC_ECR_REGION }}
+
+      - name: Login to public ECR
+        run: |
+          aws ecr-public get-login-password --region "${PUBLIC_ECR_REGION}" \
+            | docker login --username AWS --password-stdin "${PUBLIC_ECR_REGISTRY}"
+
+      - name: Tag and push public ${{ matrix.display_name }}
+        env:
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
+        run: |
+          public_image_ref="${PUBLIC_ECR_REGISTRY}/${PUBLIC_ECR_NAMESPACE}/${{ matrix.public_repository }}:${IMAGE_TAG}"
+          docker tag "${{ matrix.local_tag }}" "${public_image_ref}"
+          docker push "${public_image_ref}"
+
       - name: Run Trivy scan for ${{ matrix.display_name }}
         id: trivy_scan
         env:
@@ -745,8 +771,10 @@ jobs:
           TRIVY_STATUS: ${{ steps.trivy_scan.outputs.status }}
         run: |
           image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
+          public_image_ref="${PUBLIC_ECR_REGISTRY}/${PUBLIC_ECR_NAMESPACE}/${{ matrix.public_repository }}:${IMAGE_TAG}"
           {
             echo "- \`${image_ref}\`"
+            echo "  public: \`${public_image_ref}\`"
             echo "  scan: advisory status \`${TRIVY_STATUS:-unknown}\`"
             echo "  artifact: \`trivy-${{ matrix.component }}-${IMAGE_TAG}\` (uploaded when SARIF exists)"
           } >> "${GITHUB_STEP_SUMMARY}"
