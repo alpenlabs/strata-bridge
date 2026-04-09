@@ -20,7 +20,7 @@ libp2p-identity = { workspace = true, features = ["ed25519"] }
 make_buf = { git = "https://github.com/alpenlabs/make_buf", version = "1.0.0" }
 musig2.workspace = true
 rand.workspace = true
-rcgen = "0.13.2"
+rcgen = "0.14.7"
 rustls-pemfile = "2.2.0"
 serde.workspace = true
 sha2.workspace = true
@@ -35,7 +35,7 @@ memory_pprof = { path = "../../crates/memory_pprof", optional = true }
 tikv-jemallocator = "0.6"
 
 [dev-dependencies]
-rcgen = "0.13.2"
+rcgen = "0.14.7"
 secret-service-client = { path = "../../crates/secret-service-client" }
 
 [features]
