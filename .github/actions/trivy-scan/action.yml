@@ -1,0 +1,235 @@
+name: Trivy image scan and summarize
+description: "Runs a Trivy image scan (JSON + SARIF), detects outputs, and writes a markdown summary."
+
+inputs:
+  image_ref:
+    description: "Image reference to scan (local tag or registry URL)."
+    required: true
+  display_name:
+    description: "Human-readable component name for step and summary labels."
+    required: true
+  component:
+    description: "Component identifier used for output file names."
+    required: true
+  repository:
+    description: "ECR repository path — used for display in the summary report."
+    required: true
+  image_tag:
+    description: "Image tag — used for display in the summary report."
+    required: true
+  ecr_registry:
+    description: "ECR registry URL — used for display in the summary report."
+    required: true
+  ecr_repository_prefix:
+    description: "ECR repository prefix — used for display in the summary report."
+    required: true
+  trivy_scanners:
+    description: "Comma-separated Trivy scanners (e.g. vuln,secret,misconfig)."
+    required: true
+  trivy_timeout:
+    description: "Trivy scan timeout (e.g. 15m)."
+    required: true
+  sarif_category:
+    description: "Category label for the GitHub SARIF upload (e.g. bridge-ecr-strata-bridge)."
+    required: true
+  artifact_name:
+    description: "Name of the GitHub Actions artifact to upload scan results under."
+    required: true
+
+outputs:
+  status:
+    description: "Scan status: 'success' or 'failed'."
+    value: ${{ steps.trivy_scan.outputs.status }}
+  json_rc:
+    description: "Exit code of the JSON-format scan."
+    value: ${{ steps.trivy_scan.outputs.json_rc }}
+  sarif_rc:
+    description: "Exit code of the SARIF-format scan."
+    value: ${{ steps.trivy_scan.outputs.sarif_rc }}
+  json_exists:
+    description: "Whether the JSON output file was produced ('true'/'false')."
+    value: ${{ steps.trivy_outputs.outputs.json_exists }}
+  sarif_exists:
+    description: "Whether the SARIF output file was produced ('true'/'false')."
+    value: ${{ steps.trivy_outputs.outputs.sarif_exists }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run Trivy scan for ${{ inputs.display_name }}
+      id: trivy_scan
+      shell: bash
+      run: |
+        mkdir -p trivy-results
+        image_ref="${{ inputs.image_ref }}"
+        set +e
+        docker run --rm \
+          -v "${PWD}/trivy-results:/workdir" \
+          -v "${HOME}/.docker:/root/.docker:ro" \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy:0.65.0 \
+          image \
+          --timeout "${{ inputs.trivy_timeout }}" \
+          --skip-version-check \
+          --scanners "${{ inputs.trivy_scanners }}" \
+          --format json \
+          --output "/workdir/${{ inputs.component }}.json" \
+          "${image_ref}"
+        json_rc=$?
+        docker run --rm \
+          -v "${PWD}/trivy-results:/workdir" \
+          -v "${HOME}/.docker:/root/.docker:ro" \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy:0.65.0 \
+          image \
+          --timeout "${{ inputs.trivy_timeout }}" \
+          --skip-version-check \
+          --scanners "${{ inputs.trivy_scanners }}" \
+          --format sarif \
+          --output "/workdir/${{ inputs.component }}.sarif" \
+          "${image_ref}"
+        sarif_rc=$?
+        if [[ "${json_rc}" -eq 0 && "${sarif_rc}" -eq 0 ]]; then
+          status="success"
+        else
+          status="failed"
+          echo "::warning::Advisory Trivy scan for ${{ inputs.display_name }} had json_rc=${json_rc} sarif_rc=${sarif_rc}"
+        fi
+        {
+          echo "json_rc=${json_rc}"
+          echo "sarif_rc=${sarif_rc}"
+          echo "status=${status}"
+        } >> "${GITHUB_OUTPUT}"
+        exit 0
+
+    - name: Detect Trivy outputs for ${{ inputs.display_name }}
+      if: always()
+      id: trivy_outputs
+      shell: bash
+      run: |
+        [[ -f "trivy-results/${{ inputs.component }}.json" ]] && echo "json_exists=true" >> "${GITHUB_OUTPUT}" || echo "json_exists=false" >> "${GITHUB_OUTPUT}"
+        [[ -f "trivy-results/${{ inputs.component }}.sarif" ]] && echo "sarif_exists=true" >> "${GITHUB_OUTPUT}" || echo "sarif_exists=false" >> "${GITHUB_OUTPUT}"
+
+    - name: Summarize Trivy results for ${{ inputs.display_name }}
+      if: always()
+      shell: bash
+      env:
+        COMPONENT_DISPLAY_NAME: ${{ inputs.display_name }}
+        COMPONENT_NAME: ${{ inputs.component }}
+        IMAGE_REPOSITORY: ${{ inputs.repository }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
+        ECR_REGISTRY: ${{ inputs.ecr_registry }}
+        ECR_REPOSITORY_PREFIX: ${{ inputs.ecr_repository_prefix }}
+        TRIVY_STATUS: ${{ steps.trivy_scan.outputs.status }}
+        TRIVY_JSON_RC: ${{ steps.trivy_scan.outputs.json_rc }}
+        TRIVY_SARIF_RC: ${{ steps.trivy_scan.outputs.sarif_rc }}
+        TRIVY_JSON_EXISTS: ${{ steps.trivy_outputs.outputs.json_exists }}
+        TRIVY_SCANNERS: ${{ inputs.trivy_scanners }}
+        TRIVY_TIMEOUT: ${{ inputs.trivy_timeout }}
+      run: |
+        python3 - <<'PY'
+        import json
+        from collections import Counter
+        from pathlib import Path
+        import os
+
+        component = os.environ["COMPONENT_DISPLAY_NAME"]
+        component_name = os.environ["COMPONENT_NAME"]
+        image_ref = f"{os.environ['ECR_REGISTRY']}/{os.environ['ECR_REPOSITORY_PREFIX']}/{os.environ['IMAGE_REPOSITORY']}:{os.environ['IMAGE_TAG']}"
+        severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
+        counts = Counter()
+        findings = []
+        markdown_lines = []
+
+        markdown_lines.append(f"### Trivy Summary: {component}")
+        markdown_lines.append("")
+        markdown_lines.append(f"`{image_ref}`")
+        markdown_lines.append("")
+        markdown_lines.append(f"- Status: `{os.environ.get('TRIVY_STATUS', 'unknown')}`")
+        markdown_lines.append(f"- Scanners: `{os.environ['TRIVY_SCANNERS']}`")
+        markdown_lines.append(f"- Timeout: `{os.environ['TRIVY_TIMEOUT']}`")
+        markdown_lines.append(f"- Exit codes: json=`{os.environ.get('TRIVY_JSON_RC', '')}` sarif=`{os.environ.get('TRIVY_SARIF_RC', '')}`")
+        markdown_lines.append("")
+
+        if os.environ.get("TRIVY_JSON_EXISTS") != "true":
+            markdown_lines.append("Trivy did not produce a JSON report for this image.")
+            markdown_lines.append("")
+        else:
+            results = json.loads(Path(f"trivy-results/{component_name}.json").read_text())
+            for target in results.get("Results", []):
+                target_name = target.get("Target", "unknown")
+
+                for vuln in target.get("Vulnerabilities", []) or []:
+                    severity = vuln.get("Severity", "UNKNOWN")
+                    counts[severity] += 1
+                    findings.append({
+                        "severity": severity,
+                        "target": target_name,
+                        "kind": "vuln",
+                        "id": vuln.get("VulnerabilityID", "unknown"),
+                    })
+
+                for misconfig in target.get("Misconfigurations", []) or []:
+                    severity = misconfig.get("Severity", "UNKNOWN")
+                    counts[severity] += 1
+                    findings.append({
+                        "severity": severity,
+                        "target": target_name,
+                        "kind": "misconfig",
+                        "id": misconfig.get("ID", "unknown"),
+                    })
+
+                for secret in target.get("Secrets", []) or []:
+                    severity = secret.get("Severity", "UNKNOWN")
+                    counts[severity] += 1
+                    findings.append({
+                        "severity": severity,
+                        "target": target_name,
+                        "kind": "secret",
+                        "id": secret.get("RuleID", "secret"),
+                    })
+
+            findings.sort(key=lambda item: (severity_order.index(item["severity"]) if item["severity"] in severity_order else len(severity_order), item["id"], item["target"]))
+            markdown_lines.append("| CRITICAL | HIGH | MEDIUM | LOW | UNKNOWN |")
+            markdown_lines.append("| --- | --- | --- | --- | --- |")
+            markdown_lines.append("| " + " | ".join(str(counts.get(level, 0)) for level in severity_order) + " |")
+            markdown_lines.append("")
+
+            if findings:
+                markdown_lines.append("Top findings:")
+                markdown_lines.append("")
+                markdown_lines.append("| Severity | Type | ID | Target |")
+                markdown_lines.append("| --- | --- | --- | --- |")
+                for finding in findings[:10]:
+                    markdown_lines.append(
+                        f"| {finding['severity']} | {finding['kind']} | `{finding['id']}` | `{finding['target']}` |"
+                    )
+                markdown_lines.append("")
+            else:
+                markdown_lines.append("No Trivy findings detected.")
+                markdown_lines.append("")
+
+        markdown = "\n".join(markdown_lines) + "\n"
+        Path(f"trivy-results/{component_name}.md").write_text(markdown, encoding="utf-8")
+        PY
+        echo "::group::Trivy summary for ${{ inputs.display_name }}"
+        cat "trivy-results/${{ inputs.component }}.md"
+        echo "::endgroup::"
+
+    - name: Upload Trivy SARIF for ${{ inputs.display_name }}
+      if: always() && steps.trivy_outputs.outputs.sarif_exists == 'true'
+      uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
+      with:
+        sarif_file: trivy-results/${{ inputs.component }}.sarif
+        category: ${{ inputs.sarif_category }}
+
+    - name: Upload scan artifact for ${{ inputs.display_name }}
+      if: always() && (steps.trivy_outputs.outputs.json_exists == 'true' || steps.trivy_outputs.outputs.sarif_exists == 'true')
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      with:
+        name: ${{ inputs.artifact_name }}
+        if-no-files-found: warn
+        path: |
+          trivy-results/${{ inputs.component }}.json
+          trivy-results/${{ inputs.component }}.sarif
+          trivy-results/${{ inputs.component }}.md
