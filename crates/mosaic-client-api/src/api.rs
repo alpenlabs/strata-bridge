@@ -4,11 +4,30 @@ use strata_bridge_primitives::subscription::Subscription;
 use crate::{MosaicError, MosaicEvent, MosaicSetupError, types::*};
 
 /// Mosaic client interface.
+///
+/// # Setups and addressing
+///
+/// Mosaic operations act on **setups** (also called tablesets). A setup is a two-party arrangement
+/// between own mosaic node and another operator's mosaic node, with own mosaic playing either the
+/// **garbler** (watchtower) or **evaluator** (operator) role and the other operator playing the
+/// opposite role.
+///
+/// A setup is uniquely identified by the pair `(operator_idx, role)`:
+///
+/// - **`operator_idx`** — index of the *other* operator in the setup.
+/// - **`role`** — own operator's role in this setup (garbler or evaluator).
+///
+/// Some methods that are role-specific (e.g.
+/// [`complete_adaptor_sigs`](Self::complete_adaptor_sigs) for garbler,
+/// [`evaluate_and_sign`](Self::evaluate_and_sign) for evaluator) and imply own role.
 #[async_trait]
 pub trait MosaicClientApi: Send + Sync + 'static {
     // ---- Setup ----
 
     /// Ensures that a mosaic tableset is set up for the given operator and role.
+    ///
+    /// `operator_idx`: the remote operator to pair with.
+    /// `role`: own role in this tableset (garbler or evaluator).
     ///
     /// If a tableset for this (operator, role) pair already exists and is complete,
     /// returns immediately. If it exists but is incomplete, waits for completion.
@@ -25,8 +44,12 @@ pub trait MosaicClientApi: Send + Sync + 'static {
 
     // ---- Deposit ----
 
-    /// Returns the pubkey of fault secret for a tableset of the given operator.
-    /// Returns `None` if the tableset is not yet ready or missing
+    /// Returns the pubkey of fault secret for a tableset with given operator and own role.
+    ///
+    /// `operator_idx`: the remote operator in this setup.
+    /// `role`: own role in the setup (garbler or evaluator).
+    ///
+    /// Returns `None` if the setup is not yet ready or missing
     /// (should not happen after `ensure_mosaic_setup`).
     async fn get_fault_pubkey(
         &self,
@@ -34,7 +57,10 @@ pub trait MosaicClientApi: Send + Sync + 'static {
         role: Role,
     ) -> Result<Option<PubKey>, MosaicError>;
 
-    /// Returns pubkey of adaptor secret for the evaluator tableset of the given operator.
+    /// Returns pubkey of adaptor secret for the evaluator tableset.
+    ///
+    /// `operator_idx`: the remote operator in this setup.
+    ///
     /// Returns `None` if the tableset is missing
     /// (should not happen after `ensure_mosaic_setup`).
     async fn get_adaptor_pubkey(
@@ -45,6 +71,8 @@ pub trait MosaicClientApi: Send + Sync + 'static {
 
     /// Initializes a deposit on an evaluator tableset and returns after deposit is accepted by
     /// mosaic.
+    ///
+    /// `operator_idx`: the remote operator in this setup.
     async fn init_evaluator_deposit(
         &self,
         operator_idx: OperatorIdx,
@@ -55,8 +83,9 @@ pub trait MosaicClientApi: Send + Sync + 'static {
     /// Initializes a deposit on a garbler tableset and returns after deposit is
     /// accepted by mosaic.
     ///
-    /// On mosaic side, it waits for adaptor signatures from the evaluator and
-    /// verifies them.
+    /// `operator_idx`: the remote operator in this setup.
+    ///
+    /// On mosaic side, it waits for adaptor signatures from the evaluator and verifies them.
     /// If verification succeeds, [`MosaicEvent`] subscribers will receive
     /// [`MosaicEvent::AdaptorsVerified`]. If verification fails or never completes, the deposit
     /// is stuck and the operator must manually verify and resolve the issue.
@@ -71,6 +100,9 @@ pub trait MosaicClientApi: Send + Sync + 'static {
     // ---- Withdrawal ----
 
     /// Marks a deposit as withdrawn without contest. Informational only.
+    ///
+    /// `operator_idx`: the remote operator in this setup.
+    /// `role`: own role in the setup (garbler or evaluator).
     async fn mark_deposit_withdrawn(
         &self,
         operator_idx: OperatorIdx,
@@ -79,6 +111,8 @@ pub trait MosaicClientApi: Send + Sync + 'static {
     ) -> Result<(), MosaicError>;
 
     /// Garbler side: completes adaptor signatures for a contested withdrawal.
+    ///
+    /// `operator_idx`: the remote operator in this setup.
     ///
     /// This is a long-running call. The tableset is consumed after this.
     /// Idempotent: if already completed, returns the existing signatures
@@ -92,6 +126,8 @@ pub trait MosaicClientApi: Send + Sync + 'static {
 
     /// Evaluator side: evaluates the tableset to extract the fault secret
     /// and signs the given digest.
+    ///
+    /// `operator_idx`: the remote operator in this setup.
     ///
     /// This is a long-running call. The tableset is consumed after this.
     /// Idempotent: if evaluation is already completed, signs with the
