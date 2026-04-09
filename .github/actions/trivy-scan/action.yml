@@ -59,9 +59,14 @@ runs:
     - name: Run Trivy scan for ${{ inputs.display_name }}
       id: trivy_scan
       shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.image_ref }}
+        COMPONENT: ${{ inputs.component }}
+        DISPLAY_NAME: ${{ inputs.display_name }}
+        TRIVY_TIMEOUT: ${{ inputs.trivy_timeout }}
+        TRIVY_SCANNERS: ${{ inputs.trivy_scanners }}
       run: |
         mkdir -p trivy-results
-        image_ref="${{ inputs.image_ref }}"
         set +e
         docker run --rm \
           -v "${PWD}/trivy-results:/workdir" \
@@ -69,12 +74,12 @@ runs:
           -v /var/run/docker.sock:/var/run/docker.sock \
           aquasec/trivy:0.65.0 \
           image \
-          --timeout "${{ inputs.trivy_timeout }}" \
+          --timeout "${TRIVY_TIMEOUT}" \
           --skip-version-check \
-          --scanners "${{ inputs.trivy_scanners }}" \
+          --scanners "${TRIVY_SCANNERS}" \
           --format json \
-          --output "/workdir/${{ inputs.component }}.json" \
-          "${image_ref}"
+          --output "/workdir/${COMPONENT}.json" \
+          "${IMAGE_REF}"
         json_rc=$?
         docker run --rm \
           -v "${PWD}/trivy-results:/workdir" \
@@ -82,18 +87,18 @@ runs:
           -v /var/run/docker.sock:/var/run/docker.sock \
           aquasec/trivy:0.65.0 \
           image \
-          --timeout "${{ inputs.trivy_timeout }}" \
+          --timeout "${TRIVY_TIMEOUT}" \
           --skip-version-check \
-          --scanners "${{ inputs.trivy_scanners }}" \
+          --scanners "${TRIVY_SCANNERS}" \
           --format sarif \
-          --output "/workdir/${{ inputs.component }}.sarif" \
-          "${image_ref}"
+          --output "/workdir/${COMPONENT}.sarif" \
+          "${IMAGE_REF}"
         sarif_rc=$?
         if [[ "${json_rc}" -eq 0 && "${sarif_rc}" -eq 0 ]]; then
           status="success"
         else
           status="failed"
-          echo "::warning::Advisory Trivy scan for ${{ inputs.display_name }} had json_rc=${json_rc} sarif_rc=${sarif_rc}"
+          echo "::warning::Advisory Trivy scan for ${DISPLAY_NAME} had json_rc=${json_rc} sarif_rc=${sarif_rc}"
         fi
         {
           echo "json_rc=${json_rc}"
@@ -106,9 +111,11 @@ runs:
       if: always()
       id: trivy_outputs
       shell: bash
+      env:
+        COMPONENT: ${{ inputs.component }}
       run: |
-        [[ -f "trivy-results/${{ inputs.component }}.json" ]] && echo "json_exists=true" >> "${GITHUB_OUTPUT}" || echo "json_exists=false" >> "${GITHUB_OUTPUT}"
-        [[ -f "trivy-results/${{ inputs.component }}.sarif" ]] && echo "sarif_exists=true" >> "${GITHUB_OUTPUT}" || echo "sarif_exists=false" >> "${GITHUB_OUTPUT}"
+        [[ -f "trivy-results/${COMPONENT}.json" ]] && echo "json_exists=true" >> "${GITHUB_OUTPUT}" || echo "json_exists=false" >> "${GITHUB_OUTPUT}"
+        [[ -f "trivy-results/${COMPONENT}.sarif" ]] && echo "sarif_exists=true" >> "${GITHUB_OUTPUT}" || echo "sarif_exists=false" >> "${GITHUB_OUTPUT}"
 
     - name: Summarize Trivy results for ${{ inputs.display_name }}
       if: always()
@@ -212,8 +219,8 @@ runs:
         markdown = "\n".join(markdown_lines) + "\n"
         Path(f"trivy-results/{component_name}.md").write_text(markdown, encoding="utf-8")
         PY
-        echo "::group::Trivy summary for ${{ inputs.display_name }}"
-        cat "trivy-results/${{ inputs.component }}.md"
+        echo "::group::Trivy summary for ${COMPONENT_DISPLAY_NAME}"
+        cat "trivy-results/${COMPONENT_NAME}.md"
         echo "::endgroup::"
 
     - name: Upload Trivy SARIF for ${{ inputs.display_name }}
