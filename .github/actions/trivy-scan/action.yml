@@ -60,55 +60,35 @@ runs:
       shell: bash
       run: mkdir -p trivy-results
 
-    - name: Install Trivy
-      uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1 # v0.2.4
-      with:
-        version: v0.65.0
-        cache: true
-
     - name: Run Trivy JSON scan for ${{ inputs.display_name }}
       id: trivy_json
-      shell: bash
-      env:
-        IMAGE_REF: ${{ inputs.image_ref }}
-        COMPONENT: ${{ inputs.component }}
-        TRIVY_TIMEOUT: ${{ inputs.trivy_timeout }}
-        TRIVY_SCANNERS: ${{ inputs.trivy_scanners }}
-        TRIVY_DOCKER_HOST: unix:///var/run/docker.sock
-      run: |
-        set +e
-        trivy image \
-          --timeout "${TRIVY_TIMEOUT}" \
-          --skip-version-check \
-          --scanners "${TRIVY_SCANNERS}" \
-          --format json \
-          --output "trivy-results/${COMPONENT}.json" \
-          "${IMAGE_REF}"
-        rc=$?
-        echo "json_rc=${rc}" >> "${GITHUB_OUTPUT}"
-        exit 0
+      continue-on-error: true
+      uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+      with:
+        scan-type: image
+        scan-ref: ${{ inputs.image_ref }}
+        format: json
+        output: trivy-results/${{ inputs.component }}.json
+        timeout: ${{ inputs.trivy_timeout }}
+        scanners: ${{ inputs.trivy_scanners }}
+        docker-host: unix:///var/run/docker.sock
+        exit-code: "0"
+        hide-progress: "true"
 
     - name: Run Trivy SARIF scan for ${{ inputs.display_name }}
       id: trivy_sarif
-      shell: bash
-      env:
-        IMAGE_REF: ${{ inputs.image_ref }}
-        COMPONENT: ${{ inputs.component }}
-        TRIVY_TIMEOUT: ${{ inputs.trivy_timeout }}
-        TRIVY_SCANNERS: ${{ inputs.trivy_scanners }}
-        TRIVY_DOCKER_HOST: unix:///var/run/docker.sock
-      run: |
-        set +e
-        trivy image \
-          --timeout "${TRIVY_TIMEOUT}" \
-          --skip-version-check \
-          --scanners "${TRIVY_SCANNERS}" \
-          --format sarif \
-          --output "trivy-results/${COMPONENT}.sarif" \
-          "${IMAGE_REF}"
-        rc=$?
-        echo "sarif_rc=${rc}" >> "${GITHUB_OUTPUT}"
-        exit 0
+      continue-on-error: true
+      uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+      with:
+        scan-type: image
+        scan-ref: ${{ inputs.image_ref }}
+        format: sarif
+        output: trivy-results/${{ inputs.component }}.sarif
+        timeout: ${{ inputs.trivy_timeout }}
+        scanners: ${{ inputs.trivy_scanners }}
+        docker-host: unix:///var/run/docker.sock
+        exit-code: "0"
+        hide-progress: "true"
 
     - name: Record Trivy scan status for ${{ inputs.display_name }}
       id: trivy_scan
@@ -116,13 +96,22 @@ runs:
       env:
         COMPONENT: ${{ inputs.component }}
         DISPLAY_NAME: ${{ inputs.display_name }}
-        JSON_RC: ${{ steps.trivy_json.outputs.json_rc }}
-        SARIF_RC: ${{ steps.trivy_sarif.outputs.sarif_rc }}
+        JSON_OUTCOME: ${{ steps.trivy_json.outcome }}
+        SARIF_OUTCOME: ${{ steps.trivy_sarif.outcome }}
       run: |
-        # Keep the scans advisory: the Trivy commands write their exit codes to step outputs so the
-        # workflow can publish images and still surface issues without losing the report artifacts.
-        json_rc="${JSON_RC:-1}"
-        sarif_rc="${SARIF_RC:-1}"
+        # Keep the scans advisory: Trivy failures should not stop image publication, but we still
+        # want the summary and SARIF upload steps to reflect when either scan invocation failed.
+        if [[ "${JSON_OUTCOME}" == "success" ]]; then
+          json_rc=0
+        else
+          json_rc=1
+        fi
+
+        if [[ "${SARIF_OUTCOME}" == "success" ]]; then
+          sarif_rc=0
+        else
+          sarif_rc=1
+        fi
 
         if [[ "${json_rc}" -eq 0 && "${sarif_rc}" -eq 0 ]]; then
           status="success"
@@ -178,6 +167,13 @@ runs:
         findings = []
         markdown_lines = []
 
+        def iter_items(value):
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+            if isinstance(value, dict):
+                return [item for item in value.values() if isinstance(item, dict)]
+            return []
+
         # Emit a per-image markdown summary that is readable in the job summary and easy to reuse
         # in the final rollup job without reopening the raw Trivy outputs by hand.
         markdown_lines.append(f"### Trivy Summary: {component}")
@@ -196,9 +192,11 @@ runs:
         else:
             results = json.loads(Path(f"trivy-results/{component_name}.json").read_text())
             for target in results.get("Results", []):
+                if not isinstance(target, dict):
+                    continue
                 target_name = target.get("Target", "unknown")
 
-                for vuln in target.get("Vulnerabilities", []) or []:
+                for vuln in iter_items(target.get("Vulnerabilities")):
                     severity = vuln.get("Severity", "UNKNOWN")
                     counts[severity] += 1
                     findings.append({
@@ -208,7 +206,7 @@ runs:
                         "id": vuln.get("VulnerabilityID", "unknown"),
                     })
 
-                for misconfig in target.get("Misconfigurations", []) or []:
+                for misconfig in iter_items(target.get("Misconfigurations")):
                     severity = misconfig.get("Severity", "UNKNOWN")
                     counts[severity] += 1
                     findings.append({
@@ -218,7 +216,7 @@ runs:
                         "id": misconfig.get("ID", "unknown"),
                     })
 
-                for secret in target.get("Secrets", []) or []:
+                for secret in iter_items(target.get("Secrets")):
                     severity = secret.get("Severity", "UNKNOWN")
                     counts[severity] += 1
                     findings.append({
