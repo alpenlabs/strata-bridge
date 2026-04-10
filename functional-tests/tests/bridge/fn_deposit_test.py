@@ -99,7 +99,7 @@ class BridgeDepositTest(StrataTestBase):
         try:
             wait_until_logs_match(
                 operator_log_offsets,
-                lambda line: "executing nag duty to request missing peer data" in line,
+                lambda line: "nagging peer for missing data" in line,
                 timeout=60,
                 error_msg="Timed out waiting for post-restart nag emission",
             )

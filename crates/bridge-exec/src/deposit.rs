@@ -213,7 +213,7 @@ pub async fn execute_deposit_duty(
                 ),
             };
 
-            info!(%deposit_idx, %operator_idx, payload = ?nag_request.payload, "executing nag duty to request missing peer data");
+            info!(%deposit_idx, %operator_idx, payload = ?nag_request.payload, "nagging peer for missing data");
 
             output_handles
                 .msg_handler
@@ -237,7 +237,7 @@ async fn publish_deposit_nonce(
     ordered_pubkeys: &[XOnlyPublicKey],
     drt_tweak: TaprootTweak,
 ) -> Result<(), ExecutorError> {
-    info!(%drt_outpoint, "executing publish_deposit_nonce duty");
+    info!(%drt_outpoint, "checking pre-conditions before generating deposit nonce");
     info!(
         %deposit_idx,
         num_claim_txids = claim_txids.len(),
@@ -295,7 +295,7 @@ async fn publish_deposit_partial(
     deposit_agg_nonce: AggNonce,
     ordered_pubkeys: &[XOnlyPublicKey],
 ) -> Result<(), ExecutorError> {
-    info!(%drt_outpoint, "executing publish_deposit_partial duty");
+    info!(%drt_outpoint, "checking pre-condition before generating deposit partials");
     info!(
         %deposit_idx,
         num_claim_txids = claim_txids.len(),
@@ -354,7 +354,7 @@ async fn publish_deposit(
 ) -> Result<(), ExecutorError> {
     let txid = signed_deposit_transaction.compute_txid();
     let drt_txid = signed_deposit_transaction.input[0].previous_output.txid;
-    info!(%txid, %drt_txid, "executing publish_deposit duty");
+    info!(%txid, %drt_txid, "publishing deposit transaction");
 
     publish_signed_transaction(
         &output_handles.tx_driver,
@@ -376,7 +376,7 @@ async fn fulfill_withdrawal(
     recipient_desc: Descriptor,
     deposit_amount: Amount,
 ) -> Result<(), ExecutorError> {
-    info!(%deposit_idx, %deadline, dest=%recipient_desc, "executing fulfill_withdrawal duty");
+    info!(%deposit_idx, %deadline, dest=%recipient_desc, "checking withdrawal fulfillment conditions");
 
     // Check if we're within the fulfillment window
     let fulfillment_window = cfg.min_withdrawal_fulfillment_window;
@@ -419,6 +419,8 @@ async fn fulfill_withdrawal(
         );
         return Ok(());
     }
+
+    info!(%deposit_idx, "pre-conditions satisfied, attempting to fulfill withdrawal request");
 
     // Create unfunded WithdrawalFulfillmentTx with outputs only
     let wft_data = WithdrawalFulfillmentData {
@@ -584,7 +586,7 @@ async fn request_payout_nonces(
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
 ) -> Result<(), ExecutorError> {
-    info!(%deposit_idx, "executing request_payout_nonces duty");
+    info!(%deposit_idx, "creating descriptor to request payout nonces");
 
     // TODO: <https://atlassian.alpenlabs.net/browse/STR-2668>
     // Have the s2 client provide the descriptor directly instead of only the public key.
@@ -622,7 +624,7 @@ async fn publish_payout_nonce(
     ordered_pubkeys: &[XOnlyPublicKey],
     tweak: TaprootTweak,
 ) -> Result<(), ExecutorError> {
-    info!(%deposit_outpoint, "executing publish_payout_nonce duty");
+    info!(%deposit_outpoint, "generating payout nonce");
 
     // Create Musig2Params for key-path spend (n-of-n)
     let params = Musig2Params {
@@ -638,6 +640,8 @@ async fn publish_payout_nonce(
         .get_pub_nonce(params)
         .await?
         .map_err(|_| ExecutorError::OurPubKeyNotInParams)?;
+
+    info!(%deposit_outpoint, %deposit_idx, "publishing payout nonce");
 
     // Broadcast via MessageHandler
     output_handles
@@ -663,7 +667,7 @@ async fn publish_payout_partial(
     payout_agg_nonce: AggNonce,
     ordered_pubkeys: &[XOnlyPublicKey],
 ) -> Result<(), ExecutorError> {
-    info!(%deposit_outpoint, "executing publish_payout_partial duty");
+    info!(%deposit_outpoint, "generating payout partial");
 
     // Create Musig2Params for key-path spend (n-of-n)
     // Same params as nonce generation for deterministic nonce recovery
@@ -683,6 +687,8 @@ async fn publish_payout_partial(
             terrors::E2::A(_) => ExecutorError::OurPubKeyNotInParams,
             terrors::E2::B(_) => ExecutorError::SelfVerifyFailed,
         })?;
+
+    info!(%deposit_outpoint, %deposit_idx, "publishing payout partial");
 
     // Broadcast via MessageHandler
     output_handles
@@ -716,7 +722,7 @@ async fn publish_payout(
     pov_operator_idx: OperatorIdx,
 ) -> Result<(), ExecutorError> {
     let txid = (*payout_coop_tx).as_ref().compute_txid();
-    info!(%txid, "executing publish_payout duty");
+    info!(%txid, "signing cooperative payout");
 
     // Derive the sighash from the cooperative payout transaction
     let payout_sighash = payout_coop_tx
@@ -771,6 +777,8 @@ async fn publish_payout(
 
     // Finalize the transaction using CooperativePayoutTx.finalize()
     let finalized_tx = (*payout_coop_tx).finalize(agg_signature);
+
+    info!(%txid, "broadcasting payout transaction");
 
     publish_signed_transaction(
         &output_handles.tx_driver,
