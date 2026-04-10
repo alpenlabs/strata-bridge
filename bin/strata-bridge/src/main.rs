@@ -7,7 +7,7 @@ use config::Config;
 use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE};
 use mode::{operator, watchtower};
 use serde::de::DeserializeOwned;
-use strata_bridge_common::{logging, logging::LoggerConfig};
+use strata_bridge_common::{logging, logging::LoggerConfig, params::Params};
 use strata_bridge_db::fdb::client::{FdbClient, MustDrop};
 use strata_tasks::TaskManager;
 use tokio::runtime;
@@ -17,7 +17,7 @@ mod args;
 mod config;
 mod constants;
 mod mode;
-use strata_bridge_common::params::Params;
+
 /// The default glibc malloc was observed to be responsible for bad memory fragmentation during
 /// deposits which led to out-of-memory issues. [`Jemalloc`] is a general purpose malloc(3)
 /// implementation that emphasizes fragmentation avoidance and scalable concurrency support.
