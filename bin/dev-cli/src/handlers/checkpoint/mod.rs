@@ -41,7 +41,12 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
         args.ol_start_slot,
         args.ol_end_slot,
     );
-    let payload = builder.build_payload(&prev_tip, &new_tip, args.num_withdrawals);
+    let payload = builder.build_payload(
+        &prev_tip,
+        &new_tip,
+        args.num_withdrawals,
+        args.assignee_node_idx,
+    );
     let signed_payload = builder.sign_payload(payload);
 
     // Encode and broadcast via taproot envelope.
