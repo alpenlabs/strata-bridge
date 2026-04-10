@@ -5,7 +5,7 @@ Each matrix entry describes one image: which Dockerfile to build, which ECR
 repository to push to, and which Trivy scanner configuration to use.
 
 Usage:
-    python3 scripts/ci/build_matrix.py --kind <dependency|app>
+    python3 scripts/build_matrix.py --kind <dependency|app>
 
 Reads build flags from environment variables set by resolve_build_plan.sh:
     BUILD_BASE, BUILD_RT, BUILD_STRATA_BRIDGE, BUILD_ASM_RUNNER, BUILD_SECRET_SERVICE
