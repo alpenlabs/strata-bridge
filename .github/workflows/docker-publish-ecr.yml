@@ -1,12 +1,6 @@
 name: Docker Publish to ECR
 
 on:
-  push:
-    branches:
-      - str-3011-ci-build-ecr-push
-    paths:
-      - .github/workflows/docker-publish-ecr.yml
-      - .github/actions/trivy-scan/action.yml
   workflow_dispatch:
     inputs:
       ref:
