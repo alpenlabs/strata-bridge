@@ -124,8 +124,8 @@ export BUILD_STRATA_BRIDGE="${build_strata_bridge}"
 export BUILD_ASM_RUNNER="${build_asm_runner}"
 export BUILD_SECRET_SERVICE="${build_secret_service}"
 
-dependency_matrix="$(python3 scripts/ci/build_matrix.py --kind dependency)"
-app_matrix="$(python3 scripts/ci/build_matrix.py --kind app)"
+dependency_matrix="$(python3 .github/scripts/build_matrix.py --kind dependency)"
+app_matrix="$(python3 .github/scripts/build_matrix.py --kind app)"
 
 # ---------------------------------------------------------------------------
 # 7. Write outputs to GITHUB_OUTPUT

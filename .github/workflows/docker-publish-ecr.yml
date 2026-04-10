@@ -93,8 +93,8 @@ jobs:
           INPUT_REF: ${{ inputs.ref }}
           INPUT_COMPONENTS: ${{ inputs.components }}
           INPUT_DEPENDENCY_TAG: ${{ inputs.dependency_tag }}
-        # Full logic in scripts/ci/resolve_build_plan.sh + scripts/ci/build_matrix.py
-        run: bash scripts/ci/resolve_build_plan.sh
+        # Full logic in .github/scripts/resolve_build_plan.sh + .github/scripts/build_matrix.py
+        run: bash .github/scripts/resolve_build_plan.sh
 
       - name: Initialize publish summary
         env:
@@ -380,9 +380,9 @@ jobs:
         env:
           SUMMARY_PATH: ${{ github.step_summary }}
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
-        # Full logic in scripts/ci/render_trivy_rollup.py
+        # Full logic in .github/scripts/render_trivy_rollup.py
         run: |
-          python3 scripts/ci/render_trivy_rollup.py
+          python3 .github/scripts/render_trivy_rollup.py
           echo "::group::Aggregated Trivy rollup"
           cat trivy-rollup.md
           echo "::endgroup::"
