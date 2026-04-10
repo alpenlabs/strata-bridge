@@ -17,6 +17,18 @@ class ChallengeStep(Enum):
     ASSERT = "assert"
 
 
+class RpcClaimPhase(Enum):
+    """Where an active claim sits in the challenge-response game."""
+
+    CLAIMED = "claimed"
+    CONTESTED = "contested"
+    BRIDGE_PROOF_POSTED = "bridge_proof_posted"
+    BRIDGE_PROOF_TIMEDOUT = "bridge_proof_timedout"
+    COUNTER_PROOF_POSTED = "counter_proof_posted"
+    ALL_NACKD = "all_nackd"
+    ACKED = "acked"
+
+
 @dataclass
 class RpcDepositStatusInProgress:
     """Deposit exists, but minting hasn't happened yet."""
@@ -139,7 +151,7 @@ class RpcActiveClaim:
     operator: int
     claim_txid: str
     fulfilled: bool
-    phase: str
+    phase: RpcClaimPhase
 
     @classmethod
     def from_json(cls, data: dict) -> "RpcActiveClaim":
@@ -147,7 +159,7 @@ class RpcActiveClaim:
             operator=int(data["operator"]),
             claim_txid=data["claim_txid"],
             fulfilled=bool(data["fulfilled"]),
-            phase=data["phase"],
+            phase=RpcClaimPhase(data["phase"]),
         )
 
 
