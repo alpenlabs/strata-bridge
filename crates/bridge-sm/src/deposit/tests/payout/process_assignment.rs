@@ -14,7 +14,7 @@ mod tests {
     };
 
     /// tests correct transition from Deposited to Assigned state when Assignment event
-    /// is received and POV operator is the assignee (should emit FulfillWithdrawal duty).
+    /// is received and POV operator is the assignee (should emit FulfillWithdrawalRequest duty).
     #[test]
     fn test_assignment_from_deposited_pov_is_assignee() {
         let desc = random_p2tr_desc();
@@ -36,7 +36,7 @@ mod tests {
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: desc.clone(),
             },
-            expected_duties: vec![DepositDuty::FulfillWithdrawal {
+            expected_duties: vec![DepositDuty::FulfillWithdrawalRequest {
                 deposit_idx: TEST_DEPOSIT_IDX,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: desc,
@@ -75,7 +75,7 @@ mod tests {
     }
 
     /// tests correct re-assignment from Assigned state when Assignment event is received
-    /// and POV operator is the new assignee (should emit FulfillWithdrawal duty).
+    /// and POV operator is the new assignee (should emit FulfillWithdrawalRequest duty).
     #[test]
     fn test_reassignment_to_pov() {
         let old_desc = random_p2tr_desc();
@@ -103,7 +103,7 @@ mod tests {
                 deadline: REASSIGNMENT_DEADLINE,
                 recipient_desc: new_desc.clone(),
             },
-            expected_duties: vec![DepositDuty::FulfillWithdrawal {
+            expected_duties: vec![DepositDuty::FulfillWithdrawalRequest {
                 deposit_idx: TEST_DEPOSIT_IDX,
                 deadline: REASSIGNMENT_DEADLINE,
                 recipient_desc: new_desc,

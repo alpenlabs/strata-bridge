@@ -134,7 +134,7 @@ pub enum DepositDuty {
         signed_deposit_transaction: Transaction,
     },
     /// Front the user by sending funds to the provided descriptor within the given deadline.
-    FulfillWithdrawal {
+    FulfillWithdrawalRequest {
         /// The index of the deposit.
         deposit_idx: DepositIdx,
         /// Block height deadline for fulfillment.
@@ -221,7 +221,7 @@ impl std::fmt::Display for DepositDuty {
                     signed_deposit_transaction.compute_txid()
                 )
             }
-            DepositDuty::FulfillWithdrawal { .. } => "FulfillWithdrawal".to_string(),
+            DepositDuty::FulfillWithdrawalRequest { .. } => "FulfillWithdrawalRequest".to_string(),
             DepositDuty::RequestPayoutNonces { .. } => "RequestPayoutNonces".to_string(),
             DepositDuty::PublishPayoutNonce { .. } => "PublishPayoutNonce".to_string(),
             DepositDuty::PublishPayoutPartial { .. } => "PublishPayoutPartial".to_string(),

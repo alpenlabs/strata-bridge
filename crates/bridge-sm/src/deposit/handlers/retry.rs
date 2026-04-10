@@ -25,7 +25,7 @@ impl DepositSM {
                 recipient_desc,
                 ..
             } if self.context().operator_table().pov_idx() == *assignee => {
-                vec![DepositDuty::FulfillWithdrawal {
+                vec![DepositDuty::FulfillWithdrawalRequest {
                     deposit_idx: self.context().deposit_idx(),
                     deadline: *deadline,
                     recipient_desc: recipient_desc.clone(),

@@ -22,10 +22,10 @@ use crate::{
 };
 
 impl DepositSM {
-    /// Processes the event assigning an operator to fulfill the withdrawal.
+    /// Processes the event assigning an operator to fulfill the withdrawal request.
     ///
     /// Transitions to [`DepositState::Assigned`] and emits a
-    /// [`DepositDuty::FulfillWithdrawal`] duty if the local operator is the assignee.
+    /// [`DepositDuty::FulfillWithdrawalRequest`] duty if the local operator is the assignee.
     pub(crate) fn process_assignment(
         &mut self,
         cfg: Arc<DepositSMCfg>,
@@ -46,7 +46,7 @@ impl DepositSM {
                 // otherwise no duties or signals need to be dispatched.
                 if self.context.operator_table().pov_idx() == assignment.assignee {
                     Ok(DSMOutput::with_duties(vec![
-                        DepositDuty::FulfillWithdrawal {
+                        DepositDuty::FulfillWithdrawalRequest {
                             deposit_idx: self.context.deposit_idx(),
                             deadline: assignment.deadline,
                             recipient_desc: assignment.recipient_desc,

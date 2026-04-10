@@ -29,7 +29,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retry_tick_emits_fulfill_withdrawal_in_assigned_when_pov_is_assignee() {
+    fn test_retry_tick_emits_fulfill_withdrawal_request_in_assigned_when_pov_is_assignee() {
         let recipient_desc = random_p2tr_desc();
 
         test_handler_output(DepositHandlerOutput {
@@ -40,7 +40,7 @@ mod tests {
                 recipient_desc: recipient_desc.clone(),
             },
             event: DepositEvent::RetryTick(RetryTickEvent),
-            expected_duties: vec![DepositDuty::FulfillWithdrawal {
+            expected_duties: vec![DepositDuty::FulfillWithdrawalRequest {
                 deposit_idx: TEST_DEPOSIT_IDX,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc,
