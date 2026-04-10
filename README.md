@@ -23,9 +23,9 @@ See [`CONTRIBUTING.md`](/CONTRIBUTING.md#development-tools).
 See the instructions in [`docker/README.md`](./docker/README.md) to run the bridge nodes
 and their corresponding secret-service nodes.
 
-## Deployment
+## Push to ECR
 
-See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for the image publish workflow and manual deployment procedure.
+See [`PUSH_TO_ECR.md`](./PUSH_TO_ECR.md) for the image publish workflow and manual run procedure.
 
 ## Contributing
 

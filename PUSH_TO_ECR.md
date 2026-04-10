@@ -1,4 +1,4 @@
-# Deployment
+# Push to ECR
 
 This repository publishes bridge images through `.github/workflows/docker-publish-ecr.yml`.
 The intended post-merge trigger is manual-only via `workflow_dispatch` so image publication stays explicit.
