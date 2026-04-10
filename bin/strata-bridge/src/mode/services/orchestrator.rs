@@ -10,6 +10,7 @@ use libp2p_identity::ed25519::Keypair;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_asm_events::client::AsmEventFeed;
+use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{config::ExecutionConfig, output_handles::OutputHandles};
 use strata_bridge_orchestrator::{
@@ -28,7 +29,7 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-use crate::{config::Config, mode::services::btc_client::init_zmq_client, params::Params};
+use crate::{config::Config, mode::services::btc_client::init_zmq_client};
 
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn init_orchestrator(

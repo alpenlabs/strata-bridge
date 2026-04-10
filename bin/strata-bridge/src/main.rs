@@ -17,16 +17,13 @@ mod args;
 mod config;
 mod constants;
 mod mode;
-mod params;
-
+use strata_bridge_common::params::Params;
 /// The default glibc malloc was observed to be responsible for bad memory fragmentation during
 /// deposits which led to out-of-memory issues. [`Jemalloc`] is a general purpose malloc(3)
 /// implementation that emphasizes fragmentation avoidance and scalable concurrency support.
 /// It reduces the fragmentation so avoids overutilizing system memory
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
-
-use crate::params::Params;
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]

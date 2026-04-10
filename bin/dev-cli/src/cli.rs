@@ -67,6 +67,9 @@ pub(crate) struct BridgeOutArgs {
     #[arg(long, help = "the url of the execution environment aka the reth node")]
     pub(crate) ee_url: String,
 
+    #[arg(long, help = "the bridge-out precompile address on the EVM")]
+    pub(crate) bridge_out_addr: String,
+
     #[arg(long, help = "the path to the params file")]
     pub(crate) params: PathBuf,
 

@@ -2,9 +2,9 @@
 //!
 //! These parameters while configurable cannot be changed after genesis as any such change will
 //! result in a consensus failure among the bridge nodes.
-use std::str::FromStr;
+use std::{fs, path::Path, str::FromStr};
 
-use bitcoin::{Amount, Network, hex::DisplayHex};
+use bitcoin::{hex::DisplayHex, Amount, Network};
 use bitcoin_bosd::Descriptor;
 use libp2p::identity::ed25519::PublicKey as Libp2pKey;
 use secp256k1::XOnlyPublicKey;
@@ -18,7 +18,7 @@ use strata_predicate::PredicateKey;
 /// in how these are configured among the bridge operators in the network will lead to different
 /// behavior that will prevent the bridge from functioning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct Params {
+pub struct Params {
     /// The network on which the bridge is operating.
     pub network: Network,
 
@@ -36,13 +36,24 @@ pub(crate) struct Params {
     pub protocol: ProtocolParams,
 }
 
+impl Params {
+    /// Reads and parses a TOML params file from the given path.
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
+        let contents = fs::read_to_string(path)?;
+        let params: Self = toml::from_str(&contents)
+            .map_err(|e| anyhow::anyhow!("Failed to parse params file: {e}"))?;
+
+        Ok(params)
+    }
+}
+
 /// The core protocol parameters for the bridge.
 ///
 /// These define the fundamental rules of the bridge protocol including amounts, timelocks,
 /// and identifiers. Unlike keys, these are less malleable and changes here will immediately
 /// break consensus among bridge operators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct ProtocolParams {
+pub struct ProtocolParams {
     /// The "magic bytes" used in the OP_RETURN of the transactions to identify it as relevant to
     /// the bridge.
     #[serde(serialize_with = "serialize_magic_bytes")]
@@ -87,13 +98,13 @@ pub(crate) struct ProtocolParams {
 
 /// The keys used by the operators.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct KeyParams {
+pub struct KeyParams {
     /// The admin key used to block payouts in case of a malicious operator flooding the network
     /// with invalid claims and overwhelming the watchtowers.
-    pub(crate) admin: XOnlyPublicKey,
+    pub admin: XOnlyPublicKey,
 
     /// The per-operator keys that form the N-of-N covenant.
-    pub(crate) covenant: Vec<CovenantKeys>,
+    pub covenant: Vec<CovenantKeys>,
 }
 
 /// The per-entity keys that form the N-of-N covenant.
@@ -102,23 +113,23 @@ pub(crate) struct KeyParams {
 /// covenant enforcement. This includes keys required for signer, operator and watchtower roles
 /// until such a time as these roles become split.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CovenantKeys {
+pub struct CovenantKeys {
     /// The key used for musig2 signing corresponding to the N-of-N covenant enforcement.
-    pub(crate) musig2: XOnlyPublicKey,
+    pub musig2: XOnlyPublicKey,
 
     /// The key used for authenticated p2p communication.
-    pub(crate) p2p: Libp2pKey,
+    pub p2p: Libp2pKey,
 
     /// The key for which to generate adaptors when submitting a counterproof.
     // NOTE: (@Rajil1213) we might get this from mosaic instead.
-    pub(crate) adaptor: XOnlyPublicKey,
+    pub adaptor: XOnlyPublicKey,
 
     /// The watchtower public key whose corresponding private key is revealed in case of a faulty
     /// counterproof.
-    pub(crate) watchtower_fault: XOnlyPublicKey,
+    pub watchtower_fault: XOnlyPublicKey,
 
     /// The operator payout descriptor.
-    pub(crate) payout_descriptor: Descriptor,
+    pub payout_descriptor: Descriptor,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

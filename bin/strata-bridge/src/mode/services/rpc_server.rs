@@ -12,6 +12,7 @@ use jsonrpsee::{
 use libp2p::{PeerId, identity::PublicKey as LibP2pPublicKey};
 use secp256k1::{Parity, schnorr};
 use serde::Serialize;
+use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_orchestrator::{
     persister::Persister,
@@ -45,7 +46,6 @@ use crate::{
     config::{Config, RpcConfig},
     constants::DEFAULT_RPC_CACHE_REFRESH_INTERVAL,
     mode::services::orchestrator::build_sm_config,
-    params::Params,
 };
 
 /// Starts an RPC server for a bridge operator.

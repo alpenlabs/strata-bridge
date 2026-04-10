@@ -1,8 +1,9 @@
 //! Defines the main loop for the bridge-client in watchtower mode.
+use strata_bridge_common::params::Params;
 use strata_tasks::TaskExecutor;
 use tracing::info;
 
-use crate::{config::Config, params::Params};
+use crate::config::Config;
 
 /// Bootstraps the bridge client in watchtower mode by hooking up all the required auxiliary
 /// services including database, rpc server, graceful shutdown handler, etc.

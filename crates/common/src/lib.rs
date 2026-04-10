@@ -2,6 +2,7 @@
 //! Such as initializing the tracing framework and whatever else.
 
 pub mod logging;
+pub mod params;
 
 // Re-export tracing crate for convenience.
 pub use tracing;
