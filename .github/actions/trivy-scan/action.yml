@@ -1,5 +1,8 @@
 name: Trivy image scan and summarize
-description: "Runs a Trivy image scan (JSON + SARIF), detects outputs, and writes a markdown summary."
+description: >
+  Runs a Trivy image scan (JSON + SARIF), detects outputs, and writes a markdown summary.
+  Scans are intentionally advisory — failures emit a warning but never block image publication.
+  JSON output drives the job-summary table; SARIF is uploaded to GitHub Security for tracking.
 
 inputs:
   image_ref:
@@ -60,6 +63,11 @@ runs:
       shell: bash
       run: mkdir -p trivy-results
 
+    # Install Trivy once and share it across both scan steps via skip-setup-trivy.
+    # v0.2.4 ran install.sh from a live clone of aquasecurity/trivy master, which made two
+    # unauthenticated GitHub API calls; the second (release-asset lookup) hit the rate limit
+    # and exited 1 within ~160ms — producing no scan output. v0.2.6 fixes this with the -c
+    # flag (PR #24) and a pinned install-script checkout (PR #28).
     - name: Install Trivy once for ${{ inputs.display_name }}
       uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
       with:
@@ -78,10 +86,12 @@ runs:
         timeout: ${{ inputs.trivy_timeout }}
         scanners: ${{ inputs.trivy_scanners }}
         docker-host: unix:///var/run/docker.sock
+        # exit-code 0 disables Trivy's built-in severity gating — we don't want the scan itself
+        # to fail the step. Severity review happens out-of-band via the SARIF upload and summary.
         exit-code: "0"
         hide-progress: "true"
-        # The default Trivy action is still responsible for the scan. We install the binary once
-        # above because repeated nested setup-trivy calls are what currently break report output.
+        # Use the binary installed above; skip-setup-trivy prevents a second nested install that
+        # was previously observed to corrupt report output.
         skip-setup-trivy: "true"
 
     - name: Run Trivy SARIF scan for ${{ inputs.display_name }}
@@ -163,6 +173,8 @@ runs:
         TRIVY_SCANNERS: ${{ inputs.trivy_scanners }}
         TRIVY_TIMEOUT: ${{ inputs.trivy_timeout }}
       run: |
+        # Python handles Trivy's inconsistent JSON schema more robustly than jq/shell:
+        # Results[].Vulnerabilities can be a list, a dict, or null depending on scanner and image.
         python3 - <<'PY'
         import json
         from collections import Counter
