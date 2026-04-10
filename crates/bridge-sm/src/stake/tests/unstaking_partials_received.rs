@@ -3,18 +3,18 @@
 use super::*;
 use crate::stake::{errors::SSMError, events::UnstakingPartialsReceivedEvent, state::StakeState};
 
-fn operator_partial_sigs(operator_idx: u32) -> [PartialSignature; StakeGraph::N_MUSIG_INPUTS] {
+fn operator_partial_sigs(operator_idx: u32) -> StakeFunctor<PartialSignature> {
     TEST_PARTIAL_SIGS_MAP[&operator_idx]
 }
 
 fn nonces_collected_state(
-    partial_signatures: BTreeMap<u32, [PartialSignature; StakeGraph::N_MUSIG_INPUTS]>,
+    partial_signatures: BTreeMap<u32, StakeFunctor<PartialSignature>>,
 ) -> StakeState {
     StakeState::UnstakingNoncesCollected {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
         pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-        agg_nonces: TEST_AGG_NONCES.clone(),
+        agg_nonces: TEST_AGG_NONCES.clone().boxed(),
         summary: *TEST_GRAPH_SUMMARY,
         partial_signatures,
     }

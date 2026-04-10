@@ -1,9 +1,7 @@
-use std::{array, collections::BTreeMap};
+use std::collections::BTreeMap;
 
-use bitcoin::secp256k1::Message;
 use musig2::AggNonce;
-use strata_bridge_primitives::scripts::taproot::TaprootTweak;
-use strata_bridge_tx_graph::stake_graph::StakeGraph;
+use strata_bridge_tx_graph::{musig_functor::StakeFunctor, stake_graph::StakeGraph};
 
 use crate::{
     stake::{
@@ -48,9 +46,12 @@ impl StakeSM {
                 pub_nonces.insert(event.operator_idx, *event.pub_nonces);
 
                 if pub_nonces.len() == n_operators {
-                    let agg_nonces = Box::new(array::from_fn(|txin_idx| {
-                        AggNonce::sum(pub_nonces.values().map(|nonces| nonces[txin_idx].clone()))
-                    }));
+                    let agg_nonces = StakeFunctor::sequence_functor(
+                        pub_nonces.values().map(StakeFunctor::as_ref),
+                    )
+                    .map(AggNonce::sum)
+                    .boxed();
+
                     let stake_graph = StakeGraph::new(stake_data.expand(*cfg, &context));
 
                     self.state = StakeState::UnstakingNoncesCollected {
@@ -62,24 +63,13 @@ impl StakeSM {
                         partial_signatures: BTreeMap::new(),
                     };
 
-                    let graph_inpoints = stake_graph
-                        .musig_inpoints()
-                        .pack()
-                        .try_into()
-                        .expect("number of musig inputs is correct by construction");
-
-                    let (graph_tweaks, sighashes): (Vec<TaprootTweak>, Vec<Message>) = stake_graph
+                    let graph_inpoints = stake_graph.musig_inpoints().boxed();
+                    let (graph_tweaks, sighashes) = stake_graph
                         .musig_signing_info()
-                        .pack()
-                        .iter()
                         .map(|m| (m.tweak, m.sighash))
                         .unzip();
-                    let graph_tweaks = graph_tweaks
-                        .try_into()
-                        .expect("number of musig inputs is correct by construction");
-                    let sighashes = sighashes
-                        .try_into()
-                        .expect("number of musig inputs is correct by construction");
+                    let graph_tweaks = graph_tweaks.boxed();
+                    let sighashes = sighashes.boxed();
 
                     let ordered_pubkeys = self
                         .context()

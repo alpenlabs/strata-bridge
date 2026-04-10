@@ -9,6 +9,7 @@ mod utils;
 use std::sync::Arc;
 
 use strata_bridge_sm::stake::duties::StakeDuty;
+use strata_bridge_tx_graph::musig_functor::StakeFunctor;
 
 use crate::{config::ExecutionConfig, errors::ExecutorError, output_handles::OutputHandles};
 
@@ -51,7 +52,7 @@ pub async fn execute_stake_duty(
                 **graph_inpoints,
                 **graph_tweaks,
                 **sighashes,
-                agg_nonces,
+                StakeFunctor::clone(agg_nonces),
                 ordered_pubkeys.clone(),
             )
             .await
