@@ -7,7 +7,11 @@ use clap::Parser;
 use handlers::derive_keys;
 use strata_bridge_common::logging::{self, LoggerConfig};
 
+<<<<<<< HEAD
 use crate::handlers::{bridge_in, checkpoint, contest};
+=======
+use crate::handlers::{bridge_in, bridge_out, checkpoint, claim, contest};
+>>>>>>> b11adeb3 (feat(dev-cli): add claim subcommand)
 
 mod cli;
 
@@ -23,5 +27,6 @@ async fn main() -> Result<(), Error> {
             checkpoint::handle_create_and_publish_mock_checkpoint(args).await
         }
         cli::Commands::Contest(args) => contest::handle_contest(args).await,
+        cli::Commands::Claim(args) => claim::handle_claim(args).await,
     }
 }

@@ -11,6 +11,18 @@ use strata_bridge_key_deriv::{Musig2Keys, OperatorKeys, WalletKeys};
 
 use crate::cli::DeriveKeysArgs;
 
+/// Parses a hex-encoded seed and derives [`OperatorKeys`] from it.
+pub(crate) fn derive_operator_keys(
+    seed_hex: &str,
+    network: bitcoin::Network,
+) -> Result<OperatorKeys> {
+    let seed_bytes =
+        hex::decode(seed_hex).map_err(|e| anyhow::anyhow!("invalid hex for seed: {}", e))?;
+    let xpriv = Xpriv::new_master(network, &seed_bytes)
+        .map_err(|e| anyhow::anyhow!("failed to derive master key from seed: {}", e))?;
+    OperatorKeys::new(&xpriv).map_err(|e| anyhow::anyhow!("failed to derive operator keys: {}", e))
+}
+
 /// Handles the derive-keys command.
 pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
     let seed_hex = &args.seed;
