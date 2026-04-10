@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// Data that is needed to construct a [`StakeGraph`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StakeData {
     /// Parameters that are inherent from the protocol.
     pub protocol: ProtocolParams,
@@ -30,7 +30,7 @@ pub struct StakeData {
 }
 
 /// Parameters that are known at setup time.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetupParams {
     /// Operator index.
     pub operator_index: u32,
@@ -69,7 +69,7 @@ pub struct StakeGraph {
 }
 
 /// Collection of the IDs of all transactions of a [`StakeGraph`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StakeGraphSummary {
     /// ID of the stake transaction.
     pub stake: Txid,
