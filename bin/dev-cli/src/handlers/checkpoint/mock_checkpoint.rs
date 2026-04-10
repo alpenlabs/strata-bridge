@@ -72,6 +72,7 @@ impl MockCheckpointBuilder {
         prev_tip: &CheckpointTip,
         new_tip: &CheckpointTip,
         num_withdrawals: usize,
+        assignee_node_idx: u32,
     ) -> CheckpointPayload {
         let mut arb = ArbitraryGenerator::new();
         let state_diff: Vec<u8> = arb.generate();
@@ -90,7 +91,7 @@ impl MockCheckpointBuilder {
                 let log_data = SimpleWithdrawalIntentLogData::new(
                     BRIDGE_DENOMINATION.to_sat(),
                     dest.to_bytes(),
-                    Default::default(),
+                    assignee_node_idx,
                 )
                 .unwrap();
 

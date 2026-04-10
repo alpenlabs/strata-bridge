@@ -31,6 +31,7 @@ dev-cli create-and-publish-mock-checkpoint \
   --genesis-l1-height 101 \
   --ol-start-slot 0 \
   --ol-end-slot 1 \
+  --assignee-node-idx 0 \
   --network regtest
 ```
 

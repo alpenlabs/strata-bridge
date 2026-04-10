@@ -96,6 +96,13 @@ pub(crate) struct CreateAndPublishMockCheckpointArgs {
     #[arg(long, help = "end OL block slot for the L2 range")]
     pub(crate) ol_end_slot: u64,
 
+    #[arg(
+        long,
+        default_value = "0",
+        help = "operator node index to assign withdrawals to"
+    )]
+    pub(crate) assignee_node_idx: u32,
+
     #[arg(long, default_value_t = Network::Regtest, help = "bitcoin network")]
     pub(crate) network: Network,
 
