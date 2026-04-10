@@ -1,6 +1,12 @@
 name: Docker Publish to ECR
 
 on:
+  push:
+    branches:
+      - str-3011-ci-build-ecr-push
+    paths:
+      - .github/workflows/docker-publish-ecr.yml
+      - .github/actions/trivy-scan/action.yml
   workflow_dispatch:
     inputs:
       ref:
@@ -83,6 +89,7 @@ jobs:
       - name: Resolve plan
         id: plan
         env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
           INPUT_REF: ${{ inputs.ref }}
           INPUT_COMPONENTS: ${{ inputs.components }}
           INPUT_DEPENDENCY_TAG: ${{ inputs.dependency_tag }}
@@ -99,7 +106,11 @@ jobs:
 
           components="${INPUT_COMPONENTS// /}"
           if [[ -z "${components}" ]]; then
-            components="strata-bridge,strata-asm-runner,secret-service"
+            if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+              components="strata-bridge,strata-asm-runner,secret-service"
+            else
+              components="all"
+            fi
           fi
 
           build_base=false
