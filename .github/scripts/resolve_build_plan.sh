@@ -40,14 +40,10 @@ image_tag="$(git rev-parse --short=8 HEAD)"
 components="${INPUT_COMPONENTS// /}"
 
 if [[ -z "${components}" ]]; then
-  # workflow_dispatch without an explicit components input defaults to app images only —
-  # callers who want to rebuild base/rt must pass them explicitly.
-  # Push-triggered runs use "all" so CI exercises the full dependency + app image path.
-  if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-    components="strata-bridge,strata-asm-runner,secret-service"
-  else
-    components="all"
-  fi
+  # Keep the script aligned with the workflow input default: an omitted components
+  # value means "all", so manual dispatches can rebuild dependency and app images
+  # together without any extra input.
+  components="all"
 fi
 
 # ---------------------------------------------------------------------------

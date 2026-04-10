@@ -63,11 +63,9 @@ runs:
       shell: bash
       run: mkdir -p trivy-results
 
-    # Install Trivy once and share it across both scan steps via skip-setup-trivy.
-    # v0.2.4 ran install.sh from a live clone of aquasecurity/trivy master, which made two
-    # unauthenticated GitHub API calls; the second (release-asset lookup) hit the rate limit
-    # and exited 1 within ~160ms — producing no scan output. v0.2.6 fixes this with the -c
-    # flag (PR #24) and a pinned install-script checkout (PR #28).
+    # Install Trivy once and reuse the same binary for both scan formats.
+    # setup-trivy v0.2.6 avoids the extra nested install flow that previously
+    # caused missing scan output when GitHub API requests were rate-limited.
     - name: Install Trivy once for ${{ inputs.display_name }}
       uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
       with:

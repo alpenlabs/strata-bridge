@@ -18,9 +18,8 @@ Artifact directory layout (after actions/download-artifact merges them):
             ...
 
 Expected env vars:
-    IMAGE_TAG       — the short SHA tag used for all images in this run
-    SUMMARY_PATH    — path to the GITHUB_STEP_SUMMARY file (injected by GHA as
-                      the env var named in the workflow step's env block)
+    IMAGE_TAG             — the short SHA tag used for all images in this run
+    GITHUB_STEP_SUMMARY   — path to the live job-summary file injected by GHA
 
 Output:
     trivy-rollup.md        — written to the working directory
@@ -31,9 +30,6 @@ import json
 import os
 from collections import Counter
 from pathlib import Path
-
-
-SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
 
 
 def strip_artifact_prefix(name: str, image_tag: str) -> str:
@@ -54,24 +50,36 @@ def count_findings(json_path: Path) -> Counter:
     """Parse a Trivy JSON report and return a severity Counter.
 
     Aggregates vulnerabilities, misconfigurations, and secrets into a single
-    counter keyed by severity string. Uses `or []` to guard against Trivy
-    emitting null instead of an empty list for targets with no findings.
+    counter keyed by severity string. Trivy can emit lists, dicts, or null for
+    the same field depending on the scanner mode, so each result field is
+    normalised before counting.
     """
     counts: Counter = Counter()
     data = json.loads(json_path.read_text())
     for target in data.get("Results", []):
-        for vuln in target.get("Vulnerabilities", []) or []:
+        if not isinstance(target, dict):
+            continue
+        for vuln in iter_items(target.get("Vulnerabilities")):
             counts[vuln.get("Severity", "UNKNOWN")] += 1
-        for misconfig in target.get("Misconfigurations", []) or []:
+        for misconfig in iter_items(target.get("Misconfigurations")):
             counts[misconfig.get("Severity", "UNKNOWN")] += 1
-        for secret in target.get("Secrets", []) or []:
+        for secret in iter_items(target.get("Secrets")):
             counts[secret.get("Severity", "UNKNOWN")] += 1
     return counts
 
 
+def iter_items(value: object) -> list[dict]:
+    """Normalise a Trivy result field to a list of dicts."""
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict):
+        return [item for item in value.values() if isinstance(item, dict)]
+    return []
+
+
 def main() -> None:
     image_tag = os.environ["IMAGE_TAG"]
-    summary_path = os.environ["SUMMARY_PATH"]
+    summary_path = os.environ["GITHUB_STEP_SUMMARY"]
     root = Path("trivy-artifacts")
 
     rows = []
