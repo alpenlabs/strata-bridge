@@ -304,6 +304,7 @@ jobs:
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
         run: |
           image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
+          # Dependency images use buildx so GHA layer cache can reuse the expensive Rust build across runs.
           docker buildx build \
             --platform "${DOCKER_PLATFORM}" \
             --file "${{ matrix.dockerfile }}" \
@@ -411,6 +412,8 @@ jobs:
 
       - name: Build ${{ matrix.display_name }}
         run: |
+          # App images use plain docker build because they depend on locally tagged bridge-base/bridge-rt images,
+          # which the buildx container driver cannot reference by tag from the host Docker daemon.
           DOCKER_BUILDKIT=1 docker build \
             --platform "${DOCKER_PLATFORM}" \
             --file "${{ matrix.dockerfile }}" \
