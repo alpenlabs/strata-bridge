@@ -52,20 +52,11 @@ impl StakeSM {
                     pub_nonces: BTreeMap::new(),
                 };
 
-                let graph_inpoints = stake_graph
-                    .musig_inpoints()
-                    .pack()
-                    .try_into()
-                    .expect("number of musig inputs is correct by construction");
-
+                let graph_inpoints = stake_graph.musig_inpoints().boxed();
                 let graph_tweaks = stake_graph
                     .musig_signing_info()
-                    .pack()
-                    .iter()
-                    .map(|m| m.tweak)
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .expect("number of musig inputs is correct by construction");
+                    .map(|info| info.tweak)
+                    .boxed();
 
                 let ordered_pubkeys = self
                     .context()

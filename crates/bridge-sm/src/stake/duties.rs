@@ -9,7 +9,9 @@ use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
     types::{OperatorIdx, P2POperatorPubKey},
 };
-use strata_bridge_tx_graph::{stake_graph::StakeGraph, transactions::prelude::UnstakingIntentTx};
+use strata_bridge_tx_graph::{
+    musig_functor::StakeFunctor, transactions::prelude::UnstakingIntentTx,
+};
 
 /// A duty of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,10 +33,10 @@ pub enum StakeDuty {
 
         /// The inpoints of the unstaking transaction graph used to retrieve the musig2 session
         /// from the secret-service.
-        graph_inpoints: Box<[OutPoint; StakeGraph::N_MUSIG_INPUTS]>,
+        graph_inpoints: Box<StakeFunctor<OutPoint>>,
 
         /// The tweak required for taproot spend per input being signed.
-        graph_tweaks: Box<[TaprootTweak; StakeGraph::N_MUSIG_INPUTS]>,
+        graph_tweaks: Box<StakeFunctor<TaprootTweak>>,
 
         /// The ordered public keys of all operators for MuSig2 aggregation.
         ordered_pubkeys: Vec<XOnlyPublicKey>,
@@ -46,19 +48,19 @@ pub enum StakeDuty {
 
         /// The inpoints of the unstaking transaction graph used to retrieve the musig2 session
         /// from the secret-service.
-        graph_inpoints: Box<[OutPoint; StakeGraph::N_MUSIG_INPUTS]>,
+        graph_inpoints: Box<StakeFunctor<OutPoint>>,
 
         /// The tweak required for taproot spend per input being signed.
-        graph_tweaks: Box<[TaprootTweak; StakeGraph::N_MUSIG_INPUTS]>,
+        graph_tweaks: Box<StakeFunctor<TaprootTweak>>,
 
         /// Sighashes that need to signed.
-        sighashes: Box<[Message; StakeGraph::N_MUSIG_INPUTS]>,
+        sighashes: Box<StakeFunctor<Message>>,
 
         /// The ordered public keys of all operators for MuSig2 aggregation.
         ordered_pubkeys: Vec<XOnlyPublicKey>,
 
         /// 1 aggregated per musig transaction input.
-        agg_nonces: Box<[AggNonce; StakeGraph::N_MUSIG_INPUTS]>,
+        agg_nonces: Box<StakeFunctor<AggNonce>>,
     },
     /// Publish the unstaking intent transaction.
     PublishUnstakingIntent {

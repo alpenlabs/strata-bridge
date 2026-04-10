@@ -33,8 +33,9 @@ use strata_bridge_test_utils::{
     bridge_fixtures::{TEST_MAGIC_BYTES, TEST_POV_IDX, random_p2tr_desc},
     prelude::generate_keypair,
 };
-use strata_bridge_tx_graph::stake_graph::{
-    ProtocolParams, SetupParams, StakeData, StakeGraph, StakeGraphSummary,
+use strata_bridge_tx_graph::{
+    musig_functor::StakeFunctor,
+    stake_graph::{ProtocolParams, SetupParams, StakeData, StakeGraph, StakeGraphSummary},
 };
 
 use crate::{
@@ -226,84 +227,65 @@ static TEST_MUSIG_SIGNERS: LazyLock<[TestMusigSigner; TEST_N_OPERATORS]> = LazyL
     })
 });
 /// 1 signing info for each Musig transaction input in the stake graph.
-static TEST_SIGNING_INFOS: LazyLock<[SigningInfo; StakeGraph::N_MUSIG_INPUTS]> =
-    LazyLock::new(|| {
-        TEST_GRAPH
-            .musig_signing_info()
-            .pack()
-            .try_into()
-            .expect("correct number of transaction inputs")
-    });
+static TEST_SIGNING_INFOS: LazyLock<StakeFunctor<SigningInfo>> =
+    LazyLock::new(|| TEST_GRAPH.musig_signing_info());
 /// 1 key aggregation context for each Musig transaction input in the stake graph.
-static TEST_KEY_AGG_CTXS: LazyLock<[KeyAggContext; StakeGraph::N_MUSIG_INPUTS]> =
-    LazyLock::new(|| {
-        array::from_fn(|txin_idx| {
-            create_agg_ctx(
-                TEST_CTX.operator_table().btc_keys(),
-                &TEST_SIGNING_INFOS[txin_idx].tweak,
-            )
+static TEST_KEY_AGG_CTXS: LazyLock<StakeFunctor<KeyAggContext>> = LazyLock::new(|| {
+    TEST_SIGNING_INFOS.map(|info| {
+        create_agg_ctx(TEST_CTX.operator_table().btc_keys(), &info.tweak)
             .expect("must be able to build key aggregation contexts for tests")
-        })
-    });
+    })
+});
 /// Maps each operator to their public nonces.
 /// There is 1 public nonce for each Musig transaction input in the stake graph.
-static TEST_PUB_NONCES_MAP: LazyLock<BTreeMap<u32, [PubNonce; StakeGraph::N_MUSIG_INPUTS]>> =
+static TEST_PUB_NONCES_MAP: LazyLock<BTreeMap<u32, StakeFunctor<PubNonce>>> = LazyLock::new(|| {
+    TEST_MUSIG_SIGNERS
+        .iter()
+        .map(|signer| {
+            let nonces = TEST_KEY_AGG_CTXS
+                .clone()
+                .enumerate()
+                .map(|(txin_idx, ctx)| signer.pubnonce(ctx.aggregated_pubkey(), txin_idx as u64));
+            (signer.operator_idx(), nonces)
+        })
+        .collect()
+});
+/// 1 aggregated nonce for each Musig transaction input in the stake graph.
+static TEST_AGG_NONCES: LazyLock<StakeFunctor<AggNonce>> = LazyLock::new(|| {
+    StakeFunctor::sequence_functor(TEST_PUB_NONCES_MAP.values().map(StakeFunctor::as_ref))
+        .map(AggNonce::sum)
+});
+/// Maps each operator to their partial signatures.
+/// There is 1 partial signature for each Musig transaction input in the stake graph.
+static TEST_PARTIAL_SIGS_MAP: LazyLock<BTreeMap<u32, StakeFunctor<PartialSignature>>> =
     LazyLock::new(|| {
         TEST_MUSIG_SIGNERS
             .iter()
             .map(|signer| {
-                let nonces = array::from_fn(|txin_idx| {
-                    signer.pubnonce(
-                        TEST_KEY_AGG_CTXS[txin_idx].aggregated_pubkey(),
-                        txin_idx as u64,
-                    )
+                let partials = StakeFunctor::zip3(
+                    TEST_KEY_AGG_CTXS.as_ref(),
+                    TEST_AGG_NONCES.as_ref(),
+                    TEST_SIGNING_INFOS.as_ref(),
+                )
+                .enumerate()
+                .map(|(txin_idx, (ctx, agg_nonce, info))| {
+                    signer.sign(ctx, txin_idx as u64, agg_nonce, info.sighash)
                 });
-                (signer.operator_idx(), nonces)
+                (signer.operator_idx(), partials)
             })
             .collect()
     });
-/// 1 aggregated nonce for each Musig transaction input in the stake graph.
-static TEST_AGG_NONCES: LazyLock<Box<[AggNonce; StakeGraph::N_MUSIG_INPUTS]>> =
-    LazyLock::new(|| {
-        Box::new(array::from_fn(|txin_idx| {
-            AggNonce::sum(
-                TEST_PUB_NONCES_MAP
-                    .values()
-                    .map(|nonces| nonces[txin_idx].clone()),
-            )
-        }))
-    });
-/// Maps each operator to their partial signatures.
-/// There is 1 partial signature for each Musig transaction input in the stake graph.
-static TEST_PARTIAL_SIGS_MAP: LazyLock<
-    BTreeMap<u32, [PartialSignature; StakeGraph::N_MUSIG_INPUTS]>,
-> = LazyLock::new(|| {
-    TEST_MUSIG_SIGNERS
-        .iter()
-        .map(|signer| {
-            let partials = array::from_fn(|txin_idx| {
-                signer.sign(
-                    &TEST_KEY_AGG_CTXS[txin_idx],
-                    txin_idx as u64,
-                    &TEST_AGG_NONCES[txin_idx],
-                    TEST_SIGNING_INFOS[txin_idx].sighash,
-                )
-            });
-            (signer.operator_idx(), partials)
-        })
-        .collect()
-});
 /// 1 final signature for each Musig transaction input in the stake graph.
-static TEST_FINAL_SIGS: LazyLock<[Signature; StakeGraph::N_MUSIG_INPUTS]> = LazyLock::new(|| {
-    array::from_fn(|txin_idx| {
-        aggregate_partial_signatures(
-            &TEST_KEY_AGG_CTXS[txin_idx],
-            &TEST_AGG_NONCES[txin_idx],
-            TEST_PARTIAL_SIGS_MAP
-                .values()
-                .map(|operator_partial_sigs| operator_partial_sigs[txin_idx]),
-            TEST_SIGNING_INFOS[txin_idx].sighash.as_ref(),
-        )
-        .expect("test partial signatures must aggregate")
-    })
+static TEST_FINAL_SIGS: LazyLock<StakeFunctor<Signature>> = LazyLock::new(|| {
+    let partials = StakeFunctor::sequence_functor(TEST_PARTIAL_SIGS_MAP.values().cloned());
+    StakeFunctor::zip_with_4(
+        |ctx, agg_nonce, partials, info| {
+            aggregate_partial_signatures(ctx, agg_nonce, partials, info.sighash.as_ref())
+                .expect("test partial signatures must aggregate")
+        },
+        TEST_KEY_AGG_CTXS.as_ref(),
+        TEST_AGG_NONCES.as_ref(),
+        partials,
+        TEST_SIGNING_INFOS.as_ref(),
+    )
 });

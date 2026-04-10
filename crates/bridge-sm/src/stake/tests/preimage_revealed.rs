@@ -53,7 +53,7 @@ fn invalid_states() -> [StakeState; 4] {
             stake_data: TEST_STAKE_DATA.clone(),
             summary: *TEST_GRAPH_SUMMARY,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-            agg_nonces: TEST_AGG_NONCES.clone(),
+            agg_nonces: TEST_AGG_NONCES.clone().boxed(),
             partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
         },
         StakeState::UnstakingSigned {
@@ -77,7 +77,7 @@ fn unstaking_intent_tx() -> Transaction {
         .unstaking_intent
         .clone()
         .finalize(&UnstakingIntentWitness {
-            n_of_n_signature: TEST_FINAL_SIGS[0],
+            n_of_n_signature: TEST_FINAL_SIGS.unstaking_intent[0],
             unstaking_preimage: TEST_UNSTAKING_PREIMAGE,
         })
 }

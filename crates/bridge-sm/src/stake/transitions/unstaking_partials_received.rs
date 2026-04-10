@@ -1,8 +1,6 @@
-use std::array;
-
 use musig2::{aggregate_partial_signatures, verify_partial};
 use strata_bridge_primitives::key_agg::create_agg_ctx;
-use strata_bridge_tx_graph::stake_graph::StakeGraph;
+use strata_bridge_tx_graph::{musig_functor::StakeFunctor, stake_graph::StakeGraph};
 
 use crate::{
     stake::{
@@ -58,16 +56,18 @@ impl StakeSM {
 
                 let operator_pub_nonces = pub_nonces
                     .get(&event.operator_idx)
-                    .expect("operator index has been validated above");
+                    .expect("operator index has been validated above")
+                    .clone();
                 let stake_graph = StakeGraph::new(stake_data.clone());
-                let signing_infos = stake_graph.musig_signing_info().pack();
+                let signing_infos = stake_graph.musig_signing_info();
+                let agg_nonces_functor = agg_nonces.as_ref().clone();
 
                 for (txin_idx, (((signing_info, partial_sig), agg_nonce), pub_nonce)) in
                     signing_infos
-                        .iter()
-                        .zip(event.partial_signatures.iter().copied())
-                        .zip(agg_nonces.iter())
-                        .zip(operator_pub_nonces.iter())
+                        .zip(event.partial_signatures)
+                        .zip(agg_nonces_functor)
+                        .zip(operator_pub_nonces)
+                        .into_iter()
                         .enumerate()
                 {
                     let key_agg_ctx =
@@ -77,9 +77,9 @@ impl StakeSM {
                     if verify_partial(
                         &key_agg_ctx,
                         partial_sig,
-                        agg_nonce,
+                        &agg_nonce,
                         current_operator_pubkey,
-                        pub_nonce,
+                        &pub_nonce,
                         signing_info.sighash.as_ref(),
                     )
                     .is_err()
@@ -98,24 +98,35 @@ impl StakeSM {
                 partial_signatures.insert(event.operator_idx, event.partial_signatures);
 
                 if partial_signatures.len() == n_operators {
-                    let signatures = Box::new(array::from_fn(|txin_idx| {
-                        let signing_info = &signing_infos[txin_idx];
-                        let key_agg_ctx =
-                            create_agg_ctx(operator_pubkeys.iter().copied(), &signing_info.tweak)
+                    let (contexts, sighashes) = stake_graph
+                        .musig_signing_info()
+                        .map(|info| {
+                            let ctx = create_agg_ctx(operator_pubkeys.iter().copied(), &info.tweak)
                                 .expect("must be able to create key aggregation context");
 
-                        aggregate_partial_signatures(
-                            &key_agg_ctx,
-                            &agg_nonces[txin_idx],
-                            partial_signatures
-                                .values()
-                                .map(|partial_sigs_single_operator| {
-                                    partial_sigs_single_operator[txin_idx]
-                                }),
-                            signing_info.sighash.as_ref(),
-                        )
-                        .expect("partial signatures have been checked to be valid")
-                    }));
+                            (ctx, info.sighash)
+                        })
+                        .unzip();
+                    let agg_nonces_functor = StakeFunctor::as_ref(agg_nonces);
+                    let partials =
+                        StakeFunctor::sequence_functor(partial_signatures.values().copied());
+
+                    let signatures = StakeFunctor::zip_with_4(
+                        |ctx, agg_nonce, partial_sigs_single_op, sighash| {
+                            aggregate_partial_signatures(
+                                &ctx,
+                                agg_nonce,
+                                partial_sigs_single_op,
+                                sighash.as_ref(),
+                            )
+                            .expect("partial signatures have been checked to be valid")
+                        },
+                        contexts,
+                        agg_nonces_functor,
+                        partials,
+                        sighashes,
+                    )
+                    .boxed();
 
                     self.state = StakeState::UnstakingSigned {
                         last_block_height: *last_block_height,

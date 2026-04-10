@@ -9,7 +9,10 @@ use bitcoin::{Txid, secp256k1::schnorr::Signature};
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph::stake_graph::{StakeData, StakeGraph, StakeGraphSummary};
+use strata_bridge_tx_graph::{
+    musig_functor::StakeFunctor,
+    stake_graph::{StakeData, StakeGraphSummary},
+};
 
 /// The state of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,7 +31,7 @@ pub enum StakeState {
         /// Collection of all TXIDs in the stake graph.
         summary: StakeGraphSummary,
         /// Maps each operator to their public nonces.
-        pub_nonces: BTreeMap<OperatorIdx, [PubNonce; StakeGraph::N_MUSIG_INPUTS]>,
+        pub_nonces: BTreeMap<OperatorIdx, StakeFunctor<PubNonce>>,
     },
     /// All nonces for the stake graph have been collected.
     UnstakingNoncesCollected {
@@ -39,11 +42,11 @@ pub enum StakeState {
         /// Collection of all TXIDs in the stake graph.
         summary: StakeGraphSummary,
         /// Maps each operator to their public nonces.
-        pub_nonces: BTreeMap<OperatorIdx, [PubNonce; StakeGraph::N_MUSIG_INPUTS]>,
+        pub_nonces: BTreeMap<OperatorIdx, StakeFunctor<PubNonce>>,
         /// 1 aggregated nonce per musig transaction input.
-        agg_nonces: Box<[AggNonce; StakeGraph::N_MUSIG_INPUTS]>,
+        agg_nonces: Box<StakeFunctor<AggNonce>>,
         /// Maps each operator to their partial signatures.
-        partial_signatures: BTreeMap<OperatorIdx, [PartialSignature; StakeGraph::N_MUSIG_INPUTS]>,
+        partial_signatures: BTreeMap<OperatorIdx, StakeFunctor<PartialSignature>>,
     },
     /// All presignatures for the stake graph have been collected.
     ///
@@ -56,7 +59,7 @@ pub enum StakeState {
         /// Collection of all TXIDs in the stake graph.
         summary: StakeGraphSummary,
         /// 1 signature per musig transaction input.
-        signatures: Box<[Signature; StakeGraph::N_MUSIG_INPUTS]>,
+        signatures: Box<StakeFunctor<Signature>>,
     },
     /// The stake transaction has been confirmed on the bitcoin blockchain.
     Confirmed {
@@ -70,7 +73,7 @@ pub enum StakeState {
         ///
         /// The signatures may be absent if an operator chooses to withhold their partial signature
         /// or broadcasts is too late.
-        signatures: Box<Option<[Signature; StakeGraph::N_MUSIG_INPUTS]>>,
+        signatures: Box<Option<StakeFunctor<Signature>>>,
     },
     /// The unstaking preimage has been revealed on-chain.
     PreimageRevealed {
@@ -88,7 +91,7 @@ pub enum StakeState {
         ///
         /// The signatures may be absent if an operator chose to withhold their partial signature
         /// or broadcasted it too late.
-        signatures: Box<Option<[Signature; StakeGraph::N_MUSIG_INPUTS]>>,
+        signatures: Box<Option<StakeFunctor<Signature>>>,
     },
     /// The unstaking transaction has been confirmed on the bitcoin blockchain.
     Unstaked {
