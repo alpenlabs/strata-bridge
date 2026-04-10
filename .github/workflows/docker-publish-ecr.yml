@@ -93,163 +93,8 @@ jobs:
           INPUT_REF: ${{ inputs.ref }}
           INPUT_COMPONENTS: ${{ inputs.components }}
           INPUT_DEPENDENCY_TAG: ${{ inputs.dependency_tag }}
-        run: |
-          set -euo pipefail
-
-          checkout_ref="${INPUT_REF:-${GITHUB_REF}}"
-          if [[ -z "${checkout_ref}" ]]; then
-            checkout_ref="${GITHUB_SHA}"
-          fi
-
-          resolved_sha="$(git rev-parse HEAD)"
-          image_tag="$(git rev-parse --short=8 HEAD)"
-
-          components="${INPUT_COMPONENTS// /}"
-          if [[ -z "${components}" ]]; then
-            # workflow_dispatch without an explicit components input defaults to app images only —
-            # callers who want to rebuild base/rt must pass them explicitly.
-            # Push-triggered runs use `all` so CI exercises the full dependency + app image path.
-            if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-              components="strata-bridge,strata-asm-runner,secret-service"
-            else
-              components="all"
-            fi
-          fi
-
-          build_base=false
-          build_rt=false
-          build_strata_bridge=false
-          build_asm_runner=false
-          build_secret_service=false
-
-          if [[ "${components}" == "all" ]]; then
-            build_base=true
-            build_rt=true
-            build_strata_bridge=true
-            build_asm_runner=true
-            build_secret_service=true
-          else
-            IFS=',' read -r -a requested <<< "${components}"
-            for component in "${requested[@]}"; do
-              case "${component}" in
-                base) build_base=true ;;
-                rt) build_rt=true ;;
-                strata-bridge) build_strata_bridge=true ;;
-                strata-asm-runner) build_asm_runner=true ;;
-                secret-service) build_secret_service=true ;;
-                "") ;;
-                *)
-                  echo "::error::Unsupported component: ${component}"
-                  exit 1
-                  ;;
-              esac
-            done
-          fi
-
-          # App Dockerfiles FROM bridge-base and bridge-rt, so both must exist together in ECR
-          # with the same tag. Building only one of the two would leave a mismatched pair.
-          if [[ ("${build_strata_bridge}" == "true" || "${build_asm_runner}" == "true" || "${build_secret_service}" == "true") && ("${build_base}" == "true" || "${build_rt}" == "true") ]]; then
-            build_base=true
-            build_rt=true
-          fi
-
-          # When rebuilding dependencies, the new image tag becomes the dependency tag automatically.
-          # When skipping the dependency build, the caller must supply an existing ECR tag via
-          # dependency_tag so app images know which base/rt to pull.
-          dependency_tag="${INPUT_DEPENDENCY_TAG:-}"
-          if [[ "${build_base}" == "true" || "${build_rt}" == "true" ]]; then
-            dependency_tag="${image_tag}"
-          elif [[ "${build_strata_bridge}" == "true" || "${build_asm_runner}" == "true" || "${build_secret_service}" == "true" ]]; then
-            if [[ -z "${dependency_tag}" ]]; then
-              echo "::error::dependency_tag is required when building final images without rebuilding base and rt"
-              exit 1
-            fi
-          fi
-
-          export BUILD_BASE="${build_base}"
-          export BUILD_RT="${build_rt}"
-          export BUILD_STRATA_BRIDGE="${build_strata_bridge}"
-          export BUILD_ASM_RUNNER="${build_asm_runner}"
-          export BUILD_SECRET_SERVICE="${build_secret_service}"
-
-          # Generate the matrices in Python so downstream jobs can consume a single JSON payload
-          # instead of repeating the image metadata across multiple YAML conditionals.
-          dependency_matrix="$(python3 - <<'PY'
-          import json, os
-          items = []
-          if os.environ["BUILD_BASE"] == "true":
-              items.append({
-                  "component": "base",
-                  "display_name": "bridge-base",
-                  "repository": "bridge-base",
-                  "dockerfile": "docker/base.Dockerfile",
-                  "cache_scope": "bridge-base-linux-amd64",
-                  "trivy_scanners": "vuln",
-                  "trivy_timeout": "15m",
-              })
-          if os.environ["BUILD_RT"] == "true":
-              items.append({
-                  "component": "rt",
-                  "display_name": "bridge-rt",
-                  "repository": "bridge-rt",
-                  "dockerfile": "docker/rt.Dockerfile",
-                  "cache_scope": "bridge-rt-linux-amd64",
-                  "trivy_scanners": "vuln",
-                  "trivy_timeout": "15m",
-              })
-          print(json.dumps(items))
-          PY
-          )"
-
-          # App images share the same dependency tag but differ in Dockerfile, repository, and scan mode.
-          app_matrix="$(python3 - <<'PY'
-          import json, os
-          items = []
-          if os.environ["BUILD_STRATA_BRIDGE"] == "true":
-              items.append({
-                  "component": "strata-bridge",
-                  "display_name": "strata-bridge",
-                  "repository": "strata-bridge",
-                  "public_repository": "strata-bridge",
-                  "dockerfile": "docker/strata-bridge/Dockerfile",
-                  "local_tag": "strata-bridge:latest",
-                  "trivy_scanners": "vuln,secret,misconfig",
-                  "trivy_timeout": "15m",
-              })
-          if os.environ["BUILD_ASM_RUNNER"] == "true":
-              items.append({
-                  "component": "strata-asm-runner",
-                  "display_name": "strata-asm-runner",
-                  "repository": "strata-asm-runner",
-                  "public_repository": "strata-asm-runner",
-                  "dockerfile": "docker/asm-runner/Dockerfile",
-                  "local_tag": "strata-asm-runner:latest",
-                  "trivy_scanners": "vuln,secret,misconfig",
-                  "trivy_timeout": "15m",
-              })
-          if os.environ["BUILD_SECRET_SERVICE"] == "true":
-              items.append({
-                  "component": "secret-service",
-                  "display_name": "secret-service",
-                  "repository": "secret-service",
-                  "public_repository": "secret-service",
-                  "dockerfile": "docker/secret-service/Dockerfile",
-                  "local_tag": "secret-service:latest",
-                  "trivy_scanners": "vuln,secret,misconfig",
-                  "trivy_timeout": "15m",
-              })
-          print(json.dumps(items))
-          PY
-          )"
-
-          {
-            echo "checkout_ref=${checkout_ref}"
-            echo "resolved_sha=${resolved_sha}"
-            echo "image_tag=${image_tag}"
-            echo "dependency_tag=${dependency_tag}"
-            echo "dependency_matrix=${dependency_matrix}"
-            echo "app_matrix=${app_matrix}"
-          } >> "${GITHUB_OUTPUT}"
+        # Full logic in scripts/ci/resolve_build_plan.sh + scripts/ci/build_matrix.py
+        run: bash scripts/ci/resolve_build_plan.sh
 
       - name: Initialize publish summary
         env:
@@ -525,81 +370,19 @@ jobs:
           pattern: trivy-*-${{ needs.plan.outputs.image_tag }}
           merge-multiple: false
 
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.plan.outputs.checkout_ref }}
+
       - name: Render aggregated Trivy summary
         env:
           SUMMARY_PATH: ${{ github.step_summary }}
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
+        # Full logic in scripts/ci/render_trivy_rollup.py
         run: |
-          python3 - <<'PY'
-          import json
-          import os
-          from collections import Counter
-          from pathlib import Path
-
-          # The per-image jobs already upload the raw JSON/SARIF outputs. This rollup turns those
-          # artifacts into one compact severity table so reviewers can scan the whole publish run.
-          severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
-          root = Path("trivy-artifacts")
-          rows = []
-
-          for artifact_dir in sorted([p for p in root.iterdir() if p.is_dir()] if root.exists() else []):
-              json_files = list(artifact_dir.glob("*.json"))
-              # Artifact dirs are named trivy-{component}-{image_tag}; strip the prefix/suffix
-              # to recover the bare component name for the summary table.
-              component = artifact_dir.name
-              if component.startswith("trivy-") and component.endswith(f"-{os.environ['IMAGE_TAG']}"):
-                  component = component[len("trivy-") : -(len(os.environ["IMAGE_TAG"]) + 1)]
-
-              counts = Counter()
-              if json_files:
-                  data = json.loads(json_files[0].read_text())
-                  for target in data.get("Results", []):
-                      for vuln in target.get("Vulnerabilities", []) or []:
-                          counts[vuln.get("Severity", "UNKNOWN")] += 1
-                      for misconfig in target.get("Misconfigurations", []) or []:
-                          counts[misconfig.get("Severity", "UNKNOWN")] += 1
-                      for secret in target.get("Secrets", []) or []:
-                          counts[secret.get("Severity", "UNKNOWN")] += 1
-                  status = "report available"
-              else:
-                  status = "no json report"
-
-              rows.append({
-                  "component": component,
-                  "status": status,
-                  "counts": counts,
-              })
-
-          lines = []
-          lines.append("## Trivy Rollup")
-          lines.append("")
-          if not rows:
-              lines.append("No Trivy artifacts were downloaded for this run.")
-              lines.append("")
-          else:
-              lines.append("| Image | Status | Critical | High | Medium | Low | Unknown |")
-              lines.append("| --- | --- | --- | --- | --- | --- | --- |")
-              for row in rows:
-                  lines.append(
-                      "| {component} | {status} | {critical} | {high} | {medium} | {low} | {unknown} |".format(
-                          component=row["component"],
-                          status=row["status"],
-                          critical=row["counts"].get("CRITICAL", 0),
-                          high=row["counts"].get("HIGH", 0),
-                          medium=row["counts"].get("MEDIUM", 0),
-                          low=row["counts"].get("LOW", 0),
-                          unknown=row["counts"].get("UNKNOWN", 0),
-                      )
-                  )
-              lines.append("")
-              lines.append("Artifacts contain the raw `.json`, `.sarif`, and per-image Markdown summaries.")
-              lines.append("")
-
-          markdown = "\n".join(lines) + "\n"
-          Path("trivy-rollup.md").write_text(markdown, encoding="utf-8")
-          with open(os.environ["SUMMARY_PATH"], "a", encoding="utf-8") as summary:
-              summary.write(markdown)
-          PY
+          python3 scripts/ci/render_trivy_rollup.py
           echo "::group::Aggregated Trivy rollup"
           cat trivy-rollup.md
           echo "::endgroup::"
