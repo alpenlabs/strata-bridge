@@ -1,72 +1,66 @@
 import os
 import subprocess
 import tempfile
+from dataclasses import asdict
 
-from constants import ASM_MAGIC_BYTES
+from factory.bridge_operator.params_cfg import (
+    BridgeOperatorParams,
+    BridgeProtocolParams,
+    CovenantKeys,
+    Keys,
+)
 from rpc.asm_types import CheckpointTip
+from utils.utils import OperatorKeyInfo
 
 BINARY_PATH = "dev-cli"
 EE_ADDRESS = "70997970C51812dc3A010C7d01b50e0d17dc79C8"
 
-DEV_CLI_PARAMS_TEMPLATE = """network = "regtest"
-bridge_out_addr = "0x5400000000000000000000000000000000000001"
-deposit_amount = {deposit_amount}
-stake_amount = {stake_amount}
-burn_amount = {operator_fee}
-refund_delay = {recovery_delay}
-stake_chain_delta = {{ Blocks = 6 }}
-payout_timelock = 1_008
-contest_timelock = {contest_timelock}
-proof_timelock = {proof_timelock}
-ack_timelock = {ack_timelock}
-nack_timelock = {nack_timelock}
-contested_payout_timelock = {contested_payout_timelock}
-
-tag = "{tag}"
-
-musig2_keys = {musig2_keys}
-"""
+# Default genesis height used by dev-cli params when not provided by the test.
+DEFAULT_GENESIS_HEIGHT = 101
 
 
 class DevCli:
     def __init__(
         self,
         bitcoind_props: dict,
-        musig2_keys: list[str],
+        operator_key_infos: list[OperatorKeyInfo],
         bridge_protocol_params=None,
     ):
         self.bitcoind_props = bitcoind_props
-        self.musig2_keys = musig2_keys
+        self.operator_key_infos = operator_key_infos
         self.bridge_protocol_params = bridge_protocol_params
         self.temp_dir = tempfile.mkdtemp()
         self.params_path = self._create_params_file()
 
     def _create_params_file(self) -> str:
-        keys_str = "[\n"
-        for key in self.musig2_keys:
-            keys_str += f'  "{key}",\n'
-        keys_str += "]"
-
-        from factory.bridge_operator.params_cfg import BridgeProtocolParams
-
         p = self.bridge_protocol_params or BridgeProtocolParams()
-        params_content = DEV_CLI_PARAMS_TEMPLATE.format(
-            tag=ASM_MAGIC_BYTES,
-            musig2_keys=keys_str,
-            deposit_amount=p.deposit_amount,
-            stake_amount=p.stake_amount,
-            operator_fee=p.operator_fee,
-            recovery_delay=p.recovery_delay,
-            contest_timelock=p.contest_timelock,
-            proof_timelock=p.proof_timelock,
-            ack_timelock=p.ack_timelock,
-            nack_timelock=p.nack_timelock,
-            contested_payout_timelock=p.contested_payout_timelock,
+
+        covenant = [
+            CovenantKeys(
+                musig2=key.MUSIG2_KEY,
+                p2p=key.P2P_KEY,
+                adaptor=key.MUSIG2_KEY,
+                watchtower_fault=key.MUSIG2_KEY,
+                payout_descriptor=key.GENERAL_WALLET_DESCRIPTOR,
+            )
+            for key in self.operator_key_infos
+        ]
+
+        params = BridgeOperatorParams(
+            network="regtest",
+            genesis_height=DEFAULT_GENESIS_HEIGHT,
+            keys=Keys(
+                admin=self.operator_key_infos[0].MUSIG2_KEY,
+                covenant=covenant,
+            ),
+            protocol=p,
         )
+
+        import toml
 
         params_path = os.path.join(self.temp_dir, "params.toml")
         with open(params_path, "w") as f:
-            f.write(params_content)
+            toml.dump(asdict(params), f)
 
         return params_path
 
