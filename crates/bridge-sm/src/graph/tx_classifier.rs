@@ -116,7 +116,7 @@ impl TxClassifier for GraphSM {
             }
 
             // expects a bridge proof, a (faulty) counterproof or a bridge proof timeout or a payout
-            // burn
+            // burn or a contested payout
             GraphState::Contested { graph_summary, .. } => {
                 if txid == graph_summary.bridge_proof_timeout {
                     Some(GraphEvent::BridgeProofTimeoutConfirmed(
@@ -166,6 +166,10 @@ impl TxClassifier for GraphSM {
                             counterprover_idx,
                         },
                     ))
+                } else if txid == graph_summary.contested_payout {
+                    Some(GraphEvent::PayoutConfirmed(PayoutConfirmedEvent {
+                        payout_txid: txid,
+                    }))
                 } else if is_payout_connector_spent(&graph_summary.claim, tx) {
                     Some(GraphEvent::PayoutConnectorSpent(
                         PayoutConnectorSpentEvent {

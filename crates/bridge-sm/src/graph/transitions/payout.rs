@@ -30,6 +30,27 @@ impl GraphSM {
 
                 Ok(GSMOutput::new())
             }
+            GraphState::Contested { graph_summary, .. } => {
+                if payout_event.payout_txid != graph_summary.contested_payout {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        payout_event.into(),
+                        "Invalid contested payout transaction",
+                    ));
+                }
+
+                warn!(
+                    graph_idx = ?self.context().graph_idx(),
+                    payout_txid = %payout_event.payout_txid,
+                    "Contested payout posted in contested state"
+                );
+
+                self.state = GraphState::Withdrawn {
+                    payout_txid: payout_event.payout_txid,
+                };
+
+                Ok(GSMOutput::new())
+            }
             GraphState::BridgeProofPosted { graph_summary, .. } => {
                 if payout_event.payout_txid != graph_summary.contested_payout {
                     return Err(GSMError::rejected(

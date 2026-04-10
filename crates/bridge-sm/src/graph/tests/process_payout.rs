@@ -12,6 +12,7 @@ mod tests {
             INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_POV_IDX, dummy_proof_receipt,
             mock_states::{
                 all_nackd_state, assigned_state, bridge_proof_posted_state, claimed_state,
+                contested_state,
             },
             test_deposit_params, test_graph_invalid_transition, test_graph_summary,
             test_graph_transition, test_recipient_desc,
@@ -114,6 +115,31 @@ mod tests {
     fn test_payout_from_bridge_proof_posted_rejected_invalid_txid() {
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: bridge_proof_posted_state(),
+            event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent {
+                payout_txid: generate_txid(),
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    #[test]
+    fn test_payout_from_contested() {
+        let graph_summary = test_graph_summary();
+        let payout_txid = graph_summary.contested_payout;
+
+        test_graph_transition(GraphTransition {
+            from_state: contested_state(),
+            event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
+            expected_state: GraphState::Withdrawn { payout_txid },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
+    #[test]
+    fn test_payout_from_contested_rejected_invalid_txid() {
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: contested_state(),
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent {
                 payout_txid: generate_txid(),
             }),
