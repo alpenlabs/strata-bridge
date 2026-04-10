@@ -109,7 +109,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.checkout_ref }}
+          ref: ${{ needs.plan.outputs.resolved_sha }}
 
       - name: Cleanup space
         uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
@@ -181,7 +181,11 @@ jobs:
             echo "  scan: advisory status \`${TRIVY_STATUS:-unknown}\`"
             echo "  artifact: \`trivy-${{ matrix.component }}-${IMAGE_TAG}\`"
             echo
-            cat "trivy-results/${{ matrix.component }}.md"
+            if [[ -f "trivy-results/${{ matrix.component }}.md" ]]; then
+              cat "trivy-results/${{ matrix.component }}.md"
+            else
+              echo "Trivy summary unavailable for \`${{ matrix.display_name }}\`."
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
   build_app_images:
@@ -212,7 +216,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.checkout_ref }}
+          ref: ${{ needs.plan.outputs.resolved_sha }}
 
       - name: Cleanup space
         uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
@@ -323,7 +327,11 @@ jobs:
             echo "  scan: advisory status \`${TRIVY_STATUS:-unknown}\`"
             echo "  artifact: \`trivy-${{ matrix.component }}-${IMAGE_TAG}\`"
             echo
-            cat "trivy-results/${{ matrix.component }}.md"
+            if [[ -f "trivy-results/${{ matrix.component }}.md" ]]; then
+              cat "trivy-results/${{ matrix.component }}.md"
+            else
+              echo "Trivy summary unavailable for \`${{ matrix.display_name }}\`."
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
   publish_report:
@@ -336,18 +344,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.plan.outputs.resolved_sha }}
+
       - name: Download Trivy artifacts
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v5.0.0
         with:
           path: trivy-artifacts
           pattern: trivy-*-${{ needs.plan.outputs.image_tag }}
           merge-multiple: false
-
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ needs.plan.outputs.checkout_ref }}
 
       - name: Render aggregated Trivy summary
         env:
