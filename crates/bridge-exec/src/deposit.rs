@@ -82,7 +82,7 @@ pub async fn execute_deposit_duty(
         DepositDuty::PublishDeposit {
             signed_deposit_transaction,
         } => publish_deposit(&output_handles, signed_deposit_transaction.clone()).await,
-        DepositDuty::FulfillWithdrawal {
+        DepositDuty::FulfillWithdrawalRequest {
             deposit_idx,
             deadline,
             recipient_desc,
@@ -363,7 +363,7 @@ async fn publish_deposit(
     .await
 }
 
-/// Fulfills a withdrawal request by fronting funds to the user.
+/// Fulfills a user's withdrawal request by fronting funds to the user.
 ///
 /// Only the assignee executes this duty.
 async fn fulfill_withdrawal(
