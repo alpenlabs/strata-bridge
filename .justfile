@@ -334,7 +334,7 @@ pr: lint rustdocs test-doc test-unit
 
 # Broadcast a mock checkpoint
 [group('bridge')]
-checkpoint genesis-l1-height="101" num-withdrawals="1" ol-start-slot="0" ol-end-slot="1" epoch="1":
+checkpoint genesis-l1-height="101" num-withdrawals="1" ol-start-slot="0" ol-end-slot="1" epoch="1" assignee-node-idx="0":
     RUST_LOG=info \
     cargo r \
         --bin dev-cli \
@@ -347,7 +347,8 @@ checkpoint genesis-l1-height="101" num-withdrawals="1" ol-start-slot="0" ol-end-
         --ol-start-slot {{ ol-start-slot }} \
         --ol-end-slot {{ ol-end-slot }} \
         --num-withdrawals {{ num-withdrawals }} \
-        --genesis-l1-height {{ genesis-l1-height }}
+        --genesis-l1-height {{ genesis-l1-height }} \
+        --assignee-node-idx {{ assignee-node-idx }}
 
 # Run bridge-in
 [group('bridge')]
