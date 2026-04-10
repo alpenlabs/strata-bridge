@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 
-from rpc.types import RpcPendingWithdrawalInfo
+from rpc.types import RpcClaimPhase, RpcPendingWithdrawalInfo
 from utils.utils import wait_until
 
 
@@ -74,7 +74,7 @@ def wait_until_bridge_proof_posted(
         info = RpcPendingWithdrawalInfo.from_json(info_data)
         if info.assigned_claim is None:
             return False
-        return info.assigned_claim.phase == "bridge_proof_posted"
+        return info.assigned_claim.phase == RpcClaimPhase.BRIDGE_PROOF_POSTED
 
     wait_until(
         check,
@@ -98,7 +98,7 @@ def wait_until_bridge_proof_timedout(
         info = RpcPendingWithdrawalInfo.from_json(info_data)
         if info.assigned_claim is None:
             return False
-        return info.assigned_claim.phase == "bridge_proof_timedout"
+        return info.assigned_claim.phase == RpcClaimPhase.BRIDGE_PROOF_TIMEDOUT
 
     wait_until(
         check,
