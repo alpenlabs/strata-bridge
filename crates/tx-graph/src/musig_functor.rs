@@ -553,7 +553,7 @@ impl<A> StakeFunctor<A> {
     }
 
     /// Attempts to create a new functor from a vector.
-    pub fn unpack(packed: Vec<A>) -> Option<Self> {
+    pub fn unpack<I: IntoIterator<Item = A>>(packed: I) -> Option<Self> {
         let mut cursor = packed.into_iter();
         let inner = FunctorInner::<STAKE_SINGLE_LEN, 0, A> {
             fields: take_array(&mut cursor)?,
@@ -561,6 +561,11 @@ impl<A> StakeFunctor<A> {
         };
 
         Some(Self::from_inner(inner))
+    }
+
+    /// Moves the functor into a [`Box`].
+    pub fn boxed(self) -> Box<Self> {
+        Box::new(self)
     }
 
     /// Converts a reference to a functor into a functor of references.
@@ -678,9 +683,20 @@ impl<A> StakeFunctor<A> {
     }
 
     /// Converts a vector of functors into a functor of vectors.
-    pub fn sequence_functor(vec_self: Vec<StakeFunctor<A>>) -> StakeFunctor<Vec<A>> {
-        let inners = vec_self.into_iter().map(StakeFunctor::into_inner).collect();
+    pub fn sequence_functor<I: IntoIterator<Item = Self>>(functors: I) -> StakeFunctor<Vec<A>> {
+        let inners = functors.into_iter().map(StakeFunctor::into_inner).collect();
         StakeFunctor::from_inner(StakeFunctorInner::sequence_functor(inners))
+    }
+
+    /// Returns a functor where each value knows its index.
+    pub fn enumerate(self) -> StakeFunctor<(usize, A)> {
+        let [a] = self.unstaking_intent;
+        let [b, c] = self.unstaking;
+
+        StakeFunctor {
+            unstaking_intent: [(0, a)],
+            unstaking: [(1, b), (2, c)],
+        }
     }
 }
 
@@ -702,6 +718,18 @@ impl<A: Clone> StakeFunctor<&A> {
 impl<A: Semigroup> Semigroup for StakeFunctor<A> {
     fn merge(self, other: Self) -> Self {
         StakeFunctor::zip_with(A::merge, self, other)
+    }
+}
+
+impl<A> IntoIterator for StakeFunctor<A> {
+    type Item = A;
+    type IntoIter = std::iter::Chain<
+        <[A; UnstakingIntentTx::N_INPUTS] as IntoIterator>::IntoIter,
+        <[A; UnstakingTx::N_INPUTS] as IntoIterator>::IntoIter,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.unstaking_intent.into_iter().chain(self.unstaking)
     }
 }
 
