@@ -172,9 +172,9 @@ runs:
         TRIVY_JSON_EXISTS: ${{ steps.trivy_outputs.outputs.json_exists }}
         TRIVY_SCANNERS: ${{ inputs.trivy_scanners }}
         TRIVY_TIMEOUT: ${{ inputs.trivy_timeout }}
-      # Full logic in scripts/ci/render_trivy_summary.py
+      # Full logic in .github/scripts/render_trivy_summary.py
       run: |
-        python3 scripts/ci/render_trivy_summary.py
+        python3 .github/scripts/render_trivy_summary.py
         echo "::group::Trivy summary for ${COMPONENT_DISPLAY_NAME}"
         cat "trivy-results/${COMPONENT_NAME}.md"
         echo "::endgroup::"
