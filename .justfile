@@ -364,34 +364,23 @@ bridge-in:
         --params bin/dev-cli/params.toml \
         --ee-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
 
-# Issue a challenge transaction, set `CLAIM_TXID` env var to use
+# Contest a claim transaction by signing and broadcasting a challenge via the game graph
 [group('bridge')]
-challenge:
+contest deposit-idx="0" operator-idx="0" contester-node-idx="1" seed="" bridge-node-url="http://localhost:4781":
     RUST_LOG=info \
     cargo r \
         --bin dev-cli \
         -- \
-        challenge \
+        contest \
+        --deposit-idx {{ deposit-idx }} \
+        --operator-idx {{ operator-idx }} \
+        --bridge-node-url {{ bridge-node-url }} \
+        --contester-node-idx {{ contester-node-idx }} \
+        --seed {{ seed }} \
+        --params bin/dev-cli/params.toml \
         --btc-url http://localhost:18443/wallet/default \
         --btc-user user \
-        --btc-pass password \
-        --params bin/dev-cli/params.toml \
-        --bridge-node-url http://localhost:15678/rpc
-
-# Issue a disprove transaction, set `POST_ASSERT_TXID` env var to use and make sure `strata-bridge-groth16-vk.hex` file exists
-[group('bridge')]
-disprove:
-    RUST_LOG=info \
-    cargo r \
-        --bin dev-cli \
-        -- \
-        disprove \
-        --btc-url http://localhost:18443/wallet/default \
-        --btc-user user \
-        --btc-pass password \
-        --params bin/dev-cli/params.toml \
-        --vk-path strata-bridge-groth16-vk.hex \
-        --bridge-node-url http://localhost:15678/rpc
+        --btc-pass password
 
 # Derive operator keys from a seed for functional tests
 [group('bridge')]
