@@ -113,6 +113,39 @@ mod tests {
         assert!(descriptor.content_bytes().is_empty());
     }
 
+    // Verifies P2TR descriptor roundtrip works correctly.
+    #[test]
+    fn valid_p2tr_descriptor_roundtrip() {
+        let xonly_pubkey = [0x02u8; 32];
+        let desc = Descriptor::new_p2tr(&xonly_pubkey).unwrap();
+        let payout = PayoutDescriptor::from(desc.clone());
+
+        let recovered = payout.parse().expect("should parse valid p2tr");
+        assert_eq!(desc.to_bytes(), recovered.to_bytes());
+    }
+
+    // Verifies P2WPKH descriptor roundtrip works correctly.
+    #[test]
+    fn valid_p2wpkh_descriptor_roundtrip() {
+        let pubkey_hash = [0x01u8; 20];
+        let desc = Descriptor::new_p2wpkh(&pubkey_hash);
+        let payout = PayoutDescriptor::from(desc.clone());
+
+        let recovered = payout.parse().expect("should parse valid p2wpkh");
+        assert_eq!(desc.to_bytes(), recovered.to_bytes());
+    }
+
+    // Verifies OP_RETURN descriptor roundtrip works correctly.
+    #[test]
+    fn valid_op_return_descriptor_roundtrip() {
+        let data = b"test data";
+        let desc = Descriptor::new_op_return(data).unwrap();
+        let payout = PayoutDescriptor::from(desc.clone());
+
+        let recovered = payout.parse().expect("should parse valid op_return");
+        assert_eq!(desc.to_bytes(), recovered.to_bytes());
+    }
+
     mod proptests {
         use proptest::prelude::*;
         use rkyv::{from_bytes, rancor::Error, to_bytes};
