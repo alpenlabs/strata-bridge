@@ -89,33 +89,11 @@ jobs:
       - name: Resolve plan
         id: plan
         env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
           INPUT_REF: ${{ inputs.ref }}
           INPUT_COMPONENTS: ${{ inputs.components }}
           INPUT_DEPENDENCY_TAG: ${{ inputs.dependency_tag }}
         # Full logic in .github/scripts/resolve_build_plan.sh + .github/scripts/build_matrix.py
         run: bash .github/scripts/resolve_build_plan.sh
-
-      - name: Initialize publish summary
-        env:
-          WORKFLOW_REF: ${{ github.ref }}
-          CHECKOUT_REF: ${{ steps.plan.outputs.checkout_ref }}
-          RESOLVED_SHA: ${{ steps.plan.outputs.resolved_sha }}
-          IMAGE_TAG: ${{ steps.plan.outputs.image_tag }}
-          DEPENDENCY_TAG: ${{ steps.plan.outputs.dependency_tag }}
-        run: |
-          {
-            echo "## Docker Publish to ECR"
-            echo
-            echo "- Workflow ref: \`${WORKFLOW_REF}\`"
-            echo "- Checkout ref: \`${CHECKOUT_REF}\`"
-            echo "- Resolved commit: \`${RESOLVED_SHA}\`"
-            echo "- Image tag: \`${IMAGE_TAG}\`"
-            echo "- Dependency tag: \`${DEPENDENCY_TAG}\`"
-            echo "- Scan mode: advisory"
-            echo
-            echo "### Selected Images"
-          } >> "${GITHUB_STEP_SUMMARY}"
 
   build_dependencies:
     name: "Build Dependency Image: ${{ matrix.display_name }}"
@@ -274,8 +252,8 @@ jobs:
         env:
           DEPENDENCY_TAG: ${{ needs.plan.outputs.dependency_tag }}
         run: |
-          # App builds consume bridge-base/bridge-rt by local tag, so pull and retag the dependency
-          # images into the host daemon before the app Dockerfiles run.
+          # build_dependencies runs on a different runner, so app builds pull the published
+          # bridge-base/bridge-rt images back from ECR and retag them into this runner's daemon.
           docker pull "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-base:${DEPENDENCY_TAG}"
           docker pull "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-rt:${DEPENDENCY_TAG}"
           docker tag "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-base:${DEPENDENCY_TAG}" bridge-base:latest
@@ -283,8 +261,9 @@ jobs:
 
       - name: Build ${{ matrix.display_name }}
         run: |
-          # App images use plain docker build because they depend on locally tagged bridge-base/bridge-rt images,
-          # which the buildx container driver cannot reference by tag from the host Docker daemon.
+          # App images use plain docker build because they consume the dependency images after
+          # they have been pulled into this runner's local daemon; the buildx container driver
+          # cannot reference those host-daemon tags directly.
           DOCKER_BUILDKIT=1 docker build \
             --platform "${DOCKER_PLATFORM}" \
             --file "${{ matrix.dockerfile }}" \
@@ -378,10 +357,16 @@ jobs:
 
       - name: Render aggregated Trivy summary
         env:
-          SUMMARY_PATH: ${{ github.step_summary }}
+          WORKFLOW_REF: ${{ github.ref }}
+          CHECKOUT_REF: ${{ needs.plan.outputs.checkout_ref }}
+          RESOLVED_SHA: ${{ needs.plan.outputs.resolved_sha }}
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
+          DEPENDENCY_TAG: ${{ needs.plan.outputs.dependency_tag }}
+          DEPENDENCY_MATRIX: ${{ needs.plan.outputs.dependency_matrix }}
+          APP_MATRIX: ${{ needs.plan.outputs.app_matrix }}
         # Full logic in .github/scripts/render_trivy_rollup.py
         run: |
+          python3 .github/scripts/render_publish_overview.py
           python3 .github/scripts/render_trivy_rollup.py
           echo "::group::Aggregated Trivy rollup"
           cat trivy-rollup.md

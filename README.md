@@ -23,6 +23,10 @@ See [`CONTRIBUTING.md`](/CONTRIBUTING.md#development-tools).
 See the instructions in [`docker/README.md`](./docker/README.md) to run the bridge nodes
 and their corresponding secret-service nodes.
 
+## Deployment
+
+See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for the image publish workflow and manual deployment procedure.
+
 ## Contributing
 
 Contributions are generally welcome.
