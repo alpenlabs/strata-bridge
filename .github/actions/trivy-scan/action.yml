@@ -60,6 +60,12 @@ runs:
       shell: bash
       run: mkdir -p trivy-results
 
+    - name: Install Trivy once for ${{ inputs.display_name }}
+      uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1 # v0.2.4
+      with:
+        version: v0.65.0
+        cache: true
+
     - name: Run Trivy JSON scan for ${{ inputs.display_name }}
       id: trivy_json
       continue-on-error: true
@@ -74,6 +80,9 @@ runs:
         docker-host: unix:///var/run/docker.sock
         exit-code: "0"
         hide-progress: "true"
+        # The default Trivy action is still responsible for the scan. We install the binary once
+        # above because repeated nested setup-trivy calls are what currently break report output.
+        skip-setup-trivy: "true"
 
     - name: Run Trivy SARIF scan for ${{ inputs.display_name }}
       id: trivy_sarif
@@ -89,6 +98,7 @@ runs:
         docker-host: unix:///var/run/docker.sock
         exit-code: "0"
         hide-progress: "true"
+        skip-setup-trivy: "true"
 
     - name: Record Trivy scan status for ${{ inputs.display_name }}
       id: trivy_scan
@@ -167,6 +177,8 @@ runs:
         findings = []
         markdown_lines = []
 
+        # Trivy mixes lists, dicts, and nulls across result categories depending on scanner/output.
+        # Normalize that here so the markdown report stays stable across image contents and versions.
         def iter_items(value):
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
