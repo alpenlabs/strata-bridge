@@ -190,3 +190,38 @@ class DevCli:
         # HACK: (@Rajil1213) parse raw stdout to extract txid
         txid = res.splitlines()[-1].split("=")[-1].strip()
         return txid
+
+    def send_claim(
+        self,
+        deposit_idx: int,
+        operator_idx: int,
+        bridge_node_url: str,
+        seed: str,
+    ):
+        rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
+        wallet = self.bitcoind_props.get("walletname", "testwallet")
+
+        args = [
+            "claim",
+            "--btc-url",
+            f"http://127.0.0.1:{rpc_port}/wallet/{wallet}",
+            "--btc-user",
+            self.bitcoind_props.get("rpc_user", "user"),
+            "--btc-pass",
+            self.bitcoind_props.get("rpc_password", "password"),
+            "--params",
+            self.params_path,
+            "--deposit-idx",
+            str(deposit_idx),
+            "--operator-idx",
+            str(operator_idx),
+            "--bridge-node-url",
+            bridge_node_url,
+            "--seed",
+            seed,
+        ]
+
+        res = self._run_command(args)
+        # HACK: (@Rajil1213) parse raw stdout to extract txid
+        txid = res.splitlines()[-1].split("=")[-1].strip()
+        return txid
