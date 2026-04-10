@@ -7,13 +7,14 @@ use std::{
 
 use bitcoin::{Txid, secp256k1::schnorr::Signature};
 use musig2::{AggNonce, PartialSignature, PubNonce};
+use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use strata_bridge_tx_graph::stake_graph::{StakeGraph, StakeGraphSummary};
 
 use crate::stake::context::MinimumStakeData;
 
 /// The state of a Stake State Machine.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StakeState {
     /// Initial state.
     Created {
