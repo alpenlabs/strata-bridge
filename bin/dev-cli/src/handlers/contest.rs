@@ -1,8 +1,9 @@
-use std::{num::NonZero, str::FromStr};
+use std::num::NonZero;
 
 use anyhow::bail;
 use bitcoin::{bip32::Xpriv, relative, Network};
 use bitcoincore_rpc::RpcApi;
+use strata_bridge_common::params::Params;
 use strata_bridge_key_deriv::{Musig2Keypair, Musig2Keys, OperatorKeys};
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_rpc::traits::{StrataBridgeControlApiClient, StrataBridgeDaApiClient};
@@ -10,10 +11,9 @@ use strata_bridge_tx_graph::{
     game_graph::{GameData, GameGraph, ProtocolParams},
     musig_functor::GameFunctor,
 };
-use strata_l1_txfmt::MagicBytes;
 use tracing::info;
 
-use crate::{cli, handlers::rpc, params::Params};
+use crate::{cli, handlers::rpc};
 
 /// Publish a contest transaction for the given graph idx.
 ///
@@ -75,18 +75,20 @@ pub(crate) async fn handle_contest(args: cli::ContestArgs) -> anyhow::Result<()>
 
     let protocol_params = ProtocolParams {
         network: params.network,
-        magic_bytes: MagicBytes::from_str(&params.tag)?,
-        contest_timelock: relative::Height::from(params.contest_timelock),
-        proof_timelock: relative::Height::from(params.proof_timelock),
-        ack_timelock: relative::Height::from(params.ack_timelock),
-        nack_timelock: relative::Height::from(params.nack_timelock),
-        contested_payout_timelock: relative::Height::from(params.contested_payout_timelock),
+        magic_bytes: params.protocol.magic_bytes,
+        contest_timelock: relative::Height::from(params.protocol.contest_timelock),
+        proof_timelock: relative::Height::from(params.protocol.proof_timelock),
+        ack_timelock: relative::Height::from(params.protocol.ack_timelock),
+        nack_timelock: relative::Height::from(params.protocol.nack_timelock),
+        contested_payout_timelock: relative::Height::from(
+            params.protocol.contested_payout_timelock,
+        ),
         // TODO: <https://atlassian.alpenlabs.net/browse/STR-2945>
         // use the COUNTERPROOF_N_BYTES constant in a future refactor
         // proof bytes (groth16) + deposit_idx (4 bytes) + operator pubkey (32 bytes)
         counterproof_n_bytes: NonZero::new(128 + 32 + 4).expect("non-zero"),
-        deposit_amount: params.deposit_amount,
-        stake_amount: params.stake_amount,
+        deposit_amount: params.protocol.deposit_amount,
+        stake_amount: params.protocol.stake_amount,
     };
 
     let game_data = GameData {

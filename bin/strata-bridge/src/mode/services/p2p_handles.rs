@@ -9,16 +9,14 @@ use libp2p_identity::{
 };
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{P2PSigner, SecretService};
+use strata_bridge_common::params::Params;
 use strata_bridge_p2p_service::{Configuration as P2PConfiguration, bootstrap as p2p_bootstrap};
 use strata_bridge_primitives::types::P2POperatorPubKey;
 use strata_p2p::swarm::handle::{CommandHandle, GossipHandle, ReqRespHandle};
 use strata_tasks::TaskExecutor;
 use tracing::{debug, info};
 
-use crate::{
-    config::{Config, P2PConfig},
-    params::Params,
-};
+use crate::config::{Config, P2PConfig};
 
 /// Results of initializing the P2P system.
 #[derive(Debug)]

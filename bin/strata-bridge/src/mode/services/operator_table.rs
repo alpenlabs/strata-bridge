@@ -4,13 +4,12 @@ use anyhow::Context;
 use secp256k1::Parity;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
+use strata_bridge_common::params::Params;
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{OperatorIdx, P2POperatorPubKey},
 };
 use tracing::info;
-
-use crate::params::Params;
 
 pub(in crate::mode) async fn init_operator_table(
     params: &Params,

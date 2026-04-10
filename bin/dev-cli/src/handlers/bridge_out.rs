@@ -11,9 +11,10 @@ use alloy::{
 use alloy_signer::k256::ecdsa::SigningKey;
 use anyhow::{Context, Result};
 use bitcoin_bosd::Descriptor;
+use strata_bridge_common::params::Params;
 use tracing::info;
 
-use crate::{cli::BridgeOutArgs, params::Params};
+use crate::cli::BridgeOutArgs;
 
 pub(crate) const BTC_TO_WEI: u128 = ETH_TO_WEI;
 
@@ -24,6 +25,7 @@ pub(crate) async fn handle_bridge_out(args: BridgeOutArgs) -> Result<()> {
         destination_address_pubkey,
         private_key,
         ee_url,
+        bridge_out_addr,
         params,
     } = args;
     let params = Params::from_path(params).context("failed to read params file")?;
@@ -40,9 +42,8 @@ pub(crate) async fn handle_bridge_out(args: BridgeOutArgs) -> Result<()> {
         .unwrap();
     let bosd_data = Descriptor::new_p2tr(&data).unwrap().to_bytes();
 
-    let amount = U256::from(params.deposit_amount.to_sat() as u128 * SATS_TO_WEI);
-    let rollup_address =
-        EvmAddress::from_str(&params.bridge_out_addr).context("precompile address")?;
+    let amount = U256::from(params.protocol.deposit_amount.to_sat() as u128 * SATS_TO_WEI);
+    let rollup_address = EvmAddress::from_str(&bridge_out_addr).context("precompile address")?;
 
     create_withdrawal_transaction(rollup_address, ee_url.as_str(), bosd_data, &wallet, amount)
         .await?;

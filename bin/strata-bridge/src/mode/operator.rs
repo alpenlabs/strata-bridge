@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use bitcoind_async_client::traits::Reader;
+use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_tasks::TaskExecutor;
 use tracing::{debug, info};
@@ -18,7 +19,6 @@ use crate::{
         rpc_server::init_rpc_server,
         secret_service::init_secret_service_client,
     },
-    params::Params,
 };
 
 pub(crate) async fn bootstrap(

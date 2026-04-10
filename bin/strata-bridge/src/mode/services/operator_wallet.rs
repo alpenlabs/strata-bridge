@@ -12,6 +12,7 @@ use bitcoin::{
 use operator_wallet::{OperatorWallet, OperatorWalletConfig, sync::Backend};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
+use strata_bridge_common::params::Params;
 use strata_bridge_connectors::{
     Connector,
     prelude::{ClaimContestConnector, ClaimPayoutConnector},
@@ -20,7 +21,7 @@ use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb};
 use strata_bridge_primitives::constants::SEGWIT_MIN_AMOUNT;
 use tracing::{debug, info};
 
-use crate::{config::Config, params::Params};
+use crate::config::Config;
 
 pub(in crate::mode) async fn init_operator_wallet(
     config: &Config,

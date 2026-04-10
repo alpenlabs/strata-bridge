@@ -9,6 +9,7 @@ use miniscript::Miniscript;
 use musig2::KeyAggContext;
 use secp256k1::{Keypair, Parity, XOnlyPublicKey, SECP256K1};
 use strata_asm_txs_bridge_v1::deposit_request::DrtHeaderAux;
+use strata_bridge_common::params::Params;
 use strata_identifiers::{AccountSerial, DepositDescriptor, SubjectIdBytes};
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 use tracing::info;
@@ -19,7 +20,6 @@ use crate::{
         rpc,
         wallet::{self, PsbtWallet},
     },
-    params::Params,
 };
 
 pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
@@ -38,23 +38,21 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
     let ee_address = EvmAddress::from_str(&ee_address)?;
     let recovery_pubkey = get_recovery_pubkey();
 
-    let metadata = build_sps50_metadata(&params.tag, &ee_address, &recovery_pubkey)?;
+    let metadata =
+        build_sps50_metadata(params.protocol.magic_bytes, &ee_address, &recovery_pubkey)?;
 
-    let timelock_script = build_timelock_miniscript(params.refund_delay, recovery_pubkey);
+    let timelock_script =
+        build_timelock_miniscript(params.protocol.recovery_delay, recovery_pubkey);
 
-    let agg_key = KeyAggContext::new(
-        params
-            .musig2_keys
-            .into_iter()
-            .map(|k| k.public_key(Parity::Even)),
-    )
-    .expect("must be able to aggregate keys")
-    .aggregated_pubkey();
+    let musig2_keys: Vec<XOnlyPublicKey> = params.keys.covenant.iter().map(|c| c.musig2).collect();
+    let agg_key = KeyAggContext::new(musig2_keys.into_iter().map(|k| k.public_key(Parity::Even)))
+        .expect("must be able to aggregate keys")
+        .aggregated_pubkey();
     let taproot_address = generate_taproot_address(params.network, timelock_script, agg_key);
 
     let deposit_fees = Amount::from_sat(1_000);
     let psbt = psbt_wallet.create_drt_psbt(
-        params.deposit_amount + deposit_fees,
+        params.protocol.deposit_amount + deposit_fees,
         &taproot_address,
         metadata,
         &params.network,
@@ -68,7 +66,7 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
 ///
 /// Format: `magic(4) + subprotocol(1) + tx_type(1) + recovery_pk(32) + destination(variable)`
 fn build_sps50_metadata(
-    magic: &str,
+    magic_bytes: MagicBytes,
     ee_address: &EvmAddress,
     recovery_pubkey: &XOnlyPublicKey,
 ) -> Result<Vec<u8>> {
@@ -84,7 +82,6 @@ fn build_sps50_metadata(
     .expect("header aux creation should succeed");
 
     let tag_data = header_aux.build_tag_data();
-    let magic_bytes: MagicBytes = magic.parse()?;
     let config = ParseConfig::new(magic_bytes);
     let encoded = config.encode_tag_buf(&tag_data.as_ref())?;
 
