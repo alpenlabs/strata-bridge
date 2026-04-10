@@ -9,6 +9,7 @@ from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
     wait_until_drt_recognized,
+    wait_until_utxo_spent,
 )
 from utils.dev_cli import DevCli
 from utils.utils import (
@@ -16,7 +17,7 @@ from utils.utils import (
     wait_for_tx_confirmation,
     wait_until,
 )
-from utils.withdrawal import wait_until_active_valid_claim, wait_until_bridge_proof_timedout
+from utils.withdrawal import wait_until_active_valid_claim
 
 
 @flexitest.register
@@ -142,9 +143,9 @@ class BridgeProofTimeoutTest(StrataTestBase):
         )
         self.logger.info(f"Contest tx {contest_txid} confirmed in block {contest_block_hash}")
 
-        # Use a non-assigned operator's RPC to wait for the proof timeout phase
-        contester_bridge_rpc = bridge_rpcs[contester_idx]
-        wait_until_bridge_proof_timedout(contester_bridge_rpc, active_claim.deposit_idx)
-        self.logger.info("Claim phase confirmed as bridge_proof_timedout")
+        # Wait for the contest-proof connector (vout 0) to be spent.
+        # The assigned operator is shut down, so only the proof-timeout tx can spend it.
+        wait_until_utxo_spent(bitcoin_rpc, contest_txid, vout=0, timeout=600)
+        self.logger.info("Contest-proof connector spent (bridge proof timed out)")
 
         return True
