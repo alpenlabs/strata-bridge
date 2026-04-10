@@ -56,56 +56,74 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Run Trivy scan for ${{ inputs.display_name }}
+    - name: Prepare Trivy output directory
+      shell: bash
+      run: mkdir -p trivy-results
+
+    - name: Run Trivy JSON scan for ${{ inputs.display_name }}
+      id: trivy_json
+      continue-on-error: true
+      uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+      with:
+        scan-type: image
+        scan-ref: ${{ inputs.image_ref }}
+        format: json
+        output: trivy-results/${{ inputs.component }}.json
+        timeout: ${{ inputs.trivy_timeout }}
+        scanners: ${{ inputs.trivy_scanners }}
+        docker-host: unix:///var/run/docker.sock
+        exit-code: "0"
+        hide-progress: "true"
+
+    - name: Run Trivy SARIF scan for ${{ inputs.display_name }}
+      id: trivy_sarif
+      continue-on-error: true
+      uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+      with:
+        scan-type: image
+        scan-ref: ${{ inputs.image_ref }}
+        format: sarif
+        output: trivy-results/${{ inputs.component }}.sarif
+        timeout: ${{ inputs.trivy_timeout }}
+        scanners: ${{ inputs.trivy_scanners }}
+        docker-host: unix:///var/run/docker.sock
+        exit-code: "0"
+        hide-progress: "true"
+        skip-setup-trivy: "true"
+
+    - name: Record Trivy scan status for ${{ inputs.display_name }}
       id: trivy_scan
       shell: bash
       env:
-        IMAGE_REF: ${{ inputs.image_ref }}
         COMPONENT: ${{ inputs.component }}
         DISPLAY_NAME: ${{ inputs.display_name }}
-        TRIVY_TIMEOUT: ${{ inputs.trivy_timeout }}
-        TRIVY_SCANNERS: ${{ inputs.trivy_scanners }}
+        JSON_OUTCOME: ${{ steps.trivy_json.outcome }}
+        SARIF_OUTCOME: ${{ steps.trivy_sarif.outcome }}
       run: |
-        mkdir -p trivy-results
-        set +e
-        docker run --rm \
-          -v "${PWD}/trivy-results:/workdir" \
-          -v "${HOME}/.docker:/root/.docker:ro" \
-          -v /var/run/docker.sock:/var/run/docker.sock \
-          aquasec/trivy:0.65.0 \
-          image \
-          --timeout "${TRIVY_TIMEOUT}" \
-          --skip-version-check \
-          --scanners "${TRIVY_SCANNERS}" \
-          --format json \
-          --output "/workdir/${COMPONENT}.json" \
-          "${IMAGE_REF}"
-        json_rc=$?
-        docker run --rm \
-          -v "${PWD}/trivy-results:/workdir" \
-          -v "${HOME}/.docker:/root/.docker:ro" \
-          -v /var/run/docker.sock:/var/run/docker.sock \
-          aquasec/trivy:0.65.0 \
-          image \
-          --timeout "${TRIVY_TIMEOUT}" \
-          --skip-version-check \
-          --scanners "${TRIVY_SCANNERS}" \
-          --format sarif \
-          --output "/workdir/${COMPONENT}.sarif" \
-          "${IMAGE_REF}"
-        sarif_rc=$?
+        if [[ "${JSON_OUTCOME}" == "success" ]]; then
+          json_rc=0
+        else
+          json_rc=1
+        fi
+
+        if [[ "${SARIF_OUTCOME}" == "success" ]]; then
+          sarif_rc=0
+        else
+          sarif_rc=1
+        fi
+
         if [[ "${json_rc}" -eq 0 && "${sarif_rc}" -eq 0 ]]; then
           status="success"
         else
           status="failed"
           echo "::warning::Advisory Trivy scan for ${DISPLAY_NAME} had json_rc=${json_rc} sarif_rc=${sarif_rc}"
         fi
+
         {
           echo "json_rc=${json_rc}"
           echo "sarif_rc=${sarif_rc}"
           echo "status=${status}"
         } >> "${GITHUB_OUTPUT}"
-        exit 0
 
     - name: Detect Trivy outputs for ${{ inputs.display_name }}
       if: always()
