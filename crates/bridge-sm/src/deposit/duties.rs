@@ -159,6 +159,8 @@ pub enum DepositDuty {
         deposit_outpoint: OutPoint,
         /// Ordered public keys of all operators for MuSig2 signing.
         ordered_pubkeys: Vec<XOnlyPublicKey>,
+        /// The taproot tweak for the deposit output.
+        tweak: TaprootTweak,
     },
     /// Publish the partial signature for spending the deposit UTXO cooperatively.
     PublishPayoutPartial {

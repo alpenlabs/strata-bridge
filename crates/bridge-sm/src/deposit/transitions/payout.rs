@@ -216,6 +216,8 @@ impl DepositSM {
                         deposit_idx,
                         deposit_outpoint,
                         ordered_pubkeys,
+                        // NOfNConnector uses key-path spend with no script tree
+                        tweak: TaprootTweak::Key { tweak: None },
                     },
                 ]))
             }

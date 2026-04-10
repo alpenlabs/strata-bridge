@@ -3,6 +3,8 @@
 mod tests {
     use std::collections::BTreeMap;
 
+    use strata_bridge_primitives::scripts::taproot::TaprootTweak;
+
     use crate::deposit::{
         duties::DepositDuty,
         errors::DSMError,
@@ -48,6 +50,7 @@ mod tests {
                     .into_iter()
                     .map(|pk| pk.x_only_public_key().0)
                     .collect(),
+                tweak: TaprootTweak::Key { tweak: None },
             }],
             expected_signals: vec![],
         });

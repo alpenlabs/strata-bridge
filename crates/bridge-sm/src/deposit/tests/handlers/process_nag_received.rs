@@ -5,6 +5,7 @@ mod tests {
 
     use musig2::AggNonce;
     use strata_bridge_p2p_types::NagRequestPayload;
+    use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 
     use crate::{
         deposit::{
@@ -186,6 +187,7 @@ mod tests {
             deposit_idx: TEST_DEPOSIT_IDX,
             deposit_outpoint: test_deposit_outpoint(),
             ordered_pubkeys,
+            tweak: TaprootTweak::Key { tweak: None },
         };
 
         let nag_event = create_nag_event(NagRequestPayload::PayoutNonce {
@@ -223,6 +225,7 @@ mod tests {
             deposit_idx: TEST_DEPOSIT_IDX,
             deposit_outpoint: test_deposit_outpoint(),
             ordered_pubkeys,
+            tweak: TaprootTweak::Key { tweak: None },
         };
 
         let nag_event = create_nag_event(NagRequestPayload::PayoutNonce {

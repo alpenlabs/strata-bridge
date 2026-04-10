@@ -106,12 +106,14 @@ pub async fn execute_deposit_duty(
             deposit_idx,
             deposit_outpoint,
             ordered_pubkeys,
+            tweak,
         } => {
             publish_payout_nonce(
                 &output_handles,
                 *deposit_idx,
                 *deposit_outpoint,
                 ordered_pubkeys,
+                *tweak,
             )
             .await
         }
@@ -618,13 +620,14 @@ async fn publish_payout_nonce(
     deposit_idx: DepositIdx,
     deposit_outpoint: OutPoint,
     ordered_pubkeys: &[XOnlyPublicKey],
+    tweak: TaprootTweak,
 ) -> Result<(), ExecutorError> {
     info!(%deposit_outpoint, "executing publish_payout_nonce duty");
 
     // Create Musig2Params for key-path spend (n-of-n)
     let params = Musig2Params {
         ordered_pubkeys: ordered_pubkeys.to_vec(),
-        tweak: TaprootTweak::Key { tweak: None },
+        tweak,
         input: deposit_outpoint,
     };
 
