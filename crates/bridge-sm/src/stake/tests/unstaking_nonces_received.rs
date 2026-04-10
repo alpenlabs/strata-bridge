@@ -9,9 +9,7 @@ use crate::{
     testing::EventSequence,
 };
 
-fn stake_graph_generated_state(
-    pub_nonces: BTreeMap<u32, [PubNonce; StakeGraph::N_MUSIG_INPUTS]>,
-) -> StakeState {
+fn stake_graph_generated_state(pub_nonces: BTreeMap<u32, StakeFunctor<PubNonce>>) -> StakeState {
     StakeState::StakeGraphGenerated {
         last_block_height: STAKE_HEIGHT,
         stake_data: TEST_STAKE_DATA.clone(),
@@ -20,7 +18,7 @@ fn stake_graph_generated_state(
     }
 }
 
-fn operator_pub_nonces(operator_idx: u32) -> [PubNonce; StakeGraph::N_MUSIG_INPUTS] {
+fn operator_pub_nonces(operator_idx: u32) -> StakeFunctor<PubNonce> {
     TEST_PUB_NONCES_MAP[&operator_idx].clone()
 }
 
@@ -106,15 +104,15 @@ fn accept_nonces_all_collected() {
         *last_block_height == STAKE_HEIGHT
         && *stake_data == *TEST_STAKE_DATA
         && *summary == *TEST_GRAPH_SUMMARY
-        && *pub_nonces ==  TEST_PUB_NONCES_MAP.clone()
-        && *agg_nonces == TEST_AGG_NONCES.clone()
+        && *pub_nonces ==  *TEST_PUB_NONCES_MAP
+        && **agg_nonces == *TEST_AGG_NONCES
         && partial_signatures.is_empty()
     )));
 
     let duties = seq.all_duties();
     assert!(
         matches!(duties.as_slice(), [StakeDuty::PublishUnstakingPartials { operator_idx, agg_nonces, .. }] if {
-            *operator_idx == TEST_CTX.operator_idx() && *agg_nonces == TEST_AGG_NONCES.clone()
+            *operator_idx == TEST_CTX.operator_idx() && **agg_nonces == *TEST_AGG_NONCES
         })
     );
 }
@@ -152,7 +150,7 @@ fn reject_duplicate_in_collected_nonces() {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-            agg_nonces: TEST_AGG_NONCES.clone(),
+            agg_nonces: TEST_AGG_NONCES.clone().boxed(),
             summary: *TEST_GRAPH_SUMMARY,
             partial_signatures: BTreeMap::new(),
         },

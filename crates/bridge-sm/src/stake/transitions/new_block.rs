@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use strata_bridge_tx_graph::{musig_functor::StakeFunctor, stake_graph::StakeGraph};
+use strata_bridge_tx_graph::stake_graph::StakeGraph;
 
 use crate::{
     stake::{
@@ -60,12 +60,9 @@ impl StakeSM {
                     + u64::from(cfg.protocol_params.game_timelock.value())
         {
             let stake_graph = StakeGraph::new(stake_data.expand(*cfg, self.context()));
-            let unstaking_sig_functor = StakeFunctor::unpack(
-                signatures
-                    .expect("own signatures must be present in state")
-                    .to_vec(),
-            )
-            .expect("signatures already in state must be valid");
+            let unstaking_sig_functor =
+                signatures.expect("own signatures must be present in state");
+
             let unstaking_tx = stake_graph
                 .unstaking
                 .finalize(unstaking_sig_functor.unstaking);

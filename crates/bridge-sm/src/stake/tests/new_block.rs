@@ -1,7 +1,5 @@
 //! Unit tests for [`StakeSM::process_new_block`].
 
-use strata_bridge_tx_graph::musig_functor::StakeFunctor;
-
 use super::*;
 use crate::stake::{duties::StakeDuty, errors::SSMError, events::NewBlockEvent, state::StakeState};
 
@@ -19,7 +17,7 @@ fn states_with_last_block_height(last_block_height: u64) -> [StakeState; 6] {
             stake_data: TEST_STAKE_DATA.clone(),
             summary: *TEST_GRAPH_SUMMARY,
             pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-            agg_nonces: TEST_AGG_NONCES.clone(),
+            agg_nonces: TEST_AGG_NONCES.clone().boxed(),
             partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
         },
         StakeState::UnstakingSigned {
@@ -134,9 +132,11 @@ fn preimage_revealed_timelock_mature() {
     let new_height = UNSTAKING_INTENT_HEIGHT + TEST_UNSTAKING_TIMELOCK + 1;
     let from_state = preimage_revealed_state(STAKE_HEIGHT, UNSTAKING_INTENT_HEIGHT);
     let expected_state = preimage_revealed_state(new_height, UNSTAKING_INTENT_HEIGHT);
-    let stake_graph = TEST_GRAPH.clone();
-    let stake_sig_functor = StakeFunctor::unpack(TEST_FINAL_SIGS.to_vec()).unwrap();
-    let unstaking_tx = stake_graph.unstaking.finalize(stake_sig_functor.unstaking);
+    let unstaking_tx = TEST_GRAPH
+        .unstaking
+        .clone()
+        .finalize(TEST_FINAL_SIGS.unstaking);
+
     test_stake_transition(StakeTransition {
         from_state,
         event: NewBlockEvent {

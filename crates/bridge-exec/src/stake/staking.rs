@@ -21,7 +21,7 @@ use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, create_key_spend_hash, finalize_input},
     types::OperatorIdx,
 };
-use strata_bridge_tx_graph::stake_graph::StakeGraph;
+use strata_bridge_tx_graph::musig_functor::StakeFunctor;
 use tracing::{info, warn};
 
 use crate::{
@@ -186,22 +186,20 @@ async fn sign_with_general_wallet(
 pub(crate) async fn publish_unstaking_nonces(
     output_handles: &OutputHandles,
     operator_idx: OperatorIdx,
-    graph_inpoints: [bitcoin::OutPoint; StakeGraph::N_MUSIG_INPUTS],
-    graph_tweaks: [TaprootTweak; StakeGraph::N_MUSIG_INPUTS],
+    graph_inpoints: StakeFunctor<OutPoint>,
+    graph_tweaks: StakeFunctor<TaprootTweak>,
     ordered_pubkeys: Vec<XOnlyPublicKey>,
 ) -> Result<(), ExecutorError> {
     info!(%operator_idx, "generating and publishing unstaking nonces for the stake graph");
 
     let musig_signer = output_handles.s2_client.musig2_signer();
 
-    let nonce_futures = graph_inpoints
-        .iter()
-        .zip(graph_tweaks.iter())
+    let nonce_futures = graph_inpoints.zip(graph_tweaks).into_iter()
         .map(|(inpoint, tweak)| {
             let params = Musig2Params {
                 ordered_pubkeys: ordered_pubkeys.clone(),
-                tweak: *tweak,
-                input: *inpoint,
+                tweak,
+                input: inpoint,
             };
 
             musig_signer.get_pub_nonce(params).map(move |res| match res {
@@ -232,29 +230,26 @@ pub(crate) async fn publish_unstaking_nonces(
 pub(crate) async fn publish_unstaking_partials(
     output_handles: &OutputHandles,
     operator_idx: OperatorIdx,
-    graph_inpoints: [bitcoin::OutPoint; StakeGraph::N_MUSIG_INPUTS],
-    graph_tweaks: [TaprootTweak; StakeGraph::N_MUSIG_INPUTS],
-    sighashes: [Message; StakeGraph::N_MUSIG_INPUTS],
-    agg_nonces: &[AggNonce; StakeGraph::N_MUSIG_INPUTS],
+    graph_inpoints: StakeFunctor<OutPoint>,
+    graph_tweaks: StakeFunctor<TaprootTweak>,
+    sighashes: StakeFunctor<Message>,
+    agg_nonces: StakeFunctor<AggNonce>,
     ordered_pubkeys: Vec<XOnlyPublicKey>,
 ) -> Result<(), ExecutorError> {
     info!(%operator_idx, "generating and publishing unstaking partial signatures for the stake graph");
 
     let musig_signer = output_handles.s2_client.musig2_signer();
-    let partial_futures = graph_inpoints
-        .iter()
-        .zip(graph_tweaks.iter())
-        .zip(sighashes.iter())
-        .zip(agg_nonces.iter())
-        .map(|(((inpoint, tweak), sighash), agg_nonce)| {
+
+    let partial_futures = StakeFunctor::zip4(graph_inpoints, graph_tweaks, sighashes, agg_nonces)
+        .map(|(inpoint, tweak, sighash, agg_nonce)| {
             let params = Musig2Params {
                 ordered_pubkeys: ordered_pubkeys.clone(),
-                tweak: *tweak,
-                input: *inpoint,
+                tweak,
+                input: inpoint,
             };
 
             musig_signer
-                .get_our_partial_sig(params, agg_nonce.clone(), *sighash.as_ref())
+                .get_our_partial_sig(params, agg_nonce, *sighash.as_ref())
                 .map(move |res| match res {
                     Ok(inner) => inner.map_err(|e| match e.to_enum() {
                         terrors::E2::A(_) => {

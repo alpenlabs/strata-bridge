@@ -91,7 +91,7 @@ fn nag_unstaking_partials() {
         stake_data: TEST_STAKE_DATA.clone(),
         summary: *TEST_GRAPH_SUMMARY,
         pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-        agg_nonces: TEST_AGG_NONCES.clone(),
+        agg_nonces: TEST_AGG_NONCES.clone().boxed(),
         partial_signatures,
     };
     let expected_state = from_state.clone();
