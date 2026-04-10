@@ -91,7 +91,7 @@ strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", rev = "124ed
 strata-checkpoint-types-ssz = { git = "https://github.com/alpenlabs/asm.git", rev = "124edbf43be12c2ebad4e5776727ba06259f8dfb" }
 strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "124edbf43be12c2ebad4e5776727ba06259f8dfb" }
 
-# Dependencies from alpenlabs/mosaic
+# Dependencies from alpenlabs/mosaic pinned to commit 060ce5f1 (main @ 2026-04-09)
 mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "060ce5f1310e2ceed92137d16324a0f58b413e0f" }
 mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "060ce5f1310e2ceed92137d16324a0f58b413e0f" }
 mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "060ce5f1310e2ceed92137d16324a0f58b413e0f" }
