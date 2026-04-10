@@ -31,7 +31,6 @@ strata-primitives.workspace = true
 strata-test-utils.workspace = true
 
 alloy.workspace = true
-alloy-signer.workspace = true
 anyhow.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd = { workspace = true, features = ["address"] }

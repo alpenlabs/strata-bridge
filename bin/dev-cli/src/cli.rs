@@ -18,8 +18,6 @@ pub(crate) struct Cli {
 pub(crate) enum Commands {
     BridgeIn(BridgeInArgs),
 
-    BridgeOut(BridgeOutArgs),
-
     DeriveKeys(DeriveKeysArgs),
 
     /// Create and publish a mock checkpoint.
@@ -56,25 +54,6 @@ pub(crate) struct BridgeInArgs {
 
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,
-}
-
-#[derive(Parser, Debug, Clone)]
-#[command(about = "Send withdrawal request on strata", version)]
-pub(crate) struct BridgeOutArgs {
-    #[arg(long, help = "the pubkey to send funds to on bitcoin")]
-    pub(crate) destination_address_pubkey: String,
-
-    #[arg(long, help = "the url of the execution environment aka the reth node")]
-    pub(crate) ee_url: String,
-
-    #[arg(long, help = "the bridge-out precompile address on the EVM")]
-    pub(crate) bridge_out_addr: String,
-
-    #[arg(long, help = "the path to the params file")]
-    pub(crate) params: PathBuf,
-
-    #[arg(long, help = "the private key for an address in strata")]
-    pub(crate) private_key: String,
 }
 
 #[derive(Parser, Debug, Clone)]

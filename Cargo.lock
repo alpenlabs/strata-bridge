@@ -3503,7 +3503,6 @@ name = "dev-cli"
 version = "0.2.0"
 dependencies = [
  "alloy",
- "alloy-signer",
  "anyhow",
  "bitcoin",
  "bitcoin-bosd",
