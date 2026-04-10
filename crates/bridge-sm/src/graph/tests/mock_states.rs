@@ -301,7 +301,11 @@ pub(super) fn uncontested_payout_detecting_states() -> Vec<GraphState> {
 
 /// States that expect contested payout via deposit spend.
 pub(super) fn contested_payout_detecting_states() -> Vec<GraphState> {
-    vec![bridge_proof_posted_state(), all_nackd_state()]
+    vec![
+        contested_state(),
+        bridge_proof_posted_state(),
+        all_nackd_state(),
+    ]
 }
 
 /// States that detect counterproof txids.
