@@ -60,36 +60,55 @@ runs:
       shell: bash
       run: mkdir -p trivy-results
 
+    - name: Install Trivy
+      uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1 # v0.2.4
+      with:
+        version: v0.65.0
+        cache: true
+
     - name: Run Trivy JSON scan for ${{ inputs.display_name }}
       id: trivy_json
-      continue-on-error: true
-      uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-      with:
-        scan-type: image
-        scan-ref: ${{ inputs.image_ref }}
-        format: json
-        output: trivy-results/${{ inputs.component }}.json
-        timeout: ${{ inputs.trivy_timeout }}
-        scanners: ${{ inputs.trivy_scanners }}
-        docker-host: unix:///var/run/docker.sock
-        exit-code: "0"
-        hide-progress: "true"
+      shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.image_ref }}
+        COMPONENT: ${{ inputs.component }}
+        TRIVY_TIMEOUT: ${{ inputs.trivy_timeout }}
+        TRIVY_SCANNERS: ${{ inputs.trivy_scanners }}
+        TRIVY_DOCKER_HOST: unix:///var/run/docker.sock
+      run: |
+        set +e
+        trivy image \
+          --timeout "${TRIVY_TIMEOUT}" \
+          --skip-version-check \
+          --scanners "${TRIVY_SCANNERS}" \
+          --format json \
+          --output "trivy-results/${COMPONENT}.json" \
+          "${IMAGE_REF}"
+        rc=$?
+        echo "json_rc=${rc}" >> "${GITHUB_OUTPUT}"
+        exit 0
 
     - name: Run Trivy SARIF scan for ${{ inputs.display_name }}
       id: trivy_sarif
-      continue-on-error: true
-      uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-      with:
-        scan-type: image
-        scan-ref: ${{ inputs.image_ref }}
-        format: sarif
-        output: trivy-results/${{ inputs.component }}.sarif
-        timeout: ${{ inputs.trivy_timeout }}
-        scanners: ${{ inputs.trivy_scanners }}
-        docker-host: unix:///var/run/docker.sock
-        exit-code: "0"
-        hide-progress: "true"
-        skip-setup-trivy: "true"
+      shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.image_ref }}
+        COMPONENT: ${{ inputs.component }}
+        TRIVY_TIMEOUT: ${{ inputs.trivy_timeout }}
+        TRIVY_SCANNERS: ${{ inputs.trivy_scanners }}
+        TRIVY_DOCKER_HOST: unix:///var/run/docker.sock
+      run: |
+        set +e
+        trivy image \
+          --timeout "${TRIVY_TIMEOUT}" \
+          --skip-version-check \
+          --scanners "${TRIVY_SCANNERS}" \
+          --format sarif \
+          --output "trivy-results/${COMPONENT}.sarif" \
+          "${IMAGE_REF}"
+        rc=$?
+        echo "sarif_rc=${rc}" >> "${GITHUB_OUTPUT}"
+        exit 0
 
     - name: Record Trivy scan status for ${{ inputs.display_name }}
       id: trivy_scan
@@ -97,20 +116,13 @@ runs:
       env:
         COMPONENT: ${{ inputs.component }}
         DISPLAY_NAME: ${{ inputs.display_name }}
-        JSON_OUTCOME: ${{ steps.trivy_json.outcome }}
-        SARIF_OUTCOME: ${{ steps.trivy_sarif.outcome }}
+        JSON_RC: ${{ steps.trivy_json.outputs.json_rc }}
+        SARIF_RC: ${{ steps.trivy_sarif.outputs.sarif_rc }}
       run: |
-        if [[ "${JSON_OUTCOME}" == "success" ]]; then
-          json_rc=0
-        else
-          json_rc=1
-        fi
-
-        if [[ "${SARIF_OUTCOME}" == "success" ]]; then
-          sarif_rc=0
-        else
-          sarif_rc=1
-        fi
+        # Keep the scans advisory: the Trivy commands write their exit codes to step outputs so the
+        # workflow can publish images and still surface issues without losing the report artifacts.
+        json_rc="${JSON_RC:-1}"
+        sarif_rc="${SARIF_RC:-1}"
 
         if [[ "${json_rc}" -eq 0 && "${sarif_rc}" -eq 0 ]]; then
           status="success"
@@ -166,6 +178,8 @@ runs:
         findings = []
         markdown_lines = []
 
+        # Emit a per-image markdown summary that is readable in the job summary and easy to reuse
+        # in the final rollup job without reopening the raw Trivy outputs by hand.
         markdown_lines.append(f"### Trivy Summary: {component}")
         markdown_lines.append("")
         markdown_lines.append(f"`{image_ref}`")

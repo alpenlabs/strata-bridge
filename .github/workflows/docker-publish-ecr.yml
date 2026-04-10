@@ -106,6 +106,8 @@ jobs:
 
           components="${INPUT_COMPONENTS// /}"
           if [[ -z "${components}" ]]; then
+            # Manual runs default to the publishable app images. Push-triggered test runs use `all`
+            # so the branch exercise covers the full dependency + app image flow.
             if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
               components="strata-bridge,strata-asm-runner,secret-service"
             else
@@ -165,6 +167,8 @@ jobs:
           export BUILD_ASM_RUNNER="${build_asm_runner}"
           export BUILD_SECRET_SERVICE="${build_secret_service}"
 
+          # Generate the matrices in Python so downstream jobs can consume a single JSON payload
+          # instead of repeating the image metadata across multiple YAML conditionals.
           dependency_matrix="$(python3 - <<'PY'
           import json, os
           items = []
@@ -192,6 +196,7 @@ jobs:
           PY
           )"
 
+          # App images share the same dependency tag but differ in Dockerfile, repository, and scan mode.
           app_matrix="$(python3 - <<'PY'
           import json, os
           items = []
@@ -416,6 +421,8 @@ jobs:
         env:
           DEPENDENCY_TAG: ${{ needs.plan.outputs.dependency_tag }}
         run: |
+          # App builds consume bridge-base/bridge-rt by local tag, so pull and retag the dependency
+          # images into the host daemon before the app Dockerfiles run.
           docker pull "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-base:${DEPENDENCY_TAG}"
           docker pull "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-rt:${DEPENDENCY_TAG}"
           docker tag "${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/bridge-base:${DEPENDENCY_TAG}" bridge-base:latest
@@ -521,6 +528,8 @@ jobs:
           from collections import Counter
           from pathlib import Path
 
+          # The per-image jobs already upload the raw JSON/SARIF outputs. This rollup turns those
+          # artifacts into one compact severity table so reviewers can scan the whole publish run.
           severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
           root = Path("trivy-artifacts")
           rows = []
