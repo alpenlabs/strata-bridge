@@ -106,8 +106,9 @@ jobs:
 
           components="${INPUT_COMPONENTS// /}"
           if [[ -z "${components}" ]]; then
-            # Manual runs default to the publishable app images. Push-triggered test runs use `all`
-            # so the branch exercise covers the full dependency + app image flow.
+            # workflow_dispatch without an explicit components input defaults to app images only —
+            # callers who want to rebuild base/rt must pass them explicitly.
+            # Push-triggered runs use `all` so CI exercises the full dependency + app image path.
             if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
               components="strata-bridge,strata-asm-runner,secret-service"
             else
@@ -145,12 +146,16 @@ jobs:
             done
           fi
 
-          # If any app image is requested alongside only one dependency image, force both base and rt to be built together.
+          # App Dockerfiles FROM bridge-base and bridge-rt, so both must exist together in ECR
+          # with the same tag. Building only one of the two would leave a mismatched pair.
           if [[ ("${build_strata_bridge}" == "true" || "${build_asm_runner}" == "true" || "${build_secret_service}" == "true") && ("${build_base}" == "true" || "${build_rt}" == "true") ]]; then
             build_base=true
             build_rt=true
           fi
 
+          # When rebuilding dependencies, the new image tag becomes the dependency tag automatically.
+          # When skipping the dependency build, the caller must supply an existing ECR tag via
+          # dependency_tag so app images know which base/rt to pull.
           dependency_tag="${INPUT_DEPENDENCY_TAG:-}"
           if [[ "${build_base}" == "true" || "${build_rt}" == "true" ]]; then
             dependency_tag="${image_tag}"
@@ -367,6 +372,9 @@ jobs:
     needs:
       - plan
       - build_dependencies
+    # always() is required so this job evaluates even when build_dependencies is skipped
+    # (i.e. only app images were requested). Without it GitHub would cancel app builds
+    # whenever the dependency job is skipped rather than treating skipped as a pass.
     if: |
       always() &&
       needs.plan.outputs.app_matrix != '[]' &&
@@ -536,6 +544,8 @@ jobs:
 
           for artifact_dir in sorted([p for p in root.iterdir() if p.is_dir()] if root.exists() else []):
               json_files = list(artifact_dir.glob("*.json"))
+              # Artifact dirs are named trivy-{component}-{image_tag}; strip the prefix/suffix
+              # to recover the bare component name for the summary table.
               component = artifact_dir.name
               if component.startswith("trivy-") and component.endswith(f"-{os.environ['IMAGE_TAG']}"):
                   component = component[len("trivy-") : -(len(os.environ["IMAGE_TAG"]) + 1)]
