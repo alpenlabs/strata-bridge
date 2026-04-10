@@ -3,6 +3,8 @@ import subprocess
 import tempfile
 from dataclasses import asdict
 
+import toml
+
 from factory.bridge_operator.params_cfg import (
     BridgeOperatorParams,
     BridgeProtocolParams,
@@ -55,8 +57,6 @@ class DevCli:
             ),
             protocol=p,
         )
-
-        import toml
 
         params_path = os.path.join(self.temp_dir, "params.toml")
         with open(params_path, "w") as f:
