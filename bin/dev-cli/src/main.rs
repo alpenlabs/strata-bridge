@@ -7,11 +7,7 @@ use clap::Parser;
 use handlers::derive_keys;
 use strata_bridge_common::logging::{self, LoggerConfig};
 
-<<<<<<< HEAD
-use crate::handlers::{bridge_in, checkpoint, contest};
-=======
-use crate::handlers::{bridge_in, bridge_out, checkpoint, claim, contest};
->>>>>>> b11adeb3 (feat(dev-cli): add claim subcommand)
+use crate::handlers::{bridge_in, checkpoint, claim, contest};
 
 mod cli;
 

@@ -6,6 +6,7 @@ use bitcoin::{
 };
 use bitcoincore_rpc::RpcApi;
 use secp256k1::SECP256K1;
+use strata_bridge_common::params::Params;
 use strata_bridge_key_deriv::WalletKeys;
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_rpc::traits::{StrataBridgeControlApiClient, StrataBridgeDaApiClient};
@@ -14,7 +15,6 @@ use tracing::info;
 use crate::{
     cli,
     handlers::{derive_keys, graph, rpc},
-    params::Params,
 };
 
 /// Post a claim transaction for the given graph idx.

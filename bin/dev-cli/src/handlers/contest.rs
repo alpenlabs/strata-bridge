@@ -1,5 +1,6 @@
 use anyhow::bail;
 use bitcoincore_rpc::RpcApi;
+use strata_bridge_common::params::Params;
 use strata_bridge_key_deriv::Musig2Keys;
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_rpc::traits::{StrataBridgeControlApiClient, StrataBridgeDaApiClient};
@@ -9,7 +10,6 @@ use tracing::info;
 use crate::{
     cli,
     handlers::{derive_keys, graph, rpc},
-    params::Params,
 };
 
 /// Publish a contest transaction for the given graph idx.
