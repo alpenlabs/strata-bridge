@@ -72,6 +72,7 @@ pub(crate) async fn handle_claim(args: cli::ClaimArgs) -> anyhow::Result<()> {
     info!(?graph_idx, "reconstructed game graph");
 
     let claim_tx = game_graph.claim;
+    // The claim tx is constructed with exactly one input (the stakechain funding outpoint).
     let unsigned_claim_tx = claim_tx.as_ref().clone();
     let claim_txid = unsigned_claim_tx.compute_txid();
 
@@ -86,7 +87,17 @@ pub(crate) async fn handle_claim(args: cli::ClaimArgs) -> anyhow::Result<()> {
                 e
             )
         })?;
-    let claim_prevout = funding_tx.output[claim_funding_outpoint.vout as usize].clone();
+    let claim_prevout = funding_tx
+        .output
+        .get(claim_funding_outpoint.vout as usize)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "claim funding outpoint vout {} out of range for tx {}",
+                claim_funding_outpoint.vout,
+                claim_funding_outpoint.txid
+            )
+        })?
+        .clone();
 
     let prevouts = Prevouts::All(&[claim_prevout]);
     let mut sighash_cache = SighashCache::new(&unsigned_claim_tx);
@@ -97,6 +108,8 @@ pub(crate) async fn handle_claim(args: cli::ClaimArgs) -> anyhow::Result<()> {
     let msg = secp256k1::Message::from_digest_slice(sighash.as_ref())
         .map_err(|e| anyhow::anyhow!("failed to create message from sighash: {}", e))?;
 
+    // Assumes the claim funding output is a BIP86 key-path spend under the un-merkled stakechain
+    // key.
     let signature = stakechain_keypair
         .tap_tweak(SECP256K1, None)
         .to_keypair()

@@ -19,7 +19,7 @@ use crate::{
 /// Signs and publishes the contest transaction to challenge a faulty claim.
 pub(super) async fn publish_contest(
     output_handles: &OutputHandles,
-    contest_tx: &ContestTx,
+    contest_tx: ContestTx,
     n_of_n_signature: &Signature,
     watchtower_index: OperatorIdx,
 ) -> Result<(), ExecutorError> {
@@ -40,10 +40,7 @@ pub(super) async fn publish_contest(
             ExecutorError::SecretServiceErr(e)
         })?;
 
-    let signed_tx =
-        contest_tx
-            .clone()
-            .finalize(*n_of_n_signature, watchtower_index, watchtower_signature);
+    let signed_tx = contest_tx.finalize(*n_of_n_signature, watchtower_index, watchtower_signature);
 
     publish_signed_transaction(
         &output_handles.tx_driver,

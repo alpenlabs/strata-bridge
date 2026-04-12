@@ -98,6 +98,7 @@ uv run python entry.py
 
 # Run multiple groups
 ./run_test.sh -g asm payout
+```
 
 ## Running with code coverage
 

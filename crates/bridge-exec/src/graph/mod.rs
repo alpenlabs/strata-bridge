@@ -88,7 +88,7 @@ pub async fn execute_graph_duty(
         } => {
             publish_contest(
                 &output_handles,
-                contest_tx,
+                contest_tx.clone(),
                 n_of_n_signature,
                 *watchtower_index,
             )
