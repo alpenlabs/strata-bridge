@@ -45,12 +45,12 @@ class ClaimPostTest(StrataTestBase):
         bitcoin_rpc = bitcoind_service.create_rpc()
 
         num_operators = len(bridge_nodes)
-        musig2_keys = [read_operator_key(i).MUSIG2_KEY for i in range(num_operators)]
+        operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
 
         bitcoind_props = bitcoind_service.props
         dev_cli = DevCli(
             bitcoind_props,
-            musig2_keys,
+            operator_key_infos,
             bridge_protocol_params=self.bridge_protocol_params,
         )
 

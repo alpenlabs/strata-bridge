@@ -89,26 +89,21 @@ pub(crate) async fn handle_claim(args: cli::ClaimArgs) -> anyhow::Result<()> {
     let claim_prevout = funding_tx.output[claim_funding_outpoint.vout as usize].clone();
 
     let prevouts = Prevouts::All(&[claim_prevout]);
+    let mut sighash_cache = SighashCache::new(&unsigned_claim_tx);
+    let sighash = sighash_cache
+        .taproot_key_spend_signature_hash(0, &prevouts, TapSighashType::Default)
+        .map_err(|e| anyhow::anyhow!("failed to create claim input sighash: {}", e))?;
+
+    let msg = secp256k1::Message::from_digest_slice(sighash.as_ref())
+        .map_err(|e| anyhow::anyhow!("failed to create message from sighash: {}", e))?;
+
+    let signature = stakechain_keypair
+        .tap_tweak(SECP256K1, None)
+        .to_keypair()
+        .sign_schnorr(msg);
+
     let mut signed_claim_tx = unsigned_claim_tx.clone();
-
-    for (input_index, _) in unsigned_claim_tx.input.iter().enumerate() {
-        let mut sighash_cache = SighashCache::new(&unsigned_claim_tx);
-        let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(input_index, &prevouts, TapSighashType::Default)
-            .map_err(|e| anyhow::anyhow!("failed to create claim input sighash: {}", e))?;
-
-        let msg = secp256k1::Message::from_digest_slice(sighash.as_ref())
-            .map_err(|e| anyhow::anyhow!("failed to create message from sighash: {}", e))?;
-
-        let signature = stakechain_keypair
-            .tap_tweak(SECP256K1, None)
-            .to_keypair()
-            .sign_schnorr(msg);
-
-        signed_claim_tx.input[input_index]
-            .witness
-            .push(signature.serialize());
-    }
+    signed_claim_tx.input[0].witness.push(signature.serialize());
 
     let txid = btc_client
         .send_raw_transaction(&signed_claim_tx)
