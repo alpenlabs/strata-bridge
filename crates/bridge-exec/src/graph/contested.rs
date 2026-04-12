@@ -2,14 +2,57 @@ use std::num::NonZero;
 
 use bitcoin::Transaction;
 use btc_tracker::event::TxStatus;
+use musig2::secp256k1::schnorr::Signature;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_connectors::{Connector, prelude::ContestProofConnector};
-use strata_bridge_tx_graph::transactions::bridge_proof::{BridgeProofData, BridgeProofTx};
+use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_tx_graph::transactions::{
+    bridge_proof::{BridgeProofData, BridgeProofTx},
+    prelude::ContestTx,
+};
 use tracing::{info, warn};
 
 use crate::{
     chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
 };
+
+/// Signs and publishes the contest transaction to challenge a faulty claim.
+pub(super) async fn publish_contest(
+    output_handles: &OutputHandles,
+    contest_tx: &ContestTx,
+    n_of_n_signature: &Signature,
+    watchtower_index: OperatorIdx,
+) -> Result<(), ExecutorError> {
+    info!(
+        watchtower_index,
+        "signing and publishing contest transaction"
+    );
+
+    let signing_info = contest_tx.signing_info(watchtower_index);
+
+    let watchtower_signature = output_handles
+        .s2_client
+        .musig2_signer()
+        .sign_no_tweak(signing_info.sighash.as_ref())
+        .await
+        .map_err(|e| {
+            warn!(watchtower_index, ?e, "failed to sign contest transaction");
+            ExecutorError::SecretServiceErr(e)
+        })?;
+
+    let signed_tx =
+        contest_tx
+            .clone()
+            .finalize(*n_of_n_signature, watchtower_index, watchtower_signature);
+
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        &signed_tx,
+        "contest",
+        TxStatus::is_buried,
+    )
+    .await
+}
 
 /// Generates a bridge proof transaction with mock proof data and publishes it.
 pub(super) async fn generate_and_publish_bridge_proof(

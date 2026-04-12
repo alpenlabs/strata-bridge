@@ -18,7 +18,7 @@ use crate::{
     graph::{
         common::{publish_claim, publish_graph_nonces, publish_graph_partials, verify_adaptors},
         contested::{
-            generate_and_publish_bridge_proof, publish_bridge_proof_timeout,
+            generate_and_publish_bridge_proof, publish_bridge_proof_timeout, publish_contest,
             publish_contested_payout, publish_counterproof_ack, publish_slash,
         },
         uncontested::publish_uncontested_payout,
@@ -81,8 +81,18 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishUncontestedPayout {
             signed_uncontested_payout_tx,
         } => publish_uncontested_payout(&output_handles, signed_uncontested_payout_tx).await,
-        GraphDuty::PublishContest { .. } => {
-            todo!("PublishContest")
+        GraphDuty::PublishContest {
+            contest_tx,
+            n_of_n_signature,
+            watchtower_index,
+        } => {
+            publish_contest(
+                &output_handles,
+                contest_tx,
+                n_of_n_signature,
+                *watchtower_index,
+            )
+            .await
         }
         GraphDuty::GenerateAndPublishBridgeProof {
             graph_idx: _,
