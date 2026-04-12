@@ -107,6 +107,7 @@ class DevCli:
         num_ol_slots: int,
         num_withdrawals: int = 1,
         genesis_l1_height: int = 101,
+        assignee_node_idx: int = 0,
     ) -> str:
         ol_start_slot = checkpoint_tip.l2_commitment.slot if checkpoint_tip else 0
         ol_end_slot = ol_start_slot + num_ol_slots
@@ -133,6 +134,8 @@ class DevCli:
             str(ol_end_slot),
             "--epoch",
             str(epoch),
+            "--assignee-node-idx",
+            str(assignee_node_idx),
         ]
 
         res = self._run_command(args)
@@ -141,7 +144,12 @@ class DevCli:
         return txid
 
     def send_mock_checkpoint_from_tip(
-        self, asm_rpc, block_hash: str, num_ol_slots: int, num_withdrawals=1
+        self,
+        asm_rpc,
+        block_hash: str,
+        num_ol_slots: int,
+        num_withdrawals=1,
+        assignee_node_idx: int = 0,
     ) -> str:
         """Query the current checkpoint tip and send a mock checkpoint advancing by num_ol_slots.
 
@@ -150,7 +158,10 @@ class DevCli:
         raw_tip = asm_rpc.strata_asm_getCheckpointTip(block_hash)
         tip = CheckpointTip.from_dict(raw_tip) if raw_tip is not None else None
         return self.send_mock_checkpoint(
-            checkpoint_tip=tip, num_ol_slots=num_ol_slots, num_withdrawals=num_withdrawals
+            checkpoint_tip=tip,
+            num_ol_slots=num_ol_slots,
+            num_withdrawals=num_withdrawals,
+            assignee_node_idx=assignee_node_idx,
         )
 
     def send_contest(
