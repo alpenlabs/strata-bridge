@@ -128,34 +128,7 @@ impl TxClassifier for GraphSM {
                 // if it's not a Bridge Proof Timeout tx and still spends the contest proof
                 // connector, then it has to be a Bridge Proof tx.
                 } else if spends_contest_proof_connector(graph_summary.contest, tx) {
-                    let mut proof_and_public_values = vec![];
-                    tx.output.iter().for_each(|output| {
-                        if output.script_pubkey.is_op_return() {
-                            for instr in output.script_pubkey.instructions() {
-                                if let Ok(Instruction::PushBytes(bytes)) = instr {
-                                    proof_and_public_values.extend(bytes.as_bytes().to_vec());
-                                }
-                            }
-                        }
-                    });
-
-                    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2679>
-                    // Define the binary encoding of proof and public values, then parse
-                    // `proof_and_public_values` into a `ProofReceipt` and the public values
-                    // needed for the state transition.
-                    let proof_receipt = ProofReceipt::new(
-                        Proof::new(proof_and_public_values.clone()),
-                        PublicValues::new(vec![]),
-                    );
-
-                    Some(GraphEvent::BridgeProofConfirmed(
-                        BridgeProofConfirmedEvent {
-                            bridge_proof_txid: txid,
-                            bridge_proof_block_height: height,
-
-                            proof: proof_receipt,
-                        },
-                    ))
+                    Some(bridge_proof_event(tx, txid, height))
                 } else if let Some(counterprover_idx) =
                     counterproof_operator_idx(graph_summary, &txid, self.context().operator_idx())
                 {
@@ -237,9 +210,18 @@ impl TxClassifier for GraphSM {
                 }
             }
 
-            // expects a counterproof ACK or NACK or payout burn
+            // expects a bridge proof or counterproof ACK or NACK or payout burn
             GraphState::CounterProofPosted { graph_summary, .. } => {
-                if let Some(counterprover_idx) = counterproof_ack_operator_idx(
+                if txid == graph_summary.bridge_proof_timeout {
+                    Some(GraphEvent::BridgeProofTimeoutConfirmed(
+                        BridgeProofTimeoutConfirmedEvent {
+                            bridge_proof_timeout_txid: txid,
+                            bridge_proof_timeout_block_height: height,
+                        },
+                    ))
+                } else if spends_contest_proof_connector(graph_summary.contest, tx) {
+                    Some(bridge_proof_event(tx, txid, height))
+                } else if let Some(counterprover_idx) = counterproof_ack_operator_idx(
                     graph_summary,
                     &txid,
                     self.context().operator_idx(),
@@ -314,4 +296,36 @@ impl TxClassifier for GraphSM {
             _ => None, // other states do not expect any txs
         }
     }
+}
+
+fn bridge_proof_event(
+    tx: &Transaction,
+    txid: bitcoin::Txid,
+    height: BitcoinBlockHeight,
+) -> GraphEvent {
+    let mut proof_and_public_values = vec![];
+    tx.output.iter().for_each(|output| {
+        if output.script_pubkey.is_op_return() {
+            for instr in output.script_pubkey.instructions() {
+                if let Ok(Instruction::PushBytes(bytes)) = instr {
+                    proof_and_public_values.extend(bytes.as_bytes().to_vec());
+                }
+            }
+        }
+    });
+
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2679>
+    // Define the binary encoding of proof and public values, then parse
+    // `proof_and_public_values` into a `ProofReceipt` and the public values
+    // needed for the state transition.
+    let proof_receipt = ProofReceipt::new(
+        Proof::new(proof_and_public_values.clone()),
+        PublicValues::new(vec![]),
+    );
+
+    GraphEvent::BridgeProofConfirmed(BridgeProofConfirmedEvent {
+        bridge_proof_txid: txid,
+        bridge_proof_block_height: height,
+        proof: proof_receipt,
+    })
 }
