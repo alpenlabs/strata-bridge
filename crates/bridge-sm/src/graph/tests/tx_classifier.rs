@@ -228,6 +228,18 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn classify_tx_recognizes_bridge_proof_in_counterproof_posted() {
+        let cfg = test_graph_sm_cfg();
+        let sm = create_sm(counter_proof_posted_state());
+        let result = sm.classify_tx(&cfg, &test_bridge_proof_tx(), LATER_BLOCK_HEIGHT);
+        assert!(
+            matches!(result, Some(GraphEvent::BridgeProofConfirmed(_))),
+            "expected Some(BridgeProofConfirmed) but got {result:?}"
+        );
+    }
+
     #[test]
     fn classify_tx_recognizes_bridge_proof_timeout_in_contested() {
         let cfg = test_graph_sm_cfg();

@@ -17,7 +17,7 @@ use crate::{
             create_sm, dummy_proof_receipt, get_state,
             mock_states::{
                 TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
-                bridge_proof_posted_state, contested_state,
+                bridge_proof_posted_state, contested_state, counter_proof_posted_state,
             },
             test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
             test_graph_transition,
@@ -137,6 +137,24 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
                 counterproof_tx: expected_counterproof_tx,
                 proof: dummy_proof_receipt(),
             }],
+            expected_signals: vec![],
+        },
+    );
+}
+
+#[test]
+fn accepts_bridge_proof_posted_after_counterproof() {
+    let event = bridge_proof_event();
+
+    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
+        create_nonpov_sm,
+        get_state,
+        test_graph_sm_cfg(),
+        GraphTransition {
+            from_state: counter_proof_posted_state(),
+            event: GraphEvent::BridgeProofConfirmed(event),
+            expected_state: counter_proof_posted_state(),
+            expected_duties: vec![],
             expected_signals: vec![],
         },
     );
