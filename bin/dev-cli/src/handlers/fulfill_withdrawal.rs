@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use strata_bridge_tx_graph::transactions::prelude::WithdrawalMetadata;
 use tracing::info;
 
+use super::withdrawal_fulfillment::WithdrawalMetadata;
 use crate::{
     cli::FulfillWithdrawalArgs,
     handlers::{
@@ -33,7 +33,13 @@ pub(crate) fn handle_fulfill_withdrawal(args: FulfillWithdrawalArgs) -> Result<(
         deposit_txid,
     };
 
+    info!(metadata=?withdrawal_metadata, "retrieved withdrawal metadata from parameters");
+
     let op_return_data = withdrawal_metadata.op_return_data();
+    info!(
+        ?op_return_data,
+        "constructed OP_RETURN data for withdrawal fulfillment"
+    );
 
     let amount = params
         .deposit_amount
