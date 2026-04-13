@@ -19,9 +19,10 @@ mod tests {
                 GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
                 TEST_POV_IDX, create_nonpov_sm, create_sm, get_state, mock_game_signatures,
                 mock_states::{
-                    acked_state, assigned_state, bridge_proof_posted_state_with,
-                    bridge_proof_timedout_state_with, claimed_state, contested_state_with,
-                    counter_proof_posted_state,
+                    TEST_FULFILLMENT_TXID, acked_state, assigned_state,
+                    bridge_proof_posted_state_with, bridge_proof_timedout_state_with,
+                    claimed_state, contested_state_with, counter_proof_posted_state,
+                    counter_proof_posted_without_refuted_proof_state,
                 },
                 test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
                 test_graph_sm_ctx, test_graph_summary, test_graph_transition, test_recipient_desc,
@@ -37,10 +38,28 @@ mod tests {
         signatures: Vec<Signature>,
         counterproofs_and_confs: BTreeMap<u32, (bitcoin::Txid, u64)>,
     ) -> GraphState {
-        let mut state = counter_proof_posted_state();
+        counter_proof_posted_state_with_values(
+            counter_proof_posted_state(),
+            last_block_height,
+            contest_block_height,
+            Some(*TEST_FULFILLMENT_TXID),
+            signatures,
+            counterproofs_and_confs,
+        )
+    }
+
+    fn counter_proof_posted_state_with_values(
+        mut state: GraphState,
+        last_block_height: u64,
+        contest_block_height: u64,
+        fulfillment_txid: Option<bitcoin::Txid>,
+        signatures: Vec<Signature>,
+        counterproofs_and_confs: BTreeMap<u32, (bitcoin::Txid, u64)>,
+    ) -> GraphState {
         if let GraphState::CounterProofPosted {
             last_block_height: state_last_block_height,
             signatures: state_signatures,
+            fulfillment_txid: state_fulfillment_txid,
             contest_block_height: state_contest_block_height,
             counterproofs_and_confs: state_counterproofs_and_confs,
             ..
@@ -48,12 +67,30 @@ mod tests {
         {
             *state_last_block_height = last_block_height;
             *state_signatures = signatures;
+            *state_fulfillment_txid = fulfillment_txid;
             *state_contest_block_height = contest_block_height;
             *state_counterproofs_and_confs = counterproofs_and_confs;
         } else {
             panic!("expected CounterProofPosted state");
         }
         state
+    }
+
+    fn counter_proof_posted_without_refuted_proof_state_with(
+        last_block_height: u64,
+        contest_block_height: u64,
+        fulfillment_txid: Option<bitcoin::Txid>,
+        signatures: Vec<Signature>,
+        counterproofs_and_confs: BTreeMap<u32, (bitcoin::Txid, u64)>,
+    ) -> GraphState {
+        counter_proof_posted_state_with_values(
+            counter_proof_posted_without_refuted_proof_state(),
+            last_block_height,
+            contest_block_height,
+            fulfillment_txid,
+            signatures,
+            counterproofs_and_confs,
+        )
     }
 
     fn acked_state_with(
@@ -619,6 +656,165 @@ mod tests {
                     BTreeMap::new(),
                 ),
                 expected_duties: vec![GraphDuty::PublishSlash { signed_slash_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Non-owner publishes bridge proof timeout when no proof was posted _and_ fulfillment_txid is
+    /// missing.
+    #[test]
+    fn counterproof_posted_nonpov_proof_timeout_when_proof_missing() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
+        let new_height = contest_height + proof_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let bridge_proof_timeout_sigs =
+            GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
+                .expect("Failed to unpack signatures")
+                .bridge_proof_timeout;
+        let signed_timeout_tx = game_graph
+            .bridge_proof_timeout
+            .finalize(bridge_proof_timeout_sigs);
+
+        let fulfillment_txid = None;
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_without_refuted_proof_state_with(
+                    contest_height,
+                    contest_height,
+                    fulfillment_txid,
+                    signatures.clone(),
+                    BTreeMap::new(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_without_refuted_proof_state_with(
+                    new_height,
+                    contest_height,
+                    None,
+                    signatures,
+                    BTreeMap::new(),
+                ),
+                expected_duties: vec![GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Graph owner does not slash itself even when proof is missing.
+    #[test]
+    fn counterproof_posted_pov_no_proof_timeout_when_proof_missing() {
+        let cfg = test_graph_sm_cfg();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
+        let new_height = contest_height + proof_timelock + 1;
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_without_refuted_proof_state_with(
+                    contest_height,
+                    contest_height,
+                    None,
+                    Default::default(),
+                    BTreeMap::new(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_without_refuted_proof_state_with(
+                    new_height,
+                    contest_height,
+                    None,
+                    Default::default(),
+                    BTreeMap::new(),
+                ),
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Non-owner does not publish bridge proof timeout when fulfillment_txid is present
+    /// (claim is valid - honest assignee crashed after fulfilling).
+    #[test]
+    fn counterproof_posted_nonpov_no_proof_timeout_when_claim_valid() {
+        let cfg = test_graph_sm_cfg();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
+        let new_height = contest_height + proof_timelock + 1;
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_without_refuted_proof_state_with(
+                    contest_height,
+                    contest_height,
+                    Some(*TEST_FULFILLMENT_TXID),
+                    Default::default(),
+                    BTreeMap::new(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_without_refuted_proof_state_with(
+                    new_height,
+                    contest_height,
+                    Some(*TEST_FULFILLMENT_TXID),
+                    Default::default(),
+                    BTreeMap::new(),
+                ),
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Non-owner does not publish bridge proof timeout at the proof timelock boundary
+    /// (block_height == contest + proof_timelock, must be strictly greater).
+    #[test]
+    fn counterproof_posted_nonpov_no_proof_timeout_at_timelock_boundary() {
+        let cfg = test_graph_sm_cfg();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
+        let new_height = contest_height + proof_timelock;
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: counter_proof_posted_without_refuted_proof_state_with(
+                    contest_height,
+                    contest_height,
+                    None,
+                    Default::default(),
+                    BTreeMap::new(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: counter_proof_posted_without_refuted_proof_state_with(
+                    new_height,
+                    contest_height,
+                    None,
+                    Default::default(),
+                    BTreeMap::new(),
+                ),
+                expected_duties: vec![],
                 expected_signals: vec![],
             },
         );

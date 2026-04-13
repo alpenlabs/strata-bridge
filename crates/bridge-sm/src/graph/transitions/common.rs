@@ -128,6 +128,8 @@ impl GraphSM {
                     }]));
                 }
 
+                // `proof_timelock` is smaller than the `payout_timelock` so check this second for
+                // narrowing.
                 if new_block_event.block_height > *contest_block_height + proof_timelock {
                     let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
                     let signed_timeout_tx = game_graph
@@ -212,7 +214,9 @@ impl GraphSM {
                 last_block_height,
                 graph_data,
                 signatures,
+                fulfillment_txid,
                 contest_block_height,
+                refuted_proof,
                 counterproofs_and_confs,
                 ..
             } => {
@@ -222,6 +226,7 @@ impl GraphSM {
                     u64::from(cfg.game_graph_params.contested_payout_timelock.value());
                 let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
                 let nack_timelock = u64::from(cfg.game_graph_params.nack_timelock.value());
+                let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
                 let pov_idx = graph_ctx.operator_table().pov_idx();
                 let is_own_graph = graph_ctx.operator_idx() == pov_idx;
 
@@ -251,6 +256,24 @@ impl GraphSM {
                         GraphDuty::PublishContestedPayout {
                             signed_contested_payout_tx,
                         },
+                    ]));
+                }
+
+                // If proof is missing, then we use the absence of a valid fulfillment txid as a
+                // proxy for determining whether a claim is valid.
+                let invalid_claim = refuted_proof.is_none() && fulfillment_txid.is_none();
+
+                if !is_own_graph
+                    && invalid_claim
+                    && new_block_event.block_height > *contest_block_height + proof_timelock
+                {
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let signed_timeout_tx = game_graph
+                        .bridge_proof_timeout
+                        .finalize(sigs.bridge_proof_timeout);
+
+                    return Ok(GSMOutput::with_duties(vec![
+                        GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx },
                     ]));
                 }
 
