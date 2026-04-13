@@ -154,6 +154,61 @@ impl GraphSM {
 
                 Ok(GSMOutput::with_duties(duties))
             }
+            GraphState::CounterProofPosted {
+                graph_data,
+                graph_summary,
+                signatures,
+                fulfillment_txid,
+                contest_block_height,
+                refuted_proof,
+                counterproofs_and_confs,
+                counterproof_nacks,
+                ..
+            } => {
+                if refuted_proof.is_some() {
+                    return Err(GSMError::duplicate(self.state.clone(), event.into()));
+                }
+
+                let bridge_proof = event.proof.clone();
+                let pov_idx = self.context().operator_table().pov_idx();
+                let is_watchtower = self.context().operator_idx() != pov_idx;
+                let is_proof_valid =
+                    verify_bridge_proof(&cfg.bridge_proof_predicate, &bridge_proof);
+                let counterproof_exists = counterproofs_and_confs.contains_key(&pov_idx);
+
+                let mut duties = Vec::new();
+
+                if is_watchtower && !is_proof_valid && !counterproof_exists {
+                    let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
+                    let watchtower_idx =
+                        watchtower_slot_for_operator(self.context().operator_idx(), pov_idx)
+                            .expect("watchtower slot must be present for non-pov operator");
+
+                    let counterproof_graph = game_graph.counterproofs.get(watchtower_idx).expect(
+                        "counterproof graph must be present in state for watchtower operator",
+                    );
+
+                    duties.push(GraphDuty::PublishCounterProof {
+                        graph_idx: self.context().graph_idx(),
+                        counterproof_tx: counterproof_graph.counterproof.as_ref().clone(),
+                        proof: bridge_proof.clone(),
+                    });
+                }
+
+                self.state = GraphState::CounterProofPosted {
+                    last_block_height: event.bridge_proof_block_height,
+                    graph_data,
+                    graph_summary,
+                    signatures,
+                    fulfillment_txid,
+                    contest_block_height,
+                    refuted_proof: Some(bridge_proof),
+                    counterproofs_and_confs,
+                    counterproof_nacks,
+                };
+
+                Ok(GSMOutput::with_duties(duties))
+            }
             state @ GraphState::BridgeProofPosted { .. } => {
                 Err(GSMError::duplicate(state, event.into()))
             }
@@ -182,6 +237,36 @@ impl GraphSM {
                         "event has old block height",
                     ));
                 }
+                if event.bridge_proof_timeout_txid != graph_summary.bridge_proof_timeout {
+                    return Err(GSMError::rejected(
+                        self.state.clone(),
+                        event.into(),
+                        "invalid bridge proof txid",
+                    ));
+                }
+
+                self.state = GraphState::BridgeProofTimedout {
+                    last_block_height: event.bridge_proof_timeout_block_height,
+                    graph_data,
+                    signatures,
+                    fulfillment_txid,
+                    contest_block_height,
+                    expected_slash_txid: graph_summary.slash,
+                    claim_txid: graph_summary.claim,
+                    graph_summary,
+                };
+
+                Ok(GSMOutput::default())
+            }
+            GraphState::CounterProofPosted {
+                graph_data,
+                graph_summary,
+                signatures,
+                fulfillment_txid,
+                contest_block_height,
+                refuted_proof,
+                ..
+            } if refuted_proof.is_none() => {
                 if event.bridge_proof_timeout_txid != graph_summary.bridge_proof_timeout {
                     return Err(GSMError::rejected(
                         self.state.clone(),

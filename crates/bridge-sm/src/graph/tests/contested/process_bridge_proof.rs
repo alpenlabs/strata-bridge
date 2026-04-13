@@ -18,6 +18,7 @@ use crate::{
             mock_states::{
                 TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
                 bridge_proof_posted_state, contested_state, counter_proof_posted_state,
+                counter_proof_posted_without_refuted_proof_state,
             },
             test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
             test_graph_transition,
@@ -151,10 +152,65 @@ fn accepts_bridge_proof_posted_after_counterproof() {
         get_state,
         test_graph_sm_cfg(),
         GraphTransition {
-            from_state: counter_proof_posted_state(),
+            from_state: counter_proof_posted_without_refuted_proof_state(),
             event: GraphEvent::BridgeProofConfirmed(event),
-            expected_state: counter_proof_posted_state(),
+            expected_state: GraphState::CounterProofPosted {
+                last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: TEST_GRAPH_SUMMARY.clone(),
+                signatures: vec![],
+                fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                contest_block_height: LATER_BLOCK_HEIGHT,
+                refuted_proof: Some(dummy_proof_receipt()),
+                counterproofs_and_confs: Default::default(),
+                counterproof_nacks: Default::default(),
+            },
             expected_duties: vec![],
+            expected_signals: vec![],
+        },
+    );
+}
+
+#[test]
+fn watchtower_emits_counterproof_when_late_proof_invalid() {
+    let cfg = cfg_with_reject_predicate();
+    let event = bridge_proof_event();
+    let sm = create_nonpov_sm(counter_proof_posted_without_refuted_proof_state());
+
+    let game_graph = generate_game_graph(&cfg, sm.context(), test_deposit_params());
+    let watchtower_idx = watchtower_slot_for_operator(
+        sm.context().operator_idx(),
+        sm.context().operator_table().pov_idx(),
+    )
+    .expect("graph owner has no watchtower index");
+    let expected_counterproof_tx = game_graph.counterproofs[watchtower_idx]
+        .counterproof
+        .as_ref()
+        .clone();
+
+    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
+        create_nonpov_sm,
+        get_state,
+        cfg,
+        GraphTransition {
+            from_state: counter_proof_posted_without_refuted_proof_state(),
+            event: GraphEvent::BridgeProofConfirmed(event.clone()),
+            expected_state: GraphState::CounterProofPosted {
+                last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: TEST_GRAPH_SUMMARY.clone(),
+                signatures: vec![],
+                fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                contest_block_height: LATER_BLOCK_HEIGHT,
+                refuted_proof: Some(dummy_proof_receipt()),
+                counterproofs_and_confs: Default::default(),
+                counterproof_nacks: Default::default(),
+            },
+            expected_duties: vec![GraphDuty::PublishCounterProof {
+                graph_idx: sm.context().graph_idx(),
+                counterproof_tx: expected_counterproof_tx,
+                proof: dummy_proof_receipt(),
+            }],
             expected_signals: vec![],
         },
     );
@@ -196,6 +252,12 @@ fn event_duplicate() {
         event: GraphEvent::BridgeProofConfirmed(bridge_proof_event()),
         expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
     });
+
+    test_graph_invalid_transition(GraphInvalidTransition {
+        from_state: counter_proof_posted_state(),
+        event: GraphEvent::BridgeProofConfirmed(bridge_proof_event()),
+        expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
+    });
 }
 
 #[test]
@@ -214,8 +276,9 @@ fn event_invalid() {
 
 /// Returns `true` if the state is valid for [`GraphEvent::BridgeProofConfirmed`].
 fn state_is_valid(state: &GraphState) -> bool {
-    matches!(
-        state,
-        GraphState::Contested { .. } | GraphState::BridgeProofPosted { .. }
-    )
+    matches!(state, GraphState::Contested { .. })
+        || matches!(state, GraphState::CounterProofPosted { refuted_proof, .. } if refuted_proof.is_none())
+        // Yield Duplicate error, but still valid to receive the event:
+        || matches!(state, GraphState::BridgeProofPosted { .. })
+        || matches!(state, GraphState::CounterProofPosted { refuted_proof, .. } if refuted_proof.is_some())
 }

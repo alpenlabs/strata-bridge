@@ -10,7 +10,8 @@ use crate::graph::{
         GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT,
         mock_states::{
             TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
-            bridge_proof_timedout_state, contested_state, counter_proof_posted_state,
+            bridge_proof_timedout_state, contested_state,
+            counter_proof_posted_without_refuted_proof_state,
         },
         test_deposit_params, test_graph_invalid_transition, test_graph_transition,
     },
@@ -39,11 +40,10 @@ fn event_accepted() {
     });
 }
 
-
 #[test]
-fn event_accepted_from_counterproof_posted() {
+fn event_accepted_from_counterproof_posted_without_proof() {
     test_graph_transition(GraphTransition {
-        from_state: counter_proof_posted_state(),
+        from_state: counter_proof_posted_without_refuted_proof_state(),
         event: GraphEvent::BridgeProofTimeoutConfirmed(BridgeProofTimeoutConfirmedEvent {
             bridge_proof_timeout_txid: TEST_GRAPH_SUMMARY.bridge_proof_timeout,
             bridge_proof_timeout_block_height: u64::MAX,
@@ -97,6 +97,15 @@ fn event_rejected_invalid_txid() {
         }),
         expected_error: |e| matches!(e, GSMError::Rejected { .. }),
     });
+
+    test_graph_invalid_transition(GraphInvalidTransition {
+        from_state: counter_proof_posted_without_refuted_proof_state(),
+        event: GraphEvent::BridgeProofTimeoutConfirmed(BridgeProofTimeoutConfirmedEvent {
+            bridge_proof_timeout_txid: Txid::all_zeros(),
+            bridge_proof_timeout_block_height: 0,
+        }),
+        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+    });
 }
 
 #[test]
@@ -120,6 +129,11 @@ fn event_invalid() {
 fn state_is_valid(state: &GraphState) -> bool {
     matches!(
         state,
-        GraphState::Contested { .. } | GraphState::BridgeProofTimedout { .. }
+        GraphState::Contested { .. }
+            | GraphState::BridgeProofTimedout { .. }
+            | GraphState::CounterProofPosted {
+                refuted_proof: None,
+                ..
+            }
     )
 }
