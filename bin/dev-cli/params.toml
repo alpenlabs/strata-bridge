@@ -1,4 +1,4 @@
-network = "regtest"
+network = "signet"
 bridge_out_addr = "0x5400000000000000000000000000000000000001"
 deposit_amount = 1_000_000_000                                 # 10 BTC
 operator_fee = 1_000_000                                       # 0.01 BTC
