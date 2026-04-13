@@ -1,0 +1,113 @@
+import flexitest
+
+from envs import BridgeNetworkEnv
+from envs.asm_config import AsmEnvConfig
+from envs.base_test import StrataTestBase
+from factory.bridge_operator.config_cfg import BridgeConfigParams
+from rpc.asm_types import AssignmentEntry
+from rpc.types import RpcDepositStatusComplete
+from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.deposit import (
+    wait_until_deposit_status,
+    wait_until_drt_recognized,
+)
+from utils.dev_cli import DevCli
+from utils.utils import (
+    read_operator_key,
+    wait_for_tx_confirmation,
+    wait_until,
+)
+
+
+@flexitest.register
+class AssignmentDurationTimeoutTest(StrataTestBase):
+    """
+    Test that an unfulfilled withdrawal assignment is reassigned
+    after the assignment duration timeout.
+
+    Steps:
+    1. Complete a deposit with all operators running
+    2. Stop operator-0
+    3. Post a mock checkpoint so ASM assigns the withdrawal to operator-0
+    4. Operator-0 is down so it cannot fulfill; the assignment duration times out
+    5. ASM reassigns to another live operator
+    6. Wait until assignments become empty (live operator fulfills the withdrawal)
+    """
+
+    def __init__(self, ctx: flexitest.InitContext):
+        ctx.set_env(
+            BridgeNetworkEnv(
+                bridge_config_params=BridgeConfigParams(
+                    cooperative_payout_timeout=0,
+                    min_withdrawal_fulfillment_window=0,
+                ),
+                asm_config=AsmEnvConfig(assignment_duration=15),
+            )
+        )
+
+    def main(self, ctx: flexitest.RunContext):
+        bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
+        bitcoind_service = ctx.get_service("bitcoin")
+        bitcoin_rpc = bitcoind_service.create_rpc()
+
+        num_operators = len(bridge_nodes)
+        operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
+
+        asm_service = ctx.get_service("asm_rpc")
+        asm_rpc = asm_service.create_rpc()
+
+        # Send a deposit request and wait for completion
+        bitcoind_props = bitcoind_service.props
+        dev_cli = DevCli(bitcoind_props, operator_key_infos)
+        drt_txid = dev_cli.send_deposit_request()
+        self.logger.info(f"Broadcasted DRT: {drt_txid}")
+
+        bridge_rpc = bridge_rpcs[0]
+        deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
+        self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")
+
+        wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
+        self.logger.info("Deposit completed")
+
+        # Stop operator-0 so it cannot fulfill the assignment
+        self.logger.info("Stopping operator-0")
+        bridge_nodes[0].stop()
+
+        # Post mock checkpoint to trigger withdrawal assignment
+        # By default, it assigns to operator-0
+        recent_block_hash = bitcoin_rpc.proxy.getblockhash(bitcoin_rpc.proxy.getblockcount())
+        ckp_l1_txn = dev_cli.send_mock_checkpoint_from_tip(
+            asm_rpc, recent_block_hash, num_ol_slots=1, num_withdrawals=1
+        )
+        ckp_block_hash = wait_for_tx_confirmation(bitcoin_rpc, ckp_l1_txn)
+        self.logger.info(f"Checkpoint tx {ckp_l1_txn} included in block {ckp_block_hash}")
+
+        # Wait for ASM to produce the initial assignment
+        wait_until(
+            lambda: len(asm_rpc.strata_asm_getAssignments(ckp_block_hash)) == 1,
+            timeout=300,
+            error_msg="ASM did not produce assignment",
+        )
+
+        assignments = asm_rpc.strata_asm_getAssignments(ckp_block_hash)
+        assignment = AssignmentEntry.from_dict(assignments[0])
+        self.logger.info(
+            f"Initial assignment: deposit_idx={assignment.deposit_entry.deposit_idx}, "
+            f"assignee=operator-{assignment.current_assignee}"
+        )
+
+        # Wait until assignments become empty at the latest block,
+        # meaning the withdrawal was reassigned and fulfilled
+        def assignments_cleared():
+            latest_block_hash = bitcoin_rpc.proxy.getblockhash(bitcoin_rpc.proxy.getblockcount())
+            return len(asm_rpc.strata_asm_getAssignments(latest_block_hash)) == 0
+
+        wait_until(
+            assignments_cleared,
+            timeout=600,
+            step=1,
+            error_msg="Assignments did not clear — reassignment and fulfillment did not complete",
+        )
+        self.logger.info("Assignments cleared — withdrawal reassigned and fulfilled")
+
+        return True
