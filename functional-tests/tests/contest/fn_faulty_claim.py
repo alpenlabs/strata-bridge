@@ -29,7 +29,7 @@ class FaultyClaimContestedTest(StrataTestBase):
 
     Steps:
     1. Complete a deposit
-    2. Post a faulty claim via dev-cli from operator-0 (no fulfillment)
+    2. Post a faulty claim via dev-cli from operator-0 (no assignment)
     3. Wait for a watchtower to contest by confirming the claim tx's
        contest connector (vout 0) is spent on bitcoin
     4. Post a mock checkpoint explicitly assigning the withdrawal to
