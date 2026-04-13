@@ -10,6 +10,7 @@ pub(crate) struct Params {
     pub(crate) network: Network,
     pub(crate) bridge_out_addr: String,
     pub(crate) deposit_amount: Amount,
+    pub(crate) operator_fee: Amount,
     pub(crate) burn_amount: Amount,
     pub(crate) stake_amount: Amount,
     pub(crate) stake_chain_delta: LockTime,

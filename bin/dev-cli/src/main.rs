@@ -8,7 +8,7 @@ use clap::Parser;
 use handlers::{challenge, disprove};
 use strata_bridge_common::logging::{self, LoggerConfig};
 
-use crate::handlers::{bridge_in, bridge_out};
+use crate::handlers::{bridge_in, bridge_out, fulfill_withdrawal};
 
 mod cli;
 
@@ -22,5 +22,8 @@ async fn main() -> Result<(), Error> {
         cli::Commands::BridgeOut(args) => bridge_out::handle_bridge_out(args).await,
         cli::Commands::Challenge(args) => challenge::handle_challenge(args).await,
         cli::Commands::Disprove(args) => disprove::handle_disprove(args).await,
+        cli::Commands::FulfillWithdrawal(args) => {
+            fulfill_withdrawal::handle_fulfill_withdrawal(args)
+        }
     }
 }

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use bitcoin::Txid;
+use bitcoin_bosd::Descriptor;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -23,6 +24,8 @@ pub(crate) enum Commands {
     Challenge(ChallengeArgs),
 
     Disprove(DisproveArgs),
+
+    FulfillWithdrawal(FulfillWithdrawalArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -109,6 +112,43 @@ pub(crate) struct DisproveArgs {
 
     #[arg(long, help = "the strata bridge params file")]
     pub(crate) params: PathBuf,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(
+    about = "Send a withdrawal fulfillment transaction on bitcoin",
+    version
+)]
+pub(crate) struct FulfillWithdrawalArgs {
+    #[arg(long, help = "the index of the deposit in the chain state")]
+    pub(crate) deposit_idx: u32,
+
+    #[arg(long, help = "the index of the operator in the chain state")]
+    pub(crate) operator_idx: u32,
+
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(Txid),
+        help = "the txid of the deposit being claimed"
+    )]
+    pub(crate) deposit_txid: Txid,
+
+    #[arg(
+        long,
+        value_parser = parse_descriptor,
+        help = "hex-encoded BOSD descriptor of the withdrawal destination"
+    )]
+    pub(crate) destination: Descriptor,
+
+    #[arg(long, help = "the path to the params file")]
+    pub(crate) params: PathBuf,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+}
+
+fn parse_descriptor(s: &str) -> Result<Descriptor, String> {
+    s.parse::<Descriptor>().map_err(|e| e.to_string())
 }
 
 #[derive(Parser, Debug, Clone)]

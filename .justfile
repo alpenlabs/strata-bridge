@@ -275,6 +275,23 @@ bridge-out:
         --destination-address-pubkey 94b25feb390fbefadd68f7c1eee7e0c475fea0d1fdde59ba66ab6ca819fce47c \
         --private-key 59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d # from anvil #2
 
+# Send a withdrawal fulfillment transaction
+[group('bridge')]
+fulfill-withdrawal deposit_idx deposit_txid operator_idx destination:
+    RUST_LOG=info \
+    cargo r \
+        --bin dev-cli \
+        -- \
+        fulfill-withdrawal \
+        --btc-url http://localhost:18443/wallet/default \
+        --btc-user user \
+        --btc-pass password \
+        --params bin/dev-cli/params.toml \
+        --deposit-idx {{ deposit_idx }} \
+        --deposit-txid {{ deposit_txid }} \
+        --operator-idx {{ operator_idx }} \
+        --destination {{ destination }}
+
 # Issue a challenge transaction, set `CLAIM_TXID` env var to use
 [group('bridge')]
 challenge:
