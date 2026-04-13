@@ -275,6 +275,9 @@ pub enum GraphState {
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
+        /// The bridge proof currently being refuted, if one has been posted.
+        refuted_proof: Option<ProofReceipt>,
+
         /// The txids of the counterproof transactions submitted on chain along with their
         /// confirmation heights.
         counterproofs_and_confs: BTreeMap<OperatorIdx, (Txid, BitcoinBlockHeight)>,

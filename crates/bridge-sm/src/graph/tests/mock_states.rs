@@ -193,6 +193,22 @@ pub(super) fn counter_proof_posted_state() -> GraphState {
         signatures: Default::default(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
+        refuted_proof: Some(dummy_proof_receipt()),
+        counterproofs_and_confs: BTreeMap::new(),
+        counterproof_nacks: BTreeMap::new(),
+    }
+}
+
+/// Builds a mock `CounterProofPosted` state for the late-bridge-proof edge case.
+pub(super) fn counter_proof_posted_without_refuted_proof_state() -> GraphState {
+    GraphState::CounterProofPosted {
+        last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        signatures: Default::default(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        contest_block_height: LATER_BLOCK_HEIGHT,
+        refuted_proof: None,
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
     }
