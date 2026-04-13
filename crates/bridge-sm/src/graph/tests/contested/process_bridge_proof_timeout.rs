@@ -10,7 +10,7 @@ use crate::graph::{
         GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT,
         mock_states::{
             TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
-            bridge_proof_timedout_state, contested_state,
+            bridge_proof_timedout_state, contested_state, counter_proof_posted_state,
         },
         test_deposit_params, test_graph_invalid_transition, test_graph_transition,
     },
@@ -20,6 +20,30 @@ use crate::graph::{
 fn event_accepted() {
     test_graph_transition(GraphTransition {
         from_state: contested_state(),
+        event: GraphEvent::BridgeProofTimeoutConfirmed(BridgeProofTimeoutConfirmedEvent {
+            bridge_proof_timeout_txid: TEST_GRAPH_SUMMARY.bridge_proof_timeout,
+            bridge_proof_timeout_block_height: u64::MAX,
+        }),
+        expected_state: GraphState::BridgeProofTimedout {
+            last_block_height: u64::MAX,
+            graph_data: test_deposit_params(),
+            signatures: vec![],
+            fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+            contest_block_height: LATER_BLOCK_HEIGHT,
+            expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
+            claim_txid: TEST_GRAPH_SUMMARY.claim,
+            graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        },
+        expected_duties: vec![],
+        expected_signals: vec![],
+    });
+}
+
+
+#[test]
+fn event_accepted_from_counterproof_posted() {
+    test_graph_transition(GraphTransition {
+        from_state: counter_proof_posted_state(),
         event: GraphEvent::BridgeProofTimeoutConfirmed(BridgeProofTimeoutConfirmedEvent {
             bridge_proof_timeout_txid: TEST_GRAPH_SUMMARY.bridge_proof_timeout,
             bridge_proof_timeout_block_height: u64::MAX,
