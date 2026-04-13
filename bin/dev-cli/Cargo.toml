@@ -20,6 +20,9 @@ strata-bridge-common.workspace = true
 # strata-bridge-rpc = { workspace = true, features = ["client"] }
 # strata-bridge-tx-graph.workspace = true
 
+bdk_esplora.workspace = true
+bdk_wallet.workspace = true
+
 alloy.workspace = true
 alloy-signer.workspace = true
 anyhow.workspace = true

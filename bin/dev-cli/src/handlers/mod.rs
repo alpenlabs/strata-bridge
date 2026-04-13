@@ -3,6 +3,7 @@ pub(crate) mod bridge_out;
 // pub(crate) mod challenge;
 // pub(crate) mod disprove;
 pub(crate) mod fulfill_withdrawal;
+pub(crate) mod fulfill_withdrawal_esplora;
 mod rpc;
 mod scripts;
 mod wallet;

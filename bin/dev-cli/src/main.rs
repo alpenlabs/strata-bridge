@@ -8,7 +8,7 @@ use clap::Parser;
 // use handlers::{challenge, disprove};
 use strata_bridge_common::logging::{self, LoggerConfig};
 
-use crate::handlers::{bridge_in, bridge_out, fulfill_withdrawal};
+use crate::handlers::{bridge_in, bridge_out, fulfill_withdrawal, fulfill_withdrawal_esplora};
 
 mod cli;
 
@@ -24,6 +24,9 @@ async fn main() -> Result<(), Error> {
         // cli::Commands::Disprove(args) => disprove::handle_disprove(args).await,
         cli::Commands::FulfillWithdrawal(args) => {
             fulfill_withdrawal::handle_fulfill_withdrawal(args)
+        }
+        cli::Commands::FulfillWithdrawalEsplora(args) => {
+            fulfill_withdrawal_esplora::handle_fulfill_withdrawal_esplora(args).await
         }
         command => unimplemented!("This command is not implemented yet: {command:?}"),
     }
