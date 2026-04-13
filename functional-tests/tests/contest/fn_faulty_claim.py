@@ -36,7 +36,7 @@ class FaultyClaimContestedTest(StrataTestBase):
        operator-1, then shut operator-1 down so it cannot perform its
        fulfillment
     5. Verify operator-1 is the ASM assignee
-    6. Post a second faulty claim via dev-cli from operator-1's POV
+    6. Post a second faulty claim via dev-cli from operator-1's POV (no fulfillment)
     7. Wait for a watchtower to contest the second claim
     """
 
