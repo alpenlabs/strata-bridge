@@ -542,14 +542,9 @@ impl<A> StakeFunctor<A> {
         }
     }
 
-    /// Consumes the functor and returns its data as a vector.
-    pub fn pack(self) -> Vec<A> {
-        let mut packed = Vec::with_capacity(STAKE_SINGLE_LEN);
-        let inner = self.into_inner();
-        packed.extend(inner.fields);
-
-        debug_assert_eq!(packed.len(), STAKE_SINGLE_LEN);
-        packed
+    /// Consumes the functor and returns its data as an array.
+    pub fn pack(self) -> [A; STAKE_SINGLE_LEN] {
+        self.into_inner().fields
     }
 
     /// Attempts to create a new functor from a vector.
@@ -690,13 +685,10 @@ impl<A> StakeFunctor<A> {
 
     /// Returns a functor where each value knows its index.
     pub fn enumerate(self) -> StakeFunctor<(usize, A)> {
-        let [a] = self.unstaking_intent;
-        let [b, c] = self.unstaking;
-
-        StakeFunctor {
-            unstaking_intent: [(0, a)],
-            unstaking: [(1, b), (2, c)],
-        }
+        let mut fields = self.pack().into_iter().enumerate();
+        let enumerated_fields: [(usize, A); STAKE_SINGLE_LEN] =
+            array::from_fn(|_| fields.next().unwrap());
+        StakeFunctor::unpack(enumerated_fields).expect("correct number of elements")
     }
 }
 

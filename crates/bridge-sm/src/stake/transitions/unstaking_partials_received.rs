@@ -62,13 +62,15 @@ impl StakeSM {
                 let signing_infos = stake_graph.musig_signing_info();
                 let agg_nonces_functor = agg_nonces.as_ref().clone();
 
-                for (txin_idx, (((signing_info, partial_sig), agg_nonce), pub_nonce)) in
-                    signing_infos
-                        .zip(event.partial_signatures)
-                        .zip(agg_nonces_functor)
-                        .zip(operator_pub_nonces)
-                        .into_iter()
-                        .enumerate()
+                for (txin_idx, (signing_info, partial_sig, agg_nonce, pub_nonce)) in
+                    StakeFunctor::zip4(
+                        signing_infos,
+                        event.partial_signatures,
+                        agg_nonces_functor,
+                        operator_pub_nonces,
+                    )
+                    .into_iter()
+                    .enumerate()
                 {
                     let key_agg_ctx =
                         create_agg_ctx(operator_pubkeys.iter().copied(), &signing_info.tweak)
