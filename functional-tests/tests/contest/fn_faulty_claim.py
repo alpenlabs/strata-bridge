@@ -81,7 +81,7 @@ class FaultyClaimContestedTest(StrataTestBase):
         assert deposit_info is not None, "Deposit did not complete"
         self.logger.info("Deposit completed")
 
-        # 2. Post a faulty claim via dev-cli (no fulfillment) from operator-0
+        # 2. Post a faulty claim via dev-cli (no assignment) from operator-0
         op0_idx = 0
         op0_node = bridge_nodes[op0_idx]
         op0_rpc_url = f"http://127.0.0.1:{op0_node.props['rpc_port']}"
