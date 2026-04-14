@@ -277,15 +277,31 @@ bridge-out:
 
 # Send a withdrawal fulfillment transaction
 [group('bridge')]
-fulfill-withdrawal deposit_idx deposit_txid operator_idx destination:
+fulfill-withdrawal wallet_name user pass deposit_idx deposit_txid operator_idx destination:
     RUST_LOG=info \
     cargo r \
         --bin dev-cli \
         -- \
         fulfill-withdrawal \
-        --btc-url http://localhost:18443/wallet/default \
-        --btc-user user \
-        --btc-pass password \
+        --btc-url http://localhost:38332/wallet/{{ wallet_name }} \
+        --btc-user {{ user }} \
+        --btc-pass {{ pass }} \
+        --params bin/dev-cli/params.toml \
+        --deposit-idx {{ deposit_idx }} \
+        --deposit-txid {{ deposit_txid }} \
+        --operator-idx {{ operator_idx }} \
+        --destination {{ destination }}
+
+# Send a withdrawal fulfillment transaction via Esplora
+[group('bridge')]
+fulfill-withdrawal-esplora network esplora_url deposit_idx deposit_txid operator_idx destination:
+    RUST_LOG=info \
+    cargo r \
+        --bin dev-cli \
+        -- \
+        fulfill-withdrawal-esplora \
+        --network {{ network }} \
+        --esplora-url {{ esplora_url }} \
         --params bin/dev-cli/params.toml \
         --deposit-idx {{ deposit_idx }} \
         --deposit-txid {{ deposit_txid }} \
