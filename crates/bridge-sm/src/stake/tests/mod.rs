@@ -168,7 +168,7 @@ static TEST_CFG: LazyLock<Arc<StakeSMCfg>> = LazyLock::new(|| {
         protocol_params: ProtocolParams {
             network: TEST_NETWORK,
             magic_bytes: TEST_MAGIC_BYTES.into(),
-            game_timelock: relative::Height::from_height(TEST_UNSTAKING_TIMELOCK as u16), /* cast safety: TEST_UNSTAKING_TIMELOCK <= u16::MAX */
+            unstaking_timelock: relative::Height::from_height(TEST_UNSTAKING_TIMELOCK as u16), /* cast safety: TEST_UNSTAKING_TIMELOCK <= u16::MAX */
             stake_amount: Amount::from_int_btc(TEST_STAKE_BTC_AMOUNT),
         },
     })
