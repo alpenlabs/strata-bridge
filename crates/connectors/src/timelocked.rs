@@ -331,13 +331,13 @@ impl UnstakingOutput {
     pub fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
-        game_timelock: relative::Height,
+        unstaking_timelock: relative::Height,
     ) -> Self {
         let mut inner = TimelockedConnector {
             network,
             internal_key: *UNSPENDABLE_PUBLIC_KEY,
             timelocked_key: n_of_n_pubkey,
-            timelock: game_timelock,
+            timelock: unstaking_timelock,
             value: Amount::ZERO,
         };
         inner.value = inner.script_pubkey().minimal_non_dust();
