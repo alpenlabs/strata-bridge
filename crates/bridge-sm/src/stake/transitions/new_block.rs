@@ -57,7 +57,7 @@ impl StakeSM {
         } = self.state()
             && event.block_height
                 > *unstaking_intent_block_height
-                    + u64::from(cfg.protocol_params.game_timelock.value())
+                    + u64::from(cfg.protocol_params.unstaking_timelock.value())
         {
             let stake_graph = StakeGraph::new(stake_data.clone());
             let unstaking_sig_functor = StakeFunctor::unpack(

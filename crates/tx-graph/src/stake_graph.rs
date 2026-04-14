@@ -51,8 +51,8 @@ pub struct ProtocolParams {
     pub network: Network,
     /// Magic bytes that identify the bridge.
     pub magic_bytes: MagicBytes,
-    /// Timelock for the entire game.
-    pub game_timelock: relative::Height,
+    /// Timelock for the unstaking transaction.
+    pub unstaking_timelock: relative::Height,
     /// Stake amount.
     pub stake_amount: Amount,
 }
@@ -98,7 +98,7 @@ impl StakeGraph {
         let unstaking_output = UnstakingOutput::new(
             protocol.network,
             setup.n_of_n_pubkey,
-            protocol.game_timelock,
+            protocol.unstaking_timelock,
         );
 
         let stake_data = crate::transactions::stake::StakeData {
@@ -188,7 +188,7 @@ mod tests {
 
     use super::*;
 
-    const GAME_TIMELOCK: relative::Height = relative::Height::from_height(10);
+    const UNSTAKING_TIMELOCK: relative::Height = relative::Height::from_height(10);
     const FEE_AMOUNT: Amount = Amount::from_sat(1_000);
 
     #[derive(Debug)]
@@ -210,7 +210,7 @@ mod tests {
         let protocol = ProtocolParams {
             network: Network::Regtest,
             magic_bytes: (*b"ALPN").into(),
-            game_timelock: GAME_TIMELOCK,
+            unstaking_timelock: UNSTAKING_TIMELOCK,
             stake_amount: Amount::from_int_btc(1),
         };
         let wallet_descriptor = Descriptor::try_from(node.wallet_address().clone()).unwrap();
@@ -295,7 +295,7 @@ mod tests {
         let unstaking_intent = graph.unstaking_intent.finalize(&witness);
 
         node.submit_package(&[unstaking_intent, child]);
-        node.mine_blocks(GAME_TIMELOCK.to_consensus_u32() as usize - 1);
+        node.mine_blocks(UNSTAKING_TIMELOCK.to_consensus_u32() as usize - 1);
 
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                      Unstaking Transaction                        │
