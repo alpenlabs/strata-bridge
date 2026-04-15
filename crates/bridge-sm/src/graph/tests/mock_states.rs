@@ -241,6 +241,8 @@ pub(super) fn all_nackd_state() -> GraphState {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::AllNackd {
         last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        signatures: Default::default(),
         claim_txid: graph_summary.claim,
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,

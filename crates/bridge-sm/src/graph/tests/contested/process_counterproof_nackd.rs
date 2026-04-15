@@ -44,6 +44,8 @@ fn event_accepted_transitions_to_all_nackd() {
         event: GraphEvent::CounterProofNackConfirmed(event.clone()),
         expected_state: GraphState::AllNackd {
             last_block_height: LATER_BLOCK_HEIGHT,
+            graph_data: test_deposit_params(),
+            signatures: Default::default(),
             claim_txid: TEST_GRAPH_SUMMARY.claim,
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
             contest_block_height: LATER_BLOCK_HEIGHT,
@@ -68,6 +70,8 @@ fn event_accepted_nonpov() {
             event: GraphEvent::CounterProofNackConfirmed(event.clone()),
             expected_state: GraphState::AllNackd {
                 last_block_height: LATER_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                signatures: Default::default(),
                 claim_txid: TEST_GRAPH_SUMMARY.claim,
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,

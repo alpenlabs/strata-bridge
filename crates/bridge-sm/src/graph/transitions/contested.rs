@@ -340,6 +340,8 @@ impl GraphSM {
                 if counterproof_nacks.len() == expected_nacks {
                     self.state = GraphState::AllNackd {
                         last_block_height,
+                        graph_data,
+                        signatures,
                         claim_txid: graph_summary.claim,
                         fulfillment_txid,
                         contest_block_height,
