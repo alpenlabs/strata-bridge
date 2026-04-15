@@ -251,6 +251,25 @@ pub(super) fn all_nackd_state() -> GraphState {
     }
 }
 
+/// Builds a mock `AllNackd` state with custom block heights and signatures.
+pub(super) fn all_nackd_state_with(
+    last_block_height: u64,
+    contest_block_height: u64,
+    signatures: Vec<Signature>,
+) -> GraphState {
+    let graph_summary = TEST_GRAPH_SUMMARY.clone();
+    GraphState::AllNackd {
+        last_block_height,
+        graph_data: test_deposit_params(),
+        signatures,
+        claim_txid: graph_summary.claim,
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        contest_block_height,
+        expected_payout_txid: graph_summary.contested_payout,
+        possible_slash_txid: graph_summary.slash,
+    }
+}
+
 /// Builds a mock `Acked` state with default test values.
 pub(super) fn acked_state() -> GraphState {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();

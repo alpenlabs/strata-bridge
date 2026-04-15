@@ -19,10 +19,10 @@ mod tests {
                 GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
                 TEST_POV_IDX, create_nonpov_sm, create_sm, get_state, mock_game_signatures,
                 mock_states::{
-                    TEST_FULFILLMENT_TXID, acked_state, assigned_state,
-                    bridge_proof_posted_state_with, bridge_proof_timedout_state_with,
-                    claimed_state, contested_state_with, counter_proof_posted_state,
-                    counter_proof_posted_without_refuted_proof_state,
+                    TEST_FULFILLMENT_TXID, acked_state, all_nackd_state, all_nackd_state_with,
+                    assigned_state, bridge_proof_posted_state_with,
+                    bridge_proof_timedout_state_with, claimed_state, contested_state_with,
+                    counter_proof_posted_state, counter_proof_posted_without_refuted_proof_state,
                 },
                 test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
                 test_graph_sm_ctx, test_graph_summary, test_graph_transition, test_recipient_desc,
@@ -1163,6 +1163,188 @@ mod tests {
             },
             expected_duties: vec![],
             expected_signals: vec![],
+        });
+    }
+
+    // ===== AllNackd Tests =====
+
+    /// Updates block height without triggering any duty before ack timelock.
+    #[test]
+    fn all_nackd_simple_update() {
+        let cfg = test_graph_sm_cfg();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
+        let new_height = contest_height + ack_timelock;
+
+        test_graph_transition(GraphTransition {
+            from_state: all_nackd_state_with(contest_height, contest_height, Default::default()),
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: new_height,
+            }),
+            expected_state: all_nackd_state_with(new_height, contest_height, Default::default()),
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
+    /// Graph owner publishes contested payout after ack timelock expires in AllNackd state.
+    #[test]
+    fn all_nackd_pov_contested_payout() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
+        let new_height = contest_height + ack_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let contested_payout_sigs =
+            GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
+                .expect("Failed to unpack signatures")
+                .contested_payout;
+        let signed_contested_payout_tx =
+            game_graph.contested_payout.finalize(contested_payout_sigs);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: all_nackd_state_with(
+                    contest_height,
+                    contest_height,
+                    signatures.clone(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: all_nackd_state_with(new_height, contest_height, signatures),
+                expected_duties: vec![GraphDuty::PublishContestedPayout {
+                    signed_contested_payout_tx,
+                }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Non-owner does not publish contested payout even after ack timelock in AllNackd state.
+    #[test]
+    fn all_nackd_nonpov_no_contested_payout() {
+        let cfg = test_graph_sm_cfg();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
+        let new_height = contest_height + ack_timelock + 1;
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: all_nackd_state_with(
+                    contest_height,
+                    contest_height,
+                    Default::default(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: all_nackd_state_with(
+                    new_height,
+                    contest_height,
+                    Default::default(),
+                ),
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Non-owner publishes slash after payout timelock expires in AllNackd state.
+    #[test]
+    fn all_nackd_nonpov_slash() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
+            .expect("Failed to unpack signatures")
+            .slash;
+        let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: all_nackd_state_with(
+                    contest_height,
+                    contest_height,
+                    signatures.clone(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: all_nackd_state_with(new_height, contest_height, signatures),
+                expected_duties: vec![GraphDuty::PublishSlash { signed_slash_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Graph owner publishes contested payout (not slash) when both timelocks exceeded
+    /// in AllNackd state.
+    #[test]
+    fn all_nackd_pov_no_slash_when_both_timelocks_exceeded() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let contested_payout_sigs =
+            GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
+                .expect("Failed to unpack signatures")
+                .contested_payout;
+        let signed_contested_payout_tx =
+            game_graph.contested_payout.finalize(contested_payout_sigs);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: all_nackd_state_with(
+                    contest_height,
+                    contest_height,
+                    signatures.clone(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: all_nackd_state_with(new_height, contest_height, signatures),
+                expected_duties: vec![GraphDuty::PublishContestedPayout {
+                    signed_contested_payout_tx,
+                }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// Rejects blocks at or below previously processed height in AllNackd state.
+    #[test]
+    fn all_nackd_already_processed() {
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: all_nackd_state(),
+            event: GraphEvent::NewBlock(NewBlockEvent {
+                block_height: LATER_BLOCK_HEIGHT,
+            }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
     }
 }
