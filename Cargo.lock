@@ -2685,6 +2685,7 @@ dependencies = [
  "bitcoincore-rpc",
  "clap",
  "hex",
+ "jsonrpc",
  "jsonrpsee",
  "k256",
  "libp2p-identity",

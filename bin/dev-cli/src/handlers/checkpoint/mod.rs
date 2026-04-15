@@ -34,12 +34,10 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
         );
     }
 
-    // Connect to bitcoind.
-    let btc_client = bitcoincore_rpc::Client::new(
-        &args.btc_args.url,
-        bitcoincore_rpc::Auth::UserPass(args.btc_args.user.clone(), args.btc_args.pass.clone()),
-    )
-    .context("failed to connect to bitcoind")?;
+    // Connect to bitcoind using minreq transport so the Host header preserves the
+    // original hostname, which is required when bitcoind sits behind a reverse proxy.
+    let btc_client = crate::rpc::new_btc_client(&args.btc_args)
+        .context("failed to connect to bitcoind")?;
 
     // Build mock checkpoint.
     let builder = mock_checkpoint::MockCheckpointBuilder::new();
