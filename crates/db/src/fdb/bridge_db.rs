@@ -558,7 +558,10 @@ mod tests {
                 0 => GraphState::Created { last_block_height: block_height },
                 1 => GraphState::Withdrawn { payout_txid: txid },
                 2 => GraphState::Aborted { payout_connector_spend_txid: txid, reason: "test".to_string() },
-                _ => GraphState::AllNackd { last_block_height: block_height, claim_txid: txid, fulfillment_txid: Some(txid), contest_block_height: block_height, expected_payout_txid: txid, possible_slash_txid: txid },
+                _ => {
+                    let outpoint = OutPoint { txid, vout: 0 };
+                    GraphState::AllNackd { last_block_height: block_height, graph_data: DepositParams { game_index: NonZero::new(1).unwrap(), claim_funds: outpoint, deposit_outpoint: outpoint }, signatures: Default::default(), claim_txid: txid, fulfillment_txid: Some(txid), contest_block_height: block_height, expected_payout_txid: txid, possible_slash_txid: txid }
+                },
             };
 
             let outpoint = OutPoint { txid, vout: 0 };
