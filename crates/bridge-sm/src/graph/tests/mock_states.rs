@@ -214,6 +214,28 @@ pub(super) fn counter_proof_posted_without_refuted_proof_state() -> GraphState {
     }
 }
 
+/// Builds a mock `CounterProofPosted` state with a single counterproof entry for the non-POV
+/// operator.
+pub(super) fn counter_proof_posted_state_with_counterproof() -> GraphState {
+    let counterproof_txid = TEST_GRAPH_SUMMARY.counterproofs[0].counterproof;
+    let mut counterproofs_and_confs = BTreeMap::new();
+    counterproofs_and_confs.insert(
+        super::TEST_NONPOV_IDX,
+        (counterproof_txid, LATER_BLOCK_HEIGHT),
+    );
+
+    GraphState::CounterProofPosted {
+        last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        signatures: Default::default(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        contest_block_height: LATER_BLOCK_HEIGHT,
+        counterproofs_and_confs,
+        counterproof_nacks: BTreeMap::new(),
+    }
+}
+
 /// Builds a mock `AllNackd` state with default test values.
 pub(super) fn all_nackd_state() -> GraphState {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
