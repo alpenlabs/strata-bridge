@@ -334,9 +334,9 @@ impl GraphSM {
                 }
                 counterproof_nacks.insert(event.counterprover_idx, event.counterproof_nack_txid);
 
-                // Transition to AllNackd once every counterproof has been nack'd, otherwise stay in
-                // CounterProofPosted.
-                let expected_nacks = counterproofs_and_confs.len();
+                // Transition to AllNackd once every possible counterproof has been nack'd
+                // (all watchtower slots), otherwise stay in CounterProofPosted.
+                let expected_nacks = graph_summary.counterproofs.len();
                 if counterproof_nacks.len() == expected_nacks {
                     self.state = GraphState::AllNackd {
                         last_block_height,

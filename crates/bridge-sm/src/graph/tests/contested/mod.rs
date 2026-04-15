@@ -3,4 +3,5 @@ mod process_bridge_proof_timeout;
 mod process_contest;
 mod process_counterproof;
 mod process_counterproof_ack;
+mod process_counterproof_nackd;
 mod process_slash;
