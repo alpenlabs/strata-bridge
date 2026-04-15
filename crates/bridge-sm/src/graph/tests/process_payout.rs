@@ -34,7 +34,10 @@ mod tests {
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
             },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
-            expected_state: GraphState::Withdrawn { payout_txid },
+            expected_state: GraphState::Withdrawn {
+                claim_txid: test_graph_summary().claim,
+                payout_txid,
+            },
             expected_duties: vec![],
             expected_signals: vec![],
         });
@@ -58,7 +61,10 @@ mod tests {
         test_graph_transition(GraphTransition {
             from_state: all_nackd_state(),
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
-            expected_state: GraphState::Withdrawn { payout_txid },
+            expected_state: GraphState::Withdrawn {
+                claim_txid: test_graph_summary().claim,
+                payout_txid,
+            },
             expected_duties: vec![],
             expected_signals: vec![],
         });
@@ -80,7 +86,10 @@ mod tests {
         let payout_txid = generate_txid();
 
         test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: GraphState::Withdrawn { payout_txid },
+            from_state: GraphState::Withdrawn {
+                claim_txid: test_graph_summary().claim,
+                payout_txid,
+            },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
             expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
         });
@@ -104,7 +113,10 @@ mod tests {
                 proof: dummy_proof_receipt(),
             },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
-            expected_state: GraphState::Withdrawn { payout_txid },
+            expected_state: GraphState::Withdrawn {
+                claim_txid: test_graph_summary().claim,
+                payout_txid,
+            },
             expected_duties: vec![],
             expected_signals: vec![],
         });

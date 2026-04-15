@@ -10154,7 +10154,6 @@ dependencies = [
  "strata-l1-txfmt",
  "strata-p2p",
  "strata-predicate",
- "strata-primitives",
  "strata-tasks",
  "tikv-jemallocator",
  "tokio",

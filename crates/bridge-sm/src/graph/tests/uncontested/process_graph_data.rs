@@ -143,6 +143,7 @@ mod tests {
     fn test_invalid_process_graph_data_from_withdrawn() {
         // Peer-provided graph data should be rejected once the graph is terminal.
         let state = GraphState::Withdrawn {
+            claim_txid: test_graph_summary().claim,
             payout_txid: generate_txid(),
         };
 

@@ -330,17 +330,26 @@ pub enum GraphState {
     },
     /// The deposit output has been spent by either uncontested or contested payout.
     Withdrawn {
+        /// The txid of the claim transaction.
+        claim_txid: Txid,
+
         /// The txid of the transaction (uncontested or contested payout) that spent the deposit
         /// output.
         payout_txid: Txid,
     },
     /// The operator has been slashed on chain.
     Slashed {
+        /// The txid of the claim transaction.
+        claim_txid: Txid,
+
         /// The txid of the slash transaction.
         slash_txid: Txid,
     },
     /// The graph has been aborted due to the payout connector being spent.
     Aborted {
+        /// The txid of the claim transaction.
+        claim_txid: Txid,
+
         /// Transaction ID of the payout connector spend that caused the abort.
         payout_connector_spend_txid: Txid,
 

@@ -13,8 +13,9 @@ class ChallengeStep(Enum):
     """Challenge step states for claims."""
 
     CLAIM = "claim"
-    CHALLENGE = "challenge"
-    ASSERT = "assert"
+    CONTEST = "contest"
+    PROOF = "proof"
+    COUNTER_PROOF = "counter_proof"
 
 
 @dataclass
@@ -44,24 +45,6 @@ RpcDepositStatus = RpcDepositStatusInProgress | RpcDepositStatusFailed | RpcDepo
 
 
 @dataclass
-class RpcWithdrawalStatusInProgress:
-    """Withdrawal is in progress."""
-
-    status: str = "in_progress"
-
-
-@dataclass
-class RpcWithdrawalStatusComplete:
-    """Withdrawal has been fully processed and fulfilled."""
-
-    status: str = "complete"
-    fulfillment_txid: str = ""
-
-
-RpcWithdrawalStatus = RpcWithdrawalStatusInProgress | RpcWithdrawalStatusComplete
-
-
-@dataclass
 class RpcReimbursementStatusNotStarted:
     """Claim does not exist on-chain."""
 
@@ -78,7 +61,7 @@ class RpcReimbursementStatusInProgress:
 
 @dataclass
 class RpcReimbursementStatusChallenged:
-    """Claim exists, challenge step is 'Challenge' or 'Assert', no payout."""
+    """Claim exists and has advanced beyond the initial claim stage, with no payout."""
 
     status: str = "challenged"
     challenge_step: str = ""
@@ -114,14 +97,6 @@ class RpcDepositInfo:
 
     status: RpcDepositStatus
     deposit_request_txid: str
-
-
-@dataclass
-class RpcWithdrawalInfo:
-    """Represents withdrawal transaction details."""
-
-    status: RpcWithdrawalStatus
-    withdrawal_request_txid: str
 
 
 @dataclass
@@ -185,7 +160,7 @@ class RpcBridgeDutyDeposit:
 class RpcBridgeDutyWithdrawal:
     """Withdrawal duty."""
 
-    withdrawal_request_txid: str
+    deposit_idx: int
     assigned_operator_idx: int
 
 

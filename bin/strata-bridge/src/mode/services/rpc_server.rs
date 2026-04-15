@@ -23,9 +23,9 @@ use strata_bridge_rpc::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
     },
     types::{
-        RpcActiveClaim, RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcClaimPhase,
-        RpcDepositInfo, RpcDepositStatus, RpcGraphData, RpcOperatorStatus,
-        RpcPendingWithdrawalInfo, RpcWithdrawalInfo,
+        ChallengeStep, RpcActiveClaim, RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo,
+        RpcClaimPhase, RpcDepositInfo, RpcDepositStatus, RpcGraphData, RpcOperatorStatus,
+        RpcPendingWithdrawalInfo, RpcReimbursementStatus,
     },
 };
 use strata_bridge_sm::{
@@ -33,7 +33,6 @@ use strata_bridge_sm::{
     graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState},
 };
 use strata_p2p::swarm::handle::CommandHandle;
-use strata_primitives::buf::Buf32;
 use strata_tasks::TaskExecutor;
 use tokio::{
     sync::{RwLock, oneshot},
@@ -320,45 +319,74 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(vec![])
+        Ok(self
+            .cached_registry
+            .read()
+            .await
+            .deposits()
+            .filter_map(|(&deposit_idx, dsm)| {
+                bridge_duty_from_deposit_state(
+                    deposit_idx,
+                    dsm.context().deposit_request_outpoint().txid,
+                    dsm.state(),
+                )
+            })
+            .collect())
     }
 
     async fn get_bridge_duties_by_operator_pk(
         &self,
-        _operator_pk: PublicKey,
+        operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(vec![])
-    }
+        let Ok(operator_idx) = convert_operator_pk_to_operator_idx(&self.params, &operator_pk)
+        else {
+            return Err(rpc_error(
+                ErrorCode::InvalidRequest,
+                "Invalid operator public key",
+                operator_pk,
+            ));
+        };
 
-    async fn get_withdrawals(&self) -> RpcResult<Vec<Buf32>> {
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(vec![])
-    }
-
-    async fn get_withdrawal_info(
-        &self,
-        _withdrawal_request_txid: Buf32,
-    ) -> RpcResult<Option<RpcWithdrawalInfo>> {
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(None)
+        Ok(self
+            .cached_registry
+            .read()
+            .await
+            .deposits()
+            .filter_map(|(&deposit_idx, dsm)| {
+                withdrawal_duty_from_state(deposit_idx, dsm.state()).filter(|duty| {
+                    matches!(
+                        duty,
+                        RpcBridgeDutyStatus::Withdrawal {
+                            assigned_operator_idx,
+                            ..
+                        } if *assigned_operator_idx == operator_idx
+                    )
+                })
+            })
+            .collect())
     }
 
     async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(vec![])
+        Ok(self
+            .cached_registry
+            .read()
+            .await
+            .graphs()
+            .filter_map(|(_graph_idx, gsm)| on_chain_claim_txid(gsm.state()))
+            .collect())
     }
 
-    async fn get_claim_info(&self, _claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>> {
-        // TODO: <https://atlassian.alpenlabs.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(None)
+    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>> {
+        Ok(self
+            .cached_registry
+            .read()
+            .await
+            .graphs()
+            .find_map(|(_graph_idx, gsm)| {
+                claim_info_from_state(gsm.state())
+                    .filter(|(state_claim_txid, _status)| *state_claim_txid == claim_txid)
+            })
+            .map(|(_, status)| RpcClaimInfo { claim_txid, status }))
     }
 
     async fn get_pending_withdrawals(&self) -> RpcResult<Vec<DepositIdx>> {
@@ -427,6 +455,32 @@ const fn get_assigned_operator(state: &DepositState) -> Option<OperatorIdx> {
         | DepositState::CooperativePathFailed { assignee, .. } => Some(*assignee),
         _ => None,
     }
+}
+
+fn bridge_duty_from_deposit_state(
+    deposit_idx: DepositIdx,
+    deposit_request_txid: Txid,
+    state: &DepositState,
+) -> Option<RpcBridgeDutyStatus> {
+    match state {
+        DepositState::Created { .. }
+        | DepositState::GraphGenerated { .. }
+        | DepositState::DepositNoncesCollected { .. }
+        | DepositState::DepositPartialsCollected { .. } => Some(RpcBridgeDutyStatus::Deposit {
+            deposit_request_txid,
+        }),
+        _ => withdrawal_duty_from_state(deposit_idx, state),
+    }
+}
+
+fn withdrawal_duty_from_state(
+    deposit_idx: DepositIdx,
+    state: &DepositState,
+) -> Option<RpcBridgeDutyStatus> {
+    get_assigned_operator(state).map(|assigned_operator_idx| RpcBridgeDutyStatus::Withdrawal {
+        deposit_idx,
+        assigned_operator_idx,
+    })
 }
 
 const fn active_claim_from_state(
@@ -498,6 +552,81 @@ const fn active_claim_from_state(
         fulfilled: fulfillment_txid.is_some(),
         phase,
     })
+}
+
+const fn on_chain_claim_txid(state: &GraphState) -> Option<Txid> {
+    match state {
+        GraphState::Claimed { graph_summary, .. }
+        | GraphState::Contested { graph_summary, .. }
+        | GraphState::BridgeProofPosted { graph_summary, .. }
+        | GraphState::CounterProofPosted { graph_summary, .. } => Some(graph_summary.claim),
+        GraphState::BridgeProofTimedout { claim_txid, .. }
+        | GraphState::AllNackd { claim_txid, .. }
+        | GraphState::Acked { claim_txid, .. }
+        | GraphState::Withdrawn { claim_txid, .. }
+        | GraphState::Slashed { claim_txid, .. }
+        | GraphState::Aborted { claim_txid, .. } => Some(*claim_txid),
+        _ => None,
+    }
+}
+
+const fn claim_info_from_state(state: &GraphState) -> Option<(Txid, RpcReimbursementStatus)> {
+    match state {
+        GraphState::GraphGenerated { graph_summary, .. }
+        | GraphState::AdaptorsVerified { graph_summary, .. }
+        | GraphState::NoncesCollected { graph_summary, .. }
+        | GraphState::GraphSigned { graph_summary, .. }
+        | GraphState::Assigned { graph_summary, .. }
+        | GraphState::Fulfilled { graph_summary, .. } => {
+            Some((graph_summary.claim, RpcReimbursementStatus::NotStarted))
+        }
+        GraphState::Claimed { graph_summary, .. } => Some((
+            graph_summary.claim,
+            RpcReimbursementStatus::InProgress {
+                challenge_step: ChallengeStep::Claim,
+            },
+        )),
+        GraphState::Contested { graph_summary, .. } => Some((
+            graph_summary.claim,
+            RpcReimbursementStatus::Challenged {
+                challenge_step: ChallengeStep::Contest,
+            },
+        )),
+        GraphState::BridgeProofPosted { graph_summary, .. } => Some((
+            graph_summary.claim,
+            RpcReimbursementStatus::Challenged {
+                challenge_step: ChallengeStep::Proof,
+            },
+        )),
+        GraphState::CounterProofPosted { graph_summary, .. } => Some((
+            graph_summary.claim,
+            RpcReimbursementStatus::Challenged {
+                challenge_step: ChallengeStep::CounterProof,
+            },
+        )),
+        GraphState::AllNackd { claim_txid, .. } => Some((
+            *claim_txid,
+            RpcReimbursementStatus::Challenged {
+                challenge_step: ChallengeStep::CounterProof,
+            },
+        )),
+        GraphState::BridgeProofTimedout { claim_txid, .. }
+        | GraphState::Acked { claim_txid, .. }
+        | GraphState::Slashed { claim_txid, .. }
+        | GraphState::Aborted { claim_txid, .. } => {
+            Some((*claim_txid, RpcReimbursementStatus::Failed))
+        }
+        GraphState::Withdrawn {
+            claim_txid,
+            payout_txid,
+        } => Some((
+            *claim_txid,
+            RpcReimbursementStatus::Complete {
+                payout_txid: *payout_txid,
+            },
+        )),
+        GraphState::Created { .. } => None,
+    }
 }
 
 #[async_trait]
@@ -605,6 +734,20 @@ pub(crate) fn convert_operator_pk_to_peer_id(
         .ok_or_else(|| anyhow::anyhow!("operator public key not found in params"))
 }
 
+/// Converts a MuSig2 operator [`PublicKey`] to its corresponding operator index.
+pub(crate) fn convert_operator_pk_to_operator_idx(
+    params: &Params,
+    operator_pk: &PublicKey,
+) -> anyhow::Result<OperatorIdx> {
+    params
+        .keys
+        .covenant
+        .iter()
+        .position(|cov| cov.musig2 == operator_pk.inner.x_only_public_key().0)
+        .map(|idx| idx as OperatorIdx)
+        .ok_or_else(|| anyhow::anyhow!("operator public key not found in params"))
+}
+
 /// Returns an [`ErrorObjectOwned`] with the given code, message, and data.
 /// Useful for creating custom error objects in RPC responses.
 fn rpc_error<T: fmt::Display + Serialize>(
@@ -620,14 +763,21 @@ mod tests {
     use std::{collections::BTreeMap, num::NonZero};
 
     use bitcoin::{
-        Amount, Network, OutPoint,
+        Amount, Network, OutPoint, Transaction,
+        absolute::LockTime,
         hashes::{Hash, sha256},
         relative,
+        transaction::Version,
     };
     use secp256k1::schnorr::Signature;
     use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
-    use strata_bridge_rpc::types::RpcClaimPhase;
-    use strata_bridge_sm::graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState};
+    use strata_bridge_rpc::types::{
+        ChallengeStep, RpcBridgeDutyStatus, RpcClaimPhase, RpcReimbursementStatus,
+    };
+    use strata_bridge_sm::{
+        deposit::state::DepositState,
+        graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState},
+    };
     use strata_bridge_test_utils::{
         bitcoin::generate_xonly_pubkey,
         bridge_fixtures::{
@@ -639,7 +789,10 @@ mod tests {
     use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary, ProtocolParams};
     use strata_predicate::PredicateKey;
 
-    use super::{active_claim_from_state, aggregate_signatures_response, graph_data_response};
+    use super::{
+        active_claim_from_state, aggregate_signatures_response, bridge_duty_from_deposit_state,
+        claim_info_from_state, graph_data_response, on_chain_claim_txid,
+    };
 
     const DEPOSIT_IDX: DepositIdx = 3;
     const OPERATOR_IDX: OperatorIdx = 1;
@@ -853,5 +1006,116 @@ mod tests {
 
         assert!(claim.fulfilled);
         assert_eq!(claim.phase, RpcClaimPhase::Contested);
+    }
+
+    #[test]
+    fn bridge_duty_from_deposit_state_returns_deposit_duty_for_pre_deposit_completion_state() {
+        let deposit_request_txid = generate_txid();
+        let state = DepositState::DepositPartialsCollected {
+            last_block_height: 100,
+            deposit_transaction: Transaction {
+                version: Version::TWO,
+                lock_time: LockTime::ZERO,
+                input: vec![],
+                output: vec![],
+            },
+        };
+
+        let duty = bridge_duty_from_deposit_state(DEPOSIT_IDX, deposit_request_txid, &state)
+            .expect("deposit duty should be returned");
+
+        assert!(matches!(
+            duty,
+            RpcBridgeDutyStatus::Deposit {
+                deposit_request_txid: txid
+            } if txid == deposit_request_txid
+        ));
+    }
+
+    #[test]
+    fn bridge_duty_from_deposit_state_returns_withdrawal_duty_for_assigned_state() {
+        let state = DepositState::Assigned {
+            last_block_height: 100,
+            assignee: OPERATOR_IDX,
+            deadline: 120,
+            recipient_desc: random_p2tr_desc(),
+        };
+
+        let duty = bridge_duty_from_deposit_state(DEPOSIT_IDX, generate_txid(), &state)
+            .expect("withdrawal duty should be returned");
+
+        assert!(matches!(
+            duty,
+            RpcBridgeDutyStatus::Withdrawal {
+                deposit_idx,
+                assigned_operator_idx
+            } if deposit_idx == DEPOSIT_IDX && assigned_operator_idx == OPERATOR_IDX
+        ));
+    }
+
+    #[test]
+    fn listed_claim_txid_from_state_returns_terminal_claim_txid() {
+        let claim_txid = generate_txid();
+        let state = GraphState::Slashed {
+            claim_txid,
+            slash_txid: generate_txid(),
+        };
+
+        assert_eq!(on_chain_claim_txid(&state), Some(claim_txid));
+    }
+
+    #[test]
+    fn claim_info_from_state_returns_complete_for_withdrawn_state() {
+        let claim_txid = generate_txid();
+        let payout_txid = generate_txid();
+        let state = GraphState::Withdrawn {
+            claim_txid,
+            payout_txid,
+        };
+
+        let info = claim_info_from_state(&state).expect("claim info should be returned");
+
+        assert_eq!(info.0, claim_txid);
+        assert!(matches!(
+            info.1,
+            RpcReimbursementStatus::Complete { payout_txid: txid } if txid == payout_txid
+        ));
+    }
+
+    #[test]
+    fn claim_info_from_state_returns_cancelled_for_slashed_state() {
+        let claim_txid = generate_txid();
+        let state = GraphState::Slashed {
+            claim_txid,
+            slash_txid: generate_txid(),
+        };
+
+        let info = claim_info_from_state(&state).expect("claim info should be returned");
+
+        assert_eq!(info.0, claim_txid);
+        assert!(matches!(info.1, RpcReimbursementStatus::Failed));
+    }
+
+    #[test]
+    fn claim_info_from_state_returns_counterproof_phase_for_all_nackd_state() {
+        let claim_txid = generate_txid();
+        let state = GraphState::AllNackd {
+            last_block_height: 100,
+            claim_txid,
+            fulfillment_txid: Some(generate_txid()),
+            contest_block_height: 90,
+            expected_payout_txid: generate_txid(),
+            possible_slash_txid: generate_txid(),
+        };
+
+        let info = claim_info_from_state(&state).expect("claim info should be returned");
+
+        assert_eq!(info.0, claim_txid);
+        assert!(matches!(
+            info.1,
+            RpcReimbursementStatus::Challenged {
+                challenge_step: ChallengeStep::CounterProof
+            }
+        ));
     }
 }

@@ -25,6 +25,7 @@ impl GraphSM {
                 }
 
                 self.state = GraphState::Withdrawn {
+                    claim_txid: graph_summary.claim,
                     payout_txid: payout_event.payout_txid,
                 };
 
@@ -46,12 +47,14 @@ impl GraphSM {
                 );
 
                 self.state = GraphState::Withdrawn {
+                    claim_txid: graph_summary.claim,
                     payout_txid: payout_event.payout_txid,
                 };
 
                 Ok(GSMOutput::new())
             }
             GraphState::AllNackd {
+                claim_txid,
                 expected_payout_txid,
                 ..
             } => {
@@ -70,6 +73,7 @@ impl GraphSM {
                 );
 
                 self.state = GraphState::Withdrawn {
+                    claim_txid: *claim_txid,
                     payout_txid: payout_event.payout_txid,
                 };
 
@@ -99,12 +103,21 @@ impl GraphSM {
     ) -> GSMResult<GSMOutput> {
         match self.state() {
             // States that can observe payout connector spend
-            GraphState::Claimed { .. }
-            | GraphState::Contested { .. }
-            | GraphState::BridgeProofPosted { .. }
-            | GraphState::BridgeProofTimedout { .. }
-            | GraphState::CounterProofPosted { .. } => {
+            GraphState::Claimed { graph_summary, .. }
+            | GraphState::Contested { graph_summary, .. }
+            | GraphState::BridgeProofPosted { graph_summary, .. }
+            | GraphState::CounterProofPosted { graph_summary, .. } => {
                 self.state = GraphState::Aborted {
+                    claim_txid: graph_summary.claim,
+                    payout_connector_spend_txid: event.spending_txid,
+                    reason: "Payout connector spent".to_string(),
+                };
+
+                Ok(GSMOutput::new())
+            }
+            GraphState::BridgeProofTimedout { claim_txid, .. } => {
+                self.state = GraphState::Aborted {
+                    claim_txid: *claim_txid,
                     payout_connector_spend_txid: event.spending_txid,
                     reason: "Payout connector spent".to_string(),
                 };

@@ -292,6 +292,7 @@ mod tests {
     fn test_claim_invalid_from_other_states() {
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: GraphState::Withdrawn {
+                claim_txid: test_graph_summary().claim,
                 payout_txid: generate_txid(),
             },
             event: GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {

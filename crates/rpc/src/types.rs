@@ -3,10 +3,9 @@
 use bitcoin::Txid;
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::graph::context::GraphSMCtx;
 use strata_bridge_tx_graph::game_graph::{DepositParams, SetupParams};
-use strata_primitives::buf::Buf32;
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,28 +44,17 @@ pub enum RpcDepositStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChallengeStep {
-    /// Challenge step is "Claim".
+    /// Claim has been posted.
     Claim,
 
-    /// Challenge step is "Challenge".
-    Challenge,
+    /// A contest has been posted.
+    Contest,
 
-    /// Challenge step is "Assert".
-    Assert,
-}
+    /// A bridge proof has been posted.
+    Proof,
 
-/// Represents a valid withdrawal status
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum RpcWithdrawalStatus {
-    /// Withdrawal is in progress.
-    InProgress,
-
-    /// Withdrawal has been fully processed and fulfilled.
-    Complete {
-        /// Transaction ID of the withdrawal fulfillment transaction.
-        fulfillment_txid: Txid,
-    },
+    /// A counterproof has been posted.
+    CounterProof,
 }
 
 /// Represents a valid reimbursement status
@@ -76,20 +64,20 @@ pub enum RpcReimbursementStatus {
     /// Claim does not exist on-chain.
     NotStarted,
 
-    /// Claim exists, challenge step is "Claim", no payout.
+    /// Claim exists and is in the claim stage, with no payout yet.
     InProgress {
         /// Challenge step.
         challenge_step: ChallengeStep,
     },
 
-    /// Claim exists, challenge step is "Challenge" or "Assert", no payout.
+    /// Claim exists and has advanced beyond the initial claim stage, with no payout yet.
     Challenged {
         /// Challenge step.
         challenge_step: ChallengeStep,
     },
 
     /// Operator was slashed, claim is no longer valid.
-    Cancelled,
+    Failed,
 
     /// Claim has been successfully reimbursed.
     Complete {
@@ -106,19 +94,6 @@ pub struct RpcDepositInfo {
 
     /// Transaction ID of the deposit request transaction (DRT).
     pub deposit_request_txid: Txid,
-}
-
-/// Represents withdrawal transaction details
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpcWithdrawalInfo {
-    /// Status of the withdrawal.
-    pub status: RpcWithdrawalStatus,
-
-    /// Transaction ID of the withdrawal request transaction (WRT).
-    ///
-    /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of the
-    /// withdrawal transaction in the sidesystem's execution environment.
-    pub withdrawal_request_txid: Buf32,
 }
 
 /// Represents reimbursement transaction details
@@ -142,11 +117,8 @@ pub enum RpcBridgeDutyStatus {
 
     /// Withdrawal duty
     Withdrawal {
-        /// Transaction ID of the withdrawal request transaction (WRT).
-        ///
-        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
-        /// the withdrawal transaction in the sidesystem's execution environment.
-        withdrawal_request_txid: Buf32,
+        /// Deposit index of the withdrawal being processed.
+        deposit_idx: DepositIdx,
 
         /// Assigned operator index.
         assigned_operator_idx: OperatorIdx,

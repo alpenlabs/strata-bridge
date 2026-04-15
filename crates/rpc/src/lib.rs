@@ -4,5 +4,7 @@
 //! decomposed into various groups partly based on how bitcoin RPCs are categorized into various
 //! [groups](https://developer.bitcoin.org/reference/rpc/index.html).
 
+use strata_primitives as _;
+
 pub mod traits;
 pub mod types;

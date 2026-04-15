@@ -12,7 +12,7 @@ mod tests {
             tests::{
                 GraphInvalidTransition, create_nonpov_sm, create_sm, get_state,
                 mock_states::test_graph_generated_state, test_graph_invalid_transition,
-                test_graph_sm_cfg,
+                test_graph_sm_cfg, test_graph_summary,
             },
         },
         testing::EventSequence,
@@ -95,6 +95,7 @@ mod tests {
     fn test_invalid_process_adaptors_verification_from_withdrawn() {
         // AdaptorsVerified is only valid in GraphGenerated; any other state should be InvalidEvent
         let state = GraphState::Withdrawn {
+            claim_txid: test_graph_summary().claim,
             payout_txid: generate_txid(),
         };
 

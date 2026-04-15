@@ -3,11 +3,10 @@
 use bitcoin::{PublicKey, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
-use strata_primitives::buf::Buf32;
 
 use crate::types::{
     RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcGraphData,
-    RpcOperatorStatus, RpcPendingWithdrawalInfo, RpcWithdrawalInfo,
+    RpcOperatorStatus, RpcPendingWithdrawalInfo,
 };
 
 /// RPCs related to information about the client itself.
@@ -60,23 +59,6 @@ pub trait StrataBridgeMonitoringApi {
         &self,
         operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>>;
-
-    /// Get all withdrawal request txids.
-    ///
-    /// NOTE: These are not Bitcoin txids but [`Buf32`] representing the transaction IDs of the
-    /// withdrawal transactions in the sidesystem's execution environment.
-    #[method(name = "withdrawals")]
-    async fn get_withdrawals(&self) -> RpcResult<Vec<Buf32>>;
-
-    /// Get withdrawal details using withdrawal request txid.
-    ///
-    /// NOTE: This is not a Bitcoin txid but a [`Buf32`] representing the transaction ID of the
-    /// withdrawal transaction in the sidesystem's execution environment.
-    #[method(name = "withdrawalInfo")]
-    async fn get_withdrawal_info(
-        &self,
-        withdrawal_request_txid: Buf32,
-    ) -> RpcResult<Option<RpcWithdrawalInfo>>;
 
     /// Get all claim transaction IDs.
     #[method(name = "claims")]

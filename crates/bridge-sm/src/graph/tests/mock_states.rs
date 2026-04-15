@@ -265,12 +265,15 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     vec![
         GraphState::Withdrawn {
+            claim_txid: graph_summary.claim,
             payout_txid: graph_summary.uncontested_payout,
         },
         GraphState::Slashed {
+            claim_txid: graph_summary.claim,
             slash_txid: graph_summary.slash,
         },
         GraphState::Aborted {
+            claim_txid: graph_summary.claim,
             payout_connector_spend_txid: graph_summary.contested_payout,
             reason: "test".to_string(),
         },
