@@ -10,7 +10,6 @@ use musig2::{
 };
 use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_bridge_primitives::{
-    mosaic::Labels,
     scripts::taproot::TaprootTweak,
     types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
 };
@@ -225,9 +224,6 @@ pub enum GraphDuty {
         /// The counterproof NACK transaction to be published (unsigned; signed by mosaic after GC
         /// evaluation).
         counterproof_nack_tx: Transaction,
-
-        /// The labels committed in the counterproof.
-        labels: Vec<Labels>,
     },
 
     /// Publish a slash transaction.

@@ -78,7 +78,9 @@ impl StateMachine for GraphSM {
             GraphEvent::BridgeProofTimeoutConfirmed(timeout) => {
                 self.process_bridge_proof_timeout(timeout)
             }
-            GraphEvent::CounterProofConfirmed(_counterproof) => todo!(),
+            GraphEvent::CounterProofConfirmed(counterproof) => {
+                self.process_counterproof(cfg, counterproof)
+            }
             GraphEvent::CounterProofAckConfirmed(ack) => self.process_counterproof_ack(ack),
             GraphEvent::CounterProofNackConfirmed(_nack) => todo!(),
             GraphEvent::SlashConfirmed(slash) => self.process_slash(slash),
