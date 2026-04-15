@@ -9,7 +9,7 @@ use crate::graph::{
     errors::{GSMError, GSMResult},
     events::{
         BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent,
-        CounterProofAckConfirmedEvent, SlashConfirmedEvent,
+        CounterProofAckConfirmedEvent, CounterProofNackConfirmedEvent, SlashConfirmedEvent,
     },
     machine::{GSMOutput, GraphSM, generate_game_graph},
     state::GraphState,
@@ -291,6 +291,77 @@ impl GraphSM {
             state @ GraphState::BridgeProofTimedout { .. } => {
                 Err(GSMError::duplicate(state, event.into()))
             }
+            state => Err(GSMError::invalid_event(state, event.into(), None)),
+        }
+    }
+
+    /// Processes the event where a counterproof NACK transaction has been confirmed on-chain.
+    pub(crate) fn process_counterproof_nackd(
+        &mut self,
+        event: CounterProofNackConfirmedEvent,
+    ) -> GSMResult<GSMOutput> {
+        self.check_operator_idx(event.counterprover_idx, &event)?;
+
+        match self.state.clone() {
+            GraphState::CounterProofPosted {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                fulfillment_txid,
+                contest_block_height,
+                counterproofs_and_confs,
+                mut counterproof_nacks,
+            } => {
+                // TODO: add validation of the counterproof_nack_txid asserting that it spends
+                // the corresponding counterproof transaction.
+
+                // Ensure a counterproof was posted by this operator before accepting a NACK.
+                if !counterproofs_and_confs.contains_key(&event.counterprover_idx) {
+                    return Err(GSMError::rejected(
+                        self.state.clone(),
+                        event.clone().into(),
+                        format!(
+                            "no counterproof posted for operator index {}",
+                            event.counterprover_idx
+                        ),
+                    ));
+                }
+
+                // Reject duplicate NACK for the same counterprover.
+                if counterproof_nacks.contains_key(&event.counterprover_idx) {
+                    return Err(GSMError::duplicate(self.state.clone(), event.into()));
+                }
+                counterproof_nacks.insert(event.counterprover_idx, event.counterproof_nack_txid);
+
+                // Transition to AllNackd once every counterproof has been nack'd, otherwise stay in
+                // CounterProofPosted.
+                let expected_nacks = counterproofs_and_confs.len();
+                if counterproof_nacks.len() == expected_nacks {
+                    self.state = GraphState::AllNackd {
+                        last_block_height,
+                        claim_txid: graph_summary.claim,
+                        fulfillment_txid,
+                        contest_block_height,
+                        expected_payout_txid: graph_summary.contested_payout,
+                        possible_slash_txid: graph_summary.slash,
+                    };
+                } else {
+                    self.state = GraphState::CounterProofPosted {
+                        last_block_height,
+                        graph_data,
+                        graph_summary,
+                        signatures,
+                        fulfillment_txid,
+                        contest_block_height,
+                        counterproofs_and_confs,
+                        counterproof_nacks,
+                    };
+                }
+
+                Ok(GSMOutput::new())
+            }
+            state @ GraphState::AllNackd { .. } => Err(GSMError::duplicate(state, event.into())),
             state => Err(GSMError::invalid_event(state, event.into(), None)),
         }
     }
