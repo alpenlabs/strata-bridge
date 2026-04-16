@@ -159,3 +159,177 @@ impl<'a> Applicator<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use strata_bridge_primitives::types::GraphIdx;
+    use strata_bridge_sm::{
+        deposit::events::{DepositEvent, NewBlockEvent as DepositNewBlock},
+        graph::events::{GraphEvent, NewBlockEvent as GraphNewBlock},
+    };
+
+    use super::*;
+    use crate::testing::{
+        INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, test_empty_registry, test_populated_registry,
+    };
+
+    // ===== apply_batch basic tests =====
+
+    #[test]
+    fn empty_batch_yields_no_duties_and_no_touched_sms() {
+        let mut registry = test_populated_registry(1);
+        let mut applicator = Applicator::new(&mut registry);
+
+        applicator.apply_batch(vec![]).unwrap();
+
+        let (duties, tracker) = applicator.finish();
+        assert!(duties.is_empty());
+        assert!(tracker.into_batches().is_empty());
+    }
+
+    #[test]
+    fn applied_event_marks_sm_as_touched() {
+        let mut registry = test_populated_registry(1);
+        let height = INITIAL_BLOCK_HEIGHT + 1;
+
+        let mut applicator = Applicator::new(&mut registry);
+
+        let seed_events = vec![(
+            SMId::Deposit(0),
+            SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
+                block_height: height,
+            }))),
+        )];
+
+        applicator.apply_batch(seed_events).unwrap();
+
+        let (_, tracker) = applicator.finish();
+        let batches = tracker.into_batches();
+        assert!(!batches.is_empty(), "applied event must mark SM as touched");
+    }
+
+    #[test]
+    fn applied_graph_event_marks_sm_as_touched() {
+        let mut registry = test_populated_registry(1);
+        let height = INITIAL_BLOCK_HEIGHT + 1;
+
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: 0,
+        };
+
+        let mut applicator = Applicator::new(&mut registry);
+
+        let seed_events = vec![(
+            SMId::Graph(graph_idx),
+            SMEvent::Graph(Box::new(GraphEvent::NewBlock(GraphNewBlock {
+                block_height: height,
+            }))),
+        )];
+
+        applicator.apply_batch(seed_events).unwrap();
+
+        let (_, tracker) = applicator.finish();
+        let batches = tracker.into_batches();
+        assert!(!batches.is_empty());
+    }
+
+    #[test]
+    fn successive_batches_accumulate_touched_sms() {
+        let mut registry = test_populated_registry(2);
+        let height = INITIAL_BLOCK_HEIGHT + 1;
+
+        let mut applicator = Applicator::new(&mut registry);
+
+        applicator
+            .apply_batch(vec![(
+                SMId::Deposit(0),
+                SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
+                    block_height: height,
+                }))),
+            )])
+            .unwrap();
+
+        applicator
+            .apply_batch(vec![(
+                SMId::Deposit(1),
+                SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
+                    block_height: height,
+                }))),
+            )])
+            .unwrap();
+
+        let (_, tracker) = applicator.finish();
+        let all_ids: BTreeSet<_> = tracker.into_batches().into_iter().flatten().collect();
+        assert!(all_ids.contains(&SMId::Deposit(0)));
+        assert!(all_ids.contains(&SMId::Deposit(1)));
+    }
+
+    // ===== Error handling tests =====
+
+    #[test]
+    fn unknown_sm_id_is_fatal() {
+        let mut registry = test_empty_registry();
+        let mut applicator = Applicator::new(&mut registry);
+
+        let seed_events = vec![(
+            SMId::Deposit(99),
+            SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
+                block_height: 200,
+            }))),
+        )];
+
+        let result = applicator.apply_batch(seed_events);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn duplicate_event_is_ignored_non_fatally() {
+        let mut registry = test_populated_registry(1);
+        let mut applicator = Applicator::new(&mut registry);
+
+        let event = || {
+            (
+                SMId::Deposit(0),
+                SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
+                    block_height: INITIAL_BLOCK_HEIGHT + 1,
+                }))),
+            )
+        };
+
+        applicator.apply_batch(vec![event()]).unwrap();
+        // Same height again — duplicate, should not fail
+        applicator.apply_batch(vec![event()]).unwrap();
+
+        let (_, tracker) = applicator.finish();
+        assert!(!tracker.into_batches().is_empty());
+    }
+
+    // ===== Registry access between batches =====
+
+    #[test]
+    fn registry_reflects_settled_state_between_batches() {
+        let mut registry = test_populated_registry(1);
+        let mut applicator = Applicator::new(&mut registry);
+
+        assert_eq!(applicator.registry().num_deposits(), 1);
+        assert_eq!(
+            applicator.registry().get_graph_ids().len(),
+            N_TEST_OPERATORS
+        );
+
+        applicator
+            .apply_batch(vec![(
+                SMId::Deposit(0),
+                SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
+                    block_height: INITIAL_BLOCK_HEIGHT + 1,
+                }))),
+            )])
+            .unwrap();
+
+        // Registry still accessible and consistent after batch
+        assert_eq!(applicator.registry().num_deposits(), 1);
+    }
+}
