@@ -40,26 +40,29 @@ use strata_bridge_tx_graph::transactions::prelude::DepositData;
 use tracing::{Level, error, info};
 
 use crate::{
-    errors::ProcessError,
+    applicator::Applicator,
+    errors::{PipelineError, ProcessError},
     sm_registry::SMRegistry,
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
-type EventsMap = Vec<(SMId, SMEvent)>;
-type InitialDuties = Vec<UnifiedDuty>;
-type ClassifiedBlock = (EventsMap, InitialDuties);
-
-/// Classifies a buried block into a list of ([`SMId`], [`SMEvent`]) targets and a list of new
-/// [`UnifiedDuty`]'s.
-pub(crate) fn classify_block(
+/// Processes a buried block by iterating its transactions in chain order.
+///
+/// For each transaction, seed events are classified and applied as a fixed-point batch via the
+/// [`Applicator`]. This ensures that state changes from earlier transactions (e.g., stake
+/// confirmations) are visible when classifying later transactions (e.g., DRTs) in the same block.
+///
+/// After all transactions are processed, `NewBlock` cursor events are emitted for all SMs that
+/// existed before the block was processed.
+pub(crate) fn process_block(
+    applicator: &mut Applicator<'_>,
     initial_operator_table: &OperatorTable,
-    registry: &mut SMRegistry,
     block_event: &BlockEvent,
-) -> Result<ClassifiedBlock, ProcessError> {
+) -> Result<(), PipelineError> {
     let (cur_stakes, cur_unstaking_images) = get_mocked_stake_data(initial_operator_table);
 
-    let deposit_cfg = registry.cfg().deposit.clone();
-    let graph_cfg = registry.cfg().graph.clone();
+    let deposit_cfg = applicator.registry().cfg().deposit.clone();
+    let graph_cfg = applicator.registry().cfg().graph.clone();
     let height = block_event
         .block
         .bip34_block_height()
@@ -67,49 +70,44 @@ pub(crate) fn classify_block(
 
     // Snapshot pre-existing SM IDs: newly created SMs already know the current block height,
     // so only pre-existing ones need a NewBlock cursor event.
-    let existing_deposits = registry.get_deposit_ids();
-    let existing_graphs = registry.get_graph_ids();
-
-    let mut targets = Vec::new();
-    let mut initial_duties = Vec::new();
+    let existing_deposits = applicator.registry().get_deposit_ids();
+    let existing_graphs = applicator.registry().get_graph_ids();
 
     for tx in &block_event.block.txdata {
         // If this tx is a DRT, register new DepositSM + per-operator GraphSMs
-        initial_duties.extend(try_register_deposit(
+        let initial_duties = try_register_deposit(
             &deposit_cfg,
             initial_operator_table,
             &cur_stakes,
             &cur_unstaking_images,
-            registry,
+            applicator.registry_mut(),
             tx,
             height,
-        )?);
+        )?;
 
         // Classify this tx against every active SM via TxClassifier
-        // PERF: (Rajil1213) this needs benchmarking to make sure that classifying every tx against
-        // every SM is not too expensive. If it is, we can optimize by maintaining a cache
-        // of all relevant txids/outpoints per SM and only running TxClassifier if the tx contains a
-        // relevant txid/outpoint and do it only on the relevant SM. It is too expensive if for a
-        // saturated bitcoin block (~3000 txs) and ~1000*15 SMs (45M lookups), we are unable to
-        // classify the block within ~5 minutes (half the average block time) on a
-        // reasonably powerful machine.
-        targets.extend(classify_tx_for_all_sms(
-            &deposit_cfg,
-            &graph_cfg,
-            registry,
-            tx,
-            height,
-        ));
+        // PERF: (Rajil1213) this needs benchmarking to make sure that classifying every tx
+        // against every SM is not too expensive. If it is, we can optimize by maintaining a
+        // cache of all relevant txids/outpoints per SM and only running TxClassifier if the tx
+        // contains a relevant txid/outpoint and do it only on the relevant SM. It is too
+        // expensive if for a saturated bitcoin block (~3000 txs) and ~1000*15 SMs (45M
+        // lookups), we are unable to classify the block within ~5 minutes (half the average
+        // block time) on a reasonably powerful machine.
+        let seed_events =
+            classify_tx_for_all_sms(&deposit_cfg, &graph_cfg, applicator.registry(), tx, height);
+
+        // Apply seed events as one fixed-point batch per transaction
+        applicator.apply_batch(seed_events)?;
+
+        // Add initial duties from newly created SMs (produced by SM constructors, not the STF)
+        applicator.add_duties(initial_duties);
     }
 
-    // Append NewBlock cursor events only for pre-existing SMs
-    targets.extend(new_block_events(
-        &existing_deposits,
-        &existing_graphs,
-        height,
-    ));
+    // Append NewBlock cursor events for pre-existing SMs as the final batch
+    let new_block = new_block_events(&existing_deposits, &existing_graphs, height);
+    applicator.apply_batch(new_block)?;
 
-    Ok((targets, initial_duties))
+    Ok(())
 }
 
 /// Generates mocked stake data for the given operator table.
