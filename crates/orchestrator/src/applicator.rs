@@ -78,14 +78,19 @@ impl<'a> Applicator<'a> {
         &mut self,
         seed_events: impl IntoIterator<Item = (SMId, SMEvent)>,
     ) -> Result<(), PipelineError> {
+        // Snapshot the duty count before this batch so we only fabricate follow-up events for
+        // duties produced by *this* batch, not duties accumulated from earlier batches.
+        let duties_before = self.duties.len();
+
         // Process initial seed events
         for (sm_id, sm_event) in seed_events {
             self.apply_one(sm_id, sm_event)?;
         }
 
-        // Fabricate follow-up events for any VerifyAdaptors duties produced by this batch
-        let fabricated: Vec<_> = self
-            .duties
+        // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2669>
+        // Remove this fabrication once adaptor verification is handled properly by the GSM.
+        // Fabricate follow-up events only for VerifyAdaptors duties produced by this batch.
+        let fabricated: Vec<_> = self.duties[duties_before..]
             .iter()
             .filter_map(|duty| {
                 if let UnifiedDuty::Graph(GraphDuty::VerifyAdaptors { graph_idx, .. }) = duty {
