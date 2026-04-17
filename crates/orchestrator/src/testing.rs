@@ -7,15 +7,23 @@
 use std::{num::NonZero, sync::Arc};
 
 use bitcoin::{
-    Amount, Network, OutPoint,
+    Amount, Network, OutPoint, Txid,
     hashes::{Hash, sha256},
     relative,
 };
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    operator_table::OperatorTable,
+    types::{DepositIdx, GraphIdx, OperatorIdx},
+};
 use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, machine::DepositSM},
     graph::{config::GraphSMCfg, context::GraphSMCtx, machine::GraphSM},
-    stake::config::StakeSMCfg,
+    stake::{
+        config::StakeSMCfg,
+        context::{MinimumStakeData, StakeSMCtx},
+        machine::StakeSM,
+        state::StakeState,
+    },
 };
 // Re-export shared bridge fixtures so other test modules in this crate can use them.
 pub(crate) use strata_bridge_test_utils::bridge_fixtures::{
@@ -23,11 +31,12 @@ pub(crate) use strata_bridge_test_utils::bridge_fixtures::{
     test_operator_table,
 };
 use strata_bridge_test_utils::{
-    bitcoin::generate_xonly_pubkey, bridge_fixtures::TEST_RECOVERY_DELAY,
+    bitcoin::generate_xonly_pubkey, bridge_fixtures::TEST_RECOVERY_DELAY, prelude::generate_txid,
 };
 use strata_bridge_tx_graph::{
     game_graph::ProtocolParams as GameProtocolParams,
-    stake_graph::ProtocolParams as StakeProtocolParams, transactions::prelude::DepositData,
+    stake_graph::{ProtocolParams as StakeProtocolParams, StakeGraphSummary},
+    transactions::prelude::DepositData,
 };
 use strata_predicate::PredicateKey;
 
@@ -165,8 +174,78 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
     }
 }
 
+/// Inserts a [`StakeSM`] in the initial [`StakeState::Created`] state for the given operator into
+/// the registry.
+pub(crate) fn insert_created_stake(
+    registry: &mut SMRegistry,
+    operator_idx: OperatorIdx,
+    operator_table: OperatorTable,
+) {
+    let ctx = StakeSMCtx::new(operator_idx, operator_table);
+    let (ssm, _duty) = StakeSM::new(ctx, INITIAL_BLOCK_HEIGHT);
+    registry
+        .insert_stake(operator_idx, ssm)
+        .expect("test helper must not insert duplicate stake state machine");
+}
+
+/// Inserts one [`StakeSM`] per operator in the test operator table, each in the initial
+/// [`StakeState::Created`] state.
+pub(crate) fn insert_stakes_for_all_operators(
+    registry: &mut SMRegistry,
+    operator_table: &OperatorTable,
+) {
+    for op_idx in operator_table.operator_idxs() {
+        insert_created_stake(registry, op_idx, operator_table.clone());
+    }
+}
+
+/// Builds a [`StakeSM`] in [`StakeState::Confirmed`] for the given operator, with deterministic
+/// dummy values for stake-graph fields that are not relevant to the test being written.
+pub(crate) fn make_confirmed_stake_sm(
+    operator_idx: OperatorIdx,
+    operator_table: OperatorTable,
+    stake_txid: Txid,
+) -> StakeSM {
+    let stake_data = MinimumStakeData {
+        stake_funds: OutPoint::default(),
+        unstaking_image: sha256::Hash::all_zeros(),
+        unstaking_operator_desc: random_p2tr_desc(),
+    };
+    let summary = StakeGraphSummary {
+        stake: stake_txid,
+        unstaking_intent: generate_txid(),
+        unstaking: generate_txid(),
+    };
+    StakeSM {
+        context: StakeSMCtx::new(operator_idx, operator_table),
+        state: StakeState::Confirmed {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            stake_data,
+            summary,
+            signatures: Box::new(None),
+        },
+    }
+}
+
+/// Inserts a [`StakeSM`] in [`StakeState::Confirmed`] for `operator_idx` into the registry. The
+/// registry must not already contain a stake state machine for that operator — tests building
+/// scenarios with confirmed stakes should start from a registry without pre-bootstrapped stakes.
+pub(crate) fn insert_confirmed_stake(
+    registry: &mut SMRegistry,
+    operator_idx: OperatorIdx,
+    operator_table: OperatorTable,
+    stake_txid: Txid,
+) {
+    let sm = make_confirmed_stake_sm(operator_idx, operator_table, stake_txid);
+    registry
+        .insert_stake(operator_idx, sm)
+        .expect("test helper must not insert duplicate confirmed stake state machine");
+}
+
 /// Creates a pre-populated registry with `n_deposits` deposits, each with `N_TEST_OPERATORS` graph
-/// SMs.
+/// SMs. Stake state machines are intentionally **not** included — tests that exercise stake-gated
+/// logic should compose them via [`insert_stakes_for_all_operators`] or
+/// [`insert_confirmed_stake`].
 pub(crate) fn test_populated_registry(n_deposits: usize) -> SMRegistry {
     let mut registry = test_empty_registry();
     for i in 0..n_deposits {
