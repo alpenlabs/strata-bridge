@@ -11,4 +11,4 @@ class BitcoinEnvConfig:
     block_generation_interval_secs: int = BLOCK_GENERATION_INTERVAL_SECS
     auto_mine: bool = True
     finalization_blocks: int = 10
-    funding_amount: float = 10.01
+    funding_amount: float = 30
