@@ -28,32 +28,20 @@ pub struct OperatorWalletConfig {
     stake_funding_utxo_value: Amount,
     /// Value of CPFP UTXOs to identify them
     cpfp_value: Amount,
-    /// Value of the `s` connector, the stake amount, to identify the UTXO
-    s_value: Amount,
     /// Bitcoin network we're on
     network: Network,
 }
 
 impl OperatorWalletConfig {
     /// Creates a new [`OperatorWalletConfig`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if `cpfp_value` == `s_value`
-    pub fn new(
+    pub const fn new(
         stake_funding_utxo_value: Amount,
         cpfp_value: Amount,
-        s_value: Amount,
         network: Network,
     ) -> Self {
-        assert_ne!(
-            cpfp_value, s_value,
-            "the value of `s` cannot be the same as the CPFP value"
-        );
         Self {
             stake_funding_utxo_value,
             cpfp_value,
-            s_value,
             network,
         }
     }
@@ -335,23 +323,24 @@ impl OperatorWallet {
         (leased, remaining)
     }
 
-    /// Tries to find the `s` connector UTXO from the prestake transaction
-    pub fn s_utxo(&self) -> Option<LocalOutput> {
-        self.stakechain_wallet
-            .list_unspent()
-            .find(|utxo| utxo.txout.value == self.config.s_value)
-    }
-
     /// Creates a new transaction by paying funds from the general wallet into the
-    /// stakechain wallet (excludes anchor outputs). This will create a [Self::s_utxo].
+    /// stakechain wallet (excludes anchor outputs). The resulting UTXO is the single input to
+    /// the stake transaction.
     ///
-    /// This can be used to fund the stake transaction.
+    /// The `funding_amount` must equal the sum of the stake transaction's outputs — the stake
+    /// amount plus any connector dust the caller is
+    /// responsible for covering (for example, the unstaking-intent connector's minimum non-dust
+    /// value).
     ///
     /// # Notes
     ///
     /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
     /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
-    pub fn create_stake_funding_tx(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
+    pub fn create_stake_funding_tx(
+        &mut self,
+        fee_rate: FeeRate,
+        funding_amount: Amount,
+    ) -> Result<Psbt, CreateTxError> {
         let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
         let mut tx_builder = self.general_wallet.build_tx();
         // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
@@ -359,7 +348,7 @@ impl OperatorWallet {
         // DON'T spend any of the anchor outputs
         tx_builder.unspendable(anchor_outpoints);
         tx_builder.fee_rate(fee_rate);
-        tx_builder.add_recipient(self.stakechain_addr_script_buf.clone(), self.config.s_value);
+        tx_builder.add_recipient(self.stakechain_addr_script_buf.clone(), funding_amount);
         tx_builder.ordering(TxOrdering::Untouched);
         tx_builder.finish()
     }

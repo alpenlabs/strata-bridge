@@ -124,6 +124,63 @@ impl KVRowSpec for ClaimFundingRowSpec {
     type Value = ClaimFundingValue;
 }
 
+/// Key for stake-funding rows: `OperatorIdx`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StakeFundingKey {
+    /// Operator index.
+    pub operator_idx: OperatorIdx,
+}
+
+impl PackableKey for StakeFundingKey {
+    type PackingError = Infallible;
+    type UnpackingError = PackError;
+    type Packed = Vec<u8>;
+
+    fn pack(&self, dirs: &Directories) -> Result<Self::Packed, Self::PackingError> {
+        Ok(dirs.stake_funds.pack::<(u32,)>(&(self.operator_idx,)))
+    }
+
+    fn unpack(dirs: &Directories, bytes: &[u8]) -> Result<Self, Self::UnpackingError> {
+        let (operator_idx,) = dirs.stake_funds.unpack::<(u32,)>(bytes)?;
+        Ok(Self { operator_idx })
+    }
+}
+
+/// Value for a stake-funding row: a single `OutPoint`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StakeFundingValue(pub OutPoint);
+
+impl SerializableValue for StakeFundingValue {
+    type SerializeError = Infallible;
+    type DeserializeError = InvalidOutPointBytes;
+    type Serialized = [u8; SERIALIZED_OUTPOINT_SIZE];
+
+    fn serialize(&self) -> Result<Self::Serialized, Self::SerializeError> {
+        let outpoint = self.0;
+        let mut out = [0u8; SERIALIZED_OUTPOINT_SIZE];
+        out[..SERIALIZED_TXID_SIZE].copy_from_slice(outpoint.txid.as_raw_hash().as_ref());
+        out[SERIALIZED_TXID_SIZE..].copy_from_slice(&outpoint.vout.to_le_bytes());
+        Ok(out)
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Self::DeserializeError> {
+        let outpoints = deserialize_outpoints(bytes)?;
+        if outpoints.len() != 1 {
+            return Err(InvalidOutPointBytes { len: bytes.len() });
+        }
+        Ok(Self(outpoints[0]))
+    }
+}
+
+/// ZST for stake-funding rows.
+#[derive(Debug)]
+pub struct StakeFundingRowSpec;
+
+impl KVRowSpec for StakeFundingRowSpec {
+    type Key = StakeFundingKey;
+    type Value = StakeFundingValue;
+}
+
 /// Key for withdrawal-funding rows: `DepositIdx`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithdrawalFundingKey {
