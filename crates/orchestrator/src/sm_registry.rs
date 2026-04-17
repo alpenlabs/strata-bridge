@@ -489,12 +489,14 @@ mod tests {
         deposit::events::{DepositEvent, NagReceivedEvent, NewBlockEvent as DepositNewBlock},
         graph::events::{GraphEvent, NewBlockEvent as GraphNewBlock},
     };
+    use strata_bridge_test_utils::prelude::generate_txid;
 
     use super::*;
     use crate::{
         sm_types::OperatorKey,
         testing::{
-            N_TEST_OPERATORS, TEST_POV_IDX, insert_deposit_with_graphs, test_empty_registry,
+            N_TEST_OPERATORS, TEST_POV_IDX, insert_confirmed_stake, insert_created_stake,
+            insert_deposit_with_graphs, insert_stakes_for_all_operators, test_empty_registry,
             test_operator_table, test_populated_registry,
         },
     };
@@ -617,7 +619,8 @@ mod tests {
         let registry = test_populated_registry(1);
         let ids = registry.get_all_ids();
 
-        // 1 deposit + N_TEST_OPERATORS graphs
+        // 1 deposit + N_TEST_OPERATORS graphs (test_populated_registry does not pre-bootstrap
+        // stake SMs — tests that exercise stake-gated logic compose those explicitly).
         assert_eq!(ids.len(), 1 + N_TEST_OPERATORS);
 
         let has_deposit = ids.iter().any(|id| matches!(id, SMId::Deposit(0)));
@@ -800,5 +803,146 @@ mod tests {
             Err(ProcessError::InvariantViolation(dep_id, dep_event, state, err_reason))
                 if err_reason == reason && state == state_str && dep_id == id && dep_event == event
         ));
+    }
+
+    // ===== Stake SM gating / snapshot tests =====
+
+    #[test]
+    fn all_operators_have_staked_is_false_for_fresh_bootstrap() {
+        // Fresh stake SMs sit in `Created`, which is before `has_staked()`.
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        insert_stakes_for_all_operators(&mut registry, &table);
+
+        assert!(!registry.all_operators_have_staked());
+    }
+
+    #[test]
+    fn all_operators_have_staked_is_true_once_every_operator_is_confirmed() {
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+
+        for op_idx in table.operator_idxs() {
+            insert_confirmed_stake(&mut registry, op_idx, table.clone(), generate_txid());
+        }
+
+        assert!(registry.all_operators_have_staked());
+    }
+
+    #[test]
+    fn all_operators_have_staked_is_false_if_any_operator_is_pre_confirmed() {
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+
+        // Confirm all operators except the last; give the last a `Created` SSM.
+        let op_idxs: Vec<_> = table.operator_idxs().into_iter().collect();
+        let last = *op_idxs.last().unwrap();
+        for &op_idx in op_idxs.iter().take(op_idxs.len() - 1) {
+            insert_confirmed_stake(&mut registry, op_idx, table.clone(), generate_txid());
+        }
+        insert_created_stake(&mut registry, last, table.clone());
+
+        assert!(!registry.all_operators_have_staked());
+    }
+
+    #[test]
+    fn is_operator_active_tracks_confirmed_state() {
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+
+        assert!(!registry.is_operator_active_for_new_deposits(&TEST_POV_IDX));
+
+        insert_confirmed_stake(&mut registry, TEST_POV_IDX, table, generate_txid());
+
+        assert!(registry.is_operator_active_for_new_deposits(&TEST_POV_IDX));
+    }
+
+    #[test]
+    fn active_operator_snapshot_includes_only_confirmed_operators() {
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+
+        // Confirm POV and a second operator; leave the third in `Created`.
+        let op_idxs: Vec<_> = table.operator_idxs().into_iter().collect();
+        let non_pov_confirmed = *op_idxs.iter().find(|idx| **idx != TEST_POV_IDX).unwrap();
+        let remaining = *op_idxs
+            .iter()
+            .find(|idx| **idx != TEST_POV_IDX && **idx != non_pov_confirmed)
+            .unwrap();
+
+        insert_confirmed_stake(&mut registry, TEST_POV_IDX, table.clone(), generate_txid());
+        insert_confirmed_stake(
+            &mut registry,
+            non_pov_confirmed,
+            table.clone(),
+            generate_txid(),
+        );
+        insert_created_stake(&mut registry, remaining, table.clone());
+
+        let snapshot = registry
+            .active_operator_snapshot(&table)
+            .expect("snapshot should succeed when POV is active");
+
+        let active_idxs = snapshot.operator_table.operator_idxs();
+        assert_eq!(active_idxs.len(), 2);
+        assert!(active_idxs.contains(&TEST_POV_IDX));
+        assert!(active_idxs.contains(&non_pov_confirmed));
+        assert_eq!(snapshot.stake_inputs.len(), 2);
+        assert_eq!(snapshot.unstaking_images.len(), 2);
+    }
+
+    #[test]
+    fn active_operator_snapshot_errors_when_pov_is_not_active() {
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+
+        // Confirm only a non-POV operator; POV and one other stay in `Created`.
+        let op_idxs: Vec<_> = table.operator_idxs().into_iter().collect();
+        let non_pov = *op_idxs.iter().find(|idx| **idx != TEST_POV_IDX).unwrap();
+        insert_confirmed_stake(&mut registry, non_pov, table.clone(), generate_txid());
+
+        // Other operators need `Created` SSMs so the snapshot sees them at all.
+        for op_idx in op_idxs.iter().filter(|idx| **idx != non_pov) {
+            insert_created_stake(&mut registry, *op_idx, table.clone());
+        }
+
+        let err = registry
+            .active_operator_snapshot(&table)
+            .expect_err("snapshot should error when POV is not confirmed");
+        assert!(matches!(err, SnapshotError::PovNotActive(idx) if idx == TEST_POV_IDX));
+    }
+
+    #[test]
+    fn active_operator_snapshot_errors_when_operator_missing_stake_sm() {
+        let registry = test_empty_registry();
+        // Registry has no stake SMs at all; the operator table still has them.
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+
+        let err = registry
+            .active_operator_snapshot(&table)
+            .expect_err("snapshot should error when a stake SM is missing from the registry");
+        assert!(matches!(err, SnapshotError::MissingStakeSM(_)));
+    }
+
+    #[test]
+    fn stake_inputs_use_stake_vout_from_confirmed_txid() {
+        use strata_bridge_tx_graph::transactions::stake::StakeTx;
+
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let stake_txid = generate_txid();
+        for op_idx in table.operator_idxs() {
+            let tx_for_op = if op_idx == TEST_POV_IDX {
+                stake_txid
+            } else {
+                generate_txid()
+            };
+            insert_confirmed_stake(&mut registry, op_idx, table.clone(), tx_for_op);
+        }
+
+        let snapshot = registry.active_operator_snapshot(&table).unwrap();
+        let pov_input = snapshot.stake_inputs.get(&TEST_POV_IDX).unwrap();
+        assert_eq!(pov_input.txid, stake_txid);
+        assert_eq!(pov_input.vout, StakeTx::STAKE_VOUT);
     }
 }
