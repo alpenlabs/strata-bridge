@@ -1,6 +1,8 @@
 //! Database types that are agnostic to the underlying database implementation.
 
-use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
+use strata_bridge_sm::{
+    deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
+};
 
 /// A batch of state machine writes to persist atomically.
 ///
@@ -13,6 +15,8 @@ pub struct WriteBatch {
     deposits: Vec<DepositSM>,
     /// Graph state machines to persist, keyed by graph index.
     graphs: Vec<GraphSM>,
+    /// Stake state machines to persist, keyed by operator index.
+    stakes: Vec<StakeSM>,
 }
 
 impl WriteBatch {
@@ -21,6 +25,7 @@ impl WriteBatch {
         Self {
             deposits: Vec::new(),
             graphs: Vec::new(),
+            stakes: Vec::new(),
         }
     }
 
@@ -34,6 +39,11 @@ impl WriteBatch {
         &self.graphs
     }
 
+    /// Returns the stake state machines in the batch.
+    pub fn stakes(&self) -> &[StakeSM] {
+        &self.stakes
+    }
+
     /// Adds a deposit state machine to the batch.
     pub fn add_deposit(&mut self, deposit_sm: DepositSM) {
         self.deposits.push(deposit_sm);
@@ -42,5 +52,10 @@ impl WriteBatch {
     /// Adds a graph state machine to the batch.
     pub fn add_graph(&mut self, graph_sm: GraphSM) {
         self.graphs.push(graph_sm);
+    }
+
+    /// Adds a stake state machine to the batch.
+    pub fn add_stake(&mut self, stake_sm: StakeSM) {
+        self.stakes.push(stake_sm);
     }
 }

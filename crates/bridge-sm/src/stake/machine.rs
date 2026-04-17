@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     signals::Signal,
     stake::{
@@ -16,7 +18,7 @@ use crate::{
 };
 
 /// The Stake State Machine tracks the lifecycle of the stake of a given operator.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StakeSM {
     /// The context of the state machine.
     pub context: StakeSMCtx,
