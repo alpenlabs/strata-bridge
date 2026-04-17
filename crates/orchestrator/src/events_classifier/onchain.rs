@@ -34,6 +34,10 @@ use strata_bridge_sm::{
         events::{GraphEvent, NewBlockEvent as GraphNewBlockEvent},
         machine::GraphSM,
     },
+    stake::{
+        config::StakeSMCfg,
+        events::{NewBlockEvent as StakeNewBlockEvent, StakeEvent},
+    },
     tx_classifier::TxClassifier,
 };
 use strata_bridge_tx_graph::transactions::prelude::DepositData;
@@ -63,6 +67,7 @@ pub(crate) fn process_block(
 
     let deposit_cfg = applicator.registry().cfg().deposit.clone();
     let graph_cfg = applicator.registry().cfg().graph.clone();
+    let stake_cfg = applicator.registry().cfg().stake.clone();
     let height = block_event
         .block
         .bip34_block_height()
@@ -72,6 +77,7 @@ pub(crate) fn process_block(
     // so only pre-existing ones need a NewBlock cursor event.
     let existing_deposits = applicator.registry().get_deposit_ids();
     let existing_graphs = applicator.registry().get_graph_ids();
+    let existing_stakes = applicator.registry().get_stake_ids();
 
     for tx in &block_event.block.txdata {
         // If this tx is a DRT, register new DepositSM + per-operator GraphSMs
@@ -93,8 +99,14 @@ pub(crate) fn process_block(
         // expensive if for a saturated bitcoin block (~3000 txs) and ~1000*15 SMs (45M
         // lookups), we are unable to classify the block within ~5 minutes (half the average
         // block time) on a reasonably powerful machine.
-        let seed_events =
-            classify_tx_for_all_sms(&deposit_cfg, &graph_cfg, applicator.registry(), tx, height);
+        let seed_events = classify_tx_for_all_sms(
+            &deposit_cfg,
+            &graph_cfg,
+            &stake_cfg,
+            applicator.registry(),
+            tx,
+            height,
+        );
 
         // Apply seed events as one fixed-point batch per transaction
         applicator.apply_batch(seed_events)?;
@@ -104,7 +116,12 @@ pub(crate) fn process_block(
     }
 
     // Append NewBlock cursor events for pre-existing SMs as the final batch
-    let new_block = new_block_events(&existing_deposits, &existing_graphs, height);
+    let new_block = new_block_events(
+        &existing_deposits,
+        &existing_graphs,
+        &existing_stakes,
+        height,
+    );
     applicator.apply_batch(new_block)?;
 
     Ok(())
@@ -238,6 +255,7 @@ fn try_register_deposit(
 fn classify_tx_for_all_sms(
     deposit_cfg: &Arc<DepositSMCfg>,
     graph_cfg: &Arc<GraphSMCfg>,
+    stake_cfg: &Arc<StakeSMCfg>,
     registry: &SMRegistry,
     tx: &Transaction,
     height: BitcoinBlockHeight,
@@ -252,6 +270,10 @@ fn classify_tx_for_all_sms(
             sm.classify_tx(graph_cfg, tx, height)
                 .map(|ev| (graph_idx.into(), ev.into()))
         }))
+        .chain(registry.stakes().filter_map(|(&operator_idx, sm)| {
+            sm.classify_tx(stake_cfg, tx, height)
+                .map(|ev| (operator_idx.into(), ev.into()))
+        }))
         .collect()
 }
 
@@ -261,12 +283,16 @@ fn classify_tx_for_all_sms(
 fn new_block_events(
     deposit_ids: &[DepositIdx],
     graph_ids: &[GraphIdx],
+    stake_ids: &[OperatorIdx],
     height: BitcoinBlockHeight,
 ) -> Vec<(SMId, SMEvent)> {
     let deposit_event = DepositEvent::NewBlock(DepositNewBlockEvent {
         block_height: height,
     });
     let graph_event = GraphEvent::NewBlock(GraphNewBlockEvent {
+        block_height: height,
+    });
+    let stake_event = StakeEvent::NewBlock(StakeNewBlockEvent {
         block_height: height,
     });
 
@@ -277,6 +303,11 @@ fn new_block_events(
             graph_ids
                 .iter()
                 .map(|&idx| (idx.into(), graph_event.clone().into())),
+        )
+        .chain(
+            stake_ids
+                .iter()
+                .map(|&idx| (SMId::Stake(idx), stake_event.clone().into())),
         )
         .collect()
 }
@@ -299,14 +330,14 @@ mod tests {
 
     #[test]
     fn new_block_events_empty_ids() {
-        let events = new_block_events(&[], &[], TEST_HEIGHT);
+        let events = new_block_events(&[], &[], &[], TEST_HEIGHT);
         assert!(events.is_empty());
     }
 
     #[test]
     fn new_block_events_deposits_only() {
         let deposit_ids = vec![0u32, 1, 2];
-        let events = new_block_events(&deposit_ids, &[], TEST_HEIGHT);
+        let events = new_block_events(&deposit_ids, &[], &[], TEST_HEIGHT);
 
         assert_eq!(events.len(), 3);
         for (id, _event) in &events {
@@ -326,11 +357,22 @@ mod tests {
                 operator: 1,
             },
         ];
-        let events = new_block_events(&[], &graph_ids, TEST_HEIGHT);
+        let events = new_block_events(&[], &graph_ids, &[], TEST_HEIGHT);
 
         assert_eq!(events.len(), 2);
         for (id, _event) in &events {
             assert!(matches!(id, SMId::Graph(_)));
+        }
+    }
+
+    #[test]
+    fn new_block_events_stakes_only() {
+        let stake_ids = vec![0u32, 1, 2];
+        let events = new_block_events(&[], &[], &stake_ids, TEST_HEIGHT);
+
+        assert_eq!(events.len(), 3);
+        for (id, _event) in &events {
+            assert!(matches!(id, SMId::Stake(_)));
         }
     }
 
@@ -351,9 +393,10 @@ mod tests {
                 operator: 1,
             },
         ];
-        let events = new_block_events(&deposit_ids, &graph_ids, TEST_HEIGHT);
+        let stake_ids = vec![0u32, 1];
+        let events = new_block_events(&deposit_ids, &graph_ids, &stake_ids, TEST_HEIGHT);
 
-        assert_eq!(events.len(), 5);
+        assert_eq!(events.len(), 7);
     }
 
     #[test]
@@ -363,7 +406,8 @@ mod tests {
             deposit: 0,
             operator: 0,
         }];
-        let events = new_block_events(&deposit_ids, &graph_ids, TEST_HEIGHT);
+        let stake_ids = vec![0u32];
+        let events = new_block_events(&deposit_ids, &graph_ids, &stake_ids, TEST_HEIGHT);
 
         for (_id, event) in events {
             match event {
@@ -375,10 +419,10 @@ mod tests {
                     GraphEvent::NewBlock(ref nb) => assert_eq!(nb.block_height, TEST_HEIGHT),
                     other => panic!("expected NewBlock, got {other}"),
                 },
-                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2924>
-                // Assert the block height on the stake NewBlock event once
-                // `new_block_events()` emits them.
-                SMEvent::Stake(_) => {}
+                SMEvent::Stake(boxed) => match *boxed {
+                    StakeEvent::NewBlock(ref nb) => assert_eq!(nb.block_height, TEST_HEIGHT),
+                    other => panic!("expected NewBlock, got {other}"),
+                },
             }
         }
     }
