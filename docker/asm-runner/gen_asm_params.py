@@ -128,6 +128,7 @@ def validate_params(asm_params: dict, bridge_params: dict) -> None:
 
     checks = [
         ("magic", asm_params["magic"], bridge["magic_bytes"]),
+        ("network", asm_params["anchor"]["network"], bridge_params["network"]),
         (
             "genesis_height",
             asm_params["anchor"]["block"]["height"],
