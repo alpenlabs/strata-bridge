@@ -2,10 +2,11 @@
 
 use std::fmt::Display;
 
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, P2POperatorPubKey};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey};
 use strata_bridge_sm::{
     deposit::{duties::DepositDuty, events::DepositEvent},
     graph::{duties::GraphDuty, events::GraphEvent},
+    stake::{duties::StakeDuty, events::StakeEvent},
 };
 
 /// The unique identifier for a state machine in `strata-bridge`.
@@ -15,6 +16,9 @@ pub enum SMId {
     Deposit(DepositIdx),
     /// IDs the state machine responsible for processing a graph with the given index.
     Graph(GraphIdx),
+    /// IDs the state machine responsible for tracking the stake of the operator with the given
+    /// index.
+    Stake(OperatorIdx),
 }
 
 impl From<DepositIdx> for SMId {
@@ -38,6 +42,7 @@ impl Display for SMId {
                 "Graph(deposit: {}, operator: {})",
                 graph_idx.deposit, graph_idx.operator
             ),
+            SMId::Stake(operator_idx) => write!(f, "Stake(operator: {})", operator_idx),
         }
     }
 }
@@ -58,6 +63,8 @@ pub enum SMEvent {
     Deposit(Box<DepositEvent>),
     /// An event related to the graph state machine.
     Graph(Box<GraphEvent>),
+    /// An event related to the stake state machine.
+    Stake(Box<StakeEvent>),
 }
 
 impl Display for SMEvent {
@@ -65,6 +72,7 @@ impl Display for SMEvent {
         match self {
             SMEvent::Deposit(event) => write!(f, "DepositEvent({event})"),
             SMEvent::Graph(event) => write!(f, "GraphEvent({event})"),
+            SMEvent::Stake(event) => write!(f, "StakeEvent({event})"),
         }
     }
 }
@@ -81,6 +89,12 @@ impl From<GraphEvent> for SMEvent {
     }
 }
 
+impl From<StakeEvent> for SMEvent {
+    fn from(event: StakeEvent) -> Self {
+        SMEvent::Stake(Box::new(event))
+    }
+}
+
 /// A wrapper for holding all the different types of duties that a state machine can emit after a
 /// successful STF.
 #[derive(Debug, Clone)]
@@ -90,6 +104,8 @@ pub enum UnifiedDuty {
     Deposit(DepositDuty),
     /// A duty related to the game graph.
     Graph(GraphDuty),
+    /// A duty related to an operator's stake.
+    Stake(StakeDuty),
 }
 
 impl From<DepositDuty> for UnifiedDuty {
@@ -100,5 +116,10 @@ impl From<DepositDuty> for UnifiedDuty {
 impl From<GraphDuty> for UnifiedDuty {
     fn from(duty: GraphDuty) -> Self {
         UnifiedDuty::Graph(duty)
+    }
+}
+impl From<StakeDuty> for UnifiedDuty {
+    fn from(duty: StakeDuty) -> Self {
+        UnifiedDuty::Stake(duty)
     }
 }

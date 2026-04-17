@@ -11,6 +11,7 @@ use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, machine::DepositSM},
     errors::BridgeSMError,
     graph::{config::GraphSMCfg, machine::GraphSM},
+    stake::{config::StakeSMCfg, machine::StakeSM},
     state_machine::{SMOutput, StateMachine},
 };
 use thiserror::Error;
@@ -28,6 +29,8 @@ pub struct SMConfig {
     pub deposit: Arc<DepositSMCfg>,
     /// Static configuration for all graph state machines.
     pub graph: Arc<GraphSMCfg>,
+    /// Static configuration for all stake state machines.
+    pub stake: Arc<StakeSMCfg>,
 }
 
 /// The registry that holds all the active state machines in `strata-bridge`.
@@ -42,6 +45,9 @@ pub struct SMRegistry {
     // deposit index, change this to a `BTreeMap<DepositIdx, BTreeMap<OperatorIdx, GraphSM>>` or
     // maintain a separate index for that mapping.
     graphs: BTreeMap<GraphIdx, GraphSM>,
+    /// The state machines responsible for tracking an operator's stake, indexed by the operator
+    /// index. There is exactly one stake state machine per operator in the operator table.
+    stakes: BTreeMap<OperatorIdx, StakeSM>,
 }
 
 /// Invariant errors when inserting state machines into the registry.
@@ -53,6 +59,9 @@ pub enum RegistryInsertError {
     /// A graph SM already exists at this key.
     #[error("graph state machine already exists at index {0:?}")]
     GraphAlreadyExists(GraphIdx),
+    /// A stake SM already exists at this operator index.
+    #[error("stake state machine already exists for operator {0}")]
+    StakeAlreadyExists(OperatorIdx),
     /// The maximum deposit index has been reached.
     #[error("deposit index exhausted at {0}; cannot allocate a new deposit index")]
     DepositIdxExhausted(DepositIdx),
@@ -90,6 +99,7 @@ impl SMRegistry {
             cfg,
             deposits: BTreeMap::new(),
             graphs: BTreeMap::new(),
+            stakes: BTreeMap::new(),
         }
     }
 
@@ -102,6 +112,12 @@ impl SMRegistry {
     pub fn num_deposits(&self) -> usize {
         self.deposits.len()
     }
+
+    /// Gets the total number of stake state machines currently in the registry.
+    pub fn num_stakes(&self) -> usize {
+        self.stakes.len()
+    }
+
     /// Gets a list of IDs of all deposit state machines currently in the registry.
     pub fn get_deposit_ids(&self) -> Vec<DepositIdx> {
         self.deposits.keys().copied().collect()
@@ -112,12 +128,18 @@ impl SMRegistry {
         self.graphs.keys().copied().collect()
     }
 
+    /// Gets a list of operator indices for all stake state machines currently in the registry.
+    pub fn get_stake_ids(&self) -> Vec<OperatorIdx> {
+        self.stakes.keys().copied().collect()
+    }
+
     /// Gets the IDs of all the state machines currently in the registry.
     pub fn get_all_ids(&self) -> Vec<SMId> {
         self.deposits
             .keys()
             .map(|deposit_idx| SMId::Deposit(*deposit_idx))
             .chain(self.graphs.keys().map(|graph_idx| SMId::Graph(*graph_idx)))
+            .chain(self.stakes.keys().map(|op_idx| SMId::Stake(*op_idx)))
             .collect()
     }
 
@@ -133,6 +155,12 @@ impl SMRegistry {
         self.graphs.get(graph_idx)
     }
 
+    /// Gets a reference to the stake state machine for the given operator index, if it exists in
+    /// the registry.
+    pub fn get_stake(&self, operator_idx: &OperatorIdx) -> Option<&StakeSM> {
+        self.stakes.get(operator_idx)
+    }
+
     /// Returns an iterator over all deposit state machines and their indices.
     pub fn deposits(&self) -> impl Iterator<Item = (&DepositIdx, &DepositSM)> {
         self.deposits.iter()
@@ -143,11 +171,17 @@ impl SMRegistry {
         self.graphs.iter()
     }
 
+    /// Returns an iterator over all stake state machines and their operator indices.
+    pub fn stakes(&self) -> impl Iterator<Item = (&OperatorIdx, &StakeSM)> {
+        self.stakes.iter()
+    }
+
     /// Checks if an ID is present in the registry.
     pub fn contains_id(&self, id: &SMId) -> bool {
         match id {
             SMId::Deposit(deposit_idx) => self.deposits.contains_key(deposit_idx),
             SMId::Graph(graph_idx) => self.graphs.contains_key(graph_idx),
+            SMId::Stake(operator_idx) => self.stakes.contains_key(operator_idx),
         }
     }
 
@@ -210,6 +244,29 @@ impl SMRegistry {
         }
     }
 
+    /// Inserts a new stake state machine into the registry for the given operator index.
+    ///
+    /// Returns an error if a stake state machine already exists for this operator.
+    pub fn insert_stake(
+        &mut self,
+        operator_idx: OperatorIdx,
+        sm: StakeSM,
+    ) -> Result<(), RegistryInsertError> {
+        match self.stakes.entry(operator_idx) {
+            Entry::Vacant(entry) => {
+                entry.insert(sm);
+                Ok(())
+            }
+            Entry::Occupied(_) => {
+                error!(
+                    "Duplicate StakeSM insertion attempted for operator {}",
+                    operator_idx
+                );
+                Err(RegistryInsertError::StakeAlreadyExists(operator_idx))
+            }
+        }
+    }
+
     /// Looks up the state machine identified by `id` and resolves the operator index using the
     /// given [`OperatorKey`].
     ///
@@ -218,6 +275,7 @@ impl SMRegistry {
         let table = match id {
             SMId::Deposit(idx) => self.deposits.get(idx)?.context().operator_table(),
             SMId::Graph(idx) => self.graphs.get(idx)?.context().operator_table(),
+            SMId::Stake(idx) => self.stakes.get(idx)?.context().operator_table(),
         };
         match key {
             OperatorKey::Pov => Some(table.pov_idx()),
@@ -262,6 +320,22 @@ impl SMRegistry {
                         ProcessOutcome::Applied(SMOutput {
                             duties: out.duties.into_iter().map(UnifiedDuty::Graph).collect(),
                             signals: out.signals.into_iter().map(Into::into).collect(),
+                        })
+                    })
+                    .or_else(|err| sm_to_process_result(id, event, err))
+            }
+
+            (SMId::Stake(idx), SMEvent::Stake(stake_event)) => {
+                let sm = self
+                    .stakes
+                    .get_mut(idx)
+                    .ok_or(ProcessError::SMNotFound(*id))?;
+                let event = SMEvent::Stake(stake_event.clone());
+                sm.process_event(self.cfg.stake.clone(), *stake_event)
+                    .map(|out| {
+                        ProcessOutcome::Applied(SMOutput {
+                            duties: out.duties.into_iter().map(UnifiedDuty::Stake).collect(),
+                            signals: out.signals,
                         })
                     })
                     .or_else(|err| sm_to_process_result(id, event, err))

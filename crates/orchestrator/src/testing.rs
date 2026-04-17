@@ -15,6 +15,7 @@ use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, machine::DepositSM},
     graph::{config::GraphSMCfg, context::GraphSMCtx, machine::GraphSM},
+    stake::config::StakeSMCfg,
 };
 // Re-export shared bridge fixtures so other test modules in this crate can use them.
 pub(crate) use strata_bridge_test_utils::bridge_fixtures::{
@@ -24,7 +25,10 @@ pub(crate) use strata_bridge_test_utils::bridge_fixtures::{
 use strata_bridge_test_utils::{
     bitcoin::generate_xonly_pubkey, bridge_fixtures::TEST_RECOVERY_DELAY,
 };
-use strata_bridge_tx_graph::{game_graph::ProtocolParams, transactions::prelude::DepositData};
+use strata_bridge_tx_graph::{
+    game_graph::ProtocolParams as GameProtocolParams,
+    stake_graph::ProtocolParams as StakeProtocolParams, transactions::prelude::DepositData,
+};
 use strata_predicate::PredicateKey;
 
 use crate::sm_registry::{SMConfig, SMRegistry};
@@ -64,7 +68,7 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
         .collect();
 
     Arc::new(GraphSMCfg {
-        game_graph_params: ProtocolParams {
+        game_graph_params: GameProtocolParams {
             network: Network::Regtest,
             magic_bytes: TEST_MAGIC_BYTES.into(),
             contest_timelock: relative::Height::from_height(10),
@@ -85,11 +89,24 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
     })
 }
 
-/// Creates a combined `SMConfig` from the test deposit and graph configs.
+/// Creates a test `StakeSMCfg`, mirroring `bridge-sm/stake/tests::TEST_CFG`.
+pub(crate) fn test_stake_sm_cfg() -> Arc<StakeSMCfg> {
+    Arc::new(StakeSMCfg {
+        protocol_params: StakeProtocolParams {
+            network: Network::Regtest,
+            magic_bytes: TEST_MAGIC_BYTES.into(),
+            unstaking_timelock: relative::Height::from_height(144),
+            stake_amount: Amount::from_sat(100_000_000),
+        },
+    })
+}
+
+/// Creates a combined `SMConfig` from the test deposit, graph, and stake configs.
 pub(crate) fn test_sm_config() -> SMConfig {
     SMConfig {
         deposit: test_deposit_sm_cfg(),
         graph: test_graph_sm_cfg(),
+        stake: test_stake_sm_cfg(),
     }
 }
 
