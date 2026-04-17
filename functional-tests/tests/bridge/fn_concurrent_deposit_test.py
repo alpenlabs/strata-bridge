@@ -7,6 +7,7 @@ from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drts_recognized
 from utils.dev_cli import DevCli
+from utils.stake import wait_until_all_operators_staked
 from utils.utils import read_operator_key
 
 # Higher burial depth makes sequential processing more apparent
@@ -70,6 +71,13 @@ class ConcurrentDepositTest(StrataTestBase):
 
         dev_cli = DevCli(bitcoind_props, operator_key_infos)
         bridge_rpc = bridge_rpcs[0]
+
+        self.logger.info("Waiting for all operators to complete staking before broadcasting DRTs")
+        wait_until_all_operators_staked(
+            bridge_rpc,
+            bitcoin_rpc,
+            expected_operator_count=num_operators,
+        )
 
         # Send multiple DRTs simultaneously
         self.logger.info(f"Broadcasting {CONCURRENT_DRT_COUNT} DRTs")

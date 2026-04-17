@@ -12,6 +12,7 @@ from utils.deposit import (
 )
 from utils.dev_cli import DevCli
 from utils.network import wait_until_p2p_connected
+from utils.stake import wait_until_all_operators_staked
 from utils.utils import (
     read_operator_key,
     snapshot_log_offsets,
@@ -42,15 +43,24 @@ class BridgeDepositTest(StrataTestBase):
         # Test deposit
         bitcoind_service = ctx.get_service("bitcoin")
         bitcoind_props = bitcoind_service.props
+        bitcoin_rpc = bitcoind_service.create_rpc()
 
         num_operators = len(bridge_nodes)
         operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
 
         dev_cli = DevCli(bitcoind_props, operator_key_infos)
+
+        bridge_rpc = bridge_rpcs[0]
+        self.logger.info("Waiting for all operators to complete staking before broadcasting DRT")
+        wait_until_all_operators_staked(
+            bridge_rpc,
+            bitcoin_rpc,
+            expected_operator_count=num_operators,
+        )
+
         drt_txid = dev_cli.send_deposit_request()
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
-        bridge_rpc = bridge_rpcs[0]
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
 
         wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
