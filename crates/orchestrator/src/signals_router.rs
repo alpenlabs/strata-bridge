@@ -40,7 +40,7 @@ pub fn route_signal(registry: &SMRegistry, signal: Signal) -> Vec<(SMId, SMEvent
                         .get_deposit_ids()
                         .into_iter()
                         .filter(|idx| *idx == deposit_idx)
-                        .map(|deposit_id| (deposit_id.into(), event.clone()))
+                        .map(|deposit_id| (SMId::Deposit(deposit_id), event.clone()))
                         .collect()
                 }
             },

@@ -21,11 +21,10 @@ pub enum SMId {
     Stake(OperatorIdx),
 }
 
-impl From<DepositIdx> for SMId {
-    fn from(deposit_idx: DepositIdx) -> Self {
-        SMId::Deposit(deposit_idx)
-    }
-}
+// Note: `DepositIdx` and `OperatorIdx` are both type aliases for `u32`, so a blanket
+// `From<u32>` impl would silently dispatch either index to a single `SMId` variant (a
+// footgun when constructing stake- or deposit-scoped ids). Use explicit
+// `SMId::Deposit(_)` / `SMId::Stake(_)` at the call site instead.
 
 impl From<GraphIdx> for SMId {
     fn from(graph_idx: GraphIdx) -> Self {
