@@ -78,13 +78,8 @@ pub(crate) fn process_block(
         // batches via the Applicator, a stake transition that removes an operator from the active
         // set in an earlier transaction will be reflected here for a DRT appearing later in the
         // same block.
-        let initial_duties = try_register_deposit(
-            &deposit_cfg,
-            initial_operator_table,
-            applicator.registry_mut(),
-            tx,
-            height,
-        )?;
+        let initial_duties =
+            try_register_deposit(&deposit_cfg, initial_operator_table, applicator, tx, height)?;
 
         // Classify this tx against every active SM via TxClassifier
         // PERF: (Rajil1213) this needs benchmarking to make sure that classifying every tx
@@ -132,7 +127,7 @@ pub(crate) fn process_block(
 fn try_register_deposit(
     deposit_cfg: &Arc<DepositSMCfg>,
     full_operator_table: &OperatorTable,
-    registry: &mut SMRegistry,
+    applicator: &mut Applicator<'_>,
     tx: &Transaction,
     height: BitcoinBlockHeight,
 ) -> Result<Vec<UnifiedDuty>, ProcessError> {
@@ -147,12 +142,18 @@ fn try_register_deposit(
 
     // Activation rule: before any DSM / GSM may become active, one stake state machine must exist
     // for every configured operator and all of them must have reached `Confirmed` or higher.
-    if !registry.all_operators_have_staked() {
+    if !applicator
+        .registry()
+        .all_operators_have_staked(full_operator_table)
+    {
         warn!("skipping DRT: not all operators have completed staking");
         return Ok(Vec::new());
     }
 
-    let snapshot = match registry.active_operator_snapshot(full_operator_table) {
+    let snapshot = match applicator
+        .registry()
+        .active_operator_snapshot(full_operator_table)
+    {
         Ok(snap) => snap,
         Err(err) => {
             warn!(%err, "skipping DRT: could not derive active operator snapshot");
@@ -172,7 +173,7 @@ fn try_register_deposit(
 
     let magic_bytes = deposit_cfg.magic_bytes;
 
-    let deposit_idx_offset = registry.next_deposit_idx()?;
+    let deposit_idx_offset = applicator.registry().next_deposit_idx()?;
 
     // Always second output for now: output 0 is SPS-50 OP_RETURN and output 1 is DRT spend UTXO.
     let Some(deposit_request_output) = tx.output.get(1) else {
@@ -203,7 +204,7 @@ fn try_register_deposit(
 
     let deposit_outpoint = dsm.context().deposit_outpoint();
     info!(%deposit_outpoint, deposit_idx=deposit_idx_offset, "registering new DepositSM for detected DRT");
-    registry.insert_deposit(deposit_idx_offset, dsm)?;
+    applicator.insert_deposit(deposit_idx_offset, dsm)?;
 
     // Register one GraphSM per active operator, collecting initial duties.
     let mut duties = Vec::new();
@@ -231,7 +232,7 @@ fn try_register_deposit(
         let (gsm, duty) = GraphSM::new(gsm_ctx, height);
 
         info!(%graph_idx, "registering new GraphSM for detected DRT");
-        registry.insert_graph(gsm.context().graph_idx(), gsm)?;
+        applicator.insert_graph(gsm.context().graph_idx(), gsm)?;
         if let Some(duty) = duty {
             duties.push(duty.into());
         }
@@ -447,16 +448,22 @@ mod tests {
             output: vec![],
         };
 
+        let mut applicator = Applicator::new(&mut registry);
         let duties = try_register_deposit(
             &deposit_cfg,
             &operator_table,
-            &mut registry,
+            &mut applicator,
             &random_tx,
             100,
         )
         .expect("non-DRT path should not fail");
+        let (_, tracker) = applicator.finish();
 
         assert!(duties.is_empty());
         assert_eq!(registry.num_deposits(), 0);
+        assert!(
+            tracker.into_batches().is_empty(),
+            "non-DRT path must not record any SMs in the persistence tracker"
+        );
     }
 }
