@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use strata_bridge_exec::{
     config::ExecutionConfig, deposit::execute_deposit_duty, graph::execute_graph_duty,
-    output_handles::OutputHandles,
+    output_handles::OutputHandles, stake::execute_stake_duty,
 };
-use tracing::{error, warn};
+use tracing::error;
 
 use crate::sm_types::UnifiedDuty;
 
@@ -60,13 +60,14 @@ impl DutyDispatcher {
                         })
                 });
             }
-            // TODO: <https://alpenlabs.atlassian.net/browse/STR-2924>
-            // Wire stake duty execution through the bridge-exec crate.
             UnifiedDuty::Stake(stake_duty) => {
-                warn!(
-                    ?stake_duty,
-                    "stake duty execution not yet implemented; dropping duty"
-                );
+                tokio::task::spawn(async move {
+                    execute_stake_duty(cfg, handles, &stake_duty)
+                        .await
+                        .inspect_err(|err| {
+                            error!(%err, ?stake_duty, "failed to execute stake duty");
+                        })
+                });
             }
         }
     }
