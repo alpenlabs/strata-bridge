@@ -304,13 +304,20 @@ impl SMRegistry {
         }
     }
 
-    /// Returns `true` iff every operator that has a stake state machine in the registry has
-    /// reached [`StakeState::has_staked`] (i.e. `Confirmed`, `PreimageRevealed`, or `Unstaked`).
+    /// Returns `true` iff every operator in `operator_table` has a stake state machine in the
+    /// registry and each has reached [`StakeState::has_staked`] (i.e. `Confirmed`,
+    /// `PreimageRevealed`, or `Unstaked`).
     ///
     /// This is the activation gate for new deposits: no DSM/GSM instances may be created until
-    /// every configured operator has at least completed staking.
-    pub fn all_operators_have_staked(&self) -> bool {
-        self.stakes.values().all(|sm| sm.state().has_staked())
+    /// every configured operator has at least completed staking. A missing SSM for any configured
+    /// operator keeps the gate closed — this prevents the predicate from being vacuously true on
+    /// an empty / partially bootstrapped registry.
+    pub fn all_operators_have_staked(&self, operator_table: &OperatorTable) -> bool {
+        operator_table.operator_idxs().iter().all(|op_idx| {
+            self.stakes
+                .get(op_idx)
+                .is_some_and(|sm| sm.state().has_staked())
+        })
     }
 
     /// Returns `true` iff the given operator currently has a stake available
@@ -814,7 +821,7 @@ mod tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         insert_stakes_for_all_operators(&mut registry, &table);
 
-        assert!(!registry.all_operators_have_staked());
+        assert!(!registry.all_operators_have_staked(&table));
     }
 
     #[test]
@@ -826,7 +833,7 @@ mod tests {
             insert_confirmed_stake(&mut registry, op_idx, table.clone(), generate_txid());
         }
 
-        assert!(registry.all_operators_have_staked());
+        assert!(registry.all_operators_have_staked(&table));
     }
 
     #[test]
@@ -842,7 +849,36 @@ mod tests {
         }
         insert_created_stake(&mut registry, last, table.clone());
 
-        assert!(!registry.all_operators_have_staked());
+        assert!(!registry.all_operators_have_staked(&table));
+    }
+
+    #[test]
+    fn all_operators_have_staked_is_false_if_any_configured_operator_has_no_ssm() {
+        // Only some of the configured operators have been bootstrapped, but each of those has
+        // reached `Confirmed`. The gate must stay closed because a configured operator is missing
+        // its SSM entirely — otherwise the predicate would be vacuously true over the SSMs that
+        // happen to exist.
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+
+        let op_idxs: Vec<_> = table.operator_idxs().into_iter().collect();
+        let missing = *op_idxs.last().unwrap();
+        for &op_idx in op_idxs.iter().take(op_idxs.len() - 1) {
+            insert_confirmed_stake(&mut registry, op_idx, table.clone(), generate_txid());
+        }
+        assert!(registry.get_stake(&missing).is_none());
+
+        assert!(!registry.all_operators_have_staked(&table));
+    }
+
+    #[test]
+    fn all_operators_have_staked_is_false_for_empty_registry() {
+        // Guard against the predicate being vacuously true: a registry with zero SSMs must never
+        // open the activation gate for a non-empty configured operator set.
+        let registry = test_empty_registry();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+
+        assert!(!registry.all_operators_have_staked(&table));
     }
 
     #[test]
