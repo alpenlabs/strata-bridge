@@ -4,7 +4,9 @@ use bitcoin::{OutPoint, Txid};
 use foundationdb::{FdbBindingError, options::TransactionOption};
 use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
-use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
+use strata_bridge_sm::{
+    deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
+};
 use terrors::OneOf;
 
 use crate::{
@@ -19,6 +21,7 @@ use crate::{
             },
             graphs::GraphStateRowSpec,
             signatures::{SignatureKey, SignatureRowSpec},
+            stakes::{StakeStateKey, StakeStateRowSpec},
         },
     },
     traits::BridgeDb,
@@ -116,6 +119,40 @@ impl BridgeDb for FdbClient {
 
     async fn delete_graph_state(&self, graph_idx: GraphIdx) -> Result<(), Self::Error> {
         self.basic_delete::<GraphStateRowSpec>(graph_idx.into())
+            .await
+    }
+
+    // ── Stake States ─────────────────────────────────────────────────
+
+    async fn get_stake_state(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> Result<Option<StakeSM>, Self::Error> {
+        self.basic_get::<StakeStateRowSpec>(StakeStateKey { operator_idx })
+            .await
+    }
+
+    async fn set_stake_state(
+        &self,
+        operator_idx: OperatorIdx,
+        state: StakeSM,
+    ) -> Result<(), Self::Error> {
+        self.basic_set::<StakeStateRowSpec>(StakeStateKey { operator_idx }, state)
+            .await
+    }
+
+    async fn get_all_stake_states(&self) -> Result<Vec<(OperatorIdx, StakeSM)>, Self::Error> {
+        let pairs = self
+            .basic_get_all::<StakeStateRowSpec>(|dirs| &dirs.stakes)
+            .await?;
+        Ok(pairs
+            .into_iter()
+            .map(|(k, v)| (k.operator_idx, v))
+            .collect())
+    }
+
+    async fn delete_stake_state(&self, operator_idx: OperatorIdx) -> Result<(), Self::Error> {
+        self.basic_delete::<StakeStateRowSpec>(StakeStateKey { operator_idx })
             .await
     }
 
@@ -249,6 +286,16 @@ impl BridgeDb for FdbClient {
                 )
                 .map_err(OneOf::new)?;
             }
+            for sm in batch.stakes() {
+                self.basic_set_in::<StakeStateRowSpec>(
+                    &trx,
+                    StakeStateKey {
+                        operator_idx: sm.context.operator_idx(),
+                    },
+                    sm.clone(),
+                )
+                .map_err(OneOf::new)?;
+            }
 
             match trx.commit().await {
                 Ok(_committed) => return Ok(()),
@@ -298,6 +345,7 @@ mod tests {
     use strata_bridge_sm::{
         deposit::{context::DepositSMCtx, state::DepositState},
         graph::{context::GraphSMCtx, state::GraphState},
+        stake::{context::StakeSMCtx, machine::StakeSM, state::StakeState},
     };
     use strata_bridge_test_utils::arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid};
     use strata_bridge_tx_graph::game_graph::{
@@ -369,6 +417,18 @@ mod tests {
                 deposit_outpoint: outpoint,
                 operator_table,
             },
+            state,
+        }
+    }
+
+    /// Builds a [`StakeSM`] for the given operator from the operator table and state.
+    fn make_stake_sm(
+        operator_idx: OperatorIdx,
+        operator_table: OperatorTable,
+        state: StakeState,
+    ) -> StakeSM {
+        StakeSM {
+            context: StakeSMCtx::new(operator_idx, operator_table),
             state,
         }
     }
@@ -655,6 +715,103 @@ mod tests {
                     .get_graph_state(GraphIdx { deposit: deposit_idx, operator: operator_idx })
                     .await
                     .unwrap();
+                prop_assert_eq!(None, retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: any stake SM stored can be retrieved with the same operator index.
+        #[test]
+        fn stake_state_roundtrip(
+            last_block_height in any::<u64>(),
+            operator_table in arb_operator_table(),
+        ) {
+            // StakeSM serialization currently supports only states with no musig2 payloads.
+            // Exercising the `Created` variant keeps this roundtrip independent of the musig2
+            // serde work being landed separately.
+            let operator_idx = operator_table.pov_idx();
+            let stake_sm = make_stake_sm(
+                operator_idx,
+                operator_table,
+                StakeState::Created { last_block_height },
+            );
+
+            block_on(async {
+                let client = get_client();
+
+                client.set_stake_state(operator_idx, stake_sm.clone()).await.unwrap();
+
+                let retrieved = client.get_stake_state(operator_idx).await.unwrap();
+                prop_assert_eq!(Some(stake_sm), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: `get_all_stake_states` returns all previously stored stake states.
+        #[test]
+        fn get_all_stake_states_test(
+            last_block_height_a in any::<u64>(),
+            last_block_height_b in any::<u64>(),
+            operator_table in arb_operator_table(),
+        ) {
+            // Pick two distinct operator indices from the generated table.
+            let op_idxs: Vec<_> = operator_table.operator_idxs().iter().copied().collect();
+            prop_assume!(op_idxs.len() >= 2);
+            let op_a = op_idxs[0];
+            let op_b = op_idxs[1];
+
+            let sm_a = make_stake_sm(
+                op_a,
+                operator_table.clone(),
+                StakeState::Created { last_block_height: last_block_height_a },
+            );
+            let sm_b = make_stake_sm(
+                op_b,
+                operator_table,
+                StakeState::Created { last_block_height: last_block_height_b },
+            );
+
+            block_on(async {
+                let client = get_client();
+
+                client.set_stake_state(op_a, sm_a.clone()).await.unwrap();
+                client.set_stake_state(op_b, sm_b.clone()).await.unwrap();
+
+                let all = client.get_all_stake_states().await.unwrap();
+
+                let found_a = all.iter().any(|(idx, sm)| *idx == op_a && *sm == sm_a);
+                let found_b = all.iter().any(|(idx, sm)| *idx == op_b && *sm == sm_b);
+
+                prop_assert!(found_a, "op_a not found in get_all_stake_states");
+                prop_assert!(found_b, "op_b not found in get_all_stake_states");
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: deleting a stake state makes it unreadable.
+        #[test]
+        fn delete_stake_state_roundtrip(
+            last_block_height in any::<u64>(),
+            operator_table in arb_operator_table(),
+        ) {
+            let operator_idx = operator_table.pov_idx();
+            let stake_sm = make_stake_sm(
+                operator_idx,
+                operator_table,
+                StakeState::Created { last_block_height },
+            );
+
+            block_on(async {
+                let client = get_client();
+
+                client.set_stake_state(operator_idx, stake_sm).await.unwrap();
+
+                client.delete_stake_state(operator_idx).await.unwrap();
+
+                let retrieved = client.get_stake_state(operator_idx).await.unwrap();
                 prop_assert_eq!(None, retrieved);
 
                 Ok(())
@@ -955,8 +1112,8 @@ mod tests {
             })?;
         }
 
-        /// Property: `persist_batch` atomically writes deposit and
-        /// graph SMs that can be read back individually.
+        /// Property: `persist_batch` atomically writes deposit, graph, and stake SMs that can be
+        /// read back individually.
         #[test]
         fn persist_batch_test(
             deposit_idx in any::<DepositIdx>(),
@@ -976,8 +1133,15 @@ mod tests {
                 GraphIdx { deposit: deposit_idx,
                 operator: operator_idx},
                 outpoint,
-                operator_table,
+                operator_table.clone(),
                 GraphState::Created { last_block_height },
+            );
+
+            let stake_op_idx = operator_table.pov_idx();
+            let stake_sm = make_stake_sm(
+                stake_op_idx,
+                operator_table,
+                StakeState::Created { last_block_height },
             );
 
             block_on(async {
@@ -986,6 +1150,7 @@ mod tests {
                 let mut batch = WriteBatch::new();
                 batch.add_deposit(deposit_sm.clone());
                 batch.add_graph(graph_sm.clone());
+                batch.add_stake(stake_sm.clone());
 
                 client.persist_batch(&batch).await.unwrap();
 
@@ -1000,6 +1165,9 @@ mod tests {
                     .await
                     .unwrap();
                 prop_assert_eq!(Some(graph_sm), retrieved_graph);
+
+                let retrieved_stake = client.get_stake_state(stake_op_idx).await.unwrap();
+                prop_assert_eq!(Some(stake_sm), retrieved_stake);
 
                 Ok(())
             })?;

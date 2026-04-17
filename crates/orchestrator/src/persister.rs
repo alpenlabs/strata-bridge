@@ -7,7 +7,7 @@ use std::{
 
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
 use thiserror::Error;
-use tracing::{error, warn};
+use tracing::error;
 
 use crate::{
     sm_registry::{RegistryInsertError, SMConfig, SMRegistry},
@@ -142,15 +142,12 @@ impl Persister {
                             error!("Attempted to persist graph state machine with index {graph_idx}, but it was not found in the registry");
                         }
                     }
-                    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2924>
-                    // Persist stake state machines once the db layer supports them. For now, stake
-                    // SMs live in-memory only and are re-created from the operator table at
-                    // startup.
                     SMId::Stake(operator_idx) => {
-                        warn!(
-                            %operator_idx,
-                            "stake state machine persistence not yet implemented; skipping"
-                        );
+                        if let Some(stake_sm) = sm_registry.get_stake(&operator_idx) {
+                            write_batch.add_stake(stake_sm.clone());
+                        } else {
+                            error!("Attempted to persist stake state machine for operator {operator_idx}, but it was not found in the registry");
+                        }
                     }
                 }
 
@@ -183,6 +180,15 @@ impl Persister {
             .map_err(PersistError::DbErr)?
         {
             registry.insert_graph(graph_idx, graph_sm)?;
+        }
+
+        for (operator_idx, stake_sm) in self
+            .db
+            .get_all_stake_states()
+            .await
+            .map_err(PersistError::DbErr)?
+        {
+            registry.insert_stake(operator_idx, stake_sm)?;
         }
 
         Ok(registry)
