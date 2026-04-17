@@ -418,7 +418,7 @@ pub(crate) fn classify_unsigned_gossip(
                 NagRequestPayload::UnstakingData { operator_idx }
                 | NagRequestPayload::UnstakingNonces { operator_idx }
                 | NagRequestPayload::UnstakingPartials { operator_idx } => {
-                    todo!("STR-2924: route unstaking nag for operator {operator_idx}")
+                    SMId::Stake(*operator_idx)
                 }
             };
 
