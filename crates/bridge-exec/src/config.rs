@@ -23,6 +23,10 @@ pub struct ExecutionConfig {
     /// The fee charged by an operator for processing a withdrawal.
     pub operator_fee: Amount,
 
+    /// The amount of BTC this operator stakes as collateral. The stake-funding UTXO spent by the
+    /// stake transaction must carry `stake_amount` plus any connector dust the stake tx produces.
+    pub stake_amount: Amount,
+
     /// The number of claim funding utxos to generate at any given time when the pool is exhausted.
     pub funding_uxto_pool_size: usize,
 }

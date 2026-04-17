@@ -4,7 +4,7 @@
 //! the stake transaction.
 
 use bitcoin::{
-    Address, FeeRate, OutPoint, Psbt, TapSighashType, Transaction,
+    Address, Amount, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
     hashes::{Hash, sha256},
     key::TapTweak,
     secp256k1::{Message, XOnlyPublicKey},
@@ -16,6 +16,8 @@ use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PubNonce};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
+use strata_bridge_connectors::{Connector, prelude::UnstakingIntentOutput};
+use strata_bridge_db::traits::BridgeDb;
 use strata_bridge_p2p_types::UnstakingInput;
 use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, create_key_spend_hash, finalize_input},
@@ -34,23 +36,28 @@ pub(crate) async fn publish_stake_data(
     output_handles: &OutputHandles,
     operator_idx: OperatorIdx,
 ) -> Result<(), ExecutorError> {
-    // Create stake funding transaction
-    let wallet = output_handles.wallet.read().await;
-
-    info!("checking if there is an existing stake funding transaction");
-    let stake_funds = if let Some(out) = wallet.s_utxo() {
-        drop(wallet); // drop lock
-        info!(outpoint=%out.outpoint, "found existing stake funding transaction");
-        out.outpoint
+    // Check the database first — if we already created a stake funding tx on a prior attempt,
+    // reuse that outpoint so the stake flow is idempotent across retries / restarts.
+    info!(%operator_idx, "checking for a persisted stake funding outpoint");
+    let stake_funds = if let Some(outpoint) = output_handles
+        .db
+        .get_stake_funding_outpoint(operator_idx)
+        .await?
+    {
+        info!(%operator_idx, %outpoint, "reusing persisted stake funding outpoint");
+        outpoint
     } else {
-        drop(wallet); // drop read lock before acquiring write lock in create_stake_funding_tx
-        info!("no existing stake funding transaction found, creating a new one");
-        let stake_funding_tx = create_stake_funding_tx(output_handles).await?;
-
-        OutPoint {
+        info!(%operator_idx, "no persisted stake funding outpoint; creating a new funding tx");
+        let stake_funding_tx = create_stake_funding_tx(cfg, output_handles).await?;
+        let outpoint = OutPoint {
             txid: stake_funding_tx.compute_txid(),
-            vout: 0, // there is only one output in the stake funding transaction.
-        }
+            vout: 0, // there is only one recipient output in the stake funding transaction.
+        };
+        output_handles
+            .db
+            .set_stake_funding_outpoint(operator_idx, outpoint)
+            .await?;
+        outpoint
     };
 
     info!("fetching unstaking intent preimage from secret-service");
@@ -88,6 +95,7 @@ pub(crate) async fn publish_stake_data(
 }
 
 async fn create_stake_funding_tx(
+    cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
 ) -> Result<Transaction, ExecutorError> {
     const DEFAULT_FEE_RATE: FeeRate = FeeRate::from_sat_per_vb_unchecked(5);
@@ -100,7 +108,10 @@ async fn create_stake_funding_tx(
 
     let fee_rate = FeeRate::from_sat_per_vb(fee_rate).unwrap_or(DEFAULT_FEE_RATE);
 
-    info!(%fee_rate, "creating stake funding transaction");
+    let unstaking_intent_dust = unstaking_intent_dust_value(cfg.network);
+    let funding_amount = cfg.stake_amount + unstaking_intent_dust;
+
+    info!(%fee_rate, %funding_amount, "creating stake funding transaction");
     let psbt = {
         let mut wallet = output_handles.wallet.write().await;
 
@@ -113,7 +124,7 @@ async fn create_stake_funding_tx(
         }
 
         wallet
-            .create_stake_funding_tx(fee_rate)
+            .create_stake_funding_tx(fee_rate, funding_amount)
             .expect("must be able to create stake funding transaction")
     };
 
@@ -292,14 +303,83 @@ pub(crate) async fn publish_unstaking_partials(
 }
 
 pub(crate) async fn publish_stake(
+    cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     tx: &Transaction,
 ) -> Result<(), ExecutorError> {
+    let stake_txid = tx.compute_txid();
+    let funding_input = tx.input[0].previous_output;
+
+    let unstaking_intent_dust = unstaking_intent_dust_value(cfg.network);
+
+    // The stake tx spends a single funding UTXO in the stakechain wallet and is not presigned by
+    // the covenant, so key-path sign it with the stakechain wallet signer before broadcasting.
+    // Reconstruct the prevout from known values: the funding UTXO is always at the stakechain
+    // address with value `stake_amount + unstaking_intent_output.value()`.
+    let stakechain_script = {
+        let wallet = output_handles.wallet.read().await;
+        wallet.stakechain_script_buf().clone()
+    };
+    let stake_funding_amount = cfg.stake_amount + unstaking_intent_dust;
+    let prevout = TxOut {
+        script_pubkey: stakechain_script,
+        value: stake_funding_amount,
+    };
+
+    info!(
+        %stake_txid,
+        %funding_input,
+        %stake_funding_amount,
+        "signing stake transaction with stakechain wallet signer"
+    );
+
+    let prevouts = Prevouts::All(&[prevout]);
+    let mut sighash_cache = SighashCache::new(tx);
+    let mut signed_tx = tx.clone();
+    for (input_index, _) in tx.input.iter().enumerate() {
+        let sighash = create_key_spend_hash(
+            &mut sighash_cache,
+            prevouts.clone(),
+            TapSighashType::Default,
+            input_index,
+        )
+        .expect("must be able to create key spend sighash");
+
+        let signature = output_handles
+            .s2_client
+            .stakechain_wallet_signer()
+            .sign(sighash.as_ref(), None)
+            .await
+            .map_err(ExecutorError::SecretServiceErr)?;
+
+        signed_tx.input[input_index]
+            .witness
+            .push(signature.serialize());
+    }
+
+    info!(%stake_txid, "publishing signed stake transaction");
     publish_signed_transaction(
         &output_handles.tx_driver,
-        tx,
+        &signed_tx,
         "stake tx",
         TxStatus::is_buried,
     )
-    .await
+    .await?;
+    info!(%stake_txid, "stake transaction confirmed on-chain");
+
+    Ok(())
+}
+
+/// Returns the dust value of an [`UnstakingIntentOutput`] on the given network.
+///
+/// The stake transaction spends its funding UTXO into the NOfN connector (`stake_amount`), the
+/// unstaking-intent connector, and a zero-value CPFP anchor.
+fn unstaking_intent_dust_value(network: Network) -> Amount {
+    // `UnstakingIntentOutput::value()` is the P2TR script's `minimal_non_dust()` and therefore
+    // depends only on the script kind — not on the particular n-of-n key or unstaking image. We
+    // supply a dummy x-only pubkey (the generator point's x-coordinate) and a zero image so we can
+    // compute the value without a secret-service round trip.
+    let dummy_pubkey = XOnlyPublicKey::from_slice(&bitcoin::key::constants::GENERATOR_X)
+        .expect("valid x-only key");
+    UnstakingIntentOutput::new(network, dummy_pubkey, sha256::Hash::all_zeros()).value()
 }

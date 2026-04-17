@@ -243,6 +243,7 @@ fn build_exec_config(params: &Params, config: &Config) -> ExecutionConfig {
         magic_bytes: params.protocol.magic_bytes,
         maximum_fee_rate: FeeRate::from_sat_per_vb(config.max_fee_rate).unwrap(),
         operator_fee: params.protocol.operator_fee,
+        stake_amount: params.protocol.stake_amount,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
     }
 }

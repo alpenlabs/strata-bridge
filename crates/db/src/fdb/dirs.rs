@@ -59,6 +59,9 @@ pub struct Directories {
     /// Subspace for storing claim-funding outpoints, keyed by `(DepositIdx, OperatorIdx)`.
     pub claim_funds: DirectorySubspace,
 
+    /// Subspace for storing stake-funding outpoints, keyed by `OperatorIdx`.
+    pub stake_funds: DirectorySubspace,
+
     /// Subspace for storing withdrawal-funding outpoints, keyed by `DepositIdx`.
     pub fulfillment_funds: DirectorySubspace,
 }
@@ -81,6 +84,7 @@ impl Directories {
         let graphs = open_subdir(&root, txn, SubSpaceId::Graphs).await?;
         let stakes = open_subdir(&root, txn, SubSpaceId::Stakes).await?;
         let claim_funding_outpoints = open_subdir(&root, txn, SubSpaceId::ClaimFunds).await?;
+        let stake_funds = open_subdir(&root, txn, SubSpaceId::StakeFunds).await?;
         let withdrawal_funding_outpoints =
             open_subdir(&root, txn, SubSpaceId::FulfillmentFunds).await?;
 
@@ -91,6 +95,7 @@ impl Directories {
             graphs,
             stakes,
             claim_funds: claim_funding_outpoints,
+            stake_funds,
             fulfillment_funds: withdrawal_funding_outpoints,
         })
     }
@@ -132,6 +137,8 @@ pub enum SubSpaceId {
     Stakes,
     /// Subspace for storing claim-funding outpoints.
     ClaimFunds,
+    /// Subspace for storing stake-funding outpoints, keyed by `OperatorIdx`.
+    StakeFunds,
     /// Subspace for storing withdrawal-funding outpoints.
     FulfillmentFunds,
 }
@@ -144,6 +151,7 @@ impl From<SubSpaceId> for &'static str {
             SubSpaceId::Graphs => "graphs",
             SubSpaceId::Stakes => "stakes",
             SubSpaceId::ClaimFunds => "claim_funds",
+            SubSpaceId::StakeFunds => "stake_funds",
             SubSpaceId::FulfillmentFunds => "fulfillment_funds",
         }
     }

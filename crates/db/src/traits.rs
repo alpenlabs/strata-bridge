@@ -131,6 +131,30 @@ pub trait BridgeDb {
         outpoint: OutPoint,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
+    /// Gets, if present, the reserved [`OutPoint`] used to fund the stake transaction for the
+    /// given operator.
+    ///
+    /// Persisting the outpoint lets the stake executor retrieve the existing funding UTXO on
+    /// retry (after a crash, restart, or duty re-dispatch) without creating a new funding tx
+    /// each time, which would consume additional wallet funds.
+    fn get_stake_funding_outpoint(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> impl Future<Output = Result<Option<OutPoint>, Self::Error>> + Send;
+
+    /// Sets the reserved [`OutPoint`] used to fund the stake transaction for the given operator.
+    fn set_stake_funding_outpoint(
+        &self,
+        operator_idx: OperatorIdx,
+        outpoint: OutPoint,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Deletes the reserved stake-funding [`OutPoint`] for the given operator.
+    fn delete_stake_funding_outpoint(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
     /// Gets, if present, the reserved [`OutPoint`]s for fulfilling withdrawals requests.
     fn get_withdrawal_funding_outpoints(
         &self,

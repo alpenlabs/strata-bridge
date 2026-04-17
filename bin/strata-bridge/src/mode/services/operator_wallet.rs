@@ -53,12 +53,8 @@ pub(in crate::mode) async fn init_operator_wallet(
     let stakechain_key = s2_client.stakechain_wallet_signer().pubkey().await?;
     info!(%stakechain_key, "operator wallet stakechain key");
     let operator_funds = compute_funding_amount(params);
-    let operator_wallet_config = OperatorWalletConfig::new(
-        operator_funds,
-        SEGWIT_MIN_AMOUNT,
-        params.protocol.stake_amount,
-        params.network,
-    );
+    let operator_wallet_config =
+        OperatorWalletConfig::new(operator_funds, SEGWIT_MIN_AMOUNT, params.network);
     debug!(?operator_wallet_config, "operator wallet config");
 
     let sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
