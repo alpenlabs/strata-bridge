@@ -5,6 +5,7 @@
 //! subscription objects can be primarily worked with via their [`futures::Stream`] trait API.
 use std::{collections::VecDeque, error::Error, marker::PhantomData, sync::Arc, time::Duration};
 
+use algebra::retry::{retry_with, Strategy};
 use bitcoin::{Block, Transaction};
 use bitcoincore_zmq::{subscribe_async_wait_handshake, Message, SocketMessage};
 use futures::{future::join_all, StreamExt};
@@ -128,6 +129,11 @@ impl BtcNotifyClient<Disconnected> {
     ///
     /// Consumes the disconnected client and returns a connected client.
     /// The connected client will have an active monitoring thread that processes ZMQ events.
+    ///
+    /// The ZMQ subscription handshake is retried with a short per-attempt timeout and a fixed
+    /// delay between attempts. This tolerates a brief window after a bitcoind restart during
+    /// which the RPC server is reachable but the ZMQ publishers have not yet bound their
+    /// endpoints.
     pub async fn connect<F>(
         self,
         start_height: u64,
@@ -137,29 +143,53 @@ impl BtcNotifyClient<Disconnected> {
         F: BlockFetcher + Send + Sync + 'static,
         <F as BlockFetcher>::Error: std::fmt::Debug + Send,
     {
+        /// Per-attempt timeout for the ZMQ subscription handshake.
+        const HANDSHAKE_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(2);
+        /// Delay between successive ZMQ handshake attempts.
+        const HANDSHAKE_RETRY_BACKOFF: Duration = Duration::from_millis(500);
+        /// Maximum number of retry attempts beyond the initial attempt. Total elapsed time is
+        /// bounded by roughly
+        /// `(HANDSHAKE_ATTEMPT_TIMEOUT + HANDSHAKE_RETRY_BACKOFF) * (1 + HANDSHAKE_MAX_RETRIES)`.
+        const HANDSHAKE_MAX_RETRIES: usize = 11;
+
         trace!(sockets=?self.sockets, "subscribing to bitcoind");
 
-        let mut stream = match tokio::time::timeout(
-            Duration::from_millis(2000),
-            subscribe_async_wait_handshake(
-                &self.sockets.iter().map(String::as_str).collect::<Vec<_>>(),
-            ),
-        )
+        let sockets = self.sockets.clone();
+        let strategy =
+            Strategy::fixed_delay(HANDSHAKE_RETRY_BACKOFF).with_max_retries(HANDSHAKE_MAX_RETRIES);
+        let mut stream = retry_with(strategy, move || {
+            let sockets = sockets.clone();
+            async move {
+                let urls: Vec<&str> = sockets.iter().map(String::as_str).collect();
+                match tokio::time::timeout(
+                    HANDSHAKE_ATTEMPT_TIMEOUT,
+                    subscribe_async_wait_handshake(&urls),
+                )
+                .await
+                {
+                    Ok(Ok(stream)) => Ok(stream),
+                    Ok(Err(err)) => {
+                        warn!(?err, "zmq subscription handshake attempt failed, retrying");
+                        Err(format!("subscribe error: {err}"))
+                    }
+                    Err(_) => {
+                        warn!(
+                            attempt_timeout = ?HANDSHAKE_ATTEMPT_TIMEOUT,
+                            "zmq subscription handshake attempt timed out, retrying"
+                        );
+                        Err(format!("timed out after {HANDSHAKE_ATTEMPT_TIMEOUT:?}"))
+                    }
+                }
+            }
+        })
         .await
-        {
-            Ok(Ok(stream)) => {
-                // Ok(Ok(_)), ok from both functions.
-                stream
-            }
-            Ok(Err(err)) => {
-                // Ok(Err(_)), ok from `timeout` but an error from the subscribe function.
-                panic!("subscribe error: {err}");
-            }
-            Err(_) => {
-                // Err(_), err from `timeout` means that it timed out.
-                panic!("bitcoin-core zmq subscription handshake timed out");
-            }
-        };
+        .map_err(|last_err: String| -> Box<dyn Error> {
+            format!(
+                "bitcoin-core zmq subscription handshake failed after {} attempts: last error: {last_err}",
+                HANDSHAKE_MAX_RETRIES + 1
+            )
+            .into()
+        })?;
 
         // Clone references for the spawned thread
         let block_subs_thread = self.block_subs.clone();
