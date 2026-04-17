@@ -136,7 +136,7 @@ pub(crate) async fn init_orchestrator(
 
             // Handle pipeline completion (this should indicate an error as this is supposed to run indefinitely)
             pipeline_complete = tokio::task::spawn(async move {
-                pipeline.run(operator_table).await
+                pipeline.run(operator_table, start_height).await
             }) => {
                 match pipeline_complete {
                     Ok(Ok(())) => {

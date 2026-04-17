@@ -1,18 +1,22 @@
 //! The main event loop that wires all pipeline stages together:
 //! `EventsMux` → classify → `Applicator::apply_batch` → persist → dispatch.
 
-use strata_bridge_primitives::operator_table::OperatorTable;
+use std::collections::BTreeSet;
+
+use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
+use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 use tracing::{info, trace};
 
 use crate::{
     applicator::Applicator,
     duty_dispatcher::DutyDispatcher,
-    errors::PipelineError,
+    errors::{PipelineError, ProcessError},
     events_classifier::{offchain, onchain},
     events_mux::{EventsMux, UnifiedEvent},
     events_router,
     persister::Persister,
     sm_registry::SMRegistry,
+    sm_types::{SMId, UnifiedDuty},
 };
 
 /// The main pipeline that drives the orchestrator.
@@ -51,7 +55,19 @@ impl Pipeline {
     /// The `initial_operator_table` needs to be constructed from a params file or similar source of
     /// truth for now. Eventually, this will be queried from the Operator State Machine in the
     /// registry.
-    pub async fn run(mut self, initial_operator_table: OperatorTable) -> Result<(), PipelineError> {
+    ///
+    /// Before entering the main event loop, this method bootstraps one [`StakeSM`] per operator in
+    /// the `initial_operator_table`. Any stake SMs already recovered from the database are
+    /// preserved; only missing ones are created. The `start_height` is used as the initial block
+    /// height for newly created stake SMs (typically the chain tip or the persisted cursor).
+    pub async fn run(
+        mut self,
+        initial_operator_table: OperatorTable,
+        start_height: BitcoinBlockHeight,
+    ) -> Result<(), PipelineError> {
+        self.bootstrap_stake_sms(&initial_operator_table, start_height)
+            .await?;
+
         loop {
             // Stage 1: Multiplex event streams
             let event = self.event_mux.next().await;
@@ -109,5 +125,46 @@ impl Pipeline {
                 self.dispatcher.dispatch(duty);
             }
         }
+    }
+
+    /// Creates one stake state machine per operator in `operator_table` that does not yet exist in
+    /// the registry. Persists the newly created machines and dispatches any constructor duties
+    /// (only the POV operator's SSM emits `PublishStakeData`).
+    async fn bootstrap_stake_sms(
+        &mut self,
+        operator_table: &OperatorTable,
+        start_height: BitcoinBlockHeight,
+    ) -> Result<(), PipelineError> {
+        let mut touched: BTreeSet<SMId> = BTreeSet::new();
+        let mut duties: Vec<UnifiedDuty> = Vec::new();
+
+        for op_idx in operator_table.operator_idxs() {
+            if self.registry.contains_id(&SMId::Stake(op_idx)) {
+                continue;
+            }
+
+            let ctx = StakeSMCtx::new(op_idx, operator_table.clone());
+            let (ssm, initial_duty) = StakeSM::new(ctx, start_height);
+            self.registry
+                .insert_stake(op_idx, ssm)
+                .map_err(ProcessError::from)?;
+            touched.insert(SMId::Stake(op_idx));
+            info!(%op_idx, %start_height, "bootstrapped stake state machine");
+
+            if let Some(duty) = initial_duty {
+                duties.push(duty.into());
+            }
+        }
+
+        if !touched.is_empty() {
+            self.persister
+                .persist_batch(touched, &self.registry)
+                .await?;
+        }
+        for duty in duties {
+            self.dispatcher.dispatch(duty);
+        }
+
+        Ok(())
     }
 }
