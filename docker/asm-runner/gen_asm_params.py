@@ -178,8 +178,9 @@ def main() -> None:
     logging.info("Fetching chain context for genesis height")
     block_hash, header = fetch_chain_context(config["bitcoin"], genesis_height)
 
-    logging.info("Updating ASM params with chain context")
-    params["anchor"] = asdict(build_l1_anchor(genesis_height, block_hash, header))
+    network = params["anchor"]["network"]
+    logging.info(f"Updating ASM params with chain context for {network} network")
+    params["anchor"] = asdict(build_l1_anchor(genesis_height, block_hash, header, network))
 
     logging.info(f"Writing updated ASM params to {params_path}")
     params_path.write_text(json.dumps(params, indent=4) + "\n")
