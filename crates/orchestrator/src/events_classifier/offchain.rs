@@ -182,7 +182,7 @@ pub(crate) fn classify_unsigned_gossip(
         }
         UnsignedGossipsubMsg::Musig2NoncesExchange(musig2_nonce) => match musig2_nonce {
             MuSig2Nonce::Deposit { deposit_idx, nonce } => sm_registry
-                .lookup_operator(&(*deposit_idx).into(), key)
+                .lookup_operator(&SMId::Deposit(*deposit_idx), key)
                 .into_iter()
                 .filter_map(|op_idx| {
                     PubNonce::try_from(*nonce)
@@ -204,7 +204,7 @@ pub(crate) fn classify_unsigned_gossip(
                 .collect(),
 
             MuSig2Nonce::Payout { deposit_idx, nonce } => sm_registry
-                .lookup_operator(&(*deposit_idx).into(), key)
+                .lookup_operator(&SMId::Deposit(*deposit_idx), key)
                 .into_iter()
                 .filter_map(|op_idx| {
                     PubNonce::try_from(*nonce)
@@ -294,7 +294,7 @@ pub(crate) fn classify_unsigned_gossip(
                     deposit_idx,
                     partial,
                 } => sm_registry
-                    .lookup_operator(&(*deposit_idx).into(), key)
+                    .lookup_operator(&SMId::Deposit(*deposit_idx), key)
                     .into_iter()
                     .filter_map(|op_idx| {
                         PartialSignature::try_from(*partial)
@@ -319,7 +319,7 @@ pub(crate) fn classify_unsigned_gossip(
                     deposit_idx,
                     partial,
                 } => sm_registry
-                    .lookup_operator(&(*deposit_idx).into(), key)
+                    .lookup_operator(&SMId::Deposit(*deposit_idx), key)
                     .into_iter()
                     .filter_map(|op_idx| {
                         PartialSignature::try_from(*partial)

@@ -257,7 +257,7 @@ fn classify_tx_for_all_sms(
         .deposits()
         .filter_map(|(&deposit_idx, sm)| {
             sm.classify_tx(deposit_cfg, tx, height)
-                .map(|ev| (deposit_idx.into(), ev.into()))
+                .map(|ev| (SMId::Deposit(deposit_idx), ev.into()))
         })
         .chain(registry.graphs().filter_map(|(&graph_idx, sm)| {
             sm.classify_tx(graph_cfg, tx, height)
@@ -265,7 +265,7 @@ fn classify_tx_for_all_sms(
         }))
         .chain(registry.stakes().filter_map(|(&operator_idx, sm)| {
             sm.classify_tx(stake_cfg, tx, height)
-                .map(|ev| (operator_idx.into(), ev.into()))
+                .map(|ev| (SMId::Stake(operator_idx), ev.into()))
         }))
         .collect()
 }
@@ -291,7 +291,7 @@ fn new_block_events(
 
     deposit_ids
         .iter()
-        .map(|&idx| (idx.into(), deposit_event.clone().into()))
+        .map(|&idx| (SMId::Deposit(idx), deposit_event.clone().into()))
         .chain(
             graph_ids
                 .iter()
