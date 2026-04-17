@@ -8,14 +8,9 @@
 //!
 //! [`TxClassifier::classify_tx()`]: strata_bridge_sm::tx_classifier::TxClassifier::classify_tx
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
-use bitcoin::{
-    OutPoint, Transaction,
-    hashes::{Hash, sha256},
-    hex::DisplayHex,
-    secp256k1::XOnlyPublicKey,
-};
+use bitcoin::{Transaction, hex::DisplayHex, secp256k1::XOnlyPublicKey};
 use btc_tracker::event::BlockEvent;
 use strata_asm_txs_bridge_v1::deposit_request::parse_drt;
 use strata_bridge_primitives::{
@@ -41,12 +36,12 @@ use strata_bridge_sm::{
     tx_classifier::TxClassifier,
 };
 use strata_bridge_tx_graph::transactions::prelude::DepositData;
-use tracing::{Level, error, info};
+use tracing::{Level, error, info, warn};
 
 use crate::{
     applicator::Applicator,
     errors::{PipelineError, ProcessError},
-    sm_registry::SMRegistry,
+    sm_registry::{ActiveOperatorSnapshot, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
@@ -63,8 +58,6 @@ pub(crate) fn process_block(
     initial_operator_table: &OperatorTable,
     block_event: &BlockEvent,
 ) -> Result<(), PipelineError> {
-    let (cur_stakes, cur_unstaking_images) = get_mocked_stake_data(initial_operator_table);
-
     let deposit_cfg = applicator.registry().cfg().deposit.clone();
     let graph_cfg = applicator.registry().cfg().graph.clone();
     let stake_cfg = applicator.registry().cfg().stake.clone();
@@ -80,12 +73,14 @@ pub(crate) fn process_block(
     let existing_stakes = applicator.registry().get_stake_ids();
 
     for tx in &block_event.block.txdata {
-        // If this tx is a DRT, register new DepositSM + per-operator GraphSMs
+        // If this tx is a DRT, register new DepositSM + per-operator GraphSMs using the currently
+        // active operator snapshot. Because stake SM state transitions settle between transaction
+        // batches via the Applicator, a stake transition that removes an operator from the active
+        // set in an earlier transaction will be reflected here for a DRT appearing later in the
+        // same block.
         let initial_duties = try_register_deposit(
             &deposit_cfg,
             initial_operator_table,
-            &cur_stakes,
-            &cur_unstaking_images,
             applicator.registry_mut(),
             tx,
             height,
@@ -127,41 +122,16 @@ pub(crate) fn process_block(
     Ok(())
 }
 
-/// Generates mocked stake data for the given operator table.
-fn get_mocked_stake_data(
-    initial_operator_table: &OperatorTable,
-) -> (BTreeMap<u32, OutPoint>, BTreeMap<u32, sha256::Hash>) {
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2699>
-    // Query the Operator and Stake state machines for operator table and stake data instead of
-    // using static values.
-
-    let mock_outpoint = OutPoint::default(); // dummy outpoint
-    let stake_outpoints = initial_operator_table
-        .operator_idxs()
-        .into_iter()
-        .map(|idx| (idx, mock_outpoint))
-        .collect();
-
-    let mock_hash = sha256::Hash::from_slice(&[0u8; 32]).expect("dummy hash must be valid");
-    let unstaking_images = initial_operator_table
-        .operator_idxs()
-        .into_iter()
-        .map(|idx| (idx, mock_hash))
-        .collect();
-    // dummy stake images
-    (stake_outpoints, unstaking_images)
-}
-
 /// If `tx` is a valid deposit request transaction, registers a [`DepositSM`] and per-operator
 /// [`GraphSM`]s into the registry.
 ///
 /// Returns initial duties emitted by [`GraphSM`] constructors (e.g., `GenerateGraphData`).
-/// Returns `Ok(Vec::new())` if the transaction is not a DRT.
+/// Returns `Ok(Vec::new())` if the transaction is not a DRT or if the registry is not yet ready
+/// to accept deposits (either because not all operators have staked, or because this node's own
+/// operator is not active).
 fn try_register_deposit(
     deposit_cfg: &Arc<DepositSMCfg>,
-    cur_operator_table: &OperatorTable,
-    cur_stakes: &BTreeMap<OperatorIdx, OutPoint>,
-    cur_unstaking_images: &BTreeMap<OperatorIdx, sha256::Hash>,
+    full_operator_table: &OperatorTable,
     registry: &mut SMRegistry,
     tx: &Transaction,
     height: BitcoinBlockHeight,
@@ -174,6 +144,24 @@ fn try_register_deposit(
 
     let span = tracing::span!(Level::INFO, "registering new deposit", drt_txid=%drt_txid);
     let _entered = span.entered();
+
+    // Activation rule: before any DSM / GSM may become active, one stake state machine must exist
+    // for every configured operator and all of them must have reached `Confirmed` or higher.
+    if !registry.all_operators_have_staked() {
+        warn!(
+            %drt_txid,
+            "skipping DRT: not all operators have completed staking"
+        );
+        return Ok(Vec::new());
+    }
+
+    let snapshot = match registry.active_operator_snapshot(full_operator_table) {
+        Ok(snap) => snap,
+        Err(err) => {
+            warn!(%drt_txid, %err, "skipping DRT: could not derive active operator snapshot");
+            return Ok(Vec::new());
+        }
+    };
 
     let depositor_pubkey = drt_info.header_aux().recovery_pk();
     let Ok(depositor_pubkey) = XOnlyPublicKey::from_slice(depositor_pubkey) else {
@@ -193,16 +181,22 @@ fn try_register_deposit(
         );
         return Ok(Vec::new());
     };
-    let deposit_request_outpoint = OutPoint::new(drt_txid, 1);
+    let deposit_request_outpoint = bitcoin::OutPoint::new(drt_txid, 1);
     let deposit_data = DepositData {
         deposit_idx: deposit_idx_offset,
         deposit_request_outpoint,
         magic_bytes,
     };
 
+    let ActiveOperatorSnapshot {
+        operator_table: active_operator_table,
+        stake_inputs,
+        unstaking_images,
+    } = snapshot;
+
     let dsm = DepositSM::new(
         deposit_cfg.clone(),
-        cur_operator_table.clone(),
+        active_operator_table.clone(),
         deposit_data,
         depositor_pubkey,
         deposit_request_output.value,
@@ -213,28 +207,27 @@ fn try_register_deposit(
     info!(%deposit_outpoint, deposit_idx=deposit_idx_offset, "registering new DepositSM for detected DRT");
     registry.insert_deposit(deposit_idx_offset, dsm)?;
 
-    // Register one GraphSM per operator, collecting initial duties
+    // Register one GraphSM per active operator, collecting initial duties.
     let mut duties = Vec::new();
-    for &op_idx in cur_operator_table.operator_idxs().iter() {
+    for &op_idx in active_operator_table.operator_idxs().iter() {
         let graph_idx = GraphIdx {
             deposit: deposit_idx_offset,
             operator: op_idx,
         };
 
-        let stake_outpoint = *cur_stakes
+        let stake_outpoint = *stake_inputs
             .get(&op_idx)
-            .expect("must have stake for operator idx");
-
-        let unstaking_image = *cur_unstaking_images
+            .expect("snapshot must contain stake input for active operator");
+        let unstaking_image = *unstaking_images
             .get(&op_idx)
-            .expect("must have unstaking image for operator idx");
+            .expect("snapshot must contain unstaking image for active operator");
 
         let gsm_ctx = GraphSMCtx {
             graph_idx,
             deposit_outpoint,
             stake_outpoint,
             unstaking_image,
-            operator_table: cur_operator_table.clone(),
+            operator_table: active_operator_table.clone(),
         };
 
         let (gsm, duty) = GraphSM::new(gsm_ctx, height);
@@ -314,8 +307,6 @@ fn new_block_events(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use bitcoin::{Amount, Network, absolute, transaction};
     use strata_bridge_test_utils::bridge_fixtures::{TEST_MAGIC_BYTES, TEST_RECOVERY_DELAY};
 
@@ -454,8 +445,6 @@ mod tests {
         let duties = try_register_deposit(
             &deposit_cfg,
             &operator_table,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
             &mut registry,
             &random_tx,
             100,
