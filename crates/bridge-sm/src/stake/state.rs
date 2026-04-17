@@ -120,6 +120,25 @@ impl StakeState {
         )
     }
 
+    /// Returns true if this operator is still eligible to participate in new deposits.
+    ///
+    /// This is the admission predicate for creating new per-operator
+    /// [`GraphSM`](crate::graph::machine::GraphSM) instances. It is stricter than
+    /// [`has_staked`](Self::has_staked): an operator whose unstaking preimage has been revealed
+    /// (or who has fully unstaked) is excluded because their stake UTXO will soon be spent.
+    pub const fn is_stake_available(&self) -> bool {
+        matches!(self, Self::Confirmed { .. })
+    }
+
+    /// Returns true if this operator has been removed from the future covenant.
+    ///
+    /// Complement of [`is_stake_available`](Self::is_stake_available) for operators that have
+    /// already staked: `PreimageRevealed` and `Unstaked` states indicate the operator is
+    /// winding down and must not be included in future covenant signing sessions.
+    pub const fn is_removed_from_future_covenant(&self) -> bool {
+        matches!(self, Self::PreimageRevealed { .. } | Self::Unstaked { .. })
+    }
+
     /// Returns true if the stake is fully unstaked.
     pub const fn is_unstaked(&self) -> bool {
         matches!(self, Self::Unstaked { .. })
