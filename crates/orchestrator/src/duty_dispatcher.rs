@@ -6,7 +6,7 @@ use strata_bridge_exec::{
     config::ExecutionConfig, deposit::execute_deposit_duty, graph::execute_graph_duty,
     output_handles::OutputHandles,
 };
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::sm_types::UnifiedDuty;
 
@@ -59,6 +59,14 @@ impl DutyDispatcher {
                             error!(%err, ?graph_duty, "failed to execute graph duty");
                         })
                 });
+            }
+            // TODO: <https://alpenlabs.atlassian.net/browse/STR-2924>
+            // Wire stake duty execution through the bridge-exec crate.
+            UnifiedDuty::Stake(stake_duty) => {
+                warn!(
+                    ?stake_duty,
+                    "stake duty execution not yet implemented; dropping duty"
+                );
             }
         }
     }

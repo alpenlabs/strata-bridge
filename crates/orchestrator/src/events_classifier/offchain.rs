@@ -10,6 +10,7 @@ use strata_bridge_p2p_types::{
 use strata_bridge_sm::{
     deposit::events::{self as DepositEvents, DepositEvent, RetryTickEvent},
     graph::events::{self as GraphEvents, AdaptorsVerifiedEvent, GraphEvent},
+    stake::events::{self as StakeEvents, StakeEvent},
 };
 use strata_mosaic_client_api::MosaicEvent;
 use tracing::{debug, error, info, warn};
@@ -335,6 +336,10 @@ pub(crate) fn classify_unsigned_gossip(
                     .get_graph(&graph_idx)
                     .map(|sm| sm.context().operator_table().pov_p2p_key().clone())
                     .expect("router should route nags only to existing graph SMs"),
+                SMId::Stake(operator_idx) => sm_registry
+                    .get_stake(&operator_idx)
+                    .map(|sm| sm.context().operator_table().pov_p2p_key().clone())
+                    .expect("router should route nags only to existing stake SMs"),
             };
 
             // Check recipient matches POV
@@ -426,6 +431,8 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
                 .into()
             })
         }),
+        // Assignments are deposit-scoped; they do not apply to operator-scoped stake SMs.
+        SMId::Stake(_) => None,
     }
 }
 
@@ -434,9 +441,12 @@ fn classify_nag_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> 
         SMId::Deposit(deposit_idx) => sm_registry
             .get_deposit(deposit_idx)
             .map(|_| DepositEvent::NagTick(DepositEvents::NagTickEvent).into()),
-        SMId::Graph(_graph_idx) => sm_registry
-            .get_graph(_graph_idx)
+        SMId::Graph(graph_idx) => sm_registry
+            .get_graph(graph_idx)
             .map(|_| GraphEvent::NagTick(GraphEvents::NagTickEvent).into()),
+        SMId::Stake(operator_idx) => sm_registry
+            .get_stake(operator_idx)
+            .map(|_| StakeEvent::NagTick(StakeEvents::NagTickEvent).into()),
     }
 }
 
@@ -445,9 +455,12 @@ fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent
         SMId::Deposit(deposit_idx) => sm_registry
             .get_deposit(deposit_idx)
             .map(|_| DepositEvent::RetryTick(RetryTickEvent).into()),
-        SMId::Graph(_graph_idx) => sm_registry
-            .get_graph(_graph_idx)
+        SMId::Graph(graph_idx) => sm_registry
+            .get_graph(graph_idx)
             .map(|_| GraphEvent::RetryTick(GraphEvents::RetryTickEvent).into()),
+        SMId::Stake(operator_idx) => sm_registry
+            .get_stake(operator_idx)
+            .map(|_| StakeEvent::RetryTick(StakeEvents::RetryTickEvent).into()),
     }
 }
 
@@ -460,6 +473,10 @@ fn classify_mosaic_event(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEve
         SMId::Graph(graph_idx) => sm_registry
             .get_graph(graph_idx)
             .map(|_| GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}).into()),
+        SMId::Stake(_) => {
+            error!("got unexpected SMId::Stake for mosaic event");
+            None
+        }
     }
 }
 

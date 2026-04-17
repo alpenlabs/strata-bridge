@@ -375,6 +375,10 @@ mod tests {
                     GraphEvent::NewBlock(ref nb) => assert_eq!(nb.block_height, TEST_HEIGHT),
                     other => panic!("expected NewBlock, got {other}"),
                 },
+                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2924>
+                // Assert the block height on the stake NewBlock event once
+                // `new_block_events()` emits them.
+                SMEvent::Stake(_) => {}
             }
         }
     }

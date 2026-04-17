@@ -19,8 +19,13 @@ use strata_bridge_orchestrator::{
 };
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
-use strata_bridge_sm::{self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg};
-use strata_bridge_tx_graph::game_graph::ProtocolParams as TxGraphProtocolParams;
+use strata_bridge_sm::{
+    self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg, stake::config::StakeSMCfg,
+};
+use strata_bridge_tx_graph::{
+    game_graph::ProtocolParams as TxGraphProtocolParams,
+    stake_graph::ProtocolParams as StakeGraphProtocolParams,
+};
 use strata_mosaic_client_api::MosaicClientApi;
 use strata_p2p::swarm::handle::{GossipHandle, ReqRespHandle};
 use strata_tasks::TaskExecutor;
@@ -211,9 +216,23 @@ pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
         bridge_proof_predicate: params.protocol.bridge_proof_predicate.clone(),
     };
 
+    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2924>
+    // Promote `unstaking_timelock` to a protocol parameter on `ProtocolParams` once the
+    // params schema is updated. For now, use a sensible default (approximately 21 days).
+    const DEFAULT_UNSTAKING_TIMELOCK_BLOCKS: u16 = 3024;
+    let stake_config = StakeSMCfg {
+        protocol_params: StakeGraphProtocolParams {
+            network,
+            magic_bytes,
+            unstaking_timelock: relative::Height::from_height(DEFAULT_UNSTAKING_TIMELOCK_BLOCKS),
+            stake_amount: params.protocol.stake_amount,
+        },
+    };
+
     SMConfig {
         deposit: Arc::new(deposit_config),
         graph: Arc::new(graph_config),
+        stake: Arc::new(stake_config),
     }
 }
 
