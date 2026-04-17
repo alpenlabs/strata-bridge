@@ -7,7 +7,7 @@ use strata_identifiers::Buf32;
 
 use crate::types::{
     RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcGraphData,
-    RpcOperatorStatus, RpcPendingWithdrawalInfo, RpcWithdrawalInfo,
+    RpcOperatorStakeInfo, RpcOperatorStatus, RpcPendingWithdrawalInfo, RpcWithdrawalInfo,
 };
 
 /// RPCs related to information about the client itself.
@@ -96,6 +96,10 @@ pub trait StrataBridgeMonitoringApi {
         &self,
         deposit_idx: DepositIdx,
     ) -> RpcResult<Option<RpcPendingWithdrawalInfo>>;
+
+    /// Get the stake status for every operator the node is tracking.
+    #[method(name = "stakeStatus")]
+    async fn get_stake_status(&self) -> RpcResult<Vec<RpcOperatorStakeInfo>>;
 }
 
 /// RPCs required for data availability.

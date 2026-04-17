@@ -25,13 +25,14 @@ use strata_bridge_rpc::{
     },
     types::{
         RpcActiveClaim, RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcClaimPhase,
-        RpcDepositInfo, RpcDepositStatus, RpcGraphData, RpcOperatorStatus,
-        RpcPendingWithdrawalInfo, RpcWithdrawalInfo,
+        RpcDepositInfo, RpcDepositStatus, RpcGraphData, RpcOperatorStakeInfo, RpcOperatorStatus,
+        RpcPendingWithdrawalInfo, RpcStakeState, RpcWithdrawalInfo,
     },
 };
 use strata_bridge_sm::{
     deposit::state::DepositState,
     graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState},
+    stake::state::StakeState,
 };
 use strata_identifiers::Buf32;
 use strata_p2p::swarm::handle::CommandHandle;
@@ -415,6 +416,33 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         };
 
         Ok(Some(info))
+    }
+
+    async fn get_stake_status(&self) -> RpcResult<Vec<RpcOperatorStakeInfo>> {
+        let cached_registry = self.cached_registry.read().await;
+        Ok(cached_registry
+            .stakes()
+            .map(|(&operator_idx, sm)| RpcOperatorStakeInfo {
+                operator_idx,
+                state: stake_state_to_rpc(sm.state()),
+            })
+            .collect())
+    }
+}
+
+const fn stake_state_to_rpc(state: &StakeState) -> RpcStakeState {
+    match state {
+        StakeState::Created { .. } => RpcStakeState::Created,
+        StakeState::StakeGraphGenerated { .. } => RpcStakeState::StakeGraphGenerated,
+        StakeState::UnstakingNoncesCollected { .. } => RpcStakeState::UnstakingNoncesCollected,
+        StakeState::UnstakingSigned { .. } => RpcStakeState::UnstakingSigned,
+        StakeState::Confirmed { summary, .. } => RpcStakeState::Confirmed {
+            stake_txid: summary.stake,
+        },
+        StakeState::PreimageRevealed { .. } => RpcStakeState::PreimageRevealed,
+        StakeState::Unstaked { unstaking_txid, .. } => RpcStakeState::Unstaked {
+            unstaking_txid: *unstaking_txid,
+        },
     }
 }
 

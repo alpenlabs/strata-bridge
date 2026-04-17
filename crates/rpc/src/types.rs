@@ -226,3 +226,49 @@ pub struct RpcAggregateSignatures {
     /// Aggregate Schnorr signatures for the graph.
     pub signatures: Vec<Signature>,
 }
+
+/// Lifecycle state of an operator's stake.
+///
+/// The variants mirror [`strata_bridge_sm::stake::state::StakeState`] but carry only the
+/// information needed for external monitoring: the coarse phase label and, once available, the
+/// unstaking transaction id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum RpcStakeState {
+    /// Initial state; no stake-related transactions have been produced yet.
+    Created,
+    /// Stake graph has been generated.
+    StakeGraphGenerated,
+    /// Unstaking musig2 nonces have been collected.
+    UnstakingNoncesCollected,
+    /// Unstaking musig2 partial signatures have been collected.
+    UnstakingSigned,
+    /// Stake transaction has been confirmed on-chain.
+    Confirmed {
+        /// Txid of the confirmed stake transaction.
+        stake_txid: Txid,
+    },
+    /// Unstaking preimage has been revealed on-chain.
+    PreimageRevealed,
+    /// Unstaking transaction has been confirmed on-chain.
+    Unstaked {
+        /// Txid of the confirmed unstaking transaction.
+        unstaking_txid: Txid,
+    },
+}
+
+/// Per-operator stake status.
+///
+/// The [`RpcStakeState`] discriminator + fields are flattened into this struct, so a `Confirmed`
+/// stake serialises as
+/// `{"operator_idx": 0, "state": "confirmed", "stake_txid": "…"}` rather than nesting the state
+/// under a sub-object. This keeps the JSON readable and easy to parse in consumers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcOperatorStakeInfo {
+    /// The operator this stake belongs to.
+    pub operator_idx: OperatorIdx,
+
+    /// Current stake state.
+    #[serde(flatten)]
+    pub state: RpcStakeState,
+}
