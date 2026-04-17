@@ -22,7 +22,7 @@ use strata_bridge_primitives::{
     types::OperatorIdx,
 };
 use strata_bridge_tx_graph::musig_functor::StakeFunctor;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::{
     chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
@@ -103,6 +103,14 @@ async fn create_stake_funding_tx(
     info!(%fee_rate, "creating stake funding transaction");
     let psbt = {
         let mut wallet = output_handles.wallet.write().await;
+
+        match wallet.sync().await {
+            Ok(()) => info!("synced wallet successfully"),
+            Err(e) => error!(
+                ?e,
+                "could not sync wallet before creating stake funding tx; still attempting"
+            ),
+        }
 
         wallet
             .create_stake_funding_tx(fee_rate)
