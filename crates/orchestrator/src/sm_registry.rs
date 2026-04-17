@@ -6,14 +6,19 @@ use std::{
     sync::Arc,
 };
 
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use bitcoin::{OutPoint, hashes::sha256};
+use strata_bridge_primitives::{
+    operator_table::OperatorTable,
+    types::{DepositIdx, GraphIdx, OperatorIdx},
+};
 use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, machine::DepositSM},
     errors::BridgeSMError,
     graph::{config::GraphSMCfg, machine::GraphSM},
-    stake::{config::StakeSMCfg, machine::StakeSM},
+    stake::{config::StakeSMCfg, machine::StakeSM, state::StakeState},
     state_machine::{SMOutput, StateMachine},
 };
+use strata_bridge_tx_graph::transactions::stake::StakeTx;
 use thiserror::Error;
 use tracing::error;
 
@@ -65,6 +70,38 @@ pub enum RegistryInsertError {
     /// The maximum deposit index has been reached.
     #[error("deposit index exhausted at {0}; cannot allocate a new deposit index")]
     DepositIdxExhausted(DepositIdx),
+}
+
+/// A derived view of the operators that are currently eligible to participate in new deposits.
+///
+/// Constructed from the registry by filtering the full operator table down to operators whose
+/// stake state machine is in the [`StakeState::Confirmed`] state (i.e.
+/// [`StakeState::is_stake_available`]). The `stake_inputs` and `unstaking_images` maps contain the
+/// corresponding on-chain data for each active operator, extracted from the stake SM's confirmed
+/// state.
+#[derive(Debug, Clone)]
+pub struct ActiveOperatorSnapshot {
+    /// The filtered operator table containing only operators with a confirmed stake.
+    pub operator_table: OperatorTable,
+    /// The UTXO of the stake transaction per active operator, keyed by operator index. This is the
+    /// input that the per-operator [`GraphSM`] uses for slashing.
+    pub stake_inputs: BTreeMap<OperatorIdx, OutPoint>,
+    /// The unstaking hash image per active operator, keyed by operator index. This is the hash
+    /// that locks the claim-payout connector in the per-operator game graph.
+    pub unstaking_images: BTreeMap<OperatorIdx, sha256::Hash>,
+}
+
+/// Errors returned when constructing an [`ActiveOperatorSnapshot`].
+#[derive(Debug, Clone, Error)]
+pub enum SnapshotError {
+    /// The registry is missing a stake state machine for an operator present in the full table.
+    #[error("missing stake state machine for operator {0}")]
+    MissingStakeSM(OperatorIdx),
+    /// The point-of-view operator is not active for new deposits (its stake SM has moved past
+    /// [`StakeState::Confirmed`] or was never instantiated). This node cannot originate new
+    /// deposits while its own operator is not eligible.
+    #[error("point-of-view operator {0} is not active for new deposits")]
+    PovNotActive(OperatorIdx),
 }
 
 /// Reason why a state machine event was ignored as non-fatal.
@@ -265,6 +302,74 @@ impl SMRegistry {
                 Err(RegistryInsertError::StakeAlreadyExists(operator_idx))
             }
         }
+    }
+
+    /// Returns `true` iff every operator that has a stake state machine in the registry has
+    /// reached [`StakeState::has_staked`] (i.e. `Confirmed`, `PreimageRevealed`, or `Unstaked`).
+    ///
+    /// This is the activation gate for new deposits: no DSM/GSM instances may be created until
+    /// every configured operator has at least completed staking.
+    pub fn all_operators_have_staked(&self) -> bool {
+        self.stakes.values().all(|sm| sm.state().has_staked())
+    }
+
+    /// Returns `true` iff the given operator currently has a stake available
+    /// ([`StakeState::is_stake_available`], i.e. `Confirmed` and not yet winding down).
+    pub fn is_operator_active_for_new_deposits(&self, operator_idx: &OperatorIdx) -> bool {
+        self.stakes
+            .get(operator_idx)
+            .is_some_and(|sm| sm.state().is_stake_available())
+    }
+
+    /// Builds an [`ActiveOperatorSnapshot`] from the operators in `full_table` whose stake state
+    /// machine is currently in [`StakeState::Confirmed`].
+    ///
+    /// Returns an error if the point-of-view operator is not active, since this node cannot
+    /// originate new deposits while its own operator is winding down or absent.
+    pub fn active_operator_snapshot(
+        &self,
+        full_table: &OperatorTable,
+    ) -> Result<ActiveOperatorSnapshot, SnapshotError> {
+        let mut entries = Vec::new();
+        let mut stake_inputs = BTreeMap::new();
+        let mut unstaking_images = BTreeMap::new();
+
+        for op_idx in full_table.operator_idxs() {
+            let ssm = self
+                .stakes
+                .get(&op_idx)
+                .ok_or(SnapshotError::MissingStakeSM(op_idx))?;
+
+            let StakeState::Confirmed {
+                stake_data,
+                summary,
+                ..
+            } = ssm.state()
+            else {
+                continue;
+            };
+
+            let p2p_key = full_table
+                .idx_to_p2p_key(&op_idx)
+                .expect("operator from operator_idxs() must resolve");
+            let btc_key = full_table
+                .idx_to_btc_key(&op_idx)
+                .expect("operator from operator_idxs() must resolve");
+            entries.push((op_idx, p2p_key.clone(), btc_key));
+
+            stake_inputs.insert(op_idx, OutPoint::new(summary.stake, StakeTx::STAKE_VOUT));
+            unstaking_images.insert(op_idx, stake_data.unstaking_image);
+        }
+
+        let pov_idx = full_table.pov_idx();
+        let operator_table = OperatorTable::new(entries, move |(idx, _, _)| *idx == pov_idx)
+            .ok_or(SnapshotError::PovNotActive(pov_idx))?;
+
+        Ok(ActiveOperatorSnapshot {
+            operator_table,
+            stake_inputs,
+            unstaking_images,
+        })
     }
 
     /// Looks up the state machine identified by `id` and resolves the operator index using the
