@@ -10,9 +10,14 @@
 
 use std::collections::VecDeque;
 
-use strata_bridge_sm::graph::{
-    duties::GraphDuty,
-    events::{AdaptorsVerifiedEvent, GraphEvent},
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
+use strata_bridge_sm::{
+    deposit::machine::DepositSM,
+    graph::{
+        duties::GraphDuty,
+        events::{AdaptorsVerifiedEvent, GraphEvent},
+        machine::GraphSM,
+    },
 };
 use tracing::{info, warn};
 
@@ -20,7 +25,7 @@ use crate::{
     errors::PipelineError,
     persister::PersistenceTracker,
     signals_router,
-    sm_registry::{IgnoredEventReason, ProcessOutcome, SMRegistry},
+    sm_registry::{IgnoredEventReason, ProcessOutcome, RegistryInsertError, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
@@ -123,6 +128,36 @@ impl<'a> Applicator<'a> {
         self.duties.extend(duties);
     }
 
+    /// Inserts a new deposit state machine into the registry and records it for persistence.
+    ///
+    /// Newly constructed SMs start in their initial state and typically do not classify the
+    /// current transaction into an event, so they would otherwise never reach any `apply_*` calls
+    /// and never be marked as touched. Routing insertions through the
+    /// applicator makes insertion and persistence-tracking atomic, so callers cannot accidentally
+    /// leave a new SM unrecorded and drop it on crash before its first transition.
+    pub fn insert_deposit(
+        &mut self,
+        deposit_idx: DepositIdx,
+        sm: DepositSM,
+    ) -> Result<(), RegistryInsertError> {
+        self.registry.insert_deposit(deposit_idx, sm)?;
+        self.tracker.record(SMId::Deposit(deposit_idx));
+        Ok(())
+    }
+
+    /// Inserts a new graph state machine into the registry and records it for persistence.
+    ///
+    /// See [`insert_deposit`](Self::insert_deposit) for why the applicator owns this insertion.
+    pub fn insert_graph(
+        &mut self,
+        graph_idx: GraphIdx,
+        sm: GraphSM,
+    ) -> Result<(), RegistryInsertError> {
+        self.registry.insert_graph(graph_idx, sm)?;
+        self.tracker.record(SMId::Graph(graph_idx));
+        Ok(())
+    }
+
     /// Consumes the applicator and returns the accumulated duties and persistence tracker.
     pub fn finish(self) -> (Vec<UnifiedDuty>, PersistenceTracker) {
         (self.duties, self.tracker)
@@ -169,15 +204,21 @@ impl<'a> Applicator<'a> {
 mod tests {
     use std::collections::BTreeSet;
 
+    use bitcoin::{Amount, OutPoint, hashes::sha256};
     use strata_bridge_primitives::types::GraphIdx;
     use strata_bridge_sm::{
         deposit::events::{DepositEvent, NewBlockEvent as DepositNewBlock},
-        graph::events::{GraphEvent, NewBlockEvent as GraphNewBlock},
+        graph::{
+            context::GraphSMCtx,
+            events::{GraphEvent, NewBlockEvent as GraphNewBlock},
+        },
     };
+    use strata_bridge_tx_graph::transactions::prelude::DepositData;
 
     use super::*;
     use crate::testing::{
-        INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, test_empty_registry, test_populated_registry,
+        INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, test_deposit_sm_cfg,
+        test_empty_registry, test_operator_table, test_populated_registry,
     };
 
     // ===== apply_batch basic tests =====
@@ -192,6 +233,112 @@ mod tests {
         let (duties, tracker) = applicator.finish();
         assert!(duties.is_empty());
         assert!(tracker.into_batches().is_empty());
+    }
+
+    #[test]
+    fn insert_deposit_marks_sm_for_persistence_without_any_event() {
+        // Freshly inserted SMs do not classify the current transaction (their initial state
+        // returns `None` from the classifier), so they never reach `apply_one()` and would be
+        // omitted from the persistence batch unless routed through the applicator. This guards
+        // against a durability gap where a new DSM could be lost on crash before its first
+        // transition.
+        let mut registry = test_empty_registry();
+        let mut applicator = Applicator::new(&mut registry);
+
+        let dsm = test_deposit_sm(0);
+        applicator
+            .insert_deposit(0, dsm)
+            .expect("insertion should succeed");
+        applicator.apply_batch(vec![]).unwrap();
+
+        let (_, tracker) = applicator.finish();
+        let batches = tracker.into_batches();
+        let flat: BTreeSet<SMId> = batches.into_iter().flatten().collect();
+        assert!(
+            flat.contains(&SMId::Deposit(0)),
+            "insert_deposit must add the SM to the persistence batch even with no STF events"
+        );
+    }
+
+    #[test]
+    fn insert_graph_marks_sm_for_persistence_without_any_event() {
+        // Same invariant as for deposits: a freshly inserted GraphSM does not classify the DRT
+        // transaction, so it must be tracked at insertion time or it will be lost.
+        let mut registry = test_empty_registry();
+        let mut applicator = Applicator::new(&mut registry);
+
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: 0,
+        };
+        let gsm = test_graph_sm(graph_idx);
+        applicator
+            .insert_graph(graph_idx, gsm)
+            .expect("insertion should succeed");
+        applicator.apply_batch(vec![]).unwrap();
+
+        let (_, tracker) = applicator.finish();
+        let batches = tracker.into_batches();
+        let flat: BTreeSet<SMId> = batches.into_iter().flatten().collect();
+        assert!(
+            flat.contains(&SMId::Graph(graph_idx)),
+            "insert_graph must add the SM to the persistence batch even with no STF events"
+        );
+    }
+
+    #[test]
+    fn insert_deposit_duplicate_does_not_record_duplicate() {
+        // Propagating the insertion error without recording avoids tracking an SM that was not
+        // actually inserted; the original entry remains the source of truth.
+        let mut registry = test_empty_registry();
+        let mut applicator = Applicator::new(&mut registry);
+
+        applicator.insert_deposit(0, test_deposit_sm(0)).unwrap();
+
+        let err = applicator
+            .insert_deposit(0, test_deposit_sm(0))
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            crate::sm_registry::RegistryInsertError::DepositAlreadyExists(0)
+        ));
+
+        let (_, tracker) = applicator.finish();
+        let flat: Vec<SMId> = tracker.into_batches().into_iter().flatten().collect();
+        assert_eq!(flat, vec![SMId::Deposit(0)]);
+    }
+
+    fn test_deposit_sm(deposit_idx: DepositIdx) -> DepositSM {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let depositor_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
+        let data = DepositData {
+            deposit_idx,
+            deposit_request_outpoint: OutPoint::default(),
+            magic_bytes: cfg.magic_bytes(),
+        };
+        let drt_amount = cfg.deposit_amount() + Amount::from_sat(10_000);
+        DepositSM::new(
+            cfg,
+            operator_table,
+            data,
+            depositor_pubkey,
+            drt_amount,
+            INITIAL_BLOCK_HEIGHT,
+        )
+    }
+
+    fn test_graph_sm(graph_idx: GraphIdx) -> GraphSM {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let gsm_ctx = GraphSMCtx {
+            graph_idx,
+            deposit_outpoint: OutPoint::default(),
+            stake_outpoint: OutPoint::default(),
+            unstaking_image: <sha256::Hash as bitcoin::hashes::Hash>::all_zeros(),
+            operator_table,
+        };
+        let (gsm, _duty) = GraphSM::new(gsm_ctx, INITIAL_BLOCK_HEIGHT);
+        gsm
     }
 
     #[test]
