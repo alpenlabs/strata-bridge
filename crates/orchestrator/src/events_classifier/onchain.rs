@@ -148,20 +148,21 @@ fn try_register_deposit(
     // Activation rule: before any DSM / GSM may become active, one stake state machine must exist
     // for every configured operator and all of them must have reached `Confirmed` or higher.
     if !registry.all_operators_have_staked() {
-        warn!(
-            %drt_txid,
-            "skipping DRT: not all operators have completed staking"
-        );
+        warn!("skipping DRT: not all operators have completed staking");
         return Ok(Vec::new());
     }
 
     let snapshot = match registry.active_operator_snapshot(full_operator_table) {
         Ok(snap) => snap,
         Err(err) => {
-            warn!(%drt_txid, %err, "skipping DRT: could not derive active operator snapshot");
+            warn!(%err, "skipping DRT: could not derive active operator snapshot");
             return Ok(Vec::new());
         }
     };
+    info!(
+        active_operator_count = snapshot.operator_table.operator_idxs().len(),
+        "passed stake-readiness gate; registering DSM / GSMs from active operator snapshot"
+    );
 
     let depositor_pubkey = drt_info.header_aux().recovery_pk();
     let Ok(depositor_pubkey) = XOnlyPublicKey::from_slice(depositor_pubkey) else {
@@ -175,10 +176,7 @@ fn try_register_deposit(
 
     // Always second output for now: output 0 is SPS-50 OP_RETURN and output 1 is DRT spend UTXO.
     let Some(deposit_request_output) = tx.output.get(1) else {
-        error!(
-            %drt_txid,
-            "invalid DRT: expected spendable output at index 1, ignoring"
-        );
+        error!("invalid DRT: expected spendable output at index 1, ignoring");
         return Ok(Vec::new());
     };
     let deposit_request_outpoint = bitcoin::OutPoint::new(drt_txid, 1);
@@ -264,8 +262,15 @@ fn classify_tx_for_all_sms(
                 .map(|ev| (graph_idx.into(), ev.into()))
         }))
         .chain(registry.stakes().filter_map(|(&operator_idx, sm)| {
-            sm.classify_tx(stake_cfg, tx, height)
-                .map(|ev| (SMId::Stake(operator_idx), ev.into()))
+            sm.classify_tx(stake_cfg, tx, height).map(|ev| {
+                info!(
+                    %operator_idx,
+                    txid = %tx.compute_txid(),
+                    event = %ev,
+                    "stake SM recognized transaction"
+                );
+                (SMId::Stake(operator_idx), ev.into())
+            })
         }))
         .collect()
 }

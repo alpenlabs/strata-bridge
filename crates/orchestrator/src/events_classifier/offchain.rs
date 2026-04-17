@@ -171,6 +171,12 @@ pub(crate) fn classify_unsigned_gossip(
                 return vec![];
             };
 
+            info!(
+                %operator_idx,
+                stake_funds = %unstaking_input.stake_funds,
+                unstaking_image = %unstaking_input.unstaking_image,
+                "classified UnstakingDataExchange as StakeEvent::StakeDataReceived"
+            );
             vec![
                 StakeEvent::StakeDataReceived(StakeEvents::StakeDataReceivedEvent {
                     stake_funds: unstaking_input.stake_funds,
@@ -276,6 +282,11 @@ pub(crate) fn classify_unsigned_gossip(
                         );
                         return None;
                     };
+                    info!(
+                        stake_owner = %operator_idx,
+                        sender = %sender_idx,
+                        "classified MuSig2Nonce::Unstake as StakeEvent::UnstakingNoncesReceived"
+                    );
                     Some(
                         StakeEvent::UnstakingNoncesReceived(
                             StakeEvents::UnstakingNoncesReceivedEvent {
@@ -392,6 +403,11 @@ pub(crate) fn classify_unsigned_gossip(
                             );
                             return None;
                         };
+                        info!(
+                            stake_owner = %operator_idx,
+                            sender = %sender_idx,
+                            "classified MuSig2Partial::Unstake as StakeEvent::UnstakingPartialsReceived"
+                        );
                         Some(
                             StakeEvent::UnstakingPartialsReceived(
                                 StakeEvents::UnstakingPartialsReceivedEvent {
