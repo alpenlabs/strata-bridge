@@ -12,6 +12,7 @@ use strata_bridge_sm::{
     graph::events::{self as GraphEvents, AdaptorsVerifiedEvent, GraphEvent},
     stake::events::{self as StakeEvents, StakeEvent},
 };
+use strata_bridge_tx_graph::musig_functor::StakeFunctor;
 use strata_mosaic_client_api::MosaicEvent;
 use tracing::{debug, error, info, warn};
 
@@ -139,8 +140,45 @@ pub(crate) fn classify_unsigned_gossip(
                 vec![]
             }
         }
-        UnsignedGossipsubMsg::UnstakingDataExchange { operator_idx, .. } => {
-            todo!("STR-2924: classify unstaking data exchange for operator {operator_idx}")
+        UnsignedGossipsubMsg::UnstakingDataExchange {
+            operator_idx,
+            unstaking_input,
+        } => {
+            let sm_id = SMId::Stake(*operator_idx);
+            let Some(sender_idx) = sm_registry.lookup_operator(&sm_id, key) else {
+                warn!(
+                    %operator_idx,
+                    "Received unstaking data from unknown sender, ignoring"
+                );
+                return vec![];
+            };
+
+            if sender_idx != *operator_idx {
+                warn!(
+                    claimed_operator_idx=%operator_idx, resolved_operator_idx=%sender_idx,
+                    "Received unstaking data with sender/operator mismatch, ignoring"
+                );
+                return vec![];
+            }
+
+            let Ok(unstaking_output_desc) =
+                Descriptor::try_from(unstaking_input.unstaking_operator_desc.clone())
+            else {
+                warn!(
+                    %operator_idx,
+                    "Received unstaking data with invalid operator descriptor, ignoring"
+                );
+                return vec![];
+            };
+
+            vec![
+                StakeEvent::StakeDataReceived(StakeEvents::StakeDataReceivedEvent {
+                    stake_funds: unstaking_input.stake_funds,
+                    unstaking_image: unstaking_input.unstaking_image,
+                    unstaking_output_desc,
+                })
+                .into(),
+            ]
         }
         UnsignedGossipsubMsg::Musig2NoncesExchange(musig2_nonce) => match musig2_nonce {
             MuSig2Nonce::Deposit { deposit_idx, nonce } => sm_registry
@@ -214,9 +252,41 @@ pub(crate) fn classify_unsigned_gossip(
                 })
                 .collect(),
 
-            MuSig2Nonce::Unstake { operator_idx, .. } => {
-                todo!("STR-2924: classify unstaking nonce for operator {operator_idx}")
-            }
+            MuSig2Nonce::Unstake {
+                operator_idx,
+                nonces,
+            } => sm_registry
+                .lookup_operator(&SMId::Stake(*operator_idx), key)
+                .into_iter()
+                .filter_map(|sender_idx| {
+                    let parsed: Result<Vec<_>, _> =
+                        nonces.iter().map(|n| PubNonce::try_from(*n)).collect();
+                    let Ok(pubnonces) = parsed else {
+                        warn!(
+                            %operator_idx, %sender_idx,
+                            "Received invalid pubnonce for stake, discarding message"
+                        );
+                        return None;
+                    };
+                    let Some(pub_nonces) = StakeFunctor::unpack(pubnonces) else {
+                        warn!(
+                            %operator_idx, %sender_idx,
+                            got = nonces.len(),
+                            "Received wrong number of pubnonces for stake, discarding message"
+                        );
+                        return None;
+                    };
+                    Some(
+                        StakeEvent::UnstakingNoncesReceived(
+                            StakeEvents::UnstakingNoncesReceivedEvent {
+                                operator_idx: sender_idx,
+                                pub_nonces: pub_nonces.boxed(),
+                            },
+                        )
+                        .into(),
+                    )
+                })
+                .collect(),
         },
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => {
             match musig2_partial {
@@ -296,9 +366,43 @@ pub(crate) fn classify_unsigned_gossip(
                     })
                     .collect(),
 
-                MuSig2Partial::Unstake { operator_idx, .. } => {
-                    todo!("STR-2924: classify unstaking partial for operator {operator_idx}")
-                }
+                MuSig2Partial::Unstake {
+                    operator_idx,
+                    partials,
+                } => sm_registry
+                    .lookup_operator(&SMId::Stake(*operator_idx), key)
+                    .into_iter()
+                    .filter_map(|sender_idx| {
+                        let parsed: Result<Vec<_>, _> = partials
+                            .iter()
+                            .map(|p| PartialSignature::try_from(*p))
+                            .collect();
+                        let Ok(partial_sigs) = parsed else {
+                            warn!(
+                                %operator_idx, %sender_idx,
+                                "Received invalid partial signature for stake, discarding message"
+                            );
+                            return None;
+                        };
+                        let Some(partial_signatures) = StakeFunctor::unpack(partial_sigs) else {
+                            warn!(
+                                %operator_idx, %sender_idx,
+                                got = partials.len(),
+                                "Received wrong number of partial signatures for stake, discarding message"
+                            );
+                            return None;
+                        };
+                        Some(
+                            StakeEvent::UnstakingPartialsReceived(
+                                StakeEvents::UnstakingPartialsReceivedEvent {
+                                    operator_idx: sender_idx,
+                                    partial_signatures,
+                                },
+                            )
+                            .into(),
+                        )
+                    })
+                    .collect(),
             }
         }
 
@@ -395,8 +499,16 @@ pub(crate) fn classify_unsigned_gossip(
                 NagRequestPayload::UnstakingData { .. }
                 | NagRequestPayload::UnstakingNonces { .. }
                 | NagRequestPayload::UnstakingPartials { .. } => {
-                    // unreachable: the sm_id match above already todo!()s for unstaking payloads
-                    todo!("STR-2924: classify unstaking nag into SM event")
+                    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2924>
+                    // Implement stake nag parity (add StakeEvent::NagReceived) in a follow-up.
+                    // For now, received unstaking nag requests are logged and dropped.
+                    warn!(
+                        target_sm = %sm_id,
+                        sender_operator_idx,
+                        payload = ?nag_request.payload,
+                        "dropping unstaking nag: stake nag parity not yet implemented"
+                    );
+                    return vec![];
                 }
             };
 
