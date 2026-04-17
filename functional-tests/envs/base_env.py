@@ -170,10 +170,11 @@ class BaseEnv(flexitest.EnvConfig):
         return s2_service, bridge_operator, self._asm_rpc_service
 
     def fund_operator(self, brpc, bridge_operator_props, wallet_addr):
-        """Fund an operator's wallets."""
-        sc_wallet_address = bridge_operator_props["sc_wallet_address"]
+        """Fund an operator's wallet.
+        Only the general wallet needs to be funded.
+        The node will take care of funding the stakechain wallet from the general wallet.
+        """
         general_wallet_address = bridge_operator_props["general_wallet_address"]
-        brpc.proxy.sendtoaddress(sc_wallet_address, self.funding_amount)
         brpc.proxy.sendtoaddress(general_wallet_address, self.funding_amount)
 
         # Generate blocks for finalization
