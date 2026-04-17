@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use strata_bridge_sm::stake::duties::StakeDuty;
 use strata_bridge_tx_graph::musig_functor::StakeFunctor;
+use tracing::info;
 
 use crate::{config::ExecutionConfig, errors::ExecutorError, output_handles::OutputHandles};
 
@@ -21,6 +22,7 @@ pub async fn execute_stake_duty(
 ) -> Result<(), ExecutorError> {
     match duty {
         StakeDuty::PublishStakeData { operator_idx } => {
+            info!(%operator_idx, "executing StakeDuty::PublishStakeData");
             staking::publish_stake_data(&cfg, &output_handles, *operator_idx).await
         }
         StakeDuty::PublishUnstakingNonces {
@@ -29,6 +31,7 @@ pub async fn execute_stake_duty(
             graph_tweaks,
             ordered_pubkeys,
         } => {
+            info!(%operator_idx, "executing StakeDuty::PublishUnstakingNonces");
             staking::publish_unstaking_nonces(
                 &output_handles,
                 *operator_idx,
@@ -46,6 +49,7 @@ pub async fn execute_stake_duty(
             ordered_pubkeys,
             agg_nonces,
         } => {
+            info!(%operator_idx, "executing StakeDuty::PublishUnstakingPartials");
             staking::publish_unstaking_partials(
                 &output_handles,
                 *operator_idx,
@@ -57,12 +61,16 @@ pub async fn execute_stake_duty(
             )
             .await
         }
-        StakeDuty::PublishStake { tx } => staking::publish_stake(&cfg, &output_handles, tx).await,
+        StakeDuty::PublishStake { tx } => {
+            info!(stake_txid=%tx.compute_txid(), "executing StakeDuty::PublishStake");
+            staking::publish_stake(&cfg, &output_handles, tx).await
+        }
         StakeDuty::PublishUnstakingIntent {
             unsigned_tx,
             stake_funds,
             n_of_n_signature,
         } => {
+            info!(%stake_funds, "executing StakeDuty::PublishUnstakingIntent");
             unstaking::publish_unstaking_intent(
                 &output_handles,
                 *stake_funds,
@@ -72,8 +80,12 @@ pub async fn execute_stake_duty(
             .await
         }
         StakeDuty::PublishUnstakingTx { signed_tx } => {
+            info!(unstaking_txid=%signed_tx.compute_txid(), "executing StakeDuty::PublishUnstakingTx");
             unstaking::publish_unstaking_tx(&output_handles, signed_tx).await
         }
-        StakeDuty::Nag(nag_duty) => nag::execute_nag_duty(&output_handles, nag_duty).await,
+        StakeDuty::Nag(nag_duty) => {
+            info!(?nag_duty, "executing StakeDuty::Nag");
+            nag::execute_nag_duty(&output_handles, nag_duty).await
+        }
     }
 }

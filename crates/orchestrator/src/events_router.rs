@@ -7,7 +7,7 @@ use strata_bridge_p2p_types::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
 use strata_mosaic_client_api::MosaicEvent;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::{events_mux::UnifiedEvent, sm_registry::SMRegistry, sm_types::SMId};
 
@@ -62,19 +62,26 @@ fn route_gossipsub_msg(
             SMId::Deposit(*deposit_idx)
         }
         UnsignedGossipsubMsg::UnstakingDataExchange { operator_idx, .. } => {
+            debug!(%operator_idx, "routing UnstakingDataExchange to stake SM");
             SMId::Stake(*operator_idx)
         }
         UnsignedGossipsubMsg::Musig2NoncesExchange(musig2_nonce) => match musig2_nonce {
             MuSig2Nonce::Deposit { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Nonce::Payout { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Nonce::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
-            MuSig2Nonce::Unstake { operator_idx, .. } => SMId::Stake(*operator_idx),
+            MuSig2Nonce::Unstake { operator_idx, .. } => {
+                debug!(%operator_idx, "routing MuSig2Nonce::Unstake to stake SM");
+                SMId::Stake(*operator_idx)
+            }
         },
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => match musig2_partial {
             MuSig2Partial::Deposit { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Partial::Payout { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Partial::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
-            MuSig2Partial::Unstake { operator_idx, .. } => SMId::Stake(*operator_idx),
+            MuSig2Partial::Unstake { operator_idx, .. } => {
+                debug!(%operator_idx, "routing MuSig2Partial::Unstake to stake SM");
+                SMId::Stake(*operator_idx)
+            }
         },
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => match &nag_request.payload {
             NagRequestPayload::DepositNonce { deposit_idx }
@@ -86,7 +93,10 @@ fn route_gossipsub_msg(
             | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
             NagRequestPayload::UnstakingData { operator_idx }
             | NagRequestPayload::UnstakingNonces { operator_idx }
-            | NagRequestPayload::UnstakingPartials { operator_idx } => SMId::Stake(*operator_idx),
+            | NagRequestPayload::UnstakingPartials { operator_idx } => {
+                debug!(%operator_idx, payload = ?nag_request.payload, "routing unstaking nag request to stake SM");
+                SMId::Stake(*operator_idx)
+            }
         },
     };
 
