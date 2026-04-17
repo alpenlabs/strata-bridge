@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import socket
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -275,18 +276,50 @@ def wait_until_bridge_ready(rpc_client, timeout: int = 120, step: int = 1):
 
 def wait_until_bitcoind_ready(rpc_client, timeout: int = 120, step: int = 1):
     """
-    Waits until the bitcoin client reports readiness.
+    Waits until bitcoind is fully ready: RPC server responsive and ZMQ publishers bound.
+
+    bitcoind binds its ZMQ publishers slightly after the RPC server becomes reachable, so
+    checking only `getblockcount` is insufficient — a client that attempts to subscribe in that
+    gap sees the ZMQ handshake time out. This helper first polls `getblockcount` for RPC
+    readiness, then polls `getzmqnotifications` and probes each advertised publisher endpoint
+    with a short TCP connect to confirm the listener is up.
 
     Args:
-        rpc_client: The RPC client to check for readiness
-        timeout: Timeout in seconds (default 120 seconds)
-        step: Poll interval in seconds (default 1 second)
+        rpc_client: The RPC client to check for readiness.
+        timeout: Timeout in seconds (default 120 seconds).
+        step: Poll interval in seconds (default 1 second).
     """
+
+    def rpc_ready() -> bool:
+        return rpc_client.proxy.getblockcount() is not None
+
+    def zmq_ready() -> bool:
+        notifications = rpc_client.proxy.getzmqnotifications()
+        if not notifications:
+            return False
+        for notification in notifications:
+            address = notification.get("address", "")
+            if not address.startswith("tcp://"):
+                return False
+            host_port = address[len("tcp://") :]
+            host, _, port_str = host_port.rpartition(":")
+            if not port_str.isdigit():
+                return False
+            port = int(port_str)
+            # bitcoind reports 0.0.0.0 when binding on all interfaces; connect locally.
+            probe_host = "127.0.0.1" if host in ("0.0.0.0", "") else host
+            try:
+                with socket.create_connection((probe_host, port), timeout=1):
+                    pass
+            except OSError:
+                return False
+        return True
+
     wait_until(
-        lambda: rpc_client.proxy.getblockcount() is not None,
+        lambda: rpc_ready() and zmq_ready(),
         timeout=timeout,
         step=step,
-        error_msg="Bitcoind did not start within timeout",
+        error_msg="Bitcoind did not become ready (RPC + ZMQ) within timeout",
     )
 
 
