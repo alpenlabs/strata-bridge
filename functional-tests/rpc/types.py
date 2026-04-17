@@ -215,3 +215,34 @@ class RpcDisproveData:
     operator_descriptor: str
     wots_public_keys: dict
     n_of_n_sig: str
+
+
+class RpcStakeStateLabel(Enum):
+    """Lifecycle state of an operator's stake."""
+
+    CREATED = "created"
+    STAKE_GRAPH_GENERATED = "stake_graph_generated"
+    UNSTAKING_NONCES_COLLECTED = "unstaking_nonces_collected"
+    UNSTAKING_SIGNED = "unstaking_signed"
+    CONFIRMED = "confirmed"
+    PREIMAGE_REVEALED = "preimage_revealed"
+    UNSTAKED = "unstaked"
+
+
+@dataclass
+class RpcOperatorStakeInfo:
+    """Per-operator stake status returned by `stratabridge_stakeStatus`."""
+
+    operator_idx: int
+    state: RpcStakeStateLabel
+    stake_txid: str | None = None
+    unstaking_txid: str | None = None
+
+    @classmethod
+    def from_json(cls, data: dict) -> "RpcOperatorStakeInfo":
+        return cls(
+            operator_idx=int(data["operator_idx"]),
+            state=RpcStakeStateLabel(data["state"]),
+            stake_txid=data.get("stake_txid"),
+            unstaking_txid=data.get("unstaking_txid"),
+        )

@@ -31,6 +31,7 @@ from utils.deposit import (
     wait_until_drt_recognized,
 )
 from utils.dev_cli import DevCli
+from utils.stake import wait_until_all_operators_staked
 from utils.utils import (
     read_operator_key,
     snapshot_log_offsets,
@@ -78,10 +79,17 @@ class FulfillmentIdempotencyTest(StrataTestBase):
         # --- Setup: Create deposit and trigger fulfillment assignment ---
         bitcoind_props = bitcoind_service.props
         dev_cli = DevCli(bitcoind_props, operator_key_infos)
-        drt_txid = dev_cli.send_deposit_request()
-        self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
         bridge_rpc = bridge_rpcs[0]
+        self.logger.info("Waiting for all operators to complete staking before broadcasting DRT")
+        wait_until_all_operators_staked(
+            bridge_rpc,
+            bitcoin_rpc,
+            expected_operator_count=num_operators,
+        )
+
+        drt_txid = dev_cli.send_deposit_request()
+        self.logger.info(f"Broadcasted DRT: {drt_txid}")
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
         self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")
 

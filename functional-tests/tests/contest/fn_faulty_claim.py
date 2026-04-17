@@ -13,6 +13,7 @@ from utils.deposit import (
     wait_until_utxo_spent,
 )
 from utils.dev_cli import DevCli
+from utils.stake import wait_until_all_operators_staked
 from utils.utils import (
     read_operator_key,
     wait_for_tx_confirmation,
@@ -69,11 +70,17 @@ class FaultyClaimContestedTest(StrataTestBase):
             bridge_protocol_params=self.bridge_protocol_params,
         )
 
+        bridge_rpc = bridge_rpcs[0]
+        self.logger.info("Waiting for all operators to complete staking before broadcasting DRT")
+        wait_until_all_operators_staked(
+            bridge_rpc,
+            bitcoin_rpc,
+            expected_operator_count=num_operators,
+        )
+
         # 1. Send deposit request and wait for completion
         drt_txid = dev_cli.send_deposit_request()
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
-
-        bridge_rpc = bridge_rpcs[0]
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
         self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")
 
