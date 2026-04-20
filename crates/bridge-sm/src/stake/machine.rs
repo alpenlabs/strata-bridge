@@ -50,8 +50,9 @@ impl StateMachine for StakeSM {
             StakeEvent::PreimageRevealed(event) => self.process_preimage_revealed(event),
             StakeEvent::UnstakingConfirmed(event) => self.process_unstaking_confirmed(event),
             StakeEvent::NewBlock(event) => self.process_new_block(cfg, event),
-            StakeEvent::NagTick(NagTickEvent) => self.process_nag_tick(),
             StakeEvent::RetryTick(RetryTickEvent) => self.process_retry_tick(&cfg),
+            StakeEvent::NagTick(NagTickEvent) => self.process_nag_tick(),
+            StakeEvent::NagReceived(event) => self.process_nag_received(&cfg, event),
         }
     }
 }

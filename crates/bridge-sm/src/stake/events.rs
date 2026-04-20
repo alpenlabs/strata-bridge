@@ -3,6 +3,7 @@
 use bitcoin::{OutPoint, Transaction, hashes::sha256};
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
+use strata_bridge_p2p_types::NagRequestPayload;
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use strata_bridge_tx_graph::musig_functor::StakeFunctor;
 
@@ -75,6 +76,15 @@ pub struct NagTickEvent;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetryTickEvent;
 
+/// Event that is received when another operator nags for missing graph data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NagReceivedEvent {
+    /// The nag payload describing what's being requested.
+    pub payload: NagRequestPayload,
+    /// The operator index of the sender.
+    pub sender_operator_idx: OperatorIdx,
+}
+
 /// External events that are processed by the Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StakeEvent {
@@ -92,10 +102,12 @@ pub enum StakeEvent {
     UnstakingConfirmed(UnstakingConfirmedEvent),
     /// A new block has been observed on-chain.
     NewBlock(NewBlockEvent),
-    /// Event signalling that nag duties should be emitted for missing operator data.
-    NagTick(NagTickEvent),
     /// Event signalling that retriable duties should be emitted for the current state.
     RetryTick(RetryTickEvent),
+    /// Event signalling that nag duties should be emitted for missing operator data.
+    NagTick(NagTickEvent),
+    /// Event that is received when another operator nags for missing graph data.
+    NagReceived(NagReceivedEvent),
 }
 
 impl std::fmt::Display for StakeEvent {
@@ -108,8 +120,9 @@ impl std::fmt::Display for StakeEvent {
             Self::PreimageRevealed(_) => "PreimageRevealed",
             Self::UnstakingConfirmed(_) => "UnstakingConfirmed",
             Self::NewBlock(_) => "NewBlock",
-            Self::NagTick(_) => "NagTick",
             Self::RetryTick(_) => "RetryTick",
+            Self::NagTick(_) => "NagTick",
+            Self::NagReceived(_) => "NagReceived",
         };
 
         write!(f, "{display}")
@@ -171,15 +184,21 @@ impl std::fmt::Display for NewBlockEvent {
     }
 }
 
+impl std::fmt::Display for RetryTickEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RetryTick")
+    }
+}
+
 impl std::fmt::Display for NagTickEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "NagTick")
     }
 }
 
-impl std::fmt::Display for RetryTickEvent {
+impl std::fmt::Display for NagReceivedEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "RetryTick")
+        write!(f, "NagReceived")
     }
 }
 
@@ -205,5 +224,6 @@ impl_into_stake_event!(StakeConfirmedEvent, StakeConfirmed);
 impl_into_stake_event!(PreimageRevealedEvent, PreimageRevealed);
 impl_into_stake_event!(UnstakingConfirmedEvent, UnstakingConfirmed);
 impl_into_stake_event!(NewBlockEvent, NewBlock);
-impl_into_stake_event!(NagTickEvent, NagTick);
 impl_into_stake_event!(RetryTickEvent, RetryTick);
+impl_into_stake_event!(NagTickEvent, NagTick);
+impl_into_stake_event!(NagReceivedEvent, NagReceived);
