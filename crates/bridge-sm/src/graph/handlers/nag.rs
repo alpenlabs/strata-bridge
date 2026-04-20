@@ -133,6 +133,9 @@ impl GraphSM {
             | GraphState::GraphGenerated { .. }
             | GraphState::AdaptorsVerified { .. } => Ok(vec![GraphDuty::GenerateGraphData {
                 graph_idx: self.context().graph_idx(),
+                deposit_outpoint: self.context().deposit_outpoint(),
+                stake_outpoint: self.context().stake_outpoint(),
+                unstaking_image: self.context().unstaking_image(),
             }]),
             _ => {
                 tracing::debug!(
