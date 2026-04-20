@@ -6,7 +6,7 @@
 
 use std::fmt::Display;
 
-use bitcoin::{OutPoint, Txid};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_p2p_types::NagRequestPayload;
@@ -22,6 +22,13 @@ pub struct GraphDataGeneratedEvent {
     pub graph_idx: GraphIdx,
     /// UTXO that funds the claim transaction.
     pub claim_funds: OutPoint,
+    /// Key used in the locking script of the owner's contest transaction.
+    pub adaptor_pubkey: XOnlyPublicKey,
+    /// Per-watchtower fault pubkeys used to lock each counterproof-nack output.
+    ///
+    /// Entries are in operator-table order with the graph owner skipped; its length equals
+    /// `n - 1` where `n` is the number of operators.
+    pub fault_pubkeys: Vec<XOnlyPublicKey>,
 }
 
 /// Event notifying that all adaptors for the graph have been verified.

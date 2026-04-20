@@ -557,12 +557,12 @@ fn graph_data_response(
     graph_cfg: &GraphSMCfg,
 ) -> Option<RpcGraphData> {
     let graph_data = graph_data_from_state(state)?;
-    let setup = context.generate_setup_params(graph_cfg);
+    let setup = context.generate_setup_params(graph_cfg, graph_data);
 
     Some(RpcGraphData {
         context: context.clone(),
         setup,
-        deposit: *graph_data,
+        deposit: graph_data.clone(),
     })
 }
 
@@ -684,6 +684,8 @@ mod tests {
             game_index: NonZero::new(DEPOSIT_IDX + 1).expect("non-zero"),
             claim_funds: OutPoint::new(bitcoin::Txid::all_zeros(), 1),
             deposit_outpoint: OutPoint::new(bitcoin::Txid::all_zeros(), 1),
+            adaptor_pubkey: generate_xonly_pubkey(),
+            fault_pubkeys: (0..2).map(|_| generate_xonly_pubkey()).collect(),
         }
     }
 
@@ -740,7 +742,7 @@ mod tests {
         let graph_summary = test_graph_summary();
         let state = GraphState::GraphGenerated {
             last_block_height: 100,
-            graph_data,
+            graph_data: graph_data.clone(),
             graph_summary: graph_summary.clone(),
         };
 
@@ -748,7 +750,10 @@ mod tests {
             .expect("graph data should be returned");
 
         assert_eq!(response.context, graph_ctx);
-        assert_eq!(response.setup, graph_ctx.generate_setup_params(&graph_cfg));
+        assert_eq!(
+            response.setup,
+            graph_ctx.generate_setup_params(&graph_cfg, &graph_data)
+        );
         assert_eq!(response.deposit, graph_data);
     }
 

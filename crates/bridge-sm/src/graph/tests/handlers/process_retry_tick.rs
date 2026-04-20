@@ -42,7 +42,7 @@ mod tests {
         let GraphState::GraphGenerated { graph_data, .. } = state else {
             panic!("expected GraphGenerated state");
         };
-        let game_graph = generate_game_graph(&cfg, sm.context(), graph_data);
+        let game_graph = generate_game_graph(&cfg, sm.context(), &graph_data);
         let pov_operator_idx = sm.context().operator_table().pov_idx();
         let pov_counterproof_idx = expected_pov_counterproof_idx(&sm);
         let expected_sighashes = game_graph.counterproofs[pov_counterproof_idx]
@@ -77,7 +77,7 @@ mod tests {
             fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
         };
         let sm = create_sm(state.clone());
-        let game_graph = generate_game_graph(&cfg, sm.context(), test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
 
         test_pov_owned_handler_output(
             cfg,

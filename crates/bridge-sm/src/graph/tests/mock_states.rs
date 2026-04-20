@@ -1,6 +1,6 @@
 //! Reusable mock [`GraphState`] constructors for graph SM tests.
 
-use std::{collections::BTreeMap, num::NonZero, sync::LazyLock};
+use std::{collections::BTreeMap, sync::LazyLock};
 
 use musig2::secp256k1::schnorr::Signature;
 use secp256k1::schnorr;
@@ -270,18 +270,18 @@ pub(super) fn pre_signing_states() -> Vec<GraphState> {
     vec![
         GraphState::GraphGenerated {
             last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: params,
+            graph_data: params.clone(),
             graph_summary: summary.clone(),
         },
         GraphState::AdaptorsVerified {
             last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: params,
+            graph_data: params.clone(),
             graph_summary: summary.clone(),
             pubnonces: Default::default(),
         },
         GraphState::NoncesCollected {
             last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: params,
+            graph_data: params.clone(),
             graph_summary: summary.clone(),
             pubnonces: Default::default(),
             agg_nonces: Default::default(),
@@ -289,7 +289,7 @@ pub(super) fn pre_signing_states() -> Vec<GraphState> {
         },
         GraphState::GraphSigned {
             last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: params,
+            graph_data: params.clone(),
             graph_summary: summary,
             agg_nonces: Some(Default::default()),
             signatures: Default::default(),
@@ -417,11 +417,10 @@ pub(super) fn test_graph_generated_state() -> GraphState {
     let sm = create_nonpov_sm(GraphState::new(INITIAL_BLOCK_HEIGHT));
 
     let deposit_params = DepositParams {
-        game_index: NonZero::new(1).unwrap(),
-        claim_funds: Default::default(),
         deposit_outpoint: sm.context.deposit_outpoint(),
+        ..test_deposit_params()
     };
-    let graph = generate_game_graph(&cfg, sm.context(), deposit_params);
+    let graph = generate_game_graph(&cfg, sm.context(), &deposit_params);
 
     GraphState::GraphGenerated {
         last_block_height: INITIAL_BLOCK_HEIGHT,
