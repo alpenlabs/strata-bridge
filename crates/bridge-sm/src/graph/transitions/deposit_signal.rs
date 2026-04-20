@@ -50,7 +50,7 @@ impl GraphSM {
                 *coop_payout_failed = true;
 
                 // Generate the game graph to access the claim tx for duty emission
-                let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
+                let game_graph = generate_game_graph(&cfg, &graph_ctx, graph_data);
 
                 let duties =
                     if self.context().operator_idx() == self.context().operator_table().pov_idx() {

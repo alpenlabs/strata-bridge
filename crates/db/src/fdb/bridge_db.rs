@@ -383,7 +383,10 @@ mod tests {
         graph::{context::GraphSMCtx, state::GraphState},
         stake::{context::StakeSMCtx, machine::StakeSM, state::StakeState},
     };
-    use strata_bridge_test_utils::arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid};
+    use strata_bridge_test_utils::{
+        arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid},
+        bitcoin::generate_xonly_pubkey,
+    };
     use strata_bridge_tx_graph::game_graph::{
         CounterproofGraphSummary, DepositParams, GameGraphSummary,
     };
@@ -656,7 +659,22 @@ mod tests {
                 2 => GraphState::Aborted { payout_connector_spend_txid: txid, reason: "test".to_string() },
                 _ => {
                     let outpoint = OutPoint { txid, vout: 0 };
-                    GraphState::AllNackd { last_block_height: block_height, graph_data: DepositParams { game_index: NonZero::new(1).unwrap(), claim_funds: outpoint, deposit_outpoint: outpoint }, signatures: Default::default(), claim_txid: txid, fulfillment_txid: Some(txid), contest_block_height: block_height, expected_payout_txid: txid, possible_slash_txid: txid }
+                    GraphState::AllNackd {
+                        last_block_height: block_height,
+                        graph_data: DepositParams {
+                            game_index: NonZero::new(1).unwrap(),
+                            claim_funds: outpoint,
+                            deposit_outpoint: outpoint,
+                            adaptor_pubkey: generate_xonly_pubkey(),
+                            fault_pubkeys: vec![generate_xonly_pubkey()]
+                        },
+                        signatures: Default::default(),
+                        claim_txid: txid,
+                        fulfillment_txid: Some(txid),
+                        contest_block_height: block_height,
+                        expected_payout_txid: txid,
+                        possible_slash_txid: txid
+                    }
                 },
             };
 
@@ -1499,6 +1517,8 @@ mod tests {
                     vout: outpoint.vout.wrapping_add(2),
                 },
                 deposit_outpoint: outpoint,
+                adaptor_pubkey: generate_xonly_pubkey(),
+                fault_pubkeys: (0..2).map(|_| generate_xonly_pubkey()).collect(),
             },
             graph_summary: GameGraphSummary {
                 claim: derive_txid(0x01),

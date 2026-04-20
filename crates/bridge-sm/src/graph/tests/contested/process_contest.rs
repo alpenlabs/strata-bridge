@@ -29,7 +29,7 @@ fn test_contest_from_claimed_pov_emits_duty() {
     let cfg = test_graph_sm_cfg();
     let ctx = test_graph_sm_ctx();
     let deposit_params = test_deposit_params();
-    let setup_params = ctx.generate_setup_params(&cfg);
+    let setup_params = ctx.generate_setup_params(&cfg, &deposit_params);
     let connectors = GameConnectors::new(
         deposit_params.game_index,
         &cfg.game_graph_params,
@@ -52,7 +52,7 @@ fn test_contest_from_claimed_pov_emits_duty() {
             }),
             expected_state: GraphState::Contested {
                 last_block_height: LATER_BLOCK_HEIGHT,
-                graph_data: deposit_params,
+                graph_data: deposit_params.clone(),
                 graph_summary: TEST_GRAPH_SUMMARY.clone(),
                 signatures: Default::default(),
                 fulfillment_txid: Some(TEST_GRAPH_SUMMARY.claim),

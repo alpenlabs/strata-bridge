@@ -40,7 +40,7 @@ mod tests {
         let fulfillment_txid = generate_txid();
 
         // Generate expected claim tx using the same config and context
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             crate::graph::tests::create_sm,

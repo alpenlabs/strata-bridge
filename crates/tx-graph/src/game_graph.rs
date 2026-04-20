@@ -43,7 +43,7 @@ pub struct GameData {
 
 /// Parameters that are known at deposit time
 /// i.e., these values are only created/known when a deposit is observed on chain.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DepositParams {
     /// Game index.
     pub game_index: NonZero<u32>,
@@ -55,6 +55,13 @@ pub struct DepositParams {
     pub claim_funds: OutPoint,
     /// UTXO that holds the deposit.
     pub deposit_outpoint: OutPoint,
+    /// Key used in the locking script of the owner's contest transaction.
+    pub adaptor_pubkey: XOnlyPublicKey,
+    /// Per-watchtower fault pubkeys used to lock each counterproof-nack output.
+    ///
+    /// Entries are in operator-table order with the graph owner skipped; its length equals
+    /// `n - 1` where `n` is the number of operators.
+    pub fault_pubkeys: Vec<XOnlyPublicKey>,
 }
 
 /// Parameters that are known at setup time.
@@ -724,7 +731,7 @@ mod tests {
 
         GameData {
             protocol,
-            setup,
+            setup: setup.clone(),
             deposit: DepositParams {
                 game_index: NonZero::new(1).unwrap(),
                 claim_funds: OutPoint {
@@ -735,6 +742,8 @@ mod tests {
                     txid: funding_txid,
                     vout: 1,
                 },
+                adaptor_pubkey: setup.keys.operator_pubkey,
+                fault_pubkeys: setup.keys.wt_fault_pubkeys.clone(),
             },
         }
     }

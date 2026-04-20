@@ -105,7 +105,7 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
     let event = bridge_proof_event();
     let sm = create_nonpov_sm(contested_state());
 
-    let game_graph = generate_game_graph(&cfg, sm.context(), test_deposit_params());
+    let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
     let watchtower_idx = watchtower_slot_for_operator(
         sm.context().operator_idx(),
         sm.context().operator_table().pov_idx(),
@@ -178,7 +178,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
     let event = bridge_proof_event();
     let sm = create_nonpov_sm(counter_proof_posted_without_refuted_proof_state());
 
-    let game_graph = generate_game_graph(&cfg, sm.context(), test_deposit_params());
+    let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
     let watchtower_idx = watchtower_slot_for_operator(
         sm.context().operator_idx(),
         sm.context().operator_table().pov_idx(),

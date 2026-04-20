@@ -92,10 +92,39 @@ pub(crate) fn classify_unsigned_gossip(
                 return vec![];
             }
 
+            let adaptor_pubkey = match graph_data.adaptor_pubkey.try_into() {
+                Ok(pk) => pk,
+                Err(err) => {
+                    warn!(
+                        %graph_idx, %err,
+                        "Received graph data with invalid adaptor pubkey, ignoring"
+                    );
+                    return vec![];
+                }
+            };
+            let fault_pubkeys: Result<Vec<_>, _> = graph_data
+                .fault_pubkeys
+                .iter()
+                .copied()
+                .map(|k| k.try_into())
+                .collect();
+            let fault_pubkeys = match fault_pubkeys {
+                Ok(pks) => pks,
+                Err(err) => {
+                    warn!(
+                        %graph_idx, %err,
+                        "Received graph data with invalid fault pubkey, ignoring"
+                    );
+                    return vec![];
+                }
+            };
+
             vec![
                 GraphEvent::GraphDataProduced(GraphEvents::GraphDataGeneratedEvent {
                     graph_idx: *graph_idx,
                     claim_funds: graph_data.funding_outpoint,
+                    adaptor_pubkey,
+                    fault_pubkeys,
                 })
                 .into(),
             ]

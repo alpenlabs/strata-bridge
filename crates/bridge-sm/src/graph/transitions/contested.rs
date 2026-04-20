@@ -51,7 +51,7 @@ impl GraphSM {
 
                 self.state = GraphState::Contested {
                     last_block_height,
-                    graph_data,
+                    graph_data: graph_data.clone(),
                     graph_summary: graph_summary.clone(),
                     signatures,
                     fulfillment_txid,
@@ -62,7 +62,7 @@ impl GraphSM {
                 // The graph owner must publish a bridge proof to defend against the contest
                 let duties =
                     if self.context().operator_idx() == self.context().operator_table().pov_idx() {
-                        let setup_params = self.context().generate_setup_params(&cfg);
+                        let setup_params = self.context().generate_setup_params(&cfg, &graph_data);
                         let connectors = GameConnectors::new(
                             graph_data.game_index,
                             &cfg.game_graph_params,
@@ -126,7 +126,7 @@ impl GraphSM {
 
                 // Watchtower challenges an invalid bridge proof by publishing a counterproof
                 if is_watchtower && !is_proof_valid {
-                    let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
+                    let game_graph = generate_game_graph(&cfg, self.context(), &graph_data);
                     let watchtower_idx = watchtower_slot_for_operator(
                         self.context().operator_idx(),
                         self.context().operator_table().pov_idx(),
@@ -201,7 +201,7 @@ impl GraphSM {
                 let mut duties = Vec::new();
 
                 if is_watchtower && !is_proof_valid && !counterproof_exists {
-                    let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
+                    let game_graph = generate_game_graph(&cfg, self.context(), &graph_data);
                     let watchtower_idx =
                         watchtower_slot_for_operator(self.context().operator_idx(), pov_idx)
                             .expect("watchtower slot must be present for non-pov operator");

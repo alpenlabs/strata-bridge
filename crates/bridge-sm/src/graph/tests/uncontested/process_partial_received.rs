@@ -25,7 +25,8 @@ mod tests {
         let (deposit_params, graph) = test_graph_data(&cfg);
         let graph_summary = graph.summarize();
         let nonce_ctx = build_nonce_context(graph.musig_signing_info().pack());
-        let state = nonces_collected_state(&nonce_ctx, deposit_params, graph_summary.clone());
+        let state =
+            nonces_collected_state(&nonce_ctx, deposit_params.clone(), graph_summary.clone());
 
         let partial_sigs_map = build_partial_signatures(
             &nonce_ctx.signers,

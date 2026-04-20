@@ -161,14 +161,14 @@ impl GraphSM {
 pub(crate) fn generate_game_graph(
     cfg: &GraphSMCfg,
     ctx: &GraphSMCtx,
-    deposit_params: DepositParams,
+    deposit_params: &DepositParams,
 ) -> GameGraph {
-    let setup_params = ctx.generate_setup_params(cfg);
+    let setup_params = ctx.generate_setup_params(cfg, deposit_params);
     let protocol_params = cfg.game_graph_params;
     let graph_data = GameData {
         protocol: protocol_params,
         setup: setup_params,
-        deposit: deposit_params,
+        deposit: deposit_params.clone(),
     };
 
     let (game_graph, _) = GameGraph::new(graph_data);
@@ -183,7 +183,7 @@ pub(crate) fn generate_game_graph(
 pub(crate) fn unpack_game(
     cfg: &GraphSMCfg,
     ctx: &GraphSMCtx,
-    deposit_params: DepositParams,
+    deposit_params: &DepositParams,
     signatures: &[Signature],
 ) -> (GameGraph, GameFunctor<Signature>) {
     let game_graph = generate_game_graph(cfg, ctx, deposit_params);
