@@ -1,6 +1,6 @@
 //! Unit tests for processing of the bridge proof confirmation.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{Txid, hashes::Hash};
 use strata_predicate::PredicateKey;
@@ -13,8 +13,8 @@ use crate::{
         machine::generate_game_graph,
         state::GraphState,
         tests::{
-            GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, create_nonpov_sm,
-            create_sm, dummy_proof_receipt, get_state,
+            GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
+            create_nonpov_sm, create_sm, dummy_proof_receipt, get_state,
             mock_states::{
                 TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
                 bridge_proof_posted_state, contested_state, counter_proof_posted_state,
@@ -238,6 +238,83 @@ fn pov_watchtower_skips_counterproof_even_when_proof_invalid() {
                 bridge_proof_txid: event.bridge_proof_txid,
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        },
+    );
+}
+
+#[test]
+fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
+    let cfg = cfg_with_reject_predicate();
+    let event = bridge_proof_event();
+
+    let existing_counterproof_txid = Txid::from_byte_array([0xCD; 32]);
+    let mut counterproofs_and_confs = BTreeMap::new();
+    counterproofs_and_confs.insert(
+        TEST_NONPOV_IDX,
+        (existing_counterproof_txid, LATER_BLOCK_HEIGHT),
+    );
+
+    let from_state = GraphState::CounterProofPosted {
+        last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        signatures: Default::default(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        contest_block_height: LATER_BLOCK_HEIGHT,
+        refuted_proof: None,
+        counterproofs_and_confs: counterproofs_and_confs.clone(),
+        counterproof_nacks: BTreeMap::new(),
+    };
+
+    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
+        create_nonpov_sm,
+        get_state,
+        cfg,
+        GraphTransition {
+            from_state,
+            event: GraphEvent::BridgeProofConfirmed(event),
+            expected_state: GraphState::CounterProofPosted {
+                last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: TEST_GRAPH_SUMMARY.clone(),
+                signatures: vec![],
+                fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                contest_block_height: LATER_BLOCK_HEIGHT,
+                refuted_proof: Some(dummy_proof_receipt()),
+                counterproofs_and_confs,
+                counterproof_nacks: BTreeMap::new(),
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        },
+    );
+}
+
+#[test]
+fn pov_skips_counterproof_on_late_invalid_proof() {
+    let cfg = cfg_with_reject_predicate();
+    let event = bridge_proof_event();
+
+    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
+        create_sm,
+        get_state,
+        cfg,
+        GraphTransition {
+            from_state: counter_proof_posted_without_refuted_proof_state(),
+            event: GraphEvent::BridgeProofConfirmed(event),
+            expected_state: GraphState::CounterProofPosted {
+                last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: TEST_GRAPH_SUMMARY.clone(),
+                signatures: vec![],
+                fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                contest_block_height: LATER_BLOCK_HEIGHT,
+                refuted_proof: Some(dummy_proof_receipt()),
+                counterproofs_and_confs: Default::default(),
+                counterproof_nacks: Default::default(),
             },
             expected_duties: vec![],
             expected_signals: vec![],
