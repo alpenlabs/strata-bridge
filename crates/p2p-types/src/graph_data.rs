@@ -4,13 +4,14 @@ use bitcoin::{hashes::Hash as _, OutPoint};
 use proptest::arbitrary;
 use serde::{Deserialize, Serialize};
 
-use crate::rkyv_wrappers::RkyvOutPoint;
+use crate::{bitcoin::XOnlyPubKey, rkyv_wrappers::RkyvOutPoint};
 
-/// The input to the claim transaction.
+/// Deposit-time data required by an operator to construct the transaction graph.
+///
+/// Produced by the graph owner (the operator whose graph this is) and gossiped to peers.
 #[derive(
     Debug,
     Clone,
-    Copy,
     PartialEq,
     Eq,
     Hash,
@@ -20,40 +21,56 @@ use crate::rkyv_wrappers::RkyvOutPoint;
     rkyv::Serialize,
     rkyv::Deserialize,
 )]
-pub struct ClaimInput(#[rkyv(with = RkyvOutPoint)] OutPoint);
+pub struct GraphData {
+    /// UTXO that funds the claim transaction.
+    #[rkyv(with = RkyvOutPoint)]
+    pub funding_outpoint: OutPoint,
 
-impl ClaimInput {
-    /// Returns the wrapped Bitcoin outpoint.
-    pub const fn inner(&self) -> OutPoint {
-        self.0
+    /// Key used in the locking script of the owner's contest transaction.
+    pub adaptor_pubkey: XOnlyPubKey,
+
+    /// Per-watchtower fault pubkeys used to lock each counterproof-nack output.
+    ///
+    /// Entries are in operator-table order with the graph owner skipped, so the length equals
+    /// `n - 1` where `n` is the number of operators.
+    pub fault_pubkeys: Vec<XOnlyPubKey>,
+}
+
+impl GraphData {
+    /// Constructs a new [`GraphData`].
+    pub const fn new(
+        funding_outpoint: OutPoint,
+        adaptor_pubkey: XOnlyPubKey,
+        fault_pubkeys: Vec<XOnlyPubKey>,
+    ) -> Self {
+        Self {
+            funding_outpoint,
+            adaptor_pubkey,
+            fault_pubkeys,
+        }
     }
 }
 
-impl From<OutPoint> for ClaimInput {
-    fn from(value: OutPoint) -> Self {
-        Self(value)
-    }
-}
-
-impl From<ClaimInput> for OutPoint {
-    fn from(value: ClaimInput) -> Self {
-        value.0
-    }
-}
-
-impl arbitrary::Arbitrary for ClaimInput {
+impl arbitrary::Arbitrary for GraphData {
     type Parameters = ();
     type Strategy = proptest::strategy::BoxedStrategy<Self>;
 
     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
 
-        (any::<[u8; 32]>(), any::<u32>())
-            .prop_map(|(txid, vout)| {
-                Self(OutPoint {
+        (
+            any::<[u8; 32]>(),
+            any::<u32>(),
+            any::<XOnlyPubKey>(),
+            proptest::collection::vec(any::<XOnlyPubKey>(), 0..8),
+        )
+            .prop_map(|(txid, vout, adaptor_pubkey, fault_pubkeys)| Self {
+                funding_outpoint: OutPoint {
                     txid: bitcoin::Txid::from_byte_array(txid),
                     vout,
-                })
+                },
+                adaptor_pubkey,
+                fault_pubkeys,
             })
             .boxed()
     }
@@ -69,12 +86,12 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(1_000))]
 
-        // Verifies rkyv serialization roundtrip for random ClaimInput values.
+        // Verifies rkyv serialization roundtrip for random GraphData values.
         #[test]
-        fn claim_input_rkyv_roundtrip(input: ClaimInput) {
-            let bytes = to_bytes::<Error>(&input).expect("serialize");
-            let recovered: ClaimInput = from_bytes::<ClaimInput, Error>(&bytes).expect("deserialize");
-            prop_assert_eq!(input, recovered);
+        fn graph_data_rkyv_roundtrip(data: GraphData) {
+            let bytes = to_bytes::<Error>(&data).expect("serialize");
+            let recovered: GraphData = from_bytes::<GraphData, Error>(&bytes).expect("deserialize");
+            prop_assert_eq!(data, recovered);
         }
     }
 }

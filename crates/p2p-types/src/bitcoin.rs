@@ -1,4 +1,46 @@
+use bitcoin::XOnlyPublicKey as BitcoinXOnlyPublicKey;
 use proptest_derive::Arbitrary;
+use serde::{Deserialize, Serialize};
+
+/// x-only Schnorr public key (32-byte encoding).
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    Arbitrary,
+)]
+pub struct XOnlyPubKey([u8; 32]);
+
+impl XOnlyPubKey {
+    /// Outputs the x-only public key as raw bytes.
+    pub const fn to_bytes(&self) -> [u8; 32] {
+        self.0
+    }
+}
+
+impl From<BitcoinXOnlyPublicKey> for XOnlyPubKey {
+    fn from(value: BitcoinXOnlyPublicKey) -> Self {
+        Self(value.serialize())
+    }
+}
+
+impl TryFrom<XOnlyPubKey> for BitcoinXOnlyPublicKey {
+    type Error = bitcoin::secp256k1::Error;
+
+    fn try_from(value: XOnlyPubKey) -> Result<Self, Self::Error> {
+        BitcoinXOnlyPublicKey::from_slice(&value.0)
+    }
+}
 
 /// Musig2 partial signature.
 #[derive(

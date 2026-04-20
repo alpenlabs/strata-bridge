@@ -1,11 +1,11 @@
 //! Message handler for the Strata Bridge P2P v2 with combined dispatch pattern.
 
-use bitcoin::OutPoint;
 use libp2p::futures::SinkExt;
 use libp2p_identity::ed25519::Keypair;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_p2p_types::{
-    MuSig2Nonce, MuSig2Partial, NagRequest, PayoutDescriptor, UnsignedGossipsubMsg, UnstakingInput,
+    GraphData, MuSig2Nonce, MuSig2Partial, NagRequest, PayoutDescriptor, UnsignedGossipsubMsg,
+    UnstakingInput,
 };
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_p2p::{commands::GossipCommand, swarm::handle::GossipHandle};
@@ -70,12 +70,12 @@ impl MessageHandler {
     pub async fn send_graph_data(
         &mut self,
         graph_idx: GraphIdx,
-        funding_outpoint: OutPoint,
+        graph_data: GraphData,
         peer: Option<oneshot::Sender<Vec<u8>>>,
     ) {
         let msg = UnsignedGossipsubMsg::GraphDataExchange {
             graph_idx,
-            claim_input: funding_outpoint.into(),
+            graph_data,
         };
 
         self.dispatch(msg, peer, "graph data exchange").await;

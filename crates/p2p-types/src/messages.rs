@@ -9,7 +9,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey};
 
 use crate::{
-    unstaking_data::UnstakingInput, ClaimInput, PartialSignature, PayoutDescriptor, PubNonce,
+    unstaking_data::UnstakingInput, GraphData, PartialSignature, PayoutDescriptor, PubNonce,
 };
 
 /// Signing context discriminator for cryptographic domain separation.
@@ -536,8 +536,8 @@ pub enum UnsignedGossipsubMsg {
         /// The graph index to identify the instance of the graph.
         graph_idx: GraphIdx,
 
-        /// The input to the claim transaction.
-        claim_input: ClaimInput,
+        /// The deposit-time data required to construct the graph.
+        graph_data: GraphData,
     },
 
     /// Data required to construct the Unstaking Graph.
@@ -578,14 +578,23 @@ impl UnsignedGossipsubMsg {
             }
             Self::GraphDataExchange {
                 graph_idx,
-                claim_input,
+                graph_data,
             } => {
-                let outpoint = claim_input.inner();
+                let GraphData {
+                    funding_outpoint,
+                    adaptor_pubkey,
+                    fault_pubkeys,
+                } = graph_data;
                 buf.push(GossipsubMsgKind::GraphDataExchange as u8);
                 buf.extend(graph_idx.deposit.to_le_bytes());
                 buf.extend(graph_idx.operator.to_le_bytes());
-                buf.extend(outpoint.txid.to_raw_hash().to_byte_array()); // txid
-                buf.extend(outpoint.vout.to_le_bytes()); // vout
+                buf.extend(funding_outpoint.txid.to_raw_hash().to_byte_array()); // txid
+                buf.extend(funding_outpoint.vout.to_le_bytes()); // vout
+                buf.extend(adaptor_pubkey.to_bytes());
+                buf.extend((fault_pubkeys.len() as u32).to_le_bytes());
+                for fault_pubkey in fault_pubkeys {
+                    buf.extend(fault_pubkey.to_bytes());
+                }
             }
             Self::UnstakingDataExchange {
                 operator_idx,
@@ -647,12 +656,12 @@ impl fmt::Debug for UnsignedGossipsubMsg {
             }
             Self::GraphDataExchange {
                 graph_idx,
-                claim_input,
+                graph_data,
             } => {
                 write!(
                     f,
-                    "GraphDataExchange(graph_idx: {:?}, claim_input: {:?})",
-                    graph_idx, claim_input
+                    "GraphDataExchange(graph_idx: {:?}, graph_data: {:?})",
+                    graph_idx, graph_data
                 )
             }
             Self::UnstakingDataExchange {
@@ -730,10 +739,30 @@ mod tests {
     use bitcoin::{hashes::sha256, OutPoint, Txid};
     use libp2p_identity::ed25519::Keypair;
     use secp256k1::rand::{rngs::OsRng, Rng};
-    use strata_bridge_test_utils::musig2::{generate_partial_signature, generate_pubnonce};
+    use strata_bridge_test_utils::{
+        bitcoin::generate_xonly_pubkey,
+        musig2::{generate_partial_signature, generate_pubnonce},
+    };
 
     use super::*;
-    use crate::{PartialSignature, PayoutDescriptor, PubNonce};
+    use crate::{GraphData, PartialSignature, PayoutDescriptor, PubNonce, XOnlyPubKey};
+
+    // Helper to create a test GraphData with a random funding outpoint and random keys.
+    fn test_graph_data(txid_bytes: [u8; 32], vout: u32, n_watchtowers: usize) -> GraphData {
+        use bitcoin::hashes::Hash as _;
+
+        let fault_pubkeys = (0..n_watchtowers)
+            .map(|_| XOnlyPubKey::from(generate_xonly_pubkey()))
+            .collect();
+        GraphData::new(
+            OutPoint {
+                txid: Txid::from_byte_array(txid_bytes),
+                vout,
+            },
+            XOnlyPubKey::from(generate_xonly_pubkey()),
+            fault_pubkeys,
+        )
+    }
 
     // Helper to generate random ed25519 keypair for message signing tests.
     fn test_keypair() -> Keypair {
@@ -884,11 +913,7 @@ mod tests {
                         operator: 3,
                         deposit: 4,
                     },
-                    claim_input: OutPoint {
-                        txid: Txid::from_byte_array([0xAB; 32]),
-                        vout: 5,
-                    }
-                    .into(),
+                    graph_data: test_graph_data([0xAB; 32], 5, 2),
                 },
                 GossipsubMsgKind::GraphDataExchange as u8,
             ),
@@ -1070,29 +1095,32 @@ mod tests {
         );
     }
 
-    // Verifies GraphDataExchange serializes as [kind][deposit][operator][txid][vout].
+    // Verifies GraphDataExchange serializes as
+    // [kind][deposit][operator][txid][vout][adaptor_pubkey][n_faults][fault_pubkey...].
     #[test]
     fn unsigned_msg_graph_data_serializes_all_fields() {
-        use bitcoin::hashes::Hash as _;
-
         let txid_bytes = [0xAC; 32];
-        let vout = 9;
+        let vout = 9u32;
+        let n_watchtowers = 3;
         let graph_idx = GraphIdx {
             operator: 3,
             deposit: 7,
         };
-        let claim_input = OutPoint {
-            txid: Txid::from_byte_array(txid_bytes),
-            vout,
-        };
+        let graph_data = test_graph_data(txid_bytes, vout, n_watchtowers);
+        let adaptor_bytes = graph_data.adaptor_pubkey.to_bytes();
+        let fault_bytes: Vec<[u8; 32]> = graph_data
+            .fault_pubkeys
+            .iter()
+            .map(|k| k.to_bytes())
+            .collect();
 
         let msg = UnsignedGossipsubMsg::GraphDataExchange {
             graph_idx,
-            claim_input: claim_input.into(),
+            graph_data,
         };
         let content = msg.content_bytes();
 
-        let expected_len = 1 + 4 + 4 + 32 + 4;
+        let expected_len = 1 + 4 + 4 + 32 + 4 + 32 + 4 + (n_watchtowers * 32);
         assert_eq!(
             content.len(),
             expected_len,
@@ -1122,14 +1150,35 @@ mod tests {
         assert_eq!(
             &content[offset..offset + 32],
             &txid_bytes,
-            "claim_input txid should match"
+            "funding_outpoint txid should match"
         );
         offset += 32;
         assert_eq!(
             &content[offset..offset + 4],
             &vout.to_le_bytes(),
-            "claim_input vout should be serialized as little-endian u32"
+            "funding_outpoint vout should be serialized as little-endian u32"
         );
+        offset += 4;
+        assert_eq!(
+            &content[offset..offset + 32],
+            &adaptor_bytes,
+            "adaptor_pubkey should follow the funding outpoint"
+        );
+        offset += 32;
+        assert_eq!(
+            &content[offset..offset + 4],
+            &(n_watchtowers as u32).to_le_bytes(),
+            "fault_pubkeys length prefix should be little-endian u32"
+        );
+        offset += 4;
+        for (i, fault) in fault_bytes.iter().enumerate() {
+            assert_eq!(
+                &content[offset..offset + 32],
+                fault,
+                "fault_pubkey[{i}] should match"
+            );
+            offset += 32;
+        }
     }
 
     // Verifies UnstakingDataExchange serializes all fields of UnstakingInput.
