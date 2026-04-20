@@ -714,9 +714,7 @@ mod tests {
                 stake_amount: Amount::from_sat(20_000),
             },
             operator_fee: TEST_OPERATOR_FEE,
-            operator_adaptor_keys: (0..3).map(|_| generate_xonly_pubkey()).collect(),
             admin_pubkey: generate_xonly_pubkey(),
-            watchtower_fault_pubkeys: (0..2).map(|_| generate_xonly_pubkey()).collect(),
             payout_descs: (0..3).map(|_| random_p2tr_desc()).collect(),
             bridge_proof_predicate: PredicateKey::always_accept(),
         }
