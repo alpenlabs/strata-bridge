@@ -3,21 +3,21 @@
 use algebra::predicate;
 use bitcoin::{
     FeeRate, OutPoint, TapSighashType, Txid, XOnlyPublicKey,
-    secp256k1::{Keypair, SECP256K1},
     sighash::{Prevouts, SighashCache},
 };
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
-use rand::rngs::OsRng;
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_db::traits::BridgeDb;
 use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
 use strata_bridge_primitives::{
+    operator_table::OperatorTable,
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{GraphIdx, OperatorIdx},
 };
 use strata_bridge_tx_graph::transactions::claim::ClaimTx;
+use strata_mosaic_client_api::{MosaicClientApi, types::Role};
 use tracing::{error, info, warn};
 
 use super::utils::finalize_claim_funding_tx;
@@ -28,14 +28,43 @@ use crate::{
     output_handles::OutputHandles,
 };
 
-// TODO: <https://alpenlabs.atlassian.net/browse/STR-2666>
-// Replace this placeholder with adaptor and fault pubkeys fetched from the mosaic-client.
-fn placeholder_graph_keys() -> (XOnlyPubKey, Vec<XOnlyPubKey>) {
-    let adaptor = Keypair::new(SECP256K1, &mut OsRng)
-        .x_only_public_key()
-        .0
-        .into();
-    (adaptor, Vec::new())
+/// Fetches the owner's adaptor pubkey and the per-watchtower fault pubkeys from mosaic.
+///
+/// The adaptor pubkey belongs to the graph owner (evaluator) and is queried against the
+/// owner's own peer id. Each watchtower contributes one fault pubkey, queried against that
+/// watchtower's peer id with own role `Evaluator`.
+async fn fetch_graph_keys(
+    mosaic_client: &dyn MosaicClientApi,
+    operator_table: &OperatorTable,
+    graph_idx: GraphIdx,
+) -> Result<(XOnlyPubKey, Vec<XOnlyPubKey>), ExecutorError> {
+    let owner_idx = graph_idx.operator;
+
+    let adaptor_pubkey = mosaic_client
+        .get_adaptor_pubkey(owner_idx, graph_idx.deposit)
+        .await
+        .map_err(|e| ExecutorError::MosaicErr(format!("get_adaptor_pubkey: {e:?}")))?
+        .ok_or_else(|| ExecutorError::MosaicErr("adaptor pubkey missing for ready setup".into()))?;
+
+    let watchtowers = operator_table
+        .operator_idxs()
+        .into_iter()
+        .filter(|idx| *idx != owner_idx);
+    let mut fault_pubkeys = Vec::new();
+    for watchtower in watchtowers {
+        let fault_pubkey = mosaic_client
+            .get_fault_pubkey(watchtower, Role::Evaluator)
+            .await
+            .map_err(|e| ExecutorError::MosaicErr(format!("get_fault_pubkey: {e:?}")))?
+            .ok_or_else(|| {
+                ExecutorError::MosaicErr(format!(
+                    "fault pubkey missing for watchtower {watchtower}"
+                ))
+            })?;
+        fault_pubkeys.push(fault_pubkey.into());
+    }
+
+    Ok((adaptor_pubkey.into(), fault_pubkeys))
 }
 
 pub(super) async fn generate_graph_data(
@@ -50,8 +79,17 @@ pub(super) async fn generate_graph_data(
         msg_handler,
         s2_client,
         tx_driver,
+        mosaic_client,
+        operator_table,
         ..
     } = output_handles;
+
+    let (adaptor_pubkey, fault_pubkeys) =
+        fetch_graph_keys(mosaic_client.as_ref(), operator_table, graph_idx).await?;
+
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2669>
+    // After the keys are available, build the game graph locally, compute the counterproof
+    // sighashes for each watchtower, and call `mosaic_client.init_evaluator_deposit` with them.
 
     info!(?graph_idx, "checking if data already exists in disk");
     if let Ok(Some(funding_outpoint)) = db.get_claim_funding_outpoint(graph_idx).await {
@@ -61,7 +99,6 @@ pub(super) async fn generate_graph_data(
             "graph data already exists in disk, skipping generation"
         );
 
-        let (adaptor_pubkey, fault_pubkeys) = placeholder_graph_keys();
         let graph_data = GraphData::new(funding_outpoint, adaptor_pubkey, fault_pubkeys);
         msg_handler
             .write()
@@ -124,7 +161,6 @@ pub(super) async fn generate_graph_data(
     db.set_claim_funding_outpoint(graph_idx, funding_outpoint)
         .await?;
 
-    let (adaptor_pubkey, fault_pubkeys) = placeholder_graph_keys();
     let graph_data = GraphData::new(funding_outpoint, adaptor_pubkey, fault_pubkeys);
     msg_handler
         .write()

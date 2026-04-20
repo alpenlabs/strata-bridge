@@ -53,6 +53,10 @@ pub enum ExecutorError {
     /// Error interacting with the database.
     #[error("database error: {0:?}")]
     DatabaseErr(OneOf<(FdbBindingError, LayerError)>),
+
+    /// Error interacting with the mosaic service.
+    #[error("mosaic error: {0}")]
+    MosaicErr(String),
 }
 
 impl From<OneOf<(FdbBindingError, LayerError)>> for ExecutorError {

@@ -38,12 +38,12 @@ use tracing::{debug, error, info};
 use crate::{config::Config, mode::services::btc_client::init_zmq_client};
 
 #[expect(clippy::too_many_arguments)]
-pub(crate) async fn init_orchestrator(
+pub(crate) async fn init_orchestrator<M>(
     params: &Params,
     config: &Config,
     operator_table: OperatorTable,
     s2_client: &SecretServiceClient,
-    mosaic_client: &impl MosaicClientApi,
+    mosaic_client: Arc<M>,
     gossip_handle: GossipHandle,
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,
@@ -51,7 +51,10 @@ pub(crate) async fn init_orchestrator(
     btc_rpc_client: BitcoinClient,
     fdb_client: Arc<FdbClient>,
     executor: &TaskExecutor,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()>
+where
+    M: MosaicClientApi + 'static,
+{
     let persister = Persister::new(fdb_client.clone());
     let sm_config = build_sm_config(config, params);
     let registry = persister
@@ -86,7 +89,7 @@ pub(crate) async fn init_orchestrator(
 
     let orchestrator_block_sub = zmq_client.subscribe_blocks().await;
 
-    let mosaic_event_sub = mosaic_client.subscribe_events().await;
+    let mosaic_event_sub = mosaic_client.as_ref().subscribe_events().await;
 
     let nag_tick = tokio::time::interval_at(tokio::time::Instant::now(), config.nag_interval);
     let retry_tick = tokio::time::interval_at(tokio::time::Instant::now(), config.retry_interval);
@@ -114,6 +117,8 @@ pub(crate) async fn init_orchestrator(
         bitcoind_rpc_client: btc_rpc_client,
         s2_client: s2_client.clone(),
         tx_driver,
+        mosaic_client,
+        operator_table: operator_table.clone(),
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());
 

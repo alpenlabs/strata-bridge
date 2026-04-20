@@ -20,6 +20,7 @@ strata-bridge-p2p-types.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-sm.workspace = true
 strata-bridge-tx-graph.workspace = true
+strata-mosaic-client-api.workspace = true
 
 strata-l1-txfmt.workspace = true
 
@@ -30,7 +31,6 @@ bitcoind-async-client.workspace = true
 foundationdb.workspace = true
 futures.workspace = true
 musig2.workspace = true
-rand.workspace = true
 terrors.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
