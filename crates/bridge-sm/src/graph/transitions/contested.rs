@@ -313,7 +313,7 @@ impl GraphSM {
                 counterproofs_and_confs,
                 mut counterproof_nacks,
             } => {
-                // TODO: <https://atlassian.alpenlabs.net/browse/STR-3086>
+                // TODO: <https://alpenlabs.atlassian.net/browse/STR-3086>
                 // Add validation of the counterproof_nack_txid asserting that it spends
                 // the corresponding counterproof transaction.
 
