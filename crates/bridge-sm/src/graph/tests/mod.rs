@@ -195,19 +195,30 @@ impl From<TestGraphTxKind> for Transaction {
     }
 }
 
-pub(super) fn test_graph_summary() -> GameGraphSummary {
+/// Builds a [`GameGraphSummary`] with `n_counterproofs` watchtower slots.
+///
+/// Every slot uses the same [`TestGraphTxKind::Counterproof`] /
+/// [`TestGraphTxKind::CounterproofAck`] txids — sufficient for mock unit tests that only care about
+/// the slot count.
+pub(super) fn build_test_graph_summary(n_counterproofs: usize) -> GameGraphSummary {
+    let counterproof_summary = CounterproofGraphSummary {
+        counterproof: Transaction::from(TestGraphTxKind::Counterproof).compute_txid(),
+        counterproof_ack: Transaction::from(TestGraphTxKind::CounterproofAck).compute_txid(),
+    };
+
     GameGraphSummary {
         claim: Transaction::from(TestGraphTxKind::Claim).compute_txid(),
         contest: Transaction::from(TestGraphTxKind::Contest).compute_txid(),
         bridge_proof_timeout: Transaction::from(TestGraphTxKind::BridgeProofTimeout).compute_txid(),
-        counterproofs: vec![CounterproofGraphSummary {
-            counterproof: Transaction::from(TestGraphTxKind::Counterproof).compute_txid(),
-            counterproof_ack: Transaction::from(TestGraphTxKind::CounterproofAck).compute_txid(),
-        }],
+        counterproofs: vec![counterproof_summary; n_counterproofs],
         slash: Transaction::from(TestGraphTxKind::Slash).compute_txid(),
         uncontested_payout: Transaction::from(TestGraphTxKind::UncontestedPayout).compute_txid(),
         contested_payout: Transaction::from(TestGraphTxKind::ContestedPayout).compute_txid(),
     }
+}
+
+pub(super) fn test_graph_summary() -> GameGraphSummary {
+    build_test_graph_summary(1)
 }
 
 // ===== Test Transactions =====
