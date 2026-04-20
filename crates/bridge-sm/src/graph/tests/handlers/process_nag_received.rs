@@ -36,7 +36,7 @@ mod tests {
 
     fn expected_publish_graph_nonces_duty(cfg: &crate::graph::config::GraphSMCfg) -> GraphDuty {
         let ctx = test_graph_sm_ctx();
-        let game_graph = generate_game_graph(cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(cfg, &ctx, &test_deposit_params());
         let graph_inpoints = game_graph.musig_inpoints().pack();
         let graph_tweaks = game_graph
             .musig_signing_info()
@@ -64,7 +64,7 @@ mod tests {
         agg_nonces: Vec<AggNonce>,
     ) -> GraphDuty {
         let ctx = test_graph_sm_ctx();
-        let game_graph = generate_game_graph(cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(cfg, &ctx, &test_deposit_params());
         let graph_inpoints = game_graph.musig_inpoints().pack();
         let claim_txid = game_graph.claim.as_ref().compute_txid();
         let (graph_tweaks, sighashes): (Vec<TaprootTweak>, Vec<_>) = game_graph

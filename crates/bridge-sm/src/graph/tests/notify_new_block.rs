@@ -147,7 +147,7 @@ mod tests {
         let new_height = CLAIM_BLOCK_HEIGHT + CONTEST_TIMELOCK_BLOCKS + 1;
 
         // Compute expected finalized uncontested payout transaction
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let uncontested_sigs =
             GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
@@ -246,7 +246,7 @@ mod tests {
         let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
         let new_height = contest_height + proof_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let bridge_proof_timeout_sigs =
             GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
@@ -280,7 +280,7 @@ mod tests {
         let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
         let new_height = contest_height + payout_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures")
@@ -329,7 +329,7 @@ mod tests {
         let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
         let new_height = contest_height + payout_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures")
@@ -417,7 +417,7 @@ mod tests {
         let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
         let new_height = contest_height + ack_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let contested_payout_sigs =
             GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
@@ -477,7 +477,7 @@ mod tests {
         let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
         let new_height = contest_height + payout_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures")
@@ -510,7 +510,7 @@ mod tests {
         // Exceeds both timelocks; POV should emit contested payout, not slash
         let new_height = contest_height + payout_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let contested_payout_sigs =
             GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
@@ -548,7 +548,7 @@ mod tests {
         let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
         let new_height = contest_height + ack_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let contested_payout_sigs =
             GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
@@ -628,7 +628,7 @@ mod tests {
         let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
         let new_height = contest_height + payout_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures")
@@ -671,7 +671,7 @@ mod tests {
         let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
         let new_height = contest_height + proof_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let bridge_proof_timeout_sigs =
             GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
@@ -841,7 +841,7 @@ mod tests {
             ),
         )]);
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures");
@@ -1060,7 +1060,7 @@ mod tests {
         let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
         let new_height = contest_height + payout_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures")
@@ -1196,7 +1196,7 @@ mod tests {
         let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
         let new_height = contest_height + ack_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let contested_payout_sigs =
             GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
@@ -1268,7 +1268,7 @@ mod tests {
         let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
         let new_height = contest_height + payout_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures")
@@ -1305,7 +1305,7 @@ mod tests {
         let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
         let new_height = contest_height + payout_timelock + 1;
 
-        let game_graph = generate_game_graph(&cfg, &ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let contested_payout_sigs =
             GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())

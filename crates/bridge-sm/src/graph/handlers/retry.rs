@@ -17,7 +17,7 @@ impl GraphSM {
             GraphState::GraphGenerated { graph_data, .. }
                 if self.context().operator_idx() != self.context().operator_table().pov_idx() =>
             {
-                let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
+                let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
                 let pov_operator_idx = self.context().operator_table().pov_idx();
                 let counterproof_idx = watchtower_slot_for_operator(
                     self.context().operator_idx(),
@@ -51,7 +51,7 @@ impl GraphSM {
                 && self.context().operator_idx() == self.context().operator_table().pov_idx()
                 && self.context().operator_idx() == *assignee =>
             {
-                let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
+                let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
 
                 vec![GraphDuty::PublishClaim {
                     claim_tx: game_graph.claim,

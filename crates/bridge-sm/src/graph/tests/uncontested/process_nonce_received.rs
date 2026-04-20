@@ -26,7 +26,7 @@ mod tests {
         let (deposit_params, graph) = test_graph_data(&cfg);
         let graph_summary = graph.summarize();
         let nonce_ctx = build_nonce_context(graph.musig_signing_info().pack());
-        let state = adaptors_verified_state(deposit_params, graph_summary.clone());
+        let state = adaptors_verified_state(deposit_params.clone(), graph_summary.clone());
 
         let operator_nonces = nonce_ctx
             .pubnonces

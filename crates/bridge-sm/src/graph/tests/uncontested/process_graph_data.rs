@@ -23,12 +23,15 @@ mod tests {
 
     /// Creates a test [`GraphDataGeneratedEvent`] with deterministic values.
     fn test_graph_data_event() -> GraphDataGeneratedEvent {
+        let params = test_deposit_params();
         GraphDataGeneratedEvent {
             graph_idx: GraphIdx {
                 deposit: 0,
                 operator: 0,
             },
             claim_funds: Default::default(),
+            adaptor_pubkey: params.adaptor_pubkey,
+            fault_pubkeys: params.fault_pubkeys,
         }
     }
 
