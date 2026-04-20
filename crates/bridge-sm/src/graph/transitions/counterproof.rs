@@ -31,14 +31,6 @@ impl GraphSM {
                 fulfillment_txid,
                 contest_block_height,
                 ..
-            }
-            | GraphState::BridgeProofPosted {
-                graph_data,
-                graph_summary,
-                signatures,
-                fulfillment_txid,
-                contest_block_height,
-                ..
             } => {
                 let nack_duties =
                     self.validate_counterproof_and_nack(&cfg, &event, &graph_data, &graph_summary)?;
@@ -56,6 +48,40 @@ impl GraphSM {
                     signatures,
                     fulfillment_txid,
                     contest_block_height,
+                    refuted_proof: None,
+                    counterproofs_and_confs,
+                    counterproof_nacks: BTreeMap::new(),
+                };
+
+                Ok(GSMOutput::with_duties(nack_duties))
+            }
+            GraphState::BridgeProofPosted {
+                last_block_height,
+                graph_data,
+                graph_summary,
+                signatures,
+                fulfillment_txid,
+                contest_block_height,
+                proof,
+                ..
+            } => {
+                let nack_duties =
+                    self.validate_counterproof_and_nack(&cfg, &event, &graph_data, &graph_summary)?;
+
+                let mut counterproofs_and_confs = BTreeMap::new();
+                counterproofs_and_confs.insert(
+                    event.counterprover_idx,
+                    (event.counterproof_txid, event.counterproof_block_height),
+                );
+
+                self.state = GraphState::CounterProofPosted {
+                    last_block_height,
+                    graph_data,
+                    graph_summary,
+                    signatures,
+                    fulfillment_txid,
+                    contest_block_height,
+                    refuted_proof: Some(proof),
                     counterproofs_and_confs,
                     counterproof_nacks: BTreeMap::new(),
                 };
@@ -69,6 +95,7 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
+                refuted_proof,
                 counterproof_nacks,
                 ..
             } => {
@@ -91,6 +118,7 @@ impl GraphSM {
                     signatures,
                     fulfillment_txid,
                     contest_block_height,
+                    refuted_proof,
                     counterproofs_and_confs,
                     counterproof_nacks,
                 };

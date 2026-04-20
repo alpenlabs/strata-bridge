@@ -310,6 +310,7 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
+                refuted_proof,
                 counterproofs_and_confs,
                 mut counterproof_nacks,
             } => {
@@ -357,6 +358,7 @@ impl GraphSM {
                         signatures,
                         fulfillment_txid,
                         contest_block_height,
+                        refuted_proof,
                         counterproofs_and_confs,
                         counterproof_nacks,
                     };

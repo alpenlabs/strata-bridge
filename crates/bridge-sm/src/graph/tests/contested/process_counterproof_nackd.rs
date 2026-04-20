@@ -57,6 +57,7 @@ fn counter_proof_posted_state_with_nacks(nacked_idxs: &[u32]) -> GraphState {
         signatures: Default::default(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
+        refuted_proof: None,
         counterproofs_and_confs: BTreeMap::from([
             (TEST_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
             (SECOND_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
@@ -85,6 +86,7 @@ fn first_nack_stays_in_counter_proof_posted() {
             signatures: Default::default(),
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
             contest_block_height: LATER_BLOCK_HEIGHT,
+            refuted_proof: None,
             counterproofs_and_confs: BTreeMap::from([
                 (TEST_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
                 (SECOND_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),

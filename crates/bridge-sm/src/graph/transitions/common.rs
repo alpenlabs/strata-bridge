@@ -248,6 +248,7 @@ impl GraphSM {
                 // proxy for determining whether a claim is valid.
                 let invalid_claim = refuted_proof.is_none() && fulfillment_txid.is_none();
 
+                let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
                 if !is_own_graph
                     && invalid_claim
                     && new_block_event.block_height > *contest_block_height + proof_timelock
