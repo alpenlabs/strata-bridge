@@ -70,12 +70,15 @@ pub(crate) async fn bootstrap(
     info!(addr=%config.rpc.rpc_addr, "rpc server started and listening for requests");
 
     debug!("initializing mosaic client");
-    let mosaic_client =
-        init_mosaic_client(&config.mosaic, &operator_table, operator_table.pov_idx());
+    let mosaic_client = Arc::new(init_mosaic_client(
+        &config.mosaic,
+        &operator_table,
+        operator_table.pov_idx(),
+    ));
     info!("mosaic client initialized");
 
     debug!("running mosaic setup for all operator pairs");
-    run_mosaic_setup(&mosaic_client, &operator_table).await?;
+    run_mosaic_setup(mosaic_client.as_ref(), &operator_table).await?;
     info!("mosaic setup complete for all operator pairs");
 
     debug!("starting orchestrator pipeline");
@@ -84,7 +87,7 @@ pub(crate) async fn bootstrap(
         &config,
         operator_table,
         &s2_client,
-        &mosaic_client,
+        mosaic_client,
         gossip_handle,
         req_resp_handle,
         keypair,
