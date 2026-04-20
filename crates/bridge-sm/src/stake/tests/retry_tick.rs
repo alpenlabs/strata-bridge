@@ -6,22 +6,17 @@ use crate::stake::{duties::StakeDuty, events::RetryTickEvent, state::StakeState}
 #[test]
 fn retry_publish_stake() {
     let stake_graph = TEST_GRAPH.clone();
-    let from_state = StakeState::UnstakingSigned {
-        last_block_height: STAKE_HEIGHT,
-        stake_data: TEST_STAKE_DATA.clone(),
-        summary: *TEST_GRAPH_SUMMARY,
-        signatures: Box::new(*TEST_FINAL_SIGS),
-    };
-    let expected_state = from_state.clone();
-
-    test_stake_transition(StakeTransition {
-        from_state,
+    test_pov_owned_handler_output(StakeHandlerOutput {
+        state: StakeState::UnstakingSigned {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
+            signatures: Box::new(*TEST_FINAL_SIGS),
+        },
         event: RetryTickEvent.into(),
-        expected_state,
         expected_duties: vec![StakeDuty::PublishStake {
             tx: stake_graph.stake.as_ref().clone(),
         }],
-        expected_signals: vec![],
     });
 }
 
@@ -65,15 +60,11 @@ fn retry_nothing() {
         },
     ];
 
-    for from_state in has_no_retriable_duty {
-        let expected_state = from_state.clone();
-
-        test_stake_transition(StakeTransition {
-            from_state,
+    for state in has_no_retriable_duty {
+        test_pov_owned_handler_output(StakeHandlerOutput {
+            state,
             event: RetryTickEvent.into(),
-            expected_state,
             expected_duties: vec![],
-            expected_signals: vec![],
         });
     }
 }

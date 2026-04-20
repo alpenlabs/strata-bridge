@@ -11,10 +11,6 @@ use crate::stake::{
 
 #[test]
 fn nag_stake_data() {
-    let from_state = StakeState::Created {
-        last_block_height: STAKE_HEIGHT,
-    };
-    let expected_state = from_state.clone();
     let expected_duties = vec![StakeDuty::Nag(NagDuty::NagUnstakingData {
         operator_idx: TEST_CTX.operator_idx(),
         operator_pubkey: TEST_CTX
@@ -23,12 +19,12 @@ fn nag_stake_data() {
             .unwrap()
             .clone(),
     })];
-    test_stake_transition(StakeTransition {
-        from_state,
+    test_pov_owned_handler_output(StakeHandlerOutput {
+        state: StakeState::Created {
+            last_block_height: STAKE_HEIGHT,
+        },
         event: NagTickEvent.into(),
-        expected_state,
         expected_duties,
-        expected_signals: vec![],
     });
 }
 
@@ -51,19 +47,15 @@ fn nag_unstaking_nonces() {
             })
         })
         .collect::<Vec<_>>();
-    let from_state = StakeState::StakeGraphGenerated {
-        last_block_height: STAKE_HEIGHT,
-        stake_data: TEST_STAKE_DATA.clone(),
-        summary: *TEST_GRAPH_SUMMARY,
-        pub_nonces,
-    };
-    let expected_state = from_state.clone();
-    test_stake_transition(StakeTransition {
-        from_state,
+    test_pov_owned_handler_output(StakeHandlerOutput {
+        state: StakeState::StakeGraphGenerated {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
+            pub_nonces,
+        },
         event: NagTickEvent.into(),
-        expected_state,
         expected_duties,
-        expected_signals: vec![],
     });
 }
 
@@ -86,21 +78,17 @@ fn nag_unstaking_partials() {
             })
         })
         .collect::<Vec<_>>();
-    let from_state = StakeState::UnstakingNoncesCollected {
-        last_block_height: STAKE_HEIGHT,
-        stake_data: TEST_STAKE_DATA.clone(),
-        summary: *TEST_GRAPH_SUMMARY,
-        pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-        agg_nonces: TEST_AGG_NONCES.clone().boxed(),
-        partial_signatures,
-    };
-    let expected_state = from_state.clone();
-    test_stake_transition(StakeTransition {
-        from_state,
+    test_pov_owned_handler_output(StakeHandlerOutput {
+        state: StakeState::UnstakingNoncesCollected {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
+            pub_nonces: TEST_PUB_NONCES_MAP.clone(),
+            agg_nonces: TEST_AGG_NONCES.clone().boxed(),
+            partial_signatures,
+        },
         event: NagTickEvent.into(),
-        expected_state,
         expected_duties,
-        expected_signals: vec![],
     });
 }
 
@@ -133,14 +121,11 @@ fn dont_nag_when_nothing_is_missing() {
         },
     ];
 
-    for from_state in states {
-        let expected_state = from_state.clone();
-        test_stake_transition(StakeTransition {
-            from_state,
+    for state in states {
+        test_pov_owned_handler_output(StakeHandlerOutput {
+            state,
             event: NagTickEvent.into(),
-            expected_state,
             expected_duties: vec![],
-            expected_signals: vec![],
         });
     }
 }

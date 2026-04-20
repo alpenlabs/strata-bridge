@@ -87,6 +87,18 @@ type StakeTransition = Transition<StakeState, StakeEvent, StakeDuty, Signal>;
 /// Type alias for invalid [`StakeSM`] transitions.
 type StakeInvalidTransition = InvalidTransition<StakeState, StakeEvent, SSMError>;
 
+/// Configuration for testing handlers that don't mutate state.
+///
+/// Unlike transitions, handlers only emit duties without changing state.
+struct StakeHandlerOutput {
+    /// The state (remains unchanged after handler execution).
+    state: StakeState,
+    /// The event that triggers the handler.
+    event: StakeEvent,
+    /// The expected duties emitted by the handler.
+    expected_duties: Vec<StakeDuty>,
+}
+
 /// Test a valid [`StakeSM`] transition with pre-configured test helpers.
 fn test_stake_transition(transition: StakeTransition) {
     test_transition::<StakeSM, _, _, _, _, _, _, _>(
@@ -114,6 +126,17 @@ fn test_nonpov_stake_transition(transition: StakeTransition) {
         TEST_CFG.clone(),
         transition,
     );
+}
+
+/// Helper for testing handlers for stakes owned by the POV (`create_state_machine`).
+fn test_pov_owned_handler_output(output: StakeHandlerOutput) {
+    test_stake_transition(StakeTransition {
+        from_state: output.state.clone(),
+        event: output.event,
+        expected_state: output.state,
+        expected_duties: output.expected_duties,
+        expected_signals: vec![],
+    });
 }
 
 // ┌───────────────────────────────────────────────────────────────────┐
