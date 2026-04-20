@@ -30,6 +30,7 @@ bitcoind-async-client.workspace = true
 foundationdb.workspace = true
 futures.workspace = true
 musig2.workspace = true
+rand.workspace = true
 terrors.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

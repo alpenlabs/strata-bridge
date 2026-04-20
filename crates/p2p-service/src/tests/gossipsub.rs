@@ -1,9 +1,10 @@
 use bitcoin::{hashes::Hash, OutPoint, Txid};
 use strata_bridge_common::logging::{self, LoggerConfig};
 use strata_bridge_p2p_types::{
-    NagRequest, NagRequestPayload, PayoutDescriptor, UnsignedGossipsubMsg,
+    GraphData, NagRequest, NagRequestPayload, PayoutDescriptor, UnsignedGossipsubMsg, XOnlyPubKey,
 };
 use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
+use strata_bridge_test_utils::bitcoin::generate_xonly_pubkey;
 use tokio::sync::oneshot;
 
 use super::common::{verify_dispatch, Setup};
@@ -48,8 +49,13 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
 
     // 2. Graph data
     for op in operators.iter_mut() {
+        let graph_data = GraphData::new(
+            OutPoint::new(Txid::all_zeros(), 0),
+            XOnlyPubKey::from(generate_xonly_pubkey()),
+            vec![XOnlyPubKey::from(generate_xonly_pubkey())],
+        );
         op.handler
-            .send_graph_data(graph_idx, OutPoint::new(Txid::all_zeros(), 0), None)
+            .send_graph_data(graph_idx, graph_data, None)
             .await;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "graph_data", |msg| {
