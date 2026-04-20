@@ -1,7 +1,12 @@
 use std::sync::Arc;
 
+use musig2::secp256k1::schnorr::Signature;
+use strata_bridge_primitives::types::BitcoinBlockHeight;
+use strata_bridge_tx_graph::game_graph::DepositParams;
+
 use crate::graph::{
     config::GraphSMCfg,
+    context::GraphSMCtx,
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
     events::NewBlockEvent,
@@ -152,36 +157,27 @@ impl GraphSM {
                 ..
             } => {
                 *last_block_height = new_block_event.block_height;
-                let payout_timelock =
-                    u64::from(cfg.game_graph_params.contested_payout_timelock.value());
-                let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
-                let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
 
-                // check if slashing is possible
-                if !is_own_graph
-                    && new_block_event.block_height > *contest_block_height + payout_timelock
-                {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
-                    let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
-
-                    return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
-                        signed_slash_tx,
-                    }]));
+                if let Some(slash_duty) = check_slash_timeout(
+                    &cfg,
+                    &graph_ctx,
+                    new_block_event.block_height,
+                    *contest_block_height,
+                    *graph_data,
+                    signatures,
+                ) {
+                    return Ok(GSMOutput::with_duties(vec![slash_duty]));
                 }
 
-                // check if contested payout is possible
-                if is_own_graph
-                    && new_block_event.block_height > *contest_block_height + ack_timelock
-                {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
-                    let signed_contested_payout_tx =
-                        game_graph.contested_payout.finalize(sigs.contested_payout);
-
-                    return Ok(GSMOutput::with_duties(vec![
-                        GraphDuty::PublishContestedPayout {
-                            signed_contested_payout_tx,
-                        },
-                    ]));
+                if let Some(contested_payout_duty) = check_contested_payout_timeout(
+                    &cfg,
+                    &graph_ctx,
+                    new_block_event.block_height,
+                    *contest_block_height,
+                    *graph_data,
+                    signatures,
+                ) {
+                    return Ok(GSMOutput::with_duties(vec![contested_payout_duty]));
                 }
 
                 Ok(GSMOutput::new())
@@ -222,42 +218,31 @@ impl GraphSM {
             } => {
                 *last_block_height = new_block_event.block_height;
 
-                let payout_timelock =
-                    u64::from(cfg.game_graph_params.contested_payout_timelock.value());
-                let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
+                if let Some(slash_duty) = check_slash_timeout(
+                    &cfg,
+                    &graph_ctx,
+                    new_block_event.block_height,
+                    *contest_block_height,
+                    *graph_data,
+                    signatures,
+                ) {
+                    return Ok(GSMOutput::with_duties(vec![slash_duty]));
+                }
+
+                if let Some(contested_payout_duty) = check_contested_payout_timeout(
+                    &cfg,
+                    &graph_ctx,
+                    new_block_event.block_height,
+                    *contest_block_height,
+                    *graph_data,
+                    signatures,
+                ) {
+                    return Ok(GSMOutput::with_duties(vec![contested_payout_duty]));
+                }
+
                 let nack_timelock = u64::from(cfg.game_graph_params.nack_timelock.value());
                 let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
                 let pov_idx = graph_ctx.operator_table().pov_idx();
-                let is_own_graph = graph_ctx.operator_idx() == pov_idx;
-
-                // If pov operator doesn't own the graph, they will attempt to slash payout
-                // timelock has expired.
-                if !is_own_graph
-                    && new_block_event.block_height > *contest_block_height + payout_timelock
-                {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
-                    let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
-
-                    return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
-                        signed_slash_tx,
-                    }]));
-                }
-
-                // If pov operator owns the graph, they will attempt to publish the contested
-                // payout if the ack timelock has expired.
-                if is_own_graph
-                    && new_block_event.block_height > *contest_block_height + ack_timelock
-                {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
-                    let signed_contested_payout_tx =
-                        game_graph.contested_payout.finalize(sigs.contested_payout);
-
-                    return Ok(GSMOutput::with_duties(vec![
-                        GraphDuty::PublishContestedPayout {
-                            signed_contested_payout_tx,
-                        },
-                    ]));
-                }
 
                 // If proof is missing, then we use the absence of a valid fulfillment txid as a
                 // proxy for determining whether a claim is valid.
@@ -347,37 +332,27 @@ impl GraphSM {
                 ..
             } => {
                 *last_block_height = new_block_event.block_height;
-                let payout_timelock =
-                    u64::from(cfg.game_graph_params.contested_payout_timelock.value());
-                let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
-                let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
 
-                // Non-graph owners publish slash once the payout timelock has expired.
-                if !is_own_graph
-                    && new_block_event.block_height > *contest_block_height + payout_timelock
-                {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
-                    let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
-
-                    return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
-                        signed_slash_tx,
-                    }]));
+                if let Some(slash_duty) = check_slash_timeout(
+                    &cfg,
+                    &graph_ctx,
+                    new_block_event.block_height,
+                    *contest_block_height,
+                    *graph_data,
+                    signatures,
+                ) {
+                    return Ok(GSMOutput::with_duties(vec![slash_duty]));
                 }
 
-                // Graph owner publishes contested payout once the ack timelock has expired,
-                // since all counterproofs have been NACK'd.
-                if is_own_graph
-                    && new_block_event.block_height > *contest_block_height + ack_timelock
-                {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
-                    let signed_contested_payout_tx =
-                        game_graph.contested_payout.finalize(sigs.contested_payout);
-
-                    return Ok(GSMOutput::with_duties(vec![
-                        GraphDuty::PublishContestedPayout {
-                            signed_contested_payout_tx,
-                        },
-                    ]));
+                if let Some(contested_payout_duty) = check_contested_payout_timeout(
+                    &cfg,
+                    &graph_ctx,
+                    new_block_event.block_height,
+                    *contest_block_height,
+                    *graph_data,
+                    signatures,
+                ) {
+                    return Ok(GSMOutput::with_duties(vec![contested_payout_duty]));
                 }
 
                 Ok(GSMOutput::new())
@@ -420,4 +395,53 @@ impl GraphSM {
             )),
         }
     }
+}
+
+/// If the payout timelock has expired and the POV operator does not own the graph,
+/// returns a [`GraphDuty::PublishSlash`] duty. Otherwise, returns `None`.
+fn check_slash_timeout(
+    cfg: &GraphSMCfg,
+    graph_ctx: &GraphSMCtx,
+    block_height: BitcoinBlockHeight,
+    contest_block_height: BitcoinBlockHeight,
+    graph_data: DepositParams,
+    signatures: &[Signature],
+) -> Option<GraphDuty> {
+    let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+    let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
+
+    if !is_own_graph && block_height > contest_block_height + payout_timelock {
+        let (game_graph, sigs) = unpack_game(cfg, graph_ctx, graph_data, signatures);
+        let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
+
+        return Some(GraphDuty::PublishSlash { signed_slash_tx });
+    }
+
+    None
+}
+
+/// If the ack timelock has expired and the POV operator owns the graph,
+/// returns a [`GraphDuty::PublishContestedPayout`] duty. Otherwise, returns `None`.
+fn check_contested_payout_timeout(
+    cfg: &GraphSMCfg,
+    graph_ctx: &GraphSMCtx,
+    block_height: BitcoinBlockHeight,
+    contest_block_height: BitcoinBlockHeight,
+    graph_data: DepositParams,
+    signatures: &[Signature],
+) -> Option<GraphDuty> {
+    let ack_timelock = u64::from(cfg.game_graph_params.ack_timelock.value());
+    let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
+
+    if is_own_graph && block_height > contest_block_height + ack_timelock {
+        let (game_graph, sigs) = unpack_game(cfg, graph_ctx, graph_data, signatures);
+        let signed_contested_payout_tx =
+            game_graph.contested_payout.finalize(sigs.contested_payout);
+
+        return Some(GraphDuty::PublishContestedPayout {
+            signed_contested_payout_tx,
+        });
+    }
+
+    None
 }
