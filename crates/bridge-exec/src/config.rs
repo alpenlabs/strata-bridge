@@ -1,6 +1,9 @@
 //! Static configuration common to all duty executors.
 
+use std::sync::Arc;
+
 use bitcoin::{Amount, FeeRate, Network};
+use strata_bridge_sm::graph::config::GraphSMCfg;
 use strata_l1_txfmt::MagicBytes;
 
 /// The static configuration for the duty executors.
@@ -29,4 +32,8 @@ pub struct ExecutionConfig {
 
     /// The number of claim funding utxos to generate at any given time when the pool is exhausted.
     pub funding_uxto_pool_size: usize,
+
+    /// The graph state-machine configuration, shared with the GSM to keep protocol parameters
+    /// and static keys consistent across graph construction paths.
+    pub graph_sm_cfg: Arc<GraphSMCfg>,
 }

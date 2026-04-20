@@ -248,6 +248,9 @@ mod tests {
                 })),
                 expected_duties: vec![GraphDuty::GenerateGraphData {
                     graph_idx: test_graph_sm_ctx().graph_idx(),
+                    deposit_outpoint: test_graph_sm_ctx().deposit_outpoint(),
+                    stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
+                    unstaking_image: test_graph_sm_ctx().unstaking_image(),
                 }],
             },
         );
@@ -264,6 +267,9 @@ mod tests {
                 })),
                 expected_duties: vec![GraphDuty::GenerateGraphData {
                     graph_idx: test_graph_sm_ctx().graph_idx(),
+                    deposit_outpoint: test_graph_sm_ctx().deposit_outpoint(),
+                    stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
+                    unstaking_image: test_graph_sm_ctx().unstaking_image(),
                 }],
             },
         );
@@ -284,6 +290,9 @@ mod tests {
                 })),
                 expected_duties: vec![GraphDuty::GenerateGraphData {
                     graph_idx: test_graph_sm_ctx().graph_idx(),
+                    deposit_outpoint: test_graph_sm_ctx().deposit_outpoint(),
+                    stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
+                    unstaking_image: test_graph_sm_ctx().unstaking_image(),
                 }],
             },
         );

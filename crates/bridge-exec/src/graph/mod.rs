@@ -33,8 +33,21 @@ pub async fn execute_graph_duty(
     duty: &GraphDuty,
 ) -> Result<(), ExecutorError> {
     match duty {
-        GraphDuty::GenerateGraphData { graph_idx } => {
-            common::generate_graph_data(&cfg, &output_handles, *graph_idx).await
+        GraphDuty::GenerateGraphData {
+            graph_idx,
+            deposit_outpoint,
+            stake_outpoint,
+            unstaking_image,
+        } => {
+            common::generate_graph_data(
+                &cfg,
+                &output_handles,
+                *graph_idx,
+                *deposit_outpoint,
+                *stake_outpoint,
+                *unstaking_image,
+            )
+            .await
         }
         GraphDuty::VerifyAdaptors {
             graph_idx,
