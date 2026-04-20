@@ -67,14 +67,7 @@ pub(crate) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
 
 /// Creates a test `GraphSMCfg`, mirroring `bridge-sm/graph/tests::test_graph_sm_cfg`.
 pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
-    let n_watchtowers = N_TEST_OPERATORS - 1;
-    let watchtower_fault_pubkeys = (0..n_watchtowers)
-        .map(|_| generate_xonly_pubkey())
-        .collect();
     let payout_descs = (0..N_TEST_OPERATORS).map(|_| random_p2tr_desc()).collect();
-    let adapter_pubkeys = (0..N_TEST_OPERATORS)
-        .map(|_| generate_xonly_pubkey())
-        .collect();
 
     Arc::new(GraphSMCfg {
         game_graph_params: GameProtocolParams {
@@ -89,10 +82,8 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             deposit_amount: TEST_DEPOSIT_AMOUNT,
             stake_amount: Amount::from_sat(100_000_000),
         },
-        operator_adaptor_keys: adapter_pubkeys,
         admin_pubkey: generate_xonly_pubkey(),
         operator_fee: TEST_OPERATOR_FEE,
-        watchtower_fault_pubkeys,
         payout_descs,
         bridge_proof_predicate: PredicateKey::always_accept(),
     })

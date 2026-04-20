@@ -199,19 +199,10 @@ pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
         stake_amount: params.protocol.stake_amount,
     };
 
-    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2666>
-    // Construct adaptor keys and descriptors once they move out of `Config` and into `Context`.
     let graph_config = GraphSMCfg {
         game_graph_params,
         operator_fee,
-        operator_adaptor_keys: params.keys.covenant.iter().map(|cov| cov.adaptor).collect(),
         admin_pubkey: params.keys.admin,
-        watchtower_fault_pubkeys: params
-            .keys
-            .covenant
-            .iter()
-            .map(|cov| cov.watchtower_fault)
-            .collect(),
         payout_descs: params
             .keys
             .covenant
