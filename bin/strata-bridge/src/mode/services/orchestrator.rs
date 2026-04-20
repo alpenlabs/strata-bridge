@@ -58,7 +58,7 @@ where
     let persister = Persister::new(fdb_client.clone());
     let sm_config = build_sm_config(config, params);
     let registry = persister
-        .recover_registry(sm_config)
+        .recover_registry(sm_config.clone())
         .await
         .map_err(|e| anyhow!("failed to recover state machine registry from database: {e:?}"))?;
 
@@ -108,7 +108,7 @@ where
         retry_tick,
     };
 
-    let exec_cfg = build_exec_config(params, config);
+    let exec_cfg = build_exec_config(params, config, &sm_config);
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
     let output_handles = OutputHandles {
         wallet: RwLock::new(wallet),
@@ -232,7 +232,7 @@ pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
     }
 }
 
-fn build_exec_config(params: &Params, config: &Config) -> ExecutionConfig {
+fn build_exec_config(params: &Params, config: &Config, sm_config: &SMConfig) -> ExecutionConfig {
     ExecutionConfig {
         network: params.network,
         min_withdrawal_fulfillment_window: config.min_withdrawal_fulfillment_window,
@@ -241,5 +241,6 @@ fn build_exec_config(params: &Params, config: &Config) -> ExecutionConfig {
         operator_fee: params.protocol.operator_fee,
         stake_amount: params.protocol.stake_amount,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
+        graph_sm_cfg: sm_config.graph.clone(),
     }
 }

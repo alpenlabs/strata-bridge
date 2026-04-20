@@ -3,7 +3,7 @@
 
 use std::num::NonZero;
 
-use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey, hashes::sha256};
 use musig2::{
     AggNonce,
     secp256k1::{Message, schnorr::Signature},
@@ -92,6 +92,15 @@ pub enum GraphDuty {
     GenerateGraphData {
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
+
+        /// The deposit UTXO this graph is associated with.
+        deposit_outpoint: OutPoint,
+
+        /// The stake UTXO for the graph owner.
+        stake_outpoint: OutPoint,
+
+        /// Hash image that locks the claim-payout connector for this graph.
+        unstaking_image: sha256::Hash,
     },
 
     /// Verify the adaptor signatures for the generated graph.

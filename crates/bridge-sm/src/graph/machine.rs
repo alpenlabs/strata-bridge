@@ -121,6 +121,9 @@ impl GraphSM {
         let is_mine = sm.context().operator_table().pov_idx() == sm.context().operator_idx();
         let duty = is_mine.then(|| GraphDuty::GenerateGraphData {
             graph_idx: sm.context().graph_idx(),
+            deposit_outpoint: sm.context().deposit_outpoint(),
+            stake_outpoint: sm.context().stake_outpoint(),
+            unstaking_image: sm.context().unstaking_image(),
         });
 
         (sm, duty)
@@ -158,7 +161,7 @@ impl GraphSM {
 }
 
 /// Generates the [`GameGraph`] from the [`GraphSM`] config and deposit params.
-pub(crate) fn generate_game_graph(
+pub fn generate_game_graph(
     cfg: &GraphSMCfg,
     ctx: &GraphSMCtx,
     deposit_params: &DepositParams,

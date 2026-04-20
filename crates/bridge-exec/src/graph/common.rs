@@ -1,8 +1,11 @@
 //! Executors for uncontested payout graph duties.
 
+use std::num::NonZero;
+
 use algebra::predicate;
 use bitcoin::{
     FeeRate, OutPoint, TapSighashType, Txid, XOnlyPublicKey,
+    hashes::sha256,
     sighash::{Prevouts, SighashCache},
 };
 use btc_tracker::event::TxStatus;
@@ -16,8 +19,15 @@ use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{GraphIdx, OperatorIdx},
 };
-use strata_bridge_tx_graph::transactions::claim::ClaimTx;
-use strata_mosaic_client_api::{MosaicClientApi, types::Role};
+use strata_bridge_sm::graph::{context::GraphSMCtx, machine::generate_game_graph};
+use strata_bridge_tx_graph::{
+    game_graph::{DepositParams, GameGraph},
+    transactions::claim::ClaimTx,
+};
+use strata_mosaic_client_api::{
+    MosaicClientApi,
+    types::{DepositSighashes, Role, Sighash},
+};
 use tracing::{error, info, warn};
 
 use super::utils::finalize_claim_funding_tx;
@@ -27,6 +37,156 @@ use crate::{
     errors::ExecutorError,
     output_handles::OutputHandles,
 };
+
+pub(super) async fn generate_graph_data(
+    cfg: &ExecutionConfig,
+    output_handles: &OutputHandles,
+    graph_idx: GraphIdx,
+    deposit_outpoint: OutPoint,
+    stake_outpoint: OutPoint,
+    unstaking_image: sha256::Hash,
+) -> Result<(), ExecutorError> {
+    info!(
+        ?graph_idx,
+        %deposit_outpoint,
+        %stake_outpoint,
+        "generating graph data"
+    );
+
+    let funding_outpoint = ensure_claim_funding_outpoint(cfg, output_handles, graph_idx).await?;
+    info!(?graph_idx, %funding_outpoint, "funding outpoint acquired");
+
+    let (adaptor_pubkey, fault_pubkeys) = fetch_graph_keys(
+        output_handles.mosaic_client.as_ref(),
+        &output_handles.operator_table,
+        graph_idx,
+    )
+    .await?;
+    info!(
+        ?graph_idx,
+        ?adaptor_pubkey,
+        n_fault_pubkeys = fault_pubkeys.len(),
+        "fetched graph keys from mosaic"
+    );
+
+    let ctx = GraphSMCtx {
+        graph_idx,
+        deposit_outpoint,
+        stake_outpoint,
+        unstaking_image,
+        operator_table: output_handles.operator_table.clone(),
+    };
+    let deposit_params = DepositParams {
+        game_index: NonZero::new(graph_idx.deposit + 1)
+            .expect("(deposit index + 1) is always non-zero"),
+        claim_funds: funding_outpoint,
+        deposit_outpoint,
+        adaptor_pubkey: adaptor_pubkey.try_into().map_err(invalid_mosaic_key)?,
+        fault_pubkeys: fault_pubkeys
+            .iter()
+            .copied()
+            .map(XOnlyPublicKey::try_from)
+            .collect::<Result<_, _>>()
+            .map_err(invalid_mosaic_key)?,
+    };
+    let game_graph = generate_game_graph(&cfg.graph_sm_cfg, &ctx, &deposit_params);
+    info!(?graph_idx, "game graph constructed");
+
+    init_evaluator_with_peers(
+        output_handles.mosaic_client.as_ref(),
+        &output_handles.operator_table,
+        graph_idx,
+        &game_graph,
+    )
+    .await?;
+    info!(
+        ?graph_idx,
+        "evaluator deposits initialized with all watchtowers"
+    );
+
+    let graph_data = GraphData::new(funding_outpoint, adaptor_pubkey, fault_pubkeys);
+    output_handles
+        .msg_handler
+        .write()
+        .await
+        .send_graph_data(graph_idx, graph_data, None)
+        .await;
+    info!(?graph_idx, "broadcasted graph data");
+
+    Ok(())
+}
+
+fn invalid_mosaic_key(err: bitcoin::secp256k1::Error) -> ExecutorError {
+    ExecutorError::MosaicErr(format!("invalid mosaic pubkey: {err:?}"))
+}
+
+/// Returns the claim-funding outpoint for `graph_idx`, fetching it from the wallet (refilling
+/// if necessary) and caching to disk when not already saved.
+async fn ensure_claim_funding_outpoint(
+    cfg: &ExecutionConfig,
+    output_handles: &OutputHandles,
+    graph_idx: GraphIdx,
+) -> Result<OutPoint, ExecutorError> {
+    if let Ok(Some(funding_outpoint)) = output_handles
+        .db
+        .get_claim_funding_outpoint(graph_idx)
+        .await
+    {
+        info!(
+            ?graph_idx,
+            ?funding_outpoint,
+            "reusing cached funding outpoint"
+        );
+        return Ok(funding_outpoint);
+    }
+
+    info!(?graph_idx, "fetching funding outpoint from wallet");
+    let funding_outpoint = {
+        let mut wallet = output_handles.wallet.write().await;
+
+        match wallet.sync().await {
+            Ok(()) => info!("synced wallet successfully"),
+            Err(e) => error!(
+                ?e,
+                "could not sync wallet before fetching claim funding utxo"
+            ),
+        }
+
+        match wallet.claim_funding_utxo(predicate::never).0 {
+            Some(outpoint) => outpoint,
+            None => {
+                warn!("could not acquire claim funding utxo. attempting refill...");
+                let psbt = wallet.refill_claim_funding_utxos(
+                    FeeRate::BROADCAST_MIN,
+                    cfg.funding_uxto_pool_size,
+                )?;
+                finalize_claim_funding_tx(
+                    &output_handles.s2_client,
+                    &output_handles.tx_driver,
+                    wallet.general_wallet(),
+                    psbt,
+                )
+                .await?;
+                wallet.sync().await.map_err(|e| {
+                    error!(?e, "could not sync wallet after refilling funding utxos");
+                    ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
+                })?;
+                wallet
+                    .claim_funding_utxo(predicate::never)
+                    .0
+                    .expect("funding utxos must be available after refill")
+            }
+        }
+    };
+
+    info!(?graph_idx, %funding_outpoint, "saving funding outpoint to disk");
+    output_handles
+        .db
+        .set_claim_funding_outpoint(graph_idx, funding_outpoint)
+        .await?;
+
+    Ok(funding_outpoint)
+}
 
 /// Fetches the owner's adaptor pubkey and the per-watchtower fault pubkeys from mosaic.
 ///
@@ -40,18 +200,16 @@ async fn fetch_graph_keys(
 ) -> Result<(XOnlyPubKey, Vec<XOnlyPubKey>), ExecutorError> {
     let owner_idx = graph_idx.operator;
 
+    info!(?graph_idx, %owner_idx, "fetching adaptor pubkey from mosaic");
     let adaptor_pubkey = mosaic_client
         .get_adaptor_pubkey(owner_idx, graph_idx.deposit)
         .await
         .map_err(|e| ExecutorError::MosaicErr(format!("get_adaptor_pubkey: {e:?}")))?
         .ok_or_else(|| ExecutorError::MosaicErr("adaptor pubkey missing for ready setup".into()))?;
 
-    let watchtowers = operator_table
-        .operator_idxs()
-        .into_iter()
-        .filter(|idx| *idx != owner_idx);
     let mut fault_pubkeys = Vec::new();
-    for watchtower in watchtowers {
+    for watchtower in watchtower_idxs(operator_table, owner_idx) {
+        info!(?graph_idx, %watchtower, "fetching fault pubkey from mosaic");
         let fault_pubkey = mosaic_client
             .get_fault_pubkey(watchtower, Role::Evaluator)
             .await
@@ -67,108 +225,55 @@ async fn fetch_graph_keys(
     Ok((adaptor_pubkey.into(), fault_pubkeys))
 }
 
-pub(super) async fn generate_graph_data(
-    cfg: &ExecutionConfig,
-    output_handles: &OutputHandles,
+/// Pulls per-watchtower counterproof sighashes from `game_graph` and calls
+/// `init_evaluator_deposit` on mosaic for each watchtower peer.
+async fn init_evaluator_with_peers(
+    mosaic_client: &dyn MosaicClientApi,
+    operator_table: &OperatorTable,
     graph_idx: GraphIdx,
+    game_graph: &GameGraph,
 ) -> Result<(), ExecutorError> {
-    info!(?graph_idx, "generating graph data");
-    let OutputHandles {
-        wallet,
-        db,
-        msg_handler,
-        s2_client,
-        tx_driver,
-        mosaic_client,
-        operator_table,
-        ..
-    } = output_handles;
-
-    let (adaptor_pubkey, fault_pubkeys) =
-        fetch_graph_keys(mosaic_client.as_ref(), operator_table, graph_idx).await?;
-
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2669>
-    // After the keys are available, build the game graph locally, compute the counterproof
-    // sighashes for each watchtower, and call `mosaic_client.init_evaluator_deposit` with them.
-
-    info!(?graph_idx, "checking if data already exists in disk");
-    if let Ok(Some(funding_outpoint)) = db.get_claim_funding_outpoint(graph_idx).await {
+    for (slot, watchtower_idx) in watchtower_idxs(operator_table, graph_idx.operator).enumerate() {
+        let sighashes = game_graph.counterproofs[slot].counterproof.sighashes();
         info!(
             ?graph_idx,
-            ?funding_outpoint,
-            "graph data already exists in disk, skipping generation"
+            %watchtower_idx,
+            n_sighashes = sighashes.len(),
+            "computed counterproof sighashes"
         );
+        let deposit_sighashes: DepositSighashes = sighashes
+            .iter()
+            .map(|m| *m.as_ref())
+            .collect::<Vec<Sighash>>()
+            .try_into()
+            .map_err(|v: Vec<Sighash>| {
+                ExecutorError::MosaicErr(format!(
+                    "counterproof produced {} sighashes, expected {}",
+                    v.len(),
+                    std::mem::size_of::<DepositSighashes>() / std::mem::size_of::<Sighash>()
+                ))
+            })?;
 
-        let graph_data = GraphData::new(funding_outpoint, adaptor_pubkey, fault_pubkeys);
-        msg_handler
-            .write()
+        info!(?graph_idx, %watchtower_idx, "calling mosaic init_evaluator_deposit");
+        mosaic_client
+            .init_evaluator_deposit(watchtower_idx, graph_idx.deposit, deposit_sighashes)
             .await
-            .send_graph_data(graph_idx, graph_data, None)
-            .await;
-
-        return Ok(());
+            .map_err(|e| ExecutorError::MosaicErr(format!("init_evaluator_deposit: {e:?}")))?;
+        info!(?graph_idx, %watchtower_idx, "mosaic init_evaluator_deposit ok");
     }
 
-    info!(?graph_idx, "fetching funding outpoint from wallet");
-
-    let (funding_outpoint, _remaining) = {
-        let mut wallet = wallet.write().await;
-
-        match wallet.sync().await {
-            Ok(()) => info!("synced wallet successfully"),
-            Err(e) => error!(
-                ?e,
-                "could not sync wallet before fetching claim funding utxo" /* still safe to
-                                                                            * continue
-                                                                            * though */
-            ),
-        }
-
-        let (funding_outpoint, remaining) = wallet.claim_funding_utxo(predicate::never);
-        match funding_outpoint {
-            Some(outpoint) => (outpoint, remaining),
-            None => {
-                warn!("could not acquire claim funding utxo. attempting refill...");
-                // The first time we run the node, it may be the case that the wallet starts off
-                // empty.
-                let psbt = wallet.refill_claim_funding_utxos(
-                    FeeRate::BROADCAST_MIN,
-                    cfg.funding_uxto_pool_size,
-                )?;
-
-                // we only wait till the claim funding tx is in the mempool so it is fine to hold
-                // the `wallet` lock till that happens.
-                finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt)
-                    .await?;
-
-                wallet.sync().await.map_err(|e| {
-                    error!(?e, "could not sync wallet after refilling funding utxos");
-
-                    ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
-                })?;
-
-                let (funding_op, remaining) = wallet.claim_funding_utxo(predicate::never);
-
-                (
-                    funding_op.expect("funding utxos must be available after refill"),
-                    remaining,
-                )
-            }
-        }
-    };
-
-    info!(?graph_idx, %funding_outpoint, "fetched funding outpoint from wallet, saving to disk");
-    db.set_claim_funding_outpoint(graph_idx, funding_outpoint)
-        .await?;
-
-    let graph_data = GraphData::new(funding_outpoint, adaptor_pubkey, fault_pubkeys);
-    msg_handler
-        .write()
-        .await
-        .send_graph_data(graph_idx, graph_data, None)
-        .await;
-
     Ok(())
+}
+
+/// Returns the watchtower (non-owner) operator indices in operator-table order.
+fn watchtower_idxs(
+    operator_table: &OperatorTable,
+    owner_idx: OperatorIdx,
+) -> impl Iterator<Item = OperatorIdx> + '_ {
+    operator_table
+        .operator_idxs()
+        .into_iter()
+        .filter(move |idx| *idx != owner_idx)
 }
 
 /// Verifies adaptor signatures for the generated graph from a particular watchtower.
