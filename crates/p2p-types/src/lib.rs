@@ -10,9 +10,9 @@ mod messages;
 mod rkyv_wrappers;
 mod unstaking_data;
 
-pub use bitcoin::{PartialSignature, PubNonce};
+pub use bitcoin::{PartialSignature, PubNonce, XOnlyPubKey};
 pub use descriptor::PayoutDescriptor;
-pub use graph_data::ClaimInput;
+pub use graph_data::GraphData;
 pub use messages::{
     GossipsubMsg, MuSig2Nonce, MuSig2Partial, NagRequest, NagRequestPayload, UnsignedGossipsubMsg,
 };
