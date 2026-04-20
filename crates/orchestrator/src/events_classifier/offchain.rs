@@ -73,7 +73,7 @@ pub(crate) fn classify_unsigned_gossip(
     match msg {
         UnsignedGossipsubMsg::GraphDataExchange {
             graph_idx,
-            claim_input,
+            graph_data,
         } => {
             let Some(sender_idx) = sm_registry.lookup_operator(&SMId::Graph(*graph_idx), key)
             else {
@@ -95,7 +95,7 @@ pub(crate) fn classify_unsigned_gossip(
             vec![
                 GraphEvent::GraphDataProduced(GraphEvents::GraphDataGeneratedEvent {
                     graph_idx: *graph_idx,
-                    claim_funds: claim_input.inner(),
+                    claim_funds: graph_data.funding_outpoint,
                 })
                 .into(),
             ]
@@ -612,11 +612,12 @@ fn classify_mosaic_event(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEve
 mod tests {
     use bitcoin::{OutPoint, Txid, hashes::Hash};
     use strata_bridge_p2p_types::{
-        ClaimInput, GossipsubMsg, PayoutDescriptor, UnsignedGossipsubMsg,
+        GossipsubMsg, GraphData, PayoutDescriptor, UnsignedGossipsubMsg, XOnlyPubKey,
     };
     use strata_bridge_primitives::types::{
         BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey,
     };
+    use strata_bridge_test_utils::bitcoin::generate_xonly_pubkey;
 
     use super::*;
     use crate::testing::{
@@ -959,7 +960,11 @@ mod tests {
     fn graph_data_msg(graph_idx: GraphIdx) -> UnsignedGossipsubMsg {
         UnsignedGossipsubMsg::GraphDataExchange {
             graph_idx,
-            claim_input: ClaimInput::from(OutPoint::new(Txid::all_zeros(), 0)),
+            graph_data: GraphData::new(
+                OutPoint::new(Txid::all_zeros(), 0),
+                XOnlyPubKey::from(generate_xonly_pubkey()),
+                vec![XOnlyPubKey::from(generate_xonly_pubkey())],
+            ),
         }
     }
 

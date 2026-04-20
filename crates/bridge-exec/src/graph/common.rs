@@ -3,13 +3,16 @@
 use algebra::predicate;
 use bitcoin::{
     FeeRate, OutPoint, TapSighashType, Txid, XOnlyPublicKey,
+    secp256k1::{Keypair, SECP256K1},
     sighash::{Prevouts, SighashCache},
 };
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
+use rand::rngs::OsRng;
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_db::traits::BridgeDb;
+use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
 use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{GraphIdx, OperatorIdx},
@@ -24,6 +27,16 @@ use crate::{
     errors::ExecutorError,
     output_handles::OutputHandles,
 };
+
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-2666>
+// Replace this placeholder with adaptor and fault pubkeys fetched from the mosaic-client.
+fn placeholder_graph_keys() -> (XOnlyPubKey, Vec<XOnlyPubKey>) {
+    let adaptor = Keypair::new(SECP256K1, &mut OsRng)
+        .x_only_public_key()
+        .0
+        .into();
+    (adaptor, Vec::new())
+}
 
 pub(super) async fn generate_graph_data(
     cfg: &ExecutionConfig,
@@ -48,10 +61,12 @@ pub(super) async fn generate_graph_data(
             "graph data already exists in disk, skipping generation"
         );
 
+        let (adaptor_pubkey, fault_pubkeys) = placeholder_graph_keys();
+        let graph_data = GraphData::new(funding_outpoint, adaptor_pubkey, fault_pubkeys);
         msg_handler
             .write()
             .await
-            .send_graph_data(graph_idx, funding_outpoint, None)
+            .send_graph_data(graph_idx, graph_data, None)
             .await;
 
         return Ok(());
@@ -109,10 +124,12 @@ pub(super) async fn generate_graph_data(
     db.set_claim_funding_outpoint(graph_idx, funding_outpoint)
         .await?;
 
+    let (adaptor_pubkey, fault_pubkeys) = placeholder_graph_keys();
+    let graph_data = GraphData::new(funding_outpoint, adaptor_pubkey, fault_pubkeys);
     msg_handler
         .write()
         .await
-        .send_graph_data(graph_idx, funding_outpoint, None)
+        .send_graph_data(graph_idx, graph_data, None)
         .await;
 
     Ok(())

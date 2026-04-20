@@ -13,7 +13,6 @@ strata-bridge-primitives.workspace = true
 strata-p2p.workspace = true
 
 anyhow.workspace = true
-bitcoin.workspace = true
 libp2p.workspace = true
 libp2p-identity.workspace = true
 musig2.workspace = true
@@ -25,6 +24,8 @@ tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-common.workspace = true
+strata-bridge-test-utils.workspace = true
 
+bitcoin.workspace = true
 futures.workspace = true
 secp256k1.workspace = true
