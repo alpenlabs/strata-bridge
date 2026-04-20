@@ -383,6 +383,7 @@ pub(super) fn all_state_variants() -> Vec<GraphState> {
     states.push(bridge_proof_posted_state());
     states.push(bridge_proof_timedout_state());
     states.push(counter_proof_posted_state());
+    states.push(counter_proof_posted_without_refuted_proof_state());
     states.push(all_nackd_state());
     states.push(acked_state());
     states.extend(terminal_states());
