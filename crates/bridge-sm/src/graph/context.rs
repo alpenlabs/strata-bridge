@@ -6,7 +6,7 @@ use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
-use strata_bridge_tx_graph::game_graph::{KeyData, SetupParams};
+use strata_bridge_tx_graph::game_graph::{DepositParams, KeyData, SetupParams};
 
 use crate::graph::config::GraphSMCfg;
 
@@ -71,8 +71,15 @@ impl GraphSMCtx {
     }
 
     /// Generates the [`SetupParams`] required for graph generation.
-    pub fn generate_setup_params(&self, cfg: &GraphSMCfg) -> SetupParams {
-        let keys = self.generate_key_data(cfg);
+    ///
+    /// The adaptor and fault pubkeys are drawn from the deposit-time parameters, since they
+    /// are only known once the graph owner has fetched them from mosaic at deposit time.
+    pub fn generate_setup_params(
+        &self,
+        cfg: &GraphSMCfg,
+        deposit_params: &DepositParams,
+    ) -> SetupParams {
+        let keys = self.generate_key_data(cfg, deposit_params);
 
         SetupParams {
             operator_index: self.graph_idx.operator,
@@ -81,9 +88,11 @@ impl GraphSMCtx {
         }
     }
 
-    /// Generates the [`KeyData`] required for graph generation using static configuration
-    /// parameters.
-    pub fn generate_key_data(&self, cfg: &GraphSMCfg) -> KeyData {
+    /// Generates the [`KeyData`] required for graph generation.
+    ///
+    /// Static keys come from `cfg`; the owner's adaptor pubkey and the per-watchtower fault
+    /// pubkeys come from `deposit_params` because they are produced per-deposit by mosaic.
+    pub fn generate_key_data(&self, cfg: &GraphSMCfg, deposit_params: &DepositParams) -> KeyData {
         let n_of_n_pubkey = self
             .operator_table()
             .aggregated_btc_key()
@@ -91,12 +100,10 @@ impl GraphSMCtx {
             .0;
 
         let owner_idx = self.operator_idx() as usize;
-        let adaptor_key = cfg.operator_adaptor_keys[owner_idx];
         let watchtower_pubkeys = self.watchtower_pubkeys();
 
         let admin_pubkey = cfg.admin_pubkey;
         let unstaking_image = self.unstaking_image();
-        let wt_fault_pubkeys = self.watchtower_fault_pubkeys(&cfg.watchtower_fault_pubkeys);
 
         let owner_desc = cfg.payout_descs[owner_idx].clone();
         let slash_watchtower_descriptors = cfg
@@ -108,11 +115,11 @@ impl GraphSMCtx {
 
         KeyData {
             n_of_n_pubkey,
-            operator_pubkey: adaptor_key,
+            operator_pubkey: deposit_params.adaptor_pubkey,
             watchtower_pubkeys,
             admin_pubkey,
             unstaking_image,
-            wt_fault_pubkeys,
+            wt_fault_pubkeys: deposit_params.fault_pubkeys.clone(),
             operator_descriptor: owner_desc,
             slash_watchtower_descriptors,
         }
@@ -136,30 +143,6 @@ impl GraphSMCtx {
             .into_iter()
             .filter(|key| key.x_only_public_key().0 != owner_pubkey)
             .map(|key| key.x_only_public_key().0)
-            .collect()
-    }
-
-    /// Returns the list of watchtower fault pubkeys for this graph.
-    pub fn watchtower_fault_pubkeys(
-        &self,
-        all_fault_pubkeys: &[XOnlyPublicKey],
-    ) -> Vec<XOnlyPublicKey> {
-        let expected_watchtower_count = self.watchtower_pubkeys().len();
-
-        // Support both config shapes:
-        // - already watchtower-only fault keys (len == n-1)
-        // - per-operator fault keys (len == n), where owner's entry must be skipped
-        if all_fault_pubkeys.len() == expected_watchtower_count {
-            return all_fault_pubkeys.to_vec();
-        }
-
-        let owner_idx = self.operator_idx() as usize;
-
-        all_fault_pubkeys
-            .iter()
-            .enumerate()
-            .filter(|(idx, _)| *idx != owner_idx)
-            .map(|(_, pubkey)| *pubkey)
             .collect()
     }
 }

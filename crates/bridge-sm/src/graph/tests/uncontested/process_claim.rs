@@ -76,7 +76,7 @@ mod tests {
         let nonpov_ctx = create_nonpov_sm(graph_signed_state(&nonce_ctx))
             .context
             .clone();
-        let game_graph = generate_game_graph(&cfg, &nonpov_ctx, test_deposit_params());
+        let game_graph = generate_game_graph(&cfg, &nonpov_ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
 
         let from_states = [
@@ -163,7 +163,7 @@ mod tests {
             operator_table: test_operator_table(N_TEST_OPERATORS, pov_idx),
         };
 
-        let game_graph = generate_game_graph(cfg, &context, test_deposit_params());
+        let game_graph = generate_game_graph(cfg, &context, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
 
         let total_slots = 0..N_TEST_OPERATORS as u32;

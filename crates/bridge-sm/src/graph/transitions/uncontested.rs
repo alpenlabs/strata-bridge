@@ -51,8 +51,10 @@ impl GraphSM {
                     game_index,
                     claim_funds: graph_data_event.claim_funds,
                     deposit_outpoint: self.context.deposit_outpoint(),
+                    adaptor_pubkey: graph_data_event.adaptor_pubkey,
+                    fault_pubkeys: graph_data_event.fault_pubkeys.clone(),
                 };
-                let game_graph = generate_game_graph(&cfg, self.context(), deposit_params);
+                let game_graph = generate_game_graph(&cfg, self.context(), &deposit_params);
 
                 // As the operator who owns this graph, we do not need to verify adaptor
                 // signatures. Transition directly to `AdaptorsVerified` state
@@ -154,7 +156,7 @@ impl GraphSM {
                 graph_data,
                 graph_summary,
             } => {
-                let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
+                let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
                 let graph_inpoints = game_graph.musig_inpoints().pack();
                 let graph_tweaks = game_graph
                     .musig_signing_info()
@@ -165,7 +167,7 @@ impl GraphSM {
 
                 self.state = GraphState::AdaptorsVerified {
                     last_block_height: *last_block_height,
-                    graph_data: *graph_data,
+                    graph_data: graph_data.clone(),
                     graph_summary: graph_summary.clone(),
                     pubnonces: BTreeMap::new(),
                 };
@@ -271,7 +273,7 @@ impl GraphSM {
                     .pack();
 
                     // Generate the game graph to access the infos for duty emission
-                    let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
+                    let game_graph = generate_game_graph(&cfg, &graph_ctx, graph_data);
 
                     // Emit duties to publish partial signatures
                     let claim_txid = game_graph.claim.as_ref().compute_txid();
@@ -293,7 +295,7 @@ impl GraphSM {
                     // Transition to NoncesCollected state
                     self.state = GraphState::NoncesCollected {
                         last_block_height: *last_block_height,
-                        graph_data: *graph_data,
+                        graph_data: graph_data.clone(),
                         graph_summary: graph_summary.clone(),
                         pubnonces: pubnonces.clone(),
                         agg_nonces: agg_nonces.clone(),
@@ -388,7 +390,7 @@ impl GraphSM {
 
                 // Validate the individual partial sigs
                 // Generate the game graph to access signing infos for verification
-                let game_graph = generate_game_graph(&cfg, &graph_ctx, *graph_data);
+                let game_graph = generate_game_graph(&cfg, &graph_ctx, graph_data);
                 let signing_infos = game_graph.musig_signing_info().pack();
                 let operator_pubnonces = pubnonces
                     .get(&partials_received_event.operator_idx)
@@ -471,7 +473,7 @@ impl GraphSM {
                     // Transition to GraphSigned state
                     self.state = GraphState::GraphSigned {
                         last_block_height: *last_block_height,
-                        graph_data: *graph_data,
+                        graph_data: graph_data.clone(),
                         graph_summary: graph_summary.clone(),
                         agg_nonces: Some(agg_nonces.clone()),
                         signatures: agg_sigs.clone(),
@@ -535,7 +537,7 @@ impl GraphSM {
 
                 self.state = GraphState::Assigned {
                     last_block_height: *last_block_height,
-                    graph_data: *graph_data,
+                    graph_data: graph_data.clone(),
                     graph_summary: graph_summary.clone(),
                     signatures: signatures.clone(),
                     assignee: assignment_event.assignee,
@@ -577,7 +579,7 @@ impl GraphSM {
                 if is_same_assignee {
                     self.state = GraphState::Assigned {
                         last_block_height: *last_block_height,
-                        graph_data: *graph_data,
+                        graph_data: graph_data.clone(),
                         graph_summary: graph_summary.clone(),
                         signatures: signatures.clone(),
                         assignee: assignment_event.assignee,
@@ -590,7 +592,7 @@ impl GraphSM {
                     // to nag requests for partial signatures after assignment.
                     self.state = GraphState::GraphSigned {
                         last_block_height: *last_block_height,
-                        graph_data: *graph_data,
+                        graph_data: graph_data.clone(),
                         graph_summary: graph_summary.clone(),
                         agg_nonces: None,
                         signatures: signatures.clone(),
@@ -658,7 +660,7 @@ impl GraphSM {
 
                 self.state = GraphState::Fulfilled {
                     last_block_height: *last_block_height,
-                    graph_data: *graph_data,
+                    graph_data: graph_data.clone(),
                     graph_summary: graph_summary.clone(),
                     coop_payout_failed: false,
                     assignee: *assignee,
@@ -710,7 +712,7 @@ impl GraphSM {
 
                 self.state = GraphState::Claimed {
                     last_block_height: *last_block_height,
-                    graph_data: *graph_data,
+                    graph_data: graph_data.clone(),
                     graph_summary: graph_summary.clone(),
                     signatures: signatures.clone(),
                     fulfillment_txid: Some(*fulfillment_txid),
@@ -747,7 +749,7 @@ impl GraphSM {
                 let duties =
                     if self.context().operator_idx() != self.context().operator_table().pov_idx() {
                         // Generate the game graph to access the infos for duty emission
-                        let game_graph = generate_game_graph(&cfg, self.context(), *graph_data);
+                        let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
 
                         let contest_tx = game_graph.contest;
                         let watchtower_index = watchtower_slot_for_operator(
@@ -775,7 +777,7 @@ impl GraphSM {
 
                 self.state = GraphState::Claimed {
                     last_block_height: *last_block_height,
-                    graph_data: *graph_data,
+                    graph_data: graph_data.clone(),
                     graph_summary: graph_summary.clone(),
                     signatures: signatures.clone(),
                     fulfillment_txid: None,

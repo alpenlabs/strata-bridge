@@ -70,7 +70,7 @@ impl GraphSM {
                 if new_block_event.block_height >= *deadline {
                     self.state = GraphState::GraphSigned {
                         last_block_height: new_block_event.block_height,
-                        graph_data: *graph_data,
+                        graph_data: graph_data.clone(),
                         graph_summary: graph_summary.clone(),
                         agg_nonces: None,
                         signatures: signatures.clone(),
@@ -90,7 +90,6 @@ impl GraphSM {
                 ..
             } => {
                 // Extract context values before the match to avoid borrow conflicts
-                let graph_data = *graph_data;
                 let claim_height = *claim_block_height;
                 *last_block_height = new_block_event.block_height;
 
@@ -125,7 +124,7 @@ impl GraphSM {
                 let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
 
                 if new_block_event.block_height > *contest_block_height + payout_timelock {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
                     let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
 
                     return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
@@ -136,7 +135,7 @@ impl GraphSM {
                 // `proof_timelock` is smaller than the `payout_timelock` so check this second for
                 // narrowing.
                 if new_block_event.block_height > *contest_block_height + proof_timelock {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
                     let signed_timeout_tx = game_graph
                         .bridge_proof_timeout
                         .finalize(sigs.bridge_proof_timeout);
@@ -163,7 +162,7 @@ impl GraphSM {
                     &graph_ctx,
                     new_block_event.block_height,
                     *contest_block_height,
-                    *graph_data,
+                    graph_data.clone(),
                     signatures,
                 ) {
                     return Ok(GSMOutput::with_duties(vec![slash_duty]));
@@ -174,7 +173,7 @@ impl GraphSM {
                     &graph_ctx,
                     new_block_event.block_height,
                     *contest_block_height,
-                    *graph_data,
+                    graph_data.clone(),
                     signatures,
                 ) {
                     return Ok(GSMOutput::with_duties(vec![contested_payout_duty]));
@@ -195,7 +194,7 @@ impl GraphSM {
                     u64::from(cfg.game_graph_params.contested_payout_timelock.value());
 
                 if new_block_event.block_height > *contest_block_height + payout_timelock {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
                     let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
 
                     return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
@@ -223,7 +222,7 @@ impl GraphSM {
                     &graph_ctx,
                     new_block_event.block_height,
                     *contest_block_height,
-                    *graph_data,
+                    graph_data.clone(),
                     signatures,
                 ) {
                     return Ok(GSMOutput::with_duties(vec![slash_duty]));
@@ -234,7 +233,7 @@ impl GraphSM {
                     &graph_ctx,
                     new_block_event.block_height,
                     *contest_block_height,
-                    *graph_data,
+                    graph_data.clone(),
                     signatures,
                 ) {
                     return Ok(GSMOutput::with_duties(vec![contested_payout_duty]));
@@ -253,7 +252,7 @@ impl GraphSM {
                     && invalid_claim
                     && new_block_event.block_height > *contest_block_height + proof_timelock
                 {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
                     let signed_timeout_tx = game_graph
                         .bridge_proof_timeout
                         .finalize(sigs.bridge_proof_timeout);
@@ -292,7 +291,7 @@ impl GraphSM {
                         )
                     });
 
-                let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
                 let counterproof_graph =
                     game_graph
                         .counterproofs
@@ -339,7 +338,7 @@ impl GraphSM {
                     &graph_ctx,
                     new_block_event.block_height,
                     *contest_block_height,
-                    *graph_data,
+                    graph_data.clone(),
                     signatures,
                 ) {
                     return Ok(GSMOutput::with_duties(vec![slash_duty]));
@@ -350,7 +349,7 @@ impl GraphSM {
                     &graph_ctx,
                     new_block_event.block_height,
                     *contest_block_height,
-                    *graph_data,
+                    graph_data.clone(),
                     signatures,
                 ) {
                     return Ok(GSMOutput::with_duties(vec![contested_payout_duty]));
@@ -375,7 +374,7 @@ impl GraphSM {
                 if !is_own_graph
                     && new_block_event.block_height > *contest_block_height + payout_timelock
                 {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, *graph_data, signatures);
+                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
                     let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
 
                     return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
@@ -412,7 +411,7 @@ fn check_slash_timeout(
     let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
 
     if !is_own_graph && block_height > contest_block_height + payout_timelock {
-        let (game_graph, sigs) = unpack_game(cfg, graph_ctx, graph_data, signatures);
+        let (game_graph, sigs) = unpack_game(cfg, graph_ctx, &graph_data, signatures);
         let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
 
         return Some(GraphDuty::PublishSlash { signed_slash_tx });
@@ -435,7 +434,7 @@ fn check_contested_payout_timeout(
     let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
 
     if is_own_graph && block_height > contest_block_height + ack_timelock {
-        let (game_graph, sigs) = unpack_game(cfg, graph_ctx, graph_data, signatures);
+        let (game_graph, sigs) = unpack_game(cfg, graph_ctx, &graph_data, signatures);
         let signed_contested_payout_tx =
             game_graph.contested_payout.finalize(sigs.contested_payout);
 

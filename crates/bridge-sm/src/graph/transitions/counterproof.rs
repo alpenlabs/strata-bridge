@@ -154,7 +154,7 @@ impl GraphSM {
 
         let pov_idx = self.context().operator_table().pov_idx();
         let duties = if self.context().operator_idx() == pov_idx {
-            let setup_params = self.context().generate_setup_params(cfg);
+            let setup_params = self.context().generate_setup_params(cfg, graph_data);
             let connectors =
                 GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
 
