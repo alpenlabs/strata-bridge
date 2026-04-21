@@ -53,7 +53,19 @@ pub async fn execute_graph_duty(
             graph_idx,
             watchtower_idx,
             sighashes,
-        } => verify_adaptors(*graph_idx, *watchtower_idx, sighashes).await,
+            adaptor_pubkey,
+            fault_pubkey,
+        } => {
+            verify_adaptors(
+                &output_handles,
+                *graph_idx,
+                *watchtower_idx,
+                sighashes,
+                *adaptor_pubkey,
+                *fault_pubkey,
+            )
+            .await
+        }
         GraphDuty::PublishGraphNonces {
             graph_idx,
             graph_inpoints,
