@@ -48,6 +48,8 @@ mod tests {
         let expected_sighashes = game_graph.counterproofs[pov_counterproof_idx]
             .counterproof
             .sighashes();
+        let expected_adaptor_pubkey = graph_data.adaptor_pubkeys[pov_counterproof_idx];
+        let expected_fault_pubkey = graph_data.fault_pubkeys[pov_counterproof_idx];
 
         test_nonpov_owned_handler_output(
             cfg,
@@ -58,6 +60,8 @@ mod tests {
                     graph_idx: sm.context().graph_idx(),
                     watchtower_idx: pov_operator_idx,
                     sighashes: expected_sighashes,
+                    adaptor_pubkey: expected_adaptor_pubkey,
+                    fault_pubkey: expected_fault_pubkey,
                 }],
             },
         );

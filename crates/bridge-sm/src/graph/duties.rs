@@ -113,6 +113,15 @@ pub enum GraphDuty {
 
         /// Sighashes to verify adaptors against.
         sighashes: Vec<Message>,
+
+        /// Owner-side adaptor pubkey for this watchtower slot. Needed to initialize the garbler
+        /// deposit on mosaic before verification can proceed.
+        adaptor_pubkey: XOnlyPublicKey,
+
+        /// Graph-data fault pubkey for this watchtower slot. The executor must cross-check this
+        /// against its own mosaic-reported fault pubkey for the same tableset before trusting
+        /// the received graph data.
+        fault_pubkey: XOnlyPublicKey,
     },
 
     /// Publish nonces for graph signing.
