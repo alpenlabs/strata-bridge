@@ -335,27 +335,18 @@ pub(crate) async fn publish_stake(
 
     let prevouts = Prevouts::All(&[prevout]);
     let mut sighash_cache = SighashCache::new(tx);
-    let mut signed_tx = tx.clone();
-    for (input_index, _) in tx.input.iter().enumerate() {
-        let sighash = create_key_spend_hash(
-            &mut sighash_cache,
-            prevouts.clone(),
-            TapSighashType::Default,
-            input_index,
-        )
+    let sighash = create_key_spend_hash(&mut sighash_cache, prevouts, TapSighashType::Default, 0)
         .expect("must be able to create key spend sighash");
 
-        let signature = output_handles
-            .s2_client
-            .stakechain_wallet_signer()
-            .sign(sighash.as_ref(), None)
-            .await
-            .map_err(ExecutorError::SecretServiceErr)?;
+    let signature = output_handles
+        .s2_client
+        .stakechain_wallet_signer()
+        .sign(sighash.as_ref(), None)
+        .await
+        .map_err(ExecutorError::SecretServiceErr)?;
 
-        signed_tx.input[input_index]
-            .witness
-            .push(signature.serialize());
-    }
+    let mut signed_tx = tx.clone();
+    signed_tx.input[0].witness.push(signature.serialize());
 
     info!(%stake_txid, "publishing signed stake transaction");
     publish_signed_transaction(
