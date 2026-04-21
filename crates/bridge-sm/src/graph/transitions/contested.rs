@@ -3,17 +3,20 @@ use std::sync::Arc;
 use strata_bridge_primitives::proof::verify_bridge_proof;
 use strata_bridge_tx_graph::game_graph::GameConnectors;
 
-use crate::graph::{
-    config::GraphSMCfg,
-    duties::GraphDuty,
-    errors::{GSMError, GSMResult},
-    events::{
-        BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent,
-        CounterProofAckConfirmedEvent, CounterProofNackConfirmedEvent, SlashConfirmedEvent,
+use crate::{
+    graph::{
+        config::GraphSMCfg,
+        duties::GraphDuty,
+        errors::{GSMError, GSMResult},
+        events::{
+            BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent,
+            CounterProofAckConfirmedEvent, CounterProofNackConfirmedEvent, SlashConfirmedEvent,
+        },
+        machine::{GSMOutput, GraphSM, generate_game_graph},
+        state::GraphState,
+        watchtower::watchtower_slot_for_operator,
     },
-    machine::{GSMOutput, GraphSM, generate_game_graph},
-    state::GraphState,
-    watchtower::watchtower_slot_for_operator,
+    tx_classifier::spends_contest_proof_connector,
 };
 
 impl GraphSM {
@@ -93,6 +96,19 @@ impl GraphSM {
         cfg: Arc<GraphSMCfg>,
         event: BridgeProofConfirmedEvent,
     ) -> GSMResult<GSMOutput> {
+        // Ensure the bridge proof tx actually spends the contest proof connector.
+        let validate_spend = |contest_txid, event: BridgeProofConfirmedEvent| {
+            if spends_contest_proof_connector(contest_txid, &event.tx) {
+                Ok(event)
+            } else {
+                Err(GSMError::rejected(
+                    self.state.clone(),
+                    event.into(),
+                    "bridge proof tx does not spend the contest proof connector",
+                ))
+            }
+        };
+
         match self.state.clone() {
             GraphState::Contested {
                 graph_data,
@@ -102,6 +118,7 @@ impl GraphSM {
                 contest_block_height,
                 ..
             } => {
+                let event = validate_spend(graph_summary.contest, event)?;
                 let bridge_proof = event.proof.clone();
 
                 let is_watchtower =
@@ -169,6 +186,7 @@ impl GraphSM {
                     return Err(GSMError::duplicate(self.state.clone(), event.into()));
                 }
 
+                let event = validate_spend(graph_summary.contest, event)?;
                 let bridge_proof = event.proof.clone();
                 let pov_idx = self.context().operator_table().pov_idx();
                 let is_watchtower = self.context().operator_idx() != pov_idx;

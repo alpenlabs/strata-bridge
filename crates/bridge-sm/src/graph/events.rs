@@ -6,7 +6,7 @@
 
 use std::fmt::Display;
 
-use bitcoin::{OutPoint, Txid};
+use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_p2p_types::NagRequestPayload;
@@ -100,6 +100,9 @@ pub struct BridgeProofConfirmedEvent {
 
     /// The block height at which the bridge proof transaction was confirmed.
     pub bridge_proof_block_height: BitcoinBlockHeight,
+
+    /// The bridge proof transaction.
+    pub tx: Transaction,
 
     /// The bridge proof.
     pub proof: ProofReceipt,
