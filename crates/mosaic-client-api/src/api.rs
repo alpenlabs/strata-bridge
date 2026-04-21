@@ -5,21 +5,25 @@ use crate::{MosaicError, MosaicEvent, MosaicSetupError, types::*};
 
 /// Mosaic client interface.
 ///
-/// # Setups and addressing
+/// # Scoping model
 ///
-/// Mosaic operations act on **setups** (also called tablesets). A setup is a two-party arrangement
-/// between own mosaic node and another operator's mosaic node, with own mosaic playing either the
-/// **garbler** (watchtower) or **evaluator** (operator) role and the other operator playing the
-/// opposite role.
+/// Every mosaic operation is scoped either to a **tableset** or to a **deposit** inside a
+/// tableset.
 ///
-/// A setup is uniquely identified by the pair `(operator_idx, role)`:
+/// - A tableset is identified by `(own peer id, own role, other peer id)`.
+/// - A deposit is identified by `(own peer id, own role, other peer id, deposit id)`.
 ///
-/// - **`operator_idx`** — index of the *other* operator in the setup.
-/// - **`role`** — own operator's role in this setup (garbler or evaluator).
+/// The own peer id is fixed (it's always the operator's own mosaic node), so in every method the
+/// `operator_idx` argument is the *other* peer's id. `role` is either provided explicitly (when
+/// the same endpoint serves both roles, e.g. [`ensure_mosaic_setup`](Self::ensure_mosaic_setup))
+/// or inferred from the endpoint (e.g. [`init_evaluator_deposit`](Self::init_evaluator_deposit)
+/// is evaluator-only and [`init_garbler_deposit`](Self::init_garbler_deposit) is garbler-only).
 ///
-/// Some methods that are role-specific (e.g.
-/// [`complete_adaptor_sigs`](Self::complete_adaptor_sigs) for garbler,
-/// [`evaluate_and_sign`](Self::evaluate_and_sign) for evaluator) and imply own role.
+/// # Roles
+///
+/// Each tableset is a two-party arrangement between own mosaic node and another operator's
+/// mosaic node, with own mosaic playing either the **garbler** (watchtower) or **evaluator**
+/// (operator) role and the other operator playing the opposite role.
 #[async_trait]
 pub trait MosaicClientApi: Send + Sync + 'static {
     // ---- Setup ----
