@@ -629,17 +629,18 @@ fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent
 
 fn classify_mosaic_event(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
     match sm_id {
-        SMId::Deposit(_) => {
-            error!("got unexpected SMId::Deposit for mosaic event");
-            None
-        }
-        SMId::Graph(graph_idx) => sm_registry
-            .get_graph(graph_idx)
-            .map(|_| GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}).into()),
         SMId::Stake(_) => {
             error!("got unexpected SMId::Stake for mosaic event");
             None
         }
+        SMId::Deposit(_) => {
+            error!("got unexpected SMId::Deposit for mosaic event");
+            None
+        }
+        SMId::Graph(graph_idx) => sm_registry.get_graph(graph_idx).map(|_| {
+            debug!(%graph_idx, "classifying mosaic AdaptorsVerified into graph event");
+            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}).into()
+        }),
     }
 }
 

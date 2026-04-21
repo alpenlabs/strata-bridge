@@ -11,15 +11,8 @@
 use std::collections::VecDeque;
 
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
-use strata_bridge_sm::{
-    deposit::machine::DepositSM,
-    graph::{
-        duties::GraphDuty,
-        events::{AdaptorsVerifiedEvent, GraphEvent},
-        machine::GraphSM,
-    },
-};
-use tracing::{info, warn};
+use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
+use tracing::warn;
 
 use crate::{
     errors::PipelineError,
@@ -73,45 +66,18 @@ impl<'a> Applicator<'a> {
     ///
     /// This method:
     /// 1. Processes each seed event through the state transition function.
-    /// 2. Fabricates any follow-up events (e.g., `AdaptorsVerified` after `VerifyAdaptors`).
-    /// 3. Drains the signal queue until no more signals remain.
-    /// 4. Accumulates all duties produced.
-    /// 5. Updates the persistence tracker for every touched state machine.
+    /// 2. Drains the signal queue until no more signals remain.
+    /// 3. Accumulates all duties produced.
+    /// 4. Updates the persistence tracker for every touched state machine.
     ///
     /// No intermediate state is externally visible until this method returns.
     pub fn apply_batch(
         &mut self,
         seed_events: impl IntoIterator<Item = (SMId, SMEvent)>,
     ) -> Result<(), PipelineError> {
-        // Snapshot the duty count before this batch so we only fabricate follow-up events for
-        // duties produced by *this* batch, not duties accumulated from earlier batches.
-        let duties_before = self.duties.len();
-
         // Process initial seed events
         for (sm_id, sm_event) in seed_events {
             self.apply_one(sm_id, sm_event)?;
-        }
-
-        // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2669>
-        // Remove this fabrication once adaptor verification is handled properly by the GSM.
-        // Fabricate follow-up events only for VerifyAdaptors duties produced by this batch.
-        let fabricated: Vec<_> = self.duties[duties_before..]
-            .iter()
-            .filter_map(|duty| {
-                if let UnifiedDuty::Graph(GraphDuty::VerifyAdaptors { graph_idx, .. }) = duty {
-                    Some((
-                        (*graph_idx).into(),
-                        SMEvent::from(GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {})),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for (sm_id, event) in fabricated {
-            info!(?sm_id, "enqueuing fabricated AdaptorsVerified event");
-            self.signal_queue.push_back((sm_id, event));
         }
 
         // Drain signal cascade to fixed point
