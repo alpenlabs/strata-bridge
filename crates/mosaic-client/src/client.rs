@@ -154,6 +154,19 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
         let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
         let deposit_inputs: DepositInputs = deposit_idx.to_le_bytes();
+        let rpc_deposit_id = deposit_id.into();
+
+        // If the deposit has already been initialized (e.g. after a bridge restart), mosaic
+        // rejects a second init with `DuplicateDeposit`. Skip the init RPC entirely when a
+        // status already exists so this method is idempotent.
+        let preexisting_status = self
+            .rpc
+            .get_deposit_status(tableset_id, rpc_deposit_id)
+            .await
+            .map_err(MosaicError::rpc_error)?;
+        if preexisting_status.is_some() {
+            return Ok(());
+        }
 
         // Initialize evaluator deposit on mosaic with provided configs.
         let rpc = self.rpc.clone();
@@ -161,7 +174,6 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
             deposit_inputs: deposit_inputs.into(),
             sighashes: sighashes.into(),
         };
-        let rpc_deposit_id = deposit_id.into();
         retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
             let deposit_config = deposit_config.clone();
