@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{Txid, hashes::Hash};
+use strata_bridge_test_utils::bitcoin::generate_tx;
 use strata_predicate::PredicateKey;
 
 use crate::{
@@ -20,8 +21,8 @@ use crate::{
                 bridge_proof_posted_state, contested_state, counter_proof_posted_state,
                 counter_proof_posted_without_refuted_proof_state,
             },
-            test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
-            test_graph_transition,
+            test_bridge_proof_tx, test_deposit_params, test_graph_invalid_transition,
+            test_graph_sm_cfg, test_graph_transition,
         },
         watchtower::watchtower_slot_for_operator,
     },
@@ -32,9 +33,11 @@ use crate::{
 const BRIDGE_PROOF_BLOCK_HEIGHT: u64 = u64::MAX;
 
 fn bridge_proof_event() -> BridgeProofConfirmedEvent {
+    let tx = test_bridge_proof_tx();
     BridgeProofConfirmedEvent {
-        bridge_proof_txid: Txid::from_byte_array([0xAB; 32]),
+        bridge_proof_txid: tx.compute_txid(),
         bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+        tx,
         proof: dummy_proof_receipt(),
     }
 }
@@ -334,6 +337,38 @@ fn event_duplicate() {
         from_state: counter_proof_posted_state(),
         event: GraphEvent::BridgeProofConfirmed(bridge_proof_event()),
         expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
+    });
+}
+
+#[test]
+fn event_rejected_wrong_outpoint_from_contested() {
+    let event = BridgeProofConfirmedEvent {
+        bridge_proof_txid: Txid::from_byte_array([0xAB; 32]),
+        bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+        tx: generate_tx(0, 0),
+        proof: dummy_proof_receipt(),
+    };
+
+    test_graph_invalid_transition(GraphInvalidTransition {
+        from_state: contested_state(),
+        event: GraphEvent::BridgeProofConfirmed(event),
+        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+    });
+}
+
+#[test]
+fn event_rejected_wrong_outpoint_from_counterproof_posted() {
+    let event = BridgeProofConfirmedEvent {
+        bridge_proof_txid: Txid::from_byte_array([0xAB; 32]),
+        bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+        tx: generate_tx(0, 0),
+        proof: dummy_proof_receipt(),
+    };
+
+    test_graph_invalid_transition(GraphInvalidTransition {
+        from_state: counter_proof_posted_without_refuted_proof_state(),
+        event: GraphEvent::BridgeProofConfirmed(event),
+        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
     });
 }
 

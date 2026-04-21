@@ -326,6 +326,7 @@ fn bridge_proof_event(
     GraphEvent::BridgeProofConfirmed(BridgeProofConfirmedEvent {
         bridge_proof_txid: txid,
         bridge_proof_block_height: height,
+        tx: tx.clone(),
         proof: proof_receipt,
     })
 }
