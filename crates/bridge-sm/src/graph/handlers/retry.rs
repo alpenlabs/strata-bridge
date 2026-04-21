@@ -35,11 +35,34 @@ impl GraphSM {
                             format!("Missing counterproof for watchtower {pov_operator_idx}"),
                         )
                     })?;
+                let adaptor_pubkey = *graph_data
+                    .adaptor_pubkeys
+                    .get(counterproof_idx)
+                    .ok_or_else(|| {
+                        GSMError::rejected(
+                            self.state().clone(),
+                            RetryTickEvent.into(),
+                            format!("Missing adaptor pubkey for watchtower {pov_operator_idx}"),
+                        )
+                    })?;
+                let fault_pubkey =
+                    *graph_data
+                        .fault_pubkeys
+                        .get(counterproof_idx)
+                        .ok_or_else(|| {
+                            GSMError::rejected(
+                                self.state().clone(),
+                                RetryTickEvent.into(),
+                                format!("Missing fault pubkey for watchtower {pov_operator_idx}"),
+                            )
+                        })?;
 
                 vec![GraphDuty::VerifyAdaptors {
                     graph_idx: self.context().graph_idx(),
                     watchtower_idx: pov_operator_idx,
                     sighashes: pov_counterproof_graph.counterproof.sighashes(),
+                    adaptor_pubkey,
+                    fault_pubkey,
                 }]
             }
             GraphState::Fulfilled {

@@ -129,12 +129,37 @@ impl GraphSM {
                         .ok_or_else(|| {
                             GSMError::invalid_event(
                                 self.state().clone(),
-                                graph_data_event.into(),
+                                graph_data_event.clone().into(),
                                 Some(format!(
                                     "Missing counterproof for watchtower {pov_operator_idx}"
                                 )),
                             )
                         })?;
+                    let adaptor_pubkey = *deposit_params
+                        .adaptor_pubkeys
+                        .get(pov_counterproof_idx)
+                        .ok_or_else(|| {
+                            GSMError::invalid_event(
+                                self.state().clone(),
+                                graph_data_event.clone().into(),
+                                Some(format!(
+                                    "Missing adaptor pubkey for watchtower {pov_operator_idx}"
+                                )),
+                            )
+                        })?;
+                    let fault_pubkey = *deposit_params
+                        .fault_pubkeys
+                        .get(pov_counterproof_idx)
+                        .ok_or_else(|| {
+                            GSMError::invalid_event(
+                                self.state().clone(),
+                                graph_data_event.into(),
+                                Some(format!(
+                                    "Missing fault pubkey for watchtower {pov_operator_idx}"
+                                )),
+                            )
+                        })?;
+                    let sighashes = pov_counterproof_graph.counterproof.sighashes();
 
                     self.state = GraphState::GraphGenerated {
                         last_block_height: *last_block_height,
@@ -145,7 +170,9 @@ impl GraphSM {
                     let duties = vec![GraphDuty::VerifyAdaptors {
                         graph_idx: self.context.graph_idx(),
                         watchtower_idx: pov_operator_idx,
-                        sighashes: pov_counterproof_graph.counterproof.sighashes(),
+                        sighashes,
+                        adaptor_pubkey,
+                        fault_pubkey,
                     }];
 
                     Ok(GSMOutput::with_duties(duties))

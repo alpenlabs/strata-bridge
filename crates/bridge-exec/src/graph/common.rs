@@ -295,16 +295,23 @@ fn watchtower_idxs(
         .filter(move |idx| *idx != owner_idx)
 }
 
-/// Verifies adaptor signatures for the generated graph from a particular watchtower.
+/// Kicks off mosaic adaptor verification by calling `init_garbler_deposit` as the POV watchtower.
 ///
-/// # Warning
+/// Before initializing, cross-checks `fault_pubkey` from the received graph data against the
+/// locally-known fault pubkey for the garbler-side tableset (where the graph owner is the
+/// evaluator peer). A mismatch means the graph data was not produced from the same tableset
+/// this node has set up, which makes adaptor verification impossible.
 ///
-/// **Not yet implemented.** Currently returns `Ok(())` without performing verification.
-/// Requires integration with the mosaic service for actual adaptor verification.
+/// The graph owner is the evaluator in this setup, so `graph_idx.operator` is the remote peer.
+/// Verification itself runs asynchronously on mosaic; completion is signaled later via
+/// [`MosaicEvent::AdaptorsVerified`](strata_mosaic_client_api::MosaicEvent::AdaptorsVerified)
 pub(super) async fn verify_adaptors(
+    output_handles: &OutputHandles,
     graph_idx: GraphIdx,
     watchtower_idx: OperatorIdx,
     sighashes: &[Message],
+    adaptor_pubkey: XOnlyPublicKey,
+    fault_pubkey: XOnlyPublicKey,
 ) -> Result<(), ExecutorError> {
     info!(
         ?graph_idx,
@@ -313,13 +320,52 @@ pub(super) async fn verify_adaptors(
         "verifying adaptor signatures"
     );
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2669>
-    // Integrate with the mosaic service for adaptor verification.
+    let local_fault_pubkey = output_handles
+        .mosaic_client
+        .get_fault_pubkey(graph_idx.operator, Role::Garbler)
+        .await
+        .map_err(|e| ExecutorError::MosaicErr(format!("get_fault_pubkey: {e:?}")))?
+        .ok_or_else(|| {
+            ExecutorError::MosaicErr(format!(
+                "local fault pubkey missing for owner={}, deposit={}",
+                graph_idx.operator, graph_idx.deposit
+            ))
+        })?;
+    if local_fault_pubkey != fault_pubkey {
+        return Err(ExecutorError::MosaicErr(format!(
+            "fault pubkey mismatch for graph {graph_idx:?}: graph_data has {fault_pubkey}, \
+             local mosaic reports {local_fault_pubkey}"
+        )));
+    }
+
+    let deposit_sighashes: DepositSighashes = sighashes
+        .iter()
+        .map(|m| *m.as_ref())
+        .collect::<Vec<Sighash>>()
+        .try_into()
+        .map_err(|v: Vec<Sighash>| {
+            ExecutorError::MosaicErr(format!(
+                "counterproof produced {} sighashes, expected {}",
+                v.len(),
+                std::mem::size_of::<DepositSighashes>() / std::mem::size_of::<Sighash>()
+            ))
+        })?;
+
+    output_handles
+        .mosaic_client
+        .init_garbler_deposit(
+            graph_idx.operator,
+            graph_idx.deposit,
+            deposit_sighashes,
+            adaptor_pubkey,
+        )
+        .await
+        .map_err(|e| ExecutorError::MosaicErr(format!("init_garbler_deposit: {e:?}")))?;
 
     info!(
         ?graph_idx,
         %watchtower_idx,
-        "adaptor signature verification complete"
+        "mosaic init_garbler_deposit ok; awaiting AdaptorsVerified event"
     );
     Ok(())
 }
