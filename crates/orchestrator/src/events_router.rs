@@ -119,6 +119,7 @@ fn route_mosaic_event(registry: &SMRegistry, evt: &MosaicEvent) -> Vec<SMId> {
     let MosaicEvent::AdaptorsVerified(graph_idx) = evt;
     let sm_id = SMId::Graph(*graph_idx);
     if registry.contains_id(&sm_id) {
+        debug!(%graph_idx, "routing mosaic AdaptorsVerified event to graph SM");
         vec![sm_id]
     } else {
         warn!(
