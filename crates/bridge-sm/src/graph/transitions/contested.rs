@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use strata_bridge_primitives::proof::verify_bridge_proof;
-use strata_bridge_tx_graph::game_graph::GameConnectors;
+use bitcoin::Transaction;
+use strata_bridge_primitives::{proof::verify_bridge_proof, types::OperatorIdx};
+use strata_bridge_tx_graph::game_graph::{GameConnectors, GameGraphSummary};
 
 use crate::{
     graph::{
@@ -16,7 +17,7 @@ use crate::{
         state::GraphState,
         watchtower::watchtower_slot_for_operator,
     },
-    tx_classifier::spends_contest_proof_connector,
+    tx_classifier::{spends_contest_proof_connector, spends_counterproof_ack_nack},
 };
 
 impl GraphSM {
@@ -325,9 +326,20 @@ impl GraphSM {
                 counterproofs_and_confs,
                 mut counterproof_nacks,
             } => {
-                // TODO: <https://alpenlabs.atlassian.net/browse/STR-3086>
-                // Add validation of the counterproof_nack_txid asserting that it spends
-                // the corresponding counterproof transaction.
+                // Validate that the NACK tx spends the correct counterproof
+                // ACK/NACK output and is not a known counterproof ACK.
+                if !validate_counterproof_nack(
+                    &graph_summary,
+                    self.context().operator_table().pov_idx(),
+                    event.counterprover_idx,
+                    &event.tx,
+                ) {
+                    return Err(GSMError::rejected(
+                        self.state.clone(),
+                        event.into(),
+                        "counterproof NACK tx does not spend the expected counterproof outpoint",
+                    ));
+                }
 
                 // Ensure a counterproof was posted by this operator before accepting a NACK.
                 if !counterproofs_and_confs.contains_key(&event.counterprover_idx) {
@@ -520,4 +532,19 @@ impl GraphSM {
             state => Err(GSMError::invalid_event(state, event.into(), None)),
         }
     }
+}
+
+/// Validates that `tx` spends the NACK output of the counterproof transaction.
+fn validate_counterproof_nack(
+    summary: &GameGraphSummary,
+    graph_owner_idx: OperatorIdx,
+    counterprover_idx: OperatorIdx,
+    tx: &Transaction,
+) -> bool {
+    watchtower_slot_for_operator(graph_owner_idx, counterprover_idx)
+        .and_then(|slot| summary.counterproofs.get(slot))
+        .is_some_and(|cp| {
+            tx.compute_txid() != cp.counterproof_ack
+                && spends_counterproof_ack_nack(cp.counterproof, tx)
+        })
 }

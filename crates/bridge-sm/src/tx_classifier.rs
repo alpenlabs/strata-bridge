@@ -79,6 +79,17 @@ pub fn spends_contest_proof_connector(contest_txid: Txid, tx: &Transaction) -> b
         .any(|input| input.previous_output == contest_proof_outpoint)
 }
 
+/// Checks if the transaction spends the ACK/NACK output of the given counterproof transaction.
+pub fn spends_counterproof_ack_nack(counterproof_txid: Txid, tx: &Transaction) -> bool {
+    let ack_nack_outpoint = OutPoint {
+        txid: counterproof_txid,
+        vout: CounterproofTx::ACK_NACK_VOUT,
+    };
+    tx.input
+        .iter()
+        .any(|input| input.previous_output == ack_nack_outpoint)
+}
+
 /// Checks if the transaction ID is that of a counterproof transaction.
 pub fn is_counterproof_txid(summary: &GameGraphSummary, txid: &Txid) -> bool {
     summary
@@ -136,14 +147,7 @@ pub fn nack_counterprover_idx(
         .iter()
         .enumerate()
         .find_map(|(watchtower_slot, summary)| {
-            let expected_counterproof_outpoint = OutPoint {
-                txid: summary.counterproof,
-                vout: CounterproofTx::ACK_NACK_VOUT,
-            };
-
-            tx.input
-                .iter()
-                .any(|txin| txin.previous_output == expected_counterproof_outpoint)
+            spends_counterproof_ack_nack(summary.counterproof, tx)
                 .then(|| watchtower_slot_to_operator_idx(watchtower_slot, graph_owner_idx))
         })
 }
