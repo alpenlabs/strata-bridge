@@ -79,7 +79,7 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-mosaic-client = { path = "crates/mosaic-client" }
 strata-mosaic-client-api = { path = "crates/mosaic-client-api" }
 
-# Dependencies from alpenlabs/alpen pinned to commit 201c3fa0 (main @ 2026-03-12)
+# Dependencies from alpenlabs/alpen pinned to commit 124edbf4 (main @ 2026-03-12)
 asm-storage = { git = "https://github.com/alpenlabs/asm.git", rev = "124edbf43be12c2ebad4e5776727ba06259f8dfb" }
 strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", rev = "124edbf43be12c2ebad4e5776727ba06259f8dfb" }
 strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", rev = "124edbf43be12c2ebad4e5776727ba06259f8dfb" }
@@ -91,10 +91,10 @@ strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", rev = "124ed
 strata-checkpoint-types-ssz = { git = "https://github.com/alpenlabs/asm.git", rev = "124edbf43be12c2ebad4e5776727ba06259f8dfb" }
 strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "124edbf43be12c2ebad4e5776727ba06259f8dfb" }
 
-# Dependencies from alpenlabs/mosaic pinned to commit 060ce5f1 (main @ 2026-04-09)
-mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "060ce5f1310e2ceed92137d16324a0f58b413e0f" }
-mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "060ce5f1310e2ceed92137d16324a0f58b413e0f" }
-mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "060ce5f1310e2ceed92137d16324a0f58b413e0f" }
+# Dependencies from alpenlabs/mosaic pinned to commit 0fc9ba8d (main @ 2026-04-20)
+mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2359c7509b8ebf65e8aa5d423704b505" }
+mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2359c7509b8ebf65e8aa5d423704b505" }
+mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2359c7509b8ebf65e8aa5d423704b505" }
 
 # Dependencies from alpenlabs/strata-common
 strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc13" }
