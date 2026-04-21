@@ -13,7 +13,6 @@ from utils.deposit import (
     wait_until_utxo_spent,
 )
 from utils.dev_cli import DevCli
-from utils.stake import wait_until_all_operators_staked
 from utils.utils import (
     read_operator_key,
     wait_for_tx_confirmation,
@@ -56,6 +55,8 @@ class FaultyClaimContestedTest(StrataTestBase):
 
     def main(self, ctx: flexitest.RunContext):
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
+        bridge_rpc = bridge_rpcs[0]
+
         bitcoind_service = ctx.get_service("bitcoin")
         bitcoin_rpc = bitcoind_service.create_rpc()
         asm_rpc = ctx.get_service("asm_rpc").create_rpc()
@@ -68,14 +69,6 @@ class FaultyClaimContestedTest(StrataTestBase):
             bitcoind_props,
             operator_key_infos,
             bridge_protocol_params=self.bridge_protocol_params,
-        )
-
-        bridge_rpc = bridge_rpcs[0]
-        self.logger.info("Waiting for all operators to complete staking before broadcasting DRT")
-        wait_until_all_operators_staked(
-            bridge_rpc,
-            bitcoin_rpc,
-            expected_operator_count=num_operators,
         )
 
         # 1. Send deposit request and wait for completion
