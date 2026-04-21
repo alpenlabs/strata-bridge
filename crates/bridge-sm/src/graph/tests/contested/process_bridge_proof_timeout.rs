@@ -76,18 +76,6 @@ fn event_duplicate() {
 }
 
 #[test]
-fn event_rejected_old_height() {
-    test_graph_invalid_transition(GraphInvalidTransition {
-        from_state: contested_state(),
-        event: GraphEvent::BridgeProofTimeoutConfirmed(BridgeProofTimeoutConfirmedEvent {
-            bridge_proof_timeout_txid: TEST_GRAPH_SUMMARY.bridge_proof_timeout,
-            bridge_proof_timeout_block_height: 0,
-        }),
-        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
-    });
-}
-
-#[test]
 fn event_rejected_invalid_txid() {
     test_graph_invalid_transition(GraphInvalidTransition {
         from_state: contested_state(),

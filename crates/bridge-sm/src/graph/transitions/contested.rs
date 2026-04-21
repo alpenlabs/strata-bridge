@@ -222,7 +222,7 @@ impl GraphSM {
     ) -> GSMResult<GSMOutput> {
         match self.state.clone() {
             GraphState::Contested {
-                last_block_height,
+                last_block_height: _,
                 graph_data,
                 graph_summary,
                 signatures,
@@ -230,13 +230,6 @@ impl GraphSM {
                 fulfillment_block_height: _,
                 contest_block_height,
             } => {
-                if event.bridge_proof_timeout_block_height < last_block_height {
-                    return Err(GSMError::rejected(
-                        self.state.clone(),
-                        event.into(),
-                        "event has old block height",
-                    ));
-                }
                 if event.bridge_proof_timeout_txid != graph_summary.bridge_proof_timeout {
                     return Err(GSMError::rejected(
                         self.state.clone(),
