@@ -154,30 +154,49 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
         let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
         let deposit_inputs: DepositInputs = deposit_idx.to_le_bytes();
-
-        // Initialize evaluator deposit on mosaic with provided configs.
-        let rpc = self.rpc.clone();
-        let deposit_config = EvaluatorDepositConfig {
-            deposit_inputs: deposit_inputs.into(),
-            sighashes: sighashes.into(),
-        };
         let rpc_deposit_id = deposit_id.into();
-        retry_with(self.default_retry_strategy(), move || {
+
+        // If the deposit is already initialized (e.g. after a bridge restart), mosaic rejects a
+        // second init with `DuplicateDeposit`. Skip the init RPC in that case but still fall
+        // through to the post-init status check, so we can detect an already-aborted or
+        // already-consumed deposit instead of silently treating it as a successful setup.
+        // Retry on transient RPC errors to match the resilience of the init and post-init
+        // calls below.
+        let rpc = self.rpc.clone();
+        let preexisting_status = retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
-            let deposit_config = deposit_config.clone();
             async move {
-                rpc.init_evaluator_deposit(tableset_id, rpc_deposit_id, deposit_config)
+                rpc.get_deposit_status(tableset_id, rpc_deposit_id)
                     .await
                     .map_err(MosaicError::rpc_error)
             }
         })
         .await?;
 
+        // Must be a new deposit to attempt init
+        if preexisting_status.is_none() {
+            let rpc = self.rpc.clone();
+            let deposit_config = EvaluatorDepositConfig {
+                deposit_inputs: deposit_inputs.into(),
+                sighashes: sighashes.into(),
+            };
+            retry_with(self.default_retry_strategy(), move || {
+                let rpc = rpc.clone();
+                let deposit_config = deposit_config.clone();
+                async move {
+                    rpc.init_evaluator_deposit(tableset_id, rpc_deposit_id, deposit_config)
+                        .await
+                        .map_err(MosaicError::rpc_error)
+                }
+            })
+            .await?;
+        }
+
         // Wait for any status to be received to ensure that the deposit was accepted by mosaic.
         // If this fails to get any status after exhausting all retries, the deposit init failed or
         // there was a connectivity issue.
         let rpc = self.rpc.clone();
-        let _status = retry_with(self.default_retry_strategy(), move || {
+        let status = retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
             async move {
                 rpc.get_deposit_status(tableset_id, rpc_deposit_id)
@@ -192,7 +211,21 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         })
         .await?;
 
-        Ok(())
+        // Reject any status that means this tableset can no longer participate. `Incomplete` and
+        // `Ready` are both fine — the evaluator does not wait for adaptor verification here;
+        // that is the garbler's responsibility and signaled separately via
+        // [`MosaicEvent::AdaptorsVerified`].
+        match status {
+            DepositStatus::Aborted { reason } => {
+                error!(%deposit_idx, %reason, "evaluator deposit aborted on mosaic");
+                Err(MosaicError::DepositAborted(deposit_idx))
+            }
+            DepositStatus::UncontestedWithdrawal | DepositStatus::Consumed { .. } => {
+                error!(%deposit_idx, "evaluator deposit is already withdrawn");
+                Err(MosaicError::DepositWithdrawn(deposit_idx))
+            }
+            DepositStatus::Incomplete { .. } | DepositStatus::Ready => Ok(()),
+        }
     }
 
     #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
@@ -206,25 +239,42 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         let tableset_id = self.get_tableset_id(Role::Garbler, operator_idx).await?;
         let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
         let deposit_inputs: DepositInputs = deposit_idx.to_le_bytes();
-
-        // Initialize garbler deposit process on mosaic with provided configs.
-        let rpc = self.rpc.clone();
-        let deposit_config = GarblerDepositConfig {
-            deposit_inputs: deposit_inputs.into(),
-            sighashes: sighashes.into(),
-            adaptor_pk: adaptor_pubkey,
-        };
         let rpc_deposit_id = deposit_id.into();
-        retry_with(self.default_retry_strategy(), move || {
+
+        // If the deposit is already initialized (e.g. after a bridge restart), mosaic rejects a
+        // second init with `DuplicateDeposit`. Skip the init RPC in that case and fall through to
+        // the post-init status check so we can still re-subscribe / re-emit the event. Retry on
+        // transient RPC errors to match the resilience of the init and post-init calls below.
+        let rpc = self.rpc.clone();
+        let preexisting_status = retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
-            let deposit_config = deposit_config.clone();
             async move {
-                rpc.init_garbler_deposit(tableset_id, rpc_deposit_id, deposit_config)
+                rpc.get_deposit_status(tableset_id, rpc_deposit_id)
                     .await
                     .map_err(MosaicError::rpc_error)
             }
         })
         .await?;
+
+        // Must be a new deposit to attempt init
+        if preexisting_status.is_none() {
+            let rpc = self.rpc.clone();
+            let deposit_config = GarblerDepositConfig {
+                deposit_inputs: deposit_inputs.into(),
+                sighashes: sighashes.into(),
+                adaptor_pk: adaptor_pubkey,
+            };
+            retry_with(self.default_retry_strategy(), move || {
+                let rpc = rpc.clone();
+                let deposit_config = deposit_config.clone();
+                async move {
+                    rpc.init_garbler_deposit(tableset_id, rpc_deposit_id, deposit_config)
+                        .await
+                        .map_err(MosaicError::rpc_error)
+                }
+            })
+            .await?;
+        }
 
         // Wait for some status to be received
         // If this fails to get any status after exhausting all retries, it indicates that the
@@ -247,11 +297,11 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
 
         match status {
             DepositStatus::Aborted { reason } => {
-                error!(%reason, "deposit aborted on mosaic");
+                error!(%deposit_idx, %reason, "deposit aborted on mosaic");
                 return Err(MosaicError::DepositAborted(deposit_idx));
             }
             DepositStatus::UncontestedWithdrawal | DepositStatus::Consumed { .. } => {
-                error!("deposit is already withdrawn");
+                error!(%deposit_idx, "deposit is already withdrawn");
                 return Err(MosaicError::DepositWithdrawn(deposit_idx));
             }
             DepositStatus::Incomplete { details } => {
