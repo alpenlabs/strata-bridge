@@ -31,6 +31,8 @@
 /crates/asm-rpc/ @prajwolrg @MdTeach
 /crates/proof-db/ @prajwolrg @MdTeach
 /bin/asm-runner/ @prajwolrg @MdTeach
+/crates/mosaic-client/ @sapinb @Rajil1213
+/crates/mosaic-client-api/ @sapinb @Rajil1213
 
 # Main components
 /crates/orchestrator/ @Rajil1213
@@ -43,6 +45,7 @@
 
 # Main binary
 /bin/strata-bridge/ @Rajil1213
+/bin/strata-bridge/src/mode/services/mosaic_client.rs @sapinb
 
 # Prover things
 /crates/bridge-proof/ @Rajil1213 @prajwolrg
