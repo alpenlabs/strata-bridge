@@ -248,6 +248,7 @@ impl TxClassifier for GraphSM {
                         |counterprover_idx| {
                             GraphEvent::CounterProofNackConfirmed(CounterProofNackConfirmedEvent {
                                 counterproof_nack_txid: txid,
+                                tx: tx.clone(),
                                 counterprover_idx,
                             })
                         },

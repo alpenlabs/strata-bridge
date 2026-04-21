@@ -150,6 +150,9 @@ pub struct CounterProofNackConfirmedEvent {
     /// The txid of the counterproof NACK transaction.
     pub counterproof_nack_txid: Txid,
 
+    /// The counterproof NACK transaction.
+    pub tx: Transaction,
+
     /// The index of the watchtower who submitted the corresponding counterproof transaction.
     pub counterprover_idx: OperatorIdx,
 }
