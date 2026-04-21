@@ -55,8 +55,11 @@ pub struct DepositParams {
     pub claim_funds: OutPoint,
     /// UTXO that holds the deposit.
     pub deposit_outpoint: OutPoint,
-    /// Key used in the locking script of the owner's contest transaction.
-    pub adaptor_pubkey: XOnlyPublicKey,
+    /// Per-watchtower adaptor pubkeys used in the locking script of the owner's contest
+    /// counterproof output — one per watchtower, in operator-table order with the owner
+    /// skipped. Mosaic exposes a distinct adaptor secret per `(evaluator, garbler)` pair, so
+    /// the same owner has `n - 1` distinct adaptor pubkeys.
+    pub adaptor_pubkeys: Vec<XOnlyPublicKey>,
     /// Per-watchtower fault pubkeys used to lock each counterproof-nack output.
     ///
     /// Entries are in operator-table order with the graph owner skipped; its length equals
@@ -83,10 +86,16 @@ pub struct SetupParams {
 pub struct KeyData {
     /// N/N key.
     pub n_of_n_pubkey: XOnlyPublicKey,
-    /// Operator key that is to be used in the locking script of the contest transaction.
-    ///
-    /// The signatures in the counterproof transactions correspond to this key.
+    /// Owner's static signing key (non-adaptor) used by the contest proof connector.
     pub operator_pubkey: XOnlyPublicKey,
+    /// Per-watchtower adaptor pubkeys used in the locking script of the owner's contest
+    /// counterproof output — one per watchtower, in operator-table order with the owner
+    /// skipped.
+    ///
+    /// Each mosaic `(evaluator=owner, garbler=watchtower)` tableset exposes a distinct adaptor
+    /// secret, so the contest counterproof output has one Taproot leaf per watchtower, each
+    /// keyed by the corresponding adaptor pubkey.
+    pub operator_adaptor_pubkeys: Vec<XOnlyPublicKey>,
     /// For each watchtower, a key to authorize the contest.
     pub watchtower_pubkeys: Vec<XOnlyPublicKey>,
     /// Admin key.
@@ -201,8 +210,9 @@ pub struct GameConnectors {
     pub contest_payout: ContestPayoutConnector,
     /// Contest slash connector.
     pub contest_slash: ContestSlashConnector,
-    /// Contest counterproof output.
-    pub contest_counterproof: ContestCounterproofOutput,
+    /// Contest counterproof output, one per watchtower. Each entry is bound to that
+    /// watchtower's adaptor pubkey, and each becomes a distinct output on the Contest tx.
+    pub contest_counterproof: Vec<ContestCounterproofOutput>,
     /// Counterproof connectors for each watchtower.
     pub counterproof: Vec<CounterproofConnector>,
     /// Stake connector.
@@ -280,7 +290,12 @@ impl GameGraph {
             connectors.contest_proof,
             connectors.contest_payout,
             connectors.contest_slash,
-            connectors.contest_counterproof,
+            connectors.contest_counterproof.clone(),
+        );
+        debug_assert_eq!(
+            connectors.contest_counterproof.len(),
+            keys.watchtower_pubkeys.len(),
+            "expected one ContestCounterproofOutput per watchtower"
         );
 
         let bridge_proof_timeout_data = BridgeProofTimeoutData {
@@ -296,34 +311,37 @@ impl GameGraph {
             .counterproof
             .iter()
             .copied()
+            .zip(connectors.contest_counterproof.iter().copied())
             .enumerate()
-            .map(|(watchtower_index, counterproof_connector)| {
-                // cast safety: asserted above that len(watchtowers) <= u32::MAX
-                let counterproof_data = CounterproofData {
-                    contest_txid: contest.as_ref().compute_txid(),
-                    watchtower_index: watchtower_index as u32,
-                };
-                let counterproof = CounterproofTx::new(
-                    counterproof_data,
-                    connectors.contest_counterproof,
-                    counterproof_connector,
-                );
+            .map(
+                |(watchtower_index, (counterproof_connector, contest_counterproof_output))| {
+                    // cast safety: asserted above that len(watchtowers) <= u32::MAX
+                    let counterproof_data = CounterproofData {
+                        contest_txid: contest.as_ref().compute_txid(),
+                        watchtower_index: watchtower_index as u32,
+                    };
+                    let counterproof = CounterproofTx::new(
+                        counterproof_data,
+                        contest_counterproof_output,
+                        counterproof_connector,
+                    );
 
-                let counterproof_ack_data = CounterproofAckData {
-                    counterproof_txid: counterproof.as_ref().compute_txid(),
-                    contest_txid: contest.as_ref().compute_txid(),
-                };
-                let counterproof_ack = CounterproofAckTx::new(
-                    counterproof_ack_data,
-                    counterproof_connector,
-                    connectors.contest_payout,
-                );
+                    let counterproof_ack_data = CounterproofAckData {
+                        counterproof_txid: counterproof.as_ref().compute_txid(),
+                        contest_txid: contest.as_ref().compute_txid(),
+                    };
+                    let counterproof_ack = CounterproofAckTx::new(
+                        counterproof_ack_data,
+                        counterproof_connector,
+                        connectors.contest_payout,
+                    );
 
-                CounterproofGraph {
-                    counterproof,
-                    counterproof_ack,
-                }
-            })
+                    CounterproofGraph {
+                        counterproof,
+                        counterproof_ack,
+                    }
+                },
+            )
             .collect();
 
         let contested_payout_data = ContestedPayoutData {
@@ -545,12 +563,22 @@ impl GameConnectors {
             keys.n_of_n_pubkey,
             protocol.contested_payout_timelock,
         );
-        let contest_counterproof = ContestCounterproofOutput::new(
-            protocol.network,
-            keys.n_of_n_pubkey,
-            keys.operator_pubkey,
-            protocol.counterproof_n_bytes,
-        );
+        // One `ContestCounterproofOutput` per watchtower, bound to the adaptor pubkey that
+        // mosaic issued for the `(evaluator=owner, garbler=watchtower)` tableset. Each entry
+        // becomes a distinct output on the Contest tx.
+        let contest_counterproof: Vec<_> = keys
+            .operator_adaptor_pubkeys
+            .iter()
+            .copied()
+            .map(|operator_adaptor_pubkey| {
+                ContestCounterproofOutput::new(
+                    protocol.network,
+                    keys.n_of_n_pubkey,
+                    operator_adaptor_pubkey,
+                    protocol.counterproof_n_bytes,
+                )
+            })
+            .collect();
         let counterproof: Vec<_> = keys
             .wt_fault_pubkeys
             .iter()
@@ -647,9 +675,11 @@ mod tests {
             stake_amount: STAKE_AMOUNT,
         };
         let wallet_descriptor = Descriptor::try_from(node.wallet_address().clone()).unwrap();
+        let operator_xonly = signer.operator_keypair.x_only_public_key().0;
         let keys = KeyData {
             n_of_n_pubkey: signer.n_of_n_keypair.x_only_public_key().0,
-            operator_pubkey: signer.operator_keypair.x_only_public_key().0,
+            operator_pubkey: operator_xonly,
+            operator_adaptor_pubkeys: vec![operator_xonly; N_WATCHTOWERS],
             watchtower_pubkeys: signer
                 .watchtower_keypairs
                 .iter()
@@ -742,7 +772,7 @@ mod tests {
                     txid: funding_txid,
                     vout: 1,
                 },
-                adaptor_pubkey: setup.keys.operator_pubkey,
+                adaptor_pubkeys: setup.keys.operator_adaptor_pubkeys.clone(),
                 fault_pubkeys: setup.keys.wt_fault_pubkeys.clone(),
             },
         }

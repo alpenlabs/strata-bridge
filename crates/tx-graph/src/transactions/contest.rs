@@ -34,7 +34,6 @@ pub struct ContestTx {
     proof_connector: ContestProofConnector,
     payout_connector: ContestPayoutConnector,
     slash_connector: ContestSlashConnector,
-    counterproof_output: ContestCounterproofOutput,
     cpfp_connector: P2AConnector,
 }
 
@@ -52,19 +51,30 @@ impl ContestTx {
 
     /// Creates a contest transaction.
     ///
-    /// The same counterproof connector is reused across all watchtowers.
+    /// One counterproof output is emitted per watchtower. Each `ContestCounterproofOutput` is
+    /// bound to that watchtower's adaptor pubkey and only that watchtower can spend it.
     pub fn new(
         data: ContestData,
         claim_contest_connector: ClaimContestConnector,
         proof_connector: ContestProofConnector,
         payout_connector: ContestPayoutConnector,
         slash_connector: ContestSlashConnector,
-        counterproof_output: ContestCounterproofOutput,
+        counterproof_outputs: Vec<ContestCounterproofOutput>,
     ) -> Self {
         debug_assert!(claim_contest_connector.network() == proof_connector.network());
         debug_assert!(claim_contest_connector.network() == payout_connector.network());
         debug_assert!(claim_contest_connector.network() == slash_connector.network());
-        debug_assert!(claim_contest_connector.network() == counterproof_output.network());
+        debug_assert_eq!(
+            counterproof_outputs.len(),
+            claim_contest_connector.n_watchtowers() as usize,
+            "expected one ContestCounterproofOutput per watchtower"
+        );
+        debug_assert!(
+            counterproof_outputs
+                .iter()
+                .all(|o| o.network() == claim_contest_connector.network()),
+            "counterproof output network mismatch"
+        );
         let cpfp_connector = P2AConnector::new(claim_contest_connector.network(), Amount::ZERO);
 
         let prevouts = [claim_contest_connector.tx_out()];
@@ -84,10 +94,7 @@ impl ContestTx {
             payout_connector.tx_out(),
             slash_connector.tx_out(),
         ];
-        output.extend(std::iter::repeat_n(
-            counterproof_output.tx_out(),
-            claim_contest_connector.n_watchtowers() as usize,
-        ));
+        output.extend(counterproof_outputs.iter().map(|o| o.tx_out()));
         output.push(cpfp_connector.tx_out());
 
         let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
@@ -116,7 +123,6 @@ impl ContestTx {
             proof_connector,
             payout_connector,
             slash_connector,
-            counterproof_output,
             cpfp_connector,
         }
     }

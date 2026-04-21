@@ -51,7 +51,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     for op in operators.iter_mut() {
         let graph_data = GraphData::new(
             OutPoint::new(Txid::all_zeros(), 0),
-            XOnlyPubKey::from(generate_xonly_pubkey()),
+            vec![XOnlyPubKey::from(generate_xonly_pubkey())],
             vec![XOnlyPubKey::from(generate_xonly_pubkey())],
         );
         op.handler

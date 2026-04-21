@@ -13,9 +13,9 @@ use crate::{Connector, TaprootWitness};
 /// Each operator signature comes from an adaptor,
 /// which publishes one byte of counterproof data (including public values).
 ///
-/// The connector's structure is the same for each watchtower,
-/// because its locking script doesn't include any watchtower keys.
-/// This means that the same connector can be _reused_ across watchtowers.
+/// The adaptor pubkey is supplied by mosaic per `(evaluator, garbler)` tableset, so it differs
+/// per watchtower. Each watchtower owns one instance of this connector, built with its own
+/// `operator_pubkey`, and appears as a distinct output on the Contest transaction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ContestCounterproofOutput {
     network: Network,

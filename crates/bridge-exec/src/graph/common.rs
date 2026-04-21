@@ -56,7 +56,7 @@ pub(super) async fn generate_graph_data(
     let funding_outpoint = ensure_claim_funding_outpoint(cfg, output_handles, graph_idx).await?;
     info!(?graph_idx, %funding_outpoint, "funding outpoint acquired");
 
-    let (adaptor_pubkey, fault_pubkeys) = fetch_graph_keys(
+    let (adaptor_pubkeys, fault_pubkeys) = fetch_graph_keys(
         output_handles.mosaic_client.as_ref(),
         &output_handles.operator_table,
         graph_idx,
@@ -64,7 +64,7 @@ pub(super) async fn generate_graph_data(
     .await?;
     info!(
         ?graph_idx,
-        ?adaptor_pubkey,
+        n_adaptor_pubkeys = adaptor_pubkeys.len(),
         n_fault_pubkeys = fault_pubkeys.len(),
         "fetched graph keys from mosaic"
     );
@@ -81,7 +81,12 @@ pub(super) async fn generate_graph_data(
             .expect("(deposit index + 1) is always non-zero"),
         claim_funds: funding_outpoint,
         deposit_outpoint,
-        adaptor_pubkey: adaptor_pubkey.try_into().map_err(invalid_mosaic_key)?,
+        adaptor_pubkeys: adaptor_pubkeys
+            .iter()
+            .copied()
+            .map(XOnlyPublicKey::try_from)
+            .collect::<Result<_, _>>()
+            .map_err(invalid_mosaic_key)?,
         fault_pubkeys: fault_pubkeys
             .iter()
             .copied()
@@ -104,7 +109,7 @@ pub(super) async fn generate_graph_data(
         "evaluator deposits initialized with all watchtowers"
     );
 
-    let graph_data = GraphData::new(funding_outpoint, adaptor_pubkey, fault_pubkeys);
+    let graph_data = GraphData::new(funding_outpoint, adaptor_pubkeys, fault_pubkeys);
     output_handles
         .msg_handler
         .write()
@@ -197,18 +202,27 @@ async fn fetch_graph_keys(
     mosaic_client: &dyn MosaicClientApi,
     operator_table: &OperatorTable,
     graph_idx: GraphIdx,
-) -> Result<(XOnlyPubKey, Vec<XOnlyPubKey>), ExecutorError> {
+) -> Result<(Vec<XOnlyPubKey>, Vec<XOnlyPubKey>), ExecutorError> {
     let owner_idx = graph_idx.operator;
 
-    info!(?graph_idx, %owner_idx, "fetching adaptor pubkey from mosaic");
-    let adaptor_pubkey = mosaic_client
-        .get_adaptor_pubkey(owner_idx, graph_idx.deposit)
-        .await
-        .map_err(|e| ExecutorError::MosaicErr(format!("get_adaptor_pubkey: {e:?}")))?
-        .ok_or_else(|| ExecutorError::MosaicErr("adaptor pubkey missing for ready setup".into()))?;
-
+    // Mosaic exposes a distinct adaptor secret per `(evaluator, garbler)` tableset, so the owner
+    // has one adaptor pubkey per watchtower. Collect them in operator-table order (owner
+    // skipped). The per-watchtower fault pubkey comes from the same tableset.
+    let mut adaptor_pubkeys = Vec::new();
     let mut fault_pubkeys = Vec::new();
     for watchtower in watchtower_idxs(operator_table, owner_idx) {
+        info!(?graph_idx, %watchtower, "fetching adaptor pubkey from mosaic");
+        let adaptor = mosaic_client
+            .get_adaptor_pubkey(watchtower, graph_idx.deposit)
+            .await
+            .map_err(|e| ExecutorError::MosaicErr(format!("get_adaptor_pubkey: {e:?}")))?
+            .ok_or_else(|| {
+                ExecutorError::MosaicErr(format!(
+                    "adaptor pubkey missing for watchtower {watchtower}"
+                ))
+            })?;
+        adaptor_pubkeys.push(adaptor.into());
+
         info!(?graph_idx, %watchtower, "fetching fault pubkey from mosaic");
         let fault_pubkey = mosaic_client
             .get_fault_pubkey(watchtower, Role::Evaluator)
@@ -222,7 +236,12 @@ async fn fetch_graph_keys(
         fault_pubkeys.push(fault_pubkey.into());
     }
 
-    Ok((adaptor_pubkey.into(), fault_pubkeys))
+    if adaptor_pubkeys.is_empty() {
+        return Err(ExecutorError::MosaicErr(
+            "operator table has no peers".into(),
+        ));
+    }
+    Ok((adaptor_pubkeys, fault_pubkeys))
 }
 
 /// Pulls per-watchtower counterproof sighashes from `game_graph` and calls

@@ -168,7 +168,7 @@ where
 pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
     // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2665>
     // Import this from the counterproof module once it exists.
-    const COUNTERPROOF_N_BYTES: usize = 128 + 32 + 4; // proof bytes (groth16) + deposit_idx (4 bytes) + operator pubkey (32 bytes)
+    const COUNTERPROOF_N_BYTES: usize = 128 + 4; // proof bytes (groth16) + deposit_idx (4 bytes)
     let network = params.network;
     let magic_bytes = params.protocol.magic_bytes;
     let deposit_amount = params.protocol.deposit_amount;
