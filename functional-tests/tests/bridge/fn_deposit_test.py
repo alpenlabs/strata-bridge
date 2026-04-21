@@ -36,7 +36,11 @@ class BridgeDepositTest(StrataTestBase):
         ctx.set_env(BridgeNetworkEnv())
 
     def main(self, ctx: flexitest.RunContext):
-        CONCURRENT_DRT_COUNT = 5
+        # Number of DRTs to broadcast before restarting the operators. Tuned so that at least one
+        # deposit is still in progress post-restart long enough for a nag to be emitted. Bump this
+        # up if the nag assertion below starts flaking; shrink it if deposits get slower and a
+        # single DRT reliably stays in progress for the nag window.
+        CONCURRENT_DRT_COUNT = 1
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
         bridge_rpc = bridge_rpcs[0]
 
@@ -97,16 +101,13 @@ class BridgeDepositTest(StrataTestBase):
         )
 
         self.logger.info("Waiting for a post-restart nag emission in operator logs")
-        try:
-            wait_until_logs_match(
-                operator_log_offsets,
-                lambda line: "nagging peer for missing data" in line,
-                timeout=60,
-                error_msg="Timed out waiting for post-restart nag emission",
-            )
-            self.logger.info("Observed post-restart nag emission in operator logs")
-        except TimeoutError:
-            self.logger.info("No post-restart nag emission observed within timeout")
+        wait_until_logs_match(
+            operator_log_offsets,
+            lambda line: "nagging peer for missing data" in line,
+            timeout=60,
+            error_msg="Timed out waiting for post-restart nag emission",
+        )
+        self.logger.info("Observed post-restart nag emission in operator logs")
 
         self.logger.info("Verifying P2P connectivity among bridge nodes before deposit")
         wait_until_p2p_connected(bridge_rpcs)
