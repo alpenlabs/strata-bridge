@@ -9,36 +9,41 @@ use crate::{Connector, TaprootWitness};
 
 /// Output between `Contest` and `Watchtower i Counterproof`.
 ///
-/// The output requires a series of operator signatures for spending.
-/// Each operator signature comes from an adaptor,
-/// which publishes one byte of counterproof data (including public values).
+/// The output requires a series of operator signatures for spending. Each operator signature
+/// comes from an adaptor, which publishes one byte of counterproof data (including public
+/// values).
 ///
-/// The connector's structure is the same for each watchtower,
-/// because its locking script doesn't include any watchtower keys.
-/// This means that the same connector can be _reused_ across watchtowers.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+/// The adaptor pubkey is supplied by mosaic per `(evaluator, garbler)` tableset, so it differs
+/// per watchtower. The connector therefore carries one operator pubkey per watchtower and
+/// exposes one Taproot script leaf per watchtower (identical structure, distinct pubkey). A
+/// watchtower spends via [`ContestCounterproofSpend`] that specifies which slot to use.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ContestCounterproofOutput {
     network: Network,
     n_of_n_pubkey: XOnlyPublicKey,
-    operator_pubkey: XOnlyPublicKey,
+    operator_pubkeys: Vec<XOnlyPublicKey>,
     n_data: NonZero<usize>,
 }
 
 impl ContestCounterproofOutput {
     /// Creates a new connector.
     ///
-    /// `n_data` is the length of the serialized counterproof (including public values).
-    /// This is equal to the number of required operator signatures.
-    pub const fn new(
+    /// `n_data` is the length of the serialized counterproof (including public values). This
+    /// is equal to the number of required operator signatures per leaf.
+    pub fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
-        operator_pubkey: XOnlyPublicKey,
+        operator_pubkeys: Vec<XOnlyPublicKey>,
         n_data: NonZero<usize>,
     ) -> Self {
+        assert!(
+            !operator_pubkeys.is_empty(),
+            "ContestCounterproofOutput requires at least one operator pubkey"
+        );
         Self {
             network,
             n_of_n_pubkey,
-            operator_pubkey,
+            operator_pubkeys,
             n_data,
         }
     }
@@ -48,6 +53,11 @@ impl ContestCounterproofOutput {
     /// This is 1 operator signature per byte of data.
     pub const fn n_data(&self) -> NonZero<usize> {
         self.n_data
+    }
+
+    /// Number of watchtower-specific spend leaves.
+    pub const fn n_watchtowers(&self) -> usize {
+        self.operator_pubkeys.len()
     }
 }
 
@@ -62,33 +72,38 @@ impl Connector for ContestCounterproofOutput {
     }
 
     fn leaf_scripts(&self) -> Vec<ScriptBuf> {
-        let mut builder = script::Builder::new()
-            .push_slice(self.n_of_n_pubkey.serialize())
-            .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
-            .push_slice(self.operator_pubkey.serialize());
+        self.operator_pubkeys
+            .iter()
+            .map(|operator_pubkey| {
+                let mut builder = script::Builder::new()
+                    .push_slice(self.n_of_n_pubkey.serialize())
+                    .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
+                    .push_slice(operator_pubkey.serialize());
 
-        for _ in 0..self.n_data.get() - 1 {
-            builder = builder
-                .push_opcode(opcodes::all::OP_TUCK)
-                .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
-                .push_opcode(opcodes::all::OP_CODESEPARATOR);
-        }
+                for _ in 0..self.n_data.get() - 1 {
+                    builder = builder
+                        .push_opcode(opcodes::all::OP_TUCK)
+                        .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
+                        .push_opcode(opcodes::all::OP_CODESEPARATOR);
+                }
 
-        let counterproof_script = builder.push_opcode(opcodes::all::OP_CHECKSIG).into_script();
-        vec![counterproof_script]
+                builder.push_opcode(opcodes::all::OP_CHECKSIG).into_script()
+            })
+            .collect()
     }
 
     fn value(&self) -> Amount {
         self.script_pubkey().minimal_non_dust()
     }
 
-    fn to_leaf_index(&self, _spend_path: Self::SpendPath) -> Option<usize> {
-        Some(0)
+    fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
+        (spend_path.watchtower_slot < self.operator_pubkeys.len())
+            .then_some(spend_path.watchtower_slot)
     }
 
     fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
         TaprootWitness::Script {
-            leaf_index: 0,
+            leaf_index: witness.watchtower_slot,
             script_inputs: witness
                 .operator_signatures
                 .iter()
@@ -102,13 +117,19 @@ impl Connector for ContestCounterproofOutput {
     }
 }
 
-/// Single spend path of a [`ContestCounterproofOutput`].
+/// Identifies which watchtower's leaf is being used to spend a [`ContestCounterproofOutput`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct ContestCounterproofSpend;
+pub struct ContestCounterproofSpend {
+    /// Zero-based watchtower slot in operator-table order (owner skipped).
+    pub watchtower_slot: usize,
+}
 
 /// Witness data to spend a [`ContestCounterproofOutput`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ContestCounterproofWitness {
+    /// Watchtower slot whose leaf is being used. Must match the `watchtower_slot` used in
+    /// [`ContestCounterproofSpend`] for sighash computation.
+    pub watchtower_slot: usize,
     /// N/N signature.
     ///
     /// This signature signs the first sighash.
@@ -145,7 +166,7 @@ mod tests {
         let connector = ContestCounterproofOutput::new(
             Network::Regtest,
             n_of_n_keypair.x_only_public_key().0,
-            operator_keypair.x_only_public_key().0,
+            vec![operator_keypair.x_only_public_key().0],
             N_DATA,
         );
 
@@ -209,7 +230,7 @@ mod tests {
             .get_sighashes_with_code_separator(
                 &mut cache,
                 prevouts,
-                ContestCounterproofSpend,
+                ContestCounterproofSpend { watchtower_slot: 0 },
                 input_index,
             )
             .into_iter()
@@ -217,6 +238,7 @@ mod tests {
         let n_of_n_signature = n_of_n_keypair.sign_schnorr(it.peek().copied().unwrap());
         let operator_signatures = it.map(|x| operator_keypair.sign_schnorr(x)).collect();
         let witness = ContestCounterproofWitness {
+            watchtower_slot: 0,
             n_of_n_signature,
             operator_signatures,
         };

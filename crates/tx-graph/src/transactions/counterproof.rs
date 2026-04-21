@@ -60,13 +60,16 @@ impl CounterproofTx {
         );
         let cpfp_connector = P2AConnector::new(contest_counterproof_output.network(), Amount::ZERO);
 
+        let spend_path = ContestCounterproofSpend {
+            watchtower_slot: data.watchtower_index as usize,
+        };
         let prevouts = [contest_counterproof_output.tx_out()];
         let input = vec![TxIn {
             previous_output: OutPoint {
                 txid: data.contest_txid,
                 vout: ContestTx::counterproof_vout(data.watchtower_index),
             },
-            sequence: contest_counterproof_output.sequence(ContestCounterproofSpend),
+            sequence: contest_counterproof_output.sequence(spend_path),
             ..Default::default()
         }];
         let output = vec![counterproof_connector.tx_out(), cpfp_connector.tx_out()];
@@ -108,7 +111,9 @@ impl CounterproofTx {
             .get_sighashes_with_code_separator(
                 &mut cache,
                 Prevouts::All(&self.prevouts),
-                ContestCounterproofSpend,
+                ContestCounterproofSpend {
+                    watchtower_slot: self.watchtower_index as usize,
+                },
                 0,
             )
             .into_iter()
@@ -147,7 +152,9 @@ impl PresignedTx<{ Self::N_INPUTS }> for CounterproofTx {
         [self.contest_counterproof_output.get_signing_info(
             &mut cache,
             Prevouts::All(&self.prevouts),
-            ContestCounterproofSpend,
+            ContestCounterproofSpend {
+                watchtower_slot: self.watchtower_index as usize,
+            },
             0,
         )]
     }

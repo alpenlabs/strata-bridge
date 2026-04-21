@@ -51,7 +51,7 @@ impl GraphSM {
                     game_index,
                     claim_funds: graph_data_event.claim_funds,
                     deposit_outpoint: self.context.deposit_outpoint(),
-                    adaptor_pubkey: graph_data_event.adaptor_pubkey,
+                    adaptor_pubkeys: graph_data_event.adaptor_pubkeys.clone(),
                     fault_pubkeys: graph_data_event.fault_pubkeys.clone(),
                 };
                 let game_graph = generate_game_graph(&cfg, self.context(), &deposit_params);

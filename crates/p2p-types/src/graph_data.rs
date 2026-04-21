@@ -26,8 +26,11 @@ pub struct GraphData {
     #[rkyv(with = RkyvOutPoint)]
     pub funding_outpoint: OutPoint,
 
-    /// Key used in the locking script of the owner's contest transaction.
-    pub adaptor_pubkey: XOnlyPubKey,
+    /// Per-watchtower adaptor pubkeys used in the locking script of the owner's contest
+    /// counterproof output. Mosaic produces a distinct adaptor secret per
+    /// `(evaluator, garbler)` pair, so there are `n - 1` entries, in operator-table order
+    /// with the graph owner skipped.
+    pub adaptor_pubkeys: Vec<XOnlyPubKey>,
 
     /// Per-watchtower fault pubkeys used to lock each counterproof-nack output.
     ///
@@ -40,12 +43,12 @@ impl GraphData {
     /// Constructs a new [`GraphData`].
     pub const fn new(
         funding_outpoint: OutPoint,
-        adaptor_pubkey: XOnlyPubKey,
+        adaptor_pubkeys: Vec<XOnlyPubKey>,
         fault_pubkeys: Vec<XOnlyPubKey>,
     ) -> Self {
         Self {
             funding_outpoint,
-            adaptor_pubkey,
+            adaptor_pubkeys,
             fault_pubkeys,
         }
     }
@@ -61,15 +64,15 @@ impl arbitrary::Arbitrary for GraphData {
         (
             any::<[u8; 32]>(),
             any::<u32>(),
-            any::<XOnlyPubKey>(),
+            proptest::collection::vec(any::<XOnlyPubKey>(), 0..8),
             proptest::collection::vec(any::<XOnlyPubKey>(), 0..8),
         )
-            .prop_map(|(txid, vout, adaptor_pubkey, fault_pubkeys)| Self {
+            .prop_map(|(txid, vout, adaptor_pubkeys, fault_pubkeys)| Self {
                 funding_outpoint: OutPoint {
                     txid: bitcoin::Txid::from_byte_array(txid),
                     vout,
                 },
-                adaptor_pubkey,
+                adaptor_pubkeys,
                 fault_pubkeys,
             })
             .boxed()

@@ -30,7 +30,7 @@ mod tests {
                 operator: 0,
             },
             claim_funds: Default::default(),
-            adaptor_pubkey: params.adaptor_pubkey,
+            adaptor_pubkeys: params.adaptor_pubkeys,
             fault_pubkeys: params.fault_pubkeys,
         }
     }

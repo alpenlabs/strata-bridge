@@ -55,8 +55,11 @@ pub struct DepositParams {
     pub claim_funds: OutPoint,
     /// UTXO that holds the deposit.
     pub deposit_outpoint: OutPoint,
-    /// Key used in the locking script of the owner's contest transaction.
-    pub adaptor_pubkey: XOnlyPublicKey,
+    /// Per-watchtower adaptor pubkeys used in the locking script of the owner's contest
+    /// counterproof output — one per watchtower, in operator-table order with the owner
+    /// skipped. Mosaic exposes a distinct adaptor secret per `(evaluator, garbler)` pair, so
+    /// the same owner has `n - 1` distinct adaptor pubkeys.
+    pub adaptor_pubkeys: Vec<XOnlyPublicKey>,
     /// Per-watchtower fault pubkeys used to lock each counterproof-nack output.
     ///
     /// Entries are in operator-table order with the graph owner skipped; its length equals
@@ -83,10 +86,16 @@ pub struct SetupParams {
 pub struct KeyData {
     /// N/N key.
     pub n_of_n_pubkey: XOnlyPublicKey,
-    /// Operator key that is to be used in the locking script of the contest transaction.
-    ///
-    /// The signatures in the counterproof transactions correspond to this key.
+    /// Owner's static signing key (non-adaptor) used by the contest proof connector.
     pub operator_pubkey: XOnlyPublicKey,
+    /// Per-watchtower adaptor pubkeys used in the locking script of the owner's contest
+    /// counterproof output — one per watchtower, in operator-table order with the owner
+    /// skipped.
+    ///
+    /// Each mosaic `(evaluator=owner, garbler=watchtower)` tableset exposes a distinct adaptor
+    /// secret, so the contest counterproof output has one Taproot leaf per watchtower, each
+    /// keyed by the corresponding adaptor pubkey.
+    pub operator_adaptor_pubkeys: Vec<XOnlyPublicKey>,
     /// For each watchtower, a key to authorize the contest.
     pub watchtower_pubkeys: Vec<XOnlyPublicKey>,
     /// Admin key.
@@ -280,7 +289,7 @@ impl GameGraph {
             connectors.contest_proof,
             connectors.contest_payout,
             connectors.contest_slash,
-            connectors.contest_counterproof,
+            connectors.contest_counterproof.clone(),
         );
 
         let bridge_proof_timeout_data = BridgeProofTimeoutData {
@@ -305,7 +314,7 @@ impl GameGraph {
                 };
                 let counterproof = CounterproofTx::new(
                     counterproof_data,
-                    connectors.contest_counterproof,
+                    connectors.contest_counterproof.clone(),
                     counterproof_connector,
                 );
 
@@ -528,6 +537,9 @@ impl GameConnectors {
             keys.n_of_n_pubkey,
             protocol.deposit_amount,
         );
+        // `contest_proof` has one Taproot output per graph, so we pick a single representative
+        // from the per-watchtower adaptor pubkey list. All operators that reconstruct this
+        // graph read the same list (broadcast by the owner), so indexing by 0 is deterministic.
         let contest_proof = ContestProofConnector::new(
             protocol.network,
             keys.n_of_n_pubkey,
@@ -548,7 +560,7 @@ impl GameConnectors {
         let contest_counterproof = ContestCounterproofOutput::new(
             protocol.network,
             keys.n_of_n_pubkey,
-            keys.operator_pubkey,
+            keys.operator_adaptor_pubkeys.clone(),
             protocol.counterproof_n_bytes,
         );
         let counterproof: Vec<_> = keys
@@ -647,9 +659,11 @@ mod tests {
             stake_amount: STAKE_AMOUNT,
         };
         let wallet_descriptor = Descriptor::try_from(node.wallet_address().clone()).unwrap();
+        let operator_xonly = signer.operator_keypair.x_only_public_key().0;
         let keys = KeyData {
             n_of_n_pubkey: signer.n_of_n_keypair.x_only_public_key().0,
-            operator_pubkey: signer.operator_keypair.x_only_public_key().0,
+            operator_pubkey: operator_xonly,
+            operator_adaptor_pubkeys: vec![operator_xonly; N_WATCHTOWERS],
             watchtower_pubkeys: signer
                 .watchtower_keypairs
                 .iter()
@@ -742,7 +756,7 @@ mod tests {
                     txid: funding_txid,
                     vout: 1,
                 },
-                adaptor_pubkey: setup.keys.operator_pubkey,
+                adaptor_pubkeys: setup.keys.operator_adaptor_pubkeys.clone(),
                 fault_pubkeys: setup.keys.wt_fault_pubkeys.clone(),
             },
         }
@@ -987,6 +1001,7 @@ mod tests {
                 .map(|msg| signer.operator_keypair.sign_schnorr(msg))
                 .collect();
             let witness = ContestCounterproofWitness {
+                watchtower_slot: 0,
                 n_of_n_signature: presigned.watchtowers[0].counterproof[0],
                 operator_signatures,
             };

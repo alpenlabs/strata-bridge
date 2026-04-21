@@ -22,8 +22,8 @@ pub(crate) fn build_game_graph(
         ),
         // TODO: <https://alpenlabs.atlassian.net/browse/STR-2945>
         // use the COUNTERPROOF_N_BYTES constant in a future refactor
-        // proof bytes (groth16) + deposit_idx (4 bytes) + operator pubkey (32 bytes)
-        counterproof_n_bytes: NonZero::new(128 + 32 + 4).expect("non-zero"),
+        // proof bytes (groth16) + deposit_idx (4 bytes)
+        counterproof_n_bytes: NonZero::new(128 + 4).expect("non-zero"),
         deposit_amount: params.protocol.deposit_amount,
         stake_amount: params.protocol.stake_amount,
     };
