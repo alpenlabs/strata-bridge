@@ -32,7 +32,7 @@ def get_tx_block_height(bitcoin_rpc, txid: str) -> int | None:
 
 def compute_consecutive_height_gaps(heights: list[int]) -> list[int]:
     """
-    Compute gaps in blocks between consecutive heights (in DRT submission order).
+    Compute gaps in blocks between consecutive heights (in provided order).
 
     Returns a list of gaps in block heights.
     """
@@ -112,6 +112,8 @@ class ConcurrentDepositTest(StrataTestBase):
             block_heights.append(height)
             self.logger.info(f"Deposit TX {deposit_txid} mined at block {height}")
 
+        # Sort heights so that this test does not depend on DTs and DRTs being in the same order
+        block_heights = sorted(block_heights)
         gaps = compute_consecutive_height_gaps(block_heights)
         assert len(gaps) == CONCURRENT_DRT_COUNT - 1, (
             f"Expected {CONCURRENT_DRT_COUNT - 1} consecutive height gaps, got {len(gaps)}"
