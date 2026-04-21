@@ -41,6 +41,32 @@ impl GraphSM {
         let pov_operator_idx = self.context().operator_table().pov_idx();
         let is_my_graph = graph_owner == pov_operator_idx;
 
+        // Both pubkey vectors must have exactly `n - 1` entries (one per watchtower, owner
+        // skipped). A shorter vector would silently truncate the counterproof graph and later
+        // OOB-panic when `musig_signing_info` iterates by the full watchtower count. This is
+        // the authoritative boundary — callers (e.g. the orchestrator classifier) may check
+        // earlier but anything not gated by the compiler (via types) must be re-checked here.
+        let num_watchtowers = self
+            .context()
+            .operator_table()
+            .cardinality()
+            .saturating_sub(1);
+        if graph_data_event.adaptor_pubkeys.len() != num_watchtowers
+            || graph_data_event.fault_pubkeys.len() != num_watchtowers
+        {
+            let reason = format!(
+                "graph data must carry {num_watchtowers} adaptor and fault pubkeys \
+                 (one per watchtower, owner skipped); got {} adaptor, {} fault",
+                graph_data_event.adaptor_pubkeys.len(),
+                graph_data_event.fault_pubkeys.len(),
+            );
+            return Err(GSMError::rejected(
+                self.state().clone(),
+                graph_data_event.into(),
+                reason,
+            ));
+        }
+
         match self.state() {
             GraphState::Created {
                 last_block_height, ..
@@ -51,7 +77,7 @@ impl GraphSM {
                     game_index,
                     claim_funds: graph_data_event.claim_funds,
                     deposit_outpoint: self.context.deposit_outpoint(),
-                    adaptor_pubkey: graph_data_event.adaptor_pubkey,
+                    adaptor_pubkeys: graph_data_event.adaptor_pubkeys.clone(),
                     fault_pubkeys: graph_data_event.fault_pubkeys.clone(),
                 };
                 let game_graph = generate_game_graph(&cfg, self.context(), &deposit_params);

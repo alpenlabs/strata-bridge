@@ -113,9 +113,17 @@ impl GraphSMCtx {
             .cloned()
             .collect();
 
+        let operator_pubkey = self
+            .operator_table()
+            .idx_to_btc_key(&self.operator_idx())
+            .expect("operator index must be valid")
+            .x_only_public_key()
+            .0;
+
         KeyData {
             n_of_n_pubkey,
-            operator_pubkey: deposit_params.adaptor_pubkey,
+            operator_pubkey,
+            operator_adaptor_pubkeys: deposit_params.adaptor_pubkeys.clone(),
             watchtower_pubkeys,
             admin_pubkey,
             unstaking_image,

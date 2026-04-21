@@ -22,8 +22,11 @@ pub struct GraphDataGeneratedEvent {
     pub graph_idx: GraphIdx,
     /// UTXO that funds the claim transaction.
     pub claim_funds: OutPoint,
-    /// Key used in the locking script of the owner's contest transaction.
-    pub adaptor_pubkey: XOnlyPublicKey,
+    /// Per-watchtower adaptor pubkeys used in the locking script of the owner's contest
+    /// counterproof output. Mosaic exposes a distinct adaptor secret per
+    /// `(evaluator, garbler)` pair, so the owner has `n - 1` adaptor pubkeys (operator-table
+    /// order, owner skipped).
+    pub adaptor_pubkeys: Vec<XOnlyPublicKey>,
     /// Per-watchtower fault pubkeys used to lock each counterproof-nack output.
     ///
     /// Entries are in operator-table order with the graph owner skipped; its length equals

@@ -30,7 +30,7 @@ mod tests {
                 operator: 0,
             },
             claim_funds: Default::default(),
-            adaptor_pubkey: params.adaptor_pubkey,
+            adaptor_pubkeys: params.adaptor_pubkeys,
             fault_pubkeys: params.fault_pubkeys,
         }
     }
@@ -152,6 +152,58 @@ mod tests {
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
             event: GraphEvent::GraphDataProduced(test_graph_data_event()),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    #[test]
+    fn test_process_graph_data_rejects_short_adaptor_pubkeys() {
+        let initial_state = GraphState::Created {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        let params = test_deposit_params();
+        let mut adaptor_pubkeys = params.adaptor_pubkeys.clone();
+        adaptor_pubkeys.pop();
+        let event = GraphDataGeneratedEvent {
+            graph_idx: GraphIdx {
+                deposit: 0,
+                operator: 0,
+            },
+            claim_funds: Default::default(),
+            adaptor_pubkeys,
+            fault_pubkeys: params.fault_pubkeys,
+        };
+
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: initial_state,
+            event: GraphEvent::GraphDataProduced(event),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        });
+    }
+
+    #[test]
+    fn test_process_graph_data_rejects_short_fault_pubkeys() {
+        let initial_state = GraphState::Created {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        let params = test_deposit_params();
+        let mut fault_pubkeys = params.fault_pubkeys.clone();
+        fault_pubkeys.pop();
+        let event = GraphDataGeneratedEvent {
+            graph_idx: GraphIdx {
+                deposit: 0,
+                operator: 0,
+            },
+            claim_funds: Default::default(),
+            adaptor_pubkeys: params.adaptor_pubkeys,
+            fault_pubkeys,
+        };
+
+        test_graph_invalid_transition(GraphInvalidTransition {
+            from_state: initial_state,
+            event: GraphEvent::GraphDataProduced(event),
             expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
     }

@@ -582,7 +582,7 @@ impl UnsignedGossipsubMsg {
             } => {
                 let GraphData {
                     funding_outpoint,
-                    adaptor_pubkey,
+                    adaptor_pubkeys,
                     fault_pubkeys,
                 } = graph_data;
                 buf.push(GossipsubMsgKind::GraphDataExchange as u8);
@@ -590,7 +590,10 @@ impl UnsignedGossipsubMsg {
                 buf.extend(graph_idx.operator.to_le_bytes());
                 buf.extend(funding_outpoint.txid.to_raw_hash().to_byte_array()); // txid
                 buf.extend(funding_outpoint.vout.to_le_bytes()); // vout
-                buf.extend(adaptor_pubkey.to_bytes());
+                buf.extend((adaptor_pubkeys.len() as u32).to_le_bytes());
+                for adaptor_pubkey in adaptor_pubkeys {
+                    buf.extend(adaptor_pubkey.to_bytes());
+                }
                 buf.extend((fault_pubkeys.len() as u32).to_le_bytes());
                 for fault_pubkey in fault_pubkeys {
                     buf.extend(fault_pubkey.to_bytes());
@@ -751,6 +754,9 @@ mod tests {
     fn test_graph_data(txid_bytes: [u8; 32], vout: u32, n_watchtowers: usize) -> GraphData {
         use bitcoin::hashes::Hash as _;
 
+        let adaptor_pubkeys = (0..n_watchtowers)
+            .map(|_| XOnlyPubKey::from(generate_xonly_pubkey()))
+            .collect();
         let fault_pubkeys = (0..n_watchtowers)
             .map(|_| XOnlyPubKey::from(generate_xonly_pubkey()))
             .collect();
@@ -759,7 +765,7 @@ mod tests {
                 txid: Txid::from_byte_array(txid_bytes),
                 vout,
             },
-            XOnlyPubKey::from(generate_xonly_pubkey()),
+            adaptor_pubkeys,
             fault_pubkeys,
         )
     }
@@ -1107,7 +1113,11 @@ mod tests {
             deposit: 7,
         };
         let graph_data = test_graph_data(txid_bytes, vout, n_watchtowers);
-        let adaptor_bytes = graph_data.adaptor_pubkey.to_bytes();
+        let adaptor_bytes: Vec<[u8; 32]> = graph_data
+            .adaptor_pubkeys
+            .iter()
+            .map(|k| k.to_bytes())
+            .collect();
         let fault_bytes: Vec<[u8; 32]> = graph_data
             .fault_pubkeys
             .iter()
@@ -1120,7 +1130,7 @@ mod tests {
         };
         let content = msg.content_bytes();
 
-        let expected_len = 1 + 4 + 4 + 32 + 4 + 32 + 4 + (n_watchtowers * 32);
+        let expected_len = 1 + 4 + 4 + 32 + 4 + 4 + (n_watchtowers * 32) + 4 + (n_watchtowers * 32);
         assert_eq!(
             content.len(),
             expected_len,
@@ -1160,11 +1170,19 @@ mod tests {
         );
         offset += 4;
         assert_eq!(
-            &content[offset..offset + 32],
-            &adaptor_bytes,
-            "adaptor_pubkey should follow the funding outpoint"
+            &content[offset..offset + 4],
+            &(n_watchtowers as u32).to_le_bytes(),
+            "adaptor_pubkeys length prefix should be little-endian u32"
         );
-        offset += 32;
+        offset += 4;
+        for (i, adaptor) in adaptor_bytes.iter().enumerate() {
+            assert_eq!(
+                &content[offset..offset + 32],
+                adaptor,
+                "adaptor_pubkey[{i}] should match"
+            );
+            offset += 32;
+        }
         assert_eq!(
             &content[offset..offset + 4],
             &(n_watchtowers as u32).to_le_bytes(),

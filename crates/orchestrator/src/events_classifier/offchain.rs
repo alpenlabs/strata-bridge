@@ -92,8 +92,14 @@ pub(crate) fn classify_unsigned_gossip(
                 return vec![];
             }
 
-            let adaptor_pubkey = match graph_data.adaptor_pubkey.try_into() {
-                Ok(pk) => pk,
+            let adaptor_pubkeys: Result<Vec<_>, _> = graph_data
+                .adaptor_pubkeys
+                .iter()
+                .copied()
+                .map(|k| k.try_into())
+                .collect();
+            let adaptor_pubkeys = match adaptor_pubkeys {
+                Ok(pks) => pks,
                 Err(err) => {
                     warn!(
                         %graph_idx, %err,
@@ -123,7 +129,7 @@ pub(crate) fn classify_unsigned_gossip(
                 GraphEvent::GraphDataProduced(GraphEvents::GraphDataGeneratedEvent {
                     graph_idx: *graph_idx,
                     claim_funds: graph_data.funding_outpoint,
-                    adaptor_pubkey,
+                    adaptor_pubkeys,
                     fault_pubkeys,
                 })
                 .into(),
@@ -991,7 +997,7 @@ mod tests {
             graph_idx,
             graph_data: GraphData::new(
                 OutPoint::new(Txid::all_zeros(), 0),
-                XOnlyPubKey::from(generate_xonly_pubkey()),
+                vec![XOnlyPubKey::from(generate_xonly_pubkey())],
                 vec![XOnlyPubKey::from(generate_xonly_pubkey())],
             ),
         }

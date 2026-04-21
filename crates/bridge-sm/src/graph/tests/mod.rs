@@ -150,7 +150,7 @@ pub(super) fn test_deposit_outpoint() -> OutPoint {
 
 // ===== Graph Data =====
 
-static TEST_ADAPTOR_PUBKEY: OnceLock<bitcoin::XOnlyPublicKey> = OnceLock::new();
+static TEST_ADAPTOR_PUBKEYS: OnceLock<Vec<bitcoin::XOnlyPublicKey>> = OnceLock::new();
 static TEST_FAULT_PUBKEYS: OnceLock<Vec<bitcoin::XOnlyPublicKey>> = OnceLock::new();
 
 pub(super) fn test_deposit_params() -> DepositParams {
@@ -158,7 +158,13 @@ pub(super) fn test_deposit_params() -> DepositParams {
         game_index: NonZero::new(1u32).unwrap(),
         claim_funds: OutPoint::default(),
         deposit_outpoint: test_deposit_outpoint(),
-        adaptor_pubkey: *TEST_ADAPTOR_PUBKEY.get_or_init(generate_xonly_pubkey),
+        adaptor_pubkeys: TEST_ADAPTOR_PUBKEYS
+            .get_or_init(|| {
+                (0..N_TEST_OPERATORS - 1)
+                    .map(|_| generate_xonly_pubkey())
+                    .collect()
+            })
+            .clone(),
         fault_pubkeys: TEST_FAULT_PUBKEYS
             .get_or_init(|| {
                 (0..N_TEST_OPERATORS - 1)

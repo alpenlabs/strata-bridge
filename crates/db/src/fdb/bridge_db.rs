@@ -665,7 +665,7 @@ mod tests {
                             game_index: NonZero::new(1).unwrap(),
                             claim_funds: outpoint,
                             deposit_outpoint: outpoint,
-                            adaptor_pubkey: generate_xonly_pubkey(),
+                            adaptor_pubkeys: vec![generate_xonly_pubkey()],
                             fault_pubkeys: vec![generate_xonly_pubkey()]
                         },
                         signatures: Default::default(),
@@ -1517,7 +1517,7 @@ mod tests {
                     vout: outpoint.vout.wrapping_add(2),
                 },
                 deposit_outpoint: outpoint,
-                adaptor_pubkey: generate_xonly_pubkey(),
+                adaptor_pubkeys: (0..2).map(|_| generate_xonly_pubkey()).collect(),
                 fault_pubkeys: (0..2).map(|_| generate_xonly_pubkey()).collect(),
             },
             graph_summary: GameGraphSummary {

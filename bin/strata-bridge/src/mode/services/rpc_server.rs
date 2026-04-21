@@ -684,7 +684,7 @@ mod tests {
             game_index: NonZero::new(DEPOSIT_IDX + 1).expect("non-zero"),
             claim_funds: OutPoint::new(bitcoin::Txid::all_zeros(), 1),
             deposit_outpoint: OutPoint::new(bitcoin::Txid::all_zeros(), 1),
-            adaptor_pubkey: generate_xonly_pubkey(),
+            adaptor_pubkeys: (0..2).map(|_| generate_xonly_pubkey()).collect(),
             fault_pubkeys: (0..2).map(|_| generate_xonly_pubkey()).collect(),
         }
     }
