@@ -62,7 +62,6 @@ fn nack_event(counterprover_idx: u32) -> CounterProofNackConfirmedEvent {
         .expect("nack_event called with graph owner index");
     let tx = nack_tx_for_slot(slot);
     CounterProofNackConfirmedEvent {
-        counterproof_nack_txid: tx.compute_txid(),
         tx,
         counterprover_idx,
     }
@@ -115,7 +114,7 @@ fn first_nack_stays_in_counter_proof_posted() {
                 (TEST_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
                 (SECOND_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
             ]),
-            counterproof_nacks: BTreeMap::from([(TEST_NONPOV_IDX, event.counterproof_nack_txid)]),
+            counterproof_nacks: BTreeMap::from([(TEST_NONPOV_IDX, event.tx.compute_txid())]),
         },
         expected_duties: vec![],
         expected_signals: vec![],
@@ -203,7 +202,6 @@ fn event_rejected_no_counterproof_posted() {
 #[test]
 fn event_rejected_invalid_operator_idx() {
     let event = CounterProofNackConfirmedEvent {
-        counterproof_nack_txid: generate_txid(),
         tx: generate_tx(0, 0),
         counterprover_idx: u32::MAX,
     };
@@ -217,7 +215,6 @@ fn event_rejected_invalid_operator_idx() {
 #[test]
 fn event_rejected_wrong_outpoint() {
     let event = CounterProofNackConfirmedEvent {
-        counterproof_nack_txid: generate_txid(),
         tx: generate_tx(0, 0),
         counterprover_idx: TEST_NONPOV_IDX,
     };
@@ -225,42 +222,6 @@ fn event_rejected_wrong_outpoint() {
         from_state: counter_proof_posted_state_with_nacks(&[]),
         event: GraphEvent::CounterProofNackConfirmed(event),
         expected_error: |e| matches!(e, GSMError::Rejected { .. }),
-    });
-}
-
-#[test]
-fn valid_nack_ignores_spoofed_event_txid() {
-    // The event's `counterproof_nack_txid` field is set to the ACK txid, but the STF
-    // validates against the actual tx (whose computed txid differs). The event should
-    // still be accepted because the tx itself is a legitimate NACK.
-    let summary = test_graph_summary();
-    let nack_tx = nack_tx_for_slot(0);
-    let event = CounterProofNackConfirmedEvent {
-        counterproof_nack_txid: summary.counterproofs[0].counterproof_ack,
-        tx: nack_tx,
-        counterprover_idx: TEST_NONPOV_IDX,
-    };
-
-    let counterproof_txid = summary.counterproofs[0].counterproof;
-    test_graph_transition(GraphTransition {
-        from_state: counter_proof_posted_state_with_nacks(&[]),
-        event: GraphEvent::CounterProofNackConfirmed(event.clone()),
-        expected_state: GraphState::CounterProofPosted {
-            last_block_height: LATER_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: summary,
-            signatures: Default::default(),
-            fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
-            contest_block_height: LATER_BLOCK_HEIGHT,
-            refuted_proof: None,
-            counterproofs_and_confs: BTreeMap::from([
-                (TEST_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
-                (SECOND_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
-            ]),
-            counterproof_nacks: BTreeMap::from([(TEST_NONPOV_IDX, event.counterproof_nack_txid)]),
-        },
-        expected_duties: vec![],
-        expected_signals: vec![],
     });
 }
 
