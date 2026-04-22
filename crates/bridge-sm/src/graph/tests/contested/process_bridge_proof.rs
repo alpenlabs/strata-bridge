@@ -33,11 +33,9 @@ use crate::{
 const BRIDGE_PROOF_BLOCK_HEIGHT: u64 = u64::MAX;
 
 fn bridge_proof_event() -> BridgeProofConfirmedEvent {
-    let tx = test_bridge_proof_tx();
     BridgeProofConfirmedEvent {
-        bridge_proof_txid: tx.compute_txid(),
         bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
-        tx,
+        tx: test_bridge_proof_tx(),
         proof: dummy_proof_receipt(),
     }
 }
@@ -63,7 +61,7 @@ fn event_accepted_pov_no_duties() {
             signatures: vec![],
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
             contest_block_height: LATER_BLOCK_HEIGHT,
-            bridge_proof_txid: event.bridge_proof_txid,
+            bridge_proof_txid: event.tx.compute_txid(),
             bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
             proof: dummy_proof_receipt(),
         },
@@ -91,7 +89,7 @@ fn watchtower_skips_counterproof_when_proof_valid() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                bridge_proof_txid: event.bridge_proof_txid,
+                bridge_proof_txid: event.tx.compute_txid(),
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
             },
@@ -132,7 +130,7 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                bridge_proof_txid: event.bridge_proof_txid,
+                bridge_proof_txid: event.tx.compute_txid(),
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
             },
@@ -238,7 +236,7 @@ fn pov_watchtower_skips_counterproof_even_when_proof_invalid() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                bridge_proof_txid: event.bridge_proof_txid,
+                bridge_proof_txid: event.tx.compute_txid(),
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
             },
@@ -343,7 +341,6 @@ fn event_duplicate() {
 #[test]
 fn event_rejected_wrong_outpoint_from_contested() {
     let event = BridgeProofConfirmedEvent {
-        bridge_proof_txid: Txid::from_byte_array([0xAB; 32]),
         bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
         tx: generate_tx(0, 0),
         proof: dummy_proof_receipt(),
@@ -359,7 +356,6 @@ fn event_rejected_wrong_outpoint_from_contested() {
 #[test]
 fn event_rejected_wrong_outpoint_from_counterproof_posted() {
     let event = BridgeProofConfirmedEvent {
-        bridge_proof_txid: Txid::from_byte_array([0xAB; 32]),
         bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
         tx: generate_tx(0, 0),
         proof: dummy_proof_receipt(),
@@ -374,19 +370,13 @@ fn event_rejected_wrong_outpoint_from_counterproof_posted() {
 
 #[test]
 fn event_rejected_bridge_proof_timeout_txid_from_contested() {
-    // Use a valid bridge proof tx (spends contest proof connector) but set the
-    // event txid to the bridge proof timeout txid, simulating a misclassified
-    // timeout transaction.
-    let tx = test_bridge_proof_tx();
-    let event = BridgeProofConfirmedEvent {
-        bridge_proof_txid: TEST_GRAPH_SUMMARY.bridge_proof_timeout,
-        bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
-        tx,
-        proof: dummy_proof_receipt(),
-    };
+    // Set bridge_proof_timeout to the bridge proof tx's txid so the validation
+    // rejects it even though it spends the correct contest proof connector.
+    let event = bridge_proof_event();
+    let from_state = contested_state_with_timeout_txid(event.tx.compute_txid());
 
     test_graph_invalid_transition(GraphInvalidTransition {
-        from_state: contested_state(),
+        from_state,
         event: GraphEvent::BridgeProofConfirmed(event),
         expected_error: |e| matches!(e, GSMError::Rejected { .. }),
     });
@@ -394,16 +384,12 @@ fn event_rejected_bridge_proof_timeout_txid_from_contested() {
 
 #[test]
 fn event_rejected_bridge_proof_timeout_txid_from_counterproof_posted() {
-    let tx = test_bridge_proof_tx();
-    let event = BridgeProofConfirmedEvent {
-        bridge_proof_txid: TEST_GRAPH_SUMMARY.bridge_proof_timeout,
-        bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
-        tx,
-        proof: dummy_proof_receipt(),
-    };
+    let event = bridge_proof_event();
+    let from_state =
+        counter_proof_posted_without_refuted_proof_state_with_timeout_txid(event.tx.compute_txid());
 
     test_graph_invalid_transition(GraphInvalidTransition {
-        from_state: counter_proof_posted_without_refuted_proof_state(),
+        from_state,
         event: GraphEvent::BridgeProofConfirmed(event),
         expected_error: |e| matches!(e, GSMError::Rejected { .. }),
     });
@@ -420,6 +406,41 @@ fn event_invalid() {
             event: GraphEvent::BridgeProofConfirmed(bridge_proof_event()),
             expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
         });
+    }
+}
+
+/// Builds a `Contested` state with `bridge_proof_timeout` set to the given txid.
+fn contested_state_with_timeout_txid(timeout_txid: bitcoin::Txid) -> GraphState {
+    let mut summary = TEST_GRAPH_SUMMARY.clone();
+    summary.bridge_proof_timeout = timeout_txid;
+    GraphState::Contested {
+        last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        graph_summary: summary,
+        signatures: Default::default(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        fulfillment_block_height: Some(LATER_BLOCK_HEIGHT),
+        contest_block_height: LATER_BLOCK_HEIGHT,
+    }
+}
+
+/// Builds a `CounterProofPosted` state (no refuted proof) with `bridge_proof_timeout` set to the
+/// given txid.
+fn counter_proof_posted_without_refuted_proof_state_with_timeout_txid(
+    timeout_txid: bitcoin::Txid,
+) -> GraphState {
+    let mut summary = TEST_GRAPH_SUMMARY.clone();
+    summary.bridge_proof_timeout = timeout_txid;
+    GraphState::CounterProofPosted {
+        last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        graph_summary: summary,
+        signatures: Default::default(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        contest_block_height: LATER_BLOCK_HEIGHT,
+        refuted_proof: None,
+        counterproofs_and_confs: Default::default(),
+        counterproof_nacks: Default::default(),
     }
 }
 

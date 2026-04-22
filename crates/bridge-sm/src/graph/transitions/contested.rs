@@ -160,7 +160,7 @@ impl GraphSM {
                     signatures: signatures.clone(),
                     fulfillment_txid,
                     contest_block_height,
-                    bridge_proof_txid: event.bridge_proof_txid,
+                    bridge_proof_txid: event.tx.compute_txid(),
                     bridge_proof_block_height: event.bridge_proof_block_height,
                     proof: bridge_proof,
                 };
@@ -550,7 +550,7 @@ fn validate_bridge_proof_spend(
     summary: &GameGraphSummary,
     event: &BridgeProofConfirmedEvent,
 ) -> bool {
-    event.bridge_proof_txid != summary.bridge_proof_timeout
+    event.tx.compute_txid() != summary.bridge_proof_timeout
         && spends_contest_proof_connector(summary.contest, &event.tx)
 }
 

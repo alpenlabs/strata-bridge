@@ -95,9 +95,6 @@ pub struct ContestConfirmedEvent {
 /// Event notifying that a bridge proof transaction has been confirmed on-chain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BridgeProofConfirmedEvent {
-    /// The txid of the bridge proof transaction.
-    pub bridge_proof_txid: Txid,
-
     /// The block height at which the bridge proof transaction was confirmed.
     pub bridge_proof_block_height: BitcoinBlockHeight,
 
