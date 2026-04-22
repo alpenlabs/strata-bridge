@@ -97,19 +97,6 @@ impl GraphSM {
         cfg: Arc<GraphSMCfg>,
         event: BridgeProofConfirmedEvent,
     ) -> GSMResult<GSMOutput> {
-        // Ensure the bridge proof tx actually spends the contest proof connector.
-        let validate_spend = |contest_txid, event: BridgeProofConfirmedEvent| {
-            if spends_contest_proof_connector(contest_txid, &event.tx) {
-                Ok(event)
-            } else {
-                Err(GSMError::rejected(
-                    self.state.clone(),
-                    event.into(),
-                    "bridge proof tx does not spend the contest proof connector",
-                ))
-            }
-        };
-
         match self.state.clone() {
             GraphState::Contested {
                 graph_data,
@@ -119,7 +106,15 @@ impl GraphSM {
                 contest_block_height,
                 ..
             } => {
-                let event = validate_spend(graph_summary.contest, event)?;
+                if !validate_bridge_proof_spend(&graph_summary, &event) {
+                    return Err(GSMError::rejected(
+                        self.state.clone(),
+                        event.into(),
+                        "bridge proof tx does not spend the contest proof connector \
+                         or matches bridge proof timeout txid",
+                    ));
+                }
+
                 let bridge_proof = event.proof.clone();
 
                 let is_watchtower =
@@ -187,7 +182,15 @@ impl GraphSM {
                     return Err(GSMError::duplicate(self.state.clone(), event.into()));
                 }
 
-                let event = validate_spend(graph_summary.contest, event)?;
+                if !validate_bridge_proof_spend(&graph_summary, &event) {
+                    return Err(GSMError::rejected(
+                        self.state.clone(),
+                        event.into(),
+                        "bridge proof tx does not spend the contest proof connector \
+                         or matches bridge proof timeout txid",
+                    ));
+                }
+
                 let bridge_proof = event.proof.clone();
                 let pov_idx = self.context().operator_table().pov_idx();
                 let is_watchtower = self.context().operator_idx() != pov_idx;
@@ -539,6 +542,16 @@ impl GraphSM {
             state => Err(GSMError::invalid_event(state, event.into(), None)),
         }
     }
+}
+
+/// Validates that the bridge proof tx spends the contest proof connector
+/// and is not the bridge proof timeout transaction.
+fn validate_bridge_proof_spend(
+    summary: &GameGraphSummary,
+    event: &BridgeProofConfirmedEvent,
+) -> bool {
+    event.bridge_proof_txid != summary.bridge_proof_timeout
+        && spends_contest_proof_connector(summary.contest, &event.tx)
 }
 
 /// Validates that `tx` spends the NACK output of the counterproof transaction.
