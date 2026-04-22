@@ -147,9 +147,6 @@ pub struct CounterProofAckConfirmedEvent {
 /// Event notifying that a counterproof NACK transaction has been confirmed on-chain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CounterProofNackConfirmedEvent {
-    /// The txid of the counterproof NACK transaction.
-    pub counterproof_nack_txid: Txid,
-
     /// The counterproof NACK transaction.
     pub tx: Transaction,
 

@@ -360,7 +360,7 @@ impl GraphSM {
                 if counterproof_nacks.contains_key(&event.counterprover_idx) {
                     return Err(GSMError::duplicate(self.state.clone(), event.into()));
                 }
-                counterproof_nacks.insert(event.counterprover_idx, event.counterproof_nack_txid);
+                counterproof_nacks.insert(event.counterprover_idx, event.tx.compute_txid());
 
                 // Transition to AllNackd once every possible counterproof has been nack'd
                 // (all watchtower slots), otherwise stay in CounterProofPosted.
