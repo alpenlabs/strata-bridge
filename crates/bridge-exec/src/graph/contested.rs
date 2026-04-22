@@ -4,12 +4,17 @@ use bitcoin::Transaction;
 use btc_tracker::event::TxStatus;
 use musig2::secp256k1::schnorr::Signature;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
-use strata_bridge_connectors::{Connector, prelude::ContestProofConnector};
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_connectors::{
+    Connector,
+    prelude::{ContestCounterproofWitness, ContestProofConnector},
+};
+use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 use strata_bridge_tx_graph::transactions::{
     bridge_proof::{BridgeProofData, BridgeProofTx},
+    counterproof::CounterproofTx,
     prelude::ContestTx,
 };
+use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES};
 use tracing::{info, warn};
 
 use crate::{
@@ -160,6 +165,55 @@ pub(super) async fn publish_slash(
         &output_handles.tx_driver,
         signed_slash_tx,
         "slash",
+        TxStatus::is_buried,
+    )
+    .await
+}
+
+/// Completes adaptor signatures, assembles the witness with the pre-computed N-of-N signature,
+/// and publishes the counterproof transaction to Bitcoin.
+pub(super) async fn generate_and_publish_counterproof(
+    output_handles: &OutputHandles,
+    counterproof_tx: CounterproofTx,
+    operator_idx: OperatorIdx,
+    deposit_idx: DepositIdx,
+    watchtower_idx: OperatorIdx,
+    n_of_n_signature: Signature,
+) -> Result<(), ExecutorError> {
+    info!(%deposit_idx, %operator_idx, "generating counterproof");
+
+    // NOTE: using mock counterproof data; replace with real proof-to-counterproof conversion.
+    let counterproof_data = G16ProofRaw([0u8; N_WITHDRAWAL_INPUT_WIRES]);
+
+    // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
+    info!(%deposit_idx, %operator_idx, "completing adaptor signatures via mosaic");
+    let completed_sigs = output_handles
+        .mosaic_client
+        .complete_adaptor_sigs(operator_idx, deposit_idx, counterproof_data)
+        .await
+        .map_err(|e| {
+            warn!(?e, "failed to complete adaptor sigs for counterproof");
+            ExecutorError::MosaicErr(format!("complete_adaptor_sigs: {e:?}"))
+        })?;
+
+    // The counterproof leaf script expects one operator signature per byte of counterproof
+    // data (n_data = N_DEPOSIT + N_WITHDRAWAL wires), so we need ALL completed adaptor sigs.
+    let operator_signatures = completed_sigs.to_vec();
+
+    info!(%deposit_idx, %operator_idx, "signing and publishing counterproof transaction");
+
+    // Assemble witness and finalize.
+    let witness = ContestCounterproofWitness {
+        watchtower_slot: watchtower_idx as usize,
+        n_of_n_signature,
+        operator_signatures,
+    };
+    let signed_tx = counterproof_tx.finalize(&witness);
+
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        &signed_tx,
+        "counterproof",
         TxStatus::is_buried,
     )
     .await

@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{Txid, hashes::Hash};
+use strata_bridge_tx_graph::musig_functor::GameFunctor;
 use strata_predicate::PredicateKey;
 
 use crate::{
@@ -14,11 +15,11 @@ use crate::{
         state::GraphState,
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
-            create_nonpov_sm, create_sm, dummy_proof_receipt, get_state,
+            create_nonpov_sm, create_sm, dummy_proof_receipt, get_state, mock_game_signatures,
             mock_states::{
                 TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
-                bridge_proof_posted_state, contested_state, counter_proof_posted_state,
-                counter_proof_posted_without_refuted_proof_state,
+                bridge_proof_posted_state, contested_state, contested_state_with,
+                counter_proof_posted_state, counter_proof_posted_without_refuted_proof_state,
             },
             test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
             test_graph_transition,
@@ -105,6 +106,7 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
     let sm = create_nonpov_sm(contested_state());
 
     let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+    let signatures = mock_game_signatures(&game_graph);
     let watchtower_idx = watchtower_slot_for_operator(
         sm.context().operator_idx(),
         sm.context().operator_table().pov_idx(),
@@ -112,30 +114,36 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
     .expect("graph owner has no watchtower index");
     let expected_counterproof_tx = game_graph.counterproofs[watchtower_idx]
         .counterproof
-        .as_ref()
         .clone();
+    let expected_n_of_n_sig =
+        GameFunctor::unpack(signatures.clone(), sm.context().watchtower_pubkeys().len())
+            .expect("unpack must succeed")
+            .watchtowers[watchtower_idx]
+            .counterproof[0];
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
         cfg,
         GraphTransition {
-            from_state: contested_state(),
+            from_state: contested_state_with(LATER_BLOCK_HEIGHT, signatures.clone()),
             event: GraphEvent::BridgeProofConfirmed(event.clone()),
             expected_state: GraphState::BridgeProofPosted {
                 last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: TEST_GRAPH_SUMMARY.clone(),
-                signatures: vec![],
+                signatures,
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
                 bridge_proof_txid: event.bridge_proof_txid,
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
             },
-            expected_duties: vec![GraphDuty::PublishCounterProof {
+            expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
                 graph_idx: sm.context().graph_idx(),
                 counterproof_tx: expected_counterproof_tx,
+                watchtower_idx: watchtower_idx as u32,
+                n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),
             }],
             expected_signals: vec![],
@@ -178,6 +186,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
     let sm = create_nonpov_sm(counter_proof_posted_without_refuted_proof_state());
 
     let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+    let signatures = mock_game_signatures(&game_graph);
     let watchtower_idx = watchtower_slot_for_operator(
         sm.context().operator_idx(),
         sm.context().operator_table().pov_idx(),
@@ -185,30 +194,48 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
     .expect("graph owner has no watchtower index");
     let expected_counterproof_tx = game_graph.counterproofs[watchtower_idx]
         .counterproof
-        .as_ref()
         .clone();
+    let expected_n_of_n_sig =
+        GameFunctor::unpack(signatures.clone(), sm.context().watchtower_pubkeys().len())
+            .expect("unpack must succeed")
+            .watchtowers[watchtower_idx]
+            .counterproof[0];
+
+    let from_state = GraphState::CounterProofPosted {
+        last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        signatures: signatures.clone(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        contest_block_height: LATER_BLOCK_HEIGHT,
+        refuted_proof: None,
+        counterproofs_and_confs: Default::default(),
+        counterproof_nacks: Default::default(),
+    };
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
         cfg,
         GraphTransition {
-            from_state: counter_proof_posted_without_refuted_proof_state(),
+            from_state,
             event: GraphEvent::BridgeProofConfirmed(event.clone()),
             expected_state: GraphState::CounterProofPosted {
                 last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: TEST_GRAPH_SUMMARY.clone(),
-                signatures: vec![],
+                signatures,
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
                 refuted_proof: Some(dummy_proof_receipt()),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
             },
-            expected_duties: vec![GraphDuty::PublishCounterProof {
+            expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
                 graph_idx: sm.context().graph_idx(),
                 counterproof_tx: expected_counterproof_tx,
+                watchtower_idx: watchtower_idx as u32,
+                n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),
             }],
             expected_signals: vec![],

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use strata_bridge_primitives::proof::verify_bridge_proof;
-use strata_bridge_tx_graph::game_graph::GameConnectors;
+use strata_bridge_tx_graph::{game_graph::GameConnectors, musig_functor::GameFunctor};
 
 use crate::graph::{
     config::GraphSMCfg,
@@ -133,9 +133,19 @@ impl GraphSM {
                             )
                         })?;
 
-                    duties.push(GraphDuty::PublishCounterProof {
+                    let n_of_n_signature = GameFunctor::unpack(
+                        signatures.clone(),
+                        self.context().watchtower_pubkeys().len(),
+                    )
+                    .expect("Failed to unpack graph signatures for counterproof N/N signature")
+                    .watchtowers[watchtower_idx]
+                        .counterproof[0];
+
+                    duties.push(GraphDuty::GenerateAndPublishCounterProof {
                         graph_idx: self.context().graph_idx(),
-                        counterproof_tx: counterproof_graph.counterproof.as_ref().clone(),
+                        counterproof_tx: counterproof_graph.counterproof.clone(),
+                        watchtower_idx: watchtower_idx as u32,
+                        n_of_n_signature,
                         proof: bridge_proof.clone(),
                     });
                 }
@@ -188,9 +198,19 @@ impl GraphSM {
                         "counterproof graph must be present in state for watchtower operator",
                     );
 
-                    duties.push(GraphDuty::PublishCounterProof {
+                    let n_of_n_signature = GameFunctor::unpack(
+                        signatures.clone(),
+                        self.context().watchtower_pubkeys().len(),
+                    )
+                    .expect("Failed to unpack graph signatures for counterproof N/N signature")
+                    .watchtowers[watchtower_idx]
+                        .counterproof[0];
+
+                    duties.push(GraphDuty::GenerateAndPublishCounterProof {
                         graph_idx: self.context().graph_idx(),
-                        counterproof_tx: counterproof_graph.counterproof.as_ref().clone(),
+                        counterproof_tx: counterproof_graph.counterproof.clone(),
+                        watchtower_idx: watchtower_idx as u32,
+                        n_of_n_signature,
                         proof: bridge_proof.clone(),
                     });
                 }
