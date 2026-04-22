@@ -373,6 +373,43 @@ fn event_rejected_wrong_outpoint_from_counterproof_posted() {
 }
 
 #[test]
+fn event_rejected_bridge_proof_timeout_txid_from_contested() {
+    // Use a valid bridge proof tx (spends contest proof connector) but set the
+    // event txid to the bridge proof timeout txid, simulating a misclassified
+    // timeout transaction.
+    let tx = test_bridge_proof_tx();
+    let event = BridgeProofConfirmedEvent {
+        bridge_proof_txid: TEST_GRAPH_SUMMARY.bridge_proof_timeout,
+        bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+        tx,
+        proof: dummy_proof_receipt(),
+    };
+
+    test_graph_invalid_transition(GraphInvalidTransition {
+        from_state: contested_state(),
+        event: GraphEvent::BridgeProofConfirmed(event),
+        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+    });
+}
+
+#[test]
+fn event_rejected_bridge_proof_timeout_txid_from_counterproof_posted() {
+    let tx = test_bridge_proof_tx();
+    let event = BridgeProofConfirmedEvent {
+        bridge_proof_txid: TEST_GRAPH_SUMMARY.bridge_proof_timeout,
+        bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+        tx,
+        proof: dummy_proof_receipt(),
+    };
+
+    test_graph_invalid_transition(GraphInvalidTransition {
+        from_state: counter_proof_posted_without_refuted_proof_state(),
+        event: GraphEvent::BridgeProofConfirmed(event),
+        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+    });
+}
+
+#[test]
 fn event_invalid() {
     for from_state in all_state_variants()
         .into_iter()
