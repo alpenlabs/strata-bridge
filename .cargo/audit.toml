@@ -8,9 +8,13 @@ ignore = [
   "RUSTSEC-2026-0002",
 
   # rustls-webpki 0.101.7 pulled by bitreq (via bitcoind-async-client).
-  # bitreq still depends on rustls 0.21 which requires 0.101.x; fix needs >=0.103.12.
+  # bitreq still depends on rustls 0.21 which requires 0.101.x; fix needs >=0.103.13.
   # Low risk: only used for bitcoind RPC connections to known/trusted endpoints.
-  # Upstream fix: https://github.com/rust-bitcoin/corepc/pull/536
+  # Upstream bump to rustls 0.23 / rustls-webpki 0.103 merged but unreleased:
+  # https://github.com/rust-bitcoin/corepc/pull/556 (latest published bitreq 0.3.4
+  # from 2026-02-17 predates the 2026-04-19 merge). Once released, cargo update
+  # will pull rustls-webpki 0.103.13+ via semver on the new branch.
   "RUSTSEC-2026-0098",
   "RUSTSEC-2026-0099",
+  "RUSTSEC-2026-0104",
 ]
