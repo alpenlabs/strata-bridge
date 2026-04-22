@@ -128,7 +128,7 @@ impl TxClassifier for GraphSM {
                 // if it's not a Bridge Proof Timeout tx and still spends the contest proof
                 // connector, then it has to be a Bridge Proof tx.
                 } else if spends_contest_proof_connector(graph_summary.contest, tx) {
-                    Some(bridge_proof_event(tx, txid, height))
+                    Some(bridge_proof_event(tx, height))
                 } else if let Some(counterprover_idx) =
                     counterproof_operator_idx(graph_summary, &txid, self.context().operator_idx())
                 {
@@ -220,7 +220,7 @@ impl TxClassifier for GraphSM {
                         },
                     ))
                 } else if spends_contest_proof_connector(graph_summary.contest, tx) {
-                    Some(bridge_proof_event(tx, txid, height))
+                    Some(bridge_proof_event(tx, height))
                 } else if let Some(counterprover_idx) = counterproof_ack_operator_idx(
                     graph_summary,
                     &txid,
@@ -298,11 +298,7 @@ impl TxClassifier for GraphSM {
     }
 }
 
-fn bridge_proof_event(
-    tx: &Transaction,
-    txid: bitcoin::Txid,
-    height: BitcoinBlockHeight,
-) -> GraphEvent {
+fn bridge_proof_event(tx: &Transaction, height: BitcoinBlockHeight) -> GraphEvent {
     let mut proof_and_public_values = vec![];
     tx.output.iter().for_each(|output| {
         if output.script_pubkey.is_op_return() {
@@ -324,7 +320,6 @@ fn bridge_proof_event(
     );
 
     GraphEvent::BridgeProofConfirmed(BridgeProofConfirmedEvent {
-        bridge_proof_txid: txid,
         bridge_proof_block_height: height,
         tx: tx.clone(),
         proof: proof_receipt,
