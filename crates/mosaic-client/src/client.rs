@@ -4,7 +4,7 @@ use mosaic_rpc_types::{
     DepositStatus, EvaluatorDepositConfig, EvaluatorWithdrawalConfig, GarblerDepositConfig,
     RpcTablesetStatus,
 };
-use strata_bridge_primitives::{subscription::Subscription, types::GraphIdx};
+use strata_bridge_primitives::subscription::Subscription;
 use strata_mosaic_client_api::{
     MosaicClientApi, MosaicError, MosaicEvent, MosaicSetupError, types::*,
 };
@@ -305,8 +305,9 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                 return Err(MosaicError::DepositWithdrawn(deposit_idx));
             }
             DepositStatus::Incomplete { details } => {
-                // deposit is incomplete
-                // add to watched deposits to emit verified event when ready.
+                // The slow path: we know the deposit exists, but mosaic is not ready yet.
+                // Register it with the background poller, which is responsible for noticing the
+                // later `Ready` transition and emitting `AdaptorsVerified`.
                 debug!(%details, "deposit process pending");
                 self.watched_deposits
                     .lock()
@@ -314,13 +315,11 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     .insert((tableset_id, operator_idx, deposit_idx), 0);
             }
             DepositStatus::Ready => {
-                // deposit is already ready, emit verified event directly.
-                info!("deposit adaptors verified");
-                self.emit(MosaicEvent::AdaptorsVerified(GraphIdx {
-                    operator: operator_idx,
-                    deposit: deposit_idx,
-                }))
-                .await;
+                // The fast path: init already observed `Ready`, so emit immediately rather than
+                // waiting for the next poll interval. Reuse the poller helper so both paths clear
+                // any stale watch entry before emitting and therefore cannot double-emit later.
+                self.emit_adaptors_verified(tableset_id, operator_idx, deposit_idx)
+                    .await;
             }
         }
 
