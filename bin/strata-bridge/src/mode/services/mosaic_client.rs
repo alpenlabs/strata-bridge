@@ -2,12 +2,15 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 use futures::future;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
 use strata_mosaic_client::{MosaicClient, MosaicIdResolver, PeerId, PubkeyBytes};
 use strata_mosaic_client_api::{MosaicClientApi, MosaicError, types::Role};
+use strata_tasks::TaskExecutor;
+use tokio::select;
 use tracing::{error, info};
 
 use crate::config::MosaicConfig;
@@ -138,7 +141,7 @@ pub(crate) async fn run_mosaic_setup(
         info!(%idx, ?role, "starting mosaic setup");
         client.ensure_mosaic_setup(idx, role).await.map_err(|e| {
             error!(%idx, ?role, %e, "mosaic setup failed");
-            anyhow::anyhow!("mosaic setup failed for operator {idx} role {role:?}: {e}")
+            anyhow!("mosaic setup failed for operator {idx} role {role:?}: {e}")
         })?;
         info!(%idx, ?role, "mosaic setup complete");
         Ok::<(), anyhow::Error>(())
@@ -147,4 +150,34 @@ pub(crate) async fn run_mosaic_setup(
 
     info!("mosaic setup completed successfully for all {total} pairs");
     Ok(())
+}
+
+/// Spawn the mosaic watched-deposits poller as a critical task.
+///
+/// The poller is what drives the `Incomplete` branch of `init_garbler_deposit`/
+/// `init_evaluator_deposit` to eventual completion: deposits that aren't ready at init time are
+/// inserted into an internal watch list, and this loop polls their status until `Ready` (emitted
+/// as `AdaptorsVerified`) or a terminal state. Without this task running, the GSM waits in
+/// `GraphGenerated` forever.
+///
+/// Must be spawned *after* the event subscription is set up (i.e. after
+/// `subscribe_events` has been called by the orchestrator) so that emitted events are not
+/// dropped.
+pub(crate) fn spawn_mosaic_poller(
+    executor: &TaskExecutor,
+    client: Arc<MosaicClient<HttpClient, BridgeMosaicIdResolver>>,
+) {
+    executor.spawn_critical_async_with_shutdown("mosaic_poller", |shutdown_guard| async move {
+        select! {
+            _ = shutdown_guard.wait_for_shutdown() => {
+                info!("shutdown signal received; stopping mosaic watched-deposits poller");
+                Ok(())
+            }
+            // `poll_watched_deposits` is an infinite loop, so its future completing means the
+            // worker exited unexpectedly.
+            _ = client.poll_watched_deposits() => {
+                Err(anyhow!("mosaic watched-deposits poller exited unexpectedly"))
+            }
+        }
+    });
 }

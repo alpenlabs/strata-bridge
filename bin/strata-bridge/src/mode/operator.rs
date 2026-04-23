@@ -12,7 +12,7 @@ use crate::{
     config::Config,
     mode::services::{
         btc_client::init_btc_rpc_client,
-        mosaic_client::{init_mosaic_client, run_mosaic_setup},
+        mosaic_client::{init_mosaic_client, run_mosaic_setup, spawn_mosaic_poller},
         operator_table::init_operator_table,
         operator_wallet::init_operator_wallet,
         orchestrator::init_orchestrator,
@@ -82,6 +82,7 @@ pub(crate) async fn bootstrap(
     info!("mosaic setup complete for all operator pairs");
 
     debug!("starting orchestrator pipeline");
+    let mosaic_poller_client = mosaic_client.clone();
     init_orchestrator(
         &params,
         &config,
@@ -97,6 +98,11 @@ pub(crate) async fn bootstrap(
         &executor,
     )
     .await?;
+
+    // Spawn after `init_orchestrator` so the orchestrator's `subscribe_events` call has already
+    // registered a subscriber before the poller starts emitting `AdaptorsVerified` events.
+    spawn_mosaic_poller(&executor, mosaic_poller_client);
+    info!("mosaic watched-deposits poller started");
 
     debug!("node bootstrapping complete, all services started");
     Ok(())
