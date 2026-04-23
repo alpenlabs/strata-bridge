@@ -7,8 +7,6 @@ from constants import ASM_MAGIC_BYTES
 class CovenantKeys:
     musig2: str
     p2p: str
-    adaptor: str
-    watchtower_fault: str
     payout_descriptor: str
 
 

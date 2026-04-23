@@ -41,8 +41,6 @@ class DevCli:
             CovenantKeys(
                 musig2=key.MUSIG2_KEY,
                 p2p=key.P2P_KEY,
-                adaptor=key.MUSIG2_KEY,
-                watchtower_fault=key.MUSIG2_KEY,
                 payout_descriptor=key.GENERAL_WALLET_DESCRIPTOR,
             )
             for key in self.operator_key_infos

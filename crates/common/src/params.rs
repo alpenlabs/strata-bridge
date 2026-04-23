@@ -124,14 +124,6 @@ pub struct CovenantKeys {
     /// The key used for authenticated p2p communication.
     pub p2p: Libp2pKey,
 
-    /// The key for which to generate adaptors when submitting a counterproof.
-    // NOTE: (@Rajil1213) we might get this from mosaic instead.
-    pub adaptor: XOnlyPublicKey,
-
-    /// The watchtower public key whose corresponding private key is revealed in case of a faulty
-    /// counterproof.
-    pub watchtower_fault: XOnlyPublicKey,
-
     /// The operator payout descriptor.
     pub payout_descriptor: Descriptor,
 }
@@ -140,8 +132,6 @@ pub struct CovenantKeys {
 struct EncodedCovenantKeys {
     musig2: String,
     p2p: String,
-    adaptor: String,
-    watchtower_fault: String,
     payout_descriptor: String,
 }
 
@@ -164,8 +154,6 @@ where
             .map(|k| EncodedCovenantKeys {
                 musig2: k.musig2.serialize().to_lower_hex_string(),
                 p2p: k.p2p.to_bytes().to_lower_hex_string(),
-                adaptor: k.adaptor.serialize().to_lower_hex_string(),
-                watchtower_fault: k.watchtower_fault.serialize().to_lower_hex_string(),
                 payout_descriptor: k.payout_descriptor.to_string(),
             })
             .collect(),
@@ -200,19 +188,6 @@ where
             let p2p = Libp2pKey::try_from_bytes(&p2p)
                 .unwrap_or_else(|_| panic!("Failed to decode Libp2pKey at index {i}"));
 
-            let adaptor = hex::decode(&k.adaptor)
-                .unwrap_or_else(|_| panic!("Failed to decode hex adaptor key at index {i}"));
-            let adaptor = XOnlyPublicKey::from_slice(&adaptor)
-                .unwrap_or_else(|_| panic!("Failed to create adaptor xonly pk at index {i}"));
-
-            let watchtower_fault = hex::decode(&k.watchtower_fault).unwrap_or_else(|_| {
-                panic!("Failed to decode hex watchtower_fault key at index {i}")
-            });
-            let watchtower_fault =
-                XOnlyPublicKey::from_slice(&watchtower_fault).unwrap_or_else(|_| {
-                    panic!("Failed to create watchtower_fault xonly pk at index {i}")
-                });
-
             let payout_descriptor = k
                 .payout_descriptor
                 .parse()
@@ -221,8 +196,6 @@ where
             CovenantKeys {
                 musig2,
                 p2p,
-                adaptor,
-                watchtower_fault,
                 payout_descriptor,
             }
         })
@@ -278,8 +251,6 @@ mod tests {
             [[keys.covenant]]
             musig2 = "{XONLY_KEY_1}"
             p2p = "{P2P_KEY_1}"
-            adaptor = "{XONLY_KEY_1}"
-            watchtower_fault = "{XONLY_KEY_1}"
             payout_descriptor = "{desc_1}"
 
             [[keys.covenant]]
