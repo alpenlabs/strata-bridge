@@ -550,16 +550,11 @@ pub(crate) fn classify_unsigned_gossip(
                 NagRequestPayload::UnstakingData { .. }
                 | NagRequestPayload::UnstakingNonces { .. }
                 | NagRequestPayload::UnstakingPartials { .. } => {
-                    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2924>
-                    // Implement stake nag parity (add StakeEvent::NagReceived) in a follow-up.
-                    // For now, received unstaking nag requests are logged and dropped.
-                    warn!(
-                        target_sm = %sm_id,
+                    StakeEvent::NagReceived(StakeEvents::NagReceivedEvent {
+                        payload: nag_request.payload.clone(),
                         sender_operator_idx,
-                        payload = ?nag_request.payload,
-                        "dropping unstaking nag: stake nag parity not yet implemented"
-                    );
-                    return vec![];
+                    })
+                    .into()
                 }
             };
 
@@ -1098,7 +1093,7 @@ mod tests {
         use super::*;
         use crate::testing::{
             N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX, insert_deposit_with_graphs,
-            test_operator_table,
+            insert_stakes_for_all_operators, test_operator_table,
         };
 
         #[test]
@@ -1290,6 +1285,44 @@ mod tests {
                 result.is_empty(),
                 "Should drop graph nag from unknown sender"
             );
+        }
+
+        #[test]
+        fn classify_stake_nag_request_addressed_to_pov_creates_stake_event() {
+            let mut registry = test_empty_registry();
+            let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+            insert_stakes_for_all_operators(&mut registry, &operator_table);
+
+            let operator_idx = TEST_NONPOV;
+            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone();
+            let sender_p2p_key = operator_table
+                .idx_to_p2p_key(&operator_idx)
+                .unwrap()
+                .clone();
+
+            let nag_request = NagRequest {
+                recipient: pov_p2p_key,
+                payload: NagRequestPayload::UnstakingNonces { operator_idx },
+            };
+
+            let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
+            let result =
+                classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_p2p_key), &msg);
+
+            assert_eq!(result.len(), 1, "Should create exactly one stake event");
+            match &result[0] {
+                SMEvent::Stake(boxed) => match boxed.as_ref() {
+                    StakeEvent::NagReceived(evt) => {
+                        assert!(matches!(
+                            evt.payload,
+                            NagRequestPayload::UnstakingNonces { .. }
+                        ));
+                        assert_eq!(evt.sender_operator_idx, operator_idx);
+                    }
+                    other => panic!("Expected stake NagReceived, got {other}"),
+                },
+                other => panic!("Expected Stake event, got {other:?}"),
+            }
         }
 
         #[test]
