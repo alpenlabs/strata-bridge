@@ -18,7 +18,7 @@ strata-bridge-sm.workspace = true
 strata-bridge-tx-graph.workspace = true
 
 strata-asm-proto-bridge-v1.workspace = true
-strata-asm-txs-bridge-v1.workspace = true
+strata-asm-proto-bridge-v1-txs.workspace = true
 strata-mosaic-client-api.workspace = true
 strata-p2p.workspace = true
 

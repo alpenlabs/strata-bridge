@@ -8,7 +8,7 @@ use bitcoin::{hex::DisplayHex, taproot::TaprootBuilder, Address, Amount, Network
 use miniscript::Miniscript;
 use musig2::KeyAggContext;
 use secp256k1::{Keypair, Parity, XOnlyPublicKey, SECP256K1};
-use strata_asm_txs_bridge_v1::deposit_request::DrtHeaderAux;
+use strata_asm_proto_bridge_v1_txs::deposit_request::DrtHeaderAux;
 use strata_bridge_common::params::Params;
 use strata_codec::VarVec;
 use strata_l1_txfmt::{MagicBytes, ParseConfig};

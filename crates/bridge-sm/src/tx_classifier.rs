@@ -4,7 +4,7 @@
 use bitcoin::{Amount, OutPoint, Transaction, Txid};
 use bitcoin_bosd::Descriptor;
 use strata_asm_common::TxInputRef;
-use strata_asm_txs_bridge_v1::withdrawal_fulfillment::parse_withdrawal_fulfillment_tx;
+use strata_asm_proto_bridge_v1_txs::withdrawal_fulfillment::parse_withdrawal_fulfillment_tx;
 use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, OperatorIdx};
 use strata_bridge_tx_graph::{
     game_graph::GameGraphSummary,

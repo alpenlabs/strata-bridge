@@ -8,7 +8,7 @@ use bitcoin::{
 };
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
-use strata_asm_txs_bridge_v1::deposit::DepositTxHeaderAux;
+use strata_asm_proto_bridge_v1_txs::deposit::DepositTxHeaderAux;
 use strata_bridge_connectors::{
     prelude::{DepositRequestConnector, NOfNConnector, TimelockedSpendPath, TimelockedWitness},
     Connector, SigningInfo,
