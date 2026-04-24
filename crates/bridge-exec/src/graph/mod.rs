@@ -18,8 +18,9 @@ use crate::{
     graph::{
         common::{publish_claim, publish_graph_nonces, publish_graph_partials, verify_adaptors},
         contested::{
-            generate_and_publish_bridge_proof, publish_bridge_proof_timeout, publish_contest,
-            publish_contested_payout, publish_counterproof_ack, publish_slash,
+            generate_and_publish_bridge_proof, generate_and_publish_counterproof,
+            publish_bridge_proof_timeout, publish_contest, publish_contested_payout,
+            publish_counterproof_ack, publish_slash,
         },
         uncontested::publish_uncontested_payout,
     },
@@ -136,8 +137,22 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx } => {
             publish_bridge_proof_timeout(&output_handles, signed_timeout_tx).await
         }
-        GraphDuty::PublishCounterProof { .. } => {
-            todo!("PublishCounterProof")
+        GraphDuty::GenerateAndPublishCounterProof {
+            graph_idx,
+            counterproof_tx,
+            watchtower_idx,
+            n_of_n_signature,
+            ..
+        } => {
+            generate_and_publish_counterproof(
+                &output_handles,
+                counterproof_tx.clone(),
+                graph_idx.operator,
+                graph_idx.deposit,
+                *watchtower_idx,
+                *n_of_n_signature,
+            )
+            .await
         }
         GraphDuty::PublishCounterProofAck {
             signed_counter_proof_ack_tx,
