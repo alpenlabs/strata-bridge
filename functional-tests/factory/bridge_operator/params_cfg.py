@@ -29,6 +29,7 @@ class BridgeProtocolParams:
     ack_timelock: int = 144
     nack_timelock: int = 144
     contested_payout_timelock: int = 1_008
+    bridge_proof_predicate: str = "AlwaysAccept"
 
 
 @dataclass
