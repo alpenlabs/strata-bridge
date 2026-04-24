@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{Txid, hashes::Hash};
+use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_test_utils::bitcoin::generate_tx;
 use strata_bridge_tx_graph::musig_functor::GameFunctor;
 use strata_predicate::PredicateKey;
@@ -143,7 +144,7 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
             expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
                 graph_idx: sm.context().graph_idx(),
                 counterproof_tx: expected_counterproof_tx,
-                watchtower_idx: watchtower_idx as u32,
+                watchtower_idx: watchtower_idx as OperatorIdx,
                 n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),
             }],
@@ -235,7 +236,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
             expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
                 graph_idx: sm.context().graph_idx(),
                 counterproof_tx: expected_counterproof_tx,
-                watchtower_idx: watchtower_idx as u32,
+                watchtower_idx: watchtower_idx as OperatorIdx,
                 n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),
             }],

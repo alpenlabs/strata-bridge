@@ -160,7 +160,7 @@ impl GraphSM {
                     duties.push(GraphDuty::GenerateAndPublishCounterProof {
                         graph_idx: self.context().graph_idx(),
                         counterproof_tx: counterproof_graph.counterproof.clone(),
-                        watchtower_idx: watchtower_idx as u32,
+                        watchtower_idx: watchtower_idx as OperatorIdx,
                         n_of_n_signature,
                         proof: bridge_proof.clone(),
                     });
@@ -234,7 +234,7 @@ impl GraphSM {
                     duties.push(GraphDuty::GenerateAndPublishCounterProof {
                         graph_idx: self.context().graph_idx(),
                         counterproof_tx: counterproof_graph.counterproof.clone(),
-                        watchtower_idx: watchtower_idx as u32,
+                        watchtower_idx: watchtower_idx as OperatorIdx,
                         n_of_n_signature,
                         proof: bridge_proof.clone(),
                     });
