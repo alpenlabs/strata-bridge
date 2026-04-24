@@ -3,7 +3,7 @@ import flexitest
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
-from factory.bridge_operator.params_cfg import BridgeProtocolParams
+from factory.bridge_operator.params_cfg import BridgeProtocolParams, ProofPredicate
 from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
@@ -42,7 +42,7 @@ class CounterproofPublishedOnBridgeProofVerificationFailureTest(StrataTestBase):
         self.bridge_protocol_params = BridgeProtocolParams(
             contest_timelock=5,
             ack_timelock=10,
-            bridge_proof_predicate="NeverAccept",
+            bridge_proof_predicate=ProofPredicate.NEVER_ACCEPT,
         )
         ctx.set_env(
             BridgeNetworkEnv(

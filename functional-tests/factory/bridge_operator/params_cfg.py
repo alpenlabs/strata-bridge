@@ -3,6 +3,14 @@ from dataclasses import dataclass
 from constants import ASM_MAGIC_BYTES
 
 
+class ProofPredicate:
+    """Identifiers for the `strata_predicate::PredicateTypeId` variants used as the
+    bridge proof predicate."""
+
+    ALWAYS_ACCEPT = "AlwaysAccept"
+    NEVER_ACCEPT = "NeverAccept"
+
+
 @dataclass
 class CovenantKeys:
     musig2: str
@@ -29,7 +37,7 @@ class BridgeProtocolParams:
     ack_timelock: int = 144
     nack_timelock: int = 144
     contested_payout_timelock: int = 1_008
-    bridge_proof_predicate: str = "AlwaysAccept"
+    bridge_proof_predicate: str = ProofPredicate.ALWAYS_ACCEPT
 
 
 @dataclass
