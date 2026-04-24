@@ -356,3 +356,36 @@ def generate_p2p_ports(start_port=12800):
     while True:
         yield f"/ip4/127.0.0.1/tcp/{port}"
         port += 1
+
+
+def find_utxo_spender_txid(bitcoin_rpc, txid: str, vout: int, scan_blocks: int = 50) -> str:
+    """
+    Return the txid that spent ``txid:vout`` in the mempool or recent blocks.
+
+    Args:
+        bitcoin_rpc: Bitcoin RPC client.
+        txid: Txid of the transaction whose output was spent.
+        vout: Index of the output that was spent.
+        scan_blocks: Number of blocks below the tip to scan.
+
+    Raises:
+        LookupError: If no spender is found in the mempool or within the
+            scan window.
+    """
+    mempool_result = bitcoin_rpc.proxy.gettxspendingprevout([{"txid": txid, "vout": vout}])
+    for entry in mempool_result:
+        spending_txid = entry.get("spendingtxid")
+        if spending_txid:
+            return spending_txid
+
+    tip_height = bitcoin_rpc.proxy.getblockcount()
+    lower = max(0, tip_height - scan_blocks + 1)
+    for height in range(tip_height, lower - 1, -1):
+        block_hash = bitcoin_rpc.proxy.getblockhash(height)
+        block = bitcoin_rpc.proxy.getblock(block_hash, 2)
+        for tx in block.get("tx", []):
+            for vin in tx.get("vin", []):
+                if vin.get("txid") == txid and vin.get("vout") == vout:
+                    return tx["txid"]
+
+    raise LookupError(f"no spender of {txid}:{vout} in mempool or last {scan_blocks} blocks")
