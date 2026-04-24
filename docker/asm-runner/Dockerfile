@@ -1,15 +1,16 @@
 # warning: run from repo root, NOT inside this dir
 FROM --platform=linux/amd64 bridge-base:latest AS builder
 
-# It's already in the builder but this is so docker knows when to rebuild this image
-COPY bin/asm-runner bin/asm-runner
+# Copy the workspace Cargo.toml so the grep-extracted rev is the canonical source of truth.
+COPY Cargo.toml /tmp/Cargo.toml
 
 RUN --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/root/.cargo/registry \
-    --mount=type=cache,target=/app/target \
-    cargo b -r -p strata-asm-runner
-
-RUN --mount=type=cache,target=/app/target cp /app/target/release/strata-asm-runner /app/strata-asm-runner
+    ASM_REV=$(grep 'strata-asm-worker.*rev' /tmp/Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/') && \
+    if [ -z "$ASM_REV" ]; then \
+        echo "ERROR: failed to extract asm rev from Cargo.toml" >&2; exit 1; \
+    fi && \
+    cargo install --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root /app strata-asm-runner
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 
@@ -21,7 +22,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the built binary from the builder stage
-COPY --from=builder /app/strata-asm-runner /usr/local/bin/strata-asm-runner
+COPY --from=builder /app/bin/strata-asm-runner /usr/local/bin/strata-asm-runner
 COPY functional-tests/factory/common/asm_params.py /usr/local/bin/asm_params.py
 COPY functional-tests/constants.py /usr/local/bin/constants.py
 COPY docker/asm-runner/gen_asm_params.py /usr/local/bin/gen_asm_params.py

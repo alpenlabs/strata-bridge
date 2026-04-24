@@ -160,7 +160,6 @@ jobs:
           COV_TARGET_DIR="$GITHUB_WORKSPACE/target/llvm-cov-target"
           RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin strata-bridge --target-dir "$COV_TARGET_DIR"
           RUSTFLAGS="-Cinstrument-coverage" cargo build --locked -p secret-service --bin secret-service --target-dir "$COV_TARGET_DIR"
-          RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin strata-asm-runner --target-dir "$COV_TARGET_DIR"
           cargo build --locked --bin dev-cli --target-dir "$COV_TARGET_DIR"
 
       - name: Install mosaic binary
@@ -172,6 +171,16 @@ jobs:
           fi
           cargo install --git https://github.com/alpenlabs/mosaic --rev "$MOSAIC_REV" --features=reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
           echo "$GITHUB_WORKSPACE/target/mosaic/bin" >> "$GITHUB_PATH"
+
+      - name: Install asm binary
+        run: |
+          ASM_REV=$(grep 'strata-asm-worker.*rev' Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/')
+          if [ -z "$ASM_REV" ]; then
+            echo "ERROR: failed to extract asm rev from Cargo.toml" >&2
+            exit 1
+          fi
+          cargo install --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root "$GITHUB_WORKSPACE/target/asm" strata-asm-runner
+          echo "$GITHUB_WORKSPACE/target/asm/bin" >> "$GITHUB_PATH"
 
       - name: Run functional tests
         id: funcTestsRun

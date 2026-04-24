@@ -30,7 +30,6 @@ fi
 # Build all required binaries (only strata-bridge and secret-service gets coverage instrumentation)
 RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-bridge $CARGO_ARGS
 RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO_ARGS
-RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-asm-runner $CARGO_ARGS
 cargo build --bin dev-cli $CARGO_ARGS
 
 # Extract mosaic rev from Cargo.toml to avoid hardcoding
@@ -50,6 +49,20 @@ RUSTFLAGS="" cargo install \
     --features=reduced-circuits \
     --root "$CARGO_LOCAL_BIN" \
     mosaic
+
+# Extract asm rev from Cargo.toml to avoid hardcoding
+ASM_REV=$(grep 'strata-asm-worker.*rev' Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/')
+if [ -z "$ASM_REV" ]; then
+    echo "ERROR: failed to extract asm rev from Cargo.toml" >&2
+    exit 1
+fi
+
+echo "installing strata-asm-runner (rev $ASM_REV)"
+RUSTFLAGS="" cargo install \
+    --git https://github.com/alpenlabs/asm \
+    --rev "$ASM_REV" \
+    --root "$CARGO_LOCAL_BIN" \
+    strata-asm-runner
 
 export PATH=$BIN_PATH:$PATH
 popd > /dev/null
