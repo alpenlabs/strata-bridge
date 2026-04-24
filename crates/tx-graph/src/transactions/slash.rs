@@ -8,7 +8,7 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
-use strata_asm_txs_bridge_v1::slash::SlashTxHeaderAux;
+use strata_asm_proto_bridge_v1_txs::slash::SlashTxHeaderAux;
 use strata_bridge_connectors::{
     prelude::{
         ContestSlashConnector, NOfNConnector, NOfNSpend, P2AConnector, TimelockedSpendPath,

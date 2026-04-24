@@ -6,7 +6,7 @@ use bitcoin::{
     transaction::Version,
     Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut, Txid,
 };
-use strata_asm_txs_bridge_v1::unstake::UnstakeTxHeaderAux;
+use strata_asm_proto_bridge_v1_txs::unstake::UnstakeTxHeaderAux;
 use strata_bridge_connectors::{
     prelude::{
         P2AConnector, UnstakingIntentOutput, UnstakingIntentSpend, UnstakingIntentWitness,

@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use ssz::Encode;
-use strata_checkpoint_types_ssz::CheckpointPayload;
+use strata_asm_proto_checkpoint_types::CheckpointPayload;
 use strata_codec::{encode_to_vec, Varint};
 use strata_l1_txfmt::MagicBytes;
 use tracing::info;
@@ -11,7 +11,7 @@ mod constants;
 pub(crate) mod envelope;
 pub(crate) mod mock_checkpoint;
 
-use strata_asm_txs_checkpoint::{CHECKPOINT_SUBPROTOCOL_ID, OL_STF_CHECKPOINT_TX_TYPE};
+use strata_asm_proto_checkpoint_txs::{CHECKPOINT_SUBPROTOCOL_ID, OL_STF_CHECKPOINT_TX_TYPE};
 
 fn encode_checkpoint_payload(payload: &CheckpointPayload) -> Result<Vec<u8>> {
     let checkpoint_ssz = payload.as_ssz_bytes();

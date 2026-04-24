@@ -5,11 +5,11 @@ use k256::{
 };
 use rand::{thread_rng, Rng};
 use ssz::Encode;
-use strata_bridge_primitives::constants::BRIDGE_DENOMINATION;
-use strata_checkpoint_types_ssz::{
+use strata_asm_proto_checkpoint_types::{
     compute_asm_manifests_hash, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
     CheckpointTip, L2BlockRange, OLLog, SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
 };
+use strata_bridge_primitives::constants::BRIDGE_DENOMINATION;
 use strata_codec::encode_to_vec;
 use strata_crypto::hash;
 use strata_identifiers::{Buf32, OLBlockCommitment, OLBlockId};

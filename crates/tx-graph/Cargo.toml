@@ -7,7 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-strata-asm-txs-bridge-v1.workspace = true
+strata-asm-proto-bridge-v1-txs.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-primitives.workspace = true
 strata-l1-txfmt.workspace = true
