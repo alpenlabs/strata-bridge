@@ -84,6 +84,30 @@ def wait_until_bridge_proof_posted(
     )
 
 
+def wait_until_counter_proof_posted(
+    bridge_rpc,
+    deposit_idx: int,
+    timeout=450,
+) -> None:
+    """Wait until the pending withdrawal's assigned claim phase is 'counter_proof_posted'."""
+
+    def check():
+        info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
+        if info_data is None:
+            return False
+        info = RpcPendingWithdrawalInfo.from_json(info_data)
+        if info.assigned_claim is None:
+            return False
+        return info.assigned_claim.phase == RpcClaimPhase.COUNTER_PROOF_POSTED
+
+    wait_until(
+        check,
+        timeout=timeout,
+        step=1,
+        error_msg=f"Claim phase for deposit {deposit_idx} did not advance to counter_proof_posted",
+    )
+
+
 def wait_until_bridge_proof_timedout(
     bridge_rpc,
     deposit_idx: int,
