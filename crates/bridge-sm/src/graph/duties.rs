@@ -13,7 +13,9 @@ use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
     types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
 };
-use strata_bridge_tx_graph::transactions::{claim::ClaimTx, prelude::ContestTx};
+use strata_bridge_tx_graph::transactions::{
+    claim::ClaimTx, counterproof::CounterproofTx, prelude::ContestTx,
+};
 use zkaleido::ProofReceipt;
 
 /// The nag duties that can be emitted to remind operators of missing graph signing data.
@@ -84,7 +86,6 @@ impl std::fmt::Display for NagDuty {
 
 /// The duties that need to be performed to drive the Graph State Machine forward.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[expect(clippy::large_enum_variant)]
 pub enum GraphDuty {
     /// Generate the data required to generate the graph.
     ///
@@ -213,13 +214,19 @@ pub enum GraphDuty {
         signed_timeout_tx: Transaction,
     },
 
-    /// Publish a counterproof on-chain to challenge a bridge proof.
-    PublishCounterProof {
+    /// Generate and publish a counterproof on-chain to challenge a bridge proof.
+    GenerateAndPublishCounterProof {
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
 
-        /// The counterproof transaction to be published (unsigned; signed via adaptors).
-        counterproof_tx: Transaction,
+        /// The unsigned counterproof transaction to publish.
+        counterproof_tx: CounterproofTx,
+
+        /// The watchtower slot for the counterproof.
+        watchtower_idx: OperatorIdx,
+
+        /// Pre-computed aggregated N-of-N signature for the counterproof input.
+        n_of_n_signature: Signature,
 
         /// The bridge proof to counter.
         proof: ProofReceipt,
@@ -276,7 +283,7 @@ impl std::fmt::Display for GraphDuty {
                 "GenerateAndPublishBridgeProof".to_string()
             }
             GraphDuty::PublishBridgeProofTimeout { .. } => "PublishBridgeProofTimeout".to_string(),
-            GraphDuty::PublishCounterProof { .. } => "PublishCounterProof".to_string(),
+            GraphDuty::GenerateAndPublishCounterProof { .. } => "PublishCounterProof".to_string(),
             GraphDuty::PublishCounterProofAck { .. } => "PublishCounterProofAck".to_string(),
             GraphDuty::PublishCounterProofNack { .. } => "PublishCounterProofNack".to_string(),
             GraphDuty::PublishSlash { .. } => "PublishSlash".to_string(),
