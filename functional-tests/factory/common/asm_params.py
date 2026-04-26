@@ -32,6 +32,7 @@ class ThresholdConfig:
 class AdminSubprotocol:
     strata_administrator: ThresholdConfig
     strata_sequencer_manager: ThresholdConfig
+    alpen_administrator: ThresholdConfig
     confirmation_depth: int
     max_seqno_gap: int
 
@@ -109,6 +110,7 @@ def build_subprotocols(
             AdminSubprotocol(
                 strata_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
                 strata_sequencer_manager=ThresholdConfig(keys=compressed_keys, threshold=1),
+                alpen_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
                 confirmation_depth=144,
                 max_seqno_gap=10,
             )

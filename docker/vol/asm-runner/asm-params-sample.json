@@ -28,6 +28,14 @@
                     ],
                     "threshold": 1
                 },
+                "alpen_administrator": {
+                    "keys": [
+                        "02b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d",
+                        "021e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4",
+                        "02a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
+                    ],
+                    "threshold": 1
+                },
                 "confirmation_depth": 144,
                 "max_seqno_gap": 10
             }
