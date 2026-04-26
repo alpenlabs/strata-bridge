@@ -1,16 +1,16 @@
 # warning: run from repo root, NOT inside this dir
 FROM --platform=linux/amd64 bridge-base:latest AS builder
 
-# Copy the workspace Cargo.toml so the grep-extracted rev is the canonical source of truth.
+# Copy the workspace Cargo.toml so the grep-extracted tag is the canonical source of truth.
 COPY Cargo.toml /tmp/Cargo.toml
 
 RUN --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/root/.cargo/registry \
-    ASM_REV=$(grep 'strata-asm-worker.*rev' /tmp/Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/') && \
-    if [ -z "$ASM_REV" ]; then \
-        echo "ERROR: failed to extract asm rev from Cargo.toml" >&2; exit 1; \
+    ASM_TAG=$(grep 'strata-asm-worker.*tag' /tmp/Cargo.toml | sed 's/.*tag = "\([^"]*\)".*/\1/') && \
+    if [ -z "$ASM_TAG" ]; then \
+        echo "ERROR: failed to extract asm tag from Cargo.toml" >&2; exit 1; \
     fi && \
-    cargo install --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root /app strata-asm-runner
+    cargo install --git https://github.com/alpenlabs/asm --tag "$ASM_TAG" --root /app strata-asm-runner
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 
