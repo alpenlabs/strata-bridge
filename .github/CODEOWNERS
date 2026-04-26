@@ -28,9 +28,7 @@
 # External service components
 /crates/btc-tracker/ @Rajil1213
 /crates/asm-events/ @prajwolrg @MdTeach
-/crates/asm-rpc/ @prajwolrg @MdTeach
 /crates/proof-db/ @prajwolrg @MdTeach
-/bin/asm-runner/ @prajwolrg @MdTeach
 /crates/mosaic-client/ @sapinb @Rajil1213
 /crates/mosaic-client-api/ @sapinb @Rajil1213
 
