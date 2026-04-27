@@ -181,7 +181,7 @@ impl GraphSM {
             vec![GraphDuty::PublishCounterProofNack {
                 deposit_idx: self.context().deposit_idx(),
                 counter_prover_idx: event.counterprover_idx,
-                counterproof_nack_tx: counterproof_nack_tx.as_ref().clone(),
+                counterproof_nack_tx,
             }]
         } else {
             Vec::new()
