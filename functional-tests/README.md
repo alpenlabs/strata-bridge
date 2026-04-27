@@ -91,7 +91,7 @@ uv run python entry.py
 ./run_test.sh
 
 # Run a specific test by path
-./run_test.sh -t tests/bridge/fn_rpc_test.py
+./run_test.sh -t tests/deposit/fn_network_test.py
 
 # Run all tests in a group (subdirectory)
 ./run_test.sh -g asm
