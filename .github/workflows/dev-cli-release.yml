@@ -115,8 +115,13 @@ jobs:
         run: |
           set -euo pipefail
 
+          RELEASE_ARGS=(--title "$TAG_NAME" --generate-notes)
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            RELEASE_ARGS+=(--prerelease)
+          fi
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release upload "$TAG_NAME" dist/* --clobber
           else
-            gh release create "$TAG_NAME" dist/* --title "$TAG_NAME" --generate-notes
+            gh release create "$TAG_NAME" dist/* "${RELEASE_ARGS[@]}"
           fi
