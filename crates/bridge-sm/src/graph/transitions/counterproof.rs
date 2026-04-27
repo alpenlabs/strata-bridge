@@ -38,7 +38,7 @@ impl GraphSM {
                 let mut counterproofs_and_confs = BTreeMap::new();
                 counterproofs_and_confs.insert(
                     event.counterprover_idx,
-                    (event.counterproof_txid, event.counterproof_block_height),
+                    (event.tx.compute_txid(), event.counterproof_block_height),
                 );
 
                 self.state = GraphState::CounterProofPosted {
@@ -71,7 +71,7 @@ impl GraphSM {
                 let mut counterproofs_and_confs = BTreeMap::new();
                 counterproofs_and_confs.insert(
                     event.counterprover_idx,
-                    (event.counterproof_txid, event.counterproof_block_height),
+                    (event.tx.compute_txid(), event.counterproof_block_height),
                 );
 
                 self.state = GraphState::CounterProofPosted {
@@ -108,7 +108,7 @@ impl GraphSM {
 
                 counterproofs_and_confs.insert(
                     event.counterprover_idx,
-                    (event.counterproof_txid, event.counterproof_block_height),
+                    (event.tx.compute_txid(), event.counterproof_block_height),
                 );
 
                 self.state = GraphState::CounterProofPosted {
@@ -138,12 +138,14 @@ impl GraphSM {
         graph_data: &DepositParams,
         graph_summary: &GameGraphSummary,
     ) -> GSMResult<Vec<GraphDuty>> {
+        let counterproof_txid = event.tx.compute_txid();
+
         // Resolve the watchtower slot associated with the given counterproof transaction.
         let (watchtower_slot, _) = graph_summary
             .counterproofs
             .iter()
             .enumerate()
-            .find(|(_slot, summary)| summary.counterproof == event.counterproof_txid)
+            .find(|(_slot, summary)| summary.counterproof == counterproof_txid)
             .ok_or_else(|| {
                 GSMError::rejected(
                     self.state.clone(),
@@ -173,14 +175,13 @@ impl GraphSM {
                         )
                     })?;
 
-            let nack_data = CounterproofNackData {
-                counterproof_txid: event.counterproof_txid,
-            };
+            let nack_data = CounterproofNackData { counterproof_txid };
             let counterproof_nack_tx = CounterproofNackTx::new(nack_data, *counterproof_connector);
 
             vec![GraphDuty::PublishCounterProofNack {
                 deposit_idx: self.context().deposit_idx(),
                 counter_prover_idx: event.counterprover_idx,
+                counterproof_tx: event.tx.clone(),
                 counterproof_nack_tx,
             }]
         } else {

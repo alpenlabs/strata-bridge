@@ -134,8 +134,8 @@ impl TxClassifier for GraphSM {
                 {
                     Some(GraphEvent::CounterProofConfirmed(
                         CounterProofConfirmedEvent {
-                            counterproof_txid: txid,
                             counterproof_block_height: height,
+                            tx: tx.clone(),
                             counterprover_idx,
                         },
                     ))
@@ -165,8 +165,8 @@ impl TxClassifier for GraphSM {
                 {
                     Some(GraphEvent::CounterProofConfirmed(
                         CounterProofConfirmedEvent {
-                            counterproof_txid: txid,
                             counterproof_block_height: height,
+                            tx: tx.clone(),
                             counterprover_idx,
                         },
                     ))

@@ -273,6 +273,10 @@ pub(super) fn test_bridge_proof_timeout_tx() -> Transaction {
     tx
 }
 
+pub(super) fn test_counterproof_tx() -> Transaction {
+    Transaction::from(TestGraphTxKind::Counterproof)
+}
+
 pub(super) fn test_counterproof_nack_tx() -> Transaction {
     generate_spending_tx(
         OutPoint {

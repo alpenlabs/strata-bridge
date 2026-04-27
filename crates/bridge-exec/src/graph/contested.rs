@@ -161,6 +161,7 @@ pub(super) async fn publish_counterproof_nack(
     _output_handles: &OutputHandles,
     _deposit_idx: DepositIdx,
     _counter_prover_idx: OperatorIdx,
+    _counterproof_tx: Transaction,
     _counterproof_nack_tx: CounterproofNackTx,
 ) -> Result<(), ExecutorError> {
     todo!("publish_counterproof_nack")

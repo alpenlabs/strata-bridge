@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use bitcoin::{Txid, hashes::Hash};
+use strata_bridge_test_utils::bitcoin::generate_tx;
 use strata_bridge_tx_graph::{
     game_graph::GameConnectors,
     transactions::prelude::{CounterproofNackData, CounterproofNackTx},
@@ -22,8 +22,8 @@ use crate::{
                 TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
                 bridge_proof_posted_state, contested_state,
             },
-            test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
-            test_graph_sm_ctx, test_graph_transition,
+            test_counterproof_tx, test_deposit_params, test_graph_invalid_transition,
+            test_graph_sm_cfg, test_graph_sm_ctx, test_graph_transition,
         },
         watchtower::watchtower_slot_for_operator,
     },
@@ -35,12 +35,12 @@ const COUNTERPROOF_BLOCK_HEIGHT: u64 = LATER_BLOCK_HEIGHT + 50;
 
 /// Creates a counterproof event for the given operator index using the test graph summary.
 fn counterproof_event(counterprover_idx: u32) -> CounterProofConfirmedEvent {
-    let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, counterprover_idx)
+    watchtower_slot_for_operator(TEST_POV_IDX, counterprover_idx)
         .expect("counterprover should have a watchtower slot");
 
     CounterProofConfirmedEvent {
-        counterproof_txid: TEST_GRAPH_SUMMARY.counterproofs[watchtower_slot].counterproof,
         counterproof_block_height: COUNTERPROOF_BLOCK_HEIGHT,
+        tx: test_counterproof_tx(),
         counterprover_idx,
     }
 }
@@ -70,6 +70,7 @@ fn expected_nack_duty(counterprover_idx: u32) -> GraphDuty {
     GraphDuty::PublishCounterProofNack {
         deposit_idx: ctx.deposit_idx(),
         counter_prover_idx: counterprover_idx,
+        counterproof_tx: test_counterproof_tx(),
         counterproof_nack_tx,
     }
 }
@@ -83,7 +84,7 @@ fn event_accepted_from_contested_pov() {
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
         event.counterprover_idx,
-        (event.counterproof_txid, event.counterproof_block_height),
+        (event.tx.compute_txid(), event.counterproof_block_height),
     );
 
     test_graph_transition(GraphTransition {
@@ -112,7 +113,7 @@ fn event_accepted_from_contested_nonpov() {
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
         event.counterprover_idx,
-        (event.counterproof_txid, event.counterproof_block_height),
+        (event.tx.compute_txid(), event.counterproof_block_height),
     );
 
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
@@ -148,7 +149,7 @@ fn event_accepted_from_bridge_proof_posted_pov() {
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
         event.counterprover_idx,
-        (event.counterproof_txid, event.counterproof_block_height),
+        (event.tx.compute_txid(), event.counterproof_block_height),
     );
 
     test_graph_transition(GraphTransition {
@@ -177,7 +178,7 @@ fn event_accepted_from_bridge_proof_posted_nonpov() {
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
         event.counterprover_idx,
-        (event.counterproof_txid, event.counterproof_block_height),
+        (event.tx.compute_txid(), event.counterproof_block_height),
     );
 
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
@@ -213,7 +214,7 @@ fn event_accepted_from_counter_proof_posted_pov() {
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
         event.counterprover_idx,
-        (event.counterproof_txid, event.counterproof_block_height),
+        (event.tx.compute_txid(), event.counterproof_block_height),
     );
 
     // Start from an empty CounterProofPosted state (no prior counterproofs).
@@ -257,7 +258,7 @@ fn event_duplicate() {
     let mut existing_counterproofs = BTreeMap::new();
     existing_counterproofs.insert(
         event.counterprover_idx,
-        (event.counterproof_txid, event.counterproof_block_height),
+        (event.tx.compute_txid(), event.counterproof_block_height),
     );
 
     let from_state = GraphState::CounterProofPosted {
@@ -284,8 +285,8 @@ fn event_rejected_invalid_txid() {
     test_graph_invalid_transition(GraphInvalidTransition {
         from_state: contested_state(),
         event: GraphEvent::CounterProofConfirmed(CounterProofConfirmedEvent {
-            counterproof_txid: Txid::all_zeros(),
             counterproof_block_height: COUNTERPROOF_BLOCK_HEIGHT,
+            tx: generate_tx(0, 0),
             counterprover_idx: TEST_NONPOV_IDX,
         }),
         expected_error: |e| matches!(e, GSMError::Rejected { .. }),
@@ -297,8 +298,8 @@ fn event_rejected_invalid_operator_idx() {
     test_graph_invalid_transition(GraphInvalidTransition {
         from_state: contested_state(),
         event: GraphEvent::CounterProofConfirmed(CounterProofConfirmedEvent {
-            counterproof_txid: TEST_GRAPH_SUMMARY.counterproofs[0].counterproof,
             counterproof_block_height: COUNTERPROOF_BLOCK_HEIGHT,
+            tx: test_counterproof_tx(),
             counterprover_idx: u32::MAX,
         }),
         expected_error: |e| matches!(e, GSMError::Rejected { .. }),
