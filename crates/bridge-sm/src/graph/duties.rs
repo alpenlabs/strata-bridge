@@ -14,7 +14,9 @@ use strata_bridge_primitives::{
     types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
 };
 use strata_bridge_tx_graph::transactions::{
-    claim::ClaimTx, counterproof::CounterproofTx, prelude::ContestTx,
+    claim::ClaimTx,
+    counterproof::CounterproofTx,
+    prelude::{ContestTx, CounterproofNackTx},
 };
 use zkaleido::ProofReceipt;
 
@@ -246,9 +248,8 @@ pub enum GraphDuty {
         /// The index of the operator who submitted the counterproof.
         counter_prover_idx: OperatorIdx,
 
-        /// The counterproof NACK transaction to be published (unsigned; signed by mosaic after GC
-        /// evaluation).
-        counterproof_nack_tx: Transaction,
+        /// The unsigned counterproof NACK transaction to be published
+        counterproof_nack_tx: CounterproofNackTx,
     },
 
     /// Publish a slash transaction.
