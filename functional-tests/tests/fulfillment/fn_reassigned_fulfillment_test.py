@@ -20,7 +20,7 @@ from utils.utils import (
 
 
 @flexitest.register
-class AssignmentDurationTimeoutTest(StrataTestBase):
+class ReassignedFulfillmentTest(StrataTestBase):
     """
     Test that an unfulfilled withdrawal assignment is reassigned
     after the assignment duration timeout.
