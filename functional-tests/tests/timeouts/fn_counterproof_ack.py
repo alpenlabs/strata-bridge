@@ -1,5 +1,12 @@
 import flexitest
 
+from constants import (
+    CLAIM_CONTEST_VOUT,
+    CONTEST_PAYOUT_VOUT,
+    CONTEST_PROOF_VOUT,
+    CONTEST_WATCHTOWER_0_VOUT,
+    COUNTERPROOF_ACK_NACK_VOUT,
+)
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
@@ -17,13 +24,6 @@ from utils.utils import (
     read_operator_key,
     wait_for_tx_confirmation,
 )
-
-# Vout layout mirrored from the tx-graph Rust constants.
-CLAIM_CONTEST_VOUT = 0
-CONTEST_PROOF_VOUT = 0
-CONTEST_PAYOUT_VOUT = 1
-CONTEST_WATCHTOWER_0_VOUT = 3
-COUNTERPROOF_ACK_NACK_VOUT = 0
 
 
 @flexitest.register
