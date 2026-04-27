@@ -94,10 +94,10 @@ uv run python entry.py
 ./run_test.sh -t tests/liveness/fn_network_test.py
 
 # Run all tests in a group (subdirectory)
-./run_test.sh -g asm
+./run_test.sh -g liveness
 
 # Run multiple groups
-./run_test.sh -g asm payout
+./run_test.sh -g contested_payout uncontested_payout
 ```
 
 ## Running with code coverage
