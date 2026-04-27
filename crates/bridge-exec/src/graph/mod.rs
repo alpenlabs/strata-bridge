@@ -160,12 +160,14 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishCounterProofNack {
             deposit_idx,
             counter_prover_idx,
+            counterproof_tx,
             counterproof_nack_tx,
         } => {
             publish_counterproof_nack(
                 &output_handles,
                 *deposit_idx,
                 *counter_prover_idx,
+                counterproof_tx.clone(),
                 counterproof_nack_tx.clone(),
             )
             .await

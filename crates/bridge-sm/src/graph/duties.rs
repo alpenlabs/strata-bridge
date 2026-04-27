@@ -248,6 +248,9 @@ pub enum GraphDuty {
         /// The index of the operator who submitted the counterproof.
         counter_prover_idx: OperatorIdx,
 
+        /// The counterproof transaction being NACKed.
+        counterproof_tx: Transaction,
+
         /// The unsigned counterproof NACK transaction to be published
         counterproof_nack_tx: CounterproofNackTx,
     },

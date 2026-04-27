@@ -128,11 +128,11 @@ pub struct BridgeProofTimeoutConfirmedEvent {
 /// Event notifying that a counterproof transaction has been confirmed on-chain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CounterProofConfirmedEvent {
-    /// The txid of the counterproof transaction.
-    pub counterproof_txid: Txid,
-
     /// The block height at which the counterproof transaction was confirmed.
     pub counterproof_block_height: BitcoinBlockHeight,
+
+    /// The counterproof transaction.
+    pub tx: Transaction,
 
     /// The index of the watchtower who submitted the counterproof transaction.
     pub counterprover_idx: OperatorIdx,
