@@ -1,6 +1,7 @@
 name: dev-cli-release
 
 on:
+  pull_request:
   workflow_dispatch:
   push:
     tags:
