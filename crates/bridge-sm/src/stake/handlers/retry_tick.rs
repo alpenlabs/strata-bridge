@@ -20,6 +20,7 @@ impl StakeSM {
             StakeState::UnstakingSigned { stake_data, .. } => {
                 let stake_graph = StakeGraph::new(stake_data.expand(*cfg, self.context()));
                 vec![StakeDuty::PublishStake {
+                    operator_idx: self.context().operator_idx(),
                     tx: stake_graph.stake.as_ref().clone(),
                 }]
             }

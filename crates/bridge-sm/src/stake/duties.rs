@@ -23,6 +23,8 @@ pub enum StakeDuty {
     },
     /// Publish the stake transaction.
     PublishStake {
+        /// The index of the operator that owns the stake.
+        operator_idx: OperatorIdx,
         /// The unsigned stake transaction.
         tx: Transaction,
     },
@@ -114,7 +116,9 @@ impl std::fmt::Display for StakeDuty {
             Self::PublishStakeData { operator_idx } => {
                 format!("PublishStakeData (operator_idx: {operator_idx})")
             }
-            Self::PublishStake { .. } => "PublishStake".to_string(),
+            Self::PublishStake { operator_idx, .. } => {
+                format!("PublishStake (operator_idx: {operator_idx})")
+            }
             Self::PublishUnstakingNonces { .. } => "PublishUnstakingNonces".to_string(),
             Self::PublishUnstakingPartials { .. } => "PublishUnstakingPartials".to_string(),
             Self::PublishUnstakingIntent { .. } => "PublishUnstakingIntent".to_string(),

@@ -15,6 +15,7 @@ fn retry_publish_stake() {
         },
         event: RetryTickEvent.into(),
         expected_duties: vec![StakeDuty::PublishStake {
+            operator_idx: TEST_POV_IDX,
             tx: stake_graph.stake.as_ref().clone(),
         }],
     });

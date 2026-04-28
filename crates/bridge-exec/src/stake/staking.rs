@@ -24,7 +24,7 @@ use strata_bridge_primitives::{
     types::OperatorIdx,
 };
 use strata_bridge_tx_graph::musig_functor::StakeFunctor;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
@@ -305,8 +305,15 @@ pub(crate) async fn publish_unstaking_partials(
 pub(crate) async fn publish_stake(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
+    operator_idx: OperatorIdx,
     tx: &Transaction,
 ) -> Result<(), ExecutorError> {
+    let pov_idx = output_handles.operator_table.pov_idx();
+    if operator_idx != pov_idx {
+        debug!(%operator_idx, %pov_idx, "skipping PublishStake duty for foreign operator");
+        return Ok(());
+    }
+
     let stake_txid = tx.compute_txid();
     let funding_input = tx.input[0].previous_output;
 
