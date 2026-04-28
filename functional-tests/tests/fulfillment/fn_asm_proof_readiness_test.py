@@ -36,10 +36,15 @@ def operator_claim_unlock_leaf(deposit_idx: int, operator_idx: int) -> bytes:
 
 
 @flexitest.register
-class AsmFulfillmentMmrProofTest(StrataTestBase):
+class AsmProofReadinessTest(StrataTestBase):
     """
-    Test that `strata_asm_getExportEntryMMRProof` returns a non-empty inclusion
-    proof for each fulfilled `OperatorClaimUnlock` leaf.
+    Test that, once fulfillments are processed, the asm-runner has all three
+    inputs the bridge proof needs available at the same block:
+
+    - `MohoState`             via `strata_asm_getMohoState`
+    - `MohoProof`             via `strata_asm_getMohoProof`
+    - per-leaf MMR inclusion  via `strata_asm_getExportEntryMMRProof`
+      for each fulfilled `OperatorClaimUnlock` leaf
 
     Steps:
     1. Create two deposits and wait for both to complete
@@ -47,7 +52,8 @@ class AsmFulfillmentMmrProofTest(StrataTestBase):
     3. Snapshot `(deposit_idx → assignee)` from the assignments — those are the
        inputs the bridge handler will hash into each `OperatorClaimUnlock` leaf
     4. Wait until both assignments clear (both fulfillments processed by ASM)
-    5. For each leaf, fetch the proof and assert it is non-empty
+    5. For each leaf, fetch the MMR proof and assert it is non-empty
+    6. Fetch `MohoState` and `MohoProof` at the same block and assert non-empty
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -182,5 +188,30 @@ class AsmFulfillmentMmrProofTest(StrataTestBase):
             proof_bytes = bytes(raw)
             assert len(proof_bytes) > 0, f"empty proof for deposit_idx={d_idx}"
             self.logger.info(f"proof[d{d_idx}]: {len(proof_bytes)}B")
+
+        # --- MohoState is produced for every processed block, query directly ---
+        moho_state_raw = asm_rpc.strata_asm_getMohoState(target_block_hash)
+        assert moho_state_raw is not None, (
+            f"strata_asm_getMohoState returned None for {target_block_hash}"
+        )
+        moho_state_bytes = bytes(moho_state_raw)
+        assert len(moho_state_bytes) > 0, f"empty MohoState payload at {target_block_hash}"
+        self.logger.info(f"MohoState: {len(moho_state_bytes)}B")
+
+        # --- MohoProof is recursive on top of the ASM proof; wait for it ---
+        def moho_proof_ready():
+            return asm_rpc.strata_asm_getMohoProof(target_block_hash) is not None
+
+        wait_until(
+            moho_proof_ready,
+            timeout=600,
+            step=2,
+            error_msg=f"MohoProof not generated for {target_block_hash}",
+        )
+        moho_proof = asm_rpc.strata_asm_getMohoProof(target_block_hash)
+        assert moho_proof is not None, (
+            f"strata_asm_getMohoProof returned None for {target_block_hash}"
+        )
+        self.logger.info(f"MohoProof present at {target_block_hash}")
 
         return True
