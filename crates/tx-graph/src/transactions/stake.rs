@@ -71,6 +71,8 @@ impl StakeTx {
 }
 
 impl ParentTx for StakeTx {
+    type CpfpConnector = P2AConnector;
+
     fn cpfp_tx_out(&self) -> TxOut {
         self.cpfp_connector.tx_out()
     }
@@ -80,6 +82,10 @@ impl ParentTx for StakeTx {
             txid: self.tx.compute_txid(),
             vout: Self::CPFP_VOUT,
         }
+    }
+
+    fn cpfp_connector(&self) -> &Self::CpfpConnector {
+        &self.cpfp_connector
     }
 }
 
