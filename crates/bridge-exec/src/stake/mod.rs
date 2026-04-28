@@ -61,9 +61,9 @@ pub async fn execute_stake_duty(
             )
             .await
         }
-        StakeDuty::PublishStake { tx } => {
-            info!(stake_txid=%tx.compute_txid(), "executing StakeDuty::PublishStake");
-            staking::publish_stake(&cfg, &output_handles, tx).await
+        StakeDuty::PublishStake { operator_idx, tx } => {
+            info!(%operator_idx, stake_txid=%tx.compute_txid(), "executing StakeDuty::PublishStake");
+            staking::publish_stake(&cfg, &output_handles, *operator_idx, tx).await
         }
         StakeDuty::PublishUnstakingIntent {
             unsigned_tx,
