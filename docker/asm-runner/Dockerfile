@@ -6,11 +6,11 @@ COPY Cargo.toml /tmp/Cargo.toml
 
 RUN --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/root/.cargo/registry \
-    ASM_TAG=$(grep 'strata-asm-worker.*tag' /tmp/Cargo.toml | sed 's/.*tag = "\([^"]*\)".*/\1/') && \
-    if [ -z "$ASM_TAG" ]; then \
-        echo "ERROR: failed to extract asm tag from Cargo.toml" >&2; exit 1; \
+    ASM_BRANCH=$(grep 'strata-asm-worker.*branch' /tmp/Cargo.toml | sed 's/.*branch = "\([^"]*\)".*/\1/') && \
+    if [ -z "$ASM_BRANCH" ]; then \
+        echo "ERROR: failed to extract asm branch from Cargo.toml" >&2; exit 1; \
     fi && \
-    cargo install --git https://github.com/alpenlabs/asm --tag "$ASM_TAG" --root /app strata-asm-runner
+    cargo install --git https://github.com/alpenlabs/asm --branch "$ASM_BRANCH" --root /app strata-asm-runner
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 

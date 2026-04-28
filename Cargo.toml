@@ -76,18 +76,18 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-mosaic-client = { path = "crates/mosaic-client" }
 strata-mosaic-client-api = { path = "crates/mosaic-client-api" }
 
-# Dependencies from alpenlabs/asm pinned to tag v0.1-alpha.6
-asm-storage = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
-strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
-strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
-strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
-strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
-strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
-strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
-strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
-strata-asm-rpc = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
-strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
-strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", tag = "v0.1-alpha.6" }
+# Dependencies from alpenlabs/asm pinned to branch feat/export-entry-rpc (PR #86)
+asm-storage = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
+strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
+strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
+strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
+strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
+strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
+strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
+strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
+strata-asm-rpc = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
+strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
+strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", branch = "feat/export-entry-rpc" }
 
 # Dependencies from alpenlabs/mosaic pinned to commit 0fc9ba8d (main @ 2026-04-20)
 mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2359c7509b8ebf65e8aa5d423704b505" }

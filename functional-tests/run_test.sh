@@ -50,17 +50,17 @@ RUSTFLAGS="" cargo install \
     --root "$CARGO_LOCAL_BIN" \
     mosaic
 
-# Extract asm tag from Cargo.toml to avoid hardcoding
-ASM_TAG=$(grep 'strata-asm-worker.*tag' Cargo.toml | sed 's/.*tag = "\([^"]*\)".*/\1/')
-if [ -z "$ASM_TAG" ]; then
-    echo "ERROR: failed to extract asm tag from Cargo.toml" >&2
+# Extract asm branch from Cargo.toml to avoid hardcoding
+ASM_BRANCH=$(grep 'strata-asm-worker.*branch' Cargo.toml | sed 's/.*branch = "\([^"]*\)".*/\1/')
+if [ -z "$ASM_BRANCH" ]; then
+    echo "ERROR: failed to extract asm branch from Cargo.toml" >&2
     exit 1
 fi
 
-echo "installing strata-asm-runner (tag $ASM_TAG)"
+echo "installing strata-asm-runner (branch $ASM_BRANCH)"
 RUSTFLAGS="" cargo install \
     --git https://github.com/alpenlabs/asm \
-    --tag "$ASM_TAG" \
+    --branch "$ASM_BRANCH" \
     --root "$CARGO_LOCAL_BIN" \
     strata-asm-runner
 
