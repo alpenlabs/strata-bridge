@@ -57,6 +57,10 @@ pub enum ExecutorError {
     /// Error interacting with the mosaic service.
     #[error("mosaic error: {0}")]
     MosaicErr(String),
+
+    /// A transaction or its template violates a protocol invariant
+    #[error("invalid transaction structure: {0}")]
+    InvalidTxStructure(String),
 }
 
 impl From<OneOf<(FdbBindingError, LayerError)>> for ExecutorError {

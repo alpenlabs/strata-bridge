@@ -147,6 +147,25 @@ impl OperatorWallet {
         self.leased_outpoints.remove(outpoint)
     }
 
+    /// Selects the first non-anchor, non-leased general-wallet UTXO that satisfies
+    /// `predicate`, leases it to prevent concurrent duties from re-selecting the same
+    /// outpoint, and returns its [`LocalOutput`].
+    ///
+    /// Returns `None` if no UTXO matches.
+    pub fn select_and_lease_general_utxo(
+        &mut self,
+        predicate: impl Fn(&LocalOutput) -> bool,
+    ) -> Option<LocalOutput> {
+        // Snapshot the leased set so we can mutably borrow `self` after the search.
+        let leased: BTreeSet<OutPoint> = self.leased_outpoints.iter().copied().collect();
+        let selected = self
+            .general_utxos()
+            .filter(|u| !leased.contains(&u.outpoint))
+            .find(predicate)?;
+        self.lease(selected.outpoint);
+        Some(selected)
+    }
+
     /// Funds an unfunded version 3 transaction by adding inputs and change.
     ///
     /// Takes a transaction with outputs only and adds inputs from the general wallet to cover the
