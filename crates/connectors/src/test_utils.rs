@@ -3,19 +3,25 @@
 use std::collections::VecDeque;
 
 use bitcoin::{
-    absolute, consensus, transaction, Address, Amount, BlockHash, OutPoint, Transaction, TxIn,
-    TxOut, Txid,
+    absolute, consensus,
+    sighash::{Prevouts, SighashCache},
+    transaction, Address, Amount, BlockHash, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use bitcoind_async_client::corepc_types::v29::SignRawTransactionWithWallet;
 use corepc_node::{
     serde_json::{self, json},
     Client, Conf, Node,
 };
+use secp256k1::Keypair;
 #[cfg(test)]
 pub(crate) use signer::Signer;
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
-use crate::{p2a::P2AConnector, ParentTx};
+use crate::{
+    p2a::P2AConnector,
+    prelude::{KeyedAnchor, KeyedAnchorSpend},
+    Connector, ParentTx,
+};
 
 #[cfg(test)]
 mod signer {
@@ -382,6 +388,49 @@ impl BitcoinNode {
             output,
         };
         self.sign_with_prevouts(&child_tx, &[parent.cpfp_tx_out()])
+    }
+
+    /// Returns a signed transaction that pays fees for the given `parent` via CPFP,
+    /// using a keyed anchor.
+    ///
+    /// The `total_fee` covers both the parent and the child.
+    pub fn create_keyed_cpfp_child<T: ParentTx<CpfpConnector = KeyedAnchor>>(
+        &mut self,
+        parent: &T,
+        total_fee: Amount,
+        anchor_keypair: &Keypair,
+    ) -> Transaction {
+        let input = create_tx_ins([parent.cpfp_outpoint(), self.next_coinbase_outpoint()]);
+        let output = vec![TxOut {
+            value: self.coinbase_amount() + parent.cpfp_tx_out().value - total_fee,
+            script_pubkey: self.wallet_address().script_pubkey(),
+        }];
+        let child_tx = Transaction {
+            version: transaction::Version(3),
+            lock_time: absolute::LockTime::ZERO,
+            input,
+            output,
+        };
+
+        let prevouts = [parent.cpfp_tx_out(), self.coinbase_tx_out()];
+        let mut cache = SighashCache::new(&child_tx);
+        let signing_info = parent.cpfp_connector().get_signing_info(
+            &mut cache,
+            Prevouts::All(&prevouts),
+            KeyedAnchorSpend,
+            0,
+        );
+        let signature = signing_info.sign(anchor_keypair);
+
+        let mut psbt = Psbt::from_unsigned_tx(child_tx).expect("witness should be empty");
+        psbt.inputs[0].witness_utxo = Some(parent.cpfp_tx_out());
+        psbt.inputs[1].witness_utxo = Some(self.coinbase_tx_out());
+        parent
+            .cpfp_connector()
+            .finalize_input(&mut psbt.inputs[0], &signature);
+        let partially_signed_child_tx = psbt.extract_tx().expect("should be able to extract tx");
+
+        self.sign(&partially_signed_child_tx)
     }
 
     /// Signs the inputs that the wallet controls, providing prevouts for
