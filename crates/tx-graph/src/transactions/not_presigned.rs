@@ -100,6 +100,11 @@ macro_rules! impl_not_presigned_tx {
 
                 self.connector.get_signing_info(&mut cache, prevouts, $spend_path, 0)
             }
+
+            /// Returns the prevouts for every input in the transaction
+            pub fn prevouts(&self) -> &[TxOut] {
+                &self.prevouts
+            }
         }
 
         impl AsRef<Transaction> for $tx {

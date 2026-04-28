@@ -3,6 +3,7 @@
 
 mod common;
 mod contested;
+mod counterproof_nack;
 mod uncontested;
 mod utils;
 
@@ -20,8 +21,9 @@ use crate::{
         contested::{
             generate_and_publish_bridge_proof, generate_and_publish_counterproof,
             publish_bridge_proof_timeout, publish_contest, publish_contested_payout,
-            publish_counterproof_ack, publish_counterproof_nack, publish_slash,
+            publish_counterproof_ack, publish_slash,
         },
+        counterproof_nack::publish_counterproof_nack,
         uncontested::publish_uncontested_payout,
     },
     output_handles::OutputHandles,

@@ -12,7 +12,7 @@ use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 use strata_bridge_tx_graph::transactions::{
     bridge_proof::{BridgeProofData, BridgeProofTx},
     counterproof::CounterproofTx,
-    prelude::{ContestTx, CounterproofNackTx},
+    prelude::ContestTx,
 };
 use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES};
 use tracing::{info, warn};
@@ -156,17 +156,6 @@ pub(super) async fn publish_counterproof_ack(
     .await
 }
 
-/// Signs and publishes the counterproof NACK transaction to reject an invalid counterproof.
-pub(super) async fn publish_counterproof_nack(
-    _output_handles: &OutputHandles,
-    _deposit_idx: DepositIdx,
-    _counter_prover_idx: OperatorIdx,
-    _counterproof_tx: Transaction,
-    _counterproof_nack_tx: CounterproofNackTx,
-) -> Result<(), ExecutorError> {
-    todo!("publish_counterproof_nack")
-}
-
 /// Publishes the signed slash transaction to Bitcoin.
 pub(super) async fn publish_slash(
     output_handles: &OutputHandles,
@@ -188,14 +177,15 @@ pub(super) async fn generate_and_publish_counterproof(
     counterproof_tx: CounterproofTx,
     operator_idx: OperatorIdx,
     deposit_idx: DepositIdx,
-    watchtower_idx: OperatorIdx,
+    // Will be wired in once mock counterproof data below is replaced with the real
+    // proof-to-counterproof conversion.
+    _watchtower_idx: OperatorIdx,
     n_of_n_signature: Signature,
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, "generating counterproof");
 
     // NOTE: (MdTeach) using mock counterproof data; replace with real proof-to-counterproof
     // conversion.
-    let _ = watchtower_idx;
     let counterproof_data = G16ProofRaw([0u8; N_WITHDRAWAL_INPUT_WIRES]);
 
     // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
