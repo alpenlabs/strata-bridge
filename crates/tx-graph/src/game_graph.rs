@@ -826,7 +826,7 @@ mod tests {
         // └───────────────────────────────────────────────────────────────────┘
         let claim = node.sign(game.claim.as_ref());
         assert_eq!(claim.version, Version(3));
-        let child = node.create_cpfp_child(&game.claim, FEE * 2);
+        let child = node.create_wallet_cpfp_child(&game.claim, FEE * 2);
         assert_eq!(child.version, Version(3));
 
         node.submit_package(&[claim, child]);
@@ -843,7 +843,7 @@ mod tests {
         // │              Uncontested Payout (test terminates here)            │
         // └───────────────────────────────────────────────────────────────────┘
         if let Scenario::Uncontested = scenario {
-            let child = node.create_cpfp_child(&game.uncontested_payout, FEE * 2);
+            let child = node.create_wallet_cpfp_child(&game.uncontested_payout, FEE * 2);
             assert_eq!(child.version, Version(3));
             let uncontested_payout = game
                 .uncontested_payout
@@ -916,7 +916,7 @@ mod tests {
         let watchtower_signature =
             signing_info.sign(&signer.watchtower_keypairs[CONTESTING_WATCHTOWER_IDX as usize]);
 
-        let child = node.create_cpfp_child(&game.contest, FEE * 2);
+        let child = node.create_p2a_cpfp_child(&game.contest, FEE * 2);
         assert_eq!(child.version, Version(3));
         let contest = game.contest.finalize(
             presigned.watchtowers[CONTESTING_WATCHTOWER_IDX as usize].contest[0],
@@ -939,7 +939,7 @@ mod tests {
             node.mine_blocks(n_blocks);
             since_contest += n_blocks;
 
-            let child = node.create_cpfp_child(&game.bridge_proof_timeout, FEE * 2);
+            let child = node.create_p2a_cpfp_child(&game.bridge_proof_timeout, FEE * 2);
             assert_eq!(child.version, Version(3));
             let bridge_proof_timeout = game
                 .bridge_proof_timeout
@@ -957,7 +957,7 @@ mod tests {
             // └───────────────────────────────────────────────────────────────┘
             node.mine_blocks(usize::from(CONTESTED_PAYOUT_TIMELOCK.value()) - since_contest - 1);
 
-            let child = node.create_cpfp_child(&game.slash, FEE * 2);
+            let child = node.create_p2a_cpfp_child(&game.slash, FEE * 2);
             assert_eq!(child.version, Version(3));
             let slash = game.slash.finalize(presigned.slash);
             assert_eq!(slash.version, Version(3));
@@ -1025,7 +1025,7 @@ mod tests {
                 .clone()
                 .finalize(&witness);
             assert_eq!(counterproof.version, Version(3));
-            let child = node.create_cpfp_child(&game.counterproofs[0].counterproof, FEE * 2);
+            let child = node.create_p2a_cpfp_child(&game.counterproofs[0].counterproof, FEE * 2);
             assert_eq!(child.version, Version(3));
             let package = [counterproof, child];
 
@@ -1075,7 +1075,8 @@ mod tests {
                 .clone()
                 .finalize(presigned.watchtowers[0].counterproof_ack);
             assert_eq!(counterproof_ack.version, Version(3));
-            let child = node.create_cpfp_child(&game.counterproofs[0].counterproof_ack, FEE * 2);
+            let child =
+                node.create_p2a_cpfp_child(&game.counterproofs[0].counterproof_ack, FEE * 2);
             assert_eq!(child.version, Version(3));
             let package = [counterproof_ack, child];
 
@@ -1089,7 +1090,7 @@ mod tests {
             // └───────────────────────────────────────────────────────────────┘
             node.mine_blocks(usize::from(CONTESTED_PAYOUT_TIMELOCK.value()) - since_contest - 1);
 
-            let child = node.create_cpfp_child(&game.slash, FEE * 2);
+            let child = node.create_p2a_cpfp_child(&game.slash, FEE * 2);
             assert_eq!(child.version, Version(3));
             let slash = game.slash.finalize(presigned.slash);
             assert_eq!(slash.version, Version(3));
@@ -1106,7 +1107,7 @@ mod tests {
         // └───────────────────────────────────────────────────────────────────┘
         node.mine_blocks(usize::from(ACK_TIMELOCK.value()) - since_contest - 1);
 
-        let child = node.create_cpfp_child(&game.contested_payout, FEE * 2);
+        let child = node.create_wallet_cpfp_child(&game.contested_payout, FEE * 2);
         assert_eq!(child.version, Version(3));
         let contested_payout = game.contested_payout.finalize(presigned.contested_payout);
         assert_eq!(contested_payout.version, Version(3));
