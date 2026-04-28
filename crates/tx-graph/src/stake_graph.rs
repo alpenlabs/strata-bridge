@@ -278,7 +278,7 @@ mod tests {
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                       Stake Transaction                           │
         // └───────────────────────────────────────────────────────────────────┘
-        let child = node.create_cpfp_child(&graph.stake, FEE_AMOUNT * 2);
+        let child = node.create_p2a_cpfp_child(&graph.stake, FEE_AMOUNT * 2);
         let stake = node.sign(graph.stake.as_ref());
         node.submit_package(&[stake, child]);
         node.mine_blocks(1);
@@ -286,7 +286,7 @@ mod tests {
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                   Unstaking Intent Transaction                    │
         // └───────────────────────────────────────────────────────────────────┘
-        let child = node.create_cpfp_child(&graph.unstaking_intent, FEE_AMOUNT * 2);
+        let child = node.create_p2a_cpfp_child(&graph.unstaking_intent, FEE_AMOUNT * 2);
 
         let witness = UnstakingIntentWitness {
             n_of_n_signature: presigned.unstaking_intent[0],
@@ -300,7 +300,7 @@ mod tests {
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                      Unstaking Transaction                        │
         // └───────────────────────────────────────────────────────────────────┘
-        let child = node.create_cpfp_child(&graph.unstaking, FEE_AMOUNT * 2);
+        let child = node.create_wallet_cpfp_child(&graph.unstaking, FEE_AMOUNT * 2);
         let unstaking = graph.unstaking.finalize(presigned.unstaking);
 
         let package = [unstaking, child];
