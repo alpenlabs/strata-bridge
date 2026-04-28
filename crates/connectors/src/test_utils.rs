@@ -19,7 +19,9 @@ use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
 use crate::{
     p2a::P2AConnector,
-    prelude::{KeyedAnchor, KeyedAnchorSpend},
+    prelude::{
+        KeyedAnchor, KeyedAnchorSpend, MultiAnchor, MultiAnchorSpendPath, MultiAnchorWitness,
+    },
     Connector, ParentTx,
 };
 
@@ -428,6 +430,53 @@ impl BitcoinNode {
         parent
             .cpfp_connector()
             .finalize_input(&mut psbt.inputs[0], &signature);
+        let partially_signed_child_tx = psbt.extract_tx().expect("should be able to extract tx");
+
+        self.sign(&partially_signed_child_tx)
+    }
+
+    /// Returns a signed transaction that pays fees for the given `parent` via CPFP,
+    /// using a multi anchor.
+    ///
+    /// The `total_fee` covers both the parent and the child.
+    pub fn create_multi_cpfp_child<T: ParentTx<CpfpConnector = MultiAnchor>>(
+        &mut self,
+        parent: &T,
+        total_fee: Amount,
+        watchtower_index: u32,
+        watchtower_keypair: &Keypair,
+    ) -> Transaction {
+        let input = create_tx_ins([parent.cpfp_outpoint(), self.next_coinbase_outpoint()]);
+        let output = vec![TxOut {
+            value: self.coinbase_amount() + parent.cpfp_tx_out().value - total_fee,
+            script_pubkey: self.wallet_address().script_pubkey(),
+        }];
+        let child_tx = Transaction {
+            version: transaction::Version(3),
+            lock_time: absolute::LockTime::ZERO,
+            input,
+            output,
+        };
+
+        let prevouts = [parent.cpfp_tx_out(), self.coinbase_tx_out()];
+        let mut cache = SighashCache::new(&child_tx);
+        let signing_info = parent.cpfp_connector().get_signing_info(
+            &mut cache,
+            Prevouts::All(&prevouts),
+            MultiAnchorSpendPath { watchtower_index },
+            0,
+        );
+        let witness = MultiAnchorWitness {
+            watchtower_index,
+            watchtower_signature: signing_info.sign(watchtower_keypair),
+        };
+
+        let mut psbt = Psbt::from_unsigned_tx(child_tx).expect("witness should be empty");
+        psbt.inputs[0].witness_utxo = Some(parent.cpfp_tx_out());
+        psbt.inputs[1].witness_utxo = Some(self.coinbase_tx_out());
+        parent
+            .cpfp_connector()
+            .finalize_input(&mut psbt.inputs[0], &witness);
         let partially_signed_child_tx = psbt.extract_tx().expect("should be able to extract tx");
 
         self.sign(&partially_signed_child_tx)
