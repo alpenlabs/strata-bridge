@@ -57,6 +57,8 @@ impl ClaimTx {
 }
 
 impl ParentTx for ClaimTx {
+    type CpfpConnector = CpfpConnector;
+
     fn cpfp_tx_out(&self) -> TxOut {
         self.cpfp_connector.tx_out()
     }
@@ -66,6 +68,10 @@ impl ParentTx for ClaimTx {
             txid: self.tx.compute_txid(),
             vout: Self::CPFP_VOUT,
         }
+    }
+
+    fn cpfp_connector(&self) -> &Self::CpfpConnector {
+        &self.cpfp_connector
     }
 }
 

@@ -165,6 +165,9 @@ impl ContestedPayoutTx {
 }
 
 impl ParentTx for ContestedPayoutTx {
+    // NOTE: (@uncomputable) This is unused for now, so we return unit.
+    type CpfpConnector = ();
+
     fn cpfp_tx_out(&self) -> TxOut {
         self.psbt.unsigned_tx.output[0].clone()
     }
@@ -174,6 +177,10 @@ impl ParentTx for ContestedPayoutTx {
             txid: self.psbt.unsigned_tx.compute_txid(),
             vout: Self::CPFP_VOUT,
         }
+    }
+
+    fn cpfp_connector(&self) -> &Self::CpfpConnector {
+        &()
     }
 }
 

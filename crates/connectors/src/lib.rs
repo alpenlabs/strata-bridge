@@ -361,9 +361,15 @@ impl SigningInfo {
 // connectors and tx-graph.
 /// Bitcoin transaction that is the parent in a CPFP fee-bumping scheme.
 pub trait ParentTx {
+    /// CPFP connector.
+    type CpfpConnector;
+
     /// Returns the output that is spent by the CPFP child.
     fn cpfp_tx_out(&self) -> TxOut;
 
     /// Returns the outpoint that is spent by the CPFP child.
     fn cpfp_outpoint(&self) -> OutPoint;
+
+    /// Returns the connector that is spent by the CPFP child.
+    fn cpfp_connector(&self) -> &Self::CpfpConnector;
 }

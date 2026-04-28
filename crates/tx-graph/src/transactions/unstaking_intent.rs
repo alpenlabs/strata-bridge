@@ -123,6 +123,8 @@ impl UnstakingIntentTx {
 }
 
 impl ParentTx for UnstakingIntentTx {
+    type CpfpConnector = P2AConnector;
+
     fn cpfp_tx_out(&self) -> TxOut {
         self.cpfp_connector.tx_out()
     }
@@ -132,6 +134,10 @@ impl ParentTx for UnstakingIntentTx {
             txid: self.psbt.unsigned_tx.compute_txid(),
             vout: Self::CPFP_VOUT,
         }
+    }
+
+    fn cpfp_connector(&self) -> &Self::CpfpConnector {
+        &self.cpfp_connector
     }
 }
 
