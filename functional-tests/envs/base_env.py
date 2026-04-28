@@ -2,6 +2,7 @@ from pathlib import Path
 
 import flexitest
 
+from factory.asm_rpc.config_cfg import Duration, OrchestratorConfig
 from factory.bridge_operator.asm_cfg import build_asm_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
@@ -28,6 +29,7 @@ class BaseEnv(flexitest.EnvConfig):
         bridge_config_params=BridgeConfigParams(),  # noqa: B008
         btc_config: BitcoinEnvConfig | None = None,
         asm_config: AsmEnvConfig | None = None,
+        enable_asm_proof: bool = False,
     ):
         super().__init__()
         self.num_operators = num_operators
@@ -41,6 +43,7 @@ class BaseEnv(flexitest.EnvConfig):
         self._rollup_params_path = None
         self._bridge_protocol_params = bridge_protocol_params
         self._bridge_config_params = bridge_config_params
+        self._enable_asm_proof = enable_asm_proof
 
         # Generate P2P ports for this environment
         p2p_port_gen = generate_p2p_ports()
@@ -96,6 +99,23 @@ class BaseEnv(flexitest.EnvConfig):
 
         return fdb
 
+    def _build_orchestrator_config(self, ectx: flexitest.EnvContext) -> OrchestratorConfig | None:
+        """Return the proof-orchestrator config when enabled, else None.
+
+        Enabling the orchestrator is the gate that makes the asm-runner open its
+        `MohoStateDb` / `ExportEntriesDb`, which back `strata_asm_getExportEntryMMRProof`.
+        """
+        if not self._enable_asm_proof:
+            return None
+
+        envdd_path = Path(ectx.envdd_path)
+        proof_db_path = str((envdd_path / "asm_rpc" / "proof_db").resolve())
+        return OrchestratorConfig(
+            tick_interval=Duration(secs=1, nanos=0),
+            max_concurrent_proofs=4,
+            proof_db_path=proof_db_path,
+        )
+
     def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
         """Build bridge/ASM params and write asm-params.json once per environment."""
         if self._bridge_genesis_height is not None and self._rollup_params_path is not None:
@@ -147,7 +167,12 @@ class BaseEnv(flexitest.EnvConfig):
         if self._asm_rpc_service is None:
             asm_fac = ectx.get_factory("asm_rpc")
             params_file_path = self._rollup_params_path
-            self._asm_rpc_service = asm_fac.create_asm_rpc_service(bitcoind_props, params_file_path)
+            orchestrator_config = self._build_orchestrator_config(ectx)
+            self._asm_rpc_service = asm_fac.create_asm_rpc_service(
+                bitcoind_props,
+                params_file_path,
+                orchestrator_config=orchestrator_config,
+            )
         asm_props = self._asm_rpc_service.props
 
         s2_service = s2_fac.create_s2_service(operator_idx, operator_key)
