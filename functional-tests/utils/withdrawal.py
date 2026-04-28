@@ -132,3 +132,27 @@ def wait_until_bridge_proof_timedout(
             f"Claim phase for deposit {deposit_idx} did not advance to bridge_proof_timedout"
         ),
     )
+
+
+def wait_until_all_nackd(
+    bridge_rpc,
+    deposit_idx: int,
+    timeout=600,
+) -> None:
+    """Wait until the pending withdrawal's assigned claim phase is 'all_nackd'."""
+
+    def check():
+        info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
+        if info_data is None:
+            return False
+        info = RpcPendingWithdrawalInfo.from_json(info_data)
+        if info.assigned_claim is None:
+            return False
+        return info.assigned_claim.phase == RpcClaimPhase.ALL_NACKD
+
+    wait_until(
+        check,
+        timeout=timeout,
+        step=1,
+        error_msg=f"Claim phase for deposit {deposit_idx} did not advance to all_nackd",
+    )
