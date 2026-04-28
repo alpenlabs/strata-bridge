@@ -7,7 +7,6 @@ use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPu
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::{
-    cpfp::CpfpConnector,
     prelude::{
         ClaimContestConnector, ClaimPayoutConnector, ContestCounterproofOutput,
         ContestPayoutConnector, ContestProofConnector, ContestSlashConnector,
@@ -104,7 +103,7 @@ pub struct KeyData {
     pub unstaking_image: sha256::Hash,
     /// For each watchtower, a fault key from Mosaic.
     pub wt_fault_pubkeys: Vec<XOnlyPublicKey>,
-    /// Operator descriptor that is used for CPFP and for receiving payouts.
+    /// Operator descriptor that is used for receiving payouts.
     pub operator_descriptor: Descriptor,
     /// For each watchtower, a descriptor where to receive the slashed stake.
     pub slash_watchtower_descriptors: Vec<Descriptor>,
@@ -231,8 +230,6 @@ impl GameGraph {
     /// - The number of watchtower slash descriptors.
     ///
     /// This method panics if the number of watchtowers is greater than [`u32::MAX`].
-    ///
-    /// This method panics if the operator descriptor has no address (OP_RETURN).
     pub fn new(data: GameData) -> (Self, GameConnectors) {
         let protocol = data.protocol;
         let setup = data.setup;
@@ -260,13 +257,11 @@ impl GameGraph {
         let claim_data = ClaimData {
             claim_funds: deposit.claim_funds,
         };
-        let claim_cpfp_connector = CpfpConnector::new(protocol.network, &keys.operator_descriptor)
-            .expect("operator descriptor should have an address");
         let claim = ClaimTx::new(
             claim_data,
             connectors.claim_contest.clone(),
             connectors.claim_payout,
-            claim_cpfp_connector,
+            keys.operator_pubkey,
         );
 
         let uncontested_payout_data = UncontestedPayoutData {
@@ -826,7 +821,7 @@ mod tests {
         // └───────────────────────────────────────────────────────────────────┘
         let claim = node.sign(game.claim.as_ref());
         assert_eq!(claim.version, Version(3));
-        let child = node.create_wallet_cpfp_child(&game.claim, FEE * 2);
+        let child = node.create_keyed_cpfp_child(&game.claim, FEE * 2, &signer.operator_keypair);
         assert_eq!(child.version, Version(3));
 
         node.submit_package(&[claim, child]);

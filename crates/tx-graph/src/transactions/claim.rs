@@ -1,8 +1,10 @@
 //! This module contains the claim transaction.
 
-use bitcoin::{absolute, transaction::Version, OutPoint, Transaction, TxOut};
+use bitcoin::{
+    absolute, transaction::Version, Amount, OutPoint, Transaction, TxOut, XOnlyPublicKey,
+};
 use strata_bridge_connectors::{
-    prelude::{ClaimContestConnector, ClaimPayoutConnector, CpfpConnector},
+    prelude::{ClaimContestConnector, ClaimPayoutConnector, KeyedAnchor},
     Connector, ParentTx,
 };
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
@@ -18,7 +20,7 @@ pub struct ClaimData {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClaimTx {
     tx: Transaction,
-    cpfp_connector: CpfpConnector,
+    cpfp_connector: KeyedAnchor,
 }
 
 impl ClaimTx {
@@ -34,10 +36,14 @@ impl ClaimTx {
         data: ClaimData,
         claim_contest_connector: ClaimContestConnector,
         claim_payout_connector: ClaimPayoutConnector,
-        cpfp_connector: CpfpConnector,
+        operator_pubkey: XOnlyPublicKey,
     ) -> Self {
         debug_assert!(claim_contest_connector.network() == claim_payout_connector.network());
-        debug_assert!(claim_contest_connector.network() == cpfp_connector.network());
+        let cpfp_connector = KeyedAnchor::new(
+            claim_contest_connector.network(),
+            operator_pubkey,
+            Amount::ZERO,
+        );
 
         let input = create_tx_ins([data.claim_funds]);
         let output = vec![
@@ -57,7 +63,7 @@ impl ClaimTx {
 }
 
 impl ParentTx for ClaimTx {
-    type CpfpConnector = CpfpConnector;
+    type CpfpConnector = KeyedAnchor;
 
     fn cpfp_tx_out(&self) -> TxOut {
         self.cpfp_connector.tx_out()
