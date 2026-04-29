@@ -286,6 +286,7 @@ impl GameGraph {
             connectors.contest_payout,
             connectors.contest_slash,
             connectors.contest_counterproof.clone(),
+            keys.watchtower_pubkeys.clone(),
         );
         debug_assert_eq!(
             connectors.contest_counterproof.len(),
@@ -300,6 +301,7 @@ impl GameGraph {
             bridge_proof_timeout_data,
             connectors.contest_proof,
             connectors.contest_payout,
+            keys.watchtower_pubkeys.clone(),
         );
 
         let counterproofs: Vec<_> = connectors
@@ -913,7 +915,12 @@ mod tests {
         let watchtower_signature =
             signing_info.sign(&signer.watchtower_keypairs[CONTESTING_WATCHTOWER_IDX as usize]);
 
-        let child = node.create_p2a_cpfp_child(&game.contest, FEE * 2);
+        let child = node.create_multi_cpfp_child(
+            &game.contest,
+            FEE * 2,
+            CONTESTING_WATCHTOWER_IDX,
+            &signer.watchtower_keypairs[CONTESTING_WATCHTOWER_IDX as usize],
+        );
         assert_eq!(child.version, Version(3));
         let contest = game.contest.finalize(
             presigned.watchtowers[CONTESTING_WATCHTOWER_IDX as usize].contest[0],
@@ -936,7 +943,12 @@ mod tests {
             node.mine_blocks(n_blocks);
             since_contest += n_blocks;
 
-            let child = node.create_p2a_cpfp_child(&game.bridge_proof_timeout, FEE * 2);
+            let child = node.create_multi_cpfp_child(
+                &game.bridge_proof_timeout,
+                FEE * 2,
+                CONTESTING_WATCHTOWER_IDX,
+                &signer.watchtower_keypairs[CONTESTING_WATCHTOWER_IDX as usize],
+            );
             assert_eq!(child.version, Version(3));
             let bridge_proof_timeout = game
                 .bridge_proof_timeout

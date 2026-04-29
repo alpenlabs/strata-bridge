@@ -4,12 +4,12 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
+    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use secp256k1::schnorr;
 use strata_bridge_connectors::{
     prelude::{
-        ContestPayoutConnector, ContestProofConnector, P2AConnector, TimelockedSpendPath,
+        ContestPayoutConnector, ContestProofConnector, MultiAnchor, TimelockedSpendPath,
         TimelockedWitness,
     },
     Connector, ParentTx, SigningInfo,
@@ -31,7 +31,7 @@ pub struct BridgeProofTimeoutTx {
     prevouts: [TxOut; Self::N_INPUTS],
     contest_proof_connector: ContestProofConnector,
     contest_payout_connector: ContestPayoutConnector,
-    cpfp_connector: P2AConnector,
+    cpfp_connector: MultiAnchor,
 }
 
 impl BridgeProofTimeoutTx {
@@ -45,10 +45,12 @@ impl BridgeProofTimeoutTx {
         data: BridgeProofTimeoutData,
         contest_proof_connector: ContestProofConnector,
         contest_payout_connector: ContestPayoutConnector,
+        watchtower_pubkeys: Vec<XOnlyPublicKey>,
     ) -> Self {
         debug_assert!(contest_proof_connector.network() == contest_payout_connector.network());
-        let cpfp_connector = P2AConnector::new(
+        let cpfp_connector = MultiAnchor::new(
             contest_proof_connector.network(),
+            watchtower_pubkeys,
             contest_proof_connector.value() + contest_payout_connector.value(),
         );
 
@@ -125,7 +127,7 @@ impl BridgeProofTimeoutTx {
 }
 
 impl ParentTx for BridgeProofTimeoutTx {
-    type CpfpConnector = P2AConnector;
+    type CpfpConnector = MultiAnchor;
 
     fn cpfp_tx_out(&self) -> TxOut {
         self.cpfp_connector.tx_out()
