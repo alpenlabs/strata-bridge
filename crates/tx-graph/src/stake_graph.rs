@@ -34,6 +34,8 @@ pub struct StakeData {
 pub struct SetupParams {
     /// Operator index.
     pub operator_index: u32,
+    /// Operator key.
+    pub operator_pubkey: XOnlyPublicKey,
     /// N/N key.
     pub n_of_n_pubkey: XOnlyPublicKey,
     /// Unstaking hash image.
@@ -104,7 +106,12 @@ impl StakeGraph {
         let stake_data = crate::transactions::stake::StakeData {
             stake_funds: setup.stake_funds,
         };
-        let stake = StakeTx::new(stake_data, unstaking_intent_output, stake_connector);
+        let stake = StakeTx::new(
+            stake_data,
+            unstaking_intent_output,
+            stake_connector,
+            setup.operator_pubkey,
+        );
 
         let unstaking_intent_data = UnstakingIntentData {
             operator_idx: setup.operator_index,
@@ -115,6 +122,7 @@ impl StakeGraph {
             unstaking_intent_data,
             unstaking_intent_output,
             unstaking_output,
+            setup.operator_pubkey,
         );
 
         let unstaking_data = UnstakingData {
@@ -193,6 +201,7 @@ mod tests {
 
     #[derive(Debug)]
     struct Signer {
+        pub operator_keypair: Keypair,
         pub n_of_n_keypair: Keypair,
         pub unstaking_preimage: [u8; 32],
     }
@@ -200,6 +209,7 @@ mod tests {
     impl Signer {
         fn generate() -> Self {
             Signer {
+                operator_keypair: generate_keypair(),
                 n_of_n_keypair: generate_keypair(),
                 unstaking_preimage: random(),
             }
@@ -216,6 +226,7 @@ mod tests {
         let wallet_descriptor = Descriptor::try_from(node.wallet_address().clone()).unwrap();
         let mut setup = SetupParams {
             operator_index: 0,
+            operator_pubkey: signer.operator_keypair.x_only_public_key().0,
             n_of_n_pubkey: signer.n_of_n_keypair.x_only_public_key().0,
             unstaking_image: sha256::Hash::hash(&signer.unstaking_preimage),
             unstaking_operator_descriptor: wallet_descriptor,
@@ -278,7 +289,8 @@ mod tests {
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                       Stake Transaction                           │
         // └───────────────────────────────────────────────────────────────────┘
-        let child = node.create_p2a_cpfp_child(&graph.stake, FEE_AMOUNT * 2);
+        let child =
+            node.create_keyed_cpfp_child(&graph.stake, FEE_AMOUNT * 2, &signer.operator_keypair);
         let stake = node.sign(graph.stake.as_ref());
         node.submit_package(&[stake, child]);
         node.mine_blocks(1);
@@ -286,7 +298,11 @@ mod tests {
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                   Unstaking Intent Transaction                    │
         // └───────────────────────────────────────────────────────────────────┘
-        let child = node.create_p2a_cpfp_child(&graph.unstaking_intent, FEE_AMOUNT * 2);
+        let child = node.create_keyed_cpfp_child(
+            &graph.unstaking_intent,
+            FEE_AMOUNT * 2,
+            &signer.operator_keypair,
+        );
 
         let witness = UnstakingIntentWitness {
             n_of_n_signature: presigned.unstaking_intent[0],

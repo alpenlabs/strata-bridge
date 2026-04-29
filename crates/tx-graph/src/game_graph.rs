@@ -319,6 +319,7 @@ impl GameGraph {
                         counterproof_data,
                         contest_counterproof_output,
                         counterproof_connector,
+                        keys.watchtower_pubkeys[watchtower_index],
                     );
 
                     let counterproof_ack_data = CounterproofAckData {
@@ -329,6 +330,7 @@ impl GameGraph {
                         counterproof_ack_data,
                         counterproof_connector,
                         connectors.contest_payout,
+                        keys.watchtower_pubkeys[watchtower_index],
                     );
 
                     CounterproofGraph {
@@ -1020,7 +1022,11 @@ mod tests {
                 .clone()
                 .finalize(&witness);
             assert_eq!(counterproof.version, Version(3));
-            let child = node.create_p2a_cpfp_child(&game.counterproofs[0].counterproof, FEE * 2);
+            let child = node.create_keyed_cpfp_child(
+                &game.counterproofs[0].counterproof,
+                FEE * 2,
+                &signer.watchtower_keypairs[0],
+            );
             assert_eq!(child.version, Version(3));
             let package = [counterproof, child];
 
@@ -1070,8 +1076,11 @@ mod tests {
                 .clone()
                 .finalize(presigned.watchtowers[0].counterproof_ack);
             assert_eq!(counterproof_ack.version, Version(3));
-            let child =
-                node.create_p2a_cpfp_child(&game.counterproofs[0].counterproof_ack, FEE * 2);
+            let child = node.create_keyed_cpfp_child(
+                &game.counterproofs[0].counterproof_ack,
+                FEE * 2,
+                &signer.watchtower_keypairs[0],
+            );
             assert_eq!(child.version, Version(3));
             let package = [counterproof_ack, child];
 

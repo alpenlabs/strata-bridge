@@ -4,12 +4,12 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut, Txid,
+    Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use strata_asm_proto_bridge_v1_txs::unstake::UnstakeTxHeaderAux;
 use strata_bridge_connectors::{
     prelude::{
-        P2AConnector, UnstakingIntentOutput, UnstakingIntentSpend, UnstakingIntentWitness,
+        KeyedAnchor, UnstakingIntentOutput, UnstakingIntentSpend, UnstakingIntentWitness,
         UnstakingOutput,
     },
     Connector, ParentTx, SigningInfo,
@@ -50,7 +50,7 @@ pub struct UnstakingIntentTx {
     prevouts: [TxOut; Self::N_INPUTS],
     unstaking_intent_output: UnstakingIntentOutput,
     unstaking_output: UnstakingOutput,
-    cpfp_connector: P2AConnector,
+    cpfp_connector: KeyedAnchor,
 }
 
 impl UnstakingIntentTx {
@@ -68,9 +68,14 @@ impl UnstakingIntentTx {
         data: UnstakingIntentData,
         unstaking_intent_output: UnstakingIntentOutput,
         unstaking_output: UnstakingOutput,
+        operator_pubkey: XOnlyPublicKey,
     ) -> Self {
         debug_assert!(unstaking_intent_output.network() == unstaking_output.network());
-        let cpfp_connector = P2AConnector::new(unstaking_intent_output.network(), Amount::ZERO);
+        let cpfp_connector = KeyedAnchor::new(
+            unstaking_intent_output.network(),
+            operator_pubkey,
+            Amount::ZERO,
+        );
 
         let prevouts = [unstaking_intent_output.tx_out()];
         let input = vec![TxIn {
@@ -123,7 +128,7 @@ impl UnstakingIntentTx {
 }
 
 impl ParentTx for UnstakingIntentTx {
-    type CpfpConnector = P2AConnector;
+    type CpfpConnector = KeyedAnchor;
 
     fn cpfp_tx_out(&self) -> TxOut {
         self.cpfp_connector.tx_out()

@@ -4,13 +4,13 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
+    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use secp256k1::Message;
 use strata_bridge_connectors::{
     prelude::{
         ContestCounterproofOutput, ContestCounterproofSpend, ContestCounterproofWitness,
-        CounterproofConnector, P2AConnector,
+        CounterproofConnector, KeyedAnchor,
     },
     Connector, ParentTx, SigningInfo,
 };
@@ -34,7 +34,7 @@ pub struct CounterproofTx {
     watchtower_index: u32,
     contest_counterproof_output: ContestCounterproofOutput,
     counterproof_connector: CounterproofConnector,
-    cpfp_connector: P2AConnector,
+    cpfp_connector: KeyedAnchor,
 }
 
 impl CounterproofTx {
@@ -50,6 +50,7 @@ impl CounterproofTx {
         data: CounterproofData,
         contest_counterproof_output: ContestCounterproofOutput,
         counterproof_connector: CounterproofConnector,
+        watchtower_pubkey: XOnlyPublicKey,
     ) -> Self {
         debug_assert!(contest_counterproof_output.network() == counterproof_connector.network());
         debug_assert!(
@@ -58,7 +59,11 @@ impl CounterproofTx {
             contest_counterproof_output.value(),
             counterproof_connector.value()
         );
-        let cpfp_connector = P2AConnector::new(contest_counterproof_output.network(), Amount::ZERO);
+        let cpfp_connector = KeyedAnchor::new(
+            contest_counterproof_output.network(),
+            watchtower_pubkey,
+            Amount::ZERO,
+        );
 
         let prevouts = [contest_counterproof_output.tx_out()];
         let input = vec![TxIn {
@@ -128,7 +133,7 @@ impl CounterproofTx {
 }
 
 impl ParentTx for CounterproofTx {
-    type CpfpConnector = P2AConnector;
+    type CpfpConnector = KeyedAnchor;
 
     fn cpfp_tx_out(&self) -> TxOut {
         self.cpfp_connector.tx_out()
