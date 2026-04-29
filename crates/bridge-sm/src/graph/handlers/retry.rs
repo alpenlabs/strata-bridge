@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use strata_bridge_tx_graph::game_graph::GameConnectors;
+
 use crate::graph::{
     config::GraphSMCfg,
     duties::GraphDuty,
@@ -87,11 +89,24 @@ impl GraphSM {
                 // Implement the faulty cases in `process_claim`; this emits `PublishContest`.
                 Vec::new()
             }
-            GraphState::Contested { .. } => {
-                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2675>
-                // Implement the `GraphEvent::ContestConfirmed` match arm in
-                // `GraphSM::process_event`; this emits `PublishBridgeProof`.
-                Vec::new()
+            GraphState::Contested {
+                graph_data,
+                graph_summary,
+                ..
+            } if self.context().operator_idx() == self.context().operator_table().pov_idx() => {
+                let setup_params = self.context().generate_setup_params(&cfg, graph_data);
+                let connectors = GameConnectors::new(
+                    graph_data.game_index,
+                    &cfg.game_graph_params,
+                    &setup_params,
+                );
+
+                vec![GraphDuty::GenerateAndPublishBridgeProof {
+                    graph_idx: self.context().graph_idx(),
+                    contest_txid: graph_summary.contest,
+                    game_index: graph_data.game_index,
+                    contest_proof_connector: connectors.contest_proof,
+                }]
             }
             GraphState::BridgeProofPosted { .. } => {
                 // TODO: <https://alpenlabs.atlassian.net/browse/STR-2676>
@@ -99,11 +114,34 @@ impl GraphSM {
                 // `GraphSM::process_event`; this emits `PublishCounterProof`.
                 Vec::new()
             }
-            GraphState::CounterProofPosted { .. } => {
-                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2677>
-                // Implement the `GraphEvent::CounterProofConfirmed` match arm in
-                // `GraphSM::process_event`; this emits `PublishCounterProofNack`.
-                Vec::new()
+            GraphState::CounterProofPosted {
+                graph_data,
+                graph_summary,
+                refuted_proof,
+                ..
+            } => {
+                if self.context().operator_idx() == self.context().operator_table().pov_idx()
+                    && refuted_proof.is_none()
+                {
+                    let setup_params = self.context().generate_setup_params(&cfg, graph_data);
+                    let connectors = GameConnectors::new(
+                        graph_data.game_index,
+                        &cfg.game_graph_params,
+                        &setup_params,
+                    );
+
+                    vec![GraphDuty::GenerateAndPublishBridgeProof {
+                        graph_idx: self.context().graph_idx(),
+                        contest_txid: graph_summary.contest,
+                        game_index: graph_data.game_index,
+                        contest_proof_connector: connectors.contest_proof,
+                    }]
+                } else {
+                    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2677>
+                    // Implement the `GraphEvent::CounterProofConfirmed` match arm in
+                    // `GraphSM::process_event`; this emits `PublishCounterProofNack`.
+                    Vec::new()
+                }
             }
             _ => Vec::new(),
         };
