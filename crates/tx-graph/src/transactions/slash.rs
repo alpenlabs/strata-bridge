@@ -11,10 +11,9 @@ use secp256k1::schnorr;
 use strata_asm_proto_bridge_v1_txs::slash::SlashTxHeaderAux;
 use strata_bridge_connectors::{
     prelude::{
-        ContestSlashConnector, NOfNConnector, NOfNSpend, P2AConnector, TimelockedSpendPath,
-        TimelockedWitness,
+        ContestSlashConnector, NOfNConnector, NOfNSpend, TimelockedSpendPath, TimelockedWitness,
     },
-    Connector, ParentTx, SigningInfo,
+    Connector, ParentTxCombined, SigningInfo,
 };
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 
@@ -54,7 +53,6 @@ pub struct SlashTx {
     prevouts: [TxOut; Self::N_INPUTS],
     contest_slash_connector: ContestSlashConnector,
     stake_connector: NOfNConnector,
-    cpfp_connector: P2AConnector,
 }
 
 impl SlashTx {
@@ -64,22 +62,36 @@ impl SlashTx {
     pub const N_INPUTS: usize = 2;
 
     /// Creates a slash transaction.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the number of watchtowers is zero.
+    ///
+    /// This method panics if the watchtower stake is not divisible by the number of watchtowers.
     pub fn new(
         data: SlashData,
         contest_slash_connector: ContestSlashConnector,
         stake_connector: NOfNConnector,
         watchtower_descriptors: &[Descriptor],
     ) -> Self {
+        assert!(
+            !watchtower_descriptors.is_empty(),
+            "there needs to be at least one watchtower"
+        );
         // cast safety: size(usize) <= size(u64)
-        let watchtower_stake = match stake_connector.value().checked_div(watchtower_descriptors.len() as u64) {
+        let n_watchtowers = watchtower_descriptors.len() as u64;
+        let watchtower_stake = match stake_connector.value().checked_div(n_watchtowers) {
             Some(x) => x,
             None => panic!("The total stake must be divisible by the number of watchtowers. Total stake = {}, number of watchtowers = {}", stake_connector.value(), watchtower_descriptors.len()),
         };
-        debug_assert!(contest_slash_connector.network() == stake_connector.network());
-        let cpfp_connector = P2AConnector::new(
-            contest_slash_connector.network(),
-            contest_slash_connector.value(),
+        let excess_input = contest_slash_connector.value();
+        let first_extra = excess_input / n_watchtowers + excess_input % n_watchtowers;
+        let other_extra = excess_input / n_watchtowers;
+        debug_assert_eq!(
+            excess_input,
+            first_extra + other_extra * n_watchtowers.saturating_sub(1)
         );
+        debug_assert!(contest_slash_connector.network() == stake_connector.network());
 
         let prevouts = [contest_slash_connector.tx_out(), stake_connector.tx_out()];
         let input = vec![
@@ -97,15 +109,19 @@ impl SlashTx {
                 ..Default::default()
             },
         ];
+
         let mut output = vec![TxOut {
             script_pubkey: data.header_leaf_script(),
             value: Amount::ZERO,
         }];
-        output.extend(watchtower_descriptors.iter().map(|x| TxOut {
+        output.push(TxOut {
+            script_pubkey: watchtower_descriptors[0].to_script(),
+            value: watchtower_stake + first_extra,
+        });
+        output.extend(watchtower_descriptors.iter().skip(1).map(|x| TxOut {
             script_pubkey: x.to_script(),
-            value: watchtower_stake,
+            value: watchtower_stake + other_extra,
         }));
-        output.push(cpfp_connector.tx_out());
 
         let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
         let value_out: Amount = output.iter().map(|x| x.value).sum();
@@ -131,18 +147,7 @@ impl SlashTx {
             prevouts,
             contest_slash_connector,
             stake_connector,
-            cpfp_connector,
         }
-    }
-
-    /// Returns the index of the output for the given watchtower.
-    pub const fn watchtower_vout(watchtower_index: u32) -> u32 {
-        1 + watchtower_index
-    }
-
-    /// Returns the index of the CPFP output.
-    pub const fn cpfp_vout(n_watchtowers: u32) -> u32 {
-        1 + n_watchtowers
     }
 
     /// Finalizes the transaction with the given witness data.
@@ -161,22 +166,19 @@ impl SlashTx {
     }
 }
 
-impl ParentTx for SlashTx {
-    type CpfpConnector = P2AConnector;
+impl ParentTxCombined for SlashTx {
+    type Index = u32;
 
-    fn cpfp_tx_out(&self) -> TxOut {
-        self.cpfp_connector.tx_out()
+    fn cpfp_tx_out(&self, index: Self::Index) -> TxOut {
+        // cast safety: 32-bit arch or higher
+        self.psbt.unsigned_tx.output[index.saturating_add(1) as usize].clone()
     }
 
-    fn cpfp_outpoint(&self) -> OutPoint {
+    fn cpfp_outpoint(&self, index: Self::Index) -> OutPoint {
         OutPoint {
             txid: self.psbt.unsigned_tx.compute_txid(),
-            vout: self.psbt.outputs.len() as u32 - 1,
+            vout: index.saturating_add(1),
         }
-    }
-
-    fn cpfp_connector(&self) -> &Self::CpfpConnector {
-        &self.cpfp_connector
     }
 }
 
