@@ -316,7 +316,7 @@ mod tests {
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                      Unstaking Transaction                        │
         // └───────────────────────────────────────────────────────────────────┘
-        let child = node.create_wallet_cpfp_child(&graph.unstaking, FEE_AMOUNT * 2);
+        let child = node.create_wallet_cpfp_child(&graph.unstaking, (), FEE_AMOUNT * 2);
         let unstaking = graph.unstaking.finalize(presigned.unstaking);
 
         let package = [unstaking, child];

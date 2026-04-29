@@ -10,7 +10,7 @@ use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
 use strata_bridge_connectors::{
     prelude::{NOfNConnector, NOfNSpend, TimelockedSpendPath, TimelockedWitness, UnstakingOutput},
-    Connector, ParentTx, SigningInfo,
+    Connector, ParentTxCombined, SigningInfo,
 };
 
 use crate::transactions::{
@@ -112,23 +112,18 @@ impl UnstakingTx {
     }
 }
 
-impl ParentTx for UnstakingTx {
-    // NOTE: (@uncomputable) This is unused for now, so we return unit.
-    type CpfpConnector = ();
+impl ParentTxCombined for UnstakingTx {
+    type Index = ();
 
-    fn cpfp_tx_out(&self) -> TxOut {
+    fn cpfp_tx_out(&self, _index: Self::Index) -> TxOut {
         self.psbt.unsigned_tx.output[0].clone()
     }
 
-    fn cpfp_outpoint(&self) -> OutPoint {
+    fn cpfp_outpoint(&self, _index: Self::Index) -> OutPoint {
         OutPoint {
             txid: self.psbt.unsigned_tx.compute_txid(),
             vout: Self::OPERATOR_VOUT,
         }
-    }
-
-    fn cpfp_connector(&self) -> &Self::CpfpConnector {
-        &()
     }
 }
 
