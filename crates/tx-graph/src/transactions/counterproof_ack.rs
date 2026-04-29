@@ -4,12 +4,12 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
+    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use secp256k1::schnorr;
 use strata_bridge_connectors::{
     prelude::{
-        ContestPayoutConnector, CounterproofConnector, P2AConnector, TimelockedSpendPath,
+        ContestPayoutConnector, CounterproofConnector, KeyedAnchor, TimelockedSpendPath,
         TimelockedWitness,
     },
     Connector, ParentTx, SigningInfo,
@@ -36,7 +36,7 @@ pub struct CounterproofAckTx {
     prevouts: [TxOut; Self::N_INPUTS],
     counterproof_connector: CounterproofConnector,
     contest_payout_connector: ContestPayoutConnector,
-    cpfp_connector: P2AConnector,
+    cpfp_connector: KeyedAnchor,
 }
 
 impl CounterproofAckTx {
@@ -50,10 +50,12 @@ impl CounterproofAckTx {
         data: CounterproofAckData,
         counterproof_connector: CounterproofConnector,
         contest_payout_connector: ContestPayoutConnector,
+        watchtower_pubkey: XOnlyPublicKey,
     ) -> Self {
         debug_assert!(counterproof_connector.network() == contest_payout_connector.network());
-        let cpfp_connector = P2AConnector::new(
+        let cpfp_connector = KeyedAnchor::new(
             counterproof_connector.network(),
+            watchtower_pubkey,
             counterproof_connector.value() + contest_payout_connector.value(),
         );
 
@@ -130,7 +132,7 @@ impl CounterproofAckTx {
 }
 
 impl ParentTx for CounterproofAckTx {
-    type CpfpConnector = P2AConnector;
+    type CpfpConnector = KeyedAnchor;
 
     fn cpfp_tx_out(&self) -> TxOut {
         self.cpfp_connector.tx_out()

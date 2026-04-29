@@ -64,6 +64,12 @@ impl StakeSMCtx {
     ) -> SetupParams {
         SetupParams {
             operator_index: self.operator_idx(),
+            operator_pubkey: self
+                .operator_table()
+                .idx_to_btc_key(&self.operator_idx())
+                .expect("operator index must be valid")
+                .x_only_public_key()
+                .0,
             n_of_n_pubkey: self
                 .operator_table()
                 .aggregated_btc_key()
@@ -99,6 +105,12 @@ impl MinimumStakeData {
             protocol: cfg.protocol_params,
             setup: SetupParams {
                 operator_index: ctx.operator_idx(),
+                operator_pubkey: ctx
+                    .operator_table()
+                    .idx_to_btc_key(&ctx.operator_idx())
+                    .expect("operator index must be valid")
+                    .x_only_public_key()
+                    .0,
                 n_of_n_pubkey: ctx
                     .operator_table()
                     .aggregated_btc_key()

@@ -1,8 +1,10 @@
 //! This module contains the stake transaction.
 
-use bitcoin::{absolute, transaction::Version, Amount, OutPoint, Transaction, TxIn, TxOut};
+use bitcoin::{
+    absolute, transaction::Version, Amount, OutPoint, Transaction, TxIn, TxOut, XOnlyPublicKey,
+};
 use strata_bridge_connectors::{
-    prelude::{NOfNConnector, P2AConnector, UnstakingIntentOutput},
+    prelude::{KeyedAnchor, NOfNConnector, UnstakingIntentOutput},
     Connector, ParentTx,
 };
 
@@ -23,7 +25,7 @@ pub struct StakeTx {
     tx: Transaction,
     unstaking_intent_output: UnstakingIntentOutput,
     stake_connector: NOfNConnector,
-    cpfp_connector: P2AConnector,
+    cpfp_connector: KeyedAnchor,
 }
 
 impl StakeTx {
@@ -41,9 +43,14 @@ impl StakeTx {
         data: StakeData,
         unstaking_intent_output: UnstakingIntentOutput,
         stake_connector: NOfNConnector,
+        operator_pubkey: XOnlyPublicKey,
     ) -> Self {
         debug_assert!(unstaking_intent_output.network() == stake_connector.network());
-        let cpfp_connector = P2AConnector::new(unstaking_intent_output.network(), Amount::ZERO);
+        let cpfp_connector = KeyedAnchor::new(
+            unstaking_intent_output.network(),
+            operator_pubkey,
+            Amount::ZERO,
+        );
 
         let input = vec![TxIn {
             previous_output: data.stake_funds,
@@ -71,7 +78,7 @@ impl StakeTx {
 }
 
 impl ParentTx for StakeTx {
-    type CpfpConnector = P2AConnector;
+    type CpfpConnector = KeyedAnchor;
 
     fn cpfp_tx_out(&self) -> TxOut {
         self.cpfp_connector.tx_out()
