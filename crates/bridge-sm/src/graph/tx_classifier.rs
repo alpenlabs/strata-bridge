@@ -210,7 +210,8 @@ impl TxClassifier for GraphSM {
                 }
             }
 
-            // expects a bridge proof or counterproof ACK or NACK or payout burn
+            // expects a bridge proof, another watchtower's counterproof, or counterproof ACK or
+            // NACK or payout burn
             GraphState::CounterProofPosted { graph_summary, .. } => {
                 if txid == graph_summary.bridge_proof_timeout {
                     Some(GraphEvent::BridgeProofTimeoutConfirmed(
@@ -221,6 +222,16 @@ impl TxClassifier for GraphSM {
                     ))
                 } else if spends_contest_proof_connector(graph_summary.contest, tx) {
                     Some(bridge_proof_event(tx, height))
+                } else if let Some(counterprover_idx) =
+                    counterproof_operator_idx(graph_summary, &txid, self.context().operator_idx())
+                {
+                    Some(GraphEvent::CounterProofConfirmed(
+                        CounterProofConfirmedEvent {
+                            counterproof_block_height: height,
+                            tx: tx.clone(),
+                            counterprover_idx,
+                        },
+                    ))
                 } else if let Some(counterprover_idx) = counterproof_ack_operator_idx(
                     graph_summary,
                     &txid,
