@@ -6,7 +6,6 @@ pub mod contest_counterproof;
 pub mod keyed_anchor;
 pub mod multi_anchor;
 pub mod n_of_n;
-pub mod p2a;
 pub mod prelude;
 pub mod timelocked;
 pub mod unstaking_intent;

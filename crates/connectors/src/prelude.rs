@@ -2,5 +2,5 @@
 
 pub use super::{
     claim_contest::*, claim_payout::*, contest_counterproof::*, keyed_anchor::*, multi_anchor::*,
-    n_of_n::*, p2a::*, timelocked::*, unstaking_intent::*,
+    n_of_n::*, timelocked::*, unstaking_intent::*,
 };
