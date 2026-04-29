@@ -5,6 +5,7 @@ use strata_bridge_primitives::{proof::verify_bridge_proof, types::OperatorIdx};
 use strata_bridge_tx_graph::{
     game_graph::{DepositParams, GameConnectors},
     musig_functor::GameFunctor,
+    transactions::prelude::{CounterproofNackData, CounterproofNackTx},
 };
 use zkaleido::ProofReceipt;
 
@@ -126,26 +127,17 @@ impl GraphSM {
             }
             GraphState::CounterProofPosted {
                 graph_data,
-                signatures,
-                refuted_proof: Some(proof),
-                counterproofs_and_confs,
-                ..
-            } if self.context().operator_idx() != self.context().operator_table().pov_idx()
-                && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof)
-                && !counterproofs_and_confs
-                    .contains_key(&self.context().operator_table().pov_idx()) =>
-            {
-                vec![self.generate_counterproof_duty(&cfg, graph_data, signatures, proof)?]
-            }
-            GraphState::CounterProofPosted {
-                graph_data,
                 graph_summary,
+                signatures,
                 refuted_proof,
+                counterproofs_and_confs,
+                counterproof_nacks,
                 ..
             } => {
-                if self.context().operator_idx() == self.context().operator_table().pov_idx()
-                    && refuted_proof.is_none()
-                {
+                let pov_idx = self.context().operator_table().pov_idx();
+                let is_pov_graph = self.context().operator_idx() == pov_idx;
+
+                if is_pov_graph {
                     let setup_params = self.context().generate_setup_params(&cfg, graph_data);
                     let connectors = GameConnectors::new(
                         graph_data.game_index,
@@ -153,17 +145,56 @@ impl GraphSM {
                         &setup_params,
                     );
 
-                    vec![GraphDuty::GenerateAndPublishBridgeProof {
-                        graph_idx: self.context().graph_idx(),
-                        contest_txid: graph_summary.contest,
-                        game_index: graph_data.game_index,
-                        contest_proof_connector: connectors.contest_proof,
-                    }]
+                    let mut duties: Vec<GraphDuty> = Vec::new();
+
+                    if refuted_proof.is_none() {
+                        duties.push(GraphDuty::GenerateAndPublishBridgeProof {
+                            graph_idx: self.context().graph_idx(),
+                            contest_txid: graph_summary.contest,
+                            game_index: graph_data.game_index,
+                            contest_proof_connector: connectors.contest_proof,
+                        });
+                    }
+
+                    // Retry NACKs for confirmed counterproofs that have not been NACK'd yet.
+                    duties.extend(
+                        counterproofs_and_confs
+                            .iter()
+                            .filter(|(idx, _)| !counterproof_nacks.contains_key(idx))
+                            .filter_map(|(counterprover_idx, data)| {
+                                let watchtower_slot =
+                                    watchtower_slot_for_operator(pov_idx, *counterprover_idx)?;
+                                let counterproof_connector =
+                                    connectors.counterproof.get(watchtower_slot)?;
+
+                                let nack_data = CounterproofNackData {
+                                    counterproof_txid: data.txid,
+                                };
+                                let counterproof_nack_tx =
+                                    CounterproofNackTx::new(nack_data, *counterproof_connector);
+
+                                Some(GraphDuty::PublishCounterProofNack {
+                                    deposit_idx: self.context().deposit_idx(),
+                                    counterprover_idx: *counterprover_idx,
+                                    completed_signatures: data.completed_signatures,
+                                    counterproof_nack_tx,
+                                })
+                            }),
+                    );
+
+                    duties
                 } else {
-                    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2677>
-                    // Implement the `GraphEvent::CounterProofConfirmed` match arm in
-                    // `GraphSM::process_event`; this emits `PublishCounterProofNack`.
-                    Vec::new()
+                    // PoV operator is NOT the graph owner: retry counterproof when an
+                    // invalid bridge proof exists and PoV operator's counterproof has not
+                    // appeared on chain yet.
+                    if let Some(proof) = refuted_proof
+                        && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof)
+                        && !counterproofs_and_confs.contains_key(&pov_idx)
+                    {
+                        vec![self.generate_counterproof_duty(&cfg, graph_data, signatures, proof)?]
+                    } else {
+                        Vec::new()
+                    }
                 }
             }
             _ => Vec::new(),
