@@ -1,6 +1,7 @@
 use std::num::NonZero;
 
 use bitcoin::Transaction;
+use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use musig2::secp256k1::schnorr::Signature;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
@@ -8,7 +9,7 @@ use strata_bridge_connectors::{
     Connector,
     prelude::{ContestCounterproofWitness, ContestProofConnector},
 };
-use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
+use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, OperatorIdx};
 use strata_bridge_tx_graph::transactions::{
     bridge_proof::{BridgeProofData, BridgeProofTx},
     counterproof::CounterproofTx,
@@ -60,15 +61,27 @@ pub(super) async fn publish_contest(
 pub(super) async fn generate_and_publish_bridge_proof(
     output_handles: &OutputHandles,
     operator_index: OperatorIdx,
+    last_block_height: BitcoinBlockHeight,
     contest_txid: bitcoin::Txid,
     game_index: NonZero<u32>,
     contest_proof_connector: ContestProofConnector,
 ) -> Result<(), ExecutorError> {
     info!(
         %operator_index,
+        %last_block_height,
         %contest_txid,
         %game_index,
         "generating and publishing bridge proof transaction"
+    );
+
+    let recent_block_hash = output_handles
+        .bitcoind_rpc_client
+        .get_block_hash(last_block_height)
+        .await?;
+    info!(
+        %last_block_height,
+        %recent_block_hash,
+        "resolved last-seen block hash for bridge proof anchor"
     );
 
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-1977>
