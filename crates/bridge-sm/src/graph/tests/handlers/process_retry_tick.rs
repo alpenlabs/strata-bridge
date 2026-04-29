@@ -1,8 +1,12 @@
 //! Unit tests for process_retry_tick.
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeMap, sync::Arc};
+
+    use strata_bridge_primitives::types::OperatorIdx;
     use strata_bridge_test_utils::bitcoin::generate_txid;
-    use strata_bridge_tx_graph::game_graph::GameConnectors;
+    use strata_bridge_tx_graph::{game_graph::GameConnectors, musig_functor::GameFunctor};
+    use strata_predicate::PredicateKey;
 
     use crate::graph::{
         duties::GraphDuty,
@@ -11,16 +15,18 @@ mod tests {
         state::GraphState,
         tests::{
             FULFILLMENT_BLOCK_HEIGHT, GraphHandlerOutput, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
-            TEST_ASSIGNEE, TEST_POV_IDX, create_nonpov_sm, create_sm,
+            TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX, create_nonpov_sm, create_sm,
+            dummy_proof_receipt, mock_game_signatures,
             mock_states::{
-                assigned_state, claimed_state, contested_state,
-                counter_proof_posted_state, counter_proof_posted_without_refuted_proof_state,
-                graph_signed_state, terminal_states, test_graph_generated_state,
-                test_nonce_context,
+                assigned_state, bridge_proof_posted_state, bridge_proof_posted_state_with,
+                claimed_state, contested_state, counter_proof_posted_state,
+                counter_proof_posted_without_refuted_proof_state, graph_signed_state,
+                terminal_states, test_graph_generated_state, test_nonce_context,
             },
             test_deposit_params, test_graph_sm_cfg, test_graph_summary,
             test_nonpov_owned_handler_output, test_pov_owned_handler_output, test_recipient_desc,
         },
+        watchtower::watchtower_slot_for_operator,
     };
 
     fn expected_pov_counterproof_idx(sm: &GraphSM) -> usize {
@@ -310,6 +316,92 @@ mod tests {
         );
     }
 
+    // ===== BridgeProofPosted retry tick tests =====
+
+    #[test]
+    fn test_retry_tick_emits_counterproof_in_bridge_proof_posted_for_nonpov_graph_with_invalid_proof()
+     {
+        let mut cfg = (*test_graph_sm_cfg()).clone();
+        cfg.bridge_proof_predicate = PredicateKey::never_accept();
+        let cfg = Arc::new(cfg);
+
+        let sm = create_nonpov_sm(bridge_proof_posted_state());
+        let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let state = bridge_proof_posted_state_with(LATER_BLOCK_HEIGHT, signatures);
+
+        let expected_duty = {
+            let GraphState::BridgeProofPosted {
+                graph_data,
+                signatures,
+                proof,
+                ..
+            } = &state
+            else {
+                panic!("expected BridgeProofPosted state");
+            };
+
+            let game_graph = generate_game_graph(&cfg, sm.context(), graph_data);
+            let watchtower_idx = watchtower_slot_for_operator(
+                sm.context().operator_idx(),
+                sm.context().operator_table().pov_idx(),
+            )
+            .expect("watchtower slot must exist");
+
+            let counterproof_graph = &game_graph.counterproofs[watchtower_idx];
+            let n_of_n_signature =
+                GameFunctor::unpack(signatures.clone(), sm.context().watchtower_pubkeys().len())
+                    .expect("unpack failed")
+                    .watchtowers[watchtower_idx]
+                    .counterproof[0];
+
+            GraphDuty::GenerateAndPublishCounterProof {
+                graph_idx: sm.context().graph_idx(),
+                counterproof_tx: counterproof_graph.counterproof.clone(),
+                watchtower_idx: watchtower_idx as OperatorIdx,
+                n_of_n_signature,
+                proof: proof.clone(),
+            }
+        };
+
+        test_nonpov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![expected_duty],
+            },
+        );
+    }
+
+    #[test]
+    fn test_retry_tick_noop_in_bridge_proof_posted_for_pov_graph() {
+        let mut cfg = (*test_graph_sm_cfg()).clone();
+        cfg.bridge_proof_predicate = PredicateKey::never_accept();
+
+        test_pov_owned_handler_output(
+            Arc::new(cfg),
+            GraphHandlerOutput {
+                state: bridge_proof_posted_state(),
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn test_retry_tick_noop_in_bridge_proof_posted_when_proof_valid() {
+        // Default cfg uses always_accept predicate, so proof is valid
+        test_nonpov_owned_handler_output(
+            test_graph_sm_cfg(),
+            GraphHandlerOutput {
+                state: bridge_proof_posted_state(),
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![],
+            },
+        );
+    }
+
     // ===== CounterProofPosted retry tick tests =====
 
     #[test]
@@ -370,6 +462,193 @@ mod tests {
             test_graph_sm_cfg(),
             GraphHandlerOutput {
                 state: counter_proof_posted_without_refuted_proof_state(),
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn test_retry_tick_emits_counterproof_in_counter_proof_posted_for_nonpov_graph_with_invalid_refuted_proof()
+     {
+        const OTHER_COUNTERPROVER_IDX: OperatorIdx = 2;
+
+        let mut cfg = (*test_graph_sm_cfg()).clone();
+        cfg.bridge_proof_predicate = PredicateKey::never_accept();
+        let cfg = Arc::new(cfg);
+
+        let sm = create_nonpov_sm(counter_proof_posted_state());
+        let graph_data = test_deposit_params();
+        let game_graph = generate_game_graph(&cfg, sm.context(), &graph_data);
+        let graph_summary = game_graph.summarize();
+        let signatures = mock_game_signatures(&game_graph);
+
+        let other_watchtower_idx =
+            watchtower_slot_for_operator(sm.context().operator_idx(), OTHER_COUNTERPROVER_IDX)
+                .expect("other counterprover should have a watchtower slot");
+        let other_counterproof_txid =
+            graph_summary.counterproofs[other_watchtower_idx].counterproof;
+        let state = GraphState::CounterProofPosted {
+            last_block_height: LATER_BLOCK_HEIGHT,
+            graph_data,
+            graph_summary,
+            signatures: signatures.clone(),
+            fulfillment_txid: Some(generate_txid()),
+            contest_block_height: LATER_BLOCK_HEIGHT,
+            refuted_proof: Some(dummy_proof_receipt()),
+            counterproofs_and_confs: BTreeMap::from([(
+                OTHER_COUNTERPROVER_IDX,
+                (other_counterproof_txid, LATER_BLOCK_HEIGHT),
+            )]),
+            counterproof_nacks: BTreeMap::new(),
+        };
+
+        assert!(
+            !matches!(
+                &state,
+                GraphState::CounterProofPosted {
+                    counterproofs_and_confs,
+                    ..
+                } if counterproofs_and_confs.contains_key(&TEST_NONPOV_IDX)
+            ),
+            "local counterproof should be missing from confirmed counterproofs"
+        );
+
+        let expected_duty = {
+            let GraphState::CounterProofPosted {
+                graph_data,
+                signatures,
+                refuted_proof: Some(proof),
+                ..
+            } = &state
+            else {
+                panic!("expected CounterProofPosted state with refuted proof");
+            };
+
+            let game_graph = generate_game_graph(&cfg, sm.context(), graph_data);
+            let watchtower_idx = watchtower_slot_for_operator(
+                sm.context().operator_idx(),
+                sm.context().operator_table().pov_idx(),
+            )
+            .expect("watchtower slot must exist");
+
+            let counterproof_graph = &game_graph.counterproofs[watchtower_idx];
+            let n_of_n_signature =
+                GameFunctor::unpack(signatures.clone(), sm.context().watchtower_pubkeys().len())
+                    .expect("unpack failed")
+                    .watchtowers[watchtower_idx]
+                    .counterproof[0];
+
+            GraphDuty::GenerateAndPublishCounterProof {
+                graph_idx: sm.context().graph_idx(),
+                counterproof_tx: counterproof_graph.counterproof.clone(),
+                watchtower_idx: watchtower_idx as OperatorIdx,
+                n_of_n_signature,
+                proof: proof.clone(),
+            }
+        };
+
+        test_nonpov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![expected_duty],
+            },
+        );
+    }
+
+    #[test]
+    fn test_retry_tick_noop_in_counter_proof_posted_for_nonpov_graph_when_local_counterproof_confirmed()
+     {
+        let mut cfg = (*test_graph_sm_cfg()).clone();
+        cfg.bridge_proof_predicate = PredicateKey::never_accept();
+        let cfg = Arc::new(cfg);
+
+        let sm = create_nonpov_sm(counter_proof_posted_state());
+        let graph_data = test_deposit_params();
+        let game_graph = generate_game_graph(&cfg, sm.context(), &graph_data);
+        let graph_summary = game_graph.summarize();
+        let signatures = mock_game_signatures(&game_graph);
+
+        let local_watchtower_idx = watchtower_slot_for_operator(
+            sm.context().operator_idx(),
+            sm.context().operator_table().pov_idx(),
+        )
+        .expect("local counterprover should have a watchtower slot");
+        let local_counterproof_txid =
+            graph_summary.counterproofs[local_watchtower_idx].counterproof;
+
+        test_nonpov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state: GraphState::CounterProofPosted {
+                    last_block_height: LATER_BLOCK_HEIGHT,
+                    graph_data,
+                    graph_summary,
+                    signatures,
+                    fulfillment_txid: Some(generate_txid()),
+                    contest_block_height: LATER_BLOCK_HEIGHT,
+                    refuted_proof: Some(dummy_proof_receipt()),
+                    counterproofs_and_confs: BTreeMap::from([(
+                        TEST_NONPOV_IDX,
+                        (local_counterproof_txid, LATER_BLOCK_HEIGHT),
+                    )]),
+                    counterproof_nacks: BTreeMap::new(),
+                },
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn test_retry_tick_noop_in_counter_proof_posted_for_nonpov_graph_when_proof_valid() {
+        test_nonpov_owned_handler_output(
+            test_graph_sm_cfg(),
+            GraphHandlerOutput {
+                state: counter_proof_posted_state(),
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn test_retry_tick_noop_in_counter_proof_posted_for_nonpov_graph_when_proof_valid_and_local_counterproof_confirmed()
+     {
+        let cfg = test_graph_sm_cfg();
+        let sm = create_nonpov_sm(counter_proof_posted_state());
+        let graph_data = test_deposit_params();
+        let game_graph = generate_game_graph(&cfg, sm.context(), &graph_data);
+        let graph_summary = game_graph.summarize();
+        let signatures = mock_game_signatures(&game_graph);
+
+        let local_watchtower_idx = watchtower_slot_for_operator(
+            sm.context().operator_idx(),
+            sm.context().operator_table().pov_idx(),
+        )
+        .expect("local counterprover should have a watchtower slot");
+        let local_counterproof_txid =
+            graph_summary.counterproofs[local_watchtower_idx].counterproof;
+
+        test_nonpov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state: GraphState::CounterProofPosted {
+                    last_block_height: LATER_BLOCK_HEIGHT,
+                    graph_data,
+                    graph_summary,
+                    signatures,
+                    fulfillment_txid: Some(generate_txid()),
+                    contest_block_height: LATER_BLOCK_HEIGHT,
+                    refuted_proof: Some(dummy_proof_receipt()),
+                    counterproofs_and_confs: BTreeMap::from([(
+                        TEST_NONPOV_IDX,
+                        (local_counterproof_txid, LATER_BLOCK_HEIGHT),
+                    )]),
+                    counterproof_nacks: BTreeMap::new(),
+                },
                 event: GraphEvent::RetryTick(RetryTickEvent),
                 expected_duties: vec![],
             },
