@@ -202,6 +202,9 @@ pub enum GraphDuty {
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
 
+        /// The index of the graph owner operator.
+        operator_index: OperatorIdx,
+
         /// The ID of the contest transaction to spend from.
         contest_txid: Txid,
 
