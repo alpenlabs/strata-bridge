@@ -1,5 +1,9 @@
 import flexitest
 
+from constants import (
+    CONTEST_WATCHTOWER_0_VOUT,
+    COUNTERPROOF_ACK_NACK_VOUT,
+)
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
@@ -10,9 +14,11 @@ from utils.deposit import (
     wait_until_deposit_status,
     wait_until_deposit_utxo_spent,
     wait_until_drt_recognized,
+    wait_until_utxo_spent,
 )
 from utils.dev_cli import DevCli
 from utils.utils import (
+    find_utxo_spender_txid,
     read_operator_key,
     wait_for_tx_confirmation,
     wait_until,
@@ -159,10 +165,28 @@ class CounterproofNackPublishedOnInvalidCounterproofTest(StrataTestBase):
         wait_until_counter_proof_posted(pov_rpc, active_claim.deposit_idx)
         self.logger.info("Counterproof posted — watchtowers rejected the invalid bridge proof")
 
-        # The POV operator runs evaluate_and_sign via mosaic and publishes a NACK for each
-        # watchtower's counterproof. Wait for the deposit UTXO to be spent — this fires once the
-        # full contested-payout path (including the NACKs) completes and the operator sweeps the
-        # deposit.
+        # Each watchtower spends one of contest's watchtower outputs with its counterproof.
+        # The POV operator then publishes a NACK that spends each counterproof's ack/nack output.
+        # Verify every watchtower's counterproof had its ack/nack output spent before asserting
+        # the deposit was swept.
+        num_watchtowers = num_operators - 1
+        for slot in range(num_watchtowers):
+            watchtower_vout = CONTEST_WATCHTOWER_0_VOUT + slot
+            wait_until_utxo_spent(bitcoin_rpc, contest_txid, watchtower_vout, timeout=300)
+            counterproof_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, watchtower_vout)
+            self.logger.info(f"Watchtower slot {slot} counterproof tx: {counterproof_txid}")
+            wait_until_utxo_spent(
+                bitcoin_rpc,
+                counterproof_txid,
+                COUNTERPROOF_ACK_NACK_VOUT,
+                timeout=300,
+            )
+            self.logger.info(
+                f"Counterproof {counterproof_txid} ack/nack output spent (NACK published)"
+            )
+
+        # Wait for the deposit UTXO to be spent — this fires once the full contested-payout path
+        # (including the NACKs) completes and the operator sweeps the deposit.
         wait_until_deposit_utxo_spent(bitcoin_rpc, deposit_txid, timeout=450)
         self.logger.info("Deposit UTXO confirmed spent after counterproof NACK + contested payout")
 
