@@ -356,7 +356,7 @@ impl GraphSM {
                 // ACK/NACK output and is not a known counterproof ACK.
                 if !validate_counterproof_nack(
                     &graph_summary,
-                    self.context().operator_table().pov_idx(),
+                    self.context().operator_idx(),
                     event.counterprover_idx,
                     &event.tx,
                 ) {

@@ -119,6 +119,11 @@ class CounterproofAckTest(StrataTestBase):
         proof_spender_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, CONTEST_PROOF_VOUT)
         self.logger.info(f"Contest-proof connector spent by tx: {proof_spender_txid}")
 
+        # Stop the graph owner so it cannot publish a counterproof NACK; without a NACK before
+        # `nack_timelock` matures, the counterprover's auto-published ACK wins the race.
+        bridge_nodes[graph_owner_idx].stop()
+        self.logger.info(f"Stopped op-{graph_owner_idx} so no counterproof NACK is published")
+
         # Wait for the contest payout output to be spent. The ACK candidate is the spender.
         wait_until_utxo_spent(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT, timeout=600)
         ack_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT)
