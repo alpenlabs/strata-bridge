@@ -22,7 +22,7 @@ use crate::{
     prelude::{
         KeyedAnchor, KeyedAnchorSpend, MultiAnchor, MultiAnchorSpendPath, MultiAnchorWitness,
     },
-    Connector, ParentTx,
+    Connector, ParentTx, ParentTxCombined,
 };
 
 #[cfg(test)]
@@ -373,14 +373,15 @@ impl BitcoinNode {
     /// using a CPFP connector that the wallet controls.
     ///
     /// The `total_fee` covers both the parent and the child.
-    pub fn create_wallet_cpfp_child<T: ParentTx>(
+    pub fn create_wallet_cpfp_child<T: ParentTxCombined>(
         &mut self,
         parent: &T,
+        index: T::Index,
         total_fee: Amount,
     ) -> Transaction {
-        let input = create_tx_ins([parent.cpfp_outpoint(), self.next_coinbase_outpoint()]);
+        let input = create_tx_ins([parent.cpfp_outpoint(index), self.next_coinbase_outpoint()]);
         let output = vec![TxOut {
-            value: self.coinbase_amount() + parent.cpfp_tx_out().value - total_fee,
+            value: self.coinbase_amount() + parent.cpfp_tx_out(index).value - total_fee,
             script_pubkey: self.wallet_address().script_pubkey(),
         }];
         let child_tx = Transaction {
@@ -389,7 +390,7 @@ impl BitcoinNode {
             input,
             output,
         };
-        self.sign_with_prevouts(&child_tx, &[parent.cpfp_tx_out()])
+        self.sign_with_prevouts(&child_tx, &[parent.cpfp_tx_out(index)])
     }
 
     /// Returns a signed transaction that pays fees for the given `parent` via CPFP,

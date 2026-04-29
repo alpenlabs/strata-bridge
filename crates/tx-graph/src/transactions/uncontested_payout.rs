@@ -13,7 +13,7 @@ use strata_bridge_connectors::{
         ClaimContestConnector, ClaimContestSpendPath, ClaimContestWitness, ClaimPayoutConnector,
         ClaimPayoutSpendPath, ClaimPayoutWitness, NOfNConnector, NOfNSpend,
     },
-    Connector, ParentTx, SigningInfo,
+    Connector, ParentTxCombined, SigningInfo,
 };
 
 use crate::transactions::{prelude::ClaimTx, PresignedTx};
@@ -140,23 +140,18 @@ impl UncontestedPayoutTx {
     }
 }
 
-impl ParentTx for UncontestedPayoutTx {
-    // NOTE: (@uncomputable) This is unused for now, so we return unit.
-    type CpfpConnector = ();
+impl ParentTxCombined for UncontestedPayoutTx {
+    type Index = ();
 
-    fn cpfp_tx_out(&self) -> TxOut {
+    fn cpfp_tx_out(&self, _index: Self::Index) -> TxOut {
         self.psbt.unsigned_tx.output[0].clone()
     }
 
-    fn cpfp_outpoint(&self) -> OutPoint {
+    fn cpfp_outpoint(&self, _index: Self::Index) -> OutPoint {
         OutPoint {
             txid: self.psbt.unsigned_tx.compute_txid(),
             vout: Self::CPFP_VOUT,
         }
-    }
-
-    fn cpfp_connector(&self) -> &Self::CpfpConnector {
-        &()
     }
 }
 

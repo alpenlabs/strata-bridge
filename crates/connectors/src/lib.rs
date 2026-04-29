@@ -360,7 +360,9 @@ impl SigningInfo {
 // NOTE: (@uncomputable) The trait lives here because crate::test_utils uses it.
 // If the trait lived in tx-graph, then there would be a cyclic dependency between
 // connectors and tx-graph.
-/// Bitcoin transaction that is the parent in a CPFP fee-bumping scheme.
+/// Bitcoin transaction that has a separate, dedicated CPFP output.
+///
+/// The value of the CPFP output is zero, dust or very low.
 pub trait ParentTx {
     /// CPFP connector.
     type CpfpConnector;
@@ -373,4 +375,20 @@ pub trait ParentTx {
 
     /// Returns the connector that is spent by the CPFP child.
     fn cpfp_connector(&self) -> &Self::CpfpConnector;
+}
+
+/// Bitcoin transaction that doesn't have a separate CPFP output,
+/// but rather it reuses an existing output for CPFP.
+///
+/// The transaction may have multiple of these outputs.
+/// Usually these outputs holds funds of a given party.
+pub trait ParentTxCombined {
+    /// Index of the CPFP output.
+    type Index: Copy;
+
+    /// Returns the CPFP output at the given index.
+    fn cpfp_tx_out(&self, index: Self::Index) -> TxOut;
+
+    /// Returns the CPFP outpoint at the given index.
+    fn cpfp_outpoint(&self, index: Self::Index) -> OutPoint;
 }

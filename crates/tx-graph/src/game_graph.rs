@@ -842,7 +842,7 @@ mod tests {
         // │              Uncontested Payout (test terminates here)            │
         // └───────────────────────────────────────────────────────────────────┘
         if let Scenario::Uncontested = scenario {
-            let child = node.create_wallet_cpfp_child(&game.uncontested_payout, FEE * 2);
+            let child = node.create_wallet_cpfp_child(&game.uncontested_payout, (), FEE * 2);
             assert_eq!(child.version, Version(3));
             let uncontested_payout = game
                 .uncontested_payout
@@ -1123,7 +1123,7 @@ mod tests {
         // └───────────────────────────────────────────────────────────────────┘
         node.mine_blocks(usize::from(ACK_TIMELOCK.value()) - since_contest - 1);
 
-        let child = node.create_wallet_cpfp_child(&game.contested_payout, FEE * 2);
+        let child = node.create_wallet_cpfp_child(&game.contested_payout, (), FEE * 2);
         assert_eq!(child.version, Version(3));
         let contested_payout = game.contested_payout.finalize(presigned.contested_payout);
         assert_eq!(contested_payout.version, Version(3));
