@@ -8189,6 +8189,7 @@ dependencies = [
  "corepc-node",
  "foundationdb",
  "futures",
+ "jsonrpsee",
  "musig2",
  "operator-wallet",
  "secret-service-client",

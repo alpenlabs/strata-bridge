@@ -4,6 +4,7 @@ use std::{fmt, sync::Arc};
 
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
+use jsonrpsee::http_client::HttpClient;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::fdb::client::FdbClient;
@@ -30,6 +31,12 @@ pub struct OutputHandles {
 
     /// Handle for accessing the Bitcoin client RPC.
     pub bitcoind_rpc_client: BitcoinClient,
+
+    /// Handle for accessing the ASM (Anchor State Machine) RPC.
+    ///
+    /// Cheap to clone (internally `Arc`-shared). Consumers bring
+    /// [`strata_asm_rpc::traits::AsmProofApiClient`] into scope to call proof RPCs.
+    pub asm_rpc_client: HttpClient,
 
     /// Handle for accessing the secret service.
     pub s2_client: SecretServiceClient,
@@ -58,6 +65,7 @@ impl fmt::Debug for OutputHandles {
             .field("db", &self.db)
             .field("msg_handler", &self.msg_handler)
             .field("bitcoind_rpc_client", &self.bitcoind_rpc_client)
+            .field("asm_rpc_client", &"<HttpClient>")
             .field("s2_client", &self.s2_client)
             .field("tx_driver", &self.tx_driver)
             .field("mosaic_client", &"<dyn MosaicClientApi>")

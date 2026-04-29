@@ -6,6 +6,7 @@ use anyhow::anyhow;
 use bitcoin::{FeeRate, relative};
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
+use jsonrpsee::http_client::HttpClient;
 use libp2p_identity::ed25519::Keypair;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
@@ -49,6 +50,7 @@ pub(crate) async fn init_orchestrator<M>(
     p2p_keypair: Keypair,
     wallet: OperatorWallet,
     btc_rpc_client: BitcoinClient,
+    asm_rpc_client: HttpClient,
     fdb_client: Arc<FdbClient>,
     executor: &TaskExecutor,
 ) -> anyhow::Result<()>
@@ -82,7 +84,7 @@ where
 
     debug!("initializing asm assignments feed");
     let asm_block_feed = zmq_client.subscribe_blocks().await;
-    let asm_feed = AsmEventFeed::new(config.asm_rpc.clone());
+    let asm_feed = AsmEventFeed::new(asm_rpc_client.clone(), config.asm_rpc.clone());
     let asm_feed = asm_feed.attach_block_stream(asm_block_feed);
     let assignments_sub = asm_feed.subscribe_assignments_state().await;
     info!("asm assignments feed initialized and subscribed to assignment events");
@@ -115,6 +117,7 @@ where
         msg_handler: RwLock::new(message_handler),
         db: fdb_client.clone(),
         bitcoind_rpc_client: btc_rpc_client,
+        asm_rpc_client,
         s2_client: s2_client.clone(),
         tx_driver,
         mosaic_client,
