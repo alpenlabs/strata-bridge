@@ -1,6 +1,12 @@
 use std::sync::Arc;
 
-use strata_bridge_tx_graph::game_graph::GameConnectors;
+use musig2::secp256k1::schnorr::Signature;
+use strata_bridge_primitives::{proof::verify_bridge_proof, types::OperatorIdx};
+use strata_bridge_tx_graph::{
+    game_graph::{DepositParams, GameConnectors},
+    musig_functor::GameFunctor,
+};
+use zkaleido::ProofReceipt;
 
 use crate::graph::{
     config::GraphSMCfg,
@@ -108,11 +114,28 @@ impl GraphSM {
                     contest_proof_connector: connectors.contest_proof,
                 }]
             }
-            GraphState::BridgeProofPosted { .. } => {
-                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2676>
-                // Implement the `GraphEvent::BridgeProofConfirmed` match arm in
-                // `GraphSM::process_event`; this emits `PublishCounterProof`.
-                Vec::new()
+            GraphState::BridgeProofPosted {
+                graph_data,
+                signatures,
+                proof,
+                ..
+            } if self.context().operator_idx() != self.context().operator_table().pov_idx()
+                && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof) =>
+            {
+                vec![self.generate_counterproof_duty(&cfg, graph_data, signatures, proof)?]
+            }
+            GraphState::CounterProofPosted {
+                graph_data,
+                signatures,
+                refuted_proof: Some(proof),
+                counterproofs_and_confs,
+                ..
+            } if self.context().operator_idx() != self.context().operator_table().pov_idx()
+                && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof)
+                && !counterproofs_and_confs
+                    .contains_key(&self.context().operator_table().pov_idx()) =>
+            {
+                vec![self.generate_counterproof_duty(&cfg, graph_data, signatures, proof)?]
             }
             GraphState::CounterProofPosted {
                 graph_data,
@@ -147,5 +170,47 @@ impl GraphSM {
         };
 
         Ok(GSMOutput::with_duties(duties))
+    }
+
+    fn generate_counterproof_duty(
+        &self,
+        cfg: &GraphSMCfg,
+        graph_data: &DepositParams,
+        signatures: &[Signature],
+        proof: &ProofReceipt,
+    ) -> GSMResult<GraphDuty> {
+        let game_graph = generate_game_graph(cfg, self.context(), graph_data);
+        let watchtower_idx = watchtower_slot_for_operator(
+            self.context().operator_idx(),
+            self.context().operator_table().pov_idx(),
+        )
+        .expect("watchtower slot must exist for non-pov operator");
+
+        let counterproof_graph = game_graph
+            .counterproofs
+            .get(watchtower_idx)
+            .ok_or_else(|| {
+                GSMError::rejected(
+                    self.state().clone(),
+                    RetryTickEvent.into(),
+                    format!("missing counterproof graph for watchtower {watchtower_idx}"),
+                )
+            })?;
+
+        let n_of_n_signature = GameFunctor::unpack(
+            signatures.to_vec(),
+            self.context().watchtower_pubkeys().len(),
+        )
+        .expect("failed to unpack graph signatures for counterproof N/N signature")
+        .watchtowers[watchtower_idx]
+            .counterproof[0];
+
+        Ok(GraphDuty::GenerateAndPublishCounterProof {
+            graph_idx: self.context().graph_idx(),
+            counterproof_tx: counterproof_graph.counterproof.clone(),
+            watchtower_idx: watchtower_idx as OperatorIdx,
+            n_of_n_signature,
+            proof: proof.clone(),
+        })
     }
 }
