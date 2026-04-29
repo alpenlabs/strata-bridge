@@ -966,7 +966,8 @@ mod tests {
             // └───────────────────────────────────────────────────────────────┘
             node.mine_blocks(usize::from(CONTESTED_PAYOUT_TIMELOCK.value()) - since_contest - 1);
 
-            let child = node.create_p2a_cpfp_child(&game.slash, FEE * 2);
+            let child =
+                node.create_wallet_cpfp_child(&game.slash, CONTESTING_WATCHTOWER_IDX, FEE * 2);
             assert_eq!(child.version, Version(3));
             let slash = game.slash.finalize(presigned.slash);
             assert_eq!(slash.version, Version(3));
@@ -1106,7 +1107,8 @@ mod tests {
             // └───────────────────────────────────────────────────────────────┘
             node.mine_blocks(usize::from(CONTESTED_PAYOUT_TIMELOCK.value()) - since_contest - 1);
 
-            let child = node.create_p2a_cpfp_child(&game.slash, FEE * 2);
+            let child =
+                node.create_wallet_cpfp_child(&game.slash, CONTESTING_WATCHTOWER_IDX, FEE * 2);
             assert_eq!(child.version, Version(3));
             let slash = game.slash.finalize(presigned.slash);
             assert_eq!(slash.version, Version(3));
