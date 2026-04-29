@@ -4,14 +4,14 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
+    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use secp256k1::schnorr;
 use strata_bridge_connectors::{
     prelude::{
         ClaimContestConnector, ClaimContestSpendPath, ClaimContestWitness,
         ContestCounterproofOutput, ContestPayoutConnector, ContestProofConnector,
-        ContestSlashConnector, P2AConnector,
+        ContestSlashConnector, MultiAnchor,
     },
     Connector, ParentTx, SigningInfo,
 };
@@ -34,7 +34,7 @@ pub struct ContestTx {
     proof_connector: ContestProofConnector,
     payout_connector: ContestPayoutConnector,
     slash_connector: ContestSlashConnector,
-    cpfp_connector: P2AConnector,
+    cpfp_connector: MultiAnchor,
 }
 
 impl ContestTx {
@@ -60,6 +60,7 @@ impl ContestTx {
         payout_connector: ContestPayoutConnector,
         slash_connector: ContestSlashConnector,
         counterproof_outputs: Vec<ContestCounterproofOutput>,
+        watchtower_pubkeys: Vec<XOnlyPublicKey>,
     ) -> Self {
         debug_assert!(claim_contest_connector.network() == proof_connector.network());
         debug_assert!(claim_contest_connector.network() == payout_connector.network());
@@ -75,7 +76,11 @@ impl ContestTx {
                 .all(|o| o.network() == claim_contest_connector.network()),
             "counterproof output network mismatch"
         );
-        let cpfp_connector = P2AConnector::new(claim_contest_connector.network(), Amount::ZERO);
+        let cpfp_connector = MultiAnchor::new(
+            claim_contest_connector.network(),
+            watchtower_pubkeys,
+            Amount::ZERO,
+        );
 
         let prevouts = [claim_contest_connector.tx_out()];
         let input = vec![TxIn {
@@ -182,7 +187,7 @@ impl ContestTx {
 }
 
 impl ParentTx for ContestTx {
-    type CpfpConnector = P2AConnector;
+    type CpfpConnector = MultiAnchor;
 
     fn cpfp_tx_out(&self) -> TxOut {
         self.cpfp_connector.tx_out()
