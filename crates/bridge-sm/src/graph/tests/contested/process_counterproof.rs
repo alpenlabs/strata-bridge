@@ -69,7 +69,7 @@ fn expected_nack_duty(counterprover_idx: u32) -> GraphDuty {
 
     GraphDuty::PublishCounterProofNack {
         deposit_idx: ctx.deposit_idx(),
-        counter_prover_idx: counterprover_idx,
+        counterprover_idx,
         counterproof_tx: test_counterproof_tx(),
         counterproof_nack_tx,
     }

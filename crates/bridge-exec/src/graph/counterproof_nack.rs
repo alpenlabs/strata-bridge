@@ -22,11 +22,11 @@ use crate::{
 pub(super) async fn publish_counterproof_nack(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
-    counter_prover_idx: OperatorIdx,
+    counterprover_idx: OperatorIdx,
     counterproof_tx: Transaction,
     mut counterproof_nack_tx: CounterproofNackTx,
 ) -> Result<(), ExecutorError> {
-    info!(%deposit_idx, %counter_prover_idx, "preparing counterproof nack");
+    info!(%deposit_idx, %counterprover_idx, "preparing counterproof nack");
 
     let completed_signatures = decode_completed_sigs(&counterproof_tx)?;
 
@@ -46,7 +46,7 @@ pub(super) async fn publish_counterproof_nack(
 
     sign_and_broadcast_nack(
         output_handles,
-        counter_prover_idx,
+        counterprover_idx,
         deposit_idx,
         completed_signatures,
         counterproof_nack_tx,
@@ -57,7 +57,7 @@ pub(super) async fn publish_counterproof_nack(
 /// Asks mosaic for the connector signature, finalizes the tx, and broadcasts it.
 async fn sign_and_broadcast_nack(
     output_handles: &OutputHandles,
-    counter_prover_idx: OperatorIdx,
+    counterprover_idx: OperatorIdx,
     deposit_idx: DepositIdx,
     completed_signatures: CompletedSignatures,
     nack_tx: CounterproofNackTx,
@@ -75,11 +75,11 @@ async fn sign_and_broadcast_nack(
         }
     };
 
-    info!(%deposit_idx, %counter_prover_idx, "calling mosaic evaluate_and_sign");
+    info!(%deposit_idx, %counterprover_idx, "calling mosaic evaluate_and_sign");
     let wt_fault_signature = output_handles
         .mosaic_client
         .evaluate_and_sign(
-            counter_prover_idx,
+            counterprover_idx,
             deposit_idx,
             G16ProofRaw([0u8; N_WITHDRAWAL_INPUT_WIRES]),
             completed_signatures,
@@ -88,7 +88,7 @@ async fn sign_and_broadcast_nack(
         )
         .await
         .map_err(|e| {
-            warn!(%deposit_idx, %counter_prover_idx, ?e, "evaluate_and_sign failed");
+            warn!(%deposit_idx, %counterprover_idx, ?e, "evaluate_and_sign failed");
             ExecutorError::MosaicErr(format!("evaluate_and_sign: {e:?}"))
         })?
         .ok_or_else(|| {
@@ -99,7 +99,7 @@ async fn sign_and_broadcast_nack(
 
     let signed_tx = nack_tx.finalize_partial(wt_fault_signature);
 
-    info!(%deposit_idx, %counter_prover_idx, "publishing counterproof nack transaction");
+    info!(%deposit_idx, %counterprover_idx, "publishing counterproof nack transaction");
     publish_signed_transaction(
         &output_handles.tx_driver,
         &signed_tx,

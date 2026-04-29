@@ -246,7 +246,7 @@ pub enum GraphDuty {
         deposit_idx: DepositIdx,
 
         /// The index of the operator who submitted the counterproof.
-        counter_prover_idx: OperatorIdx,
+        counterprover_idx: OperatorIdx,
 
         /// The counterproof transaction being NACKed.
         counterproof_tx: Transaction,

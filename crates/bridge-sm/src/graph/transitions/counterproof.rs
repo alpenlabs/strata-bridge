@@ -180,7 +180,7 @@ impl GraphSM {
 
             vec![GraphDuty::PublishCounterProofNack {
                 deposit_idx: self.context().deposit_idx(),
-                counter_prover_idx: event.counterprover_idx,
+                counterprover_idx: event.counterprover_idx,
                 counterproof_tx: event.tx.clone(),
                 counterproof_nack_tx,
             }]
