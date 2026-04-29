@@ -57,6 +57,10 @@ pub enum ExecutorError {
     /// Error interacting with the mosaic service.
     #[error("mosaic error: {0}")]
     MosaicErr(String),
+
+    /// Error interacting with the ASM proof RPCs.
+    #[error("asm rpc error: {0}")]
+    AsmRpcErr(String),
 }
 
 impl From<OneOf<(FdbBindingError, LayerError)>> for ExecutorError {
