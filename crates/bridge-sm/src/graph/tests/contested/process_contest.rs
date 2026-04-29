@@ -61,6 +61,7 @@ fn test_contest_from_claimed_pov_emits_duty() {
             },
             expected_duties: vec![GraphDuty::GenerateAndPublishBridgeProof {
                 graph_idx: ctx.graph_idx(),
+                operator_index: ctx.operator_idx(),
                 contest_txid: TEST_GRAPH_SUMMARY.contest,
                 game_index: deposit_params.game_index,
                 contest_proof_connector: connectors.contest_proof,
