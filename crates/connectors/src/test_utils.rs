@@ -18,7 +18,6 @@ pub(crate) use signer::Signer;
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
 use crate::{
-    p2a::P2AConnector,
     prelude::{
         KeyedAnchor, KeyedAnchorSpend, MultiAnchor, MultiAnchorSpendPath, MultiAnchorWitness,
     },
@@ -344,29 +343,6 @@ impl BitcoinNode {
             dbg!(result);
             panic!("Expected package submission to fail, but it succeeded.");
         }
-    }
-
-    /// Returns a signed transaction that pays fees for the given `parent` via CPFP,
-    /// using P2A (which is equivalent to ANYONECANSPEND).
-    ///
-    /// The `total_fee` covers both the parent and the child.
-    pub fn create_p2a_cpfp_child<T: ParentTx<CpfpConnector = P2AConnector>>(
-        &mut self,
-        parent: &T,
-        total_fee: Amount,
-    ) -> Transaction {
-        let input = create_tx_ins([parent.cpfp_outpoint(), self.next_coinbase_outpoint()]);
-        let output = vec![TxOut {
-            value: self.coinbase_amount() + parent.cpfp_tx_out().value - total_fee,
-            script_pubkey: self.wallet_address().script_pubkey(),
-        }];
-        let child_tx = Transaction {
-            version: transaction::Version(3),
-            lock_time: absolute::LockTime::ZERO,
-            input,
-            output,
-        };
-        self.sign(&child_tx)
     }
 
     /// Returns a signed transaction that pays fees for the given `parent` via CPFP,
