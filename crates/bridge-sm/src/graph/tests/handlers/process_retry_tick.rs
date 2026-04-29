@@ -2,6 +2,7 @@
 #[cfg(test)]
 mod tests {
     use strata_bridge_test_utils::bitcoin::generate_txid;
+    use strata_bridge_tx_graph::game_graph::GameConnectors;
 
     use crate::graph::{
         duties::GraphDuty,
@@ -12,8 +13,10 @@ mod tests {
             FULFILLMENT_BLOCK_HEIGHT, GraphHandlerOutput, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
             TEST_ASSIGNEE, TEST_POV_IDX, create_nonpov_sm, create_sm,
             mock_states::{
-                assigned_state, claimed_state, contested_state, graph_signed_state,
-                terminal_states, test_graph_generated_state, test_nonce_context,
+                assigned_state, claimed_state, contested_state,
+                counter_proof_posted_state, counter_proof_posted_without_refuted_proof_state,
+                graph_signed_state, terminal_states, test_graph_generated_state,
+                test_nonce_context,
             },
             test_deposit_params, test_graph_sm_cfg, test_graph_summary,
             test_nonpov_owned_handler_output, test_pov_owned_handler_output, test_recipient_desc,
@@ -91,6 +94,49 @@ mod tests {
                 expected_duties: vec![GraphDuty::PublishClaim {
                     claim_tx: game_graph.claim,
                 }],
+            },
+        );
+    }
+
+    #[test]
+    fn test_retry_tick_emits_bridge_proof_in_contested_for_pov_graph() {
+        let cfg = test_graph_sm_cfg();
+        let state = contested_state();
+        let sm = create_sm(state.clone());
+        // This retry path only emits a bridge proof duty for the PoV-owned graph.
+        assert_eq!(
+            sm.context().operator_idx(),
+            sm.context().operator_table().pov_idx()
+        );
+
+        let expected_duty = {
+            let GraphState::Contested {
+                graph_data,
+                graph_summary,
+                ..
+            } = &state
+            else {
+                panic!("expected Contested state");
+            };
+
+            let setup_params = sm.context().generate_setup_params(&cfg, graph_data);
+            let connectors =
+                GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
+
+            GraphDuty::GenerateAndPublishBridgeProof {
+                graph_idx: sm.context().graph_idx(),
+                contest_txid: graph_summary.contest,
+                game_index: graph_data.game_index,
+                contest_proof_connector: connectors.contest_proof,
+            }
+        };
+
+        test_pov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![expected_duty],
             },
         );
     }
@@ -258,6 +304,72 @@ mod tests {
             test_graph_sm_cfg(),
             GraphHandlerOutput {
                 state: contested_state(),
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![],
+            },
+        );
+    }
+
+    // ===== CounterProofPosted retry tick tests =====
+
+    #[test]
+    fn test_retry_tick_emits_bridge_proof_in_counter_proof_posted_for_pov_graph_when_no_refuted_proof()
+    {
+        let cfg = test_graph_sm_cfg();
+        let state = counter_proof_posted_without_refuted_proof_state();
+        let sm = create_sm(state.clone());
+
+        let expected_duty = {
+            let GraphState::CounterProofPosted {
+                graph_data,
+                graph_summary,
+                ..
+            } = &state
+            else {
+                panic!("expected CounterProofPosted state");
+            };
+
+            let setup_params = sm.context().generate_setup_params(&cfg, graph_data);
+            let connectors =
+                GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
+
+            GraphDuty::GenerateAndPublishBridgeProof {
+                graph_idx: sm.context().graph_idx(),
+                contest_txid: graph_summary.contest,
+                game_index: graph_data.game_index,
+                contest_proof_connector: connectors.contest_proof,
+            }
+        };
+
+        test_pov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![expected_duty],
+            },
+        );
+    }
+
+    #[test]
+    fn test_retry_tick_noop_in_counter_proof_posted_for_pov_graph_when_refuted_proof_present() {
+        // Owner has already posted a bridge proof — retry should not re-emit one.
+        test_pov_owned_handler_output(
+            test_graph_sm_cfg(),
+            GraphHandlerOutput {
+                state: counter_proof_posted_state(),
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn test_retry_tick_noop_in_counter_proof_posted_for_nonpov_graph_when_no_refuted_proof() {
+        test_nonpov_owned_handler_output(
+            test_graph_sm_cfg(),
+            GraphHandlerOutput {
+                state: counter_proof_posted_without_refuted_proof_state(),
                 event: GraphEvent::RetryTick(RetryTickEvent),
                 expected_duties: vec![],
             },
