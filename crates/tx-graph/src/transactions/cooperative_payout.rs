@@ -10,8 +10,8 @@ use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::{
-    prelude::{NOfNConnector, NOfNSpend, P2AConnector},
-    Connector, ParentTx, SigningInfo,
+    prelude::{NOfNConnector, NOfNSpend},
+    Connector, ParentTxCombined, SigningInfo,
 };
 
 /// Data that is needed to construct a [`CooperativePayoutTx`].
@@ -34,15 +34,11 @@ pub struct CooperativePayoutTx {
     prevouts: [TxOut; Self::N_INPUTS],
     /// The connector for the deposit input.
     deposit_connector: NOfNConnector,
-    /// The CPFP connector for fee bumping.
-    cpfp_connector: P2AConnector,
 }
 
 impl CooperativePayoutTx {
     /// Index of the operator payout output.
     pub const PAYOUT_VOUT: u32 = 0;
-    /// Index of the CPFP anchor output.
-    pub const CPFP_VOUT: u32 = 1;
     /// Number of transaction inputs.
     pub const N_INPUTS: usize = 1;
 
@@ -62,22 +58,16 @@ impl CooperativePayoutTx {
         deposit_connector: NOfNConnector,
         operator_descriptor: Descriptor,
     ) -> Self {
-        let cpfp_connector = P2AConnector::new(deposit_connector.network(), bitcoin::Amount::ZERO);
-
         let prevouts = [deposit_connector.tx_out()];
         let input = vec![TxIn {
             previous_output: data.deposit_outpoint,
             sequence: deposit_connector.sequence(NOfNSpend),
             ..Default::default()
         }];
-
-        let output = vec![
-            TxOut {
-                value: deposit_connector.value(),
-                script_pubkey: operator_descriptor.to_script(),
-            },
-            cpfp_connector.tx_out(),
-        ];
+        let output = vec![TxOut {
+            value: deposit_connector.value(),
+            script_pubkey: operator_descriptor.to_script(),
+        }];
 
         let tx = Transaction {
             version: Version(3),
@@ -85,7 +75,6 @@ impl CooperativePayoutTx {
             input,
             output,
         };
-
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("witness should be empty");
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
@@ -96,7 +85,6 @@ impl CooperativePayoutTx {
             psbt,
             prevouts,
             deposit_connector,
-            cpfp_connector,
         }
     }
 
@@ -130,22 +118,18 @@ impl CooperativePayoutTx {
     }
 }
 
-impl ParentTx for CooperativePayoutTx {
-    type CpfpConnector = P2AConnector;
+impl ParentTxCombined for CooperativePayoutTx {
+    type Index = ();
 
-    fn cpfp_tx_out(&self) -> TxOut {
-        self.cpfp_connector.tx_out()
+    fn cpfp_tx_out(&self, _index: Self::Index) -> TxOut {
+        self.psbt.unsigned_tx.output[0].clone()
     }
 
-    fn cpfp_outpoint(&self) -> OutPoint {
+    fn cpfp_outpoint(&self, _index: Self::Index) -> OutPoint {
         OutPoint {
             txid: self.psbt.unsigned_tx.compute_txid(),
-            vout: Self::CPFP_VOUT,
+            vout: 0,
         }
-    }
-
-    fn cpfp_connector(&self) -> &Self::CpfpConnector {
-        &self.cpfp_connector
     }
 }
 
