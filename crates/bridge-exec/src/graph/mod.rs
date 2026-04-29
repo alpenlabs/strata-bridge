@@ -122,12 +122,14 @@ pub async fn execute_graph_duty(
         }
         GraphDuty::GenerateAndPublishBridgeProof {
             graph_idx: _,
+            operator_index,
             contest_txid,
             game_index,
             contest_proof_connector,
         } => {
             generate_and_publish_bridge_proof(
                 &output_handles,
+                *operator_index,
                 *contest_txid,
                 *game_index,
                 *contest_proof_connector,

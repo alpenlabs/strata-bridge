@@ -59,11 +59,13 @@ pub(super) async fn publish_contest(
 /// Generates a bridge proof transaction with mock proof data and publishes it.
 pub(super) async fn generate_and_publish_bridge_proof(
     output_handles: &OutputHandles,
+    operator_index: OperatorIdx,
     contest_txid: bitcoin::Txid,
     game_index: NonZero<u32>,
     contest_proof_connector: ContestProofConnector,
 ) -> Result<(), ExecutorError> {
     info!(
+        %operator_index,
         %contest_txid,
         %game_index,
         "generating and publishing bridge proof transaction"
@@ -95,6 +97,7 @@ pub(super) async fn generate_and_publish_bridge_proof(
         .await
         .map_err(|e| {
             warn!(
+                %operator_index,
                 %contest_txid,
                 %game_index,
                 ?e,
