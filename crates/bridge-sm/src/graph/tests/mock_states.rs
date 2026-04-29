@@ -347,7 +347,11 @@ pub(super) fn contested_payout_detecting_states() -> Vec<GraphState> {
 
 /// States that detect counterproof txids.
 pub(super) fn counterproof_detecting_states() -> Vec<GraphState> {
-    vec![contested_state(), bridge_proof_posted_state()]
+    vec![
+        contested_state(),
+        bridge_proof_posted_state(),
+        counter_proof_posted_state(),
+    ]
 }
 
 /// States that detect a payout connector spend (via admin or unstaking burn txs).
