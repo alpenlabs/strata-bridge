@@ -80,10 +80,14 @@ impl SlashTx {
         );
         // cast safety: size(usize) <= size(u64)
         let n_watchtowers = watchtower_descriptors.len() as u64;
-        let watchtower_stake = match stake_connector.value().checked_div(n_watchtowers) {
-            Some(x) => x,
-            None => panic!("The total stake must be divisible by the number of watchtowers. Total stake = {}, number of watchtowers = {}", stake_connector.value(), watchtower_descriptors.len()),
-        };
+        assert_eq!(
+            stake_connector.value() % n_watchtowers,
+            Amount::ZERO,
+            "The total stake must be divisible by the number of watchtowers. Total stake = {}, number of watchtowers = {}",
+            stake_connector.value(),
+            watchtower_descriptors.len()
+        );
+        let watchtower_stake = stake_connector.value() / n_watchtowers;
         let excess_input = contest_slash_connector.value();
         let first_extra = excess_input / n_watchtowers + excess_input % n_watchtowers;
         let other_extra = excess_input / n_watchtowers;
