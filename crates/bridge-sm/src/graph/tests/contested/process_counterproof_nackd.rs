@@ -226,6 +226,41 @@ fn event_rejected_wrong_outpoint() {
 }
 
 #[test]
+fn event_rejected_when_tx_is_counterproof_ack() {
+    let mut summary = test_graph_summary();
+    let slot = watchtower_slot_for_operator(TEST_POV_IDX, TEST_NONPOV_IDX)
+        .expect("non-pov idx must have a watchtower slot");
+    let ack_looking_as_nack = nack_tx_for_slot(slot);
+    summary.counterproofs[slot].counterproof_ack = ack_looking_as_nack.compute_txid();
+
+    let counterproof_txid = summary.counterproofs[0].counterproof;
+    let from_state = GraphState::CounterProofPosted {
+        last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        graph_summary: summary,
+        signatures: Default::default(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        contest_block_height: LATER_BLOCK_HEIGHT,
+        refuted_proof: None,
+        counterproofs_and_confs: BTreeMap::from([
+            (TEST_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
+            (SECOND_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
+        ]),
+        counterproof_nacks: BTreeMap::new(),
+    };
+
+    let event = CounterProofNackConfirmedEvent {
+        tx: ack_looking_as_nack,
+        counterprover_idx: TEST_NONPOV_IDX,
+    };
+    test_graph_invalid_transition(GraphInvalidTransition {
+        from_state,
+        event: GraphEvent::CounterProofNackConfirmed(event),
+        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+    });
+}
+
+#[test]
 fn event_invalid() {
     for from_state in all_state_variants()
         .into_iter()
