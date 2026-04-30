@@ -125,18 +125,22 @@ fn decode_completed_sigs(
     // that follow the per-byte operator signatures in the counterproof witness.
     const WANT: usize = N + 3;
 
-    let witness = &counterproof_tx.input[0].witness;
-    if witness.len() != WANT {
+    let witness_len = counterproof_tx.input[0].witness.len();
+    if witness_len != WANT {
         return Err(ExecutorError::InvalidTxStructure(format!(
-            "counterproof witness has {} elements, expected {WANT}",
-            witness.len(),
+            "counterproof witness has {witness_len} elements, expected {WANT}"
         )));
     }
 
-    let sigs: [Signature; N] = std::array::from_fn(|i| {
-        // operator_signatures were pushed `.rev()`, so undo that ordering.
-        Signature::from_slice(&witness[N - 1 - i])
-            .expect("on-chain counterproof signature must parse")
-    });
-    Ok(sigs)
+    // The witness layout is `[sig_{N-1}, .., sig_0, n-of-n sig, leaf script, control
+    // block]` — operator signatures pushed `.rev()`, then 3 trailing items. Reverse +
+    // skip(3) recovers `[sig_0, .., sig_{N-1}]`.
+    let mut items = counterproof_tx.input[0].witness.to_vec();
+    items.reverse();
+    let sigs: Vec<Signature> = items
+        .into_iter()
+        .skip(3)
+        .map(|w| Signature::from_slice(&w).expect("on-chain counterproof signature must parse"))
+        .collect();
+    Ok(sigs.try_into().expect("witness length validated above"))
 }
