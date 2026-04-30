@@ -22,6 +22,20 @@ fn retry_publish_stake() {
 }
 
 #[test]
+fn retry_nothing_for_foreign_stake() {
+    test_nonpov_handler_output(StakeHandlerOutput {
+        state: StakeState::UnstakingSigned {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
+            signatures: Box::new(*TEST_FINAL_SIGS),
+        },
+        event: RetryTickEvent.into(),
+        expected_duties: vec![],
+    });
+}
+
+#[test]
 fn retry_nothing() {
     let has_no_retriable_duty = [
         StakeState::Created {
