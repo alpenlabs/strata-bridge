@@ -52,7 +52,6 @@ class CounterproofNackPublishedOnInvalidCounterproofTest(StrataTestBase):
     def __init__(self, ctx: flexitest.InitContext):
         self.bridge_protocol_params = BridgeProtocolParams(
             contest_timelock=5,
-            ack_timelock=10,
             bridge_proof_predicate="NeverAccept",
         )
         ctx.set_env(
@@ -185,8 +184,9 @@ class CounterproofNackPublishedOnInvalidCounterproofTest(StrataTestBase):
                 f"Counterproof {counterproof_txid} ack/nack output spent (NACK published)"
             )
 
-        # Wait for the deposit UTXO to be spent — this fires once the full contested-payout path
-        # (including the NACKs) completes and the operator sweeps the deposit.
+        # The ack/nack vout we checked above could've been spent by either an ACK or a NACK,
+        # so seeing it spent isn't enough on its own. Waiting for the deposit to get swept is
+        # what tells us the NACK actually fired — only the contested-payout path gets there.
         wait_until_deposit_utxo_spent(bitcoin_rpc, deposit_txid, timeout=450)
         self.logger.info("Deposit UTXO confirmed spent after counterproof NACK + contested payout")
 
