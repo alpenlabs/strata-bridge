@@ -1,8 +1,12 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use bitcoin::Transaction;
 use strata_bridge_tx_graph::{
     game_graph::{DepositParams, GameConnectors, GameGraphSummary},
     transactions::prelude::{CounterproofNackData, CounterproofNackTx},
+};
+use strata_mosaic_client_api::types::{
+    CompletedSignatures, N_DEPOSIT_INPUT_WIRES, N_WITHDRAWAL_INPUT_WIRES, Signature,
 };
 
 use crate::graph::{
@@ -178,10 +182,12 @@ impl GraphSM {
             let nack_data = CounterproofNackData { counterproof_txid };
             let counterproof_nack_tx = CounterproofNackTx::new(nack_data, *counterproof_connector);
 
+            let completed_signatures = self.decode_completed_sigs(&event.tx, event)?;
+
             vec![GraphDuty::PublishCounterProofNack {
                 deposit_idx: self.context().deposit_idx(),
                 counterprover_idx: event.counterprover_idx,
-                counterproof_tx: event.tx.clone(),
+                completed_signatures,
                 counterproof_nack_tx,
             }]
         } else {
@@ -189,5 +195,39 @@ impl GraphSM {
         };
 
         Ok(duties)
+    }
+
+    /// Decodes the per-byte operator signatures from input[0] of an on-chain Counterproof tx.
+    ///
+    /// The witness layout is `[sig_{N-1}, .., sig_0, n-of-n sig, leaf script, control block]`
+    /// — operator signatures pushed `.rev()`, then 3 trailing items. Reverse + skip(3)
+    /// recovers `[sig_0, .., sig_{N-1}]`.
+    fn decode_completed_sigs(
+        &self,
+        counterproof_tx: &Transaction,
+        event: &CounterProofConfirmedEvent,
+    ) -> GSMResult<CompletedSignatures> {
+        const N: usize = N_DEPOSIT_INPUT_WIRES + N_WITHDRAWAL_INPUT_WIRES;
+        // `+ 3` accounts for the trailing n-of-n signature, leaf script, and control block
+        // that follow the per-byte operator signatures in the counterproof witness.
+        const WANT: usize = N + 3;
+
+        let witness_len = counterproof_tx.input[0].witness.len();
+        if witness_len != WANT {
+            return Err(GSMError::rejected(
+                self.state.clone(),
+                event.clone().into(),
+                format!("counterproof witness has {witness_len} elements, expected {WANT}"),
+            ));
+        }
+
+        let mut items = counterproof_tx.input[0].witness.to_vec();
+        items.reverse();
+        let sigs: Vec<Signature> = items
+            .into_iter()
+            .skip(3)
+            .map(|w| Signature::from_slice(&w).expect("on-chain counterproof signature must parse"))
+            .collect();
+        Ok(sigs.try_into().expect("witness length validated above"))
     }
 }

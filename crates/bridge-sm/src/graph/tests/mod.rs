@@ -37,6 +37,7 @@ use strata_bridge_tx_graph::{
     },
     transactions::prelude::{ClaimTx, ContestTx, CounterproofTx},
 };
+use strata_mosaic_client_api::types::CompletedSignatures;
 use strata_predicate::PredicateKey;
 use zkaleido::{Proof, ProofReceipt, PublicValues};
 
@@ -273,8 +274,30 @@ pub(super) fn test_bridge_proof_timeout_tx() -> Transaction {
     tx
 }
 
+/// Deterministic completed signatures fixture; used to assert duty payloads.
+pub(super) fn test_completed_signatures() -> CompletedSignatures {
+    std::array::from_fn(|i| {
+        let bytes = [(i as u8).wrapping_add(1); 64];
+        Signature::from_slice(&bytes).expect("64-byte slice parses as schnorr signature")
+    })
+}
+
 pub(super) fn test_counterproof_tx() -> Transaction {
-    Transaction::from(TestGraphTxKind::Counterproof)
+    // Witness layout: `[sig_{N-1}, .., sig_0, n-of-n sig, leaf script, control block]`.
+    let sigs = test_completed_signatures();
+    let mut witness_elements: Vec<Vec<u8>> =
+        sigs.iter().rev().map(|s| s.serialize().to_vec()).collect();
+    witness_elements.push(vec![0u8; 64]); // n-of-n sig placeholder
+    witness_elements.push(Vec::new()); // leaf script placeholder
+    witness_elements.push(Vec::new()); // control block placeholder
+
+    generate_spending_tx(
+        OutPoint {
+            vout: TestGraphTxKind::Counterproof as u32,
+            ..OutPoint::default()
+        },
+        &witness_elements,
+    )
 }
 
 pub(super) fn test_counterproof_nack_tx() -> Transaction {

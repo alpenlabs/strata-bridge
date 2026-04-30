@@ -17,13 +17,14 @@ use crate::{
         state::GraphState,
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
-            TEST_POV_IDX, create_nonpov_sm, dummy_proof_receipt, get_state,
+            TEST_POV_IDX, TestGraphTxKind, create_nonpov_sm, dummy_proof_receipt, get_state,
             mock_states::{
                 TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
                 bridge_proof_posted_state, contested_state,
             },
-            test_counterproof_tx, test_deposit_params, test_graph_invalid_transition,
-            test_graph_sm_cfg, test_graph_sm_ctx, test_graph_transition,
+            test_completed_signatures, test_counterproof_tx, test_deposit_params,
+            test_graph_invalid_transition, test_graph_sm_cfg, test_graph_sm_ctx,
+            test_graph_transition,
         },
         watchtower::watchtower_slot_for_operator,
     },
@@ -70,7 +71,7 @@ fn expected_nack_duty(counterprover_idx: u32) -> GraphDuty {
     GraphDuty::PublishCounterProofNack {
         deposit_idx: ctx.deposit_idx(),
         counterprover_idx,
-        counterproof_tx: test_counterproof_tx(),
+        completed_signatures: test_completed_signatures(),
         counterproof_nack_tx,
     }
 }
@@ -318,6 +319,25 @@ fn event_invalid() {
             expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
         });
     }
+}
+
+/// POV operator: a counterproof with the right txid but a witness of the wrong
+/// shape is rejected before any duty is emitted.
+#[test]
+fn event_rejected_invalid_counterproof_witness() {
+    // Empty-witness tx — same txid as `test_counterproof_tx()` (witness is excluded
+    // from txid), so it passes the txid lookup but fails the witness-shape check.
+    let bad_witness_tx = TestGraphTxKind::Counterproof.into();
+
+    test_graph_invalid_transition(GraphInvalidTransition {
+        from_state: contested_state(),
+        event: GraphEvent::CounterProofConfirmed(CounterProofConfirmedEvent {
+            counterproof_block_height: COUNTERPROOF_BLOCK_HEIGHT,
+            tx: bad_witness_tx,
+            counterprover_idx: TEST_NONPOV_IDX,
+        }),
+        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+    });
 }
 
 /// Returns `true` if the state is valid for [`GraphEvent::CounterProofConfirmed`].

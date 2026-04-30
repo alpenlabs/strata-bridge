@@ -18,6 +18,7 @@ use strata_bridge_tx_graph::transactions::{
     counterproof::CounterproofTx,
     prelude::{ContestTx, CounterproofNackTx},
 };
+use strata_mosaic_client_api::types::CompletedSignatures;
 use zkaleido::ProofReceipt;
 
 /// The nag duties that can be emitted to remind operators of missing graph signing data.
@@ -88,6 +89,7 @@ impl std::fmt::Display for NagDuty {
 
 /// The duties that need to be performed to drive the Graph State Machine forward.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(clippy::large_enum_variant)]
 pub enum GraphDuty {
     /// Generate the data required to generate the graph.
     ///
@@ -248,8 +250,9 @@ pub enum GraphDuty {
         /// The index of the operator who submitted the counterproof.
         counterprover_idx: OperatorIdx,
 
-        /// The counterproof transaction being NACKed.
-        counterproof_tx: Transaction,
+        /// Per-byte operator signatures recovered from the counterproof witness;
+        /// forwarded to mosaic to extract the fault secret.
+        completed_signatures: CompletedSignatures,
 
         /// The unsigned counterproof NACK transaction to be published
         counterproof_nack_tx: CounterproofNackTx,

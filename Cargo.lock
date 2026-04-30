@@ -8364,6 +8364,7 @@ dependencies = [
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
  "strata-l1-txfmt",
+ "strata-mosaic-client-api",
  "strata-predicate",
  "thiserror 2.0.18",
  "tracing",
