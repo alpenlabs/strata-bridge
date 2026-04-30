@@ -76,6 +76,7 @@ async fn sign_and_broadcast_nack(
     };
 
     info!(%deposit_idx, %counterprover_idx, "calling mosaic evaluate_and_sign");
+    let evaluate_and_sign_start = std::time::Instant::now();
     let wt_fault_signature = output_handles
         .mosaic_client
         .evaluate_and_sign(
@@ -96,6 +97,12 @@ async fn sign_and_broadcast_nack(
                 "evaluator failed to extract fault secret from counterproof".into(),
             )
         })?;
+    info!(
+        %deposit_idx,
+        %counterprover_idx,
+        elapsed_ms = evaluate_and_sign_start.elapsed().as_millis() as u64,
+        "mosaic evaluate_and_sign completed",
+    );
 
     let signed_tx = nack_tx.finalize_partial(wt_fault_signature);
 
