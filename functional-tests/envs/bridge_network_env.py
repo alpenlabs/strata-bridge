@@ -22,6 +22,7 @@ class BridgeNetworkEnv(BaseEnv):
         bridge_config_params=BridgeConfigParams(),  # noqa: B008
         btc_config: BitcoinEnvConfig | None = None,
         asm_config: AsmEnvConfig | None = None,
+        enable_asm_proof: bool = False,
     ):
         super().__init__(
             BRIDGE_NETWORK_SIZE,
@@ -29,6 +30,7 @@ class BridgeNetworkEnv(BaseEnv):
             bridge_config_params,
             btc_config,
             asm_config,
+            enable_asm_proof=enable_asm_proof,
         )
 
     def init(self, ectx: flexitest.EnvContext) -> flexitest.LiveEnv:

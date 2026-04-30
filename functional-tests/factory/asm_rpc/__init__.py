@@ -18,6 +18,7 @@ from .config_cfg import (
     BitcoinConfig,
     DatabaseConfig,
     Duration,
+    OrchestratorConfig,
     RpcConfig,
 )
 
@@ -39,6 +40,7 @@ class AsmRpcFactory(flexitest.Factory):
         bitcoind_props: dict,
         params_file_path: str,
         ctx: flexitest.EnvContext,
+        orchestrator_config: OrchestratorConfig | None = None,
     ) -> flexitest.Service:
         """Create an ASM RPC service instance.
 
@@ -46,6 +48,9 @@ class AsmRpcFactory(flexitest.Factory):
             bitcoind_props: Properties from the Bitcoin service (includes zmq ports, rpc details)
             params_file_path: Path to the params.json file for rollup parameters
             ctx: Environment context from flexitest
+            orchestrator_config: Optional proof orchestrator config. When set, the asm-runner
+                also opens its `MohoStateDb` and `ExportEntriesDb`, which are required for
+                `strata_asm_getExportEntryMMRProof` to return non-`None` results.
 
         Returns:
             A running ASM RPC service
@@ -68,6 +73,7 @@ class AsmRpcFactory(flexitest.Factory):
             rpc_port=rpc_port,
             db_path=db_path,
             output_path=config_toml_path,
+            orchestrator_config=orchestrator_config,
         )
 
         # Log file
@@ -124,6 +130,7 @@ def generate_asm_rpc_config(
     rpc_port: int,
     db_path: str,
     output_path: str,
+    orchestrator_config: OrchestratorConfig | None = None,
 ):
     """Generate ASM RPC configuration TOML file.
 
@@ -132,6 +139,8 @@ def generate_asm_rpc_config(
         rpc_port: Port for ASM RPC server to listen on
         db_path: Path to the database directory
         output_path: Path to write the config.toml file
+        orchestrator_config: Optional proof orchestrator config; emitted as the
+            `[orchestrator]` table when provided.
     """
     config = AsmRpcConfig(
         rpc=RpcConfig(
@@ -152,7 +161,13 @@ def generate_asm_rpc_config(
             retry_count=3,
             retry_interval=Duration(secs=1, nanos=0),
         ),
+        orchestrator=orchestrator_config,
     )
 
+    # toml.dump rejects None values, so drop the orchestrator key when unset.
+    config_dict = asdict(config)
+    if config_dict.get("orchestrator") is None:
+        config_dict.pop("orchestrator", None)
+
     with open(output_path, "w") as f:
-        toml.dump(asdict(config), f)
+        toml.dump(config_dict, f)

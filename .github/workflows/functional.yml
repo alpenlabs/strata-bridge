@@ -199,14 +199,14 @@ jobs:
             echo "ERROR: failed to extract mosaic rev from Cargo.toml" >&2
             exit 1
           fi
-          ASM_TAG=$(grep 'strata-asm-worker.*tag' Cargo.toml | sed 's/.*tag = "\([^"]*\)".*/\1/')
-          if [ -z "$ASM_TAG" ]; then
-            echo "ERROR: failed to extract asm tag from Cargo.toml" >&2
+          ASM_REV=$(grep 'strata-asm-worker.*rev' Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/')
+          if [ -z "$ASM_REV" ]; then
+            echo "ERROR: failed to extract asm rev from Cargo.toml" >&2
             exit 1
           fi
           {
             echo "mosaic-rev=$MOSAIC_REV"
-            echo "asm-tag=$ASM_TAG"
+            echo "asm-rev=$ASM_REV"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore cached mosaic binary
@@ -232,14 +232,14 @@ jobs:
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ${{ github.workspace }}/target/asm
-          key: ${{ runner.os }}-asm-runner-${{ steps.bin-versions.outputs.asm-tag }}-${{ needs.extract-rust-version.outputs.nightly-version }}
+          key: ${{ runner.os }}-asm-runner-${{ steps.bin-versions.outputs.asm-rev }}-${{ needs.extract-rust-version.outputs.nightly-version }}
 
       - name: Install asm binary
         if: steps.cache-asm.outputs.cache-hit != 'true'
         env:
-          ASM_TAG: ${{ steps.bin-versions.outputs.asm-tag }}
+          ASM_REV: ${{ steps.bin-versions.outputs.asm-rev }}
         run: |
-          cargo install --git https://github.com/alpenlabs/asm --tag "$ASM_TAG" --root "$GITHUB_WORKSPACE/target/asm" strata-asm-runner
+          cargo install --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root "$GITHUB_WORKSPACE/target/asm" strata-asm-runner
 
       - name: Add asm binary to PATH
         run: |
