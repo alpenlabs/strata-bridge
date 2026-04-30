@@ -140,6 +140,18 @@ fn test_pov_owned_handler_output(output: StakeHandlerOutput) {
     });
 }
 
+/// Helper for testing handlers for stakes tracked but not owned by the POV
+/// (`create_nonpov_state_machine`).
+fn test_nonpov_handler_output(output: StakeHandlerOutput) {
+    test_nonpov_stake_transition(StakeTransition {
+        from_state: output.state.clone(),
+        event: output.event,
+        expected_state: output.state,
+        expected_duties: output.expected_duties,
+        expected_signals: vec![],
+    });
+}
+
 // ┌───────────────────────────────────────────────────────────────────┐
 // │                            Operators                              │
 // └───────────────────────────────────────────────────────────────────┘
