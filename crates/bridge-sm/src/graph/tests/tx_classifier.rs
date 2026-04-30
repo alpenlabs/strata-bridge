@@ -143,6 +143,21 @@ mod tests {
             graph_owner_idx,
             pov_idx,
         );
+        let counterproof_in_posted_result = counterproof_posted_sm.classify_tx(
+            &cfg,
+            &counterproof_txs[counterproof_slot],
+            LATER_BLOCK_HEIGHT,
+        );
+        match counterproof_in_posted_result {
+            Some(GraphEvent::CounterProofConfirmed(event)) => {
+                assert_eq!(event.counterprover_idx, expected_operator_idx);
+            }
+            _ => panic!(
+                "expected Some(CounterProofConfirmed) in CounterProofPosted but got \
+                 {counterproof_in_posted_result:?}"
+            ),
+        }
+
         let ack_result = counterproof_posted_sm.classify_tx(
             &cfg,
             &counterproof_ack_txs[counterproof_slot],
@@ -275,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_tx_recognizes_counterproof_in_contested_and_bridge_proof_posted() {
+    fn classify_tx_recognizes_counterproof_in_counterproof_detecting_states() {
         let cfg = test_graph_sm_cfg();
         for state in counterproof_detecting_states() {
             let sm = create_sm(state);
