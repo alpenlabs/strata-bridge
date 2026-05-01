@@ -11,6 +11,8 @@ members = [
   "crates/connectors",
   "crates/db",
   "crates/proof-db",
+  "crates/proofs/bridge-proof",
+  "crates/proofs/common",
   "crates/key-deriv",
   "crates/memory_pprof",
   "crates/mosaic-client",
@@ -68,7 +70,9 @@ strata-bridge-orchestrator = { path = "crates/orchestrator" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
 strata-bridge-p2p-types = { path = "crates/p2p-types" }
 strata-bridge-primitives = { path = "crates/primitives" }
+strata-bridge-proof = { path = "crates/proofs/bridge-proof" }
 strata-bridge-proof-db = { path = "crates/proof-db" }
+strata-bridge-proofs-common = { path = "crates/proofs/common" }
 strata-bridge-rpc = { path = "crates/rpc" }
 strata-bridge-sm = { path = "crates/bridge-sm" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
@@ -91,6 +95,10 @@ strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm.gi
 strata-asm-rpc = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
 strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
 strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
+
+# Moho proof types (Bridge proof inputs reference these directly)
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.2" }
+moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.2" }
 
 # Dependencies from alpenlabs/mosaic pinned to commit 0fc9ba8d (main @ 2026-04-20)
 mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2359c7509b8ebf65e8aa5d423704b505" }
@@ -119,6 +127,7 @@ strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.
 
 # Dependencies from alpenlabs/ssz-gen
 ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
+ssz_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
 
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }

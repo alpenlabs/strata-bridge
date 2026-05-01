@@ -20,7 +20,7 @@ use algebra::retry::{Strategy, retry_with};
 use bitcoin::BlockHash;
 use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
-use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
+use jsonrpsee::http_client::HttpClient;
 use strata_asm_proto_bridge_v1::AssignmentEntry;
 use strata_asm_rpc::traits::AssignmentsApiClient;
 use strata_bridge_primitives::subscription::Subscription;
@@ -46,6 +46,7 @@ pub struct Attached;
 #[derive(Debug, Clone)]
 pub struct AsmEventFeed<State = Detached> {
     cfg: AsmRpcConfig,
+    client: HttpClient,
     subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<AssignmentsState>>>>,
     thread_handle: Option<Arc<JoinHandle<()>>>,
     _state: PhantomData<State>,
@@ -61,9 +62,13 @@ impl<State> Drop for AsmEventFeed<State> {
 
 impl AsmEventFeed<Detached> {
     /// Creates a new ASM event feed.
-    pub fn new(cfg: AsmRpcConfig) -> AsmEventFeed<Detached> {
+    ///
+    /// The caller owns the [`HttpClient`] so it can be shared with other consumers (e.g.,
+    /// proof-input fetchers in `bridge-exec`) instead of each component spinning up its own.
+    pub fn new(client: HttpClient, cfg: AsmRpcConfig) -> AsmEventFeed<Detached> {
         AsmEventFeed {
             cfg,
+            client,
             subscribers: Arc::new(Mutex::new(Vec::new())),
             thread_handle: None,
             _state: PhantomData,
@@ -88,16 +93,19 @@ impl AsmEventFeed<Detached> {
         let (request_sender, request_receiver) = watch::channel(None);
         let subscribers_worker = self.subscribers.clone();
         let cfg = self.cfg.clone();
+        let client = self.client.clone();
 
         let thread_handle = Arc::new(task::spawn(async move {
             let forwarder = run_block_ref_forwarder(block_sub, request_sender);
-            let fetcher = run_assignments_state_fetcher(cfg, request_receiver, subscribers_worker);
+            let fetcher =
+                run_assignments_state_fetcher(cfg, client, request_receiver, subscribers_worker);
 
             tokio::join!(forwarder, fetcher);
         }));
 
         AsmEventFeed {
             cfg: self.cfg.clone(),
+            client: self.client.clone(),
             subscribers: self.subscribers.clone(),
             thread_handle: Some(thread_handle),
             _state: PhantomData,
@@ -154,17 +162,10 @@ async fn run_block_ref_forwarder(
 /// those cases are logged and skipped after retries for now.
 async fn run_assignments_state_fetcher(
     cfg: AsmRpcConfig,
+    client: HttpClient,
     mut request_receiver: watch::Receiver<Option<BlockHash>>,
     subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<AssignmentsState>>>>,
 ) {
-    let client = match HttpClientBuilder::default().build(&cfg.rpc_url) {
-        Ok(client) => client,
-        Err(err) => {
-            error!(%err, "failed to build ASM RPC client");
-            return;
-        }
-    };
-
     let mut last_processed: Option<BlockHash> = None;
 
     loop {

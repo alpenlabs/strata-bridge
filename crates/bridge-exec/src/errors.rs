@@ -4,6 +4,7 @@ use bdk_wallet::error::CreateTxError;
 use bitcoin::Txid;
 use foundationdb::FdbBindingError;
 use strata_bridge_db::fdb::errors::LayerError;
+use strata_bridge_proofs_common::ProofError;
 use terrors::OneOf;
 use thiserror::Error;
 
@@ -57,6 +58,14 @@ pub enum ExecutorError {
     /// Error interacting with the mosaic service.
     #[error("mosaic error: {0}")]
     MosaicErr(String),
+
+    /// Error interacting with the ASM proof RPCs.
+    #[error("asm rpc error: {0}")]
+    AsmRpcErr(String),
+
+    /// Error generating a proof program (bridge proof, counter-proof).
+    #[error("proof error: {0}")]
+    ProofErr(#[from] ProofError),
 }
 
 impl From<OneOf<(FdbBindingError, LayerError)>> for ExecutorError {

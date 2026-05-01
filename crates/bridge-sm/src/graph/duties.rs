@@ -11,7 +11,7 @@ use musig2::{
 use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
-    types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
 };
 use strata_bridge_tx_graph::transactions::{
     claim::ClaimTx, counterproof::CounterproofTx, prelude::ContestTx,
@@ -197,6 +197,12 @@ pub enum GraphDuty {
     GenerateAndPublishBridgeProof {
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
+
+        /// The index of the graph owner operator.
+        operator_index: OperatorIdx,
+
+        /// The last Bitcoin block height seen by the graph state.
+        last_block_height: BitcoinBlockHeight,
 
         /// The ID of the contest transaction to spend from.
         contest_txid: Txid,

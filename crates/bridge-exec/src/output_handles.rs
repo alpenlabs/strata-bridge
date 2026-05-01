@@ -4,11 +4,13 @@ use std::{fmt, sync::Arc};
 
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
+use jsonrpsee::http_client::HttpClient;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_proof::BridgeProofHost;
 use strata_mosaic_client_api::MosaicClientApi;
 use tokio::sync::RwLock;
 
@@ -31,6 +33,12 @@ pub struct OutputHandles {
     /// Handle for accessing the Bitcoin client RPC.
     pub bitcoind_rpc_client: BitcoinClient,
 
+    /// Handle for accessing the ASM (Anchor State Machine) RPC.
+    ///
+    /// Cheap to clone (internally `Arc`-shared). Consumers bring
+    /// [`strata_asm_rpc::traits::AsmProofApiClient`] into scope to call proof RPCs.
+    pub asm_rpc_client: HttpClient,
+
     /// Handle for accessing the secret service.
     pub s2_client: SecretServiceClient,
 
@@ -49,6 +57,11 @@ pub struct OutputHandles {
     /// Bridge-wide operator table, used by executors that need to enumerate peers (e.g., to fetch
     /// per-watchtower keys from mosaic).
     pub operator_table: OperatorTable,
+
+    /// Host used to generate bridge proofs.
+    ///
+    /// Native by default; SP1 under the `sp1` feature.
+    pub bridge_proof_host: BridgeProofHost,
 }
 
 impl fmt::Debug for OutputHandles {
@@ -58,10 +71,12 @@ impl fmt::Debug for OutputHandles {
             .field("db", &self.db)
             .field("msg_handler", &self.msg_handler)
             .field("bitcoind_rpc_client", &self.bitcoind_rpc_client)
+            .field("asm_rpc_client", &"<HttpClient>")
             .field("s2_client", &self.s2_client)
             .field("tx_driver", &self.tx_driver)
             .field("mosaic_client", &"<dyn MosaicClientApi>")
             .field("operator_table", &self.operator_table)
+            .field("bridge_proof_host", &"<BridgeProofHost>")
             .finish()
     }
 }

@@ -44,6 +44,7 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=0,
                 ),
+                enable_asm_proof=True,
             )
         )
 

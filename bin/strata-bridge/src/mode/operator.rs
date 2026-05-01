@@ -11,6 +11,7 @@ use tracing::{debug, info};
 use crate::{
     config::Config,
     mode::services::{
+        asm_rpc::init_asm_rpc_client,
         btc_client::init_btc_rpc_client,
         mosaic_client::{init_mosaic_client, run_mosaic_setup, spawn_mosaic_poller},
         operator_table::init_operator_table,
@@ -56,6 +57,10 @@ pub(crate) async fn bootstrap(
     let cur_height = btc_rpc_client.get_block_count().await?;
     info!(%cur_height, "bitcoin client initialized and synced");
 
+    debug!("initializing asm rpc client");
+    let asm_rpc_client = init_asm_rpc_client(&config.asm_rpc);
+    info!("asm rpc client initialized");
+
     debug!("initializing p2p client");
     let P2PHandles {
         command_handle,
@@ -94,6 +99,7 @@ pub(crate) async fn bootstrap(
         keypair,
         operator_wallet,
         btc_rpc_client,
+        asm_rpc_client,
         db.clone(),
         &executor,
     )
