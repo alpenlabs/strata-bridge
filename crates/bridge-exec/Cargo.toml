@@ -18,13 +18,17 @@ strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
 strata-bridge-p2p-types.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-proof.workspace = true
+strata-bridge-proofs-common.workspace = true
 strata-bridge-sm.workspace = true
 strata-bridge-tx-graph.workspace = true
 strata-mosaic-client-api.workspace = true
 
+ssz.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-bridge-v1-txs.workspace = true
 strata-asm-rpc = { workspace = true, features = ["client"] }
+strata-codec.workspace = true
 strata-l1-txfmt.workspace = true
 
 bdk_wallet.workspace = true

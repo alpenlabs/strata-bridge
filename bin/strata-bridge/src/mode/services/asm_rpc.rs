@@ -5,9 +5,9 @@ use strata_bridge_asm_events::config::AsmRpcConfig;
 
 /// Build a [`jsonrpsee`] HTTP client targeting the ASM RPC service.
 ///
-/// The returned client is shared between the [`AsmEventFeed`](strata_bridge_asm_events::client::AsmEventFeed)
-/// background fetcher and any executor that needs to query ASM RPC directly via
-/// `OutputHandles`.
+/// The returned client is shared between the
+/// [`AsmEventFeed`](strata_bridge_asm_events::client::AsmEventFeed) background fetcher and any
+/// executor that needs to query ASM RPC directly via `OutputHandles`.
 ///
 /// # Panics
 ///

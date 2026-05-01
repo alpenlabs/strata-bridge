@@ -10,6 +10,7 @@ use secret_service_client::SecretServiceClient;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_proof::BridgeProofHost;
 use strata_mosaic_client_api::MosaicClientApi;
 use tokio::sync::RwLock;
 
@@ -56,6 +57,11 @@ pub struct OutputHandles {
     /// Bridge-wide operator table, used by executors that need to enumerate peers (e.g., to fetch
     /// per-watchtower keys from mosaic).
     pub operator_table: OperatorTable,
+
+    /// Host used to generate bridge proofs.
+    ///
+    /// Native by default; SP1 under the `sp1` feature.
+    pub bridge_proof_host: BridgeProofHost,
 }
 
 impl fmt::Debug for OutputHandles {
@@ -70,6 +76,7 @@ impl fmt::Debug for OutputHandles {
             .field("tx_driver", &self.tx_driver)
             .field("mosaic_client", &"<dyn MosaicClientApi>")
             .field("operator_table", &self.operator_table)
+            .field("bridge_proof_host", &"<BridgeProofHost>")
             .finish()
     }
 }

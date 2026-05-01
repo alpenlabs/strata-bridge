@@ -20,6 +20,7 @@ strata-bridge-exec.workspace = true
 strata-bridge-orchestrator.workspace = true
 strata-bridge-p2p-service.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-proof.workspace = true
 strata-bridge-rpc.workspace = true
 strata-bridge-sm.workspace = true
 strata-bridge-tx-graph.workspace = true
@@ -60,6 +61,9 @@ strata-predicate.workspace = true
 
 [features]
 default = []
+# Switches the bridge-proof host to SP1. Native by default; enable with
+# `cargo build --features sp1`.
+sp1 = ["strata-bridge-proof/sp1"]
 # not compatible with windows/msvc
 memory_profiling = [
   "tikv-jemallocator/profiling",
