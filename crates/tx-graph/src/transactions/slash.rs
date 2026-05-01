@@ -93,7 +93,8 @@ impl SlashTx {
         let other_extra = excess_input / n_watchtowers;
         debug_assert_eq!(
             excess_input,
-            first_extra + other_extra * n_watchtowers.saturating_sub(1)
+            first_extra + other_extra * n_watchtowers.saturating_sub(1),
+            "total sum of watchtower outputs equals input sum"
         );
         debug_assert!(contest_slash_connector.network() == stake_connector.network());
 
