@@ -103,7 +103,7 @@ jobs:
 
       - name: Restore cached OpenSSL build
         id: cache-openssl
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ env.OPENSSL_INSTALL_DIR }}
           key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VERSION }}-${{ env.OPENSSL_CACHE_VERSION }}
@@ -156,7 +156,7 @@ jobs:
           rustup default "$RUST_NIGHTLY"
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@81ecf985428d5c2ea81dbf079bceca32bc9604ab # v2.62.43
+        uses: taiki-e/install-action@58e862542551f667fa44c8a2a4a1d64ad477c96a # v2.75.17
         with:
           tool: cargo-llvm-cov
 
@@ -211,7 +211,7 @@ jobs:
 
       - name: Restore cached mosaic binary
         id: cache-mosaic
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ github.workspace }}/target/mosaic
           key: ${{ runner.os }}-mosaic-${{ steps.bin-versions.outputs.mosaic-rev }}-${{ needs.extract-rust-version.outputs.nightly-version }}
@@ -229,7 +229,7 @@ jobs:
 
       - name: Restore cached asm-runner binary
         id: cache-asm
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ github.workspace }}/target/asm
           key: ${{ runner.os }}-asm-runner-${{ steps.bin-versions.outputs.asm-rev }}-${{ needs.extract-rust-version.outputs.nightly-version }}
