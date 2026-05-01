@@ -4,16 +4,23 @@ use std::{collections::BTreeMap, sync::LazyLock};
 
 use musig2::secp256k1::schnorr::Signature;
 use secp256k1::schnorr;
+use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_test_utils::prelude::generate_txid;
 use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary};
+use zkaleido::ProofReceipt;
 
 use super::{
     CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
-    TEST_ASSIGNEE, create_nonpov_sm, dummy_proof_receipt, test_deposit_params, test_graph_data,
+    N_TEST_OPERATORS, TEST_ASSIGNEE, TEST_POV_IDX, build_test_graph_summary, create_nonpov_sm,
+    dummy_proof_receipt, test_completed_signatures, test_deposit_params, test_graph_data,
     test_graph_sm_cfg, test_graph_summary, test_recipient_desc,
     utils::{NonceContext, build_nonce_context},
 };
-use crate::graph::{machine::generate_game_graph, state::GraphState};
+use crate::graph::{
+    machine::generate_game_graph,
+    state::{CounterproofData, GraphState},
+    watchtower::watchtower_slot_for_operator,
+};
 
 pub(super) static TEST_GRAPH_SUMMARY: LazyLock<GameGraphSummary> =
     LazyLock::new(test_graph_summary);
@@ -212,6 +219,72 @@ pub(super) fn counter_proof_posted_without_refuted_proof_state() -> GraphState {
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
     }
+}
+
+/// Builds a mock `CounterProofPosted` state with explicit values for
+/// `refuted_proof`, confirmed counterproofs, and counterproof NACKs.
+///
+/// Each entry of `counterprover_idxs` is mapped to its real counterproof txid
+/// from the test graph summary so the resulting state mirrors what the SM
+/// would observe on chain.
+pub(super) fn counter_proof_posted_state_with(
+    refuted_proof: Option<ProofReceipt>,
+    counterprover_idxs: &[OperatorIdx],
+    nacked_idxs: &[OperatorIdx],
+) -> GraphState {
+    let summary = build_test_graph_summary(N_TEST_OPERATORS - 1);
+    let counterproofs_and_confs = counterprover_idxs
+        .iter()
+        .map(|counterprover_idx| {
+            let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, *counterprover_idx)
+                .expect("counterprover should have a watchtower slot");
+            (
+                *counterprover_idx,
+                CounterproofData {
+                    txid: summary.counterproofs[watchtower_slot].counterproof,
+                    conf_height: LATER_BLOCK_HEIGHT,
+                    completed_signatures: test_completed_signatures(),
+                },
+            )
+        })
+        .collect();
+
+    GraphState::CounterProofPosted {
+        last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        graph_summary: summary,
+        signatures: Default::default(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        contest_block_height: LATER_BLOCK_HEIGHT,
+        refuted_proof,
+        counterproofs_and_confs,
+        counterproof_nacks: nacked_idxs
+            .iter()
+            .map(|counterprover_idx| (*counterprover_idx, generate_txid()))
+            .collect(),
+    }
+}
+
+/// Variant of [`counter_proof_posted_state_with`] that also overrides `signatures`.
+///
+/// Use this when the test exercises a code path that unpacks the signatures
+/// (e.g. building a counterproof duty). The default builder uses
+/// `Default::default()` signatures, which would panic in `GameFunctor::unpack`.
+pub(super) fn counter_proof_posted_state_with_signatures(
+    refuted_proof: Option<ProofReceipt>,
+    counterprover_idxs: &[OperatorIdx],
+    nacked_idxs: &[OperatorIdx],
+    signatures: Vec<Signature>,
+) -> GraphState {
+    let mut state = counter_proof_posted_state_with(refuted_proof, counterprover_idxs, nacked_idxs);
+    if let GraphState::CounterProofPosted {
+        signatures: state_signatures,
+        ..
+    } = &mut state
+    {
+        *state_signatures = signatures;
+    }
+    state
 }
 
 /// Builds a mock `AllNackd` state with default test values.
