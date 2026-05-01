@@ -351,6 +351,7 @@ pub(super) async fn verify_adaptors(
             ))
         })?;
 
+    tracing::debug!(graph=?graph_idx, "initializing garbler deposit on mosaic to kick off adaptor verification");
     output_handles
         .mosaic_client
         .init_garbler_deposit(

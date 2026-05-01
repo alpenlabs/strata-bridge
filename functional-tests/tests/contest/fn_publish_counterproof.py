@@ -120,4 +120,15 @@ class CounterproofPublishedOnBridgeProofVerificationFailureTest(StrataTestBase):
                 f"Counterproof posted by watchtower slot {slot} (contest:{watchtower_vout} spent)"
             )
 
+        # Complete a deposit.
+        self.logger.info("Testing that deposits can still complete successfully after counterproofs have been published")
+        drt_txid = dev_cli.send_deposit_request()
+        self.logger.info(f"Broadcasted DRT: {drt_txid}")
+        deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
+        self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")
+
+        deposit_info = wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
+        assert deposit_info is not None, "Deposit did not complete"
+        self.logger.info("Deposit completed")
+
         return True
