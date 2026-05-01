@@ -15,6 +15,12 @@ use serde::{Deserialize, Serialize};
 /// The index of an operator.
 pub type OperatorIdx = u32;
 
+/// The index of a watchtower.
+///
+/// Watchtower indices correspond to the watchtower slots in each game graph.
+/// The index is relative to the operator index of the graph owner.
+pub type WatchtowerIdx = u32;
+
 /// The index of a deposit.
 pub type DepositIdx = u32;
 

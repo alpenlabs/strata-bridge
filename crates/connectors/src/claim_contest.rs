@@ -2,6 +2,7 @@
 
 use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf, Sequence};
 use secp256k1::{schnorr, XOnlyPublicKey};
+use strata_bridge_primitives::types::WatchtowerIdx;
 
 use crate::{Connector, TaprootWitness};
 
@@ -146,7 +147,7 @@ pub enum ClaimContestSpendPath {
     /// The connector is spent in the `Contest` transaction.
     Contested {
         /// Index of the spending watchtower.
-        watchtower_index: u32,
+        watchtower_index: WatchtowerIdx,
     },
     /// The connector is spent in the `UncontestedPayout` transaction.
     Uncontested,
@@ -165,7 +166,7 @@ pub enum ClaimContestWitness {
         /// N/N signature.
         n_of_n_signature: schnorr::Signature,
         /// Index of the spending watchtower.
-        watchtower_index: u32,
+        watchtower_index: WatchtowerIdx,
         /// Signature of the spending watchtower.
         watchtower_signature: schnorr::Signature,
     },
