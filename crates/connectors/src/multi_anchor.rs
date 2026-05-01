@@ -3,6 +3,7 @@
 use bitcoin::{opcodes, script, Amount, Network, ScriptBuf, XOnlyPublicKey};
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
+use strata_bridge_primitives::types::WatchtowerIdx;
 
 use crate::{Connector, TaprootWitness};
 
@@ -76,14 +77,14 @@ impl Connector for MultiAnchor {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct MultiAnchorSpendPath {
     /// Index of the spending watchtower.
-    pub watchtower_index: u32,
+    pub watchtower_index: WatchtowerIdx,
 }
 
 /// Witness data to spend a [`MultiAnchor`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct MultiAnchorWitness {
     /// Index of the spending watchtower.
-    pub watchtower_index: u32,
+    pub watchtower_index: WatchtowerIdx,
     /// Watchtower signature.
     pub watchtower_signature: schnorr::Signature,
 }
