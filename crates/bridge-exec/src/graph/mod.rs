@@ -1,6 +1,7 @@
 //! This module contains the executors for performing duties emitted in the Graph State Machine
 //! transitions.
 
+mod bridge_proof;
 mod common;
 mod contested;
 mod uncontested;
@@ -16,11 +17,11 @@ use crate::{
     config::ExecutionConfig,
     errors::ExecutorError,
     graph::{
+        bridge_proof::generate_and_publish_bridge_proof,
         common::{publish_claim, publish_graph_nonces, publish_graph_partials, verify_adaptors},
         contested::{
-            generate_and_publish_bridge_proof, generate_and_publish_counterproof,
-            publish_bridge_proof_timeout, publish_contest, publish_contested_payout,
-            publish_counterproof_ack, publish_slash,
+            generate_and_publish_counterproof, publish_bridge_proof_timeout, publish_contest,
+            publish_contested_payout, publish_counterproof_ack, publish_slash,
         },
         uncontested::publish_uncontested_payout,
     },
