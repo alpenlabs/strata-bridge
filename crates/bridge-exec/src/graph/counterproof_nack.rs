@@ -96,7 +96,7 @@ async fn sign_and_broadcast_nack(
     info!(
         %deposit_idx,
         %counterprover_idx,
-        elapsed_ms = evaluate_and_sign_start.elapsed().as_millis() as u64,
+        elapsed = ?evaluate_and_sign_start.elapsed(),
         "mosaic evaluate_and_sign completed",
     );
 

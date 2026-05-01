@@ -197,11 +197,7 @@ impl GraphSM {
         Ok(duties)
     }
 
-    /// Decodes the per-byte operator signatures from input[0] of an on-chain Counterproof tx.
-    ///
-    /// The witness layout is `[sig_{N-1}, .., sig_0, n-of-n sig, leaf script, control block]`
-    /// — operator signatures pushed `.rev()`, then 3 trailing items. Reverse + skip(3)
-    /// recovers `[sig_0, .., sig_{N-1}]`.
+    /// Decodes the per-byte operator signatures from an on-chain Counterproof tx, in byte order.
     fn decode_completed_sigs(
         &self,
         counterproof_tx: &Transaction,
@@ -221,6 +217,9 @@ impl GraphSM {
             ));
         }
 
+        // Witness layout is `[sig_{N-1}, .., sig_0, n-of-n sig, leaf script, control block]` —
+        // operator signatures pushed `.rev()`, then 3 trailing items. Reverse + skip(3) recovers
+        // `[sig_0, .., sig_{N-1}]`.
         let mut items = counterproof_tx.input[0].witness.to_vec();
         items.reverse();
         let sigs: Vec<Signature> = items
