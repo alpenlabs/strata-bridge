@@ -128,7 +128,9 @@ pub struct ProtocolParams {
     pub nack_timelock: relative::Height,
     /// Timelock for submitting a contested payout.
     pub contested_payout_timelock: relative::Height,
-    /// Number of bytes for the serialized counterproof (including public values).
+    /// Number of counterproof bytes that are published via adaptor signatures.
+    ///
+    /// This excludes bytes that have been exchanged at setup time.
     pub counterproof_n_bytes: NonZero<usize>,
     /// Deposit amount.
     pub deposit_amount: Amount,
