@@ -15,7 +15,7 @@ use crate::graph::{
     errors::{GSMError, GSMResult},
     events::CounterProofConfirmedEvent,
     machine::{GSMOutput, GraphSM},
-    state::GraphState,
+    state::{CounterproofData, GraphState},
 };
 
 impl GraphSM {
@@ -36,13 +36,17 @@ impl GraphSM {
                 contest_block_height,
                 ..
             } => {
-                let nack_duties =
+                let (nack_duties, completed_signatures) =
                     self.validate_counterproof_and_nack(&cfg, &event, &graph_data, &graph_summary)?;
 
                 let mut counterproofs_and_confs = BTreeMap::new();
                 counterproofs_and_confs.insert(
                     event.counterprover_idx,
-                    (event.tx.compute_txid(), event.counterproof_block_height),
+                    CounterproofData {
+                        txid: event.tx.compute_txid(),
+                        conf_height: event.counterproof_block_height,
+                        completed_signatures,
+                    },
                 );
 
                 self.state = GraphState::CounterProofPosted {
@@ -69,13 +73,17 @@ impl GraphSM {
                 proof,
                 ..
             } => {
-                let nack_duties =
+                let (nack_duties, completed_signatures) =
                     self.validate_counterproof_and_nack(&cfg, &event, &graph_data, &graph_summary)?;
 
                 let mut counterproofs_and_confs = BTreeMap::new();
                 counterproofs_and_confs.insert(
                     event.counterprover_idx,
-                    (event.tx.compute_txid(), event.counterproof_block_height),
+                    CounterproofData {
+                        txid: event.tx.compute_txid(),
+                        conf_height: event.counterproof_block_height,
+                        completed_signatures,
+                    },
                 );
 
                 self.state = GraphState::CounterProofPosted {
@@ -107,12 +115,16 @@ impl GraphSM {
                     return Err(GSMError::duplicate(self.state.clone(), event.into()));
                 }
 
-                let nack_duties =
+                let (nack_duties, completed_signatures) =
                     self.validate_counterproof_and_nack(&cfg, &event, &graph_data, &graph_summary)?;
 
                 counterproofs_and_confs.insert(
                     event.counterprover_idx,
-                    (event.tx.compute_txid(), event.counterproof_block_height),
+                    CounterproofData {
+                        txid: event.tx.compute_txid(),
+                        conf_height: event.counterproof_block_height,
+                        completed_signatures,
+                    },
                 );
 
                 self.state = GraphState::CounterProofPosted {
@@ -133,15 +145,17 @@ impl GraphSM {
         }
     }
 
-    /// Validates the counterproof txid and builds a [`GraphDuty::PublishCounterProofNack`] duty
-    /// if the current operator is the POV.
+    /// Validates the counterproof txid, decodes the per-byte operator signatures from its
+    /// witness, and builds a [`GraphDuty::PublishCounterProofNack`] duty if the current operator
+    /// is the POV. Returns the duties alongside the decoded signatures so the caller can persist
+    /// them on [`CounterproofData`].
     fn validate_counterproof_and_nack(
         &self,
         cfg: &GraphSMCfg,
         event: &CounterProofConfirmedEvent,
         graph_data: &DepositParams,
         graph_summary: &GameGraphSummary,
-    ) -> GSMResult<Vec<GraphDuty>> {
+    ) -> GSMResult<(Vec<GraphDuty>, CompletedSignatures)> {
         let counterproof_txid = event.tx.compute_txid();
 
         // Resolve the watchtower slot associated with the given counterproof transaction.
@@ -157,6 +171,8 @@ impl GraphSM {
                     "Invalid counterproof transaction",
                 )
             })?;
+
+        let completed_signatures = self.decode_completed_sigs(&event.tx, event)?;
 
         let pov_idx = self.context().operator_table().pov_idx();
         let duties = if self.context().operator_idx() == pov_idx {
@@ -182,8 +198,6 @@ impl GraphSM {
             let nack_data = CounterproofNackData { counterproof_txid };
             let counterproof_nack_tx = CounterproofNackTx::new(nack_data, *counterproof_connector);
 
-            let completed_signatures = self.decode_completed_sigs(&event.tx, event)?;
-
             vec![GraphDuty::PublishCounterProofNack {
                 deposit_idx: self.context().deposit_idx(),
                 counterprover_idx: event.counterprover_idx,
@@ -194,7 +208,7 @@ impl GraphSM {
             Vec::new()
         };
 
-        Ok(duties)
+        Ok((duties, completed_signatures))
     }
 
     /// Decodes the per-byte operator signatures from an on-chain Counterproof tx, in byte order.

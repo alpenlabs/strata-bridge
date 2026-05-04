@@ -13,7 +13,7 @@ mod tests {
             errors::GSMError,
             events::{GraphEvent, NewBlockEvent},
             machine::{GraphSM, generate_game_graph},
-            state::GraphState,
+            state::{CounterproofData, GraphState},
             tests::{
                 CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS, GraphInvalidTransition,
                 GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
@@ -24,8 +24,9 @@ mod tests {
                     bridge_proof_timedout_state_with, claimed_state, contested_state_with,
                     counter_proof_posted_state, counter_proof_posted_without_refuted_proof_state,
                 },
-                test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
-                test_graph_sm_ctx, test_graph_summary, test_graph_transition, test_recipient_desc,
+                test_completed_signatures, test_deposit_params, test_graph_invalid_transition,
+                test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary, test_graph_transition,
+                test_recipient_desc,
             },
             watchtower::watchtower_slot_for_operator,
         },
@@ -36,7 +37,7 @@ mod tests {
         last_block_height: u64,
         contest_block_height: u64,
         signatures: Vec<Signature>,
-        counterproofs_and_confs: BTreeMap<u32, (bitcoin::Txid, u64)>,
+        counterproofs_and_confs: BTreeMap<u32, CounterproofData>,
     ) -> GraphState {
         counter_proof_posted_state_with_values(
             counter_proof_posted_state(),
@@ -54,7 +55,7 @@ mod tests {
         contest_block_height: u64,
         fulfillment_txid: Option<bitcoin::Txid>,
         signatures: Vec<Signature>,
-        counterproofs_and_confs: BTreeMap<u32, (bitcoin::Txid, u64)>,
+        counterproofs_and_confs: BTreeMap<u32, CounterproofData>,
     ) -> GraphState {
         if let GraphState::CounterProofPosted {
             last_block_height: state_last_block_height,
@@ -81,7 +82,7 @@ mod tests {
         contest_block_height: u64,
         fulfillment_txid: Option<bitcoin::Txid>,
         signatures: Vec<Signature>,
-        counterproofs_and_confs: BTreeMap<u32, (bitcoin::Txid, u64)>,
+        counterproofs_and_confs: BTreeMap<u32, CounterproofData>,
     ) -> GraphState {
         counter_proof_posted_state_with_values(
             counter_proof_posted_without_refuted_proof_state(),
@@ -835,10 +836,11 @@ mod tests {
             .expect("non-POV operator should map to watchtower slot");
         let counterproofs_and_confs = BTreeMap::from([(
             TEST_NONPOV_IDX,
-            (
-                graph_summary.counterproofs[watchtower_slot].counterproof,
-                counterproof_conf_height,
-            ),
+            CounterproofData {
+                txid: graph_summary.counterproofs[watchtower_slot].counterproof,
+                conf_height: counterproof_conf_height,
+                completed_signatures: test_completed_signatures(),
+            },
         )]);
 
         let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
@@ -892,10 +894,11 @@ mod tests {
 
         let counterproofs_and_confs = BTreeMap::from([(
             TEST_NONPOV_IDX,
-            (
-                graph_summary.counterproofs[watchtower_slot].counterproof,
-                counterproof_conf_height,
-            ),
+            CounterproofData {
+                txid: graph_summary.counterproofs[watchtower_slot].counterproof,
+                conf_height: counterproof_conf_height,
+                completed_signatures: test_completed_signatures(),
+            },
         )]);
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
@@ -938,10 +941,11 @@ mod tests {
 
         let counterproofs_and_confs = BTreeMap::from([(
             TEST_NONPOV_IDX,
-            (
-                graph_summary.counterproofs[watchtower_slot].counterproof,
-                counterproof_conf_height,
-            ),
+            CounterproofData {
+                txid: graph_summary.counterproofs[watchtower_slot].counterproof,
+                conf_height: counterproof_conf_height,
+                completed_signatures: test_completed_signatures(),
+            },
         )]);
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
@@ -986,10 +990,11 @@ mod tests {
             .expect("non-POV operator should map to watchtower slot");
         let counterproofs_and_confs = BTreeMap::from([(
             TEST_NONPOV_IDX,
-            (
-                graph_summary.counterproofs[watchtower_slot].counterproof,
-                counterproof_conf_height,
-            ),
+            CounterproofData {
+                txid: graph_summary.counterproofs[watchtower_slot].counterproof,
+                conf_height: counterproof_conf_height,
+                completed_signatures: test_completed_signatures(),
+            },
         )]);
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
