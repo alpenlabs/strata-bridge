@@ -17,4 +17,23 @@ ignore = [
   "RUSTSEC-2026-0098",
   "RUSTSEC-2026-0099",
   "RUSTSEC-2026-0104",
+
+  # hickory-proto 0.25.2 pulled transitively via libp2p-mdns 0.48.0 and
+  # libp2p-dns 0.44.0 (libp2p 0.56.0 → strata-p2p). Latest published
+  # libp2p-mdns 0.48.0 still pins hickory-proto ^0.25.2; blocked on a
+  # libp2p upstream release. The bump is in flight in
+  # https://github.com/libp2p/rust-libp2p/pull/6395 (open, hickory 0.25 → 0.26).
+  #
+  # RUSTSEC-2026-0119: O(n²) DNS name compression during message encoding.
+  # Fix exists upstream (>=0.26.1) but is unreachable until libp2p bumps.
+  # Tracked upstream: https://github.com/libp2p/rust-libp2p/issues/6411.
+  #
+  # RUSTSEC-2026-0118: NSEC3 closest-encloser proof validation can enter
+  # an unbounded loop on cross-zone responses. No fixed upgrade is
+  # available. Low risk for this codebase: hickory is only reached via
+  # libp2p's peer-discovery/dns paths, and we do not perform DNSSEC
+  # validation on untrusted records.
+  # Tracked upstream: https://github.com/libp2p/rust-libp2p/issues/6412.
+  "RUSTSEC-2026-0118",
+  "RUSTSEC-2026-0119",
 ]
