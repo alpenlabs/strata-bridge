@@ -6,9 +6,23 @@ use bitcoin::Txid;
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary};
+use strata_mosaic_client_api::types::CompletedSignatures;
 use zkaleido::ProofReceipt;
+
+/// On-chain record of a confirmed counterproof.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CounterproofData {
+    /// Txid of the confirmed counterproof.
+    pub txid: Txid,
+    /// Bitcoin block height at which it confirmed.
+    pub conf_height: BitcoinBlockHeight,
+    /// Per-byte operator signatures decoded from the counterproof witness.
+    #[serde(with = "BigArray")]
+    pub completed_signatures: CompletedSignatures,
+}
 
 /// The state of a pegout graph associated with a particular deposit.
 /// Each graph is uniquely identified by the two-tuple (depositIdx, operatorIdx).
@@ -278,9 +292,8 @@ pub enum GraphState {
         /// The bridge proof currently being refuted, if one has been posted.
         refuted_proof: Option<ProofReceipt>,
 
-        /// The txids of the counterproof transactions submitted on chain along with their
-        /// confirmation heights.
-        counterproofs_and_confs: BTreeMap<OperatorIdx, (Txid, BitcoinBlockHeight)>,
+        /// Per-counterprover record of confirmed counterproofs.
+        counterproofs_and_confs: BTreeMap<OperatorIdx, CounterproofData>,
 
         /// The txids of the counterproof NACK transactions submitted on chain.
         counterproof_nacks: BTreeMap<OperatorIdx, Txid>,

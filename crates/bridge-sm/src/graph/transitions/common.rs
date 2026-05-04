@@ -265,8 +265,7 @@ impl GraphSM {
                 // If the pov operator has NOT submitted a counterproof, return early with no
                 // duties since ACK by pov operator is only possible if they have submitted the
                 // counterproof.
-                let Some((_, pov_counterproof_height)) = counterproofs_and_confs.get(&pov_idx)
-                else {
+                let Some(pov_counterproof) = counterproofs_and_confs.get(&pov_idx) else {
                     return Ok(GSMOutput::new());
                 };
 
@@ -274,7 +273,7 @@ impl GraphSM {
                 // can only be posted after the NACK timelock has expired.
                 // Graph owner should publish counterproof nack but this duty is handled in the
                 // process_counterproof_confirmed and retry. Hence, return with no duties.
-                if new_block_event.block_height <= pov_counterproof_height + nack_timelock {
+                if new_block_event.block_height <= pov_counterproof.conf_height + nack_timelock {
                     return Ok(GSMOutput::new());
                 }
 

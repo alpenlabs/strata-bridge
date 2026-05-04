@@ -14,7 +14,7 @@ use crate::{
         errors::GSMError,
         events::{BridgeProofConfirmedEvent, GraphEvent},
         machine::generate_game_graph,
-        state::GraphState,
+        state::{CounterproofData, GraphState},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
             create_nonpov_sm, create_sm, dummy_proof_receipt, get_state, mock_game_signatures,
@@ -23,8 +23,8 @@ use crate::{
                 bridge_proof_posted_state, contested_state, contested_state_with,
                 counter_proof_posted_state, counter_proof_posted_without_refuted_proof_state,
             },
-            test_bridge_proof_tx, test_deposit_params, test_graph_invalid_transition,
-            test_graph_sm_cfg, test_graph_transition,
+            test_bridge_proof_tx, test_completed_signatures, test_deposit_params,
+            test_graph_invalid_transition, test_graph_sm_cfg, test_graph_transition,
         },
         watchtower::watchtower_slot_for_operator,
     },
@@ -283,7 +283,11 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
     let mut counterproofs_and_confs = BTreeMap::new();
     counterproofs_and_confs.insert(
         TEST_NONPOV_IDX,
-        (existing_counterproof_txid, LATER_BLOCK_HEIGHT),
+        CounterproofData {
+            txid: existing_counterproof_txid,
+            conf_height: LATER_BLOCK_HEIGHT,
+            completed_signatures: test_completed_signatures(),
+        },
     );
 
     let from_state = GraphState::CounterProofPosted {

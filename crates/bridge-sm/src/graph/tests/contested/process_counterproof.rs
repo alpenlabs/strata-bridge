@@ -14,7 +14,7 @@ use crate::{
         errors::GSMError,
         events::{CounterProofConfirmedEvent, GraphEvent},
         machine::GraphSM,
-        state::GraphState,
+        state::{CounterproofData, GraphState},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
             TEST_POV_IDX, TestGraphTxKind, create_nonpov_sm, dummy_proof_receipt, get_state,
@@ -85,7 +85,11 @@ fn event_accepted_from_contested_pov() {
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
         event.counterprover_idx,
-        (event.tx.compute_txid(), event.counterproof_block_height),
+        CounterproofData {
+            txid: event.tx.compute_txid(),
+            conf_height: event.counterproof_block_height,
+            completed_signatures: test_completed_signatures(),
+        },
     );
 
     test_graph_transition(GraphTransition {
@@ -114,7 +118,11 @@ fn event_accepted_from_contested_nonpov() {
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
         event.counterprover_idx,
-        (event.tx.compute_txid(), event.counterproof_block_height),
+        CounterproofData {
+            txid: event.tx.compute_txid(),
+            conf_height: event.counterproof_block_height,
+            completed_signatures: test_completed_signatures(),
+        },
     );
 
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
@@ -150,7 +158,11 @@ fn event_accepted_from_bridge_proof_posted_pov() {
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
         event.counterprover_idx,
-        (event.tx.compute_txid(), event.counterproof_block_height),
+        CounterproofData {
+            txid: event.tx.compute_txid(),
+            conf_height: event.counterproof_block_height,
+            completed_signatures: test_completed_signatures(),
+        },
     );
 
     test_graph_transition(GraphTransition {
@@ -179,7 +191,11 @@ fn event_accepted_from_bridge_proof_posted_nonpov() {
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
         event.counterprover_idx,
-        (event.tx.compute_txid(), event.counterproof_block_height),
+        CounterproofData {
+            txid: event.tx.compute_txid(),
+            conf_height: event.counterproof_block_height,
+            completed_signatures: test_completed_signatures(),
+        },
     );
 
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
@@ -215,7 +231,11 @@ fn event_accepted_from_counter_proof_posted_pov() {
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
         event.counterprover_idx,
-        (event.tx.compute_txid(), event.counterproof_block_height),
+        CounterproofData {
+            txid: event.tx.compute_txid(),
+            conf_height: event.counterproof_block_height,
+            completed_signatures: test_completed_signatures(),
+        },
     );
 
     // Start from an empty CounterProofPosted state (no prior counterproofs).
@@ -259,7 +279,11 @@ fn event_duplicate() {
     let mut existing_counterproofs = BTreeMap::new();
     existing_counterproofs.insert(
         event.counterprover_idx,
-        (event.tx.compute_txid(), event.counterproof_block_height),
+        CounterproofData {
+            txid: event.tx.compute_txid(),
+            conf_height: event.counterproof_block_height,
+            completed_signatures: test_completed_signatures(),
+        },
     );
 
     let from_state = GraphState::CounterProofPosted {

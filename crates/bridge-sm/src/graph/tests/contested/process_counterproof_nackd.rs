@@ -19,7 +19,7 @@ use crate::{
         errors::GSMError,
         events::{CounterProofNackConfirmedEvent, GraphEvent},
         machine::GraphSM,
-        state::GraphState,
+        state::{CounterproofData, GraphState},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
             TEST_POV_IDX, build_test_graph_summary, create_nonpov_sm, get_state,
@@ -27,8 +27,8 @@ use crate::{
                 TEST_FULFILLMENT_TXID, all_nackd_state, all_state_variants,
                 counter_proof_posted_state,
             },
-            test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
-            test_graph_transition,
+            test_completed_signatures, test_deposit_params, test_graph_invalid_transition,
+            test_graph_sm_cfg, test_graph_transition,
         },
         watchtower::watchtower_slot_for_operator,
     },
@@ -82,8 +82,22 @@ fn counter_proof_posted_state_with_nacks(nacked_idxs: &[u32]) -> GraphState {
         contest_block_height: LATER_BLOCK_HEIGHT,
         refuted_proof: None,
         counterproofs_and_confs: BTreeMap::from([
-            (TEST_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
-            (SECOND_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
+            (
+                TEST_NONPOV_IDX,
+                CounterproofData {
+                    txid: counterproof_txid,
+                    conf_height: LATER_BLOCK_HEIGHT,
+                    completed_signatures: test_completed_signatures(),
+                },
+            ),
+            (
+                SECOND_NONPOV_IDX,
+                CounterproofData {
+                    txid: counterproof_txid,
+                    conf_height: LATER_BLOCK_HEIGHT,
+                    completed_signatures: test_completed_signatures(),
+                },
+            ),
         ]),
         counterproof_nacks: nacked_idxs
             .iter()
@@ -111,8 +125,22 @@ fn first_nack_stays_in_counter_proof_posted() {
             contest_block_height: LATER_BLOCK_HEIGHT,
             refuted_proof: None,
             counterproofs_and_confs: BTreeMap::from([
-                (TEST_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
-                (SECOND_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
+                (
+                    TEST_NONPOV_IDX,
+                    CounterproofData {
+                        txid: counterproof_txid,
+                        conf_height: LATER_BLOCK_HEIGHT,
+                        completed_signatures: test_completed_signatures(),
+                    },
+                ),
+                (
+                    SECOND_NONPOV_IDX,
+                    CounterproofData {
+                        txid: counterproof_txid,
+                        conf_height: LATER_BLOCK_HEIGHT,
+                        completed_signatures: test_completed_signatures(),
+                    },
+                ),
             ]),
             counterproof_nacks: BTreeMap::from([(TEST_NONPOV_IDX, event.tx.compute_txid())]),
         },
@@ -243,8 +271,22 @@ fn event_rejected_when_tx_is_counterproof_ack() {
         contest_block_height: LATER_BLOCK_HEIGHT,
         refuted_proof: None,
         counterproofs_and_confs: BTreeMap::from([
-            (TEST_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
-            (SECOND_NONPOV_IDX, (counterproof_txid, LATER_BLOCK_HEIGHT)),
+            (
+                TEST_NONPOV_IDX,
+                CounterproofData {
+                    txid: counterproof_txid,
+                    conf_height: LATER_BLOCK_HEIGHT,
+                    completed_signatures: test_completed_signatures(),
+                },
+            ),
+            (
+                SECOND_NONPOV_IDX,
+                CounterproofData {
+                    txid: counterproof_txid,
+                    conf_height: LATER_BLOCK_HEIGHT,
+                    completed_signatures: test_completed_signatures(),
+                },
+            ),
         ]),
         counterproof_nacks: BTreeMap::new(),
     };
