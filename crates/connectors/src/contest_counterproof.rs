@@ -12,10 +12,11 @@ use crate::{Connector, TaprootWitness};
 /// The output requires a series of operator signatures for spending.
 /// Each operator signature comes from an adaptor,
 /// which publishes one byte of counterproof data (including public values).
+/// Some bytes are exchanged at setup time, so they won't be exchanged via adaptors.
 ///
-/// The adaptor pubkey is supplied by mosaic per `(evaluator, garbler)` tableset, so it differs
-/// per watchtower. Each watchtower owns one instance of this connector, built with its own
-/// `operator_pubkey`, and appears as a distinct output on the Contest transaction.
+/// Because Mosaic supplies one adaptor public key per evaluator-garbler pair,
+/// there is a unique operator public key for each operator-watchtower pair.
+/// Therefore, each pair has a unique instance of this connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ContestCounterproofOutput {
     network: Network,
@@ -27,8 +28,11 @@ pub struct ContestCounterproofOutput {
 impl ContestCounterproofOutput {
     /// Creates a new connector.
     ///
-    /// `n_data` is the length of the serialized counterproof (including public values).
-    /// This is equal to the number of required operator signatures.
+    /// `n_data` is the number of counterproof bytes (including public values)
+    /// that are exchanged. This does not include bytes that have already been
+    /// exchanged at setup time.
+    ///
+    /// `n_data` is equal to the number of required operator signatures.
     pub const fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
@@ -111,12 +115,12 @@ pub struct ContestCounterproofSpend;
 pub struct ContestCounterproofWitness {
     /// N/N signature.
     ///
-    /// This signature signs the first sighash.
+    /// Use [`Connector::get_signing_info()`] to create this signature.
     pub n_of_n_signature: schnorr::Signature,
-    /// 1 operator signature for each byte of data that is published onchain.
+    /// 1 operator signature for each byte of counterproof data that is published onchain.
     ///
-    /// Each byte of data comes with a unique sighash.
-    /// The first operator signature uses **the same sighash** as the N/N signature.
+    /// Use [`Connector::get_sighashes_with_code_separator()`] to create these signatures.
+    /// Each signature uses a unique sighash.
     pub operator_signatures: Vec<schnorr::Signature>,
 }
 
