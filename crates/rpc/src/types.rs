@@ -255,6 +255,11 @@ pub enum RpcStakeState {
         /// Txid of the confirmed unstaking transaction.
         unstaking_txid: Txid,
     },
+    /// Stake has been slashed by another operator.
+    Slashed {
+        /// Txid of the confirmed slash transaction.
+        slash_txid: Txid,
+    },
 }
 
 /// Per-operator stake status.

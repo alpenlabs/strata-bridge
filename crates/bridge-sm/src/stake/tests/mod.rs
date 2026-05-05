@@ -1,11 +1,13 @@
 //! Unit tests for the Stake State Machine.
 
+mod introspection;
 mod nag_received;
 mod nag_tick;
 mod new_block;
 mod preimage_revealed;
 mod prop_tests;
 mod retry_tick;
+mod slash_confirmed;
 mod stake_confirmed;
 mod stake_data_received;
 mod tx_classifier;
@@ -20,7 +22,7 @@ use std::{
 };
 
 use bitcoin::{
-    Amount, Network, OutPoint,
+    Amount, Network, OutPoint, Transaction,
     hashes::{Hash, sha256},
     relative,
 };
@@ -32,12 +34,14 @@ use strata_bridge_primitives::{
     key_agg::create_agg_ctx, operator_table::OperatorTable, types::P2POperatorPubKey,
 };
 use strata_bridge_test_utils::{
+    bitcoin::generate_spending_tx,
     bridge_fixtures::{TEST_MAGIC_BYTES, TEST_POV_IDX, random_p2tr_desc},
     prelude::generate_keypair,
 };
 use strata_bridge_tx_graph::{
     musig_functor::StakeFunctor,
     stake_graph::{ProtocolParams, StakeGraph, StakeGraphSummary},
+    transactions::prelude::StakeTx,
 };
 
 use crate::{
@@ -245,6 +249,19 @@ static TEST_GRAPH_SUMMARY: LazyLock<StakeGraphSummary> = LazyLock::new(|| TEST_G
 const STAKE_HEIGHT: u64 = 100;
 /// Block height of the unstaking intent transaction.
 const UNSTAKING_INTENT_HEIGHT: u64 = 200;
+
+/// Builds a transaction that spends the stake output of the test stake transaction
+/// (so it qualifies as a slash transaction).
+fn slash_tx() -> Transaction {
+    generate_spending_tx(
+        OutPoint {
+            txid: TEST_GRAPH_SUMMARY.stake,
+            vout: StakeTx::STAKE_VOUT,
+        },
+        // Arbitrary witness data — keeps the txid distinct from the unstaking tx.
+        &[vec![0x42]],
+    )
+}
 
 // ┌───────────────────────────────────────────────────────────────────┐
 // │                             Musig2                                │

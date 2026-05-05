@@ -43,7 +43,7 @@ fn preimage_revealed_state() -> StakeState {
         stake_data: TEST_STAKE_DATA.clone(),
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        summary: *TEST_GRAPH_SUMMARY,
         signatures: Some(*TEST_FINAL_SIGS).into(),
     }
 }
@@ -66,6 +66,11 @@ fn all_state_variants() -> Vec<StakeState> {
         StakeState::Unstaked {
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        },
+        StakeState::Slashed {
+            summary: *TEST_GRAPH_SUMMARY,
+            slash_txid: slash_tx().compute_txid(),
+            preimage: None,
         },
     ]
 }
@@ -113,6 +118,19 @@ fn classify_unstaking_tx() {
         matches!(result, Some(StakeEvent::UnstakingConfirmed(_))),
         "expected Some(UnstakingConfirmed) but got {result:?}"
     );
+}
+
+#[test]
+fn classify_slash_tx() {
+    for state in [confirmed_state(), preimage_revealed_state()] {
+        let sm = create_state_machine(state.clone());
+        let result = sm.classify_tx(&TEST_CFG, &slash_tx(), CLASSIFICATION_HEIGHT);
+
+        assert!(
+            matches!(result, Some(StakeEvent::SlashConfirmed(_))),
+            "expected Some(SlashConfirmed) but got {result:?} in state {state}"
+        );
+    }
 }
 
 #[test]
@@ -171,6 +189,17 @@ fn ignore_relevant_tx_in_mismatching_states() {
             unstaking_result.is_some(),
             expect_unstaking,
             "unexpected unstaking classification in state {state}"
+        );
+
+        let slash_result = sm.classify_tx(&TEST_CFG, &slash_tx(), CLASSIFICATION_HEIGHT);
+        let expect_slash = matches!(
+            state,
+            StakeState::Confirmed { .. } | StakeState::PreimageRevealed { .. }
+        );
+        assert_eq!(
+            slash_result.is_some(),
+            expect_slash,
+            "unexpected slash classification in state {state}"
         );
     }
 }

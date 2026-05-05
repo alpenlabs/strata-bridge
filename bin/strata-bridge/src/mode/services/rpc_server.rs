@@ -443,6 +443,9 @@ const fn stake_state_to_rpc(state: &StakeState) -> RpcStakeState {
         StakeState::Unstaked { unstaking_txid, .. } => RpcStakeState::Unstaked {
             unstaking_txid: *unstaking_txid,
         },
+        StakeState::Slashed { slash_txid, .. } => RpcStakeState::Slashed {
+            slash_txid: *slash_txid,
+        },
     }
 }
 

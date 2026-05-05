@@ -69,9 +69,9 @@ impl StakeSM {
                 self.state = StakeState::PreimageRevealed {
                     last_block_height: event.block_height,
                     stake_data: stake_data.clone(),
+                    summary: *summary,
                     preimage,
                     unstaking_intent_block_height: event.block_height,
-                    expected_unstaking_txid: summary.unstaking,
                     signatures: Box::new(*signatures.clone()),
                 };
 
@@ -80,7 +80,7 @@ impl StakeSM {
             StakeState::PreimageRevealed { .. } => {
                 Err(SSMError::duplicate(self.state().clone(), event.into()))
             }
-            StakeState::Unstaked { .. } => Err(SSMError::rejected(
+            StakeState::Unstaked { .. } | StakeState::Slashed { .. } => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
                 "Terminal states reject all incoming events",
