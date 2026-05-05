@@ -128,11 +128,14 @@ impl StakeState {
     /// Returns true if staking has happened.
     ///
     /// This means that other state machines can start working.
-    /// This predicate returns true even after unstaking has completed.
+    /// This predicate returns true even after unstaking has completed or after being slashed.
     pub const fn has_staked(&self) -> bool {
         matches!(
             self,
-            Self::Confirmed { .. } | Self::PreimageRevealed { .. } | Self::Unstaked { .. }
+            Self::Confirmed { .. }
+                | Self::PreimageRevealed { .. }
+                | Self::Unstaked { .. }
+                | Self::Slashed { .. }
         )
     }
 
@@ -149,15 +152,23 @@ impl StakeState {
     /// Returns true if this operator has been removed from the future covenant.
     ///
     /// Complement of [`is_stake_available`](Self::is_stake_available) for operators that have
-    /// already staked: `PreimageRevealed` and `Unstaked` states indicate the operator is
-    /// winding down and must not be included in future covenant signing sessions.
+    /// already staked: `PreimageRevealed`, `Unstaked` and `Slashed` states indicate the operator
+    /// is no longer available and must not be included in future covenant signing sessions.
     pub const fn is_removed_from_future_covenant(&self) -> bool {
-        matches!(self, Self::PreimageRevealed { .. } | Self::Unstaked { .. })
+        matches!(
+            self,
+            Self::PreimageRevealed { .. } | Self::Unstaked { .. } | Self::Slashed { .. }
+        )
     }
 
     /// Returns true if the stake is fully unstaked.
     pub const fn is_unstaked(&self) -> bool {
         matches!(self, Self::Unstaked { .. })
+    }
+
+    /// Returns true if the stake has been slashed.
+    pub const fn is_slashed(&self) -> bool {
+        matches!(self, Self::Slashed { .. })
     }
 
     /// Returns the unstaking preimage once revealed.
@@ -166,6 +177,7 @@ impl StakeState {
             Self::PreimageRevealed { preimage, .. } | Self::Unstaked { preimage, .. } => {
                 Some(*preimage)
             }
+            Self::Slashed { preimage, .. } => *preimage,
             _ => None,
         }
     }
