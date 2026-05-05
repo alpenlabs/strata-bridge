@@ -80,12 +80,12 @@ pub enum StakeState {
         last_block_height: BitcoinBlockHeight,
         /// Data that is required to construct the stake graph.
         stake_data: MinimumStakeData,
+        /// Collection of all TXIDs in the stake graph.
+        summary: StakeGraphSummary,
         /// The revealed unstaking preimage.
         preimage: [u8; 32],
         /// Block height where the unstaking intent transaction was confirmed.
         unstaking_intent_block_height: BitcoinBlockHeight,
-        /// ID of the expected unstaking transaction.
-        expected_unstaking_txid: Txid,
         /// 1 signature per musig transaction input.
         ///
         /// The signatures may be absent if an operator chose to withhold their partial signature
