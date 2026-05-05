@@ -85,6 +85,28 @@ uv run python entry.py
 ```
 
 
+## Bitcoin snapshot fixture
+
+Tests start `bitcoind -regtest` from a committed snapshot at
+`functional-tests/.bitcoin-snapshot/`.
+The snapshot contains a `testwallet` with `BitcoinEnvConfig.initial_blocks`
+(currently 101) blocks pre-mined to a single miner address, so each test run
+skips the initial mine.
+
+
+### Rebuilding the snapshot
+
+Rebuild whenever you bump `bitcoind`, change `BitcoinEnvConfig.initial_blocks`,
+or bump `SNAPSHOT_VERSION` in `utils/bitcoin_snapshot/__init__.py`:
+
+```bash
+cd functional-tests
+rm -rf .bitcoin-snapshot
+./build-bitcoin-snapshot.sh
+git add .bitcoin-snapshot
+git commit -m "chore(functional-tests): rebuild bitcoin snapshot"
+```
+
 ## Running tests
 ```bash
 # Run all tests
