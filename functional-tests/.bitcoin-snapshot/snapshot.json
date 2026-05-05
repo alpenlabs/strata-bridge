@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "bitcoind_version": "Bitcoin Core daemon version v30.2.0 bitcoind",
+  "network": "regtest",
+  "chain_tip": {
+    "height": 101,
+    "block_hash": "72a6d0ebaa7ab9da39d4395cefa99794bd256910940d5f412a83dfd8b3176fcb"
+  },
+  "miner_wallet_name": "testwallet",
+  "miner_address": "bcrt1qaeeg9cwce4l365x30r788fsfmgf6cf2z6s5v0h",
+  "size_bytes": 18242707,
+  "created_at": "2026-05-05T05:53:47+00:00"
+}

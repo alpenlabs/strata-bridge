@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import flexitest
@@ -9,6 +10,7 @@ from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from factory.common.asm_params import write_asm_params_json
 from factory.fdb import generate_fdb_root_directory
 from utils import (
+    bitcoin_snapshot,
     generate_blocks,
     wait_until_bitcoind_ready,
 )
@@ -59,18 +61,37 @@ class BaseEnv(flexitest.EnvConfig):
         self.mosaic_peer_ids = get_peer_ids(num_operators)
 
     def setup_bitcoin(self, ectx: flexitest.EnvContext):
-        """Setup Bitcoin node with wallet and initial funding."""
+        """Setup Bitcoin node by restoring the committed regtest snapshot."""
+        meta = bitcoin_snapshot.validate(self.initial_blocks)
+        expected_tip = bitcoin_snapshot.chain_tip()
+
         btc_fac = ectx.get_factory("bitcoin")
-        bitcoind = btc_fac.create_regtest_bitcoin()
+        bitcoind = btc_fac.create_regtest_bitcoin(
+            prepopulated_datadir=bitcoin_snapshot.snapshot_path(),
+        )
         brpc = bitcoind.create_rpc()
-        wait_until_bitcoind_ready(brpc, timeout=10)
+        wait_until_bitcoind_ready(brpc, timeout=30)
 
-        # Create new wallet
-        brpc.proxy.createwallet(bitcoind.get_prop("walletname"))
-        wallet_addr = brpc.proxy.getnewaddress()
+        # Verify the running chain matches the snapshot's recorded tip
+        actual_height = brpc.proxy.getblockcount()
+        actual_hash = brpc.proxy.getbestblockhash()
+        if actual_height != expected_tip["height"] or actual_hash != expected_tip["block_hash"]:
+            raise RuntimeError(
+                "bitcoin snapshot tip mismatch after restore: "
+                f"rpc=(height={actual_height}, hash={actual_hash}), "
+                f"metadata=(height={expected_tip['height']}, "
+                f"hash={expected_tip['block_hash']}); "
+                f"{bitcoin_snapshot.REBUILD_HINT}"
+            )
+        logging.info(
+            "resuming L1 chain from snapshot: tip height=%s block_hash=%s (verified via RPC)",
+            actual_height,
+            actual_hash,
+        )
 
-        # Mine initial blocks to have usable funds
-        brpc.proxy.generatetoaddress(self.initial_blocks, wallet_addr)
+        # Snapshot ships the wallet but bitcoind doesn't auto-load it on startup.
+        brpc.proxy.loadwallet(bitcoind.get_prop("walletname"))
+        wallet_addr = meta["miner_address"]
 
         # Start automatic block generation
         miner = None
