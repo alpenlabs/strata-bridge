@@ -2,6 +2,7 @@
 
 mod new_block;
 mod preimage_revealed;
+mod slash_confirmed;
 mod stake_confirmed;
 mod stake_data_received;
 mod unstaking_confirmed;

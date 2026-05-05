@@ -48,7 +48,7 @@ impl StakeSM {
 
                 Ok(SMOutput::new())
             }
-            StakeState::Unstaked { .. } => Err(SSMError::rejected(
+            StakeState::Unstaked { .. } | StakeState::Slashed { .. } => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
                 "Terminal state rejects all incoming events",

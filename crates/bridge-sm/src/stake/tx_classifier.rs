@@ -46,7 +46,9 @@ impl TxClassifier for StakeSM {
                 Some(UnstakingConfirmedEvent { tx: tx.clone() }.into())
             }
 
-            StakeState::PreimageRevealed { .. } | StakeState::Unstaked { .. } => None,
+            StakeState::PreimageRevealed { .. }
+            | StakeState::Unstaked { .. }
+            | StakeState::Slashed { .. } => None,
         }
     }
 }
