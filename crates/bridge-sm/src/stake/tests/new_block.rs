@@ -37,7 +37,7 @@ fn states_with_last_block_height(last_block_height: u64) -> [StakeState; 6] {
             stake_data: TEST_STAKE_DATA.clone(),
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-            expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+            summary: *TEST_GRAPH_SUMMARY,
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
     ]
@@ -52,7 +52,7 @@ fn preimage_revealed_state(
         stake_data: TEST_STAKE_DATA.clone(),
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height,
-        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        summary: *TEST_GRAPH_SUMMARY,
         signatures: Some(*TEST_FINAL_SIGS).into(),
     }
 }
@@ -159,7 +159,7 @@ fn preimage_revealed_timelock_mature_nonpov_no_duty() {
         stake_data: TEST_STAKE_DATA.clone(),
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        summary: *TEST_GRAPH_SUMMARY,
         signatures: None.into(),
     };
     let expected_state = StakeState::PreimageRevealed {
@@ -167,7 +167,7 @@ fn preimage_revealed_timelock_mature_nonpov_no_duty() {
         stake_data: TEST_STAKE_DATA.clone(),
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_intent_block_height: UNSTAKING_INTENT_HEIGHT,
-        expected_unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        summary: *TEST_GRAPH_SUMMARY,
         signatures: None.into(),
     };
 

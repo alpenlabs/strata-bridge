@@ -42,10 +42,7 @@ impl TxClassifier for StakeSM {
                     .into()
                 })
             }
-            StakeState::PreimageRevealed {
-                expected_unstaking_txid,
-                ..
-            } if txid == *expected_unstaking_txid => {
+            StakeState::PreimageRevealed { summary, .. } if txid == summary.unstaking => {
                 Some(UnstakingConfirmedEvent { tx: tx.clone() }.into())
             }
 

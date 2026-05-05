@@ -31,11 +31,9 @@ impl StakeSM {
                 )),
             )),
             StakeState::PreimageRevealed {
-                preimage,
-                expected_unstaking_txid,
-                ..
+                preimage, summary, ..
             } => {
-                if event.tx.compute_txid() != *expected_unstaking_txid {
+                if event.tx.compute_txid() != summary.unstaking {
                     return Err(SSMError::rejected(
                         self.state().clone(),
                         event.into(),
@@ -45,7 +43,7 @@ impl StakeSM {
 
                 self.state = StakeState::Unstaked {
                     preimage: *preimage,
-                    unstaking_txid: *expected_unstaking_txid,
+                    unstaking_txid: summary.unstaking,
                 };
 
                 Ok(SMOutput::new())
