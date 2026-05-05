@@ -1,5 +1,6 @@
 //! Unit tests for the Stake State Machine.
 
+mod introspection;
 mod nag_received;
 mod nag_tick;
 mod new_block;
