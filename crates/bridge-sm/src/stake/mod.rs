@@ -7,6 +7,7 @@ pub mod errors;
 pub mod events;
 mod handlers;
 pub mod machine;
+mod predicates;
 pub mod state;
 mod transitions;
 mod tx_classifier;
