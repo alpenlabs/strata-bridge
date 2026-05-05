@@ -2,7 +2,6 @@
 
 use bitcoin::{OutPoint, Transaction};
 use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_txid};
-use strata_bridge_tx_graph::transactions::prelude::StakeTx;
 
 use super::*;
 use crate::stake::{errors::SSMError, events::SlashConfirmedEvent, state::StakeState};
@@ -68,19 +67,6 @@ fn unstaked_state() -> StakeState {
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
     }
-}
-
-/// A transaction that spends the stake output of the stake transaction
-/// (so it qualifies as a slash transaction).
-fn slash_tx() -> Transaction {
-    generate_spending_tx(
-        OutPoint {
-            txid: TEST_GRAPH_SUMMARY.stake,
-            vout: StakeTx::STAKE_VOUT,
-        },
-        // Arbitrary witness data — keeps the txid distinct from the unstaking tx.
-        &[vec![0x42]],
-    )
 }
 
 /// A transaction that does not spend the stake output, so it must not be classified as a slash.
