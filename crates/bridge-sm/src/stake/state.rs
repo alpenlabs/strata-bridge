@@ -99,6 +99,22 @@ pub enum StakeState {
         /// ID of the confirmed unstaking transaction.
         unstaking_txid: Txid,
     },
+    /// The operator's stake has been slashed by another operator.
+    ///
+    /// A slash transaction is any transaction that spends the stake output of the stake
+    /// transaction but is not the legitimate unstaking transaction.
+    Slashed {
+        /// Collection of all TXIDs in the stake graph.
+        summary: StakeGraphSummary,
+        /// Txid of the confirmed slash transaction.
+        slash_txid: Txid,
+        /// The unstaking preimage if the transition occurred from
+        /// [`StakeState::PreimageRevealed`].
+        ///
+        /// This is required by downstream state machines (e.g. for the unstaking burn) when
+        /// the operator had already revealed the preimage prior to being slashed.
+        preimage: Option<[u8; 32]>,
+    },
 }
 
 impl StakeState {
@@ -176,7 +192,7 @@ impl StakeState {
             | Self::PreimageRevealed {
                 last_block_height, ..
             } => Some(*last_block_height),
-            Self::Unstaked { .. } => None,
+            Self::Unstaked { .. } | Self::Slashed { .. } => None,
         }
     }
 
@@ -202,7 +218,7 @@ impl StakeState {
             | Self::PreimageRevealed {
                 last_block_height, ..
             } => Some(last_block_height),
-            Self::Unstaked { .. } => None,
+            Self::Unstaked { .. } | Self::Slashed { .. } => None,
         }
     }
 }
@@ -217,6 +233,7 @@ impl Display for StakeState {
             Self::Confirmed { .. } => "Confirmed",
             Self::PreimageRevealed { .. } => "PreimageRevealed",
             Self::Unstaked { .. } => "Unstaked",
+            Self::Slashed { .. } => "Slashed",
         };
 
         write!(f, "{label}")

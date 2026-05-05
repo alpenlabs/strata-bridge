@@ -80,7 +80,7 @@ impl StakeSM {
             StakeState::PreimageRevealed { .. } => {
                 Err(SSMError::duplicate(self.state().clone(), event.into()))
             }
-            StakeState::Unstaked { .. } => Err(SSMError::rejected(
+            StakeState::Unstaked { .. } | StakeState::Slashed { .. } => Err(SSMError::rejected(
                 self.state().clone(),
                 event.into(),
                 "Terminal states reject all incoming events",

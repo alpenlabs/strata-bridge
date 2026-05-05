@@ -61,6 +61,14 @@ pub struct UnstakingConfirmedEvent {
     pub tx: Transaction,
 }
 
+/// Event notifying that a slash transaction (spending the stake output but
+/// distinct from the legitimate unstaking transaction) has been confirmed on-chain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlashConfirmedEvent {
+    /// The confirmed slash transaction.
+    pub tx: Transaction,
+}
+
 /// Event signalling that a new bitcoin block has been observed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewBlockEvent {
@@ -100,6 +108,8 @@ pub enum StakeEvent {
     PreimageRevealed(PreimageRevealedEvent),
     /// The unstaking transaction has been confirmed on-chain.
     UnstakingConfirmed(UnstakingConfirmedEvent),
+    /// A slash transaction has been confirmed on-chain.
+    SlashConfirmed(SlashConfirmedEvent),
     /// A new block has been observed on-chain.
     NewBlock(NewBlockEvent),
     /// Event signalling that retriable duties should be emitted for the current state.
@@ -119,6 +129,7 @@ impl std::fmt::Display for StakeEvent {
             Self::StakeConfirmed(_) => "StakeConfirmed",
             Self::PreimageRevealed(_) => "PreimageRevealed",
             Self::UnstakingConfirmed(_) => "UnstakingConfirmed",
+            Self::SlashConfirmed(_) => "SlashConfirmed",
             Self::NewBlock(_) => "NewBlock",
             Self::RetryTick(_) => "RetryTick",
             Self::NagTick(_) => "NagTick",
@@ -178,6 +189,12 @@ impl std::fmt::Display for UnstakingConfirmedEvent {
     }
 }
 
+impl std::fmt::Display for SlashConfirmedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SlashConfirmed via {}", self.tx.compute_txid())
+    }
+}
+
 impl std::fmt::Display for NewBlockEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "NewBlock at height {}", self.block_height)
@@ -223,6 +240,7 @@ impl_into_stake_event!(UnstakingPartialsReceivedEvent, UnstakingPartialsReceived
 impl_into_stake_event!(StakeConfirmedEvent, StakeConfirmed);
 impl_into_stake_event!(PreimageRevealedEvent, PreimageRevealed);
 impl_into_stake_event!(UnstakingConfirmedEvent, UnstakingConfirmed);
+impl_into_stake_event!(SlashConfirmedEvent, SlashConfirmed);
 impl_into_stake_event!(NewBlockEvent, NewBlock);
 impl_into_stake_event!(RetryTickEvent, RetryTick);
 impl_into_stake_event!(NagTickEvent, NagTick);
