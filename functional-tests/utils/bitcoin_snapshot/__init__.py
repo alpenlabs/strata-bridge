@@ -78,7 +78,7 @@ def bitcoind_version_string() -> str:
 
 
 def load_metadata() -> dict | None:
-    """Read ``snapshot.json``; return ``None`` if missing or unparseable."""
+    """Read ``snapshot.json``; return ``None`` if missing or unparsable."""
     path = snapshot_metadata_path()
     if not path.is_file():
         return None
@@ -107,7 +107,7 @@ def validate(initial_blocks: int) -> dict:
     meta = load_metadata()
     if meta is None:
         raise SnapshotMissingError(
-            f"bitcoin snapshot metadata missing or unparseable at "
+            f"bitcoin snapshot metadata missing or unparsable at "
             f"{snapshot_metadata_path()}; {REBUILD_HINT}"
         )
 

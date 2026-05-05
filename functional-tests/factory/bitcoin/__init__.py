@@ -1,8 +1,9 @@
-import shutil
 from pathlib import Path
 
 import flexitest
 from bitcoinlib.services.bitcoind import BitcoindClient
+
+from utils import bitcoin_snapshot
 
 BD_USERNAME = "user"
 BD_PASSWORD = "password"
@@ -21,20 +22,9 @@ PORT_KEYS = (
 
 class BitcoinFactory(flexitest.Factory):
     @flexitest.with_ectx("ctx")
-    def create_regtest_bitcoin(
-        self,
-        ctx: flexitest.EnvContext,
-        prepopulated_datadir: Path | None = None,
-    ) -> flexitest.Service:
+    def create_regtest_bitcoin(self, ctx: flexitest.EnvContext) -> flexitest.Service:
         datadir = Path(ctx.make_service_dir("bitcoin"))
-
-        if prepopulated_datadir is not None:
-            src_regtest = Path(prepopulated_datadir) / "regtest"
-            if not src_regtest.is_dir():
-                raise FileNotFoundError(
-                    f"prepopulated bitcoin datadir missing regtest/ at {src_regtest}"
-                )
-            shutil.copytree(src_regtest, datadir / "regtest")
+        bitcoin_snapshot.restore_into(datadir)
 
         logfile = str(datadir / "service.log")
 

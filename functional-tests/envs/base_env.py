@@ -63,12 +63,10 @@ class BaseEnv(flexitest.EnvConfig):
     def setup_bitcoin(self, ectx: flexitest.EnvContext):
         """Setup Bitcoin node by restoring the committed regtest snapshot."""
         meta = bitcoin_snapshot.validate(self.initial_blocks)
-        expected_tip = bitcoin_snapshot.chain_tip()
+        expected_tip = meta["chain_tip"]
 
         btc_fac = ectx.get_factory("bitcoin")
-        bitcoind = btc_fac.create_regtest_bitcoin(
-            prepopulated_datadir=bitcoin_snapshot.snapshot_path(),
-        )
+        bitcoind = btc_fac.create_regtest_bitcoin()
         brpc = bitcoind.create_rpc()
         wait_until_bitcoind_ready(brpc, timeout=30)
 
