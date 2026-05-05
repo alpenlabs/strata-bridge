@@ -5,8 +5,12 @@ use strata_bridge_primitives::types::BitcoinBlockHeight;
 
 use crate::{
     stake::{
-        events::{PreimageRevealedEvent, StakeConfirmedEvent, UnstakingConfirmedEvent},
+        events::{
+            PreimageRevealedEvent, SlashConfirmedEvent, StakeConfirmedEvent,
+            UnstakingConfirmedEvent,
+        },
         machine::StakeSM,
+        predicates::is_slash_tx,
         state::StakeState,
     },
     tx_classifier::TxClassifier,
@@ -33,20 +37,25 @@ impl TxClassifier for StakeSM {
             | StakeState::UnstakingSigned { summary, .. } => {
                 (txid == summary.stake).then(|| StakeConfirmedEvent { tx: tx.clone() }.into())
             }
-            StakeState::Confirmed { summary, .. } => {
-                (txid == summary.unstaking_intent).then(|| {
-                    PreimageRevealedEvent {
-                        tx: tx.clone(),
-                        block_height: height,
-                    }
-                    .into()
-                })
+            StakeState::Confirmed { summary, .. } if txid == summary.unstaking_intent => Some(
+                PreimageRevealedEvent {
+                    tx: tx.clone(),
+                    block_height: height,
+                }
+                .into(),
+            ),
+            StakeState::Confirmed { summary, .. } if is_slash_tx(summary, tx) => {
+                Some(SlashConfirmedEvent { tx: tx.clone() }.into())
             }
             StakeState::PreimageRevealed { summary, .. } if txid == summary.unstaking => {
                 Some(UnstakingConfirmedEvent { tx: tx.clone() }.into())
             }
+            StakeState::PreimageRevealed { summary, .. } if is_slash_tx(summary, tx) => {
+                Some(SlashConfirmedEvent { tx: tx.clone() }.into())
+            }
 
-            StakeState::PreimageRevealed { .. }
+            StakeState::Confirmed { .. }
+            | StakeState::PreimageRevealed { .. }
             | StakeState::Unstaked { .. }
             | StakeState::Slashed { .. } => None,
         }
