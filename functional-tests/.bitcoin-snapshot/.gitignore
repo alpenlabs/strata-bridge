@@ -1,0 +1,7 @@
+# Committed regtest fixture: un-ignore LevelDB write-ahead logs (numeric-
+# prefixed .log files) that the repo-wide *.log* rule would otherwise
+# swallow. Scoped narrowly to the three LevelDB subdirs so bitcoind's own
+# debug.log stays ignored.
+!regtest/blocks/index/[0-9]*.log
+!regtest/chainstate/[0-9]*.log
+!regtest/indexes/txindex/[0-9]*.log
