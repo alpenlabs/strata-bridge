@@ -125,7 +125,6 @@ pub async fn execute_graph_duty(
         }
         GraphDuty::GenerateAndPublishBridgeProof {
             graph_idx,
-            operator_index,
             last_block_height,
             contest_txid,
             game_index,
@@ -134,7 +133,7 @@ pub async fn execute_graph_duty(
             generate_and_publish_bridge_proof(
                 &output_handles,
                 graph_idx.deposit,
-                *operator_index,
+                graph_idx.operator,
                 *last_block_height,
                 *contest_txid,
                 *game_index,

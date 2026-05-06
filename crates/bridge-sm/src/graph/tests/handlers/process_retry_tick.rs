@@ -408,7 +408,6 @@ mod tests {
 
         GraphDuty::GenerateAndPublishBridgeProof {
             graph_idx: sm.context().graph_idx(),
-            operator_index: sm.context().operator_idx(),
             last_block_height,
             contest_txid: graph_summary.contest,
             game_index: graph_data.game_index,
