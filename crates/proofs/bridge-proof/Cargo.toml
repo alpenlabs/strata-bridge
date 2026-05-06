@@ -8,23 +8,23 @@ workspace = true
 
 [dependencies]
 moho-recursive-proof.workspace = true
+moho-runtime-interface.workspace = true
 moho-types.workspace = true
 ssz.workspace = true
 ssz_derive.workspace = true
+strata-asm-params.workspace = true
+strata-asm-proof-impl.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-bridge-v1-txs.workspace = true
+strata-asm-spec.workspace = true
 strata-codec.workspace = true
 strata-merkle.workspace = true
 strata-predicate.workspace = true
 zkaleido = { workspace = true, features = ["ssz"] }
-
-moho-runtime-interface.workspace = true
-serde_json.workspace = true
-strata-asm-params.workspace = true
-strata-asm-proof-impl.workspace = true
-strata-asm-spec.workspace = true
 zkaleido-native-adapter.workspace = true
 zkaleido-sp1-host = { workspace = true, optional = true }
+
+serde_json.workspace = true
 
 [features]
 default = []

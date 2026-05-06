@@ -128,10 +128,12 @@ strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.
 ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
 ssz_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
 
+# Dependencies from alpenlabs/moho
 moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.2" }
 moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.2" }
 moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.2" }
 
+# Dependencies from alpenlabs/zkaleido
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
 zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
