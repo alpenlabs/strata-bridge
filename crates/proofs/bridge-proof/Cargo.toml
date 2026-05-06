@@ -22,6 +22,11 @@ zkaleido = { workspace = true, features = ["ssz"] }
 zkaleido-sp1-host = { workspace = true, optional = true }
 
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
+moho-runtime-interface.workspace = true
+serde_json.workspace = true
+strata-asm-params.workspace = true
+strata-asm-proof-impl.workspace = true
+strata-asm-spec.workspace = true
 zkaleido-native-adapter.workspace = true
 
 [features]

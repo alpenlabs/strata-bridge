@@ -1,6 +1,6 @@
 //! Wire types for the bridge proof program.
 
-pub use moho_types::MohoState;
+pub use moho_types::{MohoState, RecursiveMohoProof};
 use ssz_derive::{Decode, Encode};
 pub use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
 pub use strata_merkle::MerkleProofB32;
@@ -11,8 +11,8 @@ pub struct BridgeProofInput {
     /// Moho state at the proof anchor.
     pub moho_state: MohoState,
 
-    /// Groth16 validity proof of the Moho state recursive transition.
-    pub moho_proof: Vec<u8>,
+    /// Recursive Moho proof for the `genesis_moho_state → moho_state` transition.
+    pub moho_proof: RecursiveMohoProof,
 
     /// `strata_codec::Codec`-encoded [`OperatorClaimUnlock`].
     pub claim_unlock: Vec<u8>,
