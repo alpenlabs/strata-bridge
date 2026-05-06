@@ -32,9 +32,8 @@ mod backend {
     pub type BridgeProofHost = SP1Host;
 
     /// Constructs the [`BridgeProofHost`] for the active backend.
-    ///
-    /// TODO: <https://alpenlabs.atlassian.net/browse/STR-1977>
-    /// Wire the SP1 host once the bridge-proof guest builder lands.
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-1977>
+    // Wire the SP1 host once the bridge-proof guest builder lands.
     pub fn build_bridge_proof_host() -> BridgeProofHost {
         todo!("SP1 bridge-proof host not yet wired")
     }
