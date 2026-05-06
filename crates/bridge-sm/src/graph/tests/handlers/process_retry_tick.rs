@@ -386,17 +386,19 @@ mod tests {
         sm: &GraphSM,
         state: &GraphState,
     ) -> GraphDuty {
-        let (graph_data, graph_summary) = match state {
+        let (last_block_height, graph_data, graph_summary) = match state {
             GraphState::Contested {
+                last_block_height,
                 graph_data,
                 graph_summary,
                 ..
             }
             | GraphState::CounterProofPosted {
+                last_block_height,
                 graph_data,
                 graph_summary,
                 ..
-            } => (graph_data, graph_summary),
+            } => (*last_block_height, graph_data, graph_summary),
             _ => panic!("expected Contested or CounterProofPosted state"),
         };
 
@@ -406,6 +408,8 @@ mod tests {
 
         GraphDuty::GenerateAndPublishBridgeProof {
             graph_idx: sm.context().graph_idx(),
+            operator_index: sm.context().operator_idx(),
+            last_block_height,
             contest_txid: graph_summary.contest,
             game_index: graph_data.game_index,
             contest_proof_connector: connectors.contest_proof,

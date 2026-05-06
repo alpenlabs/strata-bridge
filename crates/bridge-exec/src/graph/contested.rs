@@ -8,7 +8,7 @@ use strata_bridge_connectors::{
     Connector,
     prelude::{ContestCounterproofWitness, ContestProofConnector},
 };
-use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
+use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, OperatorIdx};
 use strata_bridge_tx_graph::transactions::{
     bridge_proof::{BridgeProofData, BridgeProofTx},
     counterproof::CounterproofTx,
@@ -60,12 +60,14 @@ pub(super) async fn publish_contest(
 pub(super) async fn generate_and_publish_bridge_proof(
     output_handles: &OutputHandles,
     operator_index: OperatorIdx,
+    last_block_height: BitcoinBlockHeight,
     contest_txid: bitcoin::Txid,
     game_index: NonZero<u32>,
     contest_proof_connector: ContestProofConnector,
 ) -> Result<(), ExecutorError> {
     info!(
         %operator_index,
+        %last_block_height,
         %contest_txid,
         %game_index,
         "generating and publishing bridge proof transaction"
@@ -98,6 +100,7 @@ pub(super) async fn generate_and_publish_bridge_proof(
         .map_err(|e| {
             warn!(
                 %operator_index,
+                %last_block_height,
                 %contest_txid,
                 %game_index,
                 ?e,

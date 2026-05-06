@@ -97,6 +97,7 @@ impl GraphSM {
                 Vec::new()
             }
             GraphState::Contested {
+                last_block_height,
                 graph_data,
                 graph_summary,
                 ..
@@ -110,6 +111,8 @@ impl GraphSM {
 
                 vec![GraphDuty::GenerateAndPublishBridgeProof {
                     graph_idx: self.context().graph_idx(),
+                    operator_index: self.context().operator_idx(),
+                    last_block_height: *last_block_height,
                     contest_txid: graph_summary.contest,
                     game_index: graph_data.game_index,
                     contest_proof_connector: connectors.contest_proof,
@@ -126,6 +129,7 @@ impl GraphSM {
                 vec![self.generate_counterproof_duty(&cfg, graph_data, signatures, proof)?]
             }
             GraphState::CounterProofPosted {
+                last_block_height,
                 graph_data,
                 graph_summary,
                 signatures,
@@ -150,6 +154,8 @@ impl GraphSM {
                     if refuted_proof.is_none() {
                         duties.push(GraphDuty::GenerateAndPublishBridgeProof {
                             graph_idx: self.context().graph_idx(),
+                            operator_index: self.context().operator_idx(),
+                            last_block_height: *last_block_height,
                             contest_txid: graph_summary.contest,
                             game_index: graph_data.game_index,
                             contest_proof_connector: connectors.contest_proof,
