@@ -144,11 +144,18 @@ class BridgeOperatorFactory(flexitest.Factory):
             "general_wallet_address": current_operator_key.GENERAL_WALLET,
         }
 
+        # env vars exported to the bridge binary process
+        env = {
+            **_get_fdb_env(),
+            "BRIDGE_PROOF_ASM_PARAMS_PATH": str(
+                (envdd_path / "generated" / "asm-params.json").resolve()
+            ),
+        }
         svc = ProcServiceWithEnv(
             props,
             cmd,
             stdout=logfile_path,
-            env=_get_fdb_env(),
+            env=env,
         )
         svc.stop_timeout = 300
         svc.start()
