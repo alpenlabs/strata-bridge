@@ -63,10 +63,6 @@ class AsmProofReadinessTest(StrataTestBase):
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=MAX_BRIDGE_TIMEOUT,
                 ),
-                # `strata_asm_getExportEntryMMRProof` is gated on the asm-runner having
-                # an open `MohoStateDb` + `ExportEntriesDb`; both are wired up only
-                # when the proof orchestrator is configured.
-                enable_asm_proof=True,
             )
         )
 
