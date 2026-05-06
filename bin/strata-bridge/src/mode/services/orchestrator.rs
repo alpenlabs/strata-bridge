@@ -20,6 +20,7 @@ use strata_bridge_orchestrator::{
 };
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_proof::build_bridge_proof_host;
 use strata_bridge_sm::{
     self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg, stake::config::StakeSMCfg,
 };
@@ -122,6 +123,7 @@ where
         tx_driver,
         mosaic_client,
         operator_table: operator_table.clone(),
+        bridge_proof_host: build_bridge_proof_host(),
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());
 

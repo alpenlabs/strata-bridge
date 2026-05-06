@@ -58,6 +58,14 @@ pub enum ExecutorError {
     #[error("mosaic error: {0}")]
     MosaicErr(String),
 
+    /// Error interacting with the ASM RPC.
+    #[error("asm rpc error: {0}")]
+    AsmRpcErr(String),
+
+    /// Error generating a ZK proof.
+    #[error("proof generation error: {0}")]
+    ProofErr(#[from] strata_bridge_proof_common::ProofError),
+
     /// A transaction or its template violates a protocol invariant
     #[error("invalid transaction structure: {0}")]
     InvalidTxStructure(String),
