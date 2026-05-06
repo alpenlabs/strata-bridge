@@ -9,7 +9,10 @@ use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_asm_rpc::traits::AsmProofApiClient;
 use strata_bridge_connectors::{Connector, prelude::ContestProofConnector};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, OperatorIdx};
-use strata_bridge_proof::{BridgeProofInput, BridgeProofProgram, MerkleProofB32, MohoState};
+use strata_bridge_proof::{
+    BridgeProofInput, BridgeProofProgram, MerkleProofB32, MohoRecursiveOutput, MohoState,
+    RecursiveMohoProof,
+};
 use strata_bridge_proofs_common::prove;
 use strata_bridge_tx_graph::transactions::bridge_proof::{BridgeProofData, BridgeProofTx};
 use strata_codec::encode_to_vec;
@@ -155,18 +158,24 @@ async fn generate_bridge_proof(
         "fetched ASM proof inputs for bridge proof"
     );
 
-    // Decode SSZ-shaped fields; foreign-encoded ones (Groth16, Codec) pass through as bytes.
     let moho_state = MohoState::from_ssz_bytes(&moho_state)
         .map_err(|e| ExecutorError::AsmRpcErr(format!("decode moho_state ssz: {e:?}")))?;
     let mmr_proof = MerkleProofB32::from_ssz_bytes(&mmr_proof)
         .map_err(|e| ExecutorError::AsmRpcErr(format!("decode mmr_proof ssz: {e:?}")))?;
 
-    let moho_proof_bytes = moho_proof.0.receipt().proof().as_bytes().to_vec();
+    let receipt = moho_proof.0.receipt();
+    let moho_output = MohoRecursiveOutput::from_ssz_bytes(receipt.public_values().as_bytes())
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("decode moho recursive output ssz: {e:?}")))?;
+    let moho_proof = RecursiveMohoProof::new(
+        moho_output.attestation().clone(),
+        receipt.proof().as_bytes().to_vec(),
+    );
+
     let claim_unlock_bytes = encode_to_vec(&operator_claim_unlock)
         .map_err(|e| ExecutorError::AsmRpcErr(format!("encode claim_unlock: {e}")))?;
     let proof_input = BridgeProofInput {
         moho_state,
-        moho_proof: moho_proof_bytes,
+        moho_proof,
         claim_unlock: claim_unlock_bytes,
         claim_unlock_inclusion_proof: mmr_proof,
     };
