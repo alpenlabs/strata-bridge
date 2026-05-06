@@ -1,0 +1,264 @@
+//! Bridge proof statements.
+
+use moho_recursive_proof::MohoRecursiveOutput;
+use moho_types::{ExportContainer, MohoState, RecursiveMohoProof};
+use ssz::Encode;
+use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
+use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_codec::decode_buf_exact;
+use strata_merkle::MerkleProofB32;
+use zkaleido::{ZkVmEnv, ZkVmEnvSsz};
+
+use crate::{
+    genesis::{BridgeProofGenesis, load_genesis},
+    types::{BridgeProofInput, BridgeProofOutput},
+};
+
+/// Native entry point: loads genesis and runs the bridge proof.
+#[cfg(not(target_os = "zkvm"))]
+pub fn process_bridge_proof(zkvm: &impl ZkVmEnv) {
+    let genesis = load_genesis();
+    process_bridge_proof_inner(zkvm, &genesis);
+}
+
+/// zkVM entry point: runs the bridge proof.
+#[cfg(target_os = "zkvm")]
+pub fn process_bridge_proof(zkvm: &impl ZkVmEnv, genesis: BridgeProofGenesis) {
+    process_bridge_proof_inner(zkvm, &genesis);
+}
+
+/// Reads the SSZ input, verifies it against `genesis`, and commits the output.
+///
+/// Steps:
+/// 1. Decode `BridgeProofInput` from the zkVM environment.
+/// 2. Verify the recursive Moho proof against genesis params.
+/// 3. Verify the operator claim unlock is included in the bridge-v1 export-entries MMR.
+/// 4. Commit `BridgeProofOutput` as public values.
+fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis) {
+    // 1: Decode BridgeProofInput from the zkVM environment.
+    let BridgeProofInput {
+        moho_state,
+        moho_proof,
+        claim_unlock,
+        claim_unlock_inclusion_proof,
+    } = zkvm.read_ssz();
+    let claim_unlock_typed: OperatorClaimUnlock =
+        decode_buf_exact(&claim_unlock).expect("claim_unlock must decode into OperatorClaimUnlock");
+
+    // 2: Verify the recursive Moho proof.
+    verify_moho_proof(&moho_state, &moho_proof, genesis);
+
+    // Extract the bridge-v1 export container from the Moho state.
+    let bridge_container = moho_state
+        .export_state()
+        .containers()
+        .iter()
+        .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+        .expect("moho_state must contain a bridge-v1 export container");
+
+    // 3: Verify the operator claim is included in the bridge-v1 MMR.
+    verify_claim_unlock_inclusion(
+        &claim_unlock_typed,
+        bridge_container,
+        &claim_unlock_inclusion_proof,
+    );
+
+    // 4: Commit public values.
+    zkvm.commit_ssz(&BridgeProofOutput {
+        total_pow: *bridge_container.extra_data(),
+        claim_unlock,
+        mmr_idx: claim_unlock_inclusion_proof.index(),
+    });
+}
+
+fn verify_moho_proof(
+    moho_state: &MohoState,
+    moho_proof: &RecursiveMohoProof,
+    genesis: &BridgeProofGenesis,
+) {
+    let attestation = moho_proof.attestation();
+
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-3354>
+    // We manually assert the proof's public params (genesis reference and state commitment)
+    // because the ASM prover's Schnorr predicate is not publicly available as of now.
+    assert_eq!(
+        attestation.genesis().reference(),
+        genesis.genesis_moho_state.reference(),
+        "moho proof genesis reference does not match bridge's anchor block",
+    );
+    assert_eq!(
+        attestation.proven().commitment(),
+        &moho_state.compute_commitment(),
+        "moho proof proven commitment does not match the supplied moho_state",
+    );
+
+    let claim =
+        MohoRecursiveOutput::new(attestation.clone(), genesis.moho_vk.clone()).as_ssz_bytes();
+    genesis
+        .moho_vk
+        .verify_claim_witness(&claim, moho_proof.proof())
+        .expect("moho proof verification failed");
+}
+
+/// Checks that `claim_unlock` is present in the bridge-v1 export-entries MMR via a Merkle inclusion
+/// proof.
+fn verify_claim_unlock_inclusion(
+    claim_unlock: &OperatorClaimUnlock,
+    bridge_container: &ExportContainer,
+    proof: &MerkleProofB32,
+) {
+    let leaf_hash = claim_unlock.compute_hash();
+    assert!(
+        bridge_container.entries_mmr().verify(proof, &leaf_hash),
+        "claim_unlock must be included in the bridge-v1 MMR",
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use moho_types::{
+        ExportState, InnerStateCommitment, RecursiveMohoAttestation, StateRefAttestation,
+        StateReference,
+    };
+    use ssz::Decode;
+    use strata_codec::encode_to_vec;
+    use strata_merkle::{Mmr, Mmr64B32, MmrState, Sha256Hasher};
+    use strata_predicate::PredicateKey;
+    use zkaleido_native_adapter::NativeMachine;
+
+    use super::*;
+
+    // Builds a minimal genesis with always-accept predicates
+    fn make_genesis() -> BridgeProofGenesis {
+        let genesis_obj = MohoState::new(
+            InnerStateCommitment::from([0u8; 32]),
+            PredicateKey::always_accept(),
+            ExportState::new(vec![]).unwrap(),
+        );
+        BridgeProofGenesis {
+            moho_vk: PredicateKey::always_accept(),
+            genesis_moho_state: StateRefAttestation::new(
+                StateReference::new([0u8; 32]),
+                genesis_obj.compute_commitment(),
+            ),
+        }
+    }
+
+    // Inserts `claims` into a shared container and MMR, returning the proof for `target_idx`.
+    fn build_inclusion(
+        claims: &[OperatorClaimUnlock],
+        target_idx: usize,
+    ) -> (ExportContainer, MerkleProofB32) {
+        let mut container = ExportContainer::new(BRIDGE_V1_SUBPROTOCOL_ID);
+        let mut mmr = Mmr64B32::new_empty();
+        let mut inclusion_proof = None;
+        for (i, claim) in claims.iter().enumerate() {
+            let leaf = claim.compute_hash();
+            container.add_entry(leaf).unwrap();
+            let raw =
+                Mmr::<Sha256Hasher>::add_leaf_updating_proof_list(&mut mmr, leaf, &mut []).unwrap();
+            if i == target_idx {
+                inclusion_proof = Some(MerkleProofB32::from_generic(&raw));
+            }
+        }
+        (container, inclusion_proof.unwrap())
+    }
+
+    // Runs BridgeProofInput through the zkVM and returns the committed output.
+    fn run_bridge_proof(
+        genesis: &BridgeProofGenesis,
+        input: BridgeProofInput,
+    ) -> BridgeProofOutput {
+        let mut machine = NativeMachine::new();
+        machine.write_slice(input.as_ssz_bytes());
+        process_bridge_proof_inner(&machine, genesis);
+        BridgeProofOutput::from_ssz_bytes(&machine.state.borrow().output).unwrap()
+    }
+
+    #[test]
+    fn test_claim_unlock_inclusion_success() {
+        let claim = OperatorClaimUnlock::new(0, 0);
+        let (container, proof) = build_inclusion(std::slice::from_ref(&claim), 0);
+        verify_claim_unlock_inclusion(&claim, &container, &proof);
+    }
+
+    #[test]
+    #[should_panic(expected = "claim_unlock must be included in the bridge-v1 MMR")]
+    fn test_claim_unlock_inclusion_wrong_claim() {
+        let claim = OperatorClaimUnlock::new(0, 0);
+        let other = OperatorClaimUnlock::new(1, 1);
+        let (container, proof) = build_inclusion(std::slice::from_ref(&claim), 0);
+        verify_claim_unlock_inclusion(&other, &container, &proof);
+    }
+
+    #[test]
+    fn test_process_bridge_proof_inner_success() {
+        let genesis = make_genesis();
+        let claim = OperatorClaimUnlock::new(42, 7);
+        let (container, inclusion_proof) = build_inclusion(std::slice::from_ref(&claim), 0);
+
+        let moho_state = MohoState::new(
+            InnerStateCommitment::from([1u8; 32]),
+            PredicateKey::always_accept(),
+            ExportState::new(vec![container]).unwrap(),
+        );
+        let moho_proof = RecursiveMohoProof::new(
+            RecursiveMohoAttestation::new(
+                genesis.genesis_moho_state,
+                StateRefAttestation::new(
+                    StateReference::new([1u8; 32]),
+                    moho_state.compute_commitment(),
+                ),
+            ),
+            vec![],
+        );
+        let input = BridgeProofInput {
+            moho_state,
+            moho_proof,
+            claim_unlock: encode_to_vec(&claim).unwrap(),
+            claim_unlock_inclusion_proof: inclusion_proof,
+        };
+
+        let output = run_bridge_proof(&genesis, input);
+        assert_eq!(output.claim_unlock, encode_to_vec(&claim).unwrap());
+        assert_eq!(output.mmr_idx, 0);
+        assert_eq!(output.total_pow, [0u8; 32]);
+    }
+
+    #[test]
+    fn test_process_bridge_proof_inner_non_zero_mmr_idx() {
+        let genesis = make_genesis();
+        let claims = [
+            OperatorClaimUnlock::new(10, 0),
+            OperatorClaimUnlock::new(20, 1),
+        ];
+        let (container, inclusion_proof) = build_inclusion(&claims, 1);
+
+        let moho_state = MohoState::new(
+            InnerStateCommitment::from([1u8; 32]),
+            PredicateKey::always_accept(),
+            ExportState::new(vec![container]).unwrap(),
+        );
+        let moho_proof = RecursiveMohoProof::new(
+            RecursiveMohoAttestation::new(
+                genesis.genesis_moho_state,
+                StateRefAttestation::new(
+                    StateReference::new([1u8; 32]),
+                    moho_state.compute_commitment(),
+                ),
+            ),
+            vec![],
+        );
+        let input = BridgeProofInput {
+            moho_state,
+            moho_proof,
+            claim_unlock: encode_to_vec(&claims[1]).unwrap(),
+            claim_unlock_inclusion_proof: inclusion_proof,
+        };
+
+        let output = run_bridge_proof(&genesis, input);
+        assert_eq!(output.claim_unlock, encode_to_vec(&claims[1]).unwrap());
+        assert_eq!(output.mmr_idx, 1);
+        assert_eq!(output.total_pow, [0u8; 32]);
+    }
+}
