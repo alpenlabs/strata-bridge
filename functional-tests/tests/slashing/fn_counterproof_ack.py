@@ -1,9 +1,7 @@
 import flexitest
 
 from constants import (
-    CLAIM_CONTEST_VOUT,
     CONTEST_PAYOUT_VOUT,
-    CONTEST_PROOF_VOUT,
     CONTEST_WATCHTOWER_0_VOUT,
     COUNTERPROOF_ACK_NACK_VOUT,
 )
@@ -23,7 +21,9 @@ from utils.utils import (
     find_utxo_spender_txid,
     read_operator_key,
     wait_for_tx_confirmation,
+    wait_until,
 )
+from utils.withdrawal import wait_until_active_valid_claim, wait_until_bridge_proof_posted
 
 
 @flexitest.register
@@ -31,21 +31,22 @@ class CounterproofAckTest(StrataTestBase):
     """
     Test that a counterproof ACK is auto-published after the NACK timelock.
 
-    Faulty-claim path with the `NeverAccept` proof predicate so every
+    NEVER_ACCEPT forces every watchtower to reject the bridge proof, so every
     watchtower auto-publishes a counterproof:
 
     1. Complete a deposit.
-    2. Op-0 posts a faulty claim via dev-cli (no assignment, no fulfillment).
-    3. A watchtower auto-contests by spending the claim's contest connector.
-    4. Op-0 auto-posts a (mock) bridge proof defending the contest.
+    2. Post a mock checkpoint so ASM produces an assignment; the assigned operator
+       fulfills and posts a real claim.
+    3. A different operator dev-cli-contests the claim.
+    4. Assigned operator generates a real bridge proof.
     5. Every watchtower auto-publishes a counterproof.
     6. After the NACK timelock expires, a counterprover auto-publishes a
-       counterproof ACK. Identify the ACK by waiting for the contest
-       payout output (vout 1) to be spent and then backtracking through
-       the spender's inputs to confirm one of them is a counterproof tx
-       (single input spending one of the contest's per-watchtower
-       outputs). This rules out false positives where another tx (e.g.
-       `contested_payout`) spends the contest payout output.
+       counterproof ACK. Identify the ACK by waiting for the contest payout
+       output (vout 1) to be spent and then backtracking through the spender's
+       inputs to confirm one of them is a counterproof tx (single input
+       spending one of the contest's per-watchtower outputs). This rules out
+       false positives where another tx (e.g. `contested_payout`) spends the
+       contest payout output.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -71,6 +72,9 @@ class CounterproofAckTest(StrataTestBase):
         bitcoind_service = ctx.get_service("bitcoin")
         bitcoin_rpc = bitcoind_service.create_rpc()
 
+        asm_service = ctx.get_service("asm_rpc")
+        asm_rpc = asm_service.create_rpc()
+
         num_operators = len(bridge_nodes)
         operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
 
@@ -81,7 +85,7 @@ class CounterproofAckTest(StrataTestBase):
             bridge_protocol_params=self.bridge_protocol_params,
         )
 
-        # Complete a deposit.
+        # 1. Complete a deposit.
         drt_txid = dev_cli.send_deposit_request()
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
@@ -91,40 +95,67 @@ class CounterproofAckTest(StrataTestBase):
         assert deposit_info is not None, "Deposit did not complete"
         self.logger.info("Deposit completed")
 
-        # Op-0 posts a faulty claim.
-        graph_owner_idx = 0
-        deposit_idx = 0
-
-        owner_node = bridge_nodes[graph_owner_idx]
-        owner_rpc_url = f"http://127.0.0.1:{owner_node.props['rpc_port']}"
-        owner_seed = read_operator_key(graph_owner_idx).SEED
-
-        claim_txid = dev_cli.send_claim(
-            deposit_idx=deposit_idx,
-            operator_idx=graph_owner_idx,
-            bridge_node_url=owner_rpc_url,
-            seed=owner_seed,
+        # 2. Trigger assignment via mock checkpoint; orchestrator fulfills + claims.
+        recent_block_hash = bitcoin_rpc.proxy.getblockhash(bitcoin_rpc.proxy.getblockcount())
+        ckp_l1_txn = dev_cli.send_mock_checkpoint_from_tip(
+            asm_rpc,
+            recent_block_hash,
+            num_ol_slots=1,
         )
-        self.logger.info(f"Broadcasted faulty claim from op-{graph_owner_idx}: {claim_txid}")
-        claim_block_hash = wait_for_tx_confirmation(bitcoin_rpc, claim_txid, timeout=300)
-        self.logger.info(f"Faulty claim {claim_txid} confirmed in block {claim_block_hash}")
+        ckp_block_hash = wait_for_tx_confirmation(bitcoin_rpc, ckp_l1_txn)
+        self.logger.info(f"Checkpoint tx {ckp_l1_txn} included in block {ckp_block_hash}")
 
-        # Wait for a watchtower to contest, then look up the contest txid.
-        wait_until_utxo_spent(bitcoin_rpc, claim_txid, CLAIM_CONTEST_VOUT, timeout=300)
-        contest_txid = find_utxo_spender_txid(bitcoin_rpc, claim_txid, CLAIM_CONTEST_VOUT)
-        self.logger.info(f"Watchtower contested with contest tx: {contest_txid}")
+        wait_until(
+            lambda: len(asm_rpc.strata_asm_getAssignments(ckp_block_hash)) > 0,
+            timeout=300,
+            error_msg="ASM did not produce assignment",
+        )
 
-        # Wait for the contest-proof connector to be spent (bridge proof or proof timeout).
-        wait_until_utxo_spent(bitcoin_rpc, contest_txid, CONTEST_PROOF_VOUT, timeout=300)
-        proof_spender_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, CONTEST_PROOF_VOUT)
-        self.logger.info(f"Contest-proof connector spent by tx: {proof_spender_txid}")
+        active_claim = wait_until_active_valid_claim(bridge_rpc)
+        self.logger.info(
+            "Active claim %s for deposit %s assigned to operator %s",
+            active_claim.claim_txid,
+            active_claim.deposit_idx,
+            active_claim.assigned_operator,
+        )
+        claim_block_hash = wait_for_tx_confirmation(
+            bitcoin_rpc,
+            active_claim.claim_txid,
+            timeout=300,
+        )
+        self.logger.info(
+            f"Claim tx {active_claim.claim_txid} confirmed in block {claim_block_hash}"
+        )
 
-        # Stop the graph owner so it cannot publish a counterproof NACK; without a NACK before
-        # `nack_timelock` matures, the counterprover's auto-published ACK wins the race.
-        bridge_nodes[graph_owner_idx].stop()
-        self.logger.info(f"Stopped op-{graph_owner_idx} so no counterproof NACK is published")
+        # 3. Contest from a different operator (a watchtower).
+        contester_idx = (active_claim.assigned_operator + 1) % num_operators
+        contester_node = bridge_nodes[contester_idx]
+        contester_rpc_url = f"http://127.0.0.1:{contester_node.props['rpc_port']}"
+        contester_seed = read_operator_key(contester_idx).SEED
 
-        # Wait for the contest payout output to be spent. The ACK candidate is the spender.
+        self.logger.info(f"Contesting with operator {contester_idx} via {contester_rpc_url}")
+        contest_txid = dev_cli.send_contest(
+            deposit_idx=active_claim.deposit_idx,
+            operator_idx=active_claim.assigned_operator,
+            bridge_node_url=contester_rpc_url,
+            contester_node_idx=contester_idx,
+            seed=contester_seed,
+        )
+        contest_block_hash = wait_for_tx_confirmation(bitcoin_rpc, contest_txid, timeout=300)
+        self.logger.info(f"Contest tx {contest_txid} confirmed in block {contest_block_hash}")
+
+        # 4. Assigned operator posts a real bridge proof defending the contest.
+        wait_until_bridge_proof_posted(bridge_rpc, active_claim.deposit_idx)
+        self.logger.info("Bridge proof posted")
+
+        # 5. Stop the assigned operator so it cannot publish a counterproof NACK; without
+        # a NACK before `nack_timelock` matures, the counterprover's auto-published ACK
+        # wins the race.
+        assigned_idx = active_claim.assigned_operator
+        bridge_nodes[assigned_idx].stop()
+        self.logger.info(f"Stopped op-{assigned_idx} so no counterproof NACK is published")
+
+        # 6. Wait for the contest payout output to be spent. The ACK candidate is the spender.
         wait_until_utxo_spent(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT, timeout=600)
         ack_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT)
 
