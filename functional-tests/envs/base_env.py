@@ -29,7 +29,7 @@ class BaseEnv(flexitest.EnvConfig):
         bridge_config_params=BridgeConfigParams(),  # noqa: B008
         btc_config: BitcoinEnvConfig | None = None,
         asm_config: AsmEnvConfig | None = None,
-        enable_asm_proof: bool = False,
+        enable_asm_proof: bool = True,
     ):
         super().__init__()
         self.num_operators = num_operators
