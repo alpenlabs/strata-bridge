@@ -1,5 +1,6 @@
 //! Initializers for various external services.
 
+pub(in crate::mode) mod asm_rpc;
 pub(in crate::mode) mod btc_client;
 pub(in crate::mode) mod mosaic_client;
 pub(in crate::mode) mod operator_table;

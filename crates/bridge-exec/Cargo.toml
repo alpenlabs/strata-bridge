@@ -30,6 +30,7 @@ bitcoin-bosd = { workspace = true, features = ["address"] }
 bitcoind-async-client.workspace = true
 foundationdb.workspace = true
 futures.workspace = true
+jsonrpsee = { workspace = true, features = ["client"] }
 musig2.workspace = true
 terrors.workspace = true
 thiserror.workspace = true
