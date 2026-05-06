@@ -20,6 +20,7 @@ strata-bridge-exec.workspace = true
 strata-bridge-orchestrator.workspace = true
 strata-bridge-p2p-service.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-proof.workspace = true
 strata-bridge-rpc.workspace = true
 strata-bridge-sm.workspace = true
 strata-bridge-tx-graph.workspace = true
