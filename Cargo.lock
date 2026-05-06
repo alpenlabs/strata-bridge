@@ -10452,6 +10452,7 @@ dependencies = [
  "strata-bridge-sm",
  "strata-bridge-tx-graph",
  "strata-codec",
+ "strata-crypto",
  "strata-l1-txfmt",
  "strata-mosaic-client-api",
  "terrors",

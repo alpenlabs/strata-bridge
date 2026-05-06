@@ -18,13 +18,15 @@ use strata_bridge_proof::{
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::bridge_proof::{BridgeProofData, BridgeProofTx};
 use strata_codec::encode_to_vec;
+use strata_crypto::hash;
 use tracing::{info, warn};
 
 use crate::{
     chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
 };
 
-/// Generates a bridge proof transaction with mock proof data and publishes it.
+/// Generates the bridge proof anchored at the given block height and publishes
+/// the resulting bridge proof transaction.
 pub(super) async fn generate_and_publish_bridge_proof(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
@@ -148,7 +150,9 @@ async fn fetch_bridge_proof_input(
     );
 
     let operator_claim_unlock = OperatorClaimUnlock::new(deposit_idx, operator_index);
-    let leaf_hash = operator_claim_unlock.compute_hash();
+    let claim_unlock = encode_to_vec(&operator_claim_unlock)
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("encode claim_unlock: {e}")))?;
+    let leaf_hash = hash::raw(&claim_unlock).0;
 
     let asm = &output_handles.asm_rpc_client;
     let moho_state_bytes = asm
@@ -181,7 +185,6 @@ async fn fetch_bridge_proof_input(
     info!(
         moho_state_len = moho_state_bytes.len(),
         mmr_proof_len = mmr_proof_bytes.len(),
-        mmr_proof = ?mmr_proof_bytes,
         "fetched ASM proof inputs for bridge proof"
     );
 
@@ -199,9 +202,6 @@ async fn fetch_bridge_proof_input(
         moho_output.attestation().clone(),
         receipt.proof().as_bytes().to_vec(),
     );
-
-    let claim_unlock = encode_to_vec(&operator_claim_unlock)
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("encode claim_unlock: {e}")))?;
 
     let proof_input = BridgeProofInput {
         moho_state,
