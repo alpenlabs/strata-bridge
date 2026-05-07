@@ -396,7 +396,10 @@ mod tests {
     };
     use strata_bridge_sm::{
         deposit::{context::DepositSMCtx, state::DepositState},
-        graph::{context::GraphSMCtx, state::GraphState},
+        graph::{
+            context::GraphSMCtx,
+            state::{AbortReason, GraphState},
+        },
         stake::{context::StakeSMCtx, machine::StakeSM, state::StakeState},
     };
     use strata_bridge_test_utils::{
@@ -692,7 +695,7 @@ mod tests {
                 2 => GraphState::Aborted {
                     claim_txid: txid,
                     payout_connector_spend_txid: txid,
-                    reason: "test".to_string(),
+                    reason: AbortReason::PayoutConnectorSpent { spending_txid: txid },
                 },
                 _ => {
                     let outpoint = OutPoint { txid, vout: 0 };

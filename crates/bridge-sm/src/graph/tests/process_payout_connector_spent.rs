@@ -5,7 +5,7 @@ use strata_bridge_test_utils::bitcoin::generate_txid;
 use crate::graph::{
     errors::GSMError,
     events::{GraphEvent, PayoutConnectorSpentEvent},
-    state::GraphState,
+    state::{AbortReason, GraphState},
     tests::{
         GraphInvalidTransition, GraphTransition,
         mock_states::{all_state_variants, payout_connector_spent_states},
@@ -31,7 +31,9 @@ fn event_accepted() {
             expected_state: GraphState::Aborted {
                 claim_txid,
                 payout_connector_spend_txid: event.spending_txid,
-                reason: "Payout connector spent".to_string(),
+                reason: AbortReason::PayoutConnectorSpent {
+                    spending_txid: event.spending_txid,
+                },
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -48,7 +50,7 @@ fn event_duplicate() {
         from_state: GraphState::Aborted {
             claim_txid,
             payout_connector_spend_txid: spending_txid,
-            reason: "Payout connector spent".to_string(),
+            reason: AbortReason::PayoutConnectorSpent { spending_txid },
         },
         event: GraphEvent::PayoutConnectorSpent(PayoutConnectorSpentEvent { spending_txid }),
         expected_error: |e| matches!(e, GSMError::Duplicate { .. }),

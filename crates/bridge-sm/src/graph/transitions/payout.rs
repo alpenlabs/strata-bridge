@@ -4,7 +4,7 @@ use crate::graph::{
     errors::{GSMError, GSMResult},
     events::{PayoutConfirmedEvent, PayoutConnectorSpentEvent},
     machine::{GSMOutput, GraphSM},
-    state::GraphState,
+    state::{AbortReason, GraphState},
 };
 
 impl GraphSM {
@@ -132,7 +132,9 @@ impl GraphSM {
                 self.state = GraphState::Aborted {
                     claim_txid: graph_summary.claim,
                     payout_connector_spend_txid: event.spending_txid,
-                    reason: "Payout connector spent".to_string(),
+                    reason: AbortReason::PayoutConnectorSpent {
+                        spending_txid: event.spending_txid,
+                    },
                 };
 
                 Ok(GSMOutput::new())
@@ -141,7 +143,9 @@ impl GraphSM {
                 self.state = GraphState::Aborted {
                     claim_txid: *claim_txid,
                     payout_connector_spend_txid: event.spending_txid,
-                    reason: "Payout connector spent".to_string(),
+                    reason: AbortReason::PayoutConnectorSpent {
+                        spending_txid: event.spending_txid,
+                    },
                 };
 
                 Ok(GSMOutput::new())
