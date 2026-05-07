@@ -168,7 +168,7 @@ where
 pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
     // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2665>
     // Import this from the counterproof module once it exists.
-    const COUNTERPROOF_N_BYTES: usize = 128 + 4; // proof bytes (groth16) + deposit_idx (4 bytes)
+    const COUNTERPROOF_N_DATA: usize = 128 + 4; // proof bytes (groth16) + deposit_idx (4 bytes)
     let network = params.network;
     let magic_bytes = params.protocol.magic_bytes;
     let deposit_amount = params.protocol.deposit_amount;
@@ -193,7 +193,7 @@ pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
         contested_payout_timelock: relative::Height::from_height(
             params.protocol.contested_payout_timelock,
         ),
-        counterproof_n_bytes: NonZero::new(COUNTERPROOF_N_BYTES)
+        counterproof_n_data: NonZero::new(COUNTERPROOF_N_DATA)
             .expect("counterproof_n_bytes must be non-zero"),
         deposit_amount,
         stake_amount: params.protocol.stake_amount,

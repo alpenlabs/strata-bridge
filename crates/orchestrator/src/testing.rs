@@ -78,7 +78,7 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             ack_timelock: relative::Height::from_height(10),
             nack_timelock: relative::Height::from_height(5),
             contested_payout_timelock: relative::Height::from_height(15),
-            counterproof_n_bytes: NonZero::new(128).unwrap(),
+            counterproof_n_data: NonZero::new(128).unwrap(),
             deposit_amount: TEST_DEPOSIT_AMOUNT,
             stake_amount: Amount::from_sat(100_000_000),
         },

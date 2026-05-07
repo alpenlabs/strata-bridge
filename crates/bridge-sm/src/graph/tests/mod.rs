@@ -115,7 +115,7 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             ack_timelock: ACK_TIMELOCK,
             nack_timelock: NACK_TIMELOCK,
             contested_payout_timelock: CONTESTED_PAYOUT_TIMELOCK,
-            counterproof_n_bytes: NonZero::new(128).unwrap(),
+            counterproof_n_data: NonZero::new(128).unwrap(),
             deposit_amount: TEST_DEPOSIT_AMOUNT,
             stake_amount: STAKE_AMOUNT,
         },

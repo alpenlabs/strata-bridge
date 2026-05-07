@@ -128,10 +128,10 @@ pub struct ProtocolParams {
     pub nack_timelock: relative::Height,
     /// Timelock for submitting a contested payout.
     pub contested_payout_timelock: relative::Height,
-    /// Number of counterproof bytes that are published via adaptor signatures.
+    /// Number of counterproof labels that are published via adaptor signatures.
     ///
-    /// This excludes bytes that have been exchanged at setup time.
-    pub counterproof_n_bytes: NonZero<usize>,
+    /// This excludes labels that have been exchanged at setup time.
+    pub counterproof_n_data: NonZero<usize>,
     /// Deposit amount.
     pub deposit_amount: Amount,
     /// Stake amount.
@@ -576,7 +576,7 @@ impl GameConnectors {
                     protocol.network,
                     keys.n_of_n_pubkey,
                     operator_adaptor_pubkey,
-                    protocol.counterproof_n_bytes,
+                    protocol.counterproof_n_data,
                 )
             })
             .collect();
@@ -671,7 +671,7 @@ mod tests {
             ack_timelock: ACK_TIMELOCK,
             nack_timelock: NACK_TIMELOCK,
             contested_payout_timelock: CONTESTED_PAYOUT_TIMELOCK,
-            counterproof_n_bytes: NonZero::new(128).unwrap(),
+            counterproof_n_data: NonZero::new(128).unwrap(),
             deposit_amount: DEPOSIT_AMOUNT,
             stake_amount: STAKE_AMOUNT,
         };
