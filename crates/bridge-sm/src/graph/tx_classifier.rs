@@ -208,16 +208,10 @@ impl TxClassifier for GraphSM {
                 }
             }
 
-            // expects a stake spend or a payout burn
-            GraphState::BridgeProofTimedout { claim_txid, .. } => {
+            // expects a stake spend (only path is slash; connector spend is irrelevant)
+            GraphState::BridgeProofTimedout { .. } => {
                 if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
                     Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
-                } else if is_payout_connector_spent(claim_txid, tx) {
-                    Some(GraphEvent::PayoutConnectorSpent(
-                        PayoutConnectorSpentEvent {
-                            spending_txid: txid,
-                        },
-                    ))
                 } else {
                     None
                 }
@@ -277,9 +271,10 @@ impl TxClassifier for GraphSM {
                 }
             }
 
-            // expects a contested payout or a stake spend if there is delay in posting payout
+            // expects a contested payout, a stake spend, or a payout connector spend
             GraphState::AllNackd {
                 expected_payout_txid,
+                claim_txid,
                 ..
             } => {
                 if txid == *expected_payout_txid {
@@ -288,12 +283,18 @@ impl TxClassifier for GraphSM {
                     }))
                 } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
                     Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
+                } else if is_payout_connector_spent(claim_txid, tx) {
+                    Some(GraphEvent::PayoutConnectorSpent(
+                        PayoutConnectorSpentEvent {
+                            spending_txid: txid,
+                        },
+                    ))
                 } else {
                     None
                 }
             }
 
-            // expects a stake spend
+            // expects a stake spend (only path is slash; connector spend is irrelevant)
             GraphState::Acked { .. } => {
                 if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
                     Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))

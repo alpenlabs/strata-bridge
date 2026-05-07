@@ -469,8 +469,12 @@ pub(super) fn counterproof_detecting_states() -> Vec<GraphState> {
 
 /// States that detect a payout connector spend (via admin or unstaking burn txs).
 ///
-/// These states use `graph_summary.claim` or `claim_txid` to identify the payout
-/// connector outpoint.
+/// These are the states whose tx classifier emits
+/// [`crate::graph::events::PayoutConnectorSpentEvent`] — that is, states
+/// where a connector spend is actionable for the STF (two-fact post-`Claimed`
+/// states plus `AllNackd`). `BridgeProofTimedout` and `Acked` are excluded
+/// because the only remaining path from those states is slash and the
+/// connector spend is irrelevant.
 pub(super) fn payout_connector_spent_states() -> Vec<GraphState> {
     vec![
         claimed_state(
@@ -480,8 +484,8 @@ pub(super) fn payout_connector_spent_states() -> Vec<GraphState> {
         ),
         contested_state(),
         bridge_proof_posted_state(),
-        bridge_proof_timedout_state(),
         counter_proof_posted_state(),
+        all_nackd_state(),
     ]
 }
 
