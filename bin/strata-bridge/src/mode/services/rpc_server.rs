@@ -709,7 +709,7 @@ mod tests {
                 ack_timelock: relative::Height::from_height(5),
                 nack_timelock: relative::Height::from_height(5),
                 contested_payout_timelock: relative::Height::from_height(10),
-                counterproof_n_bytes: NonZero::new(128).expect("non-zero"),
+                counterproof_n_data: NonZero::new(128).expect("non-zero"),
                 deposit_amount: TEST_DEPOSIT_AMOUNT,
                 stake_amount: Amount::from_sat(20_000),
             },

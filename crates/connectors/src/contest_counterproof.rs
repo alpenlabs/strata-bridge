@@ -11,8 +11,8 @@ use crate::{Connector, TaprootWitness};
 ///
 /// The output requires a series of operator signatures for spending.
 /// Each operator signature comes from an adaptor,
-/// which publishes one byte of counterproof data (including public values).
-/// Some bytes are exchanged at setup time, so they won't be exchanged via adaptors.
+/// which publishes a label of counterproof data (including public values).
+/// Some labels are exchanged at setup time, so they won't be exchanged via adaptors.
 ///
 /// Because Mosaic supplies one adaptor public key per evaluator-garbler pair,
 /// there is a unique operator public key for each operator-watchtower pair.
@@ -28,8 +28,8 @@ pub struct ContestCounterproofOutput {
 impl ContestCounterproofOutput {
     /// Creates a new connector.
     ///
-    /// `n_data` is the number of counterproof bytes (including public values)
-    /// that are exchanged. This does not include bytes that have already been
+    /// `n_data` is the number of counterproof labels (including public values)
+    /// that are exchanged. This does not include labels that have already been
     /// exchanged at setup time.
     ///
     /// `n_data` is equal to the number of required operator signatures.
@@ -47,9 +47,9 @@ impl ContestCounterproofOutput {
         }
     }
 
-    /// Returns the length of the serialized counterproof (including public values).
+    /// Returns the number of counterproof labels (including public values).
     ///
-    /// This is 1 operator signature per byte of data.
+    /// This is 1 operator signature per label.
     pub const fn n_data(&self) -> NonZero<usize> {
         self.n_data
     }
@@ -117,7 +117,7 @@ pub struct ContestCounterproofWitness {
     ///
     /// Use [`Connector::get_signing_info()`] to create this signature.
     pub n_of_n_signature: schnorr::Signature,
-    /// 1 operator signature for each byte of counterproof data that is published onchain.
+    /// 1 operator signature for each label of counterproof data that is published onchain.
     ///
     /// Use [`Connector::get_sighashes_with_code_separator()`] to create these signatures.
     /// Each signature uses a unique sighash.
