@@ -2,11 +2,18 @@
 
 use std::{collections::BTreeMap, sync::LazyLock};
 
+use bitcoin::OutPoint;
 use musig2::secp256k1::schnorr::Signature;
 use secp256k1::schnorr;
 use strata_bridge_primitives::types::OperatorIdx;
-use strata_bridge_test_utils::prelude::{generate_tx, generate_txid};
-use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary};
+use strata_bridge_test_utils::{
+    bitcoin::generate_spending_tx,
+    prelude::{generate_tx, generate_txid},
+};
+use strata_bridge_tx_graph::{
+    game_graph::{DepositParams, GameGraphSummary},
+    transactions::prelude::ClaimTx,
+};
 use zkaleido::ProofReceipt;
 
 use super::{
@@ -18,7 +25,7 @@ use super::{
 };
 use crate::graph::{
     machine::generate_game_graph,
-    state::{CounterproofData, GraphState},
+    state::{AbortReason, CounterproofData, GraphState},
     watchtower::watchtower_slot_for_operator,
 };
 
@@ -389,7 +396,16 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
         GraphState::Aborted {
             claim_txid: graph_summary.claim,
             payout_connector_spend_txid: graph_summary.contested_payout,
-            reason: "test".to_string(),
+            reason: AbortReason::PayoutConnectorSpent {
+                spending_txid: generate_spending_tx(
+                    OutPoint {
+                        txid: graph_summary.claim,
+                        vout: ClaimTx::PAYOUT_VOUT,
+                    },
+                    &[],
+                )
+                .compute_txid(),
+            },
         },
     ]
 }

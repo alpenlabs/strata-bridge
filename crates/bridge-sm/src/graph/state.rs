@@ -12,6 +12,57 @@ use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary};
 use strata_mosaic_client_api::types::CompletedSignatures;
 use zkaleido::ProofReceipt;
 
+/// Reason why a graph was [`Aborted`](GraphState::Aborted).
+///
+/// Each variant precisely describes the on-chain spends that were known at the
+/// moment the GSM transitioned to `Aborted`. The `Both` variant is reached
+/// when the GSM is driven into `Aborted` by the second spend arriving at a
+/// state that was already holding the first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AbortReason {
+    /// The payout connector was consumed by a transaction other than the
+    /// legitimate payout (e.g. unstaking-burn or admin-burn), while the
+    /// stake outpoint remained unspent at the time of abort.
+    PayoutConnectorSpent {
+        /// Txid of the transaction that consumed the payout connector.
+        spending_txid: Txid,
+    },
+    /// The stake outpoint was consumed by a transaction other than this
+    /// graph's slash (a sibling graph's slash, the operator's unstaking,
+    /// etc.), while the payout connector remained unspent at the time of
+    /// abort.
+    StakeSpent {
+        /// Txid of the transaction that consumed the stake outpoint.
+        spending_txid: Txid,
+    },
+    /// Both the payout connector and the stake outpoint have been consumed.
+    Both {
+        /// Txid of the transaction that consumed the payout connector.
+        payout_connector_spending_txid: Txid,
+        /// Txid of the transaction that consumed the stake outpoint.
+        stake_spending_txid: Txid,
+    },
+}
+
+impl AbortReason {
+    /// Builds the variant that matches the `(stake, connector)` spend status.
+    /// Returns `None` if neither spend has occurred (an invalid abort).
+    pub const fn from_spends(
+        stake_spending_txid: Option<Txid>,
+        payout_connector_spending_txid: Option<Txid>,
+    ) -> Option<Self> {
+        match (stake_spending_txid, payout_connector_spending_txid) {
+            (Some(stake_spending_txid), Some(payout_connector_spending_txid)) => Some(Self::Both {
+                payout_connector_spending_txid,
+                stake_spending_txid,
+            }),
+            (Some(spending_txid), None) => Some(Self::StakeSpent { spending_txid }),
+            (None, Some(spending_txid)) => Some(Self::PayoutConnectorSpent { spending_txid }),
+            (None, None) => None,
+        }
+    }
+}
+
 /// On-chain record of a confirmed counterproof.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CounterproofData {
@@ -368,7 +419,9 @@ pub enum GraphState {
         /// The txid of the slash transaction.
         slash_txid: Txid,
     },
-    /// The graph has been aborted due to the payout connector being spent.
+    /// The graph has been aborted because at least one of its on-chain
+    /// dependencies has been consumed by something other than the
+    /// expected transaction.
     Aborted {
         /// The txid of the claim transaction associated with this reimbursement path.
         claim_txid: Txid,
@@ -376,8 +429,9 @@ pub enum GraphState {
         /// Transaction ID of the payout connector spend that caused the abort.
         payout_connector_spend_txid: Txid,
 
-        /// The reason for the abort.
-        reason: String,
+        /// Why the graph was aborted, including the txid(s) of the
+        /// triggering on-chain spend(s).
+        reason: AbortReason,
     },
 }
 

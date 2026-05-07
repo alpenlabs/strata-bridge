@@ -21,7 +21,11 @@ use strata_bridge_sm::{
     deposit::{
         config::DepositSMCfg, context::DepositSMCtx, machine::DepositSM, state::DepositState,
     },
-    graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState},
+    graph::{
+        config::GraphSMCfg,
+        context::GraphSMCtx,
+        state::{AbortReason, GraphState},
+    },
     stake::config::StakeSMCfg,
 };
 use strata_bridge_test_utils::{
@@ -968,7 +972,9 @@ fn reimbursement_status_reports_each_graph_state() {
             GraphState::Aborted {
                 claim_txid,
                 payout_connector_spend_txid: generate_txid(),
-                reason: "Payout connector spent".to_string(),
+                reason: AbortReason::PayoutConnectorSpent {
+                    spending_txid: generate_txid(),
+                },
             },
             RpcReimbursementStatus::Aborted { claim_txid },
         ),
