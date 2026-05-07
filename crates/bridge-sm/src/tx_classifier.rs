@@ -163,3 +163,10 @@ pub fn is_payout_connector_spent(claim_txid: &Txid, tx: &Transaction) -> bool {
         .iter()
         .any(|input| input.previous_output == payout_connector_outpoint)
 }
+
+/// Check if `tx` consumes the operator's stake outpoint.
+pub fn spends_stake_outpoint(stake_outpoint: &OutPoint, tx: &Transaction) -> bool {
+    tx.input
+        .iter()
+        .any(|input| input.previous_output == *stake_outpoint)
+}

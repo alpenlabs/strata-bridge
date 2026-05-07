@@ -694,7 +694,6 @@ mod tests {
                 1 => GraphState::Withdrawn { claim_txid: txid, payout_txid: txid },
                 2 => GraphState::Aborted {
                     claim_txid: txid,
-                    payout_connector_spend_txid: txid,
                     reason: AbortReason::PayoutConnectorSpent { spending_txid: txid },
                 },
                 _ => {

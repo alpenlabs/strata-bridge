@@ -131,7 +131,6 @@ impl GraphSM {
             | GraphState::CounterProofPosted { graph_summary, .. } => {
                 self.state = GraphState::Aborted {
                     claim_txid: graph_summary.claim,
-                    payout_connector_spend_txid: event.spending_txid,
                     reason: AbortReason::PayoutConnectorSpent {
                         spending_txid: event.spending_txid,
                     },
@@ -142,7 +141,6 @@ impl GraphSM {
             GraphState::BridgeProofTimedout { claim_txid, .. } => {
                 self.state = GraphState::Aborted {
                     claim_txid: *claim_txid,
-                    payout_connector_spend_txid: event.spending_txid,
                     reason: AbortReason::PayoutConnectorSpent {
                         spending_txid: event.spending_txid,
                     },

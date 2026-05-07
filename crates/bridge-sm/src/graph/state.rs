@@ -474,9 +474,6 @@ pub enum GraphState {
         /// The txid of the claim transaction associated with this reimbursement path.
         claim_txid: Txid,
 
-        /// Transaction ID of the payout connector spend that caused the abort.
-        payout_connector_spend_txid: Txid,
-
         /// Why the graph was aborted, including the txid(s) of the
         /// triggering on-chain spend(s).
         reason: AbortReason,
@@ -621,6 +618,31 @@ impl GraphState {
                 ..
             } => *payout_connector_spent,
             _ => None,
+        }
+    }
+
+    /// Returns the txid of the claim transaction that initiated this reimbursement path, if known.
+    pub const fn claim_txid(&self) -> Option<Txid> {
+        match self {
+            GraphState::GraphGenerated { graph_summary, .. }
+            | GraphState::AdaptorsVerified { graph_summary, .. }
+            | GraphState::NoncesCollected { graph_summary, .. }
+            | GraphState::GraphSigned { graph_summary, .. }
+            | GraphState::Fulfilled { graph_summary, .. }
+            | GraphState::Assigned { graph_summary, .. }
+            | GraphState::Claimed { graph_summary, .. }
+            | GraphState::Contested { graph_summary, .. }
+            | GraphState::BridgeProofPosted { graph_summary, .. }
+            | GraphState::CounterProofPosted { graph_summary, .. } => Some(graph_summary.claim),
+
+            GraphState::BridgeProofTimedout { claim_txid, .. }
+            | GraphState::AllNackd { claim_txid, .. }
+            | GraphState::Acked { claim_txid, .. }
+            | GraphState::Slashed { claim_txid, .. }
+            | GraphState::Aborted { claim_txid, .. }
+            | GraphState::Withdrawn { claim_txid, .. } => Some(*claim_txid),
+
+            GraphState::Created { .. } => None,
         }
     }
 

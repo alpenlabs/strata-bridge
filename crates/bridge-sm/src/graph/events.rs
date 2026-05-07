@@ -161,11 +161,14 @@ pub struct CounterProofNackConfirmedEvent {
     pub counterprover_idx: OperatorIdx,
 }
 
-/// Event notifying that a slash transaction has been confirmed on-chain.
+/// Event notifying that the operator's stake outpoint has been consumed
+/// on-chain by *some* transaction. May be this graph's slash, a sibling
+/// graph's slash, or the operator's unstaking — the GSM disambiguates via
+/// [`GraphState::expected_slash_txid`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SlashConfirmedEvent {
-    /// The txid of the slash transaction.
-    pub slash_txid: Txid,
+pub struct StakeSpentEvent {
+    /// The transaction that consumed the stake outpoint.
+    pub tx: Transaction,
 }
 
 /// Event notifying that a payout transaction (uncontested or contested) has been confirmed
@@ -238,8 +241,8 @@ pub enum GraphEvent {
     CounterProofAckConfirmed(CounterProofAckConfirmedEvent),
     /// Counterproof NACK transaction confirmed on-chain.
     CounterProofNackConfirmed(CounterProofNackConfirmedEvent),
-    /// Slash transaction confirmed on-chain.
-    SlashConfirmed(SlashConfirmedEvent),
+    /// The operator's stake outpoint has been consumed on-chain.
+    StakeSpent(StakeSpentEvent),
     /// Payout transaction (uncontested or contested) confirmed on-chain.
     PayoutConfirmed(PayoutConfirmedEvent),
     /// Payout connector spent by some transaction (abort condition).
@@ -274,7 +277,7 @@ impl Display for GraphEvent {
             GraphEvent::CounterProofConfirmed(_) => "CounterProofConfirmed",
             GraphEvent::CounterProofAckConfirmed(_) => "CounterProofAckConfirmed",
             GraphEvent::CounterProofNackConfirmed(_) => "CounterProofNackConfirmed",
-            GraphEvent::SlashConfirmed(_) => "SlashConfirmed",
+            GraphEvent::StakeSpent(_) => "StakeSpent",
             GraphEvent::PayoutConfirmed(_) => "PayoutConfirmed",
             GraphEvent::PayoutConnectorSpent(_) => "PayoutConnectorSpent",
             GraphEvent::NewBlock(_) => "NewBlock",
@@ -318,7 +321,7 @@ impl_into_graph_event!(
 impl_into_graph_event!(CounterProofConfirmedEvent, CounterProofConfirmed);
 impl_into_graph_event!(CounterProofAckConfirmedEvent, CounterProofAckConfirmed);
 impl_into_graph_event!(CounterProofNackConfirmedEvent, CounterProofNackConfirmed);
-impl_into_graph_event!(SlashConfirmedEvent, SlashConfirmed);
+impl_into_graph_event!(StakeSpentEvent, StakeSpent);
 impl_into_graph_event!(PayoutConfirmedEvent, PayoutConfirmed);
 impl_into_graph_event!(PayoutConnectorSpentEvent, PayoutConnectorSpent);
 impl_into_graph_event!(NewBlockEvent, NewBlock);

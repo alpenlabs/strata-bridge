@@ -413,7 +413,6 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
         },
         GraphState::Aborted {
             claim_txid: graph_summary.claim,
-            payout_connector_spend_txid: graph_summary.contested_payout,
             reason: AbortReason::PayoutConnectorSpent {
                 spending_txid: generate_spending_tx(
                     OutPoint {

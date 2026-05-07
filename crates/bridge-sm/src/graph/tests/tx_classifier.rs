@@ -346,8 +346,8 @@ mod tests {
         let sm = create_sm(bridge_proof_timedout_state());
         let result = sm.classify_tx(&cfg, &TestGraphTxKind::Slash.into(), LATER_BLOCK_HEIGHT);
         assert!(
-            matches!(result, Some(GraphEvent::SlashConfirmed(_))),
-            "expected Some(SlashConfirmed) but got {result:?}"
+            matches!(result, Some(GraphEvent::StakeSpent(_))),
+            "expected Some(StakeSpent) but got {result:?}"
         );
     }
 
@@ -411,8 +411,8 @@ mod tests {
             let sm = create_sm(state.clone());
             let result = sm.classify_tx(&cfg, &slash_tx, LATER_BLOCK_HEIGHT);
             assert!(
-                matches!(result, Some(GraphEvent::SlashConfirmed(_))),
-                "expected Some(SlashConfirmed) in {state:?} but got {result:?}"
+                matches!(result, Some(GraphEvent::StakeSpent(_))),
+                "expected Some(StakeSpent) in {state:?} but got {result:?}"
             );
         }
     }
