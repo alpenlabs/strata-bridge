@@ -635,10 +635,7 @@ impl GraphSM {
         // abort.
         if let Some(payout_connector_spending_txid) = self.state.payout_connector_spent_txid() {
             self.state = GraphState::Aborted {
-                claim_txid: self
-                    .state
-                    .claim_txid()
-                    .expect("claim txid must be in state if aborting due to stake spend"),
+                claim_txid: self.state.claim_txid().unwrap_or(Txid::all_zeros()),
                 reason: AbortReason::Both {
                     stake_spending_txid: spend_txid,
                     payout_connector_spending_txid,
