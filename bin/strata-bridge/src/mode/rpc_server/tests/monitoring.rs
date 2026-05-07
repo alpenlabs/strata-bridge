@@ -245,6 +245,7 @@ fn aggregate_signatures_response_returns_hex_signatures_for_matching_claim() {
         graph_summary: graph_summary.clone(),
         agg_nonces: Some(vec![]),
         signatures,
+        stake_spent: None,
     };
 
     let response =
@@ -263,6 +264,7 @@ fn aggregate_signatures_response_returns_none_before_graph_is_signed() {
         pubnonces: BTreeMap::new(),
         agg_nonces: vec![],
         partial_signatures: BTreeMap::new(),
+        stake_spent: None,
     };
 
     let response = aggregate_signatures_response(test_graph_idx(), &state);
@@ -281,6 +283,8 @@ fn active_claim_from_state_returns_fulfilled_claim_in_claimed_state() {
         fulfillment_txid: Some(generate_txid()),
         fulfillment_block_height: Some(90),
         claim_block_height: 100,
+        stake_spent: None,
+        payout_connector_spent: None,
     };
 
     let claim = active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
@@ -302,6 +306,8 @@ fn active_claim_from_state_returns_unfulfilled_claim_in_claimed_state() {
         fulfillment_txid: None,
         fulfillment_block_height: None,
         claim_block_height: 100,
+        stake_spent: None,
+        payout_connector_spent: None,
     };
 
     let claim = active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
@@ -321,6 +327,7 @@ fn active_claim_from_state_returns_none_before_claim() {
         signatures: vec![],
         fulfillment_txid: generate_txid(),
         fulfillment_block_height: 90,
+        stake_spent: None,
     };
 
     let claim = active_claim_from_state(OPERATOR_IDX, &state);
@@ -339,6 +346,8 @@ fn active_claim_from_state_returns_contested_phase() {
         fulfillment_txid: Some(generate_txid()),
         fulfillment_block_height: Some(90),
         contest_block_height: 100,
+        stake_spent: None,
+        payout_connector_spent: None,
     };
 
     let claim = active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
@@ -789,6 +798,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 pubnonces: pubnonces.clone(),
                 agg_nonces: vec![generate_agg_nonce()],
                 partial_signatures: partial_signatures.clone(),
+                stake_spent: None,
             },
             not_started.clone(),
         ),
@@ -800,6 +810,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 graph_summary: graph_summary.clone(),
                 agg_nonces: Some(vec![generate_agg_nonce()]),
                 signatures: signatures.clone(),
+                stake_spent: None,
             },
             not_started.clone(),
         ),
@@ -813,6 +824,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 assignee: OPERATOR_IDX,
                 deadline: 120,
                 recipient_desc: random_p2tr_desc(),
+                stake_spent: None,
             },
             not_started.clone(),
         ),
@@ -827,6 +839,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 signatures: signatures.clone(),
                 fulfillment_txid,
                 fulfillment_block_height: 95,
+                stake_spent: None,
             },
             not_started,
         ),
@@ -840,6 +853,8 @@ fn reimbursement_status_reports_each_graph_state() {
                 fulfillment_txid: Some(fulfillment_txid),
                 fulfillment_block_height: Some(95),
                 claim_block_height: 100,
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
@@ -856,6 +871,8 @@ fn reimbursement_status_reports_each_graph_state() {
                 fulfillment_txid: Some(fulfillment_txid),
                 fulfillment_block_height: Some(95),
                 contest_block_height: 100,
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
@@ -874,6 +891,8 @@ fn reimbursement_status_reports_each_graph_state() {
                 bridge_proof_tx: generate_tx(1, 1),
                 bridge_proof_block_height: 101,
                 proof: dummy_proof_receipt(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
@@ -909,6 +928,8 @@ fn reimbursement_status_reports_each_graph_state() {
                 refuted_bridge_proof: None,
                 counterproofs_and_confs: BTreeMap::new(),
                 counterproof_nacks: BTreeMap::new(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,

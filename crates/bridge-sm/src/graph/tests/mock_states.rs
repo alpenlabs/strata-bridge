@@ -53,6 +53,7 @@ pub(super) fn graph_signed_state(nonce_ctx: &NonceContext) -> GraphState {
         graph_summary: test_graph_summary(),
         agg_nonces: Some(nonce_ctx.agg_nonces.clone()),
         signatures: Default::default(),
+        stake_spent: None,
     }
 }
 
@@ -70,6 +71,7 @@ pub(super) fn assigned_state(
         assignee,
         deadline,
         recipient_desc,
+        stake_spent: None,
     }
 }
 
@@ -84,6 +86,7 @@ pub(super) fn fulfilled_state(assignee: u32, fulfillment_txid: bitcoin::Txid) ->
         signatures: Default::default(),
         fulfillment_txid,
         fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
+        stake_spent: None,
     }
 }
 
@@ -114,6 +117,7 @@ pub(super) fn nonces_collected_state(
         pubnonces: nonce_ctx.pubnonces.clone(),
         agg_nonces: nonce_ctx.agg_nonces.clone(),
         partial_signatures: BTreeMap::new(),
+        stake_spent: None,
     }
 }
 
@@ -131,6 +135,8 @@ pub(super) fn claimed_state(
         fulfillment_txid: Some(fulfillment_txid),
         fulfillment_block_height: Some(140),
         claim_block_height: CLAIM_BLOCK_HEIGHT,
+        stake_spent: None,
+        payout_connector_spent: None,
     }
 }
 
@@ -152,6 +158,8 @@ pub(super) fn contested_state_with(
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         fulfillment_block_height: Some(LATER_BLOCK_HEIGHT),
         contest_block_height: LATER_BLOCK_HEIGHT,
+        stake_spent: None,
+        payout_connector_spent: None,
     }
 }
 
@@ -176,6 +184,8 @@ pub(super) fn bridge_proof_posted_state_with(
         bridge_proof_tx: TEST_BRIDGE_PROOF_TX.clone(),
         bridge_proof_block_height: LATER_BLOCK_HEIGHT,
         proof: dummy_proof_receipt(),
+        stake_spent: None,
+        payout_connector_spent: None,
     }
 }
 
@@ -213,6 +223,8 @@ pub(super) fn counter_proof_posted_state() -> GraphState {
         refuted_bridge_proof: Some((TEST_BRIDGE_PROOF_TX.clone(), dummy_proof_receipt())),
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
+        stake_spent: None,
+        payout_connector_spent: None,
     }
 }
 
@@ -228,6 +240,8 @@ pub(super) fn counter_proof_posted_without_refuted_proof_state() -> GraphState {
         refuted_bridge_proof: None,
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
+        stake_spent: None,
+        payout_connector_spent: None,
     }
 }
 
@@ -273,6 +287,8 @@ pub(super) fn counter_proof_posted_state_with(
             .iter()
             .map(|counterprover_idx| (*counterprover_idx, generate_txid()))
             .collect(),
+        stake_spent: None,
+        payout_connector_spent: None,
     }
 }
 
@@ -370,6 +386,7 @@ pub(super) fn pre_signing_states() -> Vec<GraphState> {
             pubnonces: Default::default(),
             agg_nonces: Default::default(),
             partial_signatures: Default::default(),
+            stake_spent: None,
         },
         GraphState::GraphSigned {
             last_block_height: LATER_BLOCK_HEIGHT,
@@ -377,6 +394,7 @@ pub(super) fn pre_signing_states() -> Vec<GraphState> {
             graph_summary: summary,
             agg_nonces: Some(Default::default()),
             signatures: Default::default(),
+            stake_spent: None,
         },
     ]
 }

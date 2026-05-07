@@ -93,6 +93,7 @@ mod tests {
             signatures: Default::default(),
             fulfillment_txid: generate_txid(),
             fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
+            stake_spent: None,
         };
         let sm = create_sm(state.clone());
         let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
@@ -172,6 +173,7 @@ mod tests {
             signatures: Default::default(),
             fulfillment_txid: generate_txid(),
             fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
+            stake_spent: None,
         };
 
         test_nonpov_owned_handler_output(
@@ -196,6 +198,7 @@ mod tests {
             signatures: Default::default(),
             fulfillment_txid: generate_txid(),
             fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
+            stake_spent: None,
         };
 
         test_pov_owned_handler_output(
@@ -219,6 +222,7 @@ mod tests {
             signatures: Default::default(),
             fulfillment_txid: generate_txid(),
             fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
+            stake_spent: None,
         };
 
         test_pov_owned_handler_output(
@@ -254,6 +258,7 @@ mod tests {
                 pubnonces: Default::default(),
                 agg_nonces: Default::default(),
                 partial_signatures: Default::default(),
+                stake_spent: None,
             },
             {
                 let (_, _, nonce_ctx) = test_nonce_context();

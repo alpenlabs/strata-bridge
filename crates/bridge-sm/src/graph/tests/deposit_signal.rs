@@ -58,6 +58,7 @@ mod tests {
                     signatures: Default::default(),
                     fulfillment_txid,
                     fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
+                    stake_spent: None,
                 },
                 expected_duties: vec![GraphDuty::PublishClaim {
                     claim_tx: game_graph.claim,
@@ -88,6 +89,7 @@ mod tests {
                     signatures: Default::default(),
                     fulfillment_txid,
                     fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
+                    stake_spent: None,
                 },
                 expected_duties: vec![],
                 expected_signals: vec![],

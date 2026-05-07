@@ -190,6 +190,7 @@ mod tests {
             pubnonces: BTreeMap::new(),
             agg_nonces: vec![],
             partial_signatures,
+            stake_spent: None,
         };
 
         test_graph_transition(GraphTransition {
@@ -217,6 +218,7 @@ mod tests {
             pubnonces: BTreeMap::new(),
             agg_nonces: vec![],
             partial_signatures,
+            stake_spent: None,
         };
 
         test_graph_transition(GraphTransition {
@@ -244,6 +246,7 @@ mod tests {
                 graph_summary: test_graph_summary(),
                 agg_nonces: Some(vec![]),
                 signatures: vec![],
+                stake_spent: None,
             },
             GraphState::Assigned {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -253,6 +256,7 @@ mod tests {
                 assignee: TEST_ASSIGNEE,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: test_recipient_desc(1),
+                stake_spent: None,
             },
             GraphState::Fulfilled {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -263,6 +267,7 @@ mod tests {
                 signatures: vec![],
                 fulfillment_txid: generate_txid(),
                 fulfillment_block_height: LATER_BLOCK_HEIGHT,
+                stake_spent: None,
             },
         ];
 

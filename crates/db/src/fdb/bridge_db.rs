@@ -1678,6 +1678,7 @@ mod tests {
             pubnonces: Default::default(),
             agg_nonces: Default::default(),
             partial_signatures: Default::default(),
+            stake_spent: None,
         };
 
         let deposit_sm = make_deposit_sm(

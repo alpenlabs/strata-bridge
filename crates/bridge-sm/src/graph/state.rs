@@ -131,6 +131,10 @@ pub enum GraphState {
 
         /// Partial signature from each operator.
         partial_signatures: BTreeMap<OperatorIdx, Vec<PartialSignature>>,
+
+        /// Set when the stake outpoint is consumed by something other than
+        /// this graph's slash.
+        stake_spent: Option<Txid>,
     },
     /// All required aggregate signatures for this pegout graph have been collected.
     GraphSigned {
@@ -155,6 +159,10 @@ pub enum GraphState {
 
         /// Aggregated final signatures for the graph.
         signatures: Vec<Signature>,
+
+        /// Set when the stake outpoint is consumed by something other than
+        /// this graph's slash.
+        stake_spent: Option<Txid>,
     },
     /// The deposit associated with this pegout graph has been assigned.
     Assigned {
@@ -179,6 +187,10 @@ pub enum GraphState {
 
         /// The descriptor of the withdrawal recipient.
         recipient_desc: Descriptor,
+
+        /// Set when the stake outpoint is consumed by something other than
+        /// this graph's slash.
+        stake_spent: Option<Txid>,
     },
     /// The pegout graph has been activated to initiate reimbursement (this is redundant w.r.t.
     /// to the DSM's `Fulfilled` state, but is included here in order to preserve relative
@@ -208,6 +220,10 @@ pub enum GraphState {
 
         /// The block height at which the fulfillment transaction was confirmed.
         fulfillment_block_height: BitcoinBlockHeight,
+
+        /// Set when the stake outpoint is consumed by something other than
+        /// this graph's slash.
+        stake_spent: Option<Txid>,
     },
     /// The claim transaction has been posted on chain.
     Claimed {
@@ -233,6 +249,14 @@ pub enum GraphState {
 
         /// The block height at which the claim transaction was confirmed.
         claim_block_height: BitcoinBlockHeight,
+
+        /// Set when the stake outpoint is consumed by something other than
+        /// this graph's slash.
+        stake_spent: Option<Txid>,
+
+        /// Set when the payout connector is consumed by something other than
+        /// the legitimate payout.
+        payout_connector_spent: Option<Txid>,
     },
     /// The contest transaction has been posted on chain.
     Contested {
@@ -258,6 +282,14 @@ pub enum GraphState {
 
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
+
+        /// Set when the stake outpoint is consumed by something other than
+        /// this graph's slash.
+        stake_spent: Option<Txid>,
+
+        /// Set when the payout connector is consumed by something other than
+        /// the legitimate payout.
+        payout_connector_spent: Option<Txid>,
     },
     /// The bridge proof transaction has been posted on chain.
     BridgeProofPosted {
@@ -289,6 +321,14 @@ pub enum GraphState {
 
         /// The bridge proof.
         proof: ProofReceipt,
+
+        /// Set when the stake outpoint is consumed by something other than
+        /// this graph's slash.
+        stake_spent: Option<Txid>,
+
+        /// Set when the payout connector is consumed by something other than
+        /// the legitimate payout.
+        payout_connector_spent: Option<Txid>,
     },
     /// The bridge proof timeout transaction has been posted on chain.
     BridgeProofTimedout {
@@ -349,6 +389,14 @@ pub enum GraphState {
 
         /// The txids of the counterproof NACK transactions submitted on chain.
         counterproof_nacks: BTreeMap<OperatorIdx, Txid>,
+
+        /// Set when the stake outpoint is consumed by something other than
+        /// this graph's slash.
+        stake_spent: Option<Txid>,
+
+        /// Set when the payout connector is consumed by something other than
+        /// the legitimate payout.
+        payout_connector_spent: Option<Txid>,
     },
     /// All possible counterproof transactions have been NACK’d on chain.
     AllNackd {
@@ -535,6 +583,115 @@ impl GraphState {
                 // Terminal states do not track block height
                 None
             }
+        }
+    }
+
+    /// Returns the recorded `stake_spent` txid for this state, if any.
+    pub const fn stake_spent_txid(&self) -> Option<Txid> {
+        match self {
+            GraphState::NoncesCollected { stake_spent, .. }
+            | GraphState::GraphSigned { stake_spent, .. }
+            | GraphState::Assigned { stake_spent, .. }
+            | GraphState::Fulfilled { stake_spent, .. }
+            | GraphState::Claimed { stake_spent, .. }
+            | GraphState::Contested { stake_spent, .. }
+            | GraphState::BridgeProofPosted { stake_spent, .. }
+            | GraphState::CounterProofPosted { stake_spent, .. } => *stake_spent,
+            _ => None,
+        }
+    }
+
+    /// Returns the recorded `payout_connector_spent` txid for this state, if any.
+    pub const fn payout_connector_spent_txid(&self) -> Option<Txid> {
+        match self {
+            GraphState::Claimed {
+                payout_connector_spent,
+                ..
+            }
+            | GraphState::Contested {
+                payout_connector_spent,
+                ..
+            }
+            | GraphState::BridgeProofPosted {
+                payout_connector_spent,
+                ..
+            }
+            | GraphState::CounterProofPosted {
+                payout_connector_spent,
+                ..
+            } => *payout_connector_spent,
+            _ => None,
+        }
+    }
+
+    /// Returns the txid of the slash transaction that, if confirmed, would
+    /// drive this graph to [`GraphState::Slashed`]. `None` for states from
+    /// which slashing is not yet realizable.
+    pub const fn expected_slash_txid(&self) -> Option<Txid> {
+        match self {
+            GraphState::Claimed { graph_summary, .. }
+            | GraphState::Contested { graph_summary, .. }
+            | GraphState::BridgeProofPosted { graph_summary, .. }
+            | GraphState::CounterProofPosted { graph_summary, .. } => Some(graph_summary.slash),
+            GraphState::BridgeProofTimedout {
+                expected_slash_txid,
+                ..
+            }
+            | GraphState::Acked {
+                expected_slash_txid,
+                ..
+            } => Some(*expected_slash_txid),
+            GraphState::AllNackd {
+                possible_slash_txid,
+                ..
+            } => Some(*possible_slash_txid),
+            _ => None,
+        }
+    }
+
+    /// Records `stake_spent`. Returns `false` if the current state does not
+    /// carry the field.
+    pub const fn set_stake_spent(&mut self, txid: Txid) -> bool {
+        match self {
+            GraphState::NoncesCollected { stake_spent, .. }
+            | GraphState::GraphSigned { stake_spent, .. }
+            | GraphState::Assigned { stake_spent, .. }
+            | GraphState::Fulfilled { stake_spent, .. }
+            | GraphState::Claimed { stake_spent, .. }
+            | GraphState::Contested { stake_spent, .. }
+            | GraphState::BridgeProofPosted { stake_spent, .. }
+            | GraphState::CounterProofPosted { stake_spent, .. } => {
+                *stake_spent = Some(txid);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Records `payout_connector_spent`. Returns `false` if the current state
+    /// does not carry the field.
+    pub const fn set_payout_connector_spent(&mut self, txid: Txid) -> bool {
+        match self {
+            GraphState::Claimed {
+                payout_connector_spent,
+                ..
+            }
+            | GraphState::Contested {
+                payout_connector_spent,
+                ..
+            }
+            | GraphState::BridgeProofPosted {
+                payout_connector_spent,
+                ..
+            }
+            | GraphState::CounterProofPosted {
+                payout_connector_spent,
+                ..
+            } => {
+                *payout_connector_spent = Some(txid);
+                true
+            }
+            _ => false,
         }
     }
 }

@@ -64,6 +64,7 @@ impl GraphSM {
                 graph_summary,
                 signatures,
                 deadline,
+                stake_spent,
                 ..
             } => {
                 // If deadline has elapsed, revert to GraphSigned state
@@ -74,6 +75,7 @@ impl GraphSM {
                         graph_summary: graph_summary.clone(),
                         agg_nonces: None,
                         signatures: signatures.clone(),
+                        stake_spent: *stake_spent,
                     };
                 } else {
                     *last_block_height = new_block_event.block_height;

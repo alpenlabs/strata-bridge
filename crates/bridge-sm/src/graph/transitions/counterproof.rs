@@ -34,6 +34,8 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
+                stake_spent,
+                payout_connector_spent,
                 ..
             } => {
                 let (nack_duties, completed_signatures) =
@@ -59,6 +61,8 @@ impl GraphSM {
                     refuted_bridge_proof: None,
                     counterproofs_and_confs,
                     counterproof_nacks: BTreeMap::new(),
+                    stake_spent,
+                    payout_connector_spent,
                 };
 
                 Ok(GSMOutput::with_duties(nack_duties))
@@ -72,6 +76,8 @@ impl GraphSM {
                 contest_block_height,
                 proof,
                 bridge_proof_tx,
+                stake_spent,
+                payout_connector_spent,
                 ..
             } => {
                 let (nack_duties, completed_signatures) =
@@ -97,6 +103,8 @@ impl GraphSM {
                     refuted_bridge_proof: Some((bridge_proof_tx, proof)),
                     counterproofs_and_confs,
                     counterproof_nacks: BTreeMap::new(),
+                    stake_spent,
+                    payout_connector_spent,
                 };
 
                 Ok(GSMOutput::with_duties(nack_duties))
@@ -110,6 +118,8 @@ impl GraphSM {
                 contest_block_height,
                 refuted_bridge_proof,
                 counterproof_nacks,
+                stake_spent,
+                payout_connector_spent,
                 ..
             } => {
                 if counterproofs_and_confs.contains_key(&event.counterprover_idx) {
@@ -138,6 +148,8 @@ impl GraphSM {
                     refuted_bridge_proof,
                     counterproofs_and_confs,
                     counterproof_nacks,
+                    stake_spent,
+                    payout_connector_spent,
                 };
 
                 Ok(GSMOutput::with_duties(nack_duties))

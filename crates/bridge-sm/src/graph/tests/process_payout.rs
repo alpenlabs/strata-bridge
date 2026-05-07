@@ -34,6 +34,8 @@ mod tests {
                 fulfillment_txid: Some(generate_txid()),
                 fulfillment_block_height: Some(INITIAL_BLOCK_HEIGHT),
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
             expected_state: GraphState::Withdrawn {
@@ -117,6 +119,8 @@ mod tests {
                 bridge_proof_tx: generate_tx(1, 1),
                 bridge_proof_block_height: LATER_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
             expected_state: GraphState::Withdrawn {

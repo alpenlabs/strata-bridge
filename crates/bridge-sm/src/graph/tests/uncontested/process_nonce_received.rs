@@ -208,6 +208,7 @@ mod tests {
             pubnonces: nonce_ctx.pubnonces.clone(),
             agg_nonces: nonce_ctx.agg_nonces.clone(),
             partial_signatures: BTreeMap::new(),
+            stake_spent: None,
         };
 
         test_graph_invalid_transition(GraphInvalidTransition {
