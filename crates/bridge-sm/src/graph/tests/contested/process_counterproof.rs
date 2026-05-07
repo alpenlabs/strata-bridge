@@ -105,6 +105,8 @@ fn event_accepted_from_contested_pov() {
             refuted_bridge_proof: None,
             counterproofs_and_confs: expected_counterproofs,
             counterproof_nacks: BTreeMap::new(),
+            stake_spent: None,
+            payout_connector_spent: None,
         },
         expected_duties: vec![expected_nack_duty(TEST_NONPOV_IDX)],
         expected_signals: vec![],
@@ -142,6 +144,8 @@ fn event_accepted_from_contested_nonpov() {
                 refuted_bridge_proof: None,
                 counterproofs_and_confs: expected_counterproofs,
                 counterproof_nacks: BTreeMap::new(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -178,6 +182,8 @@ fn event_accepted_from_bridge_proof_posted_pov() {
             refuted_bridge_proof: Some((TEST_BRIDGE_PROOF_TX.clone(), dummy_proof_receipt())),
             counterproofs_and_confs: expected_counterproofs,
             counterproof_nacks: BTreeMap::new(),
+            stake_spent: None,
+            payout_connector_spent: None,
         },
         expected_duties: vec![expected_nack_duty(TEST_NONPOV_IDX)],
         expected_signals: vec![],
@@ -215,6 +221,8 @@ fn event_accepted_from_bridge_proof_posted_nonpov() {
                 refuted_bridge_proof: Some((TEST_BRIDGE_PROOF_TX.clone(), dummy_proof_receipt())),
                 counterproofs_and_confs: expected_counterproofs,
                 counterproof_nacks: BTreeMap::new(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -249,6 +257,8 @@ fn event_accepted_from_counter_proof_posted_pov() {
         refuted_bridge_proof: None,
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
+        stake_spent: None,
+        payout_connector_spent: None,
     };
 
     test_graph_transition(GraphTransition {
@@ -264,6 +274,8 @@ fn event_accepted_from_counter_proof_posted_pov() {
             refuted_bridge_proof: None,
             counterproofs_and_confs: expected_counterproofs,
             counterproof_nacks: BTreeMap::new(),
+            stake_spent: None,
+            payout_connector_spent: None,
         },
         expected_duties: vec![expected_nack_duty(TEST_NONPOV_IDX)],
         expected_signals: vec![],
@@ -296,6 +308,8 @@ fn event_duplicate() {
         refuted_bridge_proof: None,
         counterproofs_and_confs: existing_counterproofs,
         counterproof_nacks: BTreeMap::new(),
+        stake_spent: None,
+        payout_connector_spent: None,
     };
 
     test_graph_invalid_transition(GraphInvalidTransition {

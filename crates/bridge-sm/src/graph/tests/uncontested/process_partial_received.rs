@@ -61,6 +61,7 @@ mod tests {
             pubnonces: nonce_ctx.pubnonces.clone(),
             agg_nonces: nonce_ctx.agg_nonces.clone(),
             partial_signatures: expected_partials,
+            stake_spent: None,
         });
         assert!(seq.all_duties().is_empty());
         assert!(seq.all_signals().is_empty());
@@ -204,6 +205,7 @@ mod tests {
             pubnonces: nonce_ctx.pubnonces,
             agg_nonces: nonce_ctx.agg_nonces,
             partial_signatures,
+            stake_spent: None,
         };
 
         test_graph_invalid_transition(GraphInvalidTransition {

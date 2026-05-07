@@ -218,6 +218,7 @@ mod tests {
             pubnonces: BTreeMap::new(),
             agg_nonces: vec![],
             partial_signatures: BTreeMap::new(),
+            stake_spent: None,
         };
 
         test_graph_invalid_transition(GraphInvalidTransition {

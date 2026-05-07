@@ -112,6 +112,7 @@ mod tests {
                 graph_summary: test_graph_summary(),
                 agg_nonces: None,
                 signatures: Default::default(),
+                stake_spent: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],

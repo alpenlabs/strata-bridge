@@ -103,6 +103,8 @@ fn counter_proof_posted_state_with_nacks(nacked_idxs: &[u32]) -> GraphState {
             .iter()
             .map(|&idx| (idx, generate_txid()))
             .collect(),
+        stake_spent: None,
+        payout_connector_spent: None,
     }
 }
 
@@ -143,6 +145,8 @@ fn first_nack_stays_in_counter_proof_posted() {
                 ),
             ]),
             counterproof_nacks: BTreeMap::from([(TEST_NONPOV_IDX, event.tx.compute_txid())]),
+            stake_spent: None,
+            payout_connector_spent: None,
         },
         expected_duties: vec![],
         expected_signals: vec![],
@@ -289,6 +293,8 @@ fn event_rejected_when_tx_is_counterproof_ack() {
             ),
         ]),
         counterproof_nacks: BTreeMap::new(),
+        stake_spent: None,
+        payout_connector_spent: None,
     };
 
     let event = CounterProofNackConfirmedEvent {

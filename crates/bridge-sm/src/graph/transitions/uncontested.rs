@@ -353,6 +353,7 @@ impl GraphSM {
                         pubnonces: pubnonces.clone(),
                         agg_nonces: agg_nonces.clone(),
                         partial_signatures: BTreeMap::new(),
+                        stake_spent: None,
                     };
 
                     return Ok(GSMOutput::with_duties(vec![
@@ -417,6 +418,7 @@ impl GraphSM {
                 pubnonces,
                 agg_nonces,
                 partial_signatures,
+                stake_spent,
             } => {
                 // Check for duplicate signature submission
                 if partial_signatures.contains_key(&partials_received_event.operator_idx) {
@@ -530,6 +532,7 @@ impl GraphSM {
                         graph_summary: graph_summary.clone(),
                         agg_nonces: Some(agg_nonces.clone()),
                         signatures: agg_sigs.clone(),
+                        stake_spent: *stake_spent,
                     };
 
                     return Ok(GSMOutput::with_signals(vec![GraphSignal::ToDeposit(
@@ -574,6 +577,7 @@ impl GraphSM {
                 graph_data,
                 graph_summary,
                 signatures,
+                stake_spent,
                 ..
             } => {
                 if assignment_event.assignee != self.context().operator_idx() {
@@ -596,6 +600,7 @@ impl GraphSM {
                     assignee: assignment_event.assignee,
                     deadline: assignment_event.deadline,
                     recipient_desc: assignment_event.recipient_desc,
+                    stake_spent: *stake_spent,
                 };
 
                 Ok(GSMOutput::default())
@@ -609,6 +614,7 @@ impl GraphSM {
                 assignee,
                 deadline,
                 recipient_desc,
+                stake_spent,
             } => {
                 // Recipient descriptor cannot be changed once assigned.
                 if *recipient_desc != assignment_event.recipient_desc {
@@ -638,6 +644,7 @@ impl GraphSM {
                         assignee: assignment_event.assignee,
                         deadline: assignment_event.deadline,
                         recipient_desc: assignment_event.recipient_desc,
+                        stake_spent: *stake_spent,
                     };
                 } else {
                     // Different assignee: revert to GraphSigned.
@@ -649,6 +656,7 @@ impl GraphSM {
                         graph_summary: graph_summary.clone(),
                         agg_nonces: None,
                         signatures: signatures.clone(),
+                        stake_spent: *stake_spent,
                     };
                 }
                 Ok(GSMOutput::default())
@@ -695,6 +703,7 @@ impl GraphSM {
                 signatures,
                 assignee,
                 deadline,
+                stake_spent,
                 ..
             } => {
                 let fulfillment_block_height = fulfillment.fulfillment_block_height;
@@ -720,6 +729,7 @@ impl GraphSM {
                     signatures: signatures.clone(),
                     fulfillment_txid: fulfillment.fulfillment_txid,
                     fulfillment_block_height,
+                    stake_spent: *stake_spent,
                 };
 
                 Ok(GSMOutput::default())
@@ -753,6 +763,7 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 fulfillment_block_height,
+                stake_spent,
                 ..
             } => {
                 if claim.claim_txid != graph_summary.claim {
@@ -771,6 +782,8 @@ impl GraphSM {
                     fulfillment_txid: Some(*fulfillment_txid),
                     fulfillment_block_height: Some(*fulfillment_block_height),
                     claim_block_height: claim.claim_block_height,
+                    stake_spent: *stake_spent,
+                    payout_connector_spent: None,
                 };
 
                 Ok(GSMOutput::new())
@@ -781,6 +794,7 @@ impl GraphSM {
                 graph_data,
                 graph_summary,
                 signatures,
+                stake_spent,
                 ..
             }
             | GraphState::GraphSigned {
@@ -788,6 +802,7 @@ impl GraphSM {
                 graph_data,
                 graph_summary,
                 signatures,
+                stake_spent,
                 ..
             } => {
                 if claim.claim_txid != graph_summary.claim {
@@ -836,6 +851,8 @@ impl GraphSM {
                     fulfillment_txid: None,
                     fulfillment_block_height: None,
                     claim_block_height: claim.claim_block_height,
+                    stake_spent: *stake_spent,
+                    payout_connector_spent: None,
                 };
 
                 Ok(GSMOutput::with_duties(duties))

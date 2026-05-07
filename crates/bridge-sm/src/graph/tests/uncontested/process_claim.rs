@@ -61,6 +61,8 @@ mod tests {
                 fulfillment_txid: Some(fulfillment_txid),
                 fulfillment_block_height: Some(FULFILLMENT_BLOCK_HEIGHT),
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -86,6 +88,7 @@ mod tests {
                 graph_summary: test_graph_summary(),
                 agg_nonces: Some(nonce_ctx.agg_nonces.clone()),
                 signatures: signatures.clone(),
+                stake_spent: None,
             },
             GraphState::Assigned {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -95,6 +98,7 @@ mod tests {
                 assignee: TEST_POV_IDX,
                 deadline: ASSIGNMENT_DEADLINE,
                 recipient_desc: test_recipient_desc(1),
+                stake_spent: None,
             },
         ];
 
@@ -190,6 +194,7 @@ mod tests {
                     graph_summary: graph_summary.clone(),
                     agg_nonces: Some(nonce_ctx.agg_nonces.clone()),
                     signatures: signatures.clone(),
+                    stake_spent: None,
                 },
                 event: GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
                     claim_txid: graph_summary.claim,
@@ -203,6 +208,8 @@ mod tests {
                     fulfillment_txid: None,
                     fulfillment_block_height: None,
                     claim_block_height: CLAIM_BLOCK_HEIGHT,
+                    stake_spent: None,
+                    payout_connector_spent: None,
                 },
                 expected_duties: vec![GraphDuty::PublishContest {
                     contest_tx: game_graph.contest,
@@ -233,6 +240,8 @@ mod tests {
                 fulfillment_txid: None,
                 fulfillment_block_height: None,
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
+                stake_spent: None,
+                payout_connector_spent: None,
             };
 
             test_transition::<GraphSM, _, _, _, _, _, _, _>(

@@ -42,6 +42,8 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 fulfillment_block_height,
+                stake_spent,
+                payout_connector_spent,
                 ..
             } => {
                 if event.contest_txid != graph_summary.contest {
@@ -60,6 +62,8 @@ impl GraphSM {
                     fulfillment_txid,
                     fulfillment_block_height,
                     contest_block_height: event.contest_block_height,
+                    stake_spent,
+                    payout_connector_spent,
                 };
 
                 // The graph owner must publish a bridge proof to defend against the contest
@@ -108,6 +112,8 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
+                stake_spent,
+                payout_connector_spent,
                 ..
             } => {
                 if !validate_bridge_proof_spend(&graph_summary, &event) {
@@ -178,6 +184,8 @@ impl GraphSM {
                     bridge_proof_tx: event.tx.clone(),
                     bridge_proof_block_height: event.bridge_proof_block_height,
                     proof: bridge_proof,
+                    stake_spent,
+                    payout_connector_spent,
                 };
 
                 Ok(GSMOutput::with_duties(duties))
@@ -191,6 +199,8 @@ impl GraphSM {
                 refuted_bridge_proof,
                 counterproofs_and_confs,
                 counterproof_nacks,
+                stake_spent,
+                payout_connector_spent,
                 ..
             } => {
                 if refuted_bridge_proof.is_some() {
@@ -253,6 +263,8 @@ impl GraphSM {
                     refuted_bridge_proof: Some((event.tx.clone(), bridge_proof)),
                     counterproofs_and_confs,
                     counterproof_nacks,
+                    stake_spent,
+                    payout_connector_spent,
                 };
 
                 Ok(GSMOutput::with_duties(duties))
@@ -277,6 +289,8 @@ impl GraphSM {
                 fulfillment_txid,
                 fulfillment_block_height: _,
                 contest_block_height,
+                stake_spent: _,
+                payout_connector_spent: _,
             } => {
                 if event.bridge_proof_timeout_txid != graph_summary.bridge_proof_timeout {
                     return Err(GSMError::rejected(
@@ -354,6 +368,8 @@ impl GraphSM {
                 refuted_bridge_proof,
                 counterproofs_and_confs,
                 mut counterproof_nacks,
+                stake_spent,
+                payout_connector_spent,
             } => {
                 // Validate that the NACK tx spends the correct counterproof
                 // ACK/NACK output and is not a known counterproof ACK.
@@ -413,6 +429,8 @@ impl GraphSM {
                         refuted_bridge_proof,
                         counterproofs_and_confs,
                         counterproof_nacks,
+                        stake_spent,
+                        payout_connector_spent,
                     };
                 }
 

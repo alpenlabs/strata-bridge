@@ -65,6 +65,8 @@ fn event_accepted_pov_no_duties() {
             bridge_proof_tx: event.tx.clone(),
             bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
             proof: dummy_proof_receipt(),
+            stake_spent: None,
+            payout_connector_spent: None,
         },
         expected_duties: vec![],
         expected_signals: vec![],
@@ -93,6 +95,8 @@ fn watchtower_skips_counterproof_when_proof_valid() {
                 bridge_proof_tx: event.tx.clone(),
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -139,6 +143,8 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
                 bridge_proof_tx: event.tx.clone(),
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
                 graph_idx: sm.context().graph_idx(),
@@ -175,6 +181,8 @@ fn accepts_bridge_proof_posted_after_counterproof() {
                 refuted_bridge_proof: Some((event_tx, dummy_proof_receipt())),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -214,6 +222,8 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
         refuted_bridge_proof: None,
         counterproofs_and_confs: Default::default(),
         counterproof_nacks: Default::default(),
+        stake_spent: None,
+        payout_connector_spent: None,
     };
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
@@ -233,6 +243,8 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
                 refuted_bridge_proof: Some((event.tx.clone(), dummy_proof_receipt())),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
                 graph_idx: sm.context().graph_idx(),
@@ -269,6 +281,8 @@ fn pov_watchtower_skips_counterproof_even_when_proof_invalid() {
                 bridge_proof_tx: event.tx.clone(),
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -302,6 +316,8 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
         refuted_bridge_proof: None,
         counterproofs_and_confs: counterproofs_and_confs.clone(),
         counterproof_nacks: BTreeMap::new(),
+        stake_spent: None,
+        payout_connector_spent: None,
     };
 
     let event_tx = event.tx.clone();
@@ -322,6 +338,8 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
                 refuted_bridge_proof: Some((event_tx, dummy_proof_receipt())),
                 counterproofs_and_confs,
                 counterproof_nacks: BTreeMap::new(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -352,6 +370,8 @@ fn pov_skips_counterproof_on_late_invalid_proof() {
                 refuted_bridge_proof: Some((event_tx, dummy_proof_receipt())),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
+                stake_spent: None,
+                payout_connector_spent: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -457,6 +477,8 @@ fn contested_state_with_timeout_txid(timeout_txid: bitcoin::Txid) -> GraphState 
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         fulfillment_block_height: Some(LATER_BLOCK_HEIGHT),
         contest_block_height: LATER_BLOCK_HEIGHT,
+        stake_spent: None,
+        payout_connector_spent: None,
     }
 }
 
@@ -477,6 +499,8 @@ fn counter_proof_posted_without_refuted_proof_state_with_timeout_txid(
         refuted_bridge_proof: None,
         counterproofs_and_confs: Default::default(),
         counterproof_nacks: Default::default(),
+        stake_spent: None,
+        payout_connector_spent: None,
     }
 }
 

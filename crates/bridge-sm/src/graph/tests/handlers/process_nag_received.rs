@@ -171,6 +171,7 @@ mod tests {
                     graph_summary,
                     agg_nonces: Some(nonce_ctx.agg_nonces),
                     signatures: vec![],
+                    stake_spent: None,
                 },
                 event: GraphEvent::NagReceived(create_nag_event(
                     NagRequestPayload::GraphPartials {
@@ -196,6 +197,7 @@ mod tests {
                 graph_summary,
                 agg_nonces: Some(nonce_ctx.agg_nonces),
                 signatures: vec![],
+                stake_spent: None,
             },
             event: GraphEvent::NagReceived(create_nag_event(NagRequestPayload::GraphNonces {
                 graph_idx: test_graph_sm_ctx().graph_idx(),
@@ -342,6 +344,7 @@ mod tests {
                 assignee: TEST_ASSIGNEE,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: test_recipient_desc(1),
+                stake_spent: None,
             },
             event: GraphEvent::NagReceived(create_nag_event(NagRequestPayload::DepositNonce {
                 deposit_idx: test_graph_sm_ctx().deposit_idx(),
@@ -367,6 +370,7 @@ mod tests {
                 assignee: TEST_ASSIGNEE,
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: test_recipient_desc(1),
+                stake_spent: None,
             },
             event: GraphEvent::NagReceived(create_nag_event(NagRequestPayload::GraphNonces {
                 graph_idx: test_graph_sm_ctx().graph_idx(),
@@ -425,6 +429,7 @@ mod tests {
                     graph_summary,
                     agg_nonces: Some(expected_agg_nonces.clone()),
                     signatures: vec![],
+                    stake_spent: None,
                 },
                 event: GraphEvent::NagReceived(create_nag_event(
                     NagRequestPayload::GraphPartials {
@@ -456,6 +461,7 @@ mod tests {
                     pubnonces: nonce_ctx.pubnonces,
                     agg_nonces: nonce_ctx.agg_nonces,
                     partial_signatures: partials,
+                    stake_spent: None,
                 },
                 event: GraphEvent::NagReceived(create_nag_event(NagRequestPayload::GraphNonces {
                     graph_idx: test_graph_sm_ctx().graph_idx(),
