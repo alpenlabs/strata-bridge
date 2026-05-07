@@ -83,7 +83,7 @@ impl StateMachine for GraphSM {
             }
             GraphEvent::CounterProofAckConfirmed(ack) => self.process_counterproof_ack(ack),
             GraphEvent::CounterProofNackConfirmed(nack) => self.process_counterproof_nackd(nack),
-            GraphEvent::SlashConfirmed(slash) => self.process_slash(slash),
+            GraphEvent::StakeSpent(stake_spent) => self.process_stake_spent(stake_spent),
             GraphEvent::PayoutConfirmed(payout) => self.process_payout(payout),
             GraphEvent::PayoutConnectorSpent(connector_spent) => {
                 self.process_payout_connector_spent(connector_spent)

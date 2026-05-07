@@ -134,9 +134,17 @@ pub(super) fn test_graph_sm_ctx() -> GraphSMCtx {
             operator: TEST_POV_IDX,
         },
         deposit_outpoint: OutPoint::default(),
-        stake_outpoint: OutPoint::default(),
+        stake_outpoint: test_stake_outpoint(),
         unstaking_image: sha256::Hash::all_zeros(),
         operator_table: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+    }
+}
+
+/// Outpoint used as the operator's stake input across graph SM tests.
+pub(super) fn test_stake_outpoint() -> OutPoint {
+    OutPoint {
+        txid: bitcoin::Txid::from_byte_array([0xab; 32]),
+        vout: 1,
     }
 }
 
@@ -198,13 +206,14 @@ pub(super) enum TestGraphTxKind {
 
 impl From<TestGraphTxKind> for Transaction {
     fn from(kind: TestGraphTxKind) -> Self {
-        generate_spending_tx(
-            OutPoint {
+        let previous_output = match kind {
+            TestGraphTxKind::Slash => test_stake_outpoint(),
+            _ => OutPoint {
                 vout: kind as u32,
                 ..OutPoint::default()
             },
-            &[],
-        )
+        };
+        generate_spending_tx(previous_output, &[])
     }
 }
 
@@ -343,7 +352,7 @@ pub(super) fn create_nonpov_sm(state: GraphState) -> GraphSM {
                 operator: TEST_POV_IDX,
             },
             deposit_outpoint: OutPoint::default(),
-            stake_outpoint: OutPoint::default(),
+            stake_outpoint: test_stake_outpoint(),
             unstaking_image: sha256::Hash::all_zeros(),
             operator_table: test_operator_table(N_TEST_OPERATORS, TEST_NONPOV_IDX),
         },

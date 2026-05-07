@@ -30,7 +30,6 @@ fn event_accepted() {
             event: GraphEvent::PayoutConnectorSpent(event.clone()),
             expected_state: GraphState::Aborted {
                 claim_txid,
-                payout_connector_spend_txid: event.spending_txid,
                 reason: AbortReason::PayoutConnectorSpent {
                     spending_txid: event.spending_txid,
                 },
@@ -49,7 +48,6 @@ fn event_duplicate() {
     test_graph_invalid_transition(GraphInvalidTransition {
         from_state: GraphState::Aborted {
             claim_txid,
-            payout_connector_spend_txid: spending_txid,
             reason: AbortReason::PayoutConnectorSpent { spending_txid },
         },
         event: GraphEvent::PayoutConnectorSpent(PayoutConnectorSpentEvent { spending_txid }),

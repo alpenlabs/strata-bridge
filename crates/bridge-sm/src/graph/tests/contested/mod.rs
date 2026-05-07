@@ -4,4 +4,4 @@ mod process_contest;
 mod process_counterproof;
 mod process_counterproof_ack;
 mod process_counterproof_nackd;
-mod process_slash;
+mod process_stake_spent;

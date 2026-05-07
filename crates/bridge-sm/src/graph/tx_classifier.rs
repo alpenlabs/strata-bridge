@@ -10,7 +10,7 @@ use crate::{
             BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ClaimConfirmedEvent,
             ContestConfirmedEvent, CounterProofAckConfirmedEvent, CounterProofConfirmedEvent,
             CounterProofNackConfirmedEvent, FulfillmentConfirmedEvent, GraphEvent,
-            PayoutConfirmedEvent, PayoutConnectorSpentEvent, SlashConfirmedEvent,
+            PayoutConfirmedEvent, PayoutConnectorSpentEvent, StakeSpentEvent,
         },
         machine::GraphSM,
         state::GraphState,
@@ -18,6 +18,7 @@ use crate::{
     tx_classifier::{
         TxClassifier, counterproof_ack_operator_idx, counterproof_operator_idx, is_fulfillment,
         is_payout_connector_spent, nack_counterprover_idx, spends_contest_proof_connector,
+        spends_stake_outpoint,
     },
 };
 
@@ -33,17 +34,33 @@ impl TxClassifier for GraphSM {
         match self.state() {
             GraphState::Created { .. } => None, // does not expect any txs
 
-            // might see claim if an operator is malicious
+            // pre-`NoncesCollected` states do not yet track stake spends — see
+            // `process_stake_spent`. Only the claim is observable here.
             GraphState::GraphGenerated { graph_summary, .. }
             | GraphState::AdaptorsVerified { graph_summary, .. }
-            | GraphState::NoncesCollected { graph_summary, .. }
-            | GraphState::GraphSigned { graph_summary, .. }
                 if txid == graph_summary.claim =>
             {
                 Some(GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
                     claim_txid: txid,
                     claim_block_height: height,
                 }))
+            }
+            GraphState::GraphGenerated { .. } | GraphState::AdaptorsVerified { .. } => None,
+
+            // post-`NoncesCollected` signed pre-`Claimed` states also detect
+            // stake-outpoint spends.
+            GraphState::NoncesCollected { graph_summary, .. }
+            | GraphState::GraphSigned { graph_summary, .. } => {
+                if txid == graph_summary.claim {
+                    Some(GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
+                        claim_txid: txid,
+                        claim_block_height: height,
+                    }))
+                } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
+                    Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
+                } else {
+                    None
+                }
             }
 
             // expects a fulfillment transaction
@@ -72,6 +89,8 @@ impl TxClassifier for GraphSM {
                         claim_txid: txid,
                         claim_block_height: height,
                     }))
+                } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
+                    Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else {
                     None
                 }
@@ -88,12 +107,14 @@ impl TxClassifier for GraphSM {
                         claim_txid: txid,
                         claim_block_height: height,
                     }))
+                } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
+                    Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else {
                     None
                 }
             }
 
-            // expects a contest or an uncontested payout or payout burn
+            // expects a contest or an uncontested payout or payout burn or a stake spend
             GraphState::Claimed { graph_summary, .. } => {
                 if txid == graph_summary.contest {
                     Some(GraphEvent::ContestConfirmed(ContestConfirmedEvent {
@@ -110,13 +131,15 @@ impl TxClassifier for GraphSM {
                             spending_txid: txid,
                         },
                     ))
+                } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
+                    Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else {
                     None
                 }
             }
 
             // expects a bridge proof, a (faulty) counterproof or a bridge proof timeout or a payout
-            // burn or a contested payout
+            // burn or a contested payout or a stake spend
             GraphState::Contested { graph_summary, .. } => {
                 if txid == graph_summary.bridge_proof_timeout {
                     Some(GraphEvent::BridgeProofTimeoutConfirmed(
@@ -149,16 +172,14 @@ impl TxClassifier for GraphSM {
                             spending_txid: txid,
                         },
                     ))
-                } else if txid == graph_summary.slash {
-                    Some(GraphEvent::SlashConfirmed(SlashConfirmedEvent {
-                        slash_txid: txid,
-                    }))
+                } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
+                    Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else {
                     None
                 }
             }
 
-            // expects a counterproof or a contested payout or a payout burn or a slash
+            // expects a counterproof or a contested payout or a payout burn or a stake spend
             GraphState::BridgeProofPosted { graph_summary, .. } => {
                 if let Some(counterprover_idx) =
                     counterproof_operator_idx(graph_summary, &txid, self.context().operator_idx())
@@ -180,25 +201,17 @@ impl TxClassifier for GraphSM {
                             spending_txid: txid,
                         },
                     ))
-                } else if txid == graph_summary.slash {
-                    Some(GraphEvent::SlashConfirmed(SlashConfirmedEvent {
-                        slash_txid: txid,
-                    }))
+                } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
+                    Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else {
                     None
                 }
             }
 
-            // expects a slash or a payout burn
-            GraphState::BridgeProofTimedout {
-                expected_slash_txid,
-                claim_txid,
-                ..
-            } => {
-                if txid == *expected_slash_txid {
-                    Some(GraphEvent::SlashConfirmed(SlashConfirmedEvent {
-                        slash_txid: txid,
-                    }))
+            // expects a stake spend or a payout burn
+            GraphState::BridgeProofTimedout { claim_txid, .. } => {
+                if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
+                    Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else if is_payout_connector_spent(claim_txid, tx) {
                     Some(GraphEvent::PayoutConnectorSpent(
                         PayoutConnectorSpentEvent {
@@ -211,7 +224,7 @@ impl TxClassifier for GraphSM {
             }
 
             // expects a bridge proof, another watchtower's counterproof, or counterproof ACK or
-            // NACK or payout burn
+            // NACK or payout burn or a stake spend
             GraphState::CounterProofPosted { graph_summary, .. } => {
                 if txid == graph_summary.bridge_proof_timeout {
                     Some(GraphEvent::BridgeProofTimeoutConfirmed(
@@ -250,10 +263,8 @@ impl TxClassifier for GraphSM {
                             spending_txid: txid,
                         },
                     ))
-                } else if txid == graph_summary.slash {
-                    Some(GraphEvent::SlashConfirmed(SlashConfirmedEvent {
-                        slash_txid: txid,
-                    }))
+                } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
+                    Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else {
                     nack_counterprover_idx(graph_summary, self.context().operator_idx(), tx).map(
                         |counterprover_idx| {
@@ -266,34 +277,26 @@ impl TxClassifier for GraphSM {
                 }
             }
 
-            // expects a contested payout or a slash if there is delay in posting payout
+            // expects a contested payout or a stake spend if there is delay in posting payout
             GraphState::AllNackd {
                 expected_payout_txid,
-                possible_slash_txid,
                 ..
             } => {
                 if txid == *expected_payout_txid {
                     Some(GraphEvent::PayoutConfirmed(PayoutConfirmedEvent {
                         payout_txid: *expected_payout_txid,
                     }))
-                } else if txid == *possible_slash_txid {
-                    Some(GraphEvent::SlashConfirmed(SlashConfirmedEvent {
-                        slash_txid: txid,
-                    }))
+                } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
+                    Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else {
                     None
                 }
             }
 
-            // expects a slash
-            GraphState::Acked {
-                expected_slash_txid,
-                ..
-            } => {
-                if txid == *expected_slash_txid {
-                    Some(GraphEvent::SlashConfirmed(SlashConfirmedEvent {
-                        slash_txid: txid,
-                    }))
+            // expects a stake spend
+            GraphState::Acked { .. } => {
+                if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
+                    Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else {
                     None
                 }
@@ -303,8 +306,6 @@ impl TxClassifier for GraphSM {
             GraphState::Withdrawn { .. } => None,
             GraphState::Slashed { .. } => None,
             GraphState::Aborted { .. } => None,
-
-            _ => None, // other states do not expect any txs
         }
     }
 }

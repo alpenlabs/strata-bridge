@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bitcoin::Transaction;
+use bitcoin::{Transaction, Txid, hashes::Hash};
 use strata_bridge_primitives::{proof::verify_bridge_proof, types::OperatorIdx};
 use strata_bridge_tx_graph::{
     game_graph::{GameConnectors, GameGraphSummary},
@@ -14,10 +14,10 @@ use crate::{
         errors::{GSMError, GSMResult},
         events::{
             BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent,
-            CounterProofAckConfirmedEvent, CounterProofNackConfirmedEvent, SlashConfirmedEvent,
+            CounterProofAckConfirmedEvent, CounterProofNackConfirmedEvent, StakeSpentEvent,
         },
         machine::{GSMOutput, GraphSM, generate_game_graph},
-        state::GraphState,
+        state::{AbortReason, GraphState},
         watchtower::watchtower_slot_for_operator,
     },
     tx_classifier::{spends_contest_proof_connector, spends_counterproof_ack_nack},
@@ -514,76 +514,100 @@ impl GraphSM {
         }
     }
 
-    pub(crate) fn process_slash(&mut self, event: SlashConfirmedEvent) -> GSMResult<GSMOutput> {
-        match self.state.clone() {
-            // States with graph_summary that can transition directly to Slashed
-            GraphState::Contested { graph_summary, .. }
-            | GraphState::BridgeProofPosted { graph_summary, .. }
-            | GraphState::CounterProofPosted { graph_summary, .. } => {
-                if event.slash_txid != graph_summary.slash {
-                    return Err(GSMError::rejected(
-                        self.state.clone(),
-                        event.into(),
-                        "Invalid slash transaction",
-                    ));
-                }
+    /// Processes the event where the operator's stake outpoint has been
+    /// consumed on-chain.
+    pub(crate) fn process_stake_spent(&mut self, event: StakeSpentEvent) -> GSMResult<GSMOutput> {
+        let spend_txid = event.tx.compute_txid();
 
-                self.state = GraphState::Slashed {
-                    claim_txid: graph_summary.claim,
-                    slash_txid: event.slash_txid,
-                };
-
-                Ok(GSMOutput::new())
+        // A stake spend is already recorded: matching txid is a duplicate
+        // re-delivery; any other txid is rejected.
+        if let Some(recorded) = self.state.stake_spent_txid() {
+            if recorded == spend_txid {
+                return Err(GSMError::duplicate(self.state.clone(), event.into()));
             }
-            // States with expected_slash_txid field
-            GraphState::BridgeProofTimedout {
-                expected_slash_txid,
-                claim_txid,
-                ..
-            }
-            | GraphState::Acked {
-                expected_slash_txid,
-                claim_txid,
-                ..
-            } => {
-                if event.slash_txid != expected_slash_txid {
-                    return Err(GSMError::rejected(
-                        self.state.clone(),
-                        event.into(),
-                        "Invalid slash transaction",
-                    ));
-                }
-
-                self.state = GraphState::Slashed {
-                    claim_txid,
-                    slash_txid: event.slash_txid,
-                };
-
-                Ok(GSMOutput::new())
-            }
-            GraphState::AllNackd {
-                possible_slash_txid,
-                claim_txid,
-                ..
-            } => {
-                if event.slash_txid != possible_slash_txid {
-                    return Err(GSMError::rejected(
-                        self.state.clone(),
-                        event.into(),
-                        "Invalid slash transaction",
-                    ));
-                }
-
-                self.state = GraphState::Slashed {
-                    claim_txid,
-                    slash_txid: event.slash_txid,
-                };
-
-                Ok(GSMOutput::new())
-            }
-            state @ GraphState::Slashed { .. } => Err(GSMError::duplicate(state, event.into())),
-            state => Err(GSMError::invalid_event(state, event.into(), None)),
+            return Err(GSMError::rejected(
+                self.state.clone(),
+                event.into(),
+                "stake already recorded with a different spending txid",
+            ));
         }
+
+        // If the stake is spent by this graph's slash transaction, we can
+        // directly transition to `Slashed` without going through the
+        // intermediate states. This is only possible from certain states but
+        // for simplicity, we transition directly and depend on bitcoin
+        // consensus to make sure the transaction graph is being followed.
+        //
+        // No cross-SM signal is emitted on this transition. Operator-set
+        // membership is tracked by the `StakeSM` via its
+        // `active_operator_snapshot`, which is driven directly by on-chain
+        // slash and unstake observations.
+        if self.state.expected_slash_txid() == Some(spend_txid) {
+            self.state = GraphState::Slashed {
+                // use a sentinel value if no claim exists.
+                // NOTE: (@Rajil1213) in practice, this should never happen
+                // but since this information is extracted from the state whose impl is not
+                // exhaustively checked here, we need to handle the possibility of missing claim
+                // txid.
+                claim_txid: self.state.claim_txid().unwrap_or(Txid::all_zeros()),
+                slash_txid: spend_txid,
+            };
+            return Ok(GSMOutput::new());
+        }
+
+        // Stake spent by a transaction other than this graph's slash.
+
+        // The only possible path from here was slash, so if the stake has
+        // already been spent, abort.
+        if matches!(
+            self.state,
+            GraphState::BridgeProofTimedout { .. } | GraphState::Acked { .. }
+        ) {
+            self.state = GraphState::Aborted {
+                claim_txid: self.state.claim_txid().unwrap_or(Txid::all_zeros()),
+                reason: AbortReason::StakeSpent {
+                    spending_txid: spend_txid,
+                },
+            };
+            return Ok(GSMOutput::new());
+        }
+
+        // Post-`Claimed` two-fact state with the connector already gone:
+        // can't get payout and can't get slashed now, only thing to do is
+        // abort.
+        if let Some(payout_connector_spending_txid) = self.state.payout_connector_spent_txid() {
+            self.state = GraphState::Aborted {
+                claim_txid: self
+                    .state
+                    .claim_txid()
+                    .expect("claim txid must be in state if aborting due to stake spend"),
+                reason: AbortReason::Both {
+                    stake_spending_txid: spend_txid,
+                    payout_connector_spending_txid,
+                },
+            };
+            return Ok(GSMOutput::new());
+        }
+
+        // States that carry `stake_spent` but have not yet seen the connector
+        // spent: record the spend and stay. The GSM will react to subsequent
+        // events that might still complete the game.
+        if self.state.set_stake_spent(spend_txid) {
+            return Ok(GSMOutput::new());
+        }
+
+        // States without a `stake_spent` field. The spend is allowed in the
+        // protocol but the GSM has no field to record it on:
+        // - pre-`NoncesCollected` (Created / GraphGenerated / AdaptorsVerified): no need to record,
+        //   the graph hasn't progressed far enough.
+        // - `AllNackd`: contested payout does not depend on the stake outpoint, so the spend is
+        //   irrelevant.
+        // - `Withdrawn` / `Slashed` / `Aborted`: terminal, reject all events.
+        Err(GSMError::rejected(
+            self.state.clone(),
+            event.into(),
+            "stake spend has no actionable interpretation in this state",
+        ))
     }
 }
 
