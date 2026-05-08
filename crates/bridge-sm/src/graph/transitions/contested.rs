@@ -289,7 +289,7 @@ impl GraphSM {
                 fulfillment_txid,
                 fulfillment_block_height: _,
                 contest_block_height,
-                stake_spent: _,
+                stake_spent,
                 payout_connector_spent: _,
             } => {
                 if event.bridge_proof_timeout_txid != graph_summary.bridge_proof_timeout {
@@ -298,6 +298,16 @@ impl GraphSM {
                         event.into(),
                         "invalid bridge proof txid",
                     ));
+                }
+
+                // The only path forward from `BridgeProofTimedout` is slash. If
+                // the stake outpoint is already gone, slash is impossible —
+                // abort directly instead of entering a state with no exit.
+                if let Some(spending_txid) = stake_spent {
+                    self.state = GraphState::Aborted {
+                        reason: AbortReason::StakeSpent { spending_txid },
+                    };
+                    return Ok(GSMOutput::default());
                 }
 
                 self.state = GraphState::BridgeProofTimedout {
@@ -320,6 +330,7 @@ impl GraphSM {
                 fulfillment_txid,
                 contest_block_height,
                 refuted_bridge_proof,
+                stake_spent,
                 ..
             } if refuted_bridge_proof.is_none() => {
                 if event.bridge_proof_timeout_txid != graph_summary.bridge_proof_timeout {
@@ -328,6 +339,13 @@ impl GraphSM {
                         event.into(),
                         "invalid bridge proof txid",
                     ));
+                }
+
+                if let Some(spending_txid) = stake_spent {
+                    self.state = GraphState::Aborted {
+                        reason: AbortReason::StakeSpent { spending_txid },
+                    };
+                    return Ok(GSMOutput::default());
                 }
 
                 self.state = GraphState::BridgeProofTimedout {
@@ -457,6 +475,7 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
+                stake_spent,
                 ..
             } => {
                 let graph_owner_idx = self.context().operator_idx();
@@ -495,6 +514,16 @@ impl GraphSM {
                         event.into(),
                         "Invalid counterproof ACK transaction",
                     ));
+                }
+
+                // The only path forward from `Acked` is slash. If the stake
+                // outpoint is already gone, slash is impossible — abort
+                // directly instead of entering a state with no exit.
+                if let Some(spending_txid) = stake_spent {
+                    self.state = GraphState::Aborted {
+                        reason: AbortReason::StakeSpent { spending_txid },
+                    };
+                    return Ok(GSMOutput::new());
                 }
 
                 self.state = GraphState::Acked {
