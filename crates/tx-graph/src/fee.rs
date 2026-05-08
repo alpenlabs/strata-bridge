@@ -19,7 +19,7 @@
 
 use std::num::NonZero;
 
-use bitcoin::Amount;
+use bitcoin::{Amount, FeeRate};
 
 /// Fee rate (sat/vb) that every presigned transaction pays.
 ///
@@ -30,6 +30,12 @@ use bitcoin::Amount;
 /// Set back to `2` (or any positive value) to re-enable fees once CPFP needs them
 /// disabled again.
 pub const FEE_RATE_SAT_PER_VB: u64 = 2;
+
+/// [`FEE_RATE_SAT_PER_VB`] as a `FeeRate`, for use as a floor on wallet-built transactions
+/// (claim-funding refill, stake funding, withdrawal fulfillment) so that the bridge node
+/// never broadcasts a transaction below this rate even if `estimatesmartfee` returns
+/// something lower (or absent on networks without enough fee history, like signet).
+pub const FEE_RATE: FeeRate = FeeRate::from_sat_per_vb_unchecked(FEE_RATE_SAT_PER_VB);
 
 /// Multiplies a vsize (in vbytes) by [`FEE_RATE_SAT_PER_VB`] to produce a fee.
 const fn fee_for_vsize(vsize: u64) -> Amount {

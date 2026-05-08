@@ -4,7 +4,7 @@ use std::num::NonZero;
 
 use algebra::predicate;
 use bitcoin::{
-    FeeRate, OutPoint, TapSighashType, Txid, XOnlyPublicKey,
+    OutPoint, TapSighashType, Txid, XOnlyPublicKey,
     hashes::sha256,
     sighash::{Prevouts, SighashCache},
 };
@@ -21,6 +21,7 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_sm::graph::{context::GraphSMCtx, machine::generate_game_graph};
 use strata_bridge_tx_graph::{
+    fee,
     game_graph::{DepositParams, GameGraph},
     transactions::claim::ClaimTx,
 };
@@ -161,10 +162,8 @@ async fn ensure_claim_funding_outpoint(
             Some(outpoint) => outpoint,
             None => {
                 warn!("could not acquire claim funding utxo. attempting refill...");
-                let psbt = wallet.refill_claim_funding_utxos(
-                    FeeRate::BROADCAST_MIN,
-                    cfg.funding_uxto_pool_size,
-                )?;
+                let psbt =
+                    wallet.refill_claim_funding_utxos(fee::FEE_RATE, cfg.funding_uxto_pool_size)?;
                 finalize_claim_funding_tx(
                     &output_handles.s2_client,
                     &output_handles.tx_driver,
