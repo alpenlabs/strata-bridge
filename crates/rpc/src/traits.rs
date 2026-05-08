@@ -1,13 +1,13 @@
 //! Traits for the RPC server.
 
-use bitcoin::{PublicKey, Txid};
+use bitcoin::PublicKey;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
-use strata_identifiers::Buf32;
 
 use crate::types::{
-    RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcGraphData,
-    RpcOperatorStakeInfo, RpcOperatorStatus, RpcPendingWithdrawalInfo, RpcWithdrawalInfo,
+    RpcAggregateSignatures, RpcBridgeDutyStatus, RpcDepositInfo, RpcGraphData,
+    RpcOperatorStakeInfo, RpcOperatorStatus, RpcPendingWithdrawalInfo, RpcReimbursementStatus,
+    RpcWithdrawalStatus,
 };
 
 /// RPCs related to information about the client itself.
@@ -33,16 +33,13 @@ pub trait StrataBridgeMonitoringApi {
     #[method(name = "operatorStatus")]
     async fn get_operator_status(&self, operator_pk: PublicKey) -> RpcResult<RpcOperatorStatus>;
 
-    /// Get all deposit request [`Txid`]s.
-    #[method(name = "depositRequests")]
-    async fn get_deposit_requests(&self) -> RpcResult<Vec<Txid>>;
+    /// Get all known deposit indices.
+    #[method(name = "depositIndices")]
+    async fn get_deposit_indices(&self) -> RpcResult<Vec<DepositIdx>>;
 
-    /// Get deposit details using the deposit request [`Txid`].
+    /// Get deposit details using the deposit index.
     #[method(name = "depositInfo")]
-    async fn get_deposit_request_info(
-        &self,
-        deposit_request_txid: Txid,
-    ) -> RpcResult<RpcDepositInfo>;
+    async fn get_deposit_info(&self, deposit_idx: DepositIdx) -> RpcResult<RpcDepositInfo>;
 
     /// Get bridge duties.
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-2703>
@@ -61,30 +58,19 @@ pub trait StrataBridgeMonitoringApi {
         operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>>;
 
-    /// Get all withdrawal request txids.
-    ///
-    /// NOTE: These are not Bitcoin txids but [`Buf32`] representing the transaction IDs of the
-    /// withdrawal transactions in the sidesystem's execution environment.
-    #[method(name = "withdrawals")]
-    async fn get_withdrawals(&self) -> RpcResult<Vec<Buf32>>;
-
-    /// Get withdrawal details using withdrawal request txid.
-    ///
-    /// NOTE: This is not a Bitcoin txid but a [`Buf32`] representing the transaction ID of the
-    /// withdrawal transaction in the sidesystem's execution environment.
-    #[method(name = "withdrawalInfo")]
-    async fn get_withdrawal_info(
+    /// Get the status of a withdrawal by its deposit index.
+    #[method(name = "withdrawalStatus")]
+    async fn get_withdrawal_status(
         &self,
-        withdrawal_request_txid: Buf32,
-    ) -> RpcResult<Option<RpcWithdrawalInfo>>;
+        deposit_idx: DepositIdx,
+    ) -> RpcResult<Option<RpcWithdrawalStatus>>;
 
-    /// Get all claim transaction IDs.
-    #[method(name = "claims")]
-    async fn get_claims(&self) -> RpcResult<Vec<Txid>>;
-
-    /// Get claim details for a given claim transaction ID.
-    #[method(name = "claimInfo")]
-    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>>;
+    /// Get the reimbursement status for a withdrawal by its deposit index.
+    #[method(name = "reimbursementStatus")]
+    async fn get_reimbursement_status(
+        &self,
+        deposit_idx: DepositIdx,
+    ) -> RpcResult<Option<RpcReimbursementStatus>>;
 
     /// Get the withdrawals currently being processed.
     #[method(name = "pendingWithdrawals")]

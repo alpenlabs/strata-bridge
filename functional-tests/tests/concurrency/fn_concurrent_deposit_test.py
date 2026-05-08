@@ -80,22 +80,24 @@ class ConcurrentDepositTest(StrataTestBase):
 
         # Wait for all DRTs to be recognized
         self.logger.info("Waiting for all DRTs to be recognized")
-        wait_until_drts_recognized(bridge_rpc, drt_txids, timeout=180)
+        deposit_ids = wait_until_drts_recognized(bridge_rpc, drt_txids, timeout=180)
 
         # Wait for deposits to complete and collect deposit txids
         self.logger.info("Waiting for all deposits to complete")
         deposit_txids = []
-        for drt_txid in drt_txids:
+        for deposit_id in deposit_ids:
             deposit_info = wait_until_deposit_status(
                 bridge_rpc,
-                drt_txid,
+                deposit_id,
                 RpcDepositStatusComplete,
                 timeout=600,
             )
             deposit_txid = deposit_info.get("status").get("deposit_txid")
             if deposit_txid:
                 deposit_txids.append(deposit_txid)
-                self.logger.info(f"Deposit completed: DRT {drt_txid} -> DT {deposit_txid}")
+                self.logger.info(
+                    f"Deposit completed: deposit_idx {deposit_id} -> DT {deposit_txid}"
+                )
 
         assert len(deposit_txids) == CONCURRENT_DRT_COUNT, (
             f"Expected {CONCURRENT_DRT_COUNT} deposit txids, got {len(deposit_txids)}"

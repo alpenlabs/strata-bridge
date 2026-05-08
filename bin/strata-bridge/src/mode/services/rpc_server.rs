@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use anyhow::Context;
 use async_trait::async_trait;
-use bitcoin::{PublicKey, Txid};
+use bitcoin::PublicKey;
 use chrono::{DateTime, Utc};
 use jsonrpsee::{
     RpcModule,
@@ -24,9 +24,9 @@ use strata_bridge_rpc::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
     },
     types::{
-        RpcActiveClaim, RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimInfo, RpcClaimPhase,
-        RpcDepositInfo, RpcDepositStatus, RpcGraphData, RpcOperatorStakeInfo, RpcOperatorStatus,
-        RpcPendingWithdrawalInfo, RpcStakeState, RpcWithdrawalInfo,
+        RpcActiveClaim, RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimPhase, RpcDepositInfo,
+        RpcDepositStatus, RpcGraphData, RpcOperatorStakeInfo, RpcOperatorStatus,
+        RpcPendingWithdrawalInfo, RpcReimbursementStatus, RpcStakeState, RpcWithdrawalStatus,
     },
 };
 use strata_bridge_sm::{
@@ -34,7 +34,6 @@ use strata_bridge_sm::{
     graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState},
     stake::state::StakeState,
 };
-use strata_identifiers::Buf32;
 use strata_p2p::swarm::handle::CommandHandle;
 use strata_tasks::TaskExecutor;
 use tokio::{
@@ -271,53 +270,40 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         }
     }
 
-    async fn get_deposit_requests(&self) -> RpcResult<Vec<Txid>> {
-        let cached_registry = self.cached_registry.read().await;
-        let deposit_requests = cached_registry
-            .deposits()
-            .map(|(_deposit_idx, dsm)| dsm.context().deposit_request_outpoint().txid)
-            .collect();
-
-        Ok(deposit_requests)
+    async fn get_deposit_indices(&self) -> RpcResult<Vec<DepositIdx>> {
+        Ok(self.cached_registry.read().await.get_deposit_ids())
     }
 
-    async fn get_deposit_request_info(
-        &self,
-        deposit_request_txid: Txid,
-    ) -> RpcResult<RpcDepositInfo> {
+    async fn get_deposit_info(&self, deposit_idx: DepositIdx) -> RpcResult<RpcDepositInfo> {
         let cached_registry = self.cached_registry.read().await;
 
-        let Some(info) = cached_registry
-            .deposits()
-            .into_iter()
-            .find(|(_deposit_idx, dsm)| {
-                dsm.context().deposit_request_outpoint().txid == deposit_request_txid
-            })
-            .map(|(_deposit_idx, dsm)| match dsm.state() {
-                DepositState::Created { .. }
-                | DepositState::GraphGenerated { .. }
-                | DepositState::DepositNoncesCollected { .. }
-                | DepositState::DepositPartialsCollected { .. } => RpcDepositStatus::InProgress,
-                DepositState::Aborted => RpcDepositStatus::Failed {
-                    reason: "Deposit request spent elsewhere".to_string(),
-                },
-                _ => RpcDepositStatus::Complete {
-                    deposit_txid: dsm.context().deposit_outpoint().txid,
-                },
-            })
-            .map(|status| RpcDepositInfo {
-                status,
-                deposit_request_txid,
-            })
-        else {
+        let Some(dsm) = cached_registry.get_deposit(&deposit_idx) else {
             return Err(rpc_error(
                 ErrorCode::InvalidParams,
-                "Deposit request not found",
-                deposit_request_txid,
+                "Deposit not found",
+                deposit_idx,
             ));
         };
 
-        Ok(info)
+        let deposit_request_txid = dsm.context().deposit_request_outpoint().txid;
+        let status = match dsm.state() {
+            DepositState::Created { .. }
+            | DepositState::GraphGenerated { .. }
+            | DepositState::DepositNoncesCollected { .. }
+            | DepositState::DepositPartialsCollected { .. } => RpcDepositStatus::InProgress,
+            DepositState::Aborted => RpcDepositStatus::Failed {
+                reason: "Deposit request spent elsewhere".to_string(),
+            },
+            _ => RpcDepositStatus::Complete {
+                deposit_txid: dsm.context().deposit_outpoint().txid,
+            },
+        };
+
+        Ok(RpcDepositInfo {
+            status,
+            deposit_idx,
+            deposit_request_txid,
+        })
     }
 
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
@@ -335,28 +321,19 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         Ok(vec![])
     }
 
-    async fn get_withdrawals(&self) -> RpcResult<Vec<Buf32>> {
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(vec![])
-    }
-
-    async fn get_withdrawal_info(
+    async fn get_withdrawal_status(
         &self,
-        _withdrawal_request_txid: Buf32,
-    ) -> RpcResult<Option<RpcWithdrawalInfo>> {
+        _deposit_idx: DepositIdx,
+    ) -> RpcResult<Option<RpcWithdrawalStatus>> {
         // TODO: <https://alpenlabs.atlassian.net/browse/STR-2657>
         // Update this based on monitoring requirements.
         Ok(None)
     }
 
-    async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(vec![])
-    }
-
-    async fn get_claim_info(&self, _claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>> {
+    async fn get_reimbursement_status(
+        &self,
+        _deposit_idx: DepositIdx,
+    ) -> RpcResult<Option<RpcReimbursementStatus>> {
         // TODO: <https://alpenlabs.atlassian.net/browse/STR-2657>
         // Update this based on monitoring requirements.
         Ok(None)

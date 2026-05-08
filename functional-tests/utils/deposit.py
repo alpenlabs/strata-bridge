@@ -26,17 +26,21 @@ def wait_until_deposit_utxo_spent(bitcoin_rpc: BitcoindClient, deposit_txid: str
     wait_until_utxo_spent(bitcoin_rpc, deposit_txid, DT_DEPOSIT_VOUT, timeout)
 
 
-def wait_until_drt_recognized(bridge_rpc, drt_txid: str, timeout=300) -> str | None:
+def _deposit_infos(bridge_rpc) -> list[dict]:
+    deposit_indices: list[int] = bridge_rpc.stratabridge_depositIndices()
+    logging.info(f"Current deposit indices: {deposit_indices}")
+
+    return [bridge_rpc.stratabridge_depositInfo(deposit_idx) for deposit_idx in deposit_indices]
+
+
+def wait_until_drt_recognized(bridge_rpc, drt_txid: str, timeout=300) -> int:
     """Wait until the deposit request with the specified txid is recognized."""
-    result: dict[str, str | None] = {"deposit_id": None}
+    result: dict[str, int | None] = {"deposit_id": None}
 
     def check_drt_recognized():
-        deposit_requests: list[str] = bridge_rpc.stratabridge_depositRequests()
-        logging.info(f"Current deposit requests: {deposit_requests}")
-
-        for txid in deposit_requests:
-            if txid == drt_txid:
-                result["deposit_id"] = txid
+        for deposit_info in _deposit_infos(bridge_rpc):
+            if deposit_info.get("deposit_request_txid") == drt_txid:
+                result["deposit_id"] = int(deposit_info["deposit_idx"])
                 return True
         return False
 
@@ -46,12 +50,13 @@ def wait_until_drt_recognized(bridge_rpc, drt_txid: str, timeout=300) -> str | N
         step=1,
         error_msg=f"Timeout after {timeout} seconds waiting for DRT {drt_txid} to be recognized",
     )
+    assert result["deposit_id"] is not None
     return result["deposit_id"]
 
 
 def wait_until_deposit_status(
     bridge_rpc,
-    deposit_id,
+    deposit_id: int,
     target_status: type[RpcDepositStatus],
     timeout=300,
 ) -> RpcDepositInfo | None:
@@ -59,7 +64,7 @@ def wait_until_deposit_status(
 
     Args:
         bridge_rpc: RPC client for the bridge
-        deposit_id: The deposit request txid
+        deposit_id: The deposit index
         target_status: Status to wait for
         timeout: Maximum wait time in seconds
     """
@@ -84,19 +89,21 @@ def wait_until_drts_recognized(
     bridge_rpc,
     drt_txids: list[str],
     timeout=300,
-) -> list[str]:
+) -> list[int]:
     """Wait until all DRTs in the batch are recognized."""
-    result: dict[str, list[str] | None] = {"deposit_ids": None}
+    result: dict[str, list[int] | None] = {"deposit_ids": None}
 
     def check_deposit_batch():
-        deposit_requests: list[str] = bridge_rpc.stratabridge_depositRequests()
-        logging.info(f"Current deposit requests: {deposit_requests}")
+        deposits_by_drt = {
+            deposit_info.get("deposit_request_txid"): int(deposit_info["deposit_idx"])
+            for deposit_info in _deposit_infos(bridge_rpc)
+        }
 
-        missing_txids = [drt_txid for drt_txid in drt_txids if drt_txid not in deposit_requests]
+        missing_txids = [drt_txid for drt_txid in drt_txids if drt_txid not in deposits_by_drt]
         if missing_txids:
             return False
 
-        result["deposit_ids"] = drt_txids
+        result["deposit_ids"] = [deposits_by_drt[drt_txid] for drt_txid in drt_txids]
         return True
 
     wait_until(
@@ -115,26 +122,29 @@ def wait_until_drts_reach_status_threshold(
     expected_status: type[RpcDepositStatus],
     threshold: int,
     timeout=300,
-) -> list[str]:
+) -> list[int]:
     """Wait until all DRTs are recognized and at least `threshold` reach `expected_status`.
 
     The threshold is evaluated only after every DRT in `drt_txids` appears in the
-    bridge RPC's deposit request list. This keeps the helper's semantics stable for
+    bridge RPC's deposit index list. This keeps the helper's semantics stable for
     restart tests where recognition and progress are checked as separate milestones.
     """
-    result: dict[str, list[str] | None] = {"deposit_ids": None}
+    result: dict[str, list[int] | None] = {"deposit_ids": None}
 
     def check_deposit_batch():
-        deposit_requests: list[str] = bridge_rpc.stratabridge_depositRequests()
-        logging.info(f"Current deposit requests: {deposit_requests}")
+        deposits_by_drt = {
+            deposit_info.get("deposit_request_txid"): int(deposit_info["deposit_idx"])
+            for deposit_info in _deposit_infos(bridge_rpc)
+        }
 
-        missing_txids = [drt_txid for drt_txid in drt_txids if drt_txid not in deposit_requests]
+        missing_txids = [drt_txid for drt_txid in drt_txids if drt_txid not in deposits_by_drt]
         if missing_txids:
             return False
 
         matching_status_count = 0
         for drt_txid in drt_txids:
-            deposit_info = bridge_rpc.stratabridge_depositInfo(drt_txid)
+            deposit_idx = deposits_by_drt[drt_txid]
+            deposit_info = bridge_rpc.stratabridge_depositInfo(deposit_idx)
             logging.info(f"Deposit info for {drt_txid}: {deposit_info}")
             status: str = deposit_info.get("status", {}).get("status")
             if status == expected_status.status:
@@ -149,7 +159,7 @@ def wait_until_drts_reach_status_threshold(
         )
 
         if matching_status_count >= threshold:
-            result["deposit_ids"] = drt_txids
+            result["deposit_ids"] = [deposits_by_drt[drt_txid] for drt_txid in drt_txids]
             return True
 
         return False

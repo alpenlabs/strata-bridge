@@ -9,14 +9,6 @@ class RpcOperatorStatus(Enum):
     OFFLINE = "offline"
 
 
-class ChallengeStep(Enum):
-    """Challenge step states for claims."""
-
-    CLAIM = "claim"
-    CHALLENGE = "challenge"
-    ASSERT = "assert"
-
-
 class RpcClaimPhase(Enum):
     """Where an active claim sits in the challenge-response game."""
 
@@ -57,14 +49,14 @@ RpcDepositStatus = RpcDepositStatusInProgress | RpcDepositStatusFailed | RpcDepo
 
 @dataclass
 class RpcWithdrawalStatusInProgress:
-    """Withdrawal is in progress."""
+    """Withdrawal is assigned or being processed, with no known fulfillment tx."""
 
     status: str = "in_progress"
 
 
 @dataclass
 class RpcWithdrawalStatusComplete:
-    """Withdrawal has been fully processed and fulfilled."""
+    """Withdrawal has been fulfilled."""
 
     status: str = "complete"
     fulfillment_txid: str = ""
@@ -75,47 +67,50 @@ RpcWithdrawalStatus = RpcWithdrawalStatusInProgress | RpcWithdrawalStatusComplet
 
 @dataclass
 class RpcReimbursementStatusNotStarted:
-    """Claim does not exist on-chain."""
+    """No reimbursement claim has been observed for the assigned operator."""
 
     status: str = "not_started"
 
 
 @dataclass
 class RpcReimbursementStatusInProgress:
-    """Claim exists, challenge step is 'Claim', no payout."""
+    """Reimbursement claim is in a non-terminal challenge-response phase."""
 
     status: str = "in_progress"
-    challenge_step: str = ""
+    claim_txid: str = ""
+    phase: str = ""
 
 
 @dataclass
-class RpcReimbursementStatusChallenged:
-    """Claim exists, challenge step is 'Challenge' or 'Assert', no payout."""
+class RpcReimbursementStatusSlashed:
+    """Operator was slashed for this reimbursement claim."""
 
-    status: str = "challenged"
-    challenge_step: str = ""
+    status: str = "slashed"
+    claim_txid: str = ""
 
 
 @dataclass
-class RpcReimbursementStatusCancelled:
-    """Operator was slashed, claim is no longer valid."""
+class RpcReimbursementStatusAborted:
+    """Reimbursement claim path was aborted before payout or slashing completed."""
 
-    status: str = "cancelled"
+    status: str = "aborted"
+    claim_txid: str = ""
 
 
 @dataclass
 class RpcReimbursementStatusComplete:
-    """Claim has been successfully reimbursed."""
+    """Reimbursement claim completed and paid out."""
 
     status: str = "complete"
+    claim_txid: str = ""
     payout_txid: str = ""
 
 
 RpcReimbursementStatus = (
     RpcReimbursementStatusNotStarted
     | RpcReimbursementStatusInProgress
-    | RpcReimbursementStatusChallenged
-    | RpcReimbursementStatusCancelled
+    | RpcReimbursementStatusSlashed
+    | RpcReimbursementStatusAborted
     | RpcReimbursementStatusComplete
 )
 
@@ -125,23 +120,8 @@ class RpcDepositInfo:
     """Represents deposit transaction details."""
 
     status: RpcDepositStatus
+    deposit_idx: int
     deposit_request_txid: str
-
-
-@dataclass
-class RpcWithdrawalInfo:
-    """Represents withdrawal transaction details."""
-
-    status: RpcWithdrawalStatus
-    withdrawal_request_txid: str
-
-
-@dataclass
-class RpcClaimInfo:
-    """Represents reimbursement transaction details."""
-
-    claim_txid: str
-    status: RpcReimbursementStatus
 
 
 @dataclass
