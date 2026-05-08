@@ -50,7 +50,8 @@ pub(in crate::mode) async fn init_operator_wallet(
     info!(%general_key, "operator wallet general key");
     let stakechain_key = s2_client.stakechain_wallet_signer().pubkey().await?;
     info!(%stakechain_key, "operator wallet stakechain key");
-    let operator_funds = compute_funding_amount(params);
+    let own_musig2_key = s2_client.musig2_signer().pubkey().await?;
+    let operator_funds = compute_funding_amount(params, own_musig2_key);
     let operator_wallet_config =
         OperatorWalletConfig::new(operator_funds, SEGWIT_MIN_AMOUNT, params.network);
     debug!(?operator_wallet_config, "operator wallet config");
@@ -74,7 +75,7 @@ pub(in crate::mode) async fn init_operator_wallet(
 ///
 /// This amount is not a constant since it depends upon the number of watchtowers that are allowed
 /// to contest a claim.
-fn compute_funding_amount(params: &Params) -> Amount {
+fn compute_funding_amount(params: &Params, own_musig2_key: XOnlyPublicKey) -> Amount {
     // Must match the value used in `orchestrator.rs::COUNTERPROOF_N_BYTES`. Hardcoded here too
     // because `Params` does not currently expose it.
     const COUNTERPROOF_N_BYTES: NonZero<usize> =
@@ -90,8 +91,15 @@ fn compute_funding_amount(params: &Params) -> Amount {
         sha256::Hash::from_slice(&[0u8; 32]).expect("must be a valid sha256 hash");
 
     // NOTE: (@Rajil1213)  musig2 keys are the watchtower keys for the time being until we separate
-    // the sets
-    let watchtower_keys: Vec<_> = params.keys.covenant.iter().map(|c| c.musig2).collect();
+    // the sets. Exclude the owner — graph construction in `bridge-sm` excludes the owner from
+    // watchtowers (see `GraphContext::watchtower_pubkeys`), so the funding amount must too.
+    let watchtower_keys: Vec<_> = params
+        .keys
+        .covenant
+        .iter()
+        .map(|c| c.musig2)
+        .filter(|k| *k != own_musig2_key)
+        .collect();
     // cast safety: covenant.len() is bounded by the number of operators, much smaller than u32::MAX
     let n_watchtowers = watchtower_keys.len() as u32;
     let contest_timelock = relative::Height::from_height(params.protocol.contest_timelock);
