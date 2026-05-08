@@ -142,6 +142,25 @@ const UNSTAKING_INTENT_VSIZE: u64 = 211;
 /// Structure: 2 inputs (UnstakingOutput timeout script, stake NOfN key) + 1 P2TR output.
 const UNSTAKING_VSIZE: u64 = 197;
 
+/// Predicted vsize of [`crate::transactions::deposit::DepositTx`].
+///
+/// Structure: 1 input (DepositRequestConnector key path) + 2 outputs (SPS-50 OP_RETURN + N/N
+/// P2TR).
+const DEPOSIT_VSIZE: u64 = 158;
+
+/// Predicted vsize of [`crate::transactions::cooperative_payout::CooperativePayoutTx`].
+///
+/// Structure: 1 input (deposit NOfN key path) + 1 P2TR operator output.
+const COOPERATIVE_PAYOUT_VSIZE: u64 = 130;
+
+/// Predicted vsize of [`crate::transactions::not_presigned::CounterproofNackTx`] in production,
+/// where the operator does **not** add a funding input — the fee is taken out of the
+/// `CounterproofConnector`'s pre-inflated value (its surcharge equals
+/// [`counterproof_ack_fee`], which is larger than this nack fee, so the math works out).
+///
+/// Structure: 1 input (CounterproofConnector script-path) + 1 P2TR operator output.
+const COUNTERPROOF_NACK_VSIZE: u64 = 130;
+
 // -------------------------------------------------------------------------------------------------
 // Per-tx fees. Each is `vsize × FEE_RATE_SAT_PER_VB`.
 // -------------------------------------------------------------------------------------------------
@@ -201,6 +220,25 @@ pub const fn unstaking_intent_fee() -> Amount {
 /// Fee for [`crate::transactions::unstaking::UnstakingTx`].
 pub const fn unstaking_fee() -> Amount {
     fee_for_vsize(UNSTAKING_VSIZE)
+}
+
+/// Fee for [`crate::transactions::deposit::DepositTx`].
+///
+/// The fee comes from the depositor's deposit-request UTXO carrying
+/// `deposit_amount + deposit_fee()`; the bridge cannot inject extra value into the deposit tx.
+pub const fn deposit_fee() -> Amount {
+    fee_for_vsize(DEPOSIT_VSIZE)
+}
+
+/// Fee for [`crate::transactions::cooperative_payout::CooperativePayoutTx`].
+pub const fn cooperative_payout_fee() -> Amount {
+    fee_for_vsize(COOPERATIVE_PAYOUT_VSIZE)
+}
+
+/// Fee for the [`crate::transactions::not_presigned::CounterproofNackTx`] as broadcast in
+/// production with a single wallet P2TR funding input and a single wallet P2TR output.
+pub const fn counterproof_nack_fee() -> Amount {
+    fee_for_vsize(COUNTERPROOF_NACK_VSIZE)
 }
 
 // -------------------------------------------------------------------------------------------------

@@ -6,7 +6,7 @@ use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
     types::{DepositIdx, OperatorIdx},
 };
-use strata_bridge_tx_graph::transactions::prelude::CounterproofNackTx;
+use strata_bridge_tx_graph::{fee, transactions::prelude::CounterproofNackTx};
 use strata_mosaic_client_api::types::{
     CompletedSignatures, G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Sighash, Tweak,
 };
@@ -26,9 +26,12 @@ pub(super) async fn publish_counterproof_nack(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %counterprover_idx, "preparing counterproof nack");
 
-    // Single output: forward the connector's dust value back to the operator's general
-    // wallet. The connector script is `minimal_non_dust` P2TR, so the output clears dust.
+    // Single output: forward the connector's dust value (minus the nack tx fee) back to the
+    // operator's general wallet. The connector script is `minimal_non_dust` P2TR plus the
+    // surcharge that funds this nack tx's fee, so the output still clears dust after the
+    // subtraction.
     let connector_value = counterproof_nack_tx.prevouts()[0].value;
+    let payout_value = connector_value - fee::counterproof_nack_fee();
     let payout_script = output_handles
         .wallet
         .read()
@@ -36,7 +39,7 @@ pub(super) async fn publish_counterproof_nack(
         .general_script_buf()
         .clone();
     counterproof_nack_tx.push_output(TxOut {
-        value: connector_value,
+        value: payout_value,
         script_pubkey: payout_script,
     });
 

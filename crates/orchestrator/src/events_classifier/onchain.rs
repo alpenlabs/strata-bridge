@@ -35,7 +35,7 @@ use strata_bridge_sm::{
     },
     tx_classifier::TxClassifier,
 };
-use strata_bridge_tx_graph::transactions::prelude::DepositData;
+use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::DepositData};
 use tracing::{Level, error, info, warn};
 
 use crate::{
@@ -180,6 +180,20 @@ fn try_register_deposit(
         error!("invalid DRT: expected spendable output at index 1, ignoring");
         return Ok(Vec::new());
     };
+
+    // The deposit-request UTXO must include the deposit amount plus the bridge's hardcoded
+    // deposit-tx fee — without that surplus the deposit transaction would have insufficient
+    // fee to relay.
+    let drt_required = DepositTx::drt_required(deposit_cfg.deposit_amount);
+    if deposit_request_output.value < drt_required {
+        error!(
+            drt_value = %deposit_request_output.value,
+            %drt_required,
+            "invalid DRT: spendable output value is less than deposit_amount + deposit_fee, ignoring"
+        );
+        return Ok(Vec::new());
+    }
+
     let deposit_request_outpoint = bitcoin::OutPoint::new(drt_txid, 1);
     let deposit_data = DepositData {
         deposit_idx: deposit_idx_offset,

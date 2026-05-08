@@ -189,7 +189,9 @@ pub(super) fn test_deposit_txn() -> DepositTx {
         magic_bytes: TEST_MAGIC_BYTES.into(),
     };
 
-    // Create connectors with matching network, internal_key, and value
+    // Create connectors with matching network, internal_key, and value. The
+    // deposit-request connector must include `deposit_amount + deposit_fee` so the deposit tx
+    // can pay its own fee.
     let deposit_connector = NOfNConnector::new(Network::Regtest, n_of_n_pubkey, amount);
 
     let deposit_request_connector = DepositRequestConnector::new(
@@ -197,7 +199,7 @@ pub(super) fn test_deposit_txn() -> DepositTx {
         n_of_n_pubkey,
         depositor_pubkey,
         timelock,
-        amount,
+        DepositTx::drt_required(amount),
     );
 
     DepositTx::new(data, deposit_connector, deposit_request_connector)

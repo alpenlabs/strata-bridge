@@ -64,10 +64,18 @@ impl CooperativePayoutTx {
             sequence: deposit_connector.sequence(NOfNSpend),
             ..Default::default()
         }];
+        let fee = crate::fee::cooperative_payout_fee();
         let output = vec![TxOut {
-            value: deposit_connector.value(),
+            value: deposit_connector.value() - fee,
             script_pubkey: operator_descriptor.to_script(),
         }];
+
+        let value_in: bitcoin::Amount = prevouts.iter().map(|x| x.value).sum();
+        let value_out: bitcoin::Amount = output.iter().map(|x| x.value).sum();
+        debug_assert!(
+            value_in == value_out + fee,
+            "tx must pay {fee} fees (value in = {value_in}, value out = {value_out})"
+        );
 
         let tx = Transaction {
             version: Version(3),
