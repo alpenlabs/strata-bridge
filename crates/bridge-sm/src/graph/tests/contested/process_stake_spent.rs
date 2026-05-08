@@ -7,7 +7,7 @@
 //! variant is a compile error until the new arm is filled in.
 
 use bitcoin::{OutPoint, Transaction, Txid, hashes::Hash};
-use strata_bridge_test_utils::bitcoin::generate_spending_tx;
+use strata_bridge_test_utils::{bitcoin::generate_spending_tx, prelude::generate_txid};
 
 use crate::graph::{
     errors::{GSMError, GSMResult},
@@ -295,5 +295,27 @@ fn process_stake_spent_dispatch_table_is_exhaustive() {
                 "replay (different txid) outcome mismatch in state {variant}"
             );
         }
+    }
+}
+
+/// A misrouted/injected event whose tx does not actually spend the stake
+/// outpoint must be rejected — it cannot record `stake_spent`, transition
+/// to `Slashed`, or terminalize the graph.
+#[test]
+fn rejects_event_whose_tx_does_not_spend_stake_outpoint() {
+    // A tx that consumes some unrelated outpoint, not `test_stake_outpoint()`.
+    let random_outpoint = OutPoint {
+        txid: generate_txid(),
+        vout: 0,
+    };
+    let unrelated_tx = generate_spending_tx(random_outpoint, &[]);
+
+    for variant in all_state_variants() {
+        let observed = outcome_of(&variant, run(variant.clone(), unrelated_tx.clone()));
+        assert_eq!(
+            observed,
+            Outcome::Rejected,
+            "expected Rejected for non-stake-spending tx in state {variant}"
+        );
     }
 }

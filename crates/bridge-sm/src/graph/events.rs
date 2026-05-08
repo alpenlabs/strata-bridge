@@ -164,7 +164,7 @@ pub struct CounterProofNackConfirmedEvent {
 /// Event notifying that the operator's stake outpoint has been consumed
 /// on-chain by *some* transaction. May be this graph's slash, a sibling
 /// graph's slash, or the operator's unstaking — the GSM disambiguates via
-/// [`GraphState::expected_slash_txid`].
+/// [`GraphState::expected_slash_txid`](crate::graph::state::GraphState::expected_slash_txid).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StakeSpentEvent {
     /// The transaction that consumed the stake outpoint.

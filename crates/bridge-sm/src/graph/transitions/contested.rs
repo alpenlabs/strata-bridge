@@ -20,7 +20,9 @@ use crate::{
         state::{AbortReason, GraphState},
         watchtower::watchtower_slot_for_operator,
     },
-    tx_classifier::{spends_contest_proof_connector, spends_counterproof_ack_nack},
+    tx_classifier::{
+        spends_contest_proof_connector, spends_counterproof_ack_nack, spends_stake_outpoint,
+    },
 };
 
 impl GraphSM {
@@ -557,6 +559,18 @@ impl GraphSM {
     /// Processes the event where the operator's stake outpoint has been
     /// consumed on-chain.
     pub(crate) fn process_stake_spent(&mut self, event: StakeSpentEvent) -> GSMResult<GSMOutput> {
+        // Defensive guard: the classifier emits this event only for txs that
+        // consume the stake outpoint. Verify the invariant here as well so
+        // misrouted or directly-injected events cannot record `stake_spent`
+        // or terminalize the graph.
+        if !spends_stake_outpoint(&self.context().stake_outpoint(), &event.tx) {
+            return Err(GSMError::rejected(
+                self.state.clone(),
+                event.into(),
+                "stake spent event tx does not spend the stake outpoint",
+            ));
+        }
+
         let spend_txid = event.tx.compute_txid();
 
         // A stake spend is already recorded: matching txid is a duplicate
