@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use bitcoin::OutPoint;
+use bitcoin::{OutPoint, Txid, hashes::Hash};
 use strata_bridge_test_utils::{
     bitcoin::{generate_spending_tx, generate_tx},
     prelude::generate_txid,
@@ -19,7 +19,7 @@ use crate::{
         errors::GSMError,
         events::{CounterProofNackConfirmedEvent, GraphEvent},
         machine::GraphSM,
-        state::{CounterproofData, GraphState},
+        state::{AbortReason, CounterproofData, GraphState},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
             TEST_POV_IDX, build_test_graph_summary, create_nonpov_sm, get_state,
@@ -202,6 +202,57 @@ fn second_nack_transitions_to_all_nackd_nonpov() {
             expected_signals: vec![],
         },
     );
+}
+
+/// Pre-recording a payout connector spend on `CounterProofPosted` causes
+/// the final NACK to abort instead of entering `AllNackd` — the only
+/// remaining path from that state is the contested payout, which consumes
+/// the connector and is therefore impossible once the connector is gone.
+#[test]
+fn final_nack_aborts_when_payout_connector_spent() {
+    let connector_spending_txid = Txid::from_byte_array([0xcd; 32]);
+    let mut from_state = counter_proof_posted_state_with_nacks(&[TEST_NONPOV_IDX]);
+    assert!(from_state.set_payout_connector_spent(connector_spending_txid));
+
+    test_graph_transition(GraphTransition {
+        from_state,
+        event: GraphEvent::CounterProofNackConfirmed(nack_event(SECOND_NONPOV_IDX)),
+        expected_state: GraphState::Aborted {
+            reason: AbortReason::PayoutConnectorSpent {
+                spending_txid: connector_spending_txid,
+            },
+        },
+        expected_duties: vec![],
+        expected_signals: vec![],
+    });
+}
+
+/// A pre-recorded `stake_spent` on `CounterProofPosted` does *not* trigger
+/// proactive abort on the final NACK — the contested payout (the only
+/// remaining path) does not depend on the stake outpoint.
+#[test]
+fn final_nack_does_not_abort_when_only_stake_spent() {
+    let summary = test_graph_summary();
+    let stake_spending_txid = Txid::from_byte_array([0xab; 32]);
+    let mut from_state = counter_proof_posted_state_with_nacks(&[TEST_NONPOV_IDX]);
+    assert!(from_state.set_stake_spent(stake_spending_txid));
+
+    test_graph_transition(GraphTransition {
+        from_state,
+        event: GraphEvent::CounterProofNackConfirmed(nack_event(SECOND_NONPOV_IDX)),
+        expected_state: GraphState::AllNackd {
+            last_block_height: LATER_BLOCK_HEIGHT,
+            graph_data: test_deposit_params(),
+            signatures: Default::default(),
+            claim_txid: summary.claim,
+            fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+            contest_block_height: LATER_BLOCK_HEIGHT,
+            expected_payout_txid: summary.contested_payout,
+            possible_slash_txid: summary.slash,
+        },
+        expected_duties: vec![],
+        expected_signals: vec![],
+    });
 }
 
 #[test]
