@@ -79,7 +79,7 @@ impl ContestTx {
         let cpfp_connector = MultiAnchor::new(
             claim_contest_connector.network(),
             watchtower_pubkeys,
-            Amount::ZERO,
+            crate::fee::anchor_dust_value(),
         );
 
         let prevouts = [claim_contest_connector.tx_out()];
@@ -102,11 +102,12 @@ impl ContestTx {
         output.extend(counterproof_outputs.iter().map(|o| o.tx_out()));
         output.push(cpfp_connector.tx_out());
 
+        let fee = crate::fee::contest_fee(claim_contest_connector.n_watchtowers());
         let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
         let value_out: Amount = output.iter().map(|x| x.value).sum();
         debug_assert!(
-            value_in == value_out,
-            "tx should pay zero fees (value in = {value_in}, value out = {value_out})"
+            value_in == value_out + fee,
+            "tx must pay {fee} fees (value in = {value_in}, value out = {value_out})"
         );
 
         let tx = Transaction {

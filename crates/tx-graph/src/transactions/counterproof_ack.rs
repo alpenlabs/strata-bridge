@@ -53,10 +53,11 @@ impl CounterproofAckTx {
         watchtower_pubkey: XOnlyPublicKey,
     ) -> Self {
         debug_assert!(counterproof_connector.network() == contest_payout_connector.network());
+        let fee = crate::fee::counterproof_ack_fee();
         let cpfp_connector = KeyedAnchor::new(
             counterproof_connector.network(),
             watchtower_pubkey,
-            counterproof_connector.value() + contest_payout_connector.value(),
+            counterproof_connector.value() + contest_payout_connector.value() - fee,
         );
 
         let prevouts = [
@@ -86,8 +87,8 @@ impl CounterproofAckTx {
         let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
         let value_out: Amount = output.iter().map(|x| x.value).sum();
         debug_assert!(
-            value_in == value_out,
-            "tx should pay zero fees (value in = {value_in}, value out = {value_out})"
+            value_in == value_out + fee,
+            "tx must pay {fee} fees (value in = {value_in}, value out = {value_out})"
         );
 
         let tx = Transaction {

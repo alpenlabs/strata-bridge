@@ -14,19 +14,25 @@ pub struct UnstakingIntentOutput {
     network: Network,
     n_of_n_pubkey: XOnlyPublicKey,
     unstaking_image: sha256::Hash,
+    surcharge: Amount,
 }
 
 impl UnstakingIntentOutput {
     /// Creates a new connector.
+    ///
+    /// `surcharge` is added on top of the base value to fund downstream presigned tx fees.
+    /// Pass `Amount::ZERO` if no fee is needed.
     pub const fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
         unstaking_image: sha256::Hash,
+        surcharge: Amount,
     ) -> Self {
         Self {
             network,
             n_of_n_pubkey,
             unstaking_image,
+            surcharge,
         }
     }
 }
@@ -55,7 +61,7 @@ impl Connector for UnstakingIntentOutput {
     }
 
     fn value(&self) -> Amount {
-        self.script_pubkey().minimal_non_dust()
+        self.script_pubkey().minimal_non_dust() + self.surcharge
     }
 
     fn to_leaf_index(&self, _spend_path: Self::SpendPath) -> Option<usize> {
@@ -114,6 +120,7 @@ mod tests {
                 Network::Regtest,
                 self.n_of_n_keypair.x_only_public_key().0,
                 sha256::Hash::hash(&self.unstaking_preimage),
+                Amount::ZERO,
             )
         }
 

@@ -16,14 +16,14 @@ use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PubNonce};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
-use strata_bridge_connectors::{Connector, prelude::UnstakingIntentOutput};
+use strata_bridge_connectors::prelude::UnstakingIntentOutput;
 use strata_bridge_db::traits::BridgeDb;
 use strata_bridge_p2p_types::UnstakingInput;
 use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, create_key_spend_hash, finalize_input},
     types::OperatorIdx,
 };
-use strata_bridge_tx_graph::musig_functor::StakeFunctor;
+use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::prelude::StakeTx};
 use tracing::{error, info, warn};
 
 use crate::{
@@ -108,8 +108,7 @@ async fn create_stake_funding_tx(
 
     let fee_rate = FeeRate::from_sat_per_vb(fee_rate).unwrap_or(DEFAULT_FEE_RATE);
 
-    let unstaking_intent_dust = unstaking_intent_dust_value(cfg.network);
-    let funding_amount = cfg.stake_amount + unstaking_intent_dust;
+    let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
 
     info!(%fee_rate, %funding_amount, "creating stake funding transaction");
     let psbt = {
@@ -310,26 +309,24 @@ pub(crate) async fn publish_stake(
     let stake_txid = tx.compute_txid();
     let funding_input = tx.input[0].previous_output;
 
-    let unstaking_intent_dust = unstaking_intent_dust_value(cfg.network);
-
     // The stake tx spends a single funding UTXO in the stakechain wallet and is not presigned by
     // the covenant, so key-path sign it with the stakechain wallet signer before broadcasting.
     // Reconstruct the prevout from known values: the funding UTXO is always at the stakechain
-    // address with value `stake_amount + unstaking_intent_output.value()`.
+    // address with value `stake_amount + unstaking_intent_output.value() + stake_fee`.
     let stakechain_script = {
         let wallet = output_handles.wallet.read().await;
         wallet.stakechain_script_buf().clone()
     };
-    let stake_funding_amount = cfg.stake_amount + unstaking_intent_dust;
+    let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
     let prevout = TxOut {
         script_pubkey: stakechain_script,
-        value: stake_funding_amount,
+        value: funding_amount,
     };
 
     info!(
         %stake_txid,
         %funding_input,
-        %stake_funding_amount,
+        %funding_amount,
         "signing stake transaction with stakechain wallet signer"
     );
 
@@ -361,16 +358,23 @@ pub(crate) async fn publish_stake(
     Ok(())
 }
 
-/// Returns the dust value of an [`UnstakingIntentOutput`] on the given network.
+/// Returns the wallet UTXO value needed to fund the stake transaction on the given network.
 ///
-/// The stake transaction spends its funding UTXO into the NOfN connector (`stake_amount`), the
-/// unstaking-intent connector, and a zero-value CPFP anchor.
-fn unstaking_intent_dust_value(network: Network) -> Amount {
-    // `UnstakingIntentOutput::value()` is the P2TR script's `minimal_non_dust()` and therefore
-    // depends only on the script kind — not on the particular n-of-n key or unstaking image. We
-    // supply a dummy x-only pubkey (the generator point's x-coordinate) and a zero image so we can
-    // compute the value without a secret-service round trip.
+/// The stake transaction spends this UTXO into the NOfN stake connector (`stake_amount`), the
+/// unstaking-intent connector (with its presigned-tx fee surcharge baked in), a zero-value CPFP
+/// anchor, and the stake transaction's own fee.
+fn stake_funding_amount(network: Network, stake_amount: Amount) -> Amount {
+    // `UnstakingIntentOutput::value()` is the P2TR script's `minimal_non_dust()` plus a surcharge
+    // that depends only on the script kind — not on the particular n-of-n key or unstaking image.
+    // We supply a dummy x-only pubkey (the generator point's x-coordinate) and a zero image so we
+    // can compute the value without a secret-service round trip.
     let dummy_pubkey = XOnlyPublicKey::from_slice(&bitcoin::key::constants::GENERATOR_X)
         .expect("valid x-only key");
-    UnstakingIntentOutput::new(network, dummy_pubkey, sha256::Hash::all_zeros()).value()
+    let unstaking_intent_output = UnstakingIntentOutput::new(
+        network,
+        dummy_pubkey,
+        sha256::Hash::all_zeros(),
+        fee::unstaking_intent_surcharge(),
+    );
+    StakeTx::stake_funds_required(stake_amount, &unstaking_intent_output)
 }

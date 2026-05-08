@@ -38,6 +38,21 @@ impl StakeTx {
     /// Number of transaction inputs.
     pub const N_INPUTS: usize = 1;
 
+    /// Returns the total funding amount that the wallet must provide in
+    /// [`StakeData::stake_funds`].
+    ///
+    /// The connector outputs are funded directly from this UTXO; the surplus is the tx fee.
+    /// The cpfp anchor output is funded too (its value is [`crate::fee::anchor_dust_value`]).
+    pub fn stake_funds_required(
+        stake_amount: Amount,
+        unstaking_intent_output: &UnstakingIntentOutput,
+    ) -> Amount {
+        stake_amount
+            + unstaking_intent_output.value()
+            + crate::fee::anchor_dust_value()
+            + crate::fee::stake_fee()
+    }
+
     /// Creates a stake transaction.
     pub fn new(
         data: StakeData,
@@ -49,7 +64,7 @@ impl StakeTx {
         let cpfp_connector = KeyedAnchor::new(
             unstaking_intent_output.network(),
             operator_pubkey,
-            Amount::ZERO,
+            crate::fee::anchor_dust_value(),
         );
 
         let input = vec![TxIn {

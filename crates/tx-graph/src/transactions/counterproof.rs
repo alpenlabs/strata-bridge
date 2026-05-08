@@ -4,7 +4,7 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
+    OutPoint, Psbt, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use secp256k1::Message;
 use strata_bridge_connectors::{
@@ -53,16 +53,20 @@ impl CounterproofTx {
         watchtower_pubkey: XOnlyPublicKey,
     ) -> Self {
         debug_assert!(contest_counterproof_output.network() == counterproof_connector.network());
-        debug_assert!(
-            contest_counterproof_output.value() == counterproof_connector.value(),
-            "tx should have zero fees (value in = {}, value out = {}",
-            contest_counterproof_output.value(),
-            counterproof_connector.value()
-        );
+        let fee = crate::fee::counterproof_fee(contest_counterproof_output.n_data());
         let cpfp_connector = KeyedAnchor::new(
             contest_counterproof_output.network(),
             watchtower_pubkey,
-            Amount::ZERO,
+            crate::fee::anchor_dust_value(),
+        );
+        debug_assert!(
+            contest_counterproof_output.value()
+                == counterproof_connector.value() + cpfp_connector.value() + fee,
+            "tx must pay {} fees (value in = {}, value out = {} + {})",
+            fee,
+            contest_counterproof_output.value(),
+            counterproof_connector.value(),
+            cpfp_connector.value(),
         );
 
         let prevouts = [contest_counterproof_output.tx_out()];

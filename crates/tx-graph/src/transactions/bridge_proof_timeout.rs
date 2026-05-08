@@ -48,10 +48,11 @@ impl BridgeProofTimeoutTx {
         watchtower_pubkeys: Vec<XOnlyPublicKey>,
     ) -> Self {
         debug_assert!(contest_proof_connector.network() == contest_payout_connector.network());
+        let fee = crate::fee::bridge_proof_timeout_fee();
         let cpfp_connector = MultiAnchor::new(
             contest_proof_connector.network(),
             watchtower_pubkeys,
-            contest_proof_connector.value() + contest_payout_connector.value(),
+            contest_proof_connector.value() + contest_payout_connector.value() - fee,
         );
 
         let prevouts = [
@@ -81,8 +82,8 @@ impl BridgeProofTimeoutTx {
         let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
         let value_out: Amount = output.iter().map(|x| x.value).sum();
         debug_assert!(
-            value_in == value_out,
-            "tx should pay zero fees (value in = {value_in}, value out = {value_out})"
+            value_in == value_out + fee,
+            "tx must pay {fee} fees (value in = {value_in}, value out = {value_out})"
         );
 
         let tx = Transaction {

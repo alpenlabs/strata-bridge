@@ -74,7 +74,7 @@ impl UnstakingIntentTx {
         let cpfp_connector = KeyedAnchor::new(
             unstaking_intent_output.network(),
             operator_pubkey,
-            Amount::ZERO,
+            crate::fee::anchor_dust_value(),
         );
 
         let prevouts = [unstaking_intent_output.tx_out()];
@@ -94,6 +94,14 @@ impl UnstakingIntentTx {
             unstaking_output.tx_out(),
             cpfp_connector.tx_out(),
         ];
+
+        let fee = crate::fee::unstaking_intent_fee();
+        let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
+        let value_out: Amount = output.iter().map(|x| x.value).sum();
+        debug_assert!(
+            value_in == value_out + fee,
+            "tx must pay {fee} fees (value in = {value_in}, value out = {value_out})"
+        );
 
         let tx = Transaction {
             version: Version(3),

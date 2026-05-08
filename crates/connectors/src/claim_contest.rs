@@ -19,10 +19,14 @@ pub struct ClaimContestConnector {
     // invariant: watchtower_pubkeys.len() <= u32::MAX
     watchtower_pubkeys: Vec<XOnlyPublicKey>,
     contest_timelock: relative::Height,
+    surcharge: Amount,
 }
 
 impl ClaimContestConnector {
     /// Creates a new connector.
+    ///
+    /// `surcharge` is added on top of the base value to fund downstream presigned tx fees.
+    /// Pass `Amount::ZERO` if no fee is needed.
     ///
     /// # Panics
     ///
@@ -32,6 +36,7 @@ impl ClaimContestConnector {
         n_of_n_pubkey: XOnlyPublicKey,
         watchtower_pubkeys: Vec<XOnlyPublicKey>,
         contest_timelock: relative::Height,
+        surcharge: Amount,
     ) -> Self {
         assert!(
             watchtower_pubkeys.len() <= u32::MAX as usize,
@@ -43,6 +48,7 @@ impl ClaimContestConnector {
             n_of_n_pubkey,
             watchtower_pubkeys,
             contest_timelock,
+            surcharge,
         }
     }
 
@@ -93,8 +99,9 @@ impl Connector for ClaimContestConnector {
     fn value(&self) -> Amount {
         let minimal_non_dust = self.script_pubkey().minimal_non_dust();
         // NOTE: (@uncomputable) correctness is asserted in tx-graph crate:
-        // presigned transactions pay zero fees
+        // contest tx output sum + contest tx fee == claim_contest input value.
         minimal_non_dust * u64::from(CONTEST_WATCHTOWER_0_VOUT + self.n_watchtowers())
+            + self.surcharge
     }
 
     fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
@@ -217,6 +224,7 @@ mod tests {
                     .map(|key| key.x_only_public_key().0)
                     .collect(),
                 DELTA_CONTEST,
+                Amount::ZERO,
             )
         }
 
