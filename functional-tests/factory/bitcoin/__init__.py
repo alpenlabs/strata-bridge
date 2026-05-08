@@ -25,6 +25,10 @@ class BitcoinFactory(flexitest.Factory):
         zmq_rawtx = self.next_port()
         zmq_sequence = self.next_port()
 
+        # Run bitcoind with mainnet-like fee and dust policies so the bridge node's
+        # transactions must pay at least the minimum relay fee (1 sat/vB) and respect the
+        # dust threshold. This catches regressions where any tx-graph transaction is
+        # broadcast with zero fee or with a dust output.
         cmd = [
             "bitcoind",
             "-regtest",
@@ -33,11 +37,8 @@ class BitcoinFactory(flexitest.Factory):
             "-printtoconsole",
             "-server=1",
             "-txindex=1",
-            "-acceptnonstdtxn=1",
+            "-acceptnonstdtxn=0",
             "-fallbackfee=0.00001",
-            "-minrelaytxfee=0",
-            "-blockmintxfee=0",
-            "-dustrelayfee=0",
             f"-datadir={datadir}",
             f"-rpcport={rpc_port}",
             "-rpcbind=0.0.0.0",

@@ -4,12 +4,13 @@ use std::str::FromStr;
 
 use alloy::primitives::Address as EvmAddress;
 use anyhow::Result;
-use bitcoin::{hex::DisplayHex, taproot::TaprootBuilder, Address, Amount, Network, ScriptBuf};
+use bitcoin::{hex::DisplayHex, taproot::TaprootBuilder, Address, Network, ScriptBuf};
 use miniscript::Miniscript;
 use musig2::KeyAggContext;
 use secp256k1::{Keypair, Parity, XOnlyPublicKey, SECP256K1};
 use strata_asm_proto_bridge_v1_txs::deposit_request::DrtHeaderAux;
 use strata_bridge_common::params::Params;
+use strata_bridge_tx_graph::transactions::deposit::DepositTx;
 use strata_identifiers::{AccountSerial, SubjectIdBytes};
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 use strata_ol_bridge_types::DepositDescriptor;
@@ -51,13 +52,11 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
         .aggregated_pubkey();
     let taproot_address = generate_taproot_address(params.network, timelock_script, agg_key);
 
-    let deposit_fees = Amount::from_sat(1_000);
-    let psbt = psbt_wallet.create_drt_psbt(
-        params.protocol.deposit_amount + deposit_fees,
-        &taproot_address,
-        metadata,
-        &params.network,
-    )?;
+    // The DRT must include `deposit_amount + deposit_fee` so the bridge's deposit
+    // transaction can pay its own fee.
+    let drt_amount = DepositTx::drt_required(params.protocol.deposit_amount);
+    let psbt =
+        psbt_wallet.create_drt_psbt(drt_amount, &taproot_address, metadata, &params.network)?;
     psbt_wallet.sign_and_broadcast_psbt(&psbt)?;
 
     Ok(())

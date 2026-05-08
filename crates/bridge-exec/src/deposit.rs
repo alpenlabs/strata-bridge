@@ -24,8 +24,11 @@ use strata_bridge_primitives::{
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
-use strata_bridge_tx_graph::transactions::prelude::{
-    CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
+use strata_bridge_tx_graph::{
+    fee,
+    transactions::prelude::{
+        CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
+    },
 };
 use tracing::{error, info, warn};
 
@@ -402,13 +405,17 @@ async fn fulfill_withdrawal(
         .checked_sub(cfg.operator_fee)
         .expect("deposit amount must be greater than operator fee");
 
-    // Get fee rate estimate from bitcoind
+    // Get fee rate estimate from bitcoind, bounded from below by `fee::FEE_RATE` so the
+    // withdrawal-fulfillment v3 transaction always meets the bridge's hardcoded minimum even
+    // on networks where `estimatesmartfee` returns a value below `minrelaytxfee`.
     let fee_rate = output_handles
         .bitcoind_rpc_client
         .estimate_smart_fee(1)
         .await
         .map_err(|e| ExecutorError::WalletErr(format!("failed to estimate fee: {e}")))?;
-    let fee_rate = FeeRate::from_sat_per_vb(fee_rate).unwrap_or(FeeRate::DUST);
+    let fee_rate = FeeRate::from_sat_per_vb(fee_rate)
+        .unwrap_or(fee::FEE_RATE)
+        .max(fee::FEE_RATE);
 
     // Check if fee rate exceeds maximum configured rate
     if fee_rate > cfg.maximum_fee_rate {
