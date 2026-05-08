@@ -524,14 +524,22 @@ where
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::key::rand;
+    use std::num::NonZero;
+
+    use bitcoin::{OutPoint, hashes::Hash, key::rand};
     use strata_bridge_p2p_types::NagRequestPayload;
     use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
     use strata_bridge_sm::{
         deposit::events::{DepositEvent, NagReceivedEvent, NewBlockEvent as DepositNewBlock},
-        graph::events::{GraphEvent, NewBlockEvent as GraphNewBlock},
+        graph::{
+            duties::GraphDuty,
+            events::{GraphEvent, NewBlockEvent as GraphNewBlock},
+            machine::generate_game_graph,
+            state::GraphState,
+        },
     };
-    use strata_bridge_test_utils::prelude::generate_txid;
+    use strata_bridge_test_utils::{bitcoin::generate_xonly_pubkey, prelude::generate_txid};
+    use strata_bridge_tx_graph::game_graph::DepositParams;
 
     use super::*;
     use crate::{
@@ -809,6 +817,53 @@ mod tests {
     }
 
     #[test]
+    fn process_event_appends_graph_post_stf_duties_from_cross_sm_context() {
+        let mut registry = test_populated_registry(1);
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: 1,
+        };
+        let preimage = [0x42; 32];
+
+        registry
+            .insert_stake(
+                graph_idx.operator,
+                preimage_revealed_stake_sm(graph_idx.operator, table, preimage),
+            )
+            .unwrap();
+        set_graph_claimed_with_unstaking_image(&mut registry, graph_idx, preimage);
+
+        let outcome = registry
+            .process_event(
+                &SMId::Graph(graph_idx),
+                GraphEvent::NewBlock(GraphNewBlock {
+                    block_height: INITIAL_BLOCK_HEIGHT + 1,
+                })
+                .into(),
+            )
+            .unwrap();
+
+        let ProcessOutcome::Applied(output) = outcome else {
+            panic!("expected applied outcome, got {outcome:?}");
+        };
+        assert!(
+            output.duties.iter().any(|duty| {
+                matches!(
+                    duty,
+                    UnifiedDuty::Graph(GraphDuty::PublishUnstakingBurn {
+                        graph_idx: duty_graph_idx,
+                        unstaking_preimage,
+                        ..
+                    }) if *duty_graph_idx == graph_idx && *unstaking_preimage == preimage
+                )
+            }),
+            "expected PublishUnstakingBurn duty, got {:?}",
+            output.duties
+        );
+    }
+
+    #[test]
     fn sm_error_duplicate_maps_to_ignored_outcome() {
         let id = SMId::Deposit(7);
         let event = SMEvent::Deposit(Box::new(DepositEvent::NewBlock(DepositNewBlock {
@@ -916,6 +971,44 @@ mod tests {
                 signatures,
             },
         }
+    }
+
+    fn set_graph_claimed_with_unstaking_image(
+        registry: &mut SMRegistry,
+        graph_idx: GraphIdx,
+        preimage: [u8; 32],
+    ) {
+        let cfg = registry.cfg.graph.clone();
+        let graph = registry
+            .graphs
+            .get_mut(&graph_idx)
+            .expect("test registry must contain graph");
+        graph.context.unstaking_image = sha256::Hash::hash(&preimage);
+
+        let graph_data = DepositParams {
+            game_index: NonZero::new(graph_idx.deposit + 1).expect("deposit index + 1 is non-zero"),
+            claim_funds: OutPoint::default(),
+            deposit_outpoint: graph.context.deposit_outpoint(),
+            adaptor_pubkeys: (0..N_TEST_OPERATORS - 1)
+                .map(|_| generate_xonly_pubkey())
+                .collect(),
+            fault_pubkeys: (0..N_TEST_OPERATORS - 1)
+                .map(|_| generate_xonly_pubkey())
+                .collect(),
+        };
+        let graph_summary = generate_game_graph(&cfg, graph.context(), &graph_data).summarize();
+
+        graph.state = GraphState::Claimed {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            graph_data,
+            graph_summary,
+            signatures: Default::default(),
+            fulfillment_txid: Some(generate_txid()),
+            fulfillment_block_height: Some(INITIAL_BLOCK_HEIGHT),
+            claim_block_height: INITIAL_BLOCK_HEIGHT,
+            stake_spent: None,
+            payout_connector_spent: None,
+        };
     }
 
     // ===== Stake SM gating / snapshot tests =====

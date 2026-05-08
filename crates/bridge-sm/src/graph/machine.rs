@@ -11,6 +11,7 @@ use strata_bridge_tx_graph::{
 };
 
 use crate::{
+    cross_sm_context::CrossSmContext,
     error_policy::soften_peer_event_error,
     graph::{
         config::GraphSMCfg,
@@ -97,6 +98,14 @@ impl StateMachine for GraphSM {
                     .map_err(|err| soften_peer_event_error(sm_event, err))
             }
         }
+    }
+
+    fn run_post_stf_hook(
+        &self,
+        cfg: &Self::Config,
+        cross_sm_context: &CrossSmContext,
+    ) -> Vec<Self::Duty> {
+        self.run_graph_post_stf_hook(cfg, cross_sm_context)
     }
 }
 

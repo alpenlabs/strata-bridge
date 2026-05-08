@@ -16,7 +16,7 @@ use strata_bridge_primitives::{
 use strata_bridge_tx_graph::transactions::{
     claim::ClaimTx,
     counterproof::CounterproofTx,
-    prelude::{ContestTx, CounterproofNackTx},
+    prelude::{ContestTx, CounterproofNackTx, UnstakingBurnTx},
 };
 use strata_mosaic_client_api::types::CompletedSignatures;
 use zkaleido::ProofReceipt;
@@ -184,6 +184,19 @@ pub enum GraphDuty {
         signed_uncontested_payout_tx: Transaction,
     },
 
+    /// Publish an unstaking burn transaction to spend the claim-payout connector after the graph
+    /// owner's unstaking preimage is revealed.
+    PublishUnstakingBurn {
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
+
+        /// The unsigned unstaking burn transaction.
+        unstaking_burn_tx: UnstakingBurnTx,
+
+        /// The graph owner's revealed unstaking preimage.
+        unstaking_preimage: [u8; 32],
+    },
+
     /// Publish the contest transaction on-chain in response to a faulty claim.
     PublishContest {
         /// The unsigned contest transaction.
@@ -295,6 +308,7 @@ impl std::fmt::Display for GraphDuty {
             GraphDuty::PublishGraphPartials { .. } => "PublishGraphPartials".to_string(),
             GraphDuty::PublishClaim { .. } => "PublishClaim".to_string(),
             GraphDuty::PublishUncontestedPayout { .. } => "PublishUncontestedPayout".to_string(),
+            GraphDuty::PublishUnstakingBurn { .. } => "PublishUnstakingBurn".to_string(),
             GraphDuty::PublishContest { .. } => "PublishContest".to_string(),
             GraphDuty::GenerateAndPublishBridgeProof { .. } => {
                 "GenerateAndPublishBridgeProof".to_string()

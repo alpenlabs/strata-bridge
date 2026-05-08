@@ -7,6 +7,7 @@ pub(super) mod utils;
 
 mod deposit_signal;
 mod notify_new_block;
+mod post_processor;
 mod process_payout;
 mod process_payout_connector_spent;
 mod tx_classifier;
