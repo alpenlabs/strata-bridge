@@ -29,7 +29,9 @@ pub(crate) async fn is_txid_onchain(
 
 /// Returns whether `outpoint` is currently unspent on chain or in the mempool.
 ///
-/// Wraps Bitcoin Core's `gettxout`, which returns the UTXO when present and errors otherwise.
+/// Wraps Bitcoin Core's `gettxout`. A `null` result (spent or non-existent UTXO) maps to
+/// `Ok(false)`; transport, RPC, or parse failures propagate as `Err` so callers do not mistake a
+/// transient blip for a confirmed spend.
 pub(crate) async fn is_outpoint_unspent(
     bitcoind_rpc_client: &BitcoinClient,
     outpoint: &OutPoint,
@@ -40,7 +42,14 @@ pub(crate) async fn is_outpoint_unspent(
         .await
     {
         Ok(_) => Ok(true),
-        Err(_) => Ok(false),
+        // bitcoind returns `null` for a spent or non-existent UTXO; the client surfaces that
+        // through this specific `Other` variant because the JSON-RPC response carries no `result`
+        // field.
+        Err(ClientError::Other(ref msg)) if msg == "Empty data received" => Ok(false),
+        Err(e) => {
+            warn!(%outpoint, ?e, "could not determine if outpoint is unspent");
+            Err(e)
+        }
     }
 }
 
