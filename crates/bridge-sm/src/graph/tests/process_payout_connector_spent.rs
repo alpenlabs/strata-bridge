@@ -8,30 +8,61 @@
 //! new arm is filled in.
 //!
 //! Each variant is exercised against four scenarios:
-//! - `fresh`: a brand-new spending txid arrives.
+//! - `fresh`: a brand-new spending tx arrives.
 //! - `with_stake_pre_set`: `stake_spent` is pre-recorded on the state, then a fresh connector spend
 //!   arrives. Skipped for variants that do not carry the field.
-//! - `replay_same_txid`: the spending txid matches one already recorded on the state (either via
-//!   the `payout_connector_spent` field or via [`AbortReason`]). Skipped where no such record is
-//!   possible.
-//! - `replay_other_txid`: a *different* spending txid arrives at a state that already has one
-//!   recorded.
+//! - `replay_same_txid`: the spending tx is the one whose txid is already recorded on the state
+//!   (either via the `payout_connector_spent` field or via [`AbortReason`]). Skipped where no such
+//!   record is possible.
+//! - `replay_other_txid`: a *different* connector-spending tx arrives at a state that already has
+//!   one recorded.
 
-use bitcoin::{Txid, hashes::Hash};
-use strata_bridge_test_utils::bitcoin::generate_txid;
+use bitcoin::{OutPoint, Transaction, Txid, hashes::Hash};
+use strata_bridge_test_utils::bitcoin::generate_spending_tx;
+use strata_bridge_tx_graph::transactions::prelude::ClaimTx;
 
 use crate::graph::{
     errors::{GSMError, GSMResult},
     events::PayoutConnectorSpentEvent,
     machine::GSMOutput,
     state::{AbortReason, GraphState},
-    tests::{create_sm, mock_states::all_state_variants},
+    tests::{
+        create_sm,
+        mock_states::{TEST_GRAPH_SUMMARY, all_state_variants},
+        test_deposit_outpoint,
+    },
 };
 
-fn run(initial: GraphState, spending_txid: Txid) -> GSMResult<(GraphState, GSMOutput)> {
+fn run(initial: GraphState, tx: Transaction) -> GSMResult<(GraphState, GSMOutput)> {
     let mut sm = create_sm(initial);
-    let out = sm.process_payout_connector_spent(PayoutConnectorSpentEvent { spending_txid })?;
+    let out = sm.process_payout_connector_spent(PayoutConnectorSpentEvent { tx })?;
     Ok((sm.state, out))
+}
+
+/// The canonical empty-witness tx that consumes the test graph's payout-connector outpoint. Its
+/// txid matches the one baked into the `Aborted::PayoutConnectorSpent` mock in `terminal_states`.
+fn canonical_connector_spending_tx() -> Transaction {
+    generate_spending_tx(
+        OutPoint {
+            txid: TEST_GRAPH_SUMMARY.claim,
+            vout: ClaimTx::PAYOUT_VOUT,
+        },
+        &[],
+    )
+}
+
+/// A tx that consumes the connector outpoint and carries a junk extra input with `nonce` as its
+/// vout. Distinct nonces produce distinct txids, since txids commit to all non-witness inputs.
+fn unique_connector_spending_tx(nonce: u32) -> Transaction {
+    let mut tx = canonical_connector_spending_tx();
+    tx.input.push(bitcoin::TxIn {
+        previous_output: OutPoint {
+            txid: Txid::all_zeros(),
+            vout: nonce,
+        },
+        ..Default::default()
+    });
+    tx
 }
 
 // ===== Dispatch-table classification =====
@@ -60,7 +91,7 @@ struct StateClassification {
     /// Outcome when `stake_spent` is pre-set, then a fresh connector spend
     /// arrives. `None` for states without the field.
     with_stake_pre_set: Option<Outcome>,
-    /// Outcome when the spending txid replays one already recorded on the
+    /// Outcome when the spending tx replays one already recorded on the
     /// state (same-txid replay). `None` where no such record is possible.
     replay_same_txid: Option<Outcome>,
     /// Outcome when a connector spend with a *different* txid arrives at a
@@ -181,22 +212,29 @@ fn outcome_of(initial: &GraphState, result: GSMResult<(GraphState, GSMOutput)>) 
 }
 
 /// Prepares a state for the `replay` scenario by ensuring it carries a
-/// recorded connector spending txid, then returns the state and that txid.
+/// recorded connector spending txid, then returns the state and a tx
+/// whose computed txid matches that record.
 ///
-/// For `Aborted::PayoutConnectorSpent` / `Aborted::Both`, the variant
-/// already has the txid baked in, so the state is returned unchanged. For
-/// two-fact states, `set_payout_connector_spent` records a fixed txid.
-fn prepare_replay(variant: GraphState) -> (GraphState, Txid) {
+/// For `Aborted::PayoutConnectorSpent` / `Aborted::Both`, the variant's
+/// recorded txid is the txid of the canonical empty-witness
+/// connector-spending tx (see `terminal_states` mock fixture). For
+/// two-fact states, we build a tx with a fixed witness and record its
+/// txid before returning.
+fn prepare_replay(variant: GraphState) -> (GraphState, Transaction) {
     if let GraphState::Aborted { reason, .. } = &variant {
         match reason {
             AbortReason::PayoutConnectorSpent { spending_txid } => {
-                return (variant.clone(), *spending_txid);
+                let tx = canonical_connector_spending_tx();
+                assert_eq!(tx.compute_txid(), *spending_txid);
+                return (variant.clone(), tx);
             }
             AbortReason::Both {
                 payout_connector_spending_txid,
                 ..
             } => {
-                return (variant.clone(), *payout_connector_spending_txid);
+                let tx = canonical_connector_spending_tx();
+                assert_eq!(tx.compute_txid(), *payout_connector_spending_txid);
+                return (variant.clone(), tx);
             }
             AbortReason::StakeSpent { .. } => {
                 panic!("classifier should not request replay for Aborted::StakeSpent")
@@ -204,24 +242,33 @@ fn prepare_replay(variant: GraphState) -> (GraphState, Txid) {
         }
     }
 
-    let txid = Txid::from_byte_array([0xef; 32]);
+    // Two-fact state: build a deterministic tx, record its txid, return both.
+    let tx = unique_connector_spending_tx(0xefef);
+    let txid = tx.compute_txid();
     let mut state = variant;
     assert!(
         state.set_payout_connector_spent(txid),
         "classifier requested replay but state does not carry payout_connector_spent: {state}"
     );
-    (state, txid)
+    (state, tx)
 }
 
 // ===== The dispatch table test =====
 
 #[test]
 fn process_payout_connector_spent_dispatch_table_is_exhaustive() {
+    // Distinct nonce vouts per scenario produce distinct txids so the
+    // fresh, with-stake, and replay-other cases do not collide with the
+    // recorded txid set up in `prepare_replay`.
+    let fresh_tx = unique_connector_spending_tx(0x01);
+    let fresh_with_stake_tx = unique_connector_spending_tx(0x02);
+    let replay_other_tx = unique_connector_spending_tx(0x03);
+
     for variant in all_state_variants() {
         let expected = expected_outcomes(&variant);
 
         // Scenario 1: fresh spend.
-        let observed_fresh = outcome_of(&variant, run(variant.clone(), generate_txid()));
+        let observed_fresh = outcome_of(&variant, run(variant.clone(), fresh_tx.clone()));
         assert_eq!(
             observed_fresh, expected.fresh,
             "fresh-spend outcome mismatch in state {variant}"
@@ -235,18 +282,17 @@ fn process_payout_connector_spent_dispatch_table_is_exhaustive() {
                 state.set_stake_spent(stake_spending_txid),
                 "with_stake_pre_set is `Some` but state does not carry stake_spent: {variant}"
             );
-            let observed = outcome_of(&state, run(state.clone(), generate_txid()));
+            let observed = outcome_of(&state, run(state.clone(), fresh_with_stake_tx.clone()));
             assert_eq!(
                 observed, expected,
                 "with-stake-pre-set outcome mismatch in state {variant}"
             );
         }
 
-        // Scenario 3a: same-txid replay (matches the recorded connector
-        // spend).
+        // Scenario 3a: same-txid replay (matches the recorded connector spend).
         if let Some(expected_same) = expected.replay_same_txid.clone() {
-            let (state, replay_txid) = prepare_replay(variant.clone());
-            let observed = outcome_of(&state, run(state.clone(), replay_txid));
+            let (state, replay_tx) = prepare_replay(variant.clone());
+            let observed = outcome_of(&state, run(state.clone(), replay_tx));
             assert_eq!(
                 observed, expected_same,
                 "replay (same txid) outcome mismatch in state {variant}"
@@ -257,11 +303,56 @@ fn process_payout_connector_spent_dispatch_table_is_exhaustive() {
         // has a connector spend recorded.
         if let Some(expected_other) = expected.replay_other_txid.clone() {
             let (state, _) = prepare_replay(variant.clone());
-            let observed = outcome_of(&state, run(state.clone(), generate_txid()));
+            let observed = outcome_of(&state, run(state.clone(), replay_other_tx.clone()));
             assert_eq!(
                 observed, expected_other,
                 "replay (different txid) outcome mismatch in state {variant}"
             );
         }
+    }
+}
+
+/// A misrouted/injected event whose tx does not actually consume the
+/// payout-connector outpoint must be rejected — it cannot record
+/// `payout_connector_spent`, abort the graph, or alter terminal states.
+/// Pre-`Claimed` states, where no connector exists, fall through to the
+/// regular `InvalidEvent` path because the defensive guard does not apply
+/// to them.
+#[test]
+fn rejects_event_whose_tx_does_not_spend_connector_outpoint() {
+    let unrelated_tx = generate_spending_tx(test_deposit_outpoint(), &[]);
+
+    for variant in all_state_variants() {
+        let observed = outcome_of(&variant, run(variant.clone(), unrelated_tx.clone()));
+        let claim_txid_known = matches!(
+            variant,
+            GraphState::Claimed { .. }
+                | GraphState::Contested { .. }
+                | GraphState::BridgeProofPosted { .. }
+                | GraphState::CounterProofPosted { .. }
+                | GraphState::BridgeProofTimedout { .. }
+                | GraphState::Acked { .. }
+                | GraphState::AllNackd { .. }
+        );
+        let expected = if claim_txid_known {
+            // Defensive guard fires: tx doesn't spend the connector for this
+            // state's claim → Rejected.
+            Outcome::Rejected
+        } else if matches!(
+            variant,
+            GraphState::Withdrawn { .. } | GraphState::Slashed { .. } | GraphState::Aborted { .. }
+        ) {
+            // Terminal states reject all events regardless of tx shape.
+            Outcome::Rejected
+        } else {
+            // Pre-`Claimed`: no connector outpoint exists, so the guard does
+            // not apply and the regular protocol-breach path returns
+            // `InvalidEvent`.
+            Outcome::InvalidEvent
+        };
+        assert_eq!(
+            observed, expected,
+            "non-connector-spending tx outcome mismatch in state {variant}"
+        );
     }
 }

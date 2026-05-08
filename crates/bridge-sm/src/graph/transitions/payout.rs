@@ -1,11 +1,14 @@
 use bitcoin::{Txid, hashes::Hash};
 use tracing::{info, warn};
 
-use crate::graph::{
-    errors::{GSMError, GSMResult},
-    events::{PayoutConfirmedEvent, PayoutConnectorSpentEvent},
-    machine::{GSMOutput, GraphSM},
-    state::{AbortReason, GraphState},
+use crate::{
+    graph::{
+        errors::{GSMError, GSMResult},
+        events::{PayoutConfirmedEvent, PayoutConnectorSpentEvent},
+        machine::{GSMOutput, GraphSM},
+        state::{AbortReason, GraphState},
+    },
+    tx_classifier::is_payout_connector_spent,
 };
 
 impl GraphSM {
@@ -124,7 +127,33 @@ impl GraphSM {
         &mut self,
         event: PayoutConnectorSpentEvent,
     ) -> GSMResult<GSMOutput> {
-        let spending_txid = event.spending_txid;
+        // Defensive guard: the classifier emits this event only for txs that
+        // consume the payout-connector outpoint of the current state's claim.
+        // Verify the invariant here as well so misrouted or directly-injected
+        // events cannot record `payout_connector_spent` or terminalize the
+        // graph. The connector outpoint is rooted at the claim txid, which
+        // only exists from `Claimed` onward.
+        let claim_txid = match self.state() {
+            GraphState::Claimed { graph_summary, .. }
+            | GraphState::Contested { graph_summary, .. }
+            | GraphState::BridgeProofPosted { graph_summary, .. }
+            | GraphState::CounterProofPosted { graph_summary, .. } => Some(graph_summary.claim),
+            GraphState::BridgeProofTimedout { claim_txid, .. }
+            | GraphState::Acked { claim_txid, .. }
+            | GraphState::AllNackd { claim_txid, .. } => Some(*claim_txid),
+            _ => None,
+        };
+        if let Some(claim_txid) = claim_txid
+            && !is_payout_connector_spent(&claim_txid, &event.tx)
+        {
+            return Err(GSMError::rejected(
+                self.state.clone(),
+                event.into(),
+                "connector spent event tx does not spend the payout connector outpoint",
+            ));
+        }
+
+        let spending_txid = event.tx.compute_txid();
 
         // A connector spend is already recorded: matching txid is a
         // duplicate re-delivery; any other txid is rejected.
