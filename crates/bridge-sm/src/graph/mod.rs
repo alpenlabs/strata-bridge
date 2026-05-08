@@ -6,6 +6,7 @@ pub mod errors;
 pub mod events;
 mod handlers;
 pub mod machine;
+mod post_processor;
 pub mod state;
 pub mod transitions;
 mod tx_classifier;
