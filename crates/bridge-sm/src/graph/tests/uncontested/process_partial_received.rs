@@ -3,6 +3,8 @@
 mod tests {
     use std::collections::BTreeMap;
 
+    use bitcoin::{Txid, hashes::Hash};
+
     use crate::{
         graph::{
             errors::GSMError,
@@ -121,6 +123,66 @@ mod tests {
                 GraphToDeposit::GraphAvailable { .. }
             )]
         ));
+    }
+
+    /// When the final partial arrives at a state with `stake_spent` already
+    /// recorded, the GSM still produces a fully signed graph but must not
+    /// advertise it via `GraphAvailable`. A graph backed by a consumed
+    /// stake has no live slash path and the deposit SM must not pick it
+    /// up for signing.
+    #[test]
+    fn final_partial_with_stake_spent_withholds_graph_available() {
+        let cfg = test_graph_sm_cfg();
+        let (deposit_params, graph) = test_graph_data(&cfg);
+        let graph_summary = graph.summarize();
+
+        let nonce_ctx = build_nonce_context(graph.musig_signing_info().pack());
+        let mut state = nonces_collected_state(&nonce_ctx, deposit_params, graph_summary);
+        let recorded_stake_txid = Txid::from_byte_array([0xab; 32]);
+        assert!(state.set_stake_spent(recorded_stake_txid));
+
+        let partial_sigs_map = build_partial_signatures(
+            &nonce_ctx.signers,
+            &nonce_ctx.key_agg_ctxs,
+            &nonce_ctx.agg_nonces,
+            &nonce_ctx.signing_infos,
+            0,
+        );
+
+        let sm = create_sm(state);
+        let mut seq = EventSequence::new(sm, get_state);
+
+        for signer in &nonce_ctx.signers {
+            let sigs = partial_sigs_map
+                .get(&signer.operator_idx())
+                .expect("operator partial signatures missing")
+                .clone();
+            seq.process(
+                cfg.clone(),
+                GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
+                    operator_idx: signer.operator_idx(),
+                    partial_signatures: sigs,
+                }),
+            );
+        }
+
+        seq.assert_no_errors();
+
+        // State advanced to `GraphSigned` and preserves the recorded stake spend.
+        assert!(matches!(
+            seq.state(),
+            GraphState::GraphSigned {
+                stake_spent: Some(_),
+                ..
+            }
+        ));
+        if let GraphState::GraphSigned { stake_spent, .. } = seq.state() {
+            assert_eq!(*stake_spent, Some(recorded_stake_txid));
+        }
+
+        // No signals or duties: the graph is not advertised as available.
+        assert!(seq.all_duties().is_empty());
+        assert!(seq.all_signals().is_empty());
     }
 
     #[test]

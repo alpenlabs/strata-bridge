@@ -526,6 +526,8 @@ impl GraphSM {
                         })
                         .collect();
 
+                    let stake_spent = *stake_spent;
+
                     // Transition to GraphSigned state
                     self.state = GraphState::GraphSigned {
                         last_block_height: *last_block_height,
@@ -533,8 +535,17 @@ impl GraphSM {
                         graph_summary: graph_summary.clone(),
                         agg_nonces: Some(agg_nonces.clone()),
                         signatures: agg_sigs.clone(),
-                        stake_spent: *stake_spent,
+                        stake_spent,
                     };
+
+                    // Only advertise the graph as available for unilateral
+                    // reimbursement when its stake outpoint is still unspent.
+                    // A graph backed by a consumed stake has no live slash
+                    // path and must not be picked up by the deposit SM for
+                    // signing.
+                    if stake_spent.is_some() {
+                        return Ok(GSMOutput::default());
+                    }
 
                     return Ok(GSMOutput::with_signals(vec![GraphSignal::ToDeposit(
                         GraphToDeposit::GraphAvailable {
