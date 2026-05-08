@@ -59,7 +59,17 @@ impl DepositTx {
     /// Number of transaction inputs.
     pub const N_INPUTS: usize = 1;
 
+    /// Returns the minimum value the depositor must put in the deposit-request UTXO so that
+    /// the bridge's deposit transaction can pay its own fee.
+    pub fn drt_required(deposit_amount: Amount) -> Amount {
+        deposit_amount + crate::fee::deposit_fee()
+    }
+
     /// Creates a deposit transaction.
+    ///
+    /// The depositor's deposit-request UTXO must carry at least
+    /// `deposit_connector.value() + crate::fee::deposit_fee()` so the deposit transaction can
+    /// pay its own fee. Surplus beyond that is also paid as fee.
     pub fn new(
         data: DepositData,
         deposit_connector: NOfNConnector,
@@ -67,6 +77,14 @@ impl DepositTx {
     ) -> Self {
         debug_assert!(deposit_connector.network() == deposit_request_connector.network());
         debug_assert!(deposit_connector.internal_key() == deposit_request_connector.internal_key());
+        let fee = crate::fee::deposit_fee();
+        debug_assert!(
+            deposit_request_connector.value() >= deposit_connector.value() + fee,
+            "deposit-request UTXO must include at least {fee} of fee \
+             (drt value = {}, deposit value = {})",
+            deposit_request_connector.value(),
+            deposit_connector.value(),
+        );
 
         let prevouts = [deposit_request_connector.tx_out()];
         let input = vec![TxIn {
