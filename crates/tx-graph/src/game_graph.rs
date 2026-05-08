@@ -530,11 +530,16 @@ impl GameConnectors {
             "too many watchtowers"
         );
 
+        // cast safety: asserted above that len(watchtowers) <= u32::MAX
+        let n_watchtowers = keys.watchtower_pubkeys.len() as u32;
+        let n_data = protocol.counterproof_n_data;
+
         let claim_contest = ClaimContestConnector::new(
             protocol.network,
             keys.n_of_n_pubkey,
             keys.watchtower_pubkeys.clone(),
             protocol.contest_timelock,
+            crate::fee::claim_contest_surcharge(n_watchtowers, n_data),
         );
         let claim_payout = ClaimPayoutConnector::new(
             protocol.network,
@@ -553,6 +558,7 @@ impl GameConnectors {
             keys.operator_pubkey,
             game_index,
             protocol.proof_timelock,
+            crate::fee::contest_proof_surcharge(),
         );
         let contest_payout = ContestPayoutConnector::new(
             protocol.network,
@@ -567,6 +573,7 @@ impl GameConnectors {
         // One `ContestCounterproofOutput` per watchtower, bound to the adaptor pubkey that
         // mosaic issued for the `(evaluator=owner, garbler=watchtower)` tableset. Each entry
         // becomes a distinct output on the Contest tx.
+        let contest_counterproof_surcharge = crate::fee::contest_counterproof_surcharge(n_data);
         let contest_counterproof: Vec<_> = keys
             .operator_adaptor_pubkeys
             .iter()
@@ -577,9 +584,11 @@ impl GameConnectors {
                     keys.n_of_n_pubkey,
                     operator_adaptor_pubkey,
                     protocol.counterproof_n_data,
+                    contest_counterproof_surcharge,
                 )
             })
             .collect();
+        let counterproof_surcharge = crate::fee::counterproof_surcharge();
         let counterproof: Vec<_> = keys
             .wt_fault_pubkeys
             .iter()
@@ -590,6 +599,7 @@ impl GameConnectors {
                     keys.n_of_n_pubkey,
                     wt_fault_pubkey,
                     protocol.nack_timelock,
+                    counterproof_surcharge,
                 )
             })
             .collect();
@@ -703,11 +713,14 @@ mod tests {
             NOfNConnector::new(protocol.network, keys.n_of_n_pubkey, DEPOSIT_AMOUNT);
         let stake_connector =
             NOfNConnector::new(protocol.network, keys.n_of_n_pubkey, STAKE_AMOUNT);
+        // cast safety: N_WATCHTOWERS is a small constant that fits in u32.
+        let n_watchtowers = N_WATCHTOWERS as u32;
         let claim_contest_connector = ClaimContestConnector::new(
             protocol.network,
             keys.n_of_n_pubkey,
             keys.watchtower_pubkeys.clone(),
             protocol.contest_timelock,
+            crate::fee::claim_contest_surcharge(n_watchtowers, protocol.counterproof_n_data),
         );
         let claim_payout_connector = ClaimPayoutConnector::new(
             protocol.network,
@@ -715,7 +728,8 @@ mod tests {
             keys.admin_pubkey,
             keys.unstaking_image,
         );
-        let claim_funds_amount = claim_contest_connector.value() + claim_payout_connector.value();
+        let claim_funds_amount =
+            ClaimTx::claim_funds_required(&claim_contest_connector, &claim_payout_connector);
 
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                       Funding Transaction                         │

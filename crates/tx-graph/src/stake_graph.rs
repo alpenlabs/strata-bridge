@@ -96,6 +96,7 @@ impl StakeGraph {
             protocol.network,
             setup.n_of_n_pubkey,
             setup.unstaking_image,
+            crate::fee::unstaking_intent_surcharge(),
         );
         let unstaking_output = UnstakingOutput::new(
             protocol.network,
@@ -189,7 +190,6 @@ mod tests {
     use strata_bridge_connectors::{
         prelude::{UnstakingIntentOutput, UnstakingIntentWitness},
         test_utils::BitcoinNode,
-        Connector,
     };
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins};
     use strata_bridge_test_utils::prelude::generate_keypair;
@@ -239,7 +239,11 @@ mod tests {
             protocol.network,
             setup.n_of_n_pubkey,
             setup.unstaking_image,
+            crate::fee::unstaking_intent_surcharge(),
         );
+
+        let stake_funds_amount =
+            StakeTx::stake_funds_required(protocol.stake_amount, &unstaking_intent_output);
 
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                       Funding Transaction                         │
@@ -253,14 +257,11 @@ mod tests {
         let input = create_tx_ins([node.next_coinbase_outpoint()]);
         let output = vec![
             TxOut {
-                value: protocol.stake_amount + unstaking_intent_output.value(),
+                value: stake_funds_amount,
                 script_pubkey: node.wallet_address().script_pubkey(),
             },
             TxOut {
-                value: node.coinbase_amount()
-                    - protocol.stake_amount
-                    - unstaking_intent_output.value()
-                    - FEE_AMOUNT,
+                value: node.coinbase_amount() - stake_funds_amount - FEE_AMOUNT,
                 script_pubkey: node.wallet_address().script_pubkey(),
             },
         ];

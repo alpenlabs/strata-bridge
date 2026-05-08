@@ -70,10 +70,18 @@ impl UnstakingTx {
                 ..Default::default()
             },
         ];
+        let fee = crate::fee::unstaking_fee();
         let output = vec![TxOut {
             script_pubkey: operator_descriptor.to_script(),
-            value: unstaking_output.value() + stake_connector.value(),
+            value: unstaking_output.value() + stake_connector.value() - fee,
         }];
+
+        let value_in: bitcoin::Amount = prevouts.iter().map(|x| x.value).sum();
+        let value_out: bitcoin::Amount = output.iter().map(|x| x.value).sum();
+        debug_assert!(
+            value_in == value_out + fee,
+            "tx must pay {fee} fees (value in = {value_in}, value out = {value_out})"
+        );
 
         let tx = Transaction {
             version: Version(3),

@@ -31,6 +31,21 @@ impl ClaimTx {
     /// Index of the CPFP output.
     pub const CPFP_VOUT: u32 = 2;
 
+    /// Returns the total funding amount that the wallet must provide in
+    /// [`ClaimData::claim_funds`].
+    ///
+    /// The connector outputs are funded directly from this UTXO; the surplus is the tx fee.
+    /// The cpfp anchor output is funded too (its value is [`crate::fee::anchor_dust_value`]).
+    pub fn claim_funds_required(
+        claim_contest: &ClaimContestConnector,
+        claim_payout: &ClaimPayoutConnector,
+    ) -> Amount {
+        claim_contest.value()
+            + claim_payout.value()
+            + crate::fee::anchor_dust_value()
+            + crate::fee::claim_fee()
+    }
+
     /// Creates a claim transaction.
     pub fn new(
         data: ClaimData,
@@ -42,7 +57,7 @@ impl ClaimTx {
         let cpfp_connector = KeyedAnchor::new(
             claim_contest_connector.network(),
             operator_pubkey,
-            Amount::ZERO,
+            crate::fee::anchor_dust_value(),
         );
 
         let input = create_tx_ins([data.claim_funds]);

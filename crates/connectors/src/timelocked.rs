@@ -171,6 +171,7 @@ impl ContestProofConnector {
         operator_pubkey: XOnlyPublicKey,
         game_index: NonZero<u32>,
         proof_timelock: relative::Height,
+        surcharge: Amount,
     ) -> Self {
         let operator_key_tweak = Self::operator_key_tweak(game_index);
         // This can only fail if the private key of operator_pubkey equals
@@ -188,7 +189,7 @@ impl ContestProofConnector {
             timelock: proof_timelock,
             value: Amount::ZERO,
         };
-        inner.value = inner.script_pubkey().minimal_non_dust();
+        inner.value = inner.script_pubkey().minimal_non_dust() + surcharge;
         Self(inner)
     }
 
@@ -276,6 +277,7 @@ impl CounterproofConnector {
         n_of_n_pubkey: XOnlyPublicKey,
         wt_i_fault_pubkey: XOnlyPublicKey,
         nack_timelock: relative::Height,
+        surcharge: Amount,
     ) -> Self {
         let mut inner = TimelockedConnector {
             network,
@@ -284,7 +286,7 @@ impl CounterproofConnector {
             timelock: nack_timelock,
             value: Amount::ZERO,
         };
-        inner.value = inner.script_pubkey().minimal_non_dust();
+        inner.value = inner.script_pubkey().minimal_non_dust() + surcharge;
         Self(inner)
     }
 }

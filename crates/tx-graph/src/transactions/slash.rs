@@ -115,13 +115,19 @@ impl SlashTx {
             },
         ];
 
+        // cast safety: n_watchtowers fits in u32 (asserted via slice length being non-empty above
+        // and by upstream callers). The slash tx fee is taken from the first watchtower's stake
+        // share — that share is bounded by the per-watchtower stake amount, which is real funds
+        // and orders of magnitude larger than the fee.
+        let fee = crate::fee::slash_fee(watchtower_descriptors.len() as u32);
+        let first_output_value = watchtower_stake + first_extra - fee;
         let mut output = vec![TxOut {
             script_pubkey: data.header_leaf_script(),
             value: Amount::ZERO,
         }];
         output.push(TxOut {
             script_pubkey: watchtower_descriptors[0].to_script(),
-            value: watchtower_stake + first_extra,
+            value: first_output_value,
         });
         output.extend(watchtower_descriptors.iter().skip(1).map(|x| TxOut {
             script_pubkey: x.to_script(),
@@ -131,8 +137,8 @@ impl SlashTx {
         let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
         let value_out: Amount = output.iter().map(|x| x.value).sum();
         debug_assert!(
-            value_in == value_out,
-            "tx should pay zero fees (value in = {value_in}, value out = {value_out})"
+            value_in == value_out + fee,
+            "tx must pay {fee} fees (value in = {value_in}, value out = {value_out})"
         );
 
         let tx = Transaction {

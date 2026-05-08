@@ -1,6 +1,6 @@
 //! Provides operator wallet initialization.
 
-use std::sync::Arc;
+use std::{num::NonZero, sync::Arc};
 
 use anyhow::anyhow;
 use bdk_bitcoind_rpc::bitcoincore_rpc;
@@ -13,12 +13,10 @@ use operator_wallet::{OperatorWallet, OperatorWalletConfig, sync::Backend};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_common::params::Params;
-use strata_bridge_connectors::{
-    Connector,
-    prelude::{ClaimContestConnector, ClaimPayoutConnector},
-};
+use strata_bridge_connectors::prelude::{ClaimContestConnector, ClaimPayoutConnector};
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb};
 use strata_bridge_primitives::constants::SEGWIT_MIN_AMOUNT;
+use strata_bridge_tx_graph::{fee, transactions::prelude::ClaimTx};
 use tracing::{debug, info};
 
 use crate::config::Config;
@@ -77,6 +75,11 @@ pub(in crate::mode) async fn init_operator_wallet(
 /// This amount is not a constant since it depends upon the number of watchtowers that are allowed
 /// to contest a claim.
 fn compute_funding_amount(params: &Params) -> Amount {
+    // Must match the value used in `orchestrator.rs::COUNTERPROOF_N_BYTES`. Hardcoded here too
+    // because `Params` does not currently expose it.
+    const COUNTERPROOF_N_BYTES: NonZero<usize> =
+        NonZero::new(128 + 4).expect("counterproof_n_bytes must be non-zero");
+
     let network = params.network;
 
     // The consensus-validity of the following two values do not affect the calculation of the
@@ -88,15 +91,22 @@ fn compute_funding_amount(params: &Params) -> Amount {
 
     // NOTE: (@Rajil1213)  musig2 keys are the watchtower keys for the time being until we separate
     // the sets
-    let watchtower_keys = params.keys.covenant.iter().map(|c| c.musig2).collect();
+    let watchtower_keys: Vec<_> = params.keys.covenant.iter().map(|c| c.musig2).collect();
+    // cast safety: covenant.len() is bounded by the number of operators, much smaller than u32::MAX
+    let n_watchtowers = watchtower_keys.len() as u32;
     let contest_timelock = relative::Height::from_height(params.protocol.contest_timelock);
 
-    let claim_contest_connector =
-        ClaimContestConnector::new(network, n_of_n_key, watchtower_keys, contest_timelock);
+    let claim_contest_connector = ClaimContestConnector::new(
+        network,
+        n_of_n_key,
+        watchtower_keys,
+        contest_timelock,
+        fee::claim_contest_surcharge(n_watchtowers, COUNTERPROOF_N_BYTES),
+    );
 
     let admin_key = params.keys.admin;
     let claim_payout_connector =
         ClaimPayoutConnector::new(network, n_of_n_key, admin_key, unstaking_image);
 
-    claim_contest_connector.value() + claim_payout_connector.value()
+    ClaimTx::claim_funds_required(&claim_contest_connector, &claim_payout_connector)
 }

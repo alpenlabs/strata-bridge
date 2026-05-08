@@ -23,6 +23,7 @@ pub struct ContestCounterproofOutput {
     n_of_n_pubkey: XOnlyPublicKey,
     operator_pubkey: XOnlyPublicKey,
     n_data: NonZero<usize>,
+    surcharge: Amount,
 }
 
 impl ContestCounterproofOutput {
@@ -32,18 +33,21 @@ impl ContestCounterproofOutput {
     /// that are exchanged. This does not include labels that have already been
     /// exchanged at setup time.
     ///
-    /// `n_data` is equal to the number of required operator signatures.
+    /// `surcharge` is added on top of the base value to fund downstream presigned tx fees.
+    /// Pass `Amount::ZERO` if no fee is needed.
     pub const fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
         operator_pubkey: XOnlyPublicKey,
         n_data: NonZero<usize>,
+        surcharge: Amount,
     ) -> Self {
         Self {
             network,
             n_of_n_pubkey,
             operator_pubkey,
             n_data,
+            surcharge,
         }
     }
 
@@ -83,7 +87,7 @@ impl Connector for ContestCounterproofOutput {
     }
 
     fn value(&self) -> Amount {
-        self.script_pubkey().minimal_non_dust()
+        self.script_pubkey().minimal_non_dust() + self.surcharge
     }
 
     fn to_leaf_index(&self, _spend_path: Self::SpendPath) -> Option<usize> {
@@ -151,6 +155,7 @@ mod tests {
             n_of_n_keypair.x_only_public_key().0,
             operator_keypair.x_only_public_key().0,
             N_DATA,
+            Amount::ZERO,
         );
 
         // Create a transaction that funds the connector.
