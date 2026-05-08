@@ -6,6 +6,7 @@
 //! other, and each state machine can also emit duties that need to be executed externally to
 //! effect the desired operations.
 
+pub mod cross_sm_context;
 pub mod deposit;
 pub(crate) mod error_policy;
 pub mod errors;

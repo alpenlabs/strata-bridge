@@ -12,6 +12,7 @@ use strata_bridge_primitives::{
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{
+    cross_sm_context::CrossSmContext,
     deposit::{config::DepositSMCfg, machine::DepositSM},
     errors::BridgeSMError,
     graph::{config::GraphSMCfg, machine::GraphSM},
@@ -404,6 +405,8 @@ impl SMRegistry {
         id: &SMId,
         event: SMEvent,
     ) -> Result<ProcessOutcome, ProcessError> {
+        let cross_sm_context = CrossSmContext::default();
+
         match (id, event) {
             (SMId::Deposit(idx), SMEvent::Deposit(deposit_event)) => {
                 let sm = self
@@ -413,8 +416,10 @@ impl SMRegistry {
                 let event = SMEvent::Deposit(deposit_event.clone());
                 sm.process_event(self.cfg.deposit.clone(), *deposit_event)
                     .map(|out| {
+                        let mut duties = out.duties;
+                        duties.extend(sm.run_post_stf_hook(&self.cfg.deposit, &cross_sm_context));
                         ProcessOutcome::Applied(SMOutput {
-                            duties: out.duties.into_iter().map(UnifiedDuty::Deposit).collect(),
+                            duties: duties.into_iter().map(UnifiedDuty::Deposit).collect(),
                             signals: out.signals.into_iter().map(Into::into).collect(),
                         })
                     })
@@ -429,8 +434,10 @@ impl SMRegistry {
                 let event = SMEvent::Graph(graph_event.clone());
                 sm.process_event(self.cfg.graph.clone(), *graph_event)
                     .map(|out| {
+                        let mut duties = out.duties;
+                        duties.extend(sm.run_post_stf_hook(&self.cfg.graph, &cross_sm_context));
                         ProcessOutcome::Applied(SMOutput {
-                            duties: out.duties.into_iter().map(UnifiedDuty::Graph).collect(),
+                            duties: duties.into_iter().map(UnifiedDuty::Graph).collect(),
                             signals: out.signals.into_iter().map(Into::into).collect(),
                         })
                     })
@@ -445,8 +452,10 @@ impl SMRegistry {
                 let event = SMEvent::Stake(stake_event.clone());
                 sm.process_event(self.cfg.stake.clone(), *stake_event)
                     .map(|out| {
+                        let mut duties = out.duties;
+                        duties.extend(sm.run_post_stf_hook(&self.cfg.stake, &cross_sm_context));
                         ProcessOutcome::Applied(SMOutput {
-                            duties: out.duties.into_iter().map(UnifiedDuty::Stake).collect(),
+                            duties: duties.into_iter().map(UnifiedDuty::Stake).collect(),
                             signals: out.signals,
                         })
                     })
