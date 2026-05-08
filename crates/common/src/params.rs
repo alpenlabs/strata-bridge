@@ -5,7 +5,7 @@
 use std::{fs, path::Path, str::FromStr};
 
 use bitcoin::{hex::DisplayHex, Amount, Network};
-use bitcoin_bosd::Descriptor;
+use bitcoin_bosd::{Descriptor, DescriptorType};
 use libp2p::identity::ed25519::PublicKey as Libp2pKey;
 use secp256k1::XOnlyPublicKey;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -188,10 +188,15 @@ where
             let p2p = Libp2pKey::try_from_bytes(&p2p)
                 .unwrap_or_else(|_| panic!("Failed to decode Libp2pKey at index {i}"));
 
-            let payout_descriptor = k
+            let payout_descriptor: Descriptor = k
                 .payout_descriptor
                 .parse()
                 .unwrap_or_else(|_| panic!("Failed to parse payout descriptor at index {i}"));
+            assert!(
+                payout_descriptor.type_tag() == DescriptorType::P2tr,
+                "payout descriptor at index {i} must be P2TR (fee constants assume \
+                 P2TR-sized operator/watchtower outputs)"
+            );
 
             CovenantKeys {
                 musig2,
