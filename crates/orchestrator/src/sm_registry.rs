@@ -405,7 +405,7 @@ impl SMRegistry {
         id: &SMId,
         event: SMEvent,
     ) -> Result<ProcessOutcome, ProcessError> {
-        let cross_sm_context = CrossSmContext::default();
+        let cross_sm_context = self.resolve_cross_sm_context(id);
 
         match (id, event) {
             (SMId::Deposit(idx), SMEvent::Deposit(deposit_event)) => {
@@ -465,6 +465,32 @@ impl SMRegistry {
             (id, event) => Err(ProcessError::InvalidInvocation(*id, event)),
         }
     }
+
+    /// Resolves auxiliary state from sibling state machines for the destination `id`.
+    ///
+    /// This context is intentionally not routed as a signal: resolving it does not create a
+    /// causal persistence edge from the source SM to the destination SM.
+    fn resolve_cross_sm_context(&self, id: &SMId) -> CrossSmContext {
+        match id {
+            SMId::Graph(graph_idx) => self.resolve_graph_cross_sm_context(graph_idx),
+            SMId::Deposit(_) | SMId::Stake(_) => CrossSmContext::default(),
+        }
+    }
+
+    /// Resolves context needed by a graph state machine from its owner's stake state machine.
+    fn resolve_graph_cross_sm_context(&self, graph_idx: &GraphIdx) -> CrossSmContext {
+        let Some(graph_sm) = self.graphs.get(graph_idx) else {
+            return CrossSmContext::default();
+        };
+
+        self.stakes
+            .get(&graph_sm.context().operator_idx())
+            .and_then(|stake_sm| stake_sm.state().preimage())
+            .map_or_else(
+                CrossSmContext::default,
+                CrossSmContext::with_unstaking_preimage,
+            )
+    }
 }
 
 fn sm_to_process_result<S, E>(
@@ -511,9 +537,10 @@ mod tests {
     use crate::{
         sm_types::OperatorKey,
         testing::{
-            N_TEST_OPERATORS, TEST_POV_IDX, insert_confirmed_stake, insert_created_stake,
-            insert_deposit_with_graphs, insert_stakes_for_all_operators, test_empty_registry,
-            test_operator_table, test_populated_registry,
+            INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, insert_confirmed_stake,
+            insert_created_stake, insert_deposit_with_graphs, insert_stakes_for_all_operators,
+            make_confirmed_stake_sm, test_empty_registry, test_operator_table,
+            test_populated_registry,
         },
     };
 
@@ -690,6 +717,46 @@ mod tests {
         assert!(op_idx.is_none());
     }
 
+    // ===== cross-SM context tests =====
+
+    #[test]
+    fn graph_cross_sm_context_includes_owner_unstaking_preimage() {
+        let mut registry = test_populated_registry(1);
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: 1,
+        };
+        let preimage = [0x42; 32];
+
+        registry
+            .insert_stake(
+                graph_idx.operator,
+                preimage_revealed_stake_sm(graph_idx.operator, table, preimage),
+            )
+            .unwrap();
+
+        let context = registry.resolve_cross_sm_context(&SMId::Graph(graph_idx));
+        assert_eq!(context.unstaking_preimage(), Some(preimage));
+    }
+
+    #[test]
+    fn graph_cross_sm_context_does_not_use_different_operator_preimage() {
+        let mut registry = test_populated_registry(1);
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: 1,
+        };
+
+        registry
+            .insert_stake(2, preimage_revealed_stake_sm(2, table, [0x24; 32]))
+            .unwrap();
+
+        let context = registry.resolve_cross_sm_context(&SMId::Graph(graph_idx));
+        assert_eq!(context.unstaking_preimage(), None);
+    }
+
     // ===== process_event error tests =====
 
     #[test]
@@ -819,6 +886,36 @@ mod tests {
             Err(ProcessError::InvariantViolation(dep_id, dep_event, state, err_reason))
                 if err_reason == reason && state == state_str && dep_id == id && dep_event == event
         ));
+    }
+
+    fn preimage_revealed_stake_sm(
+        operator_idx: OperatorIdx,
+        operator_table: OperatorTable,
+        preimage: [u8; 32],
+    ) -> StakeSM {
+        let sm = make_confirmed_stake_sm(operator_idx, operator_table, generate_txid());
+        let context = sm.context;
+        let StakeState::Confirmed {
+            stake_data,
+            summary,
+            signatures,
+            ..
+        } = sm.state
+        else {
+            unreachable!("test helper constructs Confirmed state");
+        };
+
+        StakeSM {
+            context,
+            state: StakeState::PreimageRevealed {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                stake_data,
+                summary,
+                preimage,
+                unstaking_intent_block_height: INITIAL_BLOCK_HEIGHT,
+                signatures,
+            },
+        }
     }
 
     // ===== Stake SM gating / snapshot tests =====
