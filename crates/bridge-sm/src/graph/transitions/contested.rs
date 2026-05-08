@@ -426,6 +426,17 @@ impl GraphSM {
                 // (all watchtower slots), otherwise stay in CounterProofPosted.
                 let expected_nacks = graph_summary.counterproofs.len();
                 if counterproof_nacks.len() == expected_nacks {
+                    // The only path forward from `AllNackd` is the contested
+                    // payout, which consumes the payout connector. If the
+                    // connector is already gone, payout is impossible — abort
+                    // directly instead of entering a state with no exit.
+                    if let Some(spending_txid) = payout_connector_spent {
+                        self.state = GraphState::Aborted {
+                            reason: AbortReason::PayoutConnectorSpent { spending_txid },
+                        };
+                        return Ok(GSMOutput::new());
+                    }
+
                     self.state = GraphState::AllNackd {
                         last_block_height,
                         graph_data,
