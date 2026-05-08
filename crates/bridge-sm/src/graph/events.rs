@@ -179,11 +179,12 @@ pub struct PayoutConfirmedEvent {
     pub payout_txid: Txid,
 }
 
-/// Event signifying that the payout connector was spent by some transaction (abort condition).
+/// Event signifying that the payout connector was spent by some transaction other than the
+/// legitimate payout (e.g. unstaking-burn or admin-burn).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayoutConnectorSpentEvent {
-    /// The txid of the transaction that spent the payout connector.
-    pub spending_txid: Txid,
+    /// The transaction that consumed the payout connector outpoint.
+    pub tx: Transaction,
 }
 
 /// Event signalling that a new block has been observed on chain.

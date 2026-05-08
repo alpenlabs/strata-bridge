@@ -127,9 +127,7 @@ impl TxClassifier for GraphSM {
                     }))
                 } else if is_payout_connector_spent(&graph_summary.claim, tx) {
                     Some(GraphEvent::PayoutConnectorSpent(
-                        PayoutConnectorSpentEvent {
-                            spending_txid: txid,
-                        },
+                        PayoutConnectorSpentEvent { tx: tx.clone() },
                     ))
                 } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
                     Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
@@ -168,9 +166,7 @@ impl TxClassifier for GraphSM {
                     }))
                 } else if is_payout_connector_spent(&graph_summary.claim, tx) {
                     Some(GraphEvent::PayoutConnectorSpent(
-                        PayoutConnectorSpentEvent {
-                            spending_txid: txid,
-                        },
+                        PayoutConnectorSpentEvent { tx: tx.clone() },
                     ))
                 } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
                     Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
@@ -197,9 +193,7 @@ impl TxClassifier for GraphSM {
                     }))
                 } else if is_payout_connector_spent(&graph_summary.claim, tx) {
                     Some(GraphEvent::PayoutConnectorSpent(
-                        PayoutConnectorSpentEvent {
-                            spending_txid: txid,
-                        },
+                        PayoutConnectorSpentEvent { tx: tx.clone() },
                     ))
                 } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
                     Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
@@ -253,9 +247,7 @@ impl TxClassifier for GraphSM {
                     ))
                 } else if is_payout_connector_spent(&graph_summary.claim, tx) {
                     Some(GraphEvent::PayoutConnectorSpent(
-                        PayoutConnectorSpentEvent {
-                            spending_txid: txid,
-                        },
+                        PayoutConnectorSpentEvent { tx: tx.clone() },
                     ))
                 } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
                     Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
@@ -285,9 +277,7 @@ impl TxClassifier for GraphSM {
                     Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else if is_payout_connector_spent(claim_txid, tx) {
                     Some(GraphEvent::PayoutConnectorSpent(
-                        PayoutConnectorSpentEvent {
-                            spending_txid: txid,
-                        },
+                        PayoutConnectorSpentEvent { tx: tx.clone() },
                     ))
                 } else {
                     None
