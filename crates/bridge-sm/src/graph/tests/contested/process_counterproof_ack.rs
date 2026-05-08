@@ -146,6 +146,9 @@ fn state_is_valid(state: &GraphState) -> bool {
 fn aborts_when_stake_already_spent() {
     let stake_spending_txid = Txid::from_byte_array([0xab; 32]);
     let mut from_state = counter_proof_posted_state();
+    let claim_txid = from_state
+        .claim_txid()
+        .expect("CounterProofPosted state should have claim_txid");
     assert!(from_state.set_stake_spent(stake_spending_txid));
 
     test_graph_transition(GraphTransition {
@@ -156,6 +159,7 @@ fn aborts_when_stake_already_spent() {
             counterprover_idx: TEST_NONPOV_IDX,
         }),
         expected_state: GraphState::Aborted {
+            claim_txid,
             reason: AbortReason::StakeSpent {
                 spending_txid: stake_spending_txid,
             },

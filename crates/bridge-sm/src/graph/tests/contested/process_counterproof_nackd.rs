@@ -212,12 +212,16 @@ fn second_nack_transitions_to_all_nackd_nonpov() {
 fn final_nack_aborts_when_payout_connector_spent() {
     let connector_spending_txid = Txid::from_byte_array([0xcd; 32]);
     let mut from_state = counter_proof_posted_state_with_nacks(&[TEST_NONPOV_IDX]);
+    let claim_txid = from_state
+        .claim_txid()
+        .expect("counterproof posted state must have claim txid");
     assert!(from_state.set_payout_connector_spent(connector_spending_txid));
 
     test_graph_transition(GraphTransition {
         from_state,
         event: GraphEvent::CounterProofNackConfirmed(nack_event(SECOND_NONPOV_IDX)),
         expected_state: GraphState::Aborted {
+            claim_txid,
             reason: AbortReason::PayoutConnectorSpent {
                 spending_txid: connector_spending_txid,
             },
