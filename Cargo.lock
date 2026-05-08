@@ -10333,7 +10333,6 @@ dependencies = [
  "strata-bridge-sm",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
- "strata-identifiers",
  "strata-mosaic-client",
  "strata-mosaic-client-api",
  "strata-p2p",
