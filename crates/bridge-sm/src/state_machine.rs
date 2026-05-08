@@ -3,7 +3,7 @@
 //! This module provides the core abstractions for all state machines in the bridge system,
 //! including the generic output type and the trait that all state machines implement.
 
-use crate::signals::Signal;
+use crate::{cross_sm_context::CrossSmContext, signals::Signal};
 
 /// Generic output from any state machine after processing an event.
 ///
@@ -92,7 +92,7 @@ where
 ///     type Event = DepositEvent;
 ///     type Error = DSMError;
 ///
-///     fn process_event(&mut self, event: Self::Event)
+///     fn process_event(&mut self, cfg: Self::Config, event: Self::Event)
 ///         -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error>
 ///     {
 ///         // Implementation
@@ -128,4 +128,17 @@ pub trait StateMachine {
         cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error>;
+
+    /// Runs after a successful state transition and derives append-only duties from the settled
+    /// state plus destination-scoped cross-SM context.
+    ///
+    /// This hook intentionally receives `&self` and returns a fresh duty list: it is not part of
+    /// the STF, must not mutate state, and must not emit signals.
+    fn run_post_stf_hook(
+        &self,
+        _cfg: &Self::Config,
+        _cross_sm_context: &CrossSmContext,
+    ) -> Vec<Self::Duty> {
+        Vec::new()
+    }
 }
