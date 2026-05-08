@@ -164,6 +164,10 @@ pub enum GraphDuty {
         /// The txid of the claim transaction (must not exist on chain before signing).
         claim_txid: Txid,
 
+        /// The outpoint of the operator's stake transaction (must be unspent on chain before
+        /// signing — once the stake is gone, the slash path that backs this graph is dead).
+        stake_outpoint: OutPoint,
+
         /// The ordered public keys of all operators for MuSig2 aggregation.
         ordered_pubkeys: Vec<XOnlyPublicKey>,
     },

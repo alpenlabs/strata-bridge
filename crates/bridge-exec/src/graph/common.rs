@@ -33,7 +33,7 @@ use tracing::{error, info, warn};
 
 use super::utils::finalize_claim_funding_tx;
 use crate::{
-    chain::{is_txid_onchain, publish_signed_transaction},
+    chain::{is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::OutputHandles,
@@ -433,6 +433,7 @@ pub(super) async fn publish_graph_partials(
     graph_inpoints: &[OutPoint],
     graph_tweaks: &[TaprootTweak],
     claim_txid: Txid,
+    stake_outpoint: OutPoint,
     ordered_pubkeys: &[XOnlyPublicKey],
 ) -> Result<(), ExecutorError> {
     info!(
@@ -450,6 +451,23 @@ pub(super) async fn publish_graph_partials(
             "claim tx already on chain, aborting partial sig generation"
         );
         return Err(ExecutorError::ClaimTxAlreadyOnChain(claim_txid));
+    }
+
+    info!(
+        ?graph_idx,
+        %stake_outpoint,
+        "ensuring stake outpoint is unspent before publishing partials"
+    );
+    if !is_outpoint_unspent(&output_handles.bitcoind_rpc_client, &stake_outpoint)
+        .await
+        .map_err(ExecutorError::BitcoinRpcErr)?
+    {
+        warn!(
+            ?graph_idx,
+            %stake_outpoint,
+            "stake outpoint already spent, aborting partial sig generation"
+        );
+        return Err(ExecutorError::StakeOutPointAlreadySpent(stake_outpoint));
     }
 
     info!(?graph_idx, %claim_txid, num_inputs = graph_inpoints.len(), "publishing graph partials");
