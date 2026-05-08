@@ -87,6 +87,7 @@ mod tests {
             graph_inpoints,
             graph_tweaks,
             claim_txid,
+            stake_outpoint: ctx.stake_outpoint(),
             ordered_pubkeys,
         }
     }

@@ -269,6 +269,7 @@ impl GraphSM {
             graph_inpoints,
             graph_tweaks,
             claim_txid,
+            stake_outpoint: self.context().stake_outpoint(),
             ordered_pubkeys,
         }
     }

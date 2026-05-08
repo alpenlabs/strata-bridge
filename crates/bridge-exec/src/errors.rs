@@ -1,7 +1,7 @@
 //! Error types for the bridge-exec executors.
 
 use bdk_wallet::error::CreateTxError;
-use bitcoin::{FeeRate, Txid};
+use bitcoin::{FeeRate, OutPoint, Txid};
 use foundationdb::FdbBindingError;
 use strata_bridge_db::fdb::errors::LayerError;
 use terrors::OneOf;
@@ -49,6 +49,11 @@ pub enum ExecutorError {
     /// The claim transaction already exists on chain.
     #[error("claim transaction {0} already exists on chain")]
     ClaimTxAlreadyOnChain(Txid),
+
+    /// The operator's stake outpoint has already been spent on chain — the slash path that backs
+    /// this graph is dead, so partial signatures must not be published.
+    #[error("stake outpoint {0} already spent on chain")]
+    StakeOutPointAlreadySpent(OutPoint),
 
     /// Error interacting with the database.
     #[error("database error: {0:?}")]

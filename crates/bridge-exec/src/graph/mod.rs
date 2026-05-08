@@ -94,6 +94,7 @@ pub async fn execute_graph_duty(
             graph_inpoints,
             graph_tweaks,
             claim_txid,
+            stake_outpoint,
             ordered_pubkeys,
         } => {
             publish_graph_partials(
@@ -104,6 +105,7 @@ pub async fn execute_graph_duty(
                 graph_inpoints,
                 graph_tweaks,
                 *claim_txid,
+                *stake_outpoint,
                 ordered_pubkeys,
             )
             .await
