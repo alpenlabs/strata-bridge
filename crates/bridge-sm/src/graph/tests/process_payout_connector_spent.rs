@@ -28,7 +28,10 @@ use crate::graph::{
     state::{AbortReason, GraphState},
     tests::{
         create_sm,
-        mock_states::{TEST_GRAPH_SUMMARY, all_state_variants},
+        mock_states::{
+            TEST_GRAPH_SUMMARY, all_nackd_state, all_state_variants, bridge_proof_posted_state,
+            claimed_state, contested_state, counter_proof_posted_state,
+        },
         test_deposit_outpoint,
     },
 };
@@ -309,6 +312,78 @@ fn process_payout_connector_spent_dispatch_table_is_exhaustive() {
                 "replay (different txid) outcome mismatch in state {variant}"
             );
         }
+    }
+}
+
+/// A misrouted legitimate payout transaction (uncontested or contested)
+/// would otherwise satisfy the connector-outpoint check, since the payout
+/// is what consumes the connector under normal flow. The STF rejects it
+/// in every state where `is_payout_tx` recognises a payout, so a benign
+/// payout can never regress into connector-spend abort logic.
+#[test]
+fn rejects_legitimate_payout_tx_misrouted_as_connector_spend() {
+    // A connector-spending tx whose txid we will splice into each state's
+    // legitimate-payout slot in turn.
+    let payout_tx = canonical_connector_spending_tx();
+    let payout_txid = payout_tx.compute_txid();
+
+    // One case per branch of `is_payout_tx` in transitions/payout.rs.
+    let cases: Vec<(&str, GraphState)> = vec![
+        ("Claimed.uncontested_payout", {
+            let mut state = claimed_state(100, Txid::all_zeros(), vec![]);
+            if let GraphState::Claimed { graph_summary, .. } = &mut state {
+                graph_summary.uncontested_payout = payout_txid;
+            }
+            state
+        }),
+        ("Claimed.contested_payout", {
+            let mut state = claimed_state(100, Txid::all_zeros(), vec![]);
+            if let GraphState::Claimed { graph_summary, .. } = &mut state {
+                graph_summary.contested_payout = payout_txid;
+            }
+            state
+        }),
+        ("Contested.contested_payout", {
+            let mut state = contested_state();
+            if let GraphState::Contested { graph_summary, .. } = &mut state {
+                graph_summary.contested_payout = payout_txid;
+            }
+            state
+        }),
+        ("BridgeProofPosted.contested_payout", {
+            let mut state = bridge_proof_posted_state();
+            if let GraphState::BridgeProofPosted { graph_summary, .. } = &mut state {
+                graph_summary.contested_payout = payout_txid;
+            }
+            state
+        }),
+        ("CounterProofPosted.contested_payout", {
+            let mut state = counter_proof_posted_state();
+            if let GraphState::CounterProofPosted { graph_summary, .. } = &mut state {
+                graph_summary.contested_payout = payout_txid;
+            }
+            state
+        }),
+        ("AllNackd.expected_payout_txid", {
+            let mut state = all_nackd_state();
+            if let GraphState::AllNackd {
+                expected_payout_txid,
+                ..
+            } = &mut state
+            {
+                *expected_payout_txid = payout_txid;
+            }
+            state
+        }),
+    ];
+
+    for (case_name, state) in cases {
+        let observed = outcome_of(&state, run(state.clone(), payout_tx.clone()));
+        assert_eq!(
+            observed,
+            Outcome::Rejected,
+            "expected Rejected for misrouted payout tx in case {case_name}"
+        );
     }
 }
 

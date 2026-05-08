@@ -307,6 +307,7 @@ impl GraphSM {
                 // abort directly instead of entering a state with no exit.
                 if let Some(spending_txid) = stake_spent {
                     self.state = GraphState::Aborted {
+                        claim_txid: graph_summary.claim,
                         reason: AbortReason::StakeSpent { spending_txid },
                     };
                     return Ok(GSMOutput::default());
@@ -345,6 +346,7 @@ impl GraphSM {
 
                 if let Some(spending_txid) = stake_spent {
                     self.state = GraphState::Aborted {
+                        claim_txid: graph_summary.claim,
                         reason: AbortReason::StakeSpent { spending_txid },
                     };
                     return Ok(GSMOutput::default());
@@ -434,6 +436,7 @@ impl GraphSM {
                     // directly instead of entering a state with no exit.
                     if let Some(spending_txid) = payout_connector_spent {
                         self.state = GraphState::Aborted {
+                            claim_txid: graph_summary.claim,
                             reason: AbortReason::PayoutConnectorSpent { spending_txid },
                         };
                         return Ok(GSMOutput::new());
@@ -534,6 +537,7 @@ impl GraphSM {
                 // directly instead of entering a state with no exit.
                 if let Some(spending_txid) = stake_spent {
                     self.state = GraphState::Aborted {
+                        claim_txid: graph_summary.claim,
                         reason: AbortReason::StakeSpent { spending_txid },
                     };
                     return Ok(GSMOutput::new());

@@ -155,6 +155,18 @@ impl GraphSM {
 
         let spending_txid = event.tx.compute_txid();
 
+        // The legitimate uncontested/contested payout consumes the same
+        // connector outpoint; if such a tx is misrouted to this STF (rather
+        // than `process_payout`), reject it so the graph is not aborted on
+        // a benign payout.
+        if is_payout_tx(self.state(), &spending_txid) {
+            return Err(GSMError::rejected(
+                self.state.clone(),
+                event.into(),
+                "connector spent event tx is the legitimate payout for this state",
+            ));
+        }
+
         // A connector spend is already recorded: matching txid is a
         // duplicate re-delivery; any other txid is rejected.
         if let Some(recorded) = self.state.payout_connector_spent_txid() {
@@ -233,5 +245,24 @@ impl GraphSM {
                 "two-fact post-Claimed states are handled by set_payout_connector_spent above"
             ),
         }
+    }
+}
+
+/// Returns whether `txid` is the legitimate payout transaction for this state.
+fn is_payout_tx(state: &GraphState, txid: &Txid) -> bool {
+    match state {
+        GraphState::Claimed { graph_summary, .. } => {
+            *txid == graph_summary.uncontested_payout || *txid == graph_summary.contested_payout
+        }
+        GraphState::Contested { graph_summary, .. }
+        | GraphState::BridgeProofPosted { graph_summary, .. }
+        | GraphState::CounterProofPosted { graph_summary, .. } => {
+            *txid == graph_summary.contested_payout
+        }
+        GraphState::AllNackd {
+            expected_payout_txid,
+            ..
+        } => *txid == *expected_payout_txid,
+        _ => false,
     }
 }

@@ -134,6 +134,9 @@ fn state_is_valid(state: &GraphState) -> bool {
 fn aborts_when_stake_already_spent_in_contested() {
     let stake_spending_txid = Txid::from_byte_array([0xab; 32]);
     let mut from_state = contested_state();
+    let claim_txid = from_state
+        .claim_txid()
+        .expect("Contested state should have claim txid");
     assert!(from_state.set_stake_spent(stake_spending_txid));
 
     test_graph_transition(GraphTransition {
@@ -143,6 +146,7 @@ fn aborts_when_stake_already_spent_in_contested() {
             bridge_proof_timeout_block_height: u64::MAX,
         }),
         expected_state: GraphState::Aborted {
+            claim_txid,
             reason: AbortReason::StakeSpent {
                 spending_txid: stake_spending_txid,
             },
@@ -158,6 +162,9 @@ fn aborts_when_stake_already_spent_in_contested() {
 fn aborts_when_stake_already_spent_in_counterproof_posted() {
     let stake_spending_txid = Txid::from_byte_array([0xab; 32]);
     let mut from_state = counter_proof_posted_without_refuted_proof_state();
+    let claim_txid = from_state
+        .claim_txid()
+        .expect("CounterProofPosted without refuted proof should have claim txid");
     assert!(from_state.set_stake_spent(stake_spending_txid));
 
     test_graph_transition(GraphTransition {
@@ -167,6 +174,7 @@ fn aborts_when_stake_already_spent_in_counterproof_posted() {
             bridge_proof_timeout_block_height: u64::MAX,
         }),
         expected_state: GraphState::Aborted {
+            claim_txid,
             reason: AbortReason::StakeSpent {
                 spending_txid: stake_spending_txid,
             },
