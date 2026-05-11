@@ -4,8 +4,11 @@ use bitcoin::Txid;
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
-use strata_bridge_sm::graph::context::GraphSMCtx;
-use strata_bridge_tx_graph::game_graph::{DepositParams, SetupParams};
+use strata_bridge_sm::{graph::context::GraphSMCtx, stake::context::StakeSMCtx};
+use strata_bridge_tx_graph::{
+    game_graph::{DepositParams, SetupParams},
+    stake_graph::{ProtocolParams as StakeProtocolParams, SetupParams as StakeSetupParams},
+};
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,6 +207,29 @@ pub struct RpcAggregateSignatures {
     pub graph_idx: GraphIdx,
 
     /// Aggregate Schnorr signatures for the graph.
+    pub signatures: Vec<Signature>,
+}
+
+/// Stake data needed to reconstruct an operator's stake graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcStakeData {
+    /// Stake state machine context used for stake graph construction.
+    pub context: StakeSMCtx,
+
+    /// Protocol parameters used to construct the stake graph.
+    pub protocol: StakeProtocolParams,
+
+    /// Setup parameters required to construct the stake graph.
+    pub setup: StakeSetupParams,
+}
+
+/// Aggregate signatures needed to finalize presigned transactions in the stake graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcStakeAggregateSignatures {
+    /// Operator whose stake graph the signatures belong to.
+    pub operator_idx: OperatorIdx,
+
+    /// Aggregate Schnorr signatures for the stake graph.
     pub signatures: Vec<Signature>,
 }
 

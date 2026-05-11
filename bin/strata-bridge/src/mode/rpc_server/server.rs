@@ -20,7 +20,7 @@ use strata_bridge_orchestrator::{
     persister::Persister,
     sm_registry::{SMConfig, SMRegistry},
 };
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_rpc::{
     traits::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
@@ -28,7 +28,7 @@ use strata_bridge_rpc::{
     types::{
         RpcAggregateSignatures, RpcBridgeDutyStatus, RpcDepositInfo, RpcDepositStatus,
         RpcGraphData, RpcOperatorStakeInfo, RpcOperatorStatus, RpcPendingWithdrawalInfo,
-        RpcReimbursementStatus, RpcWithdrawalStatus,
+        RpcReimbursementStatus, RpcStakeAggregateSignatures, RpcStakeData, RpcWithdrawalStatus,
     },
 };
 use strata_bridge_sm::deposit::state::DepositState;
@@ -48,7 +48,10 @@ use super::monitoring::{
 use crate::{
     config::{Config, RpcConfig},
     constants::DEFAULT_RPC_CACHE_REFRESH_INTERVAL,
-    mode::services::orchestrator::build_sm_config,
+    mode::{
+        rpc_server::da::{stake_aggregate_signatures_response, stake_data_response},
+        services::orchestrator::build_sm_config,
+    },
 };
 
 /// Starts an RPC server for a bridge operator.
@@ -481,6 +484,26 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         Ok(cached_registry
             .get_graph(&graph_idx)
             .and_then(|gsm| aggregate_signatures_response(graph_idx, gsm.state())))
+    }
+
+    async fn get_stake_data(&self, operator_idx: OperatorIdx) -> RpcResult<Option<RpcStakeData>> {
+        let cached_registry = self.cached_registry.read().await;
+        let stake_cfg = cached_registry.cfg().stake.clone();
+
+        Ok(cached_registry
+            .get_stake(&operator_idx)
+            .and_then(|ssm| stake_data_response(ssm.context(), ssm.state(), &stake_cfg)))
+    }
+
+    async fn get_stake_aggregate_signatures(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> RpcResult<Option<RpcStakeAggregateSignatures>> {
+        let cached_registry = self.cached_registry.read().await;
+
+        Ok(cached_registry
+            .get_stake(&operator_idx)
+            .and_then(|ssm| stake_aggregate_signatures_response(operator_idx, ssm.state())))
     }
 }
 
