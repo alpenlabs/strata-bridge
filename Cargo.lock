@@ -11316,7 +11316,10 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "ed25519-dalek",
+ "hkdf",
+ "make_buf",
  "secp256k1 0.29.1",
+ "sha2 0.10.9",
  "strata-bridge-primitives",
  "thiserror 2.0.18",
  "zeroize",

@@ -21,11 +21,15 @@
 use std::ops::Deref;
 
 use bitcoin::{
-    XOnlyPublicKey,
+    Txid, XOnlyPublicKey,
     bip32::{self, Xpriv},
+    hashes::Hash,
     key::Keypair,
 };
+use hkdf::Hkdf;
+use make_buf::make_buf;
 use secp256k1::SECP256K1;
+use sha2::Sha256;
 use strata_bridge_primitives::secp::EvenSecretKey;
 
 use crate::paths::{
@@ -258,5 +262,64 @@ impl PreimageIkm {
         let child = base.derive_priv(SECP256K1, &PREIMG_IKM_PATH)?;
         let ikm = child.private_key.secret_bytes();
         Ok(Self(ikm))
+    }
+
+    /// Derive the deterministic stakechain preimage for a stake funding outpoint.
+    pub fn derive_preimage(
+        &self,
+        prestake_txid: Txid,
+        prestake_vout: u32,
+        stake_index: u32,
+    ) -> [u8; 32] {
+        let hk = Hkdf::<Sha256>::new(None, &self.0);
+        let mut okm = [0u8; 32];
+        let info = make_buf! {
+            (prestake_txid.as_raw_hash().as_byte_array(), 32),
+            (&prestake_vout.to_le_bytes(), 4),
+            (&stake_index.to_le_bytes(), 4)
+        };
+        hk.expand(&info, &mut okm)
+            .expect("32 is a valid length for Sha256 to output");
+        okm
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{Txid, hashes::Hash};
+
+    use super::PreimageIkm;
+
+    #[test]
+    fn stakechain_preimage_derivation_is_deterministic() {
+        let ikm = PreimageIkm([1; 32]);
+        let txid = Txid::from_byte_array([2; 32]);
+
+        let first = ikm.derive_preimage(txid, 3, 0);
+        let second = ikm.derive_preimage(txid, 3, 0);
+
+        assert_eq!(
+            first, second,
+            "preimage derivation must be deterministic for the same stake funding outpoint"
+        );
+    }
+
+    #[test]
+    fn stakechain_preimage_derivation_binds_to_funding_outpoint() {
+        let ikm = PreimageIkm([1; 32]);
+        let txid = Txid::from_byte_array([2; 32]);
+
+        let base = ikm.derive_preimage(txid, 3, 0);
+        let different_vout = ikm.derive_preimage(txid, 4, 0);
+        let different_stake_index = ikm.derive_preimage(txid, 3, 1);
+
+        assert_ne!(
+            base, different_vout,
+            "changing the stake funding vout must change the derived preimage"
+        );
+        assert_ne!(
+            base, different_stake_index,
+            "changing the stake index must change the derived preimage"
+        );
     }
 }
