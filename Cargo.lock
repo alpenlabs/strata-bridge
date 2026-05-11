@@ -10405,9 +10405,12 @@ dependencies = [
 name = "strata-bridge-counterproof"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
+ "borsh",
  "ssz",
  "ssz_derive",
  "strata-btc-types",
+ "strata-predicate",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24)",
  "zkaleido-native-adapter",
  "zkaleido-sp1-host",
@@ -10440,6 +10443,7 @@ dependencies = [
  "bitcoin",
  "bitcoin-bosd 0.10.0",
  "bitcoind-async-client",
+ "borsh",
  "btc-tracker",
  "corepc-node",
  "foundationdb",
@@ -10470,6 +10474,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24)",
 ]
 
 [[package]]
