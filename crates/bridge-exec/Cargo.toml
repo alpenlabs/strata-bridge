@@ -30,11 +30,13 @@ strata-codec.workspace = true
 strata-crypto.workspace = true
 strata-l1-txfmt.workspace = true
 strata-mosaic-client-api.workspace = true
+zkaleido.workspace = true
 
 bdk_wallet.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd = { workspace = true, features = ["address"] }
 bitcoind-async-client.workspace = true
+borsh.workspace = true
 foundationdb.workspace = true
 futures.workspace = true
 jsonrpsee = { workspace = true, features = ["client"] }
