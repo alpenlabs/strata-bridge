@@ -4,6 +4,7 @@
 mod bridge_proof;
 mod common;
 mod contested;
+mod counterproof;
 mod counterproof_nack;
 mod uncontested;
 mod utils;
@@ -21,9 +22,10 @@ use crate::{
         bridge_proof::generate_and_publish_bridge_proof,
         common::{publish_claim, publish_graph_nonces, publish_graph_partials, verify_adaptors},
         contested::{
-            generate_and_publish_counterproof, publish_bridge_proof_timeout, publish_contest,
-            publish_contested_payout, publish_counterproof_ack, publish_slash,
+            publish_bridge_proof_timeout, publish_contest, publish_contested_payout,
+            publish_counterproof_ack, publish_slash,
         },
+        counterproof::generate_and_publish_counterproof,
         counterproof_nack::publish_counterproof_nack,
         uncontested::publish_uncontested_payout,
     },
