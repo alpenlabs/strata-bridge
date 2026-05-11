@@ -307,40 +307,43 @@ impl BitcoinNode {
             .expect("should be able to extract the txid")
     }
 
-    /// Submits a package of transactions to the mempool,
-    /// asserting that the package is accepted.
+    /// Broadcasts the parent transaction, asserting it is accepted by the mempool.
     ///
     /// # Panics
     ///
-    /// This method panics if the package is not accepted by the mempool.
+    /// This method panics if the parent is not accepted by the mempool.
     pub fn submit_package(&self, transactions: &[Transaction; 2]) {
-        let result = self
-            .client()
-            .submit_package(transactions, None, None)
-            .expect("should be able to submit package");
-        if result.package_msg != "success" {
-            dbg!(result);
-            panic!("Package submission failed. Is the package invalid?");
+        let [parent, _child] = transactions;
+
+        // NOTE: (@Rajil1213) Broadcast both the parent and the child as a package once CPFP is
+        // properly implemented downstream and intrinsic fees are removed from the presigned parent
+        // transactions.
+        if let Err(parent_err) = self.client().send_raw_transaction(parent) {
+            panic!("Expected parent to be accepted by the mempool, but it was rejected: {parent_err:?}");
         }
-        assert!(
-            result.tx_results.len() == 2,
-            "tx_results should have 2 elements"
-        );
     }
 
-    /// Submits a package of transactions to the mempool,
-    /// asserting that the package is _not accepted_.
+    /// Asserts that neither the parent broadcast on its own nor the `[parent, child]`
+    /// package is accepted by the mempool.
     ///
     /// # Panics
     ///
-    /// This method panics if the package is _accepted_ by the mempool.
+    /// This method panics if either the standalone parent broadcast or the package
+    /// submission succeeds.
     pub fn submit_package_invalid(&self, transactions: &[Transaction; 2]) {
-        let result = self
+        let [parent, _child] = transactions;
+        let parent_result = self.client().send_raw_transaction(parent);
+        assert!(
+            parent_result.is_err(),
+            "expected parent broadcast to be rejected, but it was accepted: \
+             {parent_result:?}"
+        );
+        let package_result = self
             .client()
             .submit_package(transactions, None, None)
             .expect("should be able to submit package");
-        if result.package_msg == "success" {
-            dbg!(result);
+        if package_result.package_msg == "success" {
+            dbg!(package_result);
             panic!("Expected package submission to fail, but it succeeded.");
         }
     }
