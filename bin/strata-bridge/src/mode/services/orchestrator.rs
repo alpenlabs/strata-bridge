@@ -21,7 +21,6 @@ use strata_bridge_orchestrator::{
 };
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
-use strata_bridge_proof::build_bridge_proof_host;
 use strata_bridge_sm::{
     self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg, stake::config::StakeSMCfg,
 };
@@ -38,7 +37,10 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-use crate::{config::Config, mode::services::btc_client::init_zmq_client};
+use crate::{
+    config::Config,
+    mode::services::{bridge_proof_host::build_bridge_proof_host, btc_client::init_zmq_client},
+};
 
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn init_orchestrator<M>(

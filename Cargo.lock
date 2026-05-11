@@ -10973,6 +10973,7 @@ dependencies = [
  "strata-bridge-proof",
  "strata-bridge-rpc",
  "strata-bridge-sm",
+ "strata-bridge-sp1-guest-builder",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
  "strata-mosaic-client",

@@ -24,6 +24,7 @@ strata-bridge-primitives.workspace = true
 strata-bridge-proof.workspace = true
 strata-bridge-rpc.workspace = true
 strata-bridge-sm.workspace = true
+strata-bridge-sp1-guest-builder = { workspace = true, optional = true }
 strata-bridge-tx-graph.workspace = true
 strata-mosaic-client.workspace = true
 strata-mosaic-client-api.workspace = true
@@ -61,6 +62,7 @@ strata-predicate.workspace = true
 
 [features]
 default = []
+sp1 = ["strata-bridge-proof/sp1", "dep:strata-bridge-sp1-guest-builder"]
 # not compatible with windows/msvc
 memory_profiling = [
   "tikv-jemallocator/profiling",

@@ -1,7 +1,7 @@
 //! Host construction for [`crate::BridgeProofProgram`].
 //!
-//! All `cfg(feature = "sp1")` gating lives in this file; the binary forwards
-//! the Cargo feature instead of branching on `cfg` directly.
+//! All `cfg(feature = "sp1")` gating lives in this file; downstream crates
+//! select the constructor variant based on the active feature.
 
 #[cfg(not(feature = "sp1"))]
 mod backend {
@@ -31,11 +31,11 @@ mod backend {
     /// `sp1` feature.
     pub type BridgeProofHost = SP1Host;
 
-    /// Constructs the [`BridgeProofHost`] for the active backend.
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-1977>
-    // Wire the SP1 host once the bridge-proof guest builder lands.
-    pub fn build_bridge_proof_host() -> BridgeProofHost {
-        todo!("SP1 bridge-proof host not yet wired")
+    /// Constructs the [`BridgeProofHost`] from a pre-loaded SP1 guest ELF.
+    ///
+    /// The guest ELF lives in `strata-bridge-sp1-guest-builder`
+    pub fn build_bridge_proof_host(elf: &[u8]) -> BridgeProofHost {
+        SP1Host::init(elf)
     }
 }
 
