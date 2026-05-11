@@ -14,6 +14,7 @@ DT_DEPOSIT_VOUT = 1  # Deposit funds locked in N/N taproot
 # Game-graph tx output indices, mirrored from the Rust tx-graph crate.
 # Naming follows `<SOURCE_TX>_<OUTPUT>_VOUT`.
 CLAIM_CONTEST_VOUT = 0
+CLAIM_PAYOUT_VOUT = 1
 CONTEST_PROOF_VOUT = 0
 CONTEST_PAYOUT_VOUT = 1
 CONTEST_WATCHTOWER_0_VOUT = 3
