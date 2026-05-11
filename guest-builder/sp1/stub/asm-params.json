@@ -1,0 +1,65 @@
+{
+    "magic": "ALPN",
+    "anchor": {
+        "block": {
+            "height": 101,
+            "blkid": "3406f07bffef92113a2a6c1f368400afc19d941c8578ce1ca7a0a8630872e335"
+        },
+        "next_target": 545259519,
+        "epoch_start_timestamp": 1778040354,
+        "network": "regtest"
+    },
+    "subprotocols": [
+        {
+            "Admin": {
+                "strata_administrator": {
+                    "keys": [
+                        "02ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
+                        "02c8200b381f7dd57f4c474d2bea56747fdfba32f2d20463f4269a1cf06a1acd77",
+                        "02ae12cceeee9d4888766b1abb0531f8c66c0629bfc4fabe97e3c0d5d9b4dd3fd7"
+                    ],
+                    "threshold": 1
+                },
+                "strata_sequencer_manager": {
+                    "keys": [
+                        "02ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
+                        "02c8200b381f7dd57f4c474d2bea56747fdfba32f2d20463f4269a1cf06a1acd77",
+                        "02ae12cceeee9d4888766b1abb0531f8c66c0629bfc4fabe97e3c0d5d9b4dd3fd7"
+                    ],
+                    "threshold": 1
+                },
+                "alpen_administrator": {
+                    "keys": [
+                        "02ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
+                        "02c8200b381f7dd57f4c474d2bea56747fdfba32f2d20463f4269a1cf06a1acd77",
+                        "02ae12cceeee9d4888766b1abb0531f8c66c0629bfc4fabe97e3c0d5d9b4dd3fd7"
+                    ],
+                    "threshold": 1
+                },
+                "confirmation_depth": 144,
+                "max_seqno_gap": 10
+            }
+        },
+        {
+            "Checkpoint": {
+                "sequencer_predicate": "AlwaysAccept",
+                "checkpoint_predicate": "AlwaysAccept",
+                "genesis_l1_height": 101,
+                "genesis_ol_blkid": "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+        },
+        {
+            "Bridge": {
+                "operators": [
+                    "02ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
+                    "02c8200b381f7dd57f4c474d2bea56747fdfba32f2d20463f4269a1cf06a1acd77",
+                    "02ae12cceeee9d4888766b1abb0531f8c66c0629bfc4fabe97e3c0d5d9b4dd3fd7"
+                ],
+                "denomination": 1000000000,
+                "assignment_duration": 10000,
+                "operator_fee": 10000000,
+                "recovery_delay": 1008
+            }
+        }
+    ]
+}
