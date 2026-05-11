@@ -9,15 +9,14 @@ use strata_codec::decode_buf_exact;
 use strata_merkle::MerkleProofB32;
 use zkaleido::{ZkVmEnv, ZkVmEnvSsz};
 
-use crate::{
-    genesis::{BridgeProofGenesis, load_genesis},
-    types::{BridgeProofInput, BridgeProofOutput},
-};
+#[cfg(not(target_os = "zkvm"))]
+use crate::genesis::load_genesis_from_env;
+use crate::types::{BridgeProofGenesis, BridgeProofInput, BridgeProofOutput};
 
 /// Native entry point: loads genesis and runs the bridge proof.
 #[cfg(not(target_os = "zkvm"))]
 pub fn process_bridge_proof(zkvm: &impl ZkVmEnv) {
-    let genesis = load_genesis();
+    let genesis = load_genesis_from_env();
     process_bridge_proof_inner(zkvm, &genesis);
 }
 
