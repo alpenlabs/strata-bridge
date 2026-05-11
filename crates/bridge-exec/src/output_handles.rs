@@ -7,6 +7,7 @@ use btc_tracker::tx_driver::TxDriver;
 use jsonrpsee::http_client::HttpClient;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
+use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
@@ -57,6 +58,9 @@ pub struct OutputHandles {
 
     /// Host used to generate bridge proofs.
     pub bridge_proof_host: BridgeProofHost,
+
+    /// Host used to generate bridge counterproofs.
+    pub counterproof_host: BridgeCounterproofHost,
 }
 
 impl fmt::Debug for OutputHandles {
@@ -72,6 +76,7 @@ impl fmt::Debug for OutputHandles {
             .field("mosaic_client", &"<dyn MosaicClientApi>")
             .field("operator_table", &self.operator_table)
             .field("bridge_proof_host", &"<BridgeProofHost>")
+            .field("counterproof_host", &"<BridgeCounterproofHost>")
             .finish()
     }
 }

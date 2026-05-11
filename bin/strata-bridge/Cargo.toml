@@ -15,6 +15,7 @@ secret-service-proto.workspace = true
 strata-bridge-asm-events.workspace = true
 strata-bridge-common.workspace = true
 strata-bridge-connectors.workspace = true
+strata-bridge-counterproof.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-exec.workspace = true
 strata-bridge-orchestrator.workspace = true
