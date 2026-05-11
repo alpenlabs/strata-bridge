@@ -76,10 +76,10 @@ pub(in crate::mode) async fn init_operator_wallet(
 /// This amount is not a constant since it depends upon the number of watchtowers that are allowed
 /// to contest a claim.
 fn compute_funding_amount(params: &Params, own_musig2_key: XOnlyPublicKey) -> Amount {
-    // Must match the value used in `orchestrator.rs::COUNTERPROOF_N_BYTES`. Hardcoded here too
+    // Must match the value used in `orchestrator.rs::COUNTERPROOF_N_DATA`. Hardcoded here too
     // because `Params` does not currently expose it.
-    const COUNTERPROOF_N_BYTES: NonZero<usize> =
-        NonZero::new(128 + 4).expect("counterproof_n_bytes must be non-zero");
+    const COUNTERPROOF_N_DATA: NonZero<usize> =
+        NonZero::new(128 + 4).expect("counterproof_n_data must be non-zero");
 
     let network = params.network;
 
@@ -109,7 +109,7 @@ fn compute_funding_amount(params: &Params, own_musig2_key: XOnlyPublicKey) -> Am
         n_of_n_key,
         watchtower_keys,
         contest_timelock,
-        fee::claim_contest_surcharge(n_watchtowers, COUNTERPROOF_N_BYTES),
+        fee::claim_contest_surcharge(n_watchtowers, COUNTERPROOF_N_DATA),
     );
 
     let admin_key = params.keys.admin;

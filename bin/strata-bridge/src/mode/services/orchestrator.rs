@@ -201,7 +201,7 @@ pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
             params.protocol.contested_payout_timelock,
         ),
         counterproof_n_data: NonZero::new(COUNTERPROOF_N_DATA)
-            .expect("counterproof_n_bytes must be non-zero"),
+            .expect("counterproof_n_data must be non-zero"),
         deposit_amount,
         stake_amount: params.protocol.stake_amount,
     };
