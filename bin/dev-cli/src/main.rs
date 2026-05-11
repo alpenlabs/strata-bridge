@@ -7,7 +7,7 @@ use clap::Parser;
 use handlers::derive_keys;
 use strata_bridge_common::logging::{self, LoggerConfig};
 
-use crate::handlers::{bridge_in, checkpoint, claim, contest};
+use crate::handlers::{bridge_in, checkpoint, claim, contest, unstaking_intent};
 
 mod cli;
 
@@ -24,5 +24,8 @@ async fn main() -> Result<(), Error> {
         }
         cli::Commands::Contest(args) => contest::handle_contest(args).await,
         cli::Commands::Claim(args) => claim::handle_claim(args).await,
+        cli::Commands::UnstakingIntent(args) => {
+            unstaking_intent::handle_unstaking_intent(args).await
+        }
     }
 }

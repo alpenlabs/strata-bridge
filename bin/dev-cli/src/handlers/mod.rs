@@ -5,4 +5,5 @@ pub(crate) mod contest;
 pub(crate) mod derive_keys;
 mod graph;
 mod rpc;
+pub(crate) mod unstaking_intent;
 mod wallet;
