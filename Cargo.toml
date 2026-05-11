@@ -71,7 +71,6 @@ strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-counterproof = { path = "crates/proofs/bridge-counterproof" }
 strata-bridge-db = { path = "crates/db" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
-strata-bridge-sp1-guest-builder = { path = "guest-builder/sp1" }
 strata-bridge-key-deriv = { path = "crates/key-deriv" }
 strata-bridge-orchestrator = { path = "crates/orchestrator" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
@@ -82,6 +81,7 @@ strata-bridge-proof-common = { path = "crates/proofs/common" }
 strata-bridge-proof-db = { path = "crates/proof-db" }
 strata-bridge-rpc = { path = "crates/rpc" }
 strata-bridge-sm = { path = "crates/bridge-sm" }
+strata-bridge-sp1-guest-builder = { path = "guest-builder/sp1" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-mosaic-client = { path = "crates/mosaic-client" }
