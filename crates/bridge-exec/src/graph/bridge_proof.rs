@@ -15,11 +15,12 @@ use strata_bridge_proof::{
     BridgeProofInput, BridgeProofProgram, MerkleProofB32, MohoRecursiveOutput, MohoState,
     RecursiveMohoProof,
 };
-use strata_bridge_proof_common::prove;
+use strata_bridge_proof_common::{ProofError, prove};
 use strata_bridge_tx_graph::transactions::bridge_proof::{BridgeProofData, BridgeProofTx};
 use strata_codec::encode_to_vec;
 use strata_crypto::hash;
 use tracing::{info, warn};
+use zkaleido::ZkVmError;
 
 use crate::{
     chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
@@ -124,7 +125,9 @@ async fn generate_bridge_proof(
         "bridge proof generated",
     );
 
-    Ok(receipt.proof().as_bytes().to_vec())
+    let payload = borsh::to_vec(&receipt)
+        .map_err(|e| ProofError::ZkVm(ZkVmError::Other(format!("encode proof receipt: {e}"))))?;
+    Ok(payload)
 }
 
 /// Fetches the ASM RPC inputs anchored at the given Bitcoin block height and
