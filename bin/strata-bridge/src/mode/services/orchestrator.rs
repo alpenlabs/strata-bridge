@@ -12,6 +12,7 @@ use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_asm_events::client::AsmEventFeed;
 use strata_bridge_common::params::Params;
+use strata_bridge_counterproof::build_bridge_counterproof_host;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{config::ExecutionConfig, output_handles::OutputHandles};
 use strata_bridge_orchestrator::{
@@ -124,6 +125,7 @@ where
         mosaic_client,
         operator_table: operator_table.clone(),
         bridge_proof_host: build_bridge_proof_host(),
+        counterproof_host: build_bridge_counterproof_host(),
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());
 
