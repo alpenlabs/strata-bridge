@@ -38,6 +38,9 @@ members = [
   "crates/proofs/common",
   "crates/proofs/bridge-proof",
   "crates/proofs/bridge-counterproof",
+
+  # SP1 guest builder
+  "guest-builder/sp1",
 ]
 
 default-members = ["bin/strata-bridge", "bin/dev-cli"]
@@ -68,7 +71,7 @@ strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-counterproof = { path = "crates/proofs/bridge-counterproof" }
 strata-bridge-db = { path = "crates/db" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
-strata-bridge-guest-builder = { path = "bridge-guest-builder" }
+strata-bridge-sp1-guest-builder = { path = "guest-builder/sp1" }
 strata-bridge-key-deriv = { path = "crates/key-deriv" }
 strata-bridge-orchestrator = { path = "crates/orchestrator" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
@@ -137,10 +140,10 @@ moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.
 moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.2" }
 
 # Dependencies from alpenlabs/zkaleido
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
-zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
-zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
-zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc24" }
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc26" }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc26" }
+zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc26" }
+zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc26" }
 
 # external deps
 alloy = { version = "1.8.1", features = ["full", "node-bindings"] }
@@ -230,8 +233,8 @@ serde_json = { version = "1.0", default-features = false, features = [
 serial_test = "3.4.0"
 sha2 = "0.10"
 sled = "0.34.7"
-sp1-sdk = "5.2.4"
-sp1-verifier = "5.2.4"
+sp1-sdk = "6.1.0"
+sp1-verifier = "6.1.0"
 tempfile = "3.23.0"
 
 # TODO: <https://alpenlabs.atlassian.net/browse/STR-2660>
