@@ -7,6 +7,7 @@ mod contested;
 mod counterproof;
 mod counterproof_nack;
 mod uncontested;
+mod unstaking_burn;
 mod utils;
 
 use std::sync::Arc;
@@ -28,6 +29,7 @@ use crate::{
         counterproof::generate_and_publish_counterproof,
         counterproof_nack::publish_counterproof_nack,
         uncontested::publish_uncontested_payout,
+        unstaking_burn::publish_unstaking_burn,
     },
     output_handles::OutputHandles,
 };
@@ -114,7 +116,20 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishUncontestedPayout {
             signed_uncontested_payout_tx,
         } => publish_uncontested_payout(&output_handles, signed_uncontested_payout_tx).await,
-        GraphDuty::PublishUnstakingBurn { .. } => todo!("PublishUnstakingBurn executor"),
+        GraphDuty::PublishUnstakingBurn {
+            graph_idx,
+            unstaking_burn_tx,
+            unstaking_preimage,
+        } => {
+            publish_unstaking_burn(
+                &cfg,
+                &output_handles,
+                *graph_idx,
+                unstaking_burn_tx.clone(),
+                *unstaking_preimage,
+            )
+            .await
+        }
         GraphDuty::PublishContest {
             contest_tx,
             n_of_n_signature,
