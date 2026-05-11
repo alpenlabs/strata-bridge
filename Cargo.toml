@@ -37,6 +37,7 @@ members = [
   # proofs
   "crates/proofs/common",
   "crates/proofs/bridge-proof",
+  "crates/proofs/bridge-counterproof",
 ]
 
 default-members = ["bin/strata-bridge", "bin/dev-cli"]
@@ -72,6 +73,7 @@ strata-bridge-orchestrator = { path = "crates/orchestrator" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
 strata-bridge-p2p-types = { path = "crates/p2p-types" }
 strata-bridge-primitives = { path = "crates/primitives" }
+strata-bridge-counterproof = { path = "crates/proofs/bridge-counterproof" }
 strata-bridge-proof = { path = "crates/proofs/bridge-proof" }
 strata-bridge-proof-common = { path = "crates/proofs/common" }
 strata-bridge-proof-db = { path = "crates/proof-db" }

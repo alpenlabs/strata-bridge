@@ -10402,6 +10402,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-counterproof"
+version = "0.1.0"
+dependencies = [
+ "ssz",
+ "ssz_derive",
+ "strata-btc-types",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24)",
+ "zkaleido-native-adapter",
+ "zkaleido-sp1-host",
+]
+
+[[package]]
 name = "strata-bridge-db"
 version = "0.1.0"
 dependencies = [

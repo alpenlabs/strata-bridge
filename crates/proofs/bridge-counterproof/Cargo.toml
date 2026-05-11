@@ -1,0 +1,19 @@
+[package]
+name = "strata-bridge-counterproof"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+ssz.workspace = true
+ssz_derive.workspace = true
+strata-btc-types.workspace = true
+zkaleido = { workspace = true, features = ["ssz"] }
+zkaleido-native-adapter.workspace = true
+zkaleido-sp1-host = { workspace = true, optional = true }
+
+[features]
+default = []
+sp1 = ["dep:zkaleido-sp1-host"]
