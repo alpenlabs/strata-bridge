@@ -1,5 +1,6 @@
 //! RPC server initialization and monitoring response helpers.
 
+mod da;
 mod monitoring;
 mod server;
 

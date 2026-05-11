@@ -2,12 +2,12 @@
 
 use bitcoin::PublicKey;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 
 use crate::types::{
     RpcAggregateSignatures, RpcBridgeDutyStatus, RpcDepositInfo, RpcGraphData,
     RpcOperatorStakeInfo, RpcOperatorStatus, RpcPendingWithdrawalInfo, RpcReimbursementStatus,
-    RpcWithdrawalStatus,
+    RpcStakeAggregateSignatures, RpcStakeData, RpcWithdrawalStatus,
 };
 
 /// RPCs related to information about the client itself.
@@ -104,4 +104,15 @@ pub trait StrataBridgeDaApi {
         &self,
         graph_idx: GraphIdx,
     ) -> RpcResult<Option<RpcAggregateSignatures>>;
+
+    /// Query for the setup data required to reconstruct an operator's stake graph.
+    #[method(name = "stakeData")]
+    async fn get_stake_data(&self, operator_idx: OperatorIdx) -> RpcResult<Option<RpcStakeData>>;
+
+    /// Query for the aggregate stake signatures for a particular operator.
+    #[method(name = "stakeAggregateSignatures")]
+    async fn get_stake_aggregate_signatures(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> RpcResult<Option<RpcStakeAggregateSignatures>>;
 }
