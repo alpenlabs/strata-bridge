@@ -184,6 +184,7 @@ foundationdb = { git = "https://github.com/foundationdb-rs/foundationdb-rs", rev
 ] }
 futures = "0.3.32"
 hex = { version = "0.4.3", features = ["serde"] }
+hkdf = "0.12.4"
 indexmap = "2.13.0"
 jsonrpsee = "0.26.0"
 libp2p = { version = "0.56.0", features = [

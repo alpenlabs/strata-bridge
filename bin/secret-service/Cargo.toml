@@ -7,17 +7,18 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-secret-service-proto = { version = "0.1.0", path = "../../crates/secret-service-proto" }
-secret-service-server = { version = "0.1.0", path = "../../crates/secret-service-server" }
+secret-service-proto.workspace = true
+secret-service-server.workspace = true
 strata-bridge-key-deriv.workspace = true
 strata-bridge-primitives.workspace = true
+
+make_buf = { git = "https://github.com/alpenlabs/make_buf", version = "1.0.0" }
 
 bitcoin.workspace = true
 cache-advisor = "1.0.16"
 colored = "3.1.1"
-hkdf = "0.12.4"
+hkdf.workspace = true
 libp2p-identity = { workspace = true, features = ["ed25519"] }
-make_buf = { git = "https://github.com/alpenlabs/make_buf", version = "1.0.0" }
 musig2.workspace = true
 rand.workspace = true
 rcgen = "0.13.2"
@@ -36,7 +37,7 @@ tikv-jemallocator = "0.6"
 
 [dev-dependencies]
 rcgen = "0.13.2"
-secret-service-client = { path = "../../crates/secret-service-client" }
+secret-service-client.workspace = true
 
 [features]
 default = []

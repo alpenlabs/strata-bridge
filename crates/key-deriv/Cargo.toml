@@ -8,9 +8,14 @@ description = "Key derivation utilities for Strata Bridge"
 workspace = true
 
 [dependencies]
+strata-bridge-primitives.workspace = true
+
+make_buf = { git = "https://github.com/alpenlabs/make_buf", version = "1.0.0" }
+
 bitcoin.workspace = true
 ed25519-dalek.workspace = true
+hkdf.workspace = true
 secp256k1.workspace = true
-strata-bridge-primitives.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 zeroize.workspace = true
