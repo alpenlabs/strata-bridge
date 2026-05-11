@@ -116,29 +116,31 @@ impl SlashTx {
         ];
 
         // cast safety: n_watchtowers fits in u32 (asserted via slice length being non-empty above
-        // and by upstream callers). The slash tx fee is taken from the first watchtower's stake
-        // share — that share is bounded by the per-watchtower stake amount, which is real funds
-        // and orders of magnitude larger than the fee.
+        // and by upstream callers). The slash tx fee is distributed across every watchtower
+        // output by rounding the per-watchtower share up — the tx may overpay by at most
+        // `n_watchtowers - 1` sats, which is acceptable slippage.
         let fee = crate::fee::slash_fee(watchtower_descriptors.len() as u32);
-        let first_output_value = watchtower_stake + first_extra - fee;
+        let fee_per_watchtower = Amount::from_sat(fee.to_sat().div_ceil(n_watchtowers));
         let mut output = vec![TxOut {
             script_pubkey: data.header_leaf_script(),
             value: Amount::ZERO,
         }];
         output.push(TxOut {
             script_pubkey: watchtower_descriptors[0].to_script(),
-            value: first_output_value,
+            value: watchtower_stake + first_extra - fee_per_watchtower,
         });
         output.extend(watchtower_descriptors.iter().skip(1).map(|x| TxOut {
             script_pubkey: x.to_script(),
-            value: watchtower_stake + other_extra,
+            value: watchtower_stake + other_extra - fee_per_watchtower,
         }));
 
         let value_in: Amount = prevouts.iter().map(|x| x.value).sum();
         let value_out: Amount = output.iter().map(|x| x.value).sum();
+        let actual_fee = value_in - value_out;
         debug_assert!(
-            value_in == value_out + fee,
-            "tx must pay {fee} fees (value in = {value_in}, value out = {value_out})"
+            actual_fee >= fee && actual_fee.to_sat() < fee.to_sat() + n_watchtowers,
+            "tx must pay between {fee} and {fee_upper} fees (value in = {value_in}, value out = {value_out}, actual fee = {actual_fee})",
+            fee_upper = Amount::from_sat(fee.to_sat() + n_watchtowers - 1)
         );
 
         let tx = Transaction {
