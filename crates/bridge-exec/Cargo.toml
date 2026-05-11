@@ -49,4 +49,5 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+bdk_bitcoind_rpc.workspace = true
 corepc-node.workspace = true
