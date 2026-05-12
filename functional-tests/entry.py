@@ -7,7 +7,7 @@ import sys
 import flexitest
 
 from constants import BRIDGE_NETWORK_SIZE, TEST_DIR
-from envs import AsmEnv, BridgeNetworkEnv
+from envs import AsmEnv, BridgeNetworkEnv, RemoteBridgeNetworkEnv
 from envs.testenv import StrataTestRuntime
 from factory.asm_rpc import AsmRpcFactory
 from factory.bitcoin import BitcoinFactory
@@ -95,9 +95,13 @@ def main(argv):
         "mosaic": mosaicfac,
     }
 
-    # Register envs
+    # Register envs. When BRIDGE_REMOTE_BTC_URL is set, swap the local-bitcoind
+    # network env for the remote variant; everything downstream is unchanged.
     asm_env = AsmEnv()
-    network_env = BridgeNetworkEnv()
+    if os.environ.get("BRIDGE_REMOTE_BTC_URL"):
+        network_env = RemoteBridgeNetworkEnv()
+    else:
+        network_env = BridgeNetworkEnv()
     env_configs = {"asm": asm_env, "network": network_env}
 
     # Set up the runtime and prepare tests.

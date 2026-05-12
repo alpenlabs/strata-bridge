@@ -7,6 +7,7 @@ from factory.bridge_operator.asm_cfg import build_asm_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from factory.common.asm_params import write_asm_params_json
+from factory.common.sp1_build import maybe_rebuild_bridge_with_sp1
 from factory.fdb import generate_fdb_root_directory
 from utils import (
     generate_blocks,
@@ -58,10 +59,14 @@ class BaseEnv(flexitest.EnvConfig):
 
         self.mosaic_peer_ids = get_peer_ids(num_operators)
 
+    def _create_bitcoin_service(self, ectx: flexitest.EnvContext):
+        """Construct the bitcoin Service. Subclasses override to swap in a
+        remote-bitcoind variant; the default spawns a local regtest node."""
+        return ectx.get_factory("bitcoin").create_regtest_bitcoin()
+
     def setup_bitcoin(self, ectx: flexitest.EnvContext):
         """Setup Bitcoin node with wallet and initial funding."""
-        btc_fac = ectx.get_factory("bitcoin")
-        bitcoind = btc_fac.create_regtest_bitcoin()
+        bitcoind = self._create_bitcoin_service(ectx)
         brpc = bitcoind.create_rpc()
         wait_until_bitcoind_ready(brpc, timeout=10)
 
@@ -71,6 +76,11 @@ class BaseEnv(flexitest.EnvConfig):
 
         # Mine initial blocks to have usable funds
         brpc.proxy.generatetoaddress(self.initial_blocks, wallet_addr)
+
+        # Anchor asm-params at the chain tip after our initial mining. Works
+        # for both the local-regtest path (tip == initial_blocks) and the
+        # remote path (tip == whatever height the user's chain was at + initial_blocks).
+        self._bridge_genesis_height = int(brpc.proxy.getblockcount())
 
         # Start automatic block generation
         miner = None
@@ -117,12 +127,20 @@ class BaseEnv(flexitest.EnvConfig):
         )
 
     def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
-        """Build bridge/ASM params and write asm-params.json once per environment."""
-        if self._bridge_genesis_height is not None and self._rollup_params_path is not None:
+        """Build bridge/ASM params and write asm-params.json once per environment.
+
+        Also triggers the SP1 guest rebuild when `BRIDGE_SP1=1`, so the freshly
+        generated params are baked into the bridge-proof guest ELF before any
+        bridge process starts (see guest-builder/sp1/README.md for the build-time
+        contract)."""
+        if self._rollup_params_path is not None:
             return
 
-        genesis_height = int(self.initial_blocks)
-        self._bridge_genesis_height = genesis_height
+        if self._bridge_genesis_height is None:
+            raise RuntimeError(
+                "Bitcoin must be set up (setup_bitcoin) before generating rollup params"
+            )
+        genesis_height = self._bridge_genesis_height
 
         asm_params = build_asm_params(
             bitcoind_rpc, self.operator_key_infos, genesis_height, self._asm_config
@@ -130,6 +148,8 @@ class BaseEnv(flexitest.EnvConfig):
         envdd_path = Path(ectx.envdd_path)
         asm_params_path = envdd_path / "generated" / "asm-params.json"
         self._rollup_params_path = write_asm_params_json(asm_params_path, asm_params)
+
+        maybe_rebuild_bridge_with_sp1(Path(self._rollup_params_path))
 
     def create_operator(
         self,

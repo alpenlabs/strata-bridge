@@ -19,7 +19,8 @@ if [ $CI_COVERAGE ]; then
     RUSTFLAGS="-Cinstrument-coverage"
     CARGO_ARGS="--target-dir $COV_TARGET_DIR"
     BIN_PATH=$COV_TARGET_DIR/debug
-elif [ "$CARGO_DEBUG" = 0 ]; then
+elif [ "$BRIDGE_SP1" = "1" ] || [ "$CARGO_DEBUG" = 0 ]; then
+    # SP1 mode requires --release (guest builder is no-op under debug).
     CARGO_ARGS="--release"
     BIN_PATH=$(realpath target/release/)
 else
@@ -27,8 +28,14 @@ else
     BIN_PATH=$(realpath target/debug/)
 fi
 
-# Build all required binaries (only strata-bridge and secret-service gets coverage instrumentation)
-RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-bridge $CARGO_ARGS
+# Build required binaries. Under BRIDGE_SP1=1 the strata-bridge build is
+# deferred until the python harness has generated asm-params.json — the
+# guest-builder bakes those params at compile time.
+if [ "$BRIDGE_SP1" = "1" ]; then
+    echo "BRIDGE_SP1=1: deferring strata-bridge build until asm-params are generated"
+else
+    RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-bridge $CARGO_ARGS
+fi
 RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO_ARGS
 cargo build --bin dev-cli $CARGO_ARGS
 
@@ -58,9 +65,14 @@ if [ -z "$ASM_REV" ]; then
 fi
 
 echo "installing strata-asm-runner (rev $ASM_REV)"
+ASM_FEATURES=""
+if [ "$BRIDGE_SP1" = "1" ]; then
+    ASM_FEATURES="--features sp1"
+fi
 RUSTFLAGS="" cargo install \
     --git https://github.com/alpenlabs/asm \
     --rev "$ASM_REV" \
+    $ASM_FEATURES \
     --root "$CARGO_LOCAL_BIN" \
     strata-asm-runner
 

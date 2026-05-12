@@ -100,6 +100,65 @@ uv run python entry.py
 ./run_test.sh -g contested_payout uncontested_payout
 ```
 
+## Running against an external bitcoind
+
+By default the harness spawns its own `bitcoind`. To point it at a node you manage
+(useful for long-running regtest setups or for real SP1 proving, below), set:
+
+```bash
+export BRIDGE_REMOTE_BTC_URL=http://127.0.0.1:18443   # must resolve to 127.0.0.1
+export BRIDGE_REMOTE_BTC_USER=<rpcuser>
+export BRIDGE_REMOTE_BTC_PASSWORD=<rpcpassword>
+```
+
+Start `bitcoind` with the harness's expected ZMQ ports:
+
+```bash
+bitcoind -regtest \
+  -rpcuser=$BRIDGE_REMOTE_BTC_USER \
+  -rpcpassword=$BRIDGE_REMOTE_BTC_PASSWORD \
+  -rpcport=18443 \
+  -zmqpubhashblock=tcp://0.0.0.0:28332 \
+  -zmqpubhashtx=tcp://0.0.0.0:28333 \
+  -zmqpubrawblock=tcp://0.0.0.0:28334 \
+  -zmqpubrawtx=tcp://0.0.0.0:28335 \
+  -zmqpubsequence=tcp://0.0.0.0:28336
+```
+
+The harness still calls `createwallet`, mines `initial_blocks`, funds operators
+via `sendtoaddress`, and drives the auto-miner — only the bitcoind process
+lifecycle moves to the user.
+
+## Running with real SP1 proofs (`BRIDGE_SP1=1`)
+
+By default the bridge proof runs in `ZKVM_MOCK=1` and produces a dummy receipt.
+Set `BRIDGE_SP1=1` to produce a real Groth16 proof:
+
+```bash
+export BRIDGE_SP1=1
+./run_test.sh -t fn_publish_counterproof_nack
+```
+
+What changes under `BRIDGE_SP1=1`:
+
+- `strata-bridge` is rebuilt with `--features sp1 --release` **after** the
+  harness writes `asm-params.json`, so the freshly-derived params are baked
+  into the SP1 guest ELF (see `guest-builder/sp1/README.md`).
+- `strata-asm-runner` is installed with `--features sp1`.
+- `ZKVM_MOCK` is forced to `0`.
+- Proof-phase wait timeouts are bumped to 1 hour.
+
+Requirements:
+
+- SP1 toolchain (`sp1up`).
+- A running Docker daemon **or** `SP1_PROVER=network` + `NETWORK_PRIVATE_KEY` —
+  required for Groth16 wrapping. Without one, the prove call dies at wrap time.
+- Expect a single proof to take 10–30 min and ~32 GB RAM locally; the network
+  prover is faster.
+
+`BRIDGE_SP1=1` composes with `BRIDGE_REMOTE_BTC_URL` (set both for the typical
+real-proving workflow against a long-running regtest).
+
 ## Running with code coverage
 
 ```bash

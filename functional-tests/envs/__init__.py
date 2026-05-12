@@ -3,11 +3,13 @@ from .asm_env import AsmEnv
 from .bridge_network_env import BridgeNetworkEnv
 from .btc_config import BitcoinEnvConfig
 from .live_env import StrataLiveEnv
+from .remote_env import RemoteBridgeNetworkEnv
 
 __all__ = [
     "AsmEnv",
     "AsmEnvConfig",
     "BridgeNetworkEnv",
     "BitcoinEnvConfig",
+    "RemoteBridgeNetworkEnv",
     "StrataLiveEnv",
 ]

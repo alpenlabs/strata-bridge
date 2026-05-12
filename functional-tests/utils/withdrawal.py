@@ -1,8 +1,20 @@
 import logging
+import os
 from dataclasses import dataclass
 
 from rpc.types import RpcClaimPhase, RpcPendingWithdrawalInfo
 from utils.utils import wait_until
+
+# Under BRIDGE_SP1=1 a real Groth16 proof takes 10–30 min; default mock-mode
+# timeouts (minutes) would trip first. Bump the proof-phase waits to an hour
+# so the test waits long enough without making mock-mode runs slower.
+_SP1_PROOF_TIMEOUT_SECS = 3600
+
+
+def _proof_phase_timeout(default_secs: int) -> int:
+    if os.environ.get("BRIDGE_SP1") == "1":
+        return max(default_secs, _SP1_PROOF_TIMEOUT_SECS)
+    return default_secs
 
 
 @dataclass
@@ -66,6 +78,7 @@ def wait_until_bridge_proof_posted(
     timeout=450,
 ) -> None:
     """Wait until the pending withdrawal's assigned claim phase is 'bridge_proof_posted'."""
+    timeout = _proof_phase_timeout(timeout)
 
     def check():
         info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
@@ -90,6 +103,7 @@ def wait_until_counter_proof_posted(
     timeout=450,
 ) -> None:
     """Wait until the pending withdrawal's assigned claim phase is 'counter_proof_posted'."""
+    timeout = _proof_phase_timeout(timeout)
 
     def check():
         info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
