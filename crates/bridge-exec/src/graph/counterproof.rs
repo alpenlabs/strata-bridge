@@ -1,9 +1,13 @@
 //! Executor for the counterproof transaction.
 
+use bitcoin::{Transaction, consensus};
+use bitcoind_async_client::{error::ClientError, traits::Reader};
 use btc_tracker::event::TxStatus;
 use musig2::secp256k1::schnorr::Signature;
 use strata_bridge_connectors::prelude::ContestCounterproofWitness;
-use strata_bridge_counterproof::{CounterproofInput, CounterproofProgram, RawBitcoinTx};
+use strata_bridge_counterproof::{
+    BitcoinTxOut, CounterproofInput, CounterproofProgram, RawBitcoinTx,
+};
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
@@ -27,12 +31,14 @@ pub(super) async fn generate_and_publish_counterproof(
     // proof-to-counterproof conversion.
     _watchtower_idx: OperatorIdx,
     n_of_n_signature: Signature,
+    bridge_proof_tx: Transaction,
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, "generating and publishing counterproof transaction");
 
     // TODO: garble the receipt's proof into the wire-input representation.
     // Using mock counterproof data until that conversion is wired in.
-    let _receipt = generate_counterproof(output_handles, deposit_idx, operator_idx).await?;
+    let _receipt =
+        generate_counterproof(output_handles, deposit_idx, operator_idx, bridge_proof_tx).await?;
     let counterproof_data = G16ProofRaw([0u8; N_WITHDRAWAL_INPUT_WIRES]);
 
     // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
@@ -73,8 +79,11 @@ async fn generate_counterproof(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
+    bridge_proof_tx: Transaction,
 ) -> Result<ProofReceipt, ExecutorError> {
-    let proof_input = fetch_counterproof_input(output_handles, deposit_idx, operator_idx).await?;
+    let proof_input =
+        fetch_counterproof_input(output_handles, deposit_idx, operator_idx, bridge_proof_tx)
+            .await?;
 
     info!(%deposit_idx, %operator_idx, "generating counterproof");
     let prove_start = std::time::Instant::now();
@@ -97,6 +106,7 @@ async fn fetch_counterproof_input(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
+    bridge_proof_tx: Transaction,
 ) -> Result<CounterproofInput, ExecutorError> {
     info!(%deposit_idx, %operator_idx, "fetching counterproof inputs");
 
@@ -111,10 +121,31 @@ async fn fetch_counterproof_input(
         .0
         .into();
 
+    let mut bridge_proof_tx_prevouts = Vec::with_capacity(bridge_proof_tx.input.len());
+    for txin in &bridge_proof_tx.input {
+        let outpoint = txin.previous_output;
+        let parent_tx = output_handles
+            .bitcoind_rpc_client
+            .get_raw_transaction_verbosity_zero(&outpoint.txid)
+            .await?
+            .0;
+        let prevout = parent_tx
+            .output
+            .get(outpoint.vout as usize)
+            .cloned()
+            .ok_or_else(|| {
+                ExecutorError::BitcoinRpcErr(ClientError::MalformedResponse(format!(
+                    "prevout vout {} out of bounds for parent tx {}",
+                    outpoint.vout, outpoint.txid,
+                )))
+            })?;
+        bridge_proof_tx_prevouts.push(BitcoinTxOut::from(prevout));
+    }
+
     Ok(CounterproofInput {
         game_idx,
         operator_pubkey,
-        bridge_proof_tx: RawBitcoinTx::from_raw_bytes(vec![]),
-        bridge_proof_tx_prevouts: vec![],
+        bridge_proof_tx: RawBitcoinTx::from_raw_bytes(consensus::serialize(&bridge_proof_tx)),
+        bridge_proof_tx_prevouts,
     })
 }
