@@ -3,5 +3,6 @@
 //! - [`offchain`]: P2P gossip, requests, and assignment classification
 //! - [`onchain`]: Block scanning, TxClassifier, and NewBlock cursor events
 
+mod drt;
 pub mod offchain;
 pub mod onchain;
