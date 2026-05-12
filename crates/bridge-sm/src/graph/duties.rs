@@ -3,7 +3,7 @@
 
 use std::num::NonZero;
 
-use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey, hashes::sha256};
+use bitcoin::{OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey, hashes::sha256};
 use musig2::{
     AggNonce,
     secp256k1::{Message, schnorr::Signature},
@@ -240,6 +240,10 @@ pub enum GraphDuty {
 
         /// The on-chain bridge proof transaction to refute.
         bridge_proof_tx: Transaction,
+
+        /// Prevouts of `bridge_proof_tx.input`, derived from the contest proof
+        /// connector, required as witness in the counterproof statement.
+        bridge_proof_tx_prevouts: Vec<TxOut>,
     },
 
     /// Publish a counterproof ACK transaction.

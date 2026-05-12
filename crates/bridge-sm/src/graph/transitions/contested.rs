@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bitcoin::Transaction;
+use strata_bridge_connectors::Connector;
 use strata_bridge_primitives::{proof::verify_bridge_proof, types::OperatorIdx};
 use strata_bridge_tx_graph::{
     game_graph::{GameConnectors, GameGraphSummary},
@@ -158,6 +159,13 @@ impl GraphSM {
                     .watchtowers[watchtower_idx]
                         .counterproof[0];
 
+                    let setup_params = self.context().generate_setup_params(&cfg, &graph_data);
+                    let connectors = GameConnectors::new(
+                        graph_data.game_index,
+                        &cfg.game_graph_params,
+                        &setup_params,
+                    );
+
                     duties.push(GraphDuty::GenerateAndPublishCounterProof {
                         graph_idx: self.context().graph_idx(),
                         game_index: graph_data.game_index,
@@ -165,6 +173,7 @@ impl GraphSM {
                         n_of_n_signature,
                         proof: bridge_proof.clone(),
                         bridge_proof_tx: event.tx.clone(),
+                        bridge_proof_tx_prevouts: vec![connectors.contest_proof.tx_out()],
                     });
                 }
 
@@ -233,6 +242,13 @@ impl GraphSM {
                     .watchtowers[watchtower_idx]
                         .counterproof[0];
 
+                    let setup_params = self.context().generate_setup_params(&cfg, &graph_data);
+                    let connectors = GameConnectors::new(
+                        graph_data.game_index,
+                        &cfg.game_graph_params,
+                        &setup_params,
+                    );
+
                     duties.push(GraphDuty::GenerateAndPublishCounterProof {
                         graph_idx: self.context().graph_idx(),
                         game_index: graph_data.game_index,
@@ -240,6 +256,7 @@ impl GraphSM {
                         n_of_n_signature,
                         proof: bridge_proof.clone(),
                         bridge_proof_tx: event.tx.clone(),
+                        bridge_proof_tx_prevouts: vec![connectors.contest_proof.tx_out()],
                     });
                 }
 

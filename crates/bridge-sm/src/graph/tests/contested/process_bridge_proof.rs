@@ -3,8 +3,9 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{Txid, hashes::Hash};
+use strata_bridge_connectors::Connector;
 use strata_bridge_test_utils::bitcoin::generate_tx;
-use strata_bridge_tx_graph::musig_functor::GameFunctor;
+use strata_bridge_tx_graph::{game_graph::GameConnectors, musig_functor::GameFunctor};
 use strata_predicate::PredicateKey;
 
 use crate::{
@@ -121,6 +122,18 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
             .expect("unpack must succeed")
             .watchtowers[watchtower_idx]
             .counterproof[0];
+    let setup_params = sm
+        .context()
+        .generate_setup_params(&cfg, &test_deposit_params());
+    let expected_prevouts = vec![
+        GameConnectors::new(
+            test_deposit_params().game_index,
+            &cfg.game_graph_params,
+            &setup_params,
+        )
+        .contest_proof
+        .tx_out(),
+    ];
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
@@ -147,6 +160,7 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
                 n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),
                 bridge_proof_tx: event.tx.clone(),
+                bridge_proof_tx_prevouts: expected_prevouts,
             }],
             expected_signals: vec![],
         },
@@ -203,6 +217,18 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
             .expect("unpack must succeed")
             .watchtowers[watchtower_idx]
             .counterproof[0];
+    let setup_params = sm
+        .context()
+        .generate_setup_params(&cfg, &test_deposit_params());
+    let expected_prevouts = vec![
+        GameConnectors::new(
+            test_deposit_params().game_index,
+            &cfg.game_graph_params,
+            &setup_params,
+        )
+        .contest_proof
+        .tx_out(),
+    ];
 
     let from_state = GraphState::CounterProofPosted {
         last_block_height: LATER_BLOCK_HEIGHT,
@@ -241,6 +267,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
                 n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),
                 bridge_proof_tx: event.tx.clone(),
+                bridge_proof_tx_prevouts: expected_prevouts,
             }],
             expected_signals: vec![],
         },

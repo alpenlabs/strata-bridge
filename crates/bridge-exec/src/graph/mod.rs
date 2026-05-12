@@ -152,6 +152,7 @@ pub async fn execute_graph_duty(
             counterproof_tx,
             n_of_n_signature,
             bridge_proof_tx,
+            bridge_proof_tx_prevouts,
             ..
         } => {
             generate_and_publish_counterproof(
@@ -162,6 +163,7 @@ pub async fn execute_graph_duty(
                 *game_index,
                 *n_of_n_signature,
                 bridge_proof_tx.clone(),
+                bridge_proof_tx_prevouts.clone(),
             )
             .await
         }

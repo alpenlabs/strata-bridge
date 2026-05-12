@@ -3,6 +3,7 @@
 mod tests {
     use std::sync::Arc;
 
+    use strata_bridge_connectors::Connector;
     use strata_bridge_primitives::types::OperatorIdx;
     use strata_bridge_test_utils::bitcoin::generate_txid;
     use strata_bridge_tx_graph::{
@@ -453,6 +454,10 @@ mod tests {
                 .watchtowers[watchtower_idx]
                 .counterproof[0];
 
+        let setup_params = sm.context().generate_setup_params(cfg, graph_data);
+        let connectors =
+            GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
+
         GraphDuty::GenerateAndPublishCounterProof {
             graph_idx: sm.context().graph_idx(),
             game_index: graph_data.game_index,
@@ -460,6 +465,7 @@ mod tests {
             n_of_n_signature,
             proof: proof.clone(),
             bridge_proof_tx: bridge_proof_tx.clone(),
+            bridge_proof_tx_prevouts: vec![connectors.contest_proof.tx_out()],
         }
     }
 

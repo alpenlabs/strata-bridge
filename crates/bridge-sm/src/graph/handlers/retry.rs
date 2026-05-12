@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bitcoin::Transaction;
 use musig2::secp256k1::schnorr::Signature;
+use strata_bridge_connectors::Connector;
 use strata_bridge_primitives::proof::verify_bridge_proof;
 use strata_bridge_tx_graph::{
     game_graph::{DepositParams, GameConnectors},
@@ -255,6 +256,10 @@ impl GraphSM {
         .watchtowers[watchtower_idx]
             .counterproof[0];
 
+        let setup_params = self.context().generate_setup_params(cfg, graph_data);
+        let connectors =
+            GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
+
         Ok(GraphDuty::GenerateAndPublishCounterProof {
             graph_idx: self.context().graph_idx(),
             game_index: graph_data.game_index,
@@ -262,6 +267,7 @@ impl GraphSM {
             n_of_n_signature,
             proof: proof.clone(),
             bridge_proof_tx: bridge_proof_tx.clone(),
+            bridge_proof_tx_prevouts: vec![connectors.contest_proof.tx_out()],
         })
     }
 }

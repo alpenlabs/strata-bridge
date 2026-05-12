@@ -2,8 +2,7 @@
 
 use std::num::NonZero;
 
-use bitcoin::{Transaction, consensus};
-use bitcoind_async_client::{error::ClientError, traits::Reader};
+use bitcoin::{Transaction, TxOut, consensus};
 use btc_tracker::event::TxStatus;
 use musig2::secp256k1::schnorr::Signature;
 use strata_bridge_connectors::prelude::ContestCounterproofWitness;
@@ -24,6 +23,7 @@ use crate::{
 /// Generates the counterproof, completes adaptor signatures via mosaic,
 /// assembles the witness with the pre-computed N-of-N signature, and publishes
 /// the counterproof transaction to Bitcoin.
+#[expect(clippy::too_many_arguments)]
 pub(super) async fn generate_and_publish_counterproof(
     output_handles: &OutputHandles,
     counterproof_tx: CounterproofTx,
@@ -32,6 +32,7 @@ pub(super) async fn generate_and_publish_counterproof(
     game_index: NonZero<u32>,
     n_of_n_signature: Signature,
     bridge_proof_tx: Transaction,
+    bridge_proof_tx_prevouts: Vec<TxOut>,
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "generating and publishing counterproof for graph");
 
@@ -44,6 +45,7 @@ pub(super) async fn generate_and_publish_counterproof(
         operator_idx,
         game_index,
         bridge_proof_tx,
+        bridge_proof_tx_prevouts,
     )
     .await?;
     let counterproof_data = G16ProofRaw([0u8; N_WITHDRAWAL_INPUT_WIRES]);
@@ -88,6 +90,7 @@ async fn generate_counterproof(
     operator_idx: OperatorIdx,
     game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
+    bridge_proof_tx_prevouts: Vec<TxOut>,
 ) -> Result<ProofReceipt, ExecutorError> {
     let proof_input = fetch_counterproof_input(
         output_handles,
@@ -95,6 +98,7 @@ async fn generate_counterproof(
         operator_idx,
         game_index,
         bridge_proof_tx,
+        bridge_proof_tx_prevouts,
     )
     .await?;
 
@@ -121,6 +125,7 @@ async fn fetch_counterproof_input(
     operator_idx: OperatorIdx,
     game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
+    bridge_proof_tx_prevouts: Vec<TxOut>,
 ) -> Result<CounterproofInput, ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "fetching counterproof inputs for graph");
 
@@ -132,26 +137,10 @@ async fn fetch_counterproof_input(
         .0
         .into();
 
-    let mut bridge_proof_tx_prevouts = Vec::with_capacity(bridge_proof_tx.input.len());
-    for txin in &bridge_proof_tx.input {
-        let outpoint = txin.previous_output;
-        let parent_tx = output_handles
-            .bitcoind_rpc_client
-            .get_raw_transaction_verbosity_zero(&outpoint.txid)
-            .await?
-            .0;
-        let prevout = parent_tx
-            .output
-            .get(outpoint.vout as usize)
-            .cloned()
-            .ok_or_else(|| {
-                ExecutorError::BitcoinRpcErr(ClientError::MalformedResponse(format!(
-                    "prevout vout {} out of bounds for parent tx {}",
-                    outpoint.vout, outpoint.txid,
-                )))
-            })?;
-        bridge_proof_tx_prevouts.push(BitcoinTxOut::from(prevout));
-    }
+    let bridge_proof_tx_prevouts = bridge_proof_tx_prevouts
+        .into_iter()
+        .map(BitcoinTxOut::from)
+        .collect();
 
     Ok(CounterproofInput {
         game_idx: game_index.get(),
