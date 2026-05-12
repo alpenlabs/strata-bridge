@@ -35,7 +35,8 @@ pub(super) async fn generate_and_publish_counterproof(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, "generating and publishing counterproof transaction");
 
-    // TODO: garble the receipt's proof into the wire-input representation.
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-1981>
+    // garble the receipt's proof into the wire-input representation.
     // Using mock counterproof data until that conversion is wired in.
     let _receipt =
         generate_counterproof(output_handles, deposit_idx, operator_idx, bridge_proof_tx).await?;
