@@ -18,13 +18,15 @@ def build_asm_params(
     """Create AsmParams aligned with the current regtest chain."""
     cfg = asm_config or AsmEnvConfig()
     musig2_keys = [key.MUSIG2_KEY for key in operator_key_infos]
-    block_hash = bitcoind_rpc.proxy.getblockhash(genesis_height)
-    header = bitcoind_rpc.proxy.getblockheader(block_hash)
+
+    def get_block_header(height: int) -> dict[str, Any]:
+        block_hash = bitcoind_rpc.proxy.getblockhash(height)
+        return bitcoind_rpc.proxy.getblockheader(block_hash)
+
     return build_asm_params_common(
         musig2_keys=musig2_keys,
         genesis_height=genesis_height,
-        block_hash=block_hash,
-        header=header,
+        get_block_header=get_block_header,
         magic=cfg.magic,
         denomination=cfg.denomination,
         assignment_duration=cfg.assignment_duration,
