@@ -9,8 +9,8 @@ use strata_bridge_proof::BridgeProofHost;
 
 /// Constructs the [`BridgeProofHost`] for the active backend.
 #[cfg(not(feature = "sp1"))]
-pub(in crate::mode) fn build_bridge_proof_host() -> BridgeProofHost {
-    strata_bridge_proof::build_bridge_proof_host()
+pub(in crate::mode) async fn build_bridge_proof_host() -> BridgeProofHost {
+    strata_bridge_proof::build_bridge_proof_host().await
 }
 
 /// Constructs the [`BridgeProofHost`] for the active backend.
@@ -19,7 +19,7 @@ pub(in crate::mode) fn build_bridge_proof_host() -> BridgeProofHost {
 /// build script. The ELF is produced only in `--release` builds; debug
 /// builds will panic on the missing file.
 #[cfg(feature = "sp1")]
-pub(in crate::mode) fn build_bridge_proof_host() -> BridgeProofHost {
+pub(in crate::mode) async fn build_bridge_proof_host() -> BridgeProofHost {
     use std::fs;
 
     use strata_bridge_sp1_guest_builder::bridge_proof_elf_path;
@@ -32,5 +32,5 @@ pub(in crate::mode) fn build_bridge_proof_host() -> BridgeProofHost {
             path.display()
         )
     });
-    strata_bridge_proof::build_bridge_proof_host(&elf)
+    strata_bridge_proof::build_bridge_proof_host(&elf).await
 }

@@ -126,7 +126,7 @@ where
         tx_driver,
         mosaic_client,
         operator_table: operator_table.clone(),
-        bridge_proof_host: build_bridge_proof_host(),
+        bridge_proof_host: build_bridge_proof_host().await,
         counterproof_host: build_bridge_counterproof_host(),
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());

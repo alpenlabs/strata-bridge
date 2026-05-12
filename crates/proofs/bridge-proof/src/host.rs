@@ -16,8 +16,8 @@ mod backend {
     pub type BridgeProofHost = NativeHost;
 
     /// Constructs the [`BridgeProofHost`] for the active backend.
-    pub fn build_bridge_proof_host() -> BridgeProofHost {
-        NativeHost::new(process_bridge_proof)
+    pub async fn build_bridge_proof_host() -> BridgeProofHost {
+        NativeHost::new_with_random_key(process_bridge_proof)
     }
 }
 
@@ -34,8 +34,8 @@ mod backend {
     /// Constructs the [`BridgeProofHost`] from a pre-loaded SP1 guest ELF.
     ///
     /// The guest ELF lives in `strata-bridge-sp1-guest-builder`
-    pub fn build_bridge_proof_host(elf: &[u8]) -> BridgeProofHost {
-        SP1Host::init(elf)
+    pub async fn build_bridge_proof_host(elf: &[u8]) -> BridgeProofHost {
+        SP1Host::init(elf).await
     }
 }
 

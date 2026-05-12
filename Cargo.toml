@@ -140,10 +140,10 @@ moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.
 moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.2" }
 
 # Dependencies from alpenlabs/zkaleido
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc26" }
-zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc26" }
-zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc26" }
-zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc26" }
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.1" }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.1" }
+zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.1" }
+zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.1" }
 
 # external deps
 alloy = { version = "1.8.1", features = ["full", "node-bindings"] }

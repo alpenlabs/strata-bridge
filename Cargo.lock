@@ -11053,8 +11053,8 @@ dependencies = [
  "ssz_derive",
  "strata-btc-types",
  "strata-predicate",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
- "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
+ "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
  "zkaleido-sp1-host",
 ]
 
@@ -11117,7 +11117,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
 ]
 
 [[package]]
@@ -11229,7 +11229,7 @@ dependencies = [
  "strata-predicate",
  "thiserror 2.0.18",
  "tokio",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
 ]
 
 [[package]]
@@ -11251,8 +11251,8 @@ dependencies = [
  "strata-codec",
  "strata-merkle",
  "strata-predicate",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
- "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
+ "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
  "zkaleido-sp1-host",
 ]
 
@@ -11262,7 +11262,7 @@ version = "0.1.0"
 dependencies = [
  "thiserror 2.0.18",
  "tokio",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
 ]
 
 [[package]]
@@ -11314,7 +11314,7 @@ dependencies = [
  "strata-predicate",
  "thiserror 2.0.18",
  "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
 ]
 
 [[package]]
@@ -13690,6 +13690,19 @@ dependencies = [
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1#d24c4ce44e4ff2abd4328a5adb373ffb79f34c8c"
+dependencies = [
+ "async-trait",
+ "bincode",
+ "borsh",
+ "serde",
+ "ssz",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zkaleido"
+version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc20#d5b46312a55e8409a08a8437716ca42128e3d085"
 dependencies = [
  "arbitrary",
@@ -13714,23 +13727,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "zkaleido"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26#4ec7ebfe380924219837f185146f5c8b4f0066fa"
-dependencies = [
- "bincode",
- "borsh",
- "serde",
- "ssz",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "zkaleido-logging"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24#69692581a5e1cb5a361fb6a3a23d847fd93a6b47"
 dependencies = [
  "tracing",
+]
+
+[[package]]
+name = "zkaleido-native-adapter"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1#d24c4ce44e4ff2abd4328a5adb373ffb79f34c8c"
+dependencies = [
+ "bincode",
+ "k256",
+ "rand_core 0.6.4",
+ "serde",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
 ]
 
 [[package]]
@@ -13745,18 +13758,6 @@ dependencies = [
  "rand_core 0.6.4",
  "serde",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc24)",
-]
-
-[[package]]
-name = "zkaleido-native-adapter"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26#4ec7ebfe380924219837f185146f5c8b4f0066fa"
-dependencies = [
- "bincode",
- "k256",
- "rand_core 0.6.4",
- "serde",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
 ]
 
 [[package]]
@@ -13777,12 +13778,18 @@ dependencies = [
 [[package]]
 name = "zkaleido-sp1-host"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26#4ec7ebfe380924219837f185146f5c8b4f0066fa"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1#d24c4ce44e4ff2abd4328a5adb373ffb79f34c8c"
 dependencies = [
+ "async-trait",
  "bincode",
+ "hex",
+ "num-bigint 0.4.6",
  "serde",
+ "sha2",
  "sp1-sdk",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc26)",
+ "sp1-verifier",
+ "tokio",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
 ]
 
 [[package]]
