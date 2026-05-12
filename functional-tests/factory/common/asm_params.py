@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from constants import ASM_MAGIC_BYTES
+
+# Bitcoin's difficulty adjustment interval, in blocks. Identical across all networks
+# (mainnet, testnet, signet, regtest) per Bitcoin Core's consensus params.
+DIFFICULTY_ADJUSTMENT_INTERVAL = 2016
+
+# A callable that returns the verbose ``getblockheader`` response (a dict with at least
+# ``hash``, ``bits``, and ``time`` fields) for the block at a given height.
+BlockHeaderFetcher = Callable[[int], dict[str, Any]]
 
 
 @dataclass
@@ -74,23 +83,32 @@ def parse_bits_to_target(bits: int | str) -> int:
     return int(bits)
 
 
-# NOTE: (@Rajil1213) This function is also used by the `gen_asm_params.py` script
-# in the `docker/asm-runner` directory, so it should be kept generic
-# and not rely on any test-specific logic.
+# NOTE: (@Rajil1213) This function is also used by the `gen_asm_params.py` script in the
+# `docker/asm-runner` directory, so it should be kept generic and not rely on any
+# test-specific logic.
 def build_l1_anchor(
     genesis_height: int,
-    block_hash: str,
-    header: dict[str, Any],
+    get_block_header: BlockHeaderFetcher,
     network: str = "regtest",
 ) -> L1Anchor:
-    """Constructs the L1 anchor for the ASM parameters based on the provided block information."""
-    header_time = int(header["time"])
-    next_target = parse_bits_to_target(header["bits"])
+    """Constructs the L1 anchor for the ASM parameters by sourcing the chain context for
+    ``genesis_height`` through ``get_block_header``.
+
+    The callable is invoked twice: once for ``genesis_height`` (whose hash and ``bits`` are
+    recorded on the anchor) and once for the block at the start of the containing difficulty
+    epoch (whose ``time`` is recorded as ``epoch_start_timestamp``, matching how the ASM
+    recomputes the next difficulty target).
+    """
+    epoch_start_height = (
+        genesis_height // DIFFICULTY_ADJUSTMENT_INTERVAL
+    ) * DIFFICULTY_ADJUSTMENT_INTERVAL
+    epoch_start_header = get_block_header(epoch_start_height)
+    genesis_header = get_block_header(genesis_height)
 
     return L1Anchor(
-        block=Block(height=genesis_height, blkid=block_hash),
-        next_target=next_target,
-        epoch_start_timestamp=header_time,
+        block=Block(height=genesis_height, blkid=genesis_header["hash"]),
+        next_target=parse_bits_to_target(genesis_header["bits"]),
+        epoch_start_timestamp=int(epoch_start_header["time"]),
         network=network,
     )
 
@@ -146,15 +164,14 @@ def build_subprotocols(
 def build_asm_params(
     musig2_keys: list[str],
     genesis_height: int,
-    block_hash: str,
-    header: dict[str, Any],
+    get_block_header: BlockHeaderFetcher,
     magic: str = ASM_MAGIC_BYTES,
     denomination: int = 1_000_000_000,
     assignment_duration: int = 10_000,
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
 ) -> AsmParams:
-    anchor = build_l1_anchor(genesis_height, block_hash, header)
+    anchor = build_l1_anchor(genesis_height, get_block_header)
     subprotocols = build_subprotocols(
         musig2_keys,
         genesis_height,

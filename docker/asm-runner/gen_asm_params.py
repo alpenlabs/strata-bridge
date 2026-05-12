@@ -3,13 +3,13 @@
 import argparse
 import base64
 import json
+import logging
 import time
 import tomllib
 import urllib.error
 import urllib.request
 from dataclasses import asdict
 from pathlib import Path
-import logging
 
 from asm_params import build_l1_anchor
 
@@ -89,23 +89,21 @@ def wait_for_genesis_height(
     )
 
 
-def fetch_chain_context(bitcoin_cfg: dict, genesis_height: int) -> tuple[str, dict]:
+def fetch_block_header(bitcoin_cfg: dict, height: int) -> dict:
     block_hash = rpc_call(
         bitcoin_cfg["rpc_url"],
         bitcoin_cfg["rpc_user"],
         bitcoin_cfg["rpc_password"],
         "getblockhash",
-        [genesis_height],
+        [height],
     )
-    header = rpc_call(
+    return rpc_call(
         bitcoin_cfg["rpc_url"],
         bitcoin_cfg["rpc_user"],
         bitcoin_cfg["rpc_password"],
         "getblockheader",
         [block_hash],
     )
-
-    return block_hash, header
 
 
 def validate_params(asm_params: dict, bridge_params: dict) -> None:
@@ -176,12 +174,15 @@ def main() -> None:
     logging.info(f"Waiting for bitcoind to reach genesis height {genesis_height}")
     wait_for_genesis_height(config["bitcoin"], genesis_height, args.timeout_secs)
 
-    logging.info("Fetching chain context for genesis height")
-    block_hash, header = fetch_chain_context(config["bitcoin"], genesis_height)
-
     network = params["anchor"]["network"]
     logging.info(f"Updating ASM params with chain context for {network} network")
-    params["anchor"] = asdict(build_l1_anchor(genesis_height, block_hash, header, network))
+    params["anchor"] = asdict(
+        build_l1_anchor(
+            genesis_height,
+            lambda h: fetch_block_header(config["bitcoin"], h),
+            network,
+        )
+    )
 
     logging.info(f"Writing updated ASM params to {params_path}")
     params_path.write_text(json.dumps(params, indent=4) + "\n")
