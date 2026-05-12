@@ -7,9 +7,15 @@
 use std::{num::NonZero, sync::Arc};
 
 use bitcoin::{
-    Amount, Network, OutPoint, Txid,
+    Amount, Network, OutPoint, Transaction, TxIn, TxOut, Txid, absolute,
     hashes::{Hash, sha256},
     relative,
+    secp256k1::XOnlyPublicKey,
+    transaction,
+};
+use strata_asm_proto_bridge_v1_txs::{
+    BRIDGE_V1_SUBPROTOCOL_ID, constants::BridgeTxType,
+    deposit_request::create_deposit_request_locking_script,
 };
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -36,8 +42,9 @@ use strata_bridge_test_utils::{
 use strata_bridge_tx_graph::{
     game_graph::ProtocolParams as GameProtocolParams,
     stake_graph::{ProtocolParams as StakeProtocolParams, StakeGraphSummary},
-    transactions::prelude::DepositData,
+    transactions::{deposit::DepositTx, prelude::DepositData},
 };
+use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
 use strata_predicate::PredicateKey;
 
 use crate::sm_registry::{SMConfig, SMRegistry};
@@ -243,4 +250,82 @@ pub(crate) fn test_populated_registry(n_deposits: usize) -> SMRegistry {
         insert_deposit_with_graphs(&mut registry, i as DepositIdx);
     }
     registry
+}
+
+// ===== DRT fixture =====
+
+/// Configurable builder for synthetic deposit request transactions. Defaults from
+/// [`Self::aligned`] produce a structurally valid DRT for the given bridge config and operator
+/// set; tests override individual fields to drive each gate in the validator.
+pub(crate) struct DrtBuilder {
+    pub(crate) magic: MagicBytes,
+    pub(crate) subproto_id: u8,
+    pub(crate) tx_type: u8,
+    /// Recovery pubkey bytes placed in the SPS-50 aux data.
+    pub(crate) recovery_pk_in_aux: [u8; 32],
+    /// N-of-N internal key used when building the output-1 P2TR script.
+    pub(crate) n_of_n_in_script: XOnlyPublicKey,
+    /// Recovery pubkey bytes used inside the output-1 takeback tapscript.
+    pub(crate) recovery_pk_in_script: [u8; 32],
+    /// CSV delay encoded inside the output-1 takeback tapscript.
+    pub(crate) recovery_delay_in_script: u16,
+    /// Amount placed on output 1.
+    pub(crate) output_value: Amount,
+    /// Optional destination bytes appended after the 32-byte recovery_pk in aux.
+    pub(crate) destination: Vec<u8>,
+}
+
+impl DrtBuilder {
+    /// Returns a builder whose fields are aligned with a valid DRT for the given operator
+    /// table and configuration.
+    pub(crate) fn aligned(operator_table: &OperatorTable, cfg: &DepositSMCfg) -> Self {
+        let recovery_pk = generate_xonly_pubkey().serialize();
+        let n_of_n = operator_table.aggregated_btc_key().x_only_public_key().0;
+        Self {
+            magic: cfg.magic_bytes,
+            subproto_id: BRIDGE_V1_SUBPROTOCOL_ID,
+            tx_type: BridgeTxType::DepositRequest as u8,
+            recovery_pk_in_aux: recovery_pk,
+            n_of_n_in_script: n_of_n,
+            recovery_pk_in_script: recovery_pk,
+            recovery_delay_in_script: cfg.recovery_delay,
+            output_value: DepositTx::drt_required(cfg.deposit_amount),
+            destination: Vec::new(),
+        }
+    }
+
+    /// Build the synthetic transaction.
+    pub(crate) fn build(&self) -> Transaction {
+        let mut aux = Vec::with_capacity(32 + self.destination.len());
+        aux.extend_from_slice(&self.recovery_pk_in_aux);
+        aux.extend_from_slice(&self.destination);
+
+        let tag = TagData::new(self.subproto_id, self.tx_type, aux)
+            .expect("aux must fit SPS-50 size limits");
+        let op_return = ParseConfig::new(self.magic)
+            .encode_script_buf(&tag.as_ref())
+            .expect("SPS-50 tag must encode");
+
+        let lock = create_deposit_request_locking_script(
+            &self.recovery_pk_in_script,
+            self.n_of_n_in_script,
+            self.recovery_delay_in_script,
+        );
+
+        Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn::default()],
+            output: vec![
+                TxOut {
+                    value: Amount::ZERO,
+                    script_pubkey: op_return,
+                },
+                TxOut {
+                    value: self.output_value,
+                    script_pubkey: lock,
+                },
+            ],
+        }
+    }
 }
