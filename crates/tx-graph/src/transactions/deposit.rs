@@ -2,6 +2,7 @@
 
 use bitcoin::{
     absolute,
+    psbt::ExtractTxError,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
     Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut,
@@ -14,6 +15,7 @@ use strata_bridge_connectors::{
     Connector, SigningInfo,
 };
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
+use tracing::warn;
 
 use crate::transactions::PresignedTx;
 
@@ -128,7 +130,34 @@ impl DepositTx {
         self.deposit_request_connector
             .finalize_input(&mut psbt.inputs[0], &deposit_request_witness);
 
-        psbt.extract_tx().expect("should be able to extract tx")
+        // `Psbt::extract_tx` rejects fee rates above `DEFAULT_MAX_FEE_RATE` (25 ksat/vb). The
+        // depositor controls the DRT amount, so an "absurd" fee rate is external input — not an
+        // invariant violation. Log a warning and proceed with the recovered tx; the surplus goes to
+        // the miner. The other variants are invariant violations given
+        // how `DepositTx::new` is constructed and the upstream DRT validation, so they panic.
+        match psbt.extract_tx() {
+            Ok(tx) => tx,
+            Err(ExtractTxError::AbsurdFeeRate { fee_rate, tx }) => {
+                warn!(
+                    %fee_rate,
+                    txid = %tx.compute_txid(),
+                    "DRT overpaid; finalizing deposit tx anyway",
+                );
+                tx
+            }
+            // `DepositTx::new` always populates `witness_utxo` on the input.
+            Err(err @ ExtractTxError::MissingInputValue { .. }) => {
+                panic!("deposit tx PSBT missing input value: {err}")
+            }
+            // Upstream DRT validation must guarantee `drt_value >= deposit_amount + deposit_fee`.
+            Err(err @ ExtractTxError::SendingTooMuch { .. }) => {
+                panic!("deposit tx outputs exceed inputs: {err}")
+            }
+            // `ExtractTxError` is `#[non_exhaustive]`; this catch-all fires only if a future
+            // `bitcoin` release adds a new variant, in which case we want to fail loudly until
+            // this match is updated.
+            Err(err) => panic!("unhandled ExtractTxError variant: {err}"),
+        }
     }
 }
 
@@ -188,15 +217,21 @@ mod tests {
         DepositTx::new(data, deposit_connector, deposit_request)
     }
 
-    // Regression test for STR-3430: a depositor-controlled DRT amount large enough to push the
-    // deposit-tx fee rate above `Psbt::DEFAULT_MAX_FEE_RATE` (25 ksat/vb) currently crashes
-    // `finalize` via the `expect` on `Psbt::extract_tx`. The `should_panic` arm locks in that
-    // buggy behavior; removing it (and the panic) is the actual fix.
     #[test]
-    #[should_panic(expected = "should be able to extract tx")]
-    fn finalize_panics_on_absurd_fee_rate() {
+    fn finalize_does_not_panic_on_absurd_fee_rate() {
         // 0.034 BTC = 3,400,000 sats => ~25k sat/vbyte fee rate on a 132 vbyte tx
-        let drt_value = DEPOSIT_AMOUNT + Amount::from_int_btc(10);
-        let _ = make_deposit_tx(drt_value).finalize(dummy_sig());
+        let drt_value = DEPOSIT_AMOUNT + Amount::from_sat(3_400_000);
+        let tx = make_deposit_tx(drt_value).finalize(dummy_sig());
+
+        assert_eq!(
+            tx.input.len(),
+            DepositTx::N_INPUTS,
+            "finalized deposit tx must carry exactly one input",
+        );
+        assert_eq!(
+            tx.output[DepositTx::DEPOSIT_VOUT as usize].value,
+            DEPOSIT_AMOUNT,
+            "finalized deposit tx's connector output must carry deposit_amount",
+        );
     }
 }

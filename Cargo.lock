@@ -11363,6 +11363,7 @@ dependencies = [
  "strata-bridge-test-utils",
  "strata-l1-txfmt",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
