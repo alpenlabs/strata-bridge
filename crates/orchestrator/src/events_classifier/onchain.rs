@@ -131,6 +131,13 @@ fn try_register_deposit(
     tx: &Transaction,
     height: BitcoinBlockHeight,
 ) -> Result<Vec<UnifiedDuty>, ProcessError> {
+    // Cheapest filter first: skip the ~99% of block transactions that don't carry our SPS-50
+    // envelope. Subsequent gates allocate (snapshot) or parse the full DRT, so we want to
+    // avoid them on non-DRT traffic.
+    if !drt::is_our_drt_envelope(tx, deposit_cfg) {
+        return Ok(Vec::new());
+    }
+
     // Activation rule: before any DSM / GSM may become active, one stake state machine must exist
     // for every configured operator and all of them must have reached `Confirmed` or higher.
     if !applicator
@@ -157,9 +164,8 @@ fn try_register_deposit(
         unstaking_images,
     } = snapshot;
 
-    let valid = match drt::validate(tx, deposit_cfg, &active_operator_table) {
+    let valid = match drt::validate_candidate(tx, deposit_cfg, &active_operator_table) {
         Ok(valid) => valid,
-        Err(drt::ValidationError::NotOurEnvelope) => return Ok(Vec::new()),
         Err(err) => {
             warn!(%err, txid=%tx.compute_txid(), "rejecting DRT candidate");
             return Ok(Vec::new());
@@ -440,11 +446,18 @@ mod tests {
             try_register_deposit(&cfg, &operator_table, &mut applicator, &tx, TEST_HEIGHT).unwrap();
         let (_, tracker) = applicator.finish();
 
-        assert!(duties.is_empty());
-        assert_eq!(registry.num_deposits(), 0);
+        assert!(
+            duties.is_empty(),
+            "stake-readiness gate must not emit duties",
+        );
+        assert_eq!(
+            registry.num_deposits(),
+            0,
+            "stake-readiness gate must not register a DSM",
+        );
         assert!(
             tracker.into_batches().is_empty(),
-            "stake-readiness gate must not record any SMs"
+            "stake-readiness gate must not record any SMs",
         );
     }
 
@@ -455,7 +468,7 @@ mod tests {
         let mut registry = test_populated_registry(0);
         confirm_all_stakes(&mut registry, &operator_table);
 
-        // A random transaction makes `validate_drt` return `NotOurEnvelope`.
+        // A random transaction fails the envelope pre-filter inside try_register_deposit.
         let random_tx = Transaction {
             version: transaction::Version::TWO,
             lock_time: absolute::LockTime::ZERO,
@@ -474,8 +487,15 @@ mod tests {
         .unwrap();
         let _ = applicator.finish();
 
-        assert!(duties.is_empty());
-        assert_eq!(registry.num_deposits(), 0);
+        assert!(
+            duties.is_empty(),
+            "validate-rejected DRT must not emit duties",
+        );
+        assert_eq!(
+            registry.num_deposits(),
+            0,
+            "validate-rejected DRT must not register a DSM",
+        );
     }
 
     #[test]

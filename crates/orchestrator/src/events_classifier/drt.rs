@@ -23,15 +23,9 @@ pub(super) struct Valid {
     pub(super) drt_output_amount: Amount,
 }
 
-/// Reason [`validate`] rejected a transaction.
+/// Reason [`validate_candidate`] rejected a transaction.
 #[derive(Debug, Error)]
 pub(super) enum ValidationError {
-    /// Transaction is not addressed to this bridge: missing SPS-50 OP_RETURN, or the magic /
-    /// subprotocol id / tx type do not identify it as a Bridge-v1 DRT for `cfg.magic_bytes`.
-    /// Expected for the vast majority of block transactions and not worth surfacing as an
-    /// error to the operator.
-    #[error("transaction is not a DRT for this bridge")]
-    NotOurEnvelope,
     /// SPS-50 envelope identified the tx as our DRT, but the structural parse failed.
     #[error("DRT is structurally invalid: {0}")]
     Structure(#[source] TxStructureError),
@@ -49,25 +43,27 @@ pub(super) enum ValidationError {
     LockingScriptMismatch,
 }
 
-/// Validates that `tx` is a well-formed DRT for the bridge with the given `cfg` and active
-/// operator set, and returns the parts a `DepositSM` needs.
+/// Returns `true` iff `tx`'s SPS-50 envelope identifies it as a Bridge-v1 deposit request for
+/// the bridge configured by `cfg`.
+pub(super) fn is_our_drt_envelope(tx: &Transaction, cfg: &DepositSMCfg) -> bool {
+    let Ok((magic, tag)) = extract_tx_magic_and_tag(tx) else {
+        return false;
+    };
+    magic == cfg.magic_bytes
+        && tag.subproto_id() == BRIDGE_V1_SUBPROTOCOL_ID
+        && tag.tx_type() == BridgeTxType::DepositRequest as u8
+}
+
+/// Validates a candidate DRT against the bridge configuration and active operator set, and
+/// returns the parts a `DepositSM` needs.
 ///
-/// Pure: no registry or applicator access.
-pub(super) fn validate(
+/// The caller must have already verified the SPS-50 envelope via [`is_our_drt_envelope`];
+/// passing a tx that fails the envelope check yields [`ValidationError::Structure`].
+pub(super) fn validate_candidate(
     tx: &Transaction,
     cfg: &DepositSMCfg,
     active_operator_table: &OperatorTable,
 ) -> Result<Valid, ValidationError> {
-    let Ok((magic, tag)) = extract_tx_magic_and_tag(tx) else {
-        return Err(ValidationError::NotOurEnvelope);
-    };
-    if magic != cfg.magic_bytes
-        || tag.subproto_id() != BRIDGE_V1_SUBPROTOCOL_ID
-        || tag.tx_type() != BridgeTxType::DepositRequest as u8
-    {
-        return Err(ValidationError::NotOurEnvelope);
-    }
-
     let drt_info = parse_drt(tx).map_err(ValidationError::Structure)?;
 
     let recovery_pk_bytes = drt_info.header_aux().recovery_pk();
@@ -116,24 +112,22 @@ mod tests {
         DrtBuilder, N_TEST_OPERATORS, TEST_POV_IDX, test_deposit_sm_cfg, test_operator_table,
     };
 
+    // ===== is_our_drt_envelope tests =====
+
     #[test]
-    fn accepts_aligned_drt() {
+    fn envelope_accepts_aligned_drt() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
-        let builder = DrtBuilder::aligned(&operator_table, &cfg);
-        let expected_pk = XOnlyPublicKey::from_slice(&builder.recovery_pk_in_aux).unwrap();
-        let expected_value = builder.output_value;
+        let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
-        let valid =
-            validate(&builder.build(), &cfg, &operator_table).expect("aligned DRT must validate");
-
-        assert_eq!(valid.depositor_pubkey, expected_pk);
-        assert_eq!(valid.drt_output_amount, expected_value);
+        assert!(
+            is_our_drt_envelope(&tx, &cfg),
+            "aligned DRT envelope must classify as ours",
+        );
     }
 
     #[test]
-    fn rejects_tx_without_sps50_envelope() {
-        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+    fn envelope_rejects_tx_without_sps50() {
         let cfg = test_deposit_sm_cfg();
         let tx = Transaction {
             version: transaction::Version::TWO,
@@ -142,15 +136,14 @@ mod tests {
             output: vec![],
         };
 
-        assert!(matches!(
-            validate(&tx, &cfg, &operator_table),
-            Err(ValidationError::NotOurEnvelope)
-        ));
+        assert!(
+            !is_our_drt_envelope(&tx, &cfg),
+            "tx without an OP_RETURN must not classify as ours",
+        );
     }
 
     #[test]
-    fn rejects_non_op_return_first_output() {
-        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+    fn envelope_rejects_non_op_return_first_output() {
         let cfg = test_deposit_sm_cfg();
         let tx = Transaction {
             version: transaction::Version::TWO,
@@ -162,53 +155,76 @@ mod tests {
             }],
         };
 
-        assert!(matches!(
-            validate(&tx, &cfg, &operator_table),
-            Err(ValidationError::NotOurEnvelope)
-        ));
+        assert!(
+            !is_our_drt_envelope(&tx, &cfg),
+            "tx whose output 0 is not OP_RETURN must not classify as ours",
+        );
     }
 
     #[test]
-    fn rejects_wrong_magic() {
+    fn envelope_rejects_wrong_magic() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
         let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
         builder.magic = MagicBytes::new(*b"XXXX");
 
-        assert!(matches!(
-            validate(&builder.build(), &cfg, &operator_table),
-            Err(ValidationError::NotOurEnvelope)
-        ));
+        assert!(
+            !is_our_drt_envelope(&builder.build(), &cfg),
+            "tx with mismatched magic bytes must not classify as ours",
+        );
     }
 
     #[test]
-    fn rejects_wrong_subproto() {
+    fn envelope_rejects_wrong_subproto() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
         let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
         builder.subproto_id = BRIDGE_V1_SUBPROTOCOL_ID.wrapping_add(1);
 
-        assert!(matches!(
-            validate(&builder.build(), &cfg, &operator_table),
-            Err(ValidationError::NotOurEnvelope)
-        ));
+        assert!(
+            !is_our_drt_envelope(&builder.build(), &cfg),
+            "tx with a non-Bridge-v1 subprotocol id must not classify as ours",
+        );
     }
 
     #[test]
-    fn rejects_wrong_tx_type() {
+    fn envelope_rejects_wrong_tx_type() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
         let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
         builder.tx_type = BridgeTxType::Deposit as u8;
 
-        assert!(matches!(
-            validate(&builder.build(), &cfg, &operator_table),
-            Err(ValidationError::NotOurEnvelope)
-        ));
+        assert!(
+            !is_our_drt_envelope(&builder.build(), &cfg),
+            "non-DepositRequest Bridge-v1 tx type must not classify as our DRT",
+        );
+    }
+
+    // ===== validate_candidate tests =====
+
+    #[test]
+    fn candidate_accepts_aligned_drt() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let builder = DrtBuilder::aligned(&operator_table, &cfg);
+        let expected_pk = XOnlyPublicKey::from_slice(&builder.recovery_pk_in_aux).unwrap();
+        let expected_value = builder.output_value;
+
+        let valid = validate_candidate(&builder.build(), &cfg, &operator_table)
+            .expect("aligned DRT must validate");
+
+        assert_eq!(
+            valid.depositor_pubkey, expected_pk,
+            "validator must return the recovery pubkey from aux",
+        );
+        assert_eq!(
+            valid.drt_output_amount, expected_value,
+            "validator must return the output-1 amount",
+        );
     }
 
     #[test]
-    fn rejects_malformed_aux() {
+    fn candidate_rejects_malformed_aux() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
 
@@ -233,14 +249,17 @@ mod tests {
             }],
         };
 
-        assert!(matches!(
-            validate(&tx, &cfg, &operator_table),
-            Err(ValidationError::Structure(_))
-        ));
+        assert!(
+            matches!(
+                validate_candidate(&tx, &cfg, &operator_table),
+                Err(ValidationError::Structure(_)),
+            ),
+            "under-32-byte aux must surface as Structure error",
+        );
     }
 
     #[test]
-    fn rejects_invalid_recovery_pubkey() {
+    fn candidate_rejects_invalid_recovery_pubkey() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
         let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
@@ -248,14 +267,17 @@ mod tests {
         builder.recovery_pk_in_aux = [0u8; 32];
         builder.recovery_pk_in_script = [0u8; 32];
 
-        assert!(matches!(
-            validate(&builder.build(), &cfg, &operator_table),
-            Err(ValidationError::InvalidRecoveryPubkey(_))
-        ));
+        assert!(
+            matches!(
+                validate_candidate(&builder.build(), &cfg, &operator_table),
+                Err(ValidationError::InvalidRecoveryPubkey(_)),
+            ),
+            "32 zero bytes must surface as InvalidRecoveryPubkey",
+        );
     }
 
     #[test]
-    fn rejects_output_value_below_required() {
+    fn candidate_rejects_output_value_below_required() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
         let required = DepositTx::drt_required(cfg.deposit_amount);
@@ -263,56 +285,74 @@ mod tests {
         let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
         builder.output_value = actual;
 
-        let err = validate(&builder.build(), &cfg, &operator_table).unwrap_err();
+        let err = validate_candidate(&builder.build(), &cfg, &operator_table).unwrap_err();
         match err {
             ValidationError::OutputValueBelowRequired {
                 actual: got_actual,
                 required: got_required,
             } => {
-                assert_eq!(got_actual, actual);
-                assert_eq!(got_required, required);
+                assert_eq!(
+                    got_actual, actual,
+                    "error must echo the actual DRT output value",
+                );
+                assert_eq!(
+                    got_required, required,
+                    "error must echo the required (deposit_amount + deposit_fee) value",
+                );
             }
             other => panic!("expected OutputValueBelowRequired, got {other:?}"),
         }
     }
 
     #[test]
-    fn rejects_mismatched_recovery_pk_in_script() {
+    fn candidate_rejects_mismatched_recovery_pk_in_script() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
         let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
         builder.recovery_pk_in_script = generate_xonly_pubkey().serialize();
-        assert_ne!(builder.recovery_pk_in_aux, builder.recovery_pk_in_script);
+        assert_ne!(
+            builder.recovery_pk_in_aux, builder.recovery_pk_in_script,
+            "test must mutate the script's recovery pk away from the aux's",
+        );
 
-        assert!(matches!(
-            validate(&builder.build(), &cfg, &operator_table),
-            Err(ValidationError::LockingScriptMismatch)
-        ));
+        assert!(
+            matches!(
+                validate_candidate(&builder.build(), &cfg, &operator_table),
+                Err(ValidationError::LockingScriptMismatch),
+            ),
+            "recovery pk encoded in the takeback tapscript must match aux",
+        );
     }
 
     #[test]
-    fn rejects_mismatched_internal_key() {
+    fn candidate_rejects_mismatched_internal_key() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
         let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
         builder.n_of_n_in_script = generate_xonly_pubkey();
 
-        assert!(matches!(
-            validate(&builder.build(), &cfg, &operator_table),
-            Err(ValidationError::LockingScriptMismatch)
-        ));
+        assert!(
+            matches!(
+                validate_candidate(&builder.build(), &cfg, &operator_table),
+                Err(ValidationError::LockingScriptMismatch),
+            ),
+            "P2TR internal key must match the active N-of-N aggregated key",
+        );
     }
 
     #[test]
-    fn rejects_mismatched_recovery_delay() {
+    fn candidate_rejects_mismatched_recovery_delay() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
         let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
         builder.recovery_delay_in_script = cfg.recovery_delay.wrapping_add(1);
 
-        assert!(matches!(
-            validate(&builder.build(), &cfg, &operator_table),
-            Err(ValidationError::LockingScriptMismatch)
-        ));
+        assert!(
+            matches!(
+                validate_candidate(&builder.build(), &cfg, &operator_table),
+                Err(ValidationError::LockingScriptMismatch),
+            ),
+            "tapscript CSV delay must match the bridge's configured recovery_delay",
+        );
     }
 }
