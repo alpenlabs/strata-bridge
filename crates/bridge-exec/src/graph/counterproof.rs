@@ -1,5 +1,7 @@
 //! Executor for the counterproof transaction.
 
+use std::num::NonZero;
+
 use bitcoin::{Transaction, consensus};
 use bitcoind_async_client::{error::ClientError, traits::Reader};
 use btc_tracker::event::TxStatus;
@@ -27,16 +29,23 @@ pub(super) async fn generate_and_publish_counterproof(
     counterproof_tx: CounterproofTx,
     operator_idx: OperatorIdx,
     deposit_idx: DepositIdx,
+    game_index: NonZero<u32>,
     n_of_n_signature: Signature,
     bridge_proof_tx: Transaction,
 ) -> Result<(), ExecutorError> {
-    info!(%deposit_idx, %operator_idx, "generating and publishing counterproof for graph");
+    info!(%deposit_idx, %operator_idx, %game_index, "generating and publishing counterproof for graph");
 
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-1981>
     // garble the receipt's proof into the wire-input representation.
     // Using mock counterproof data until that conversion is wired in.
-    let _receipt =
-        generate_counterproof(output_handles, deposit_idx, operator_idx, bridge_proof_tx).await?;
+    let _receipt = generate_counterproof(
+        output_handles,
+        deposit_idx,
+        operator_idx,
+        game_index,
+        bridge_proof_tx,
+    )
+    .await?;
     let counterproof_data = G16ProofRaw([0u8; N_WITHDRAWAL_INPUT_WIRES]);
 
     // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
@@ -77,11 +86,17 @@ async fn generate_counterproof(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
+    game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
 ) -> Result<ProofReceipt, ExecutorError> {
-    let proof_input =
-        fetch_counterproof_input(output_handles, deposit_idx, operator_idx, bridge_proof_tx)
-            .await?;
+    let proof_input = fetch_counterproof_input(
+        output_handles,
+        deposit_idx,
+        operator_idx,
+        game_index,
+        bridge_proof_tx,
+    )
+    .await?;
 
     info!(%deposit_idx, %operator_idx, "generating counterproof for graph");
     let prove_start = std::time::Instant::now();
@@ -104,12 +119,10 @@ async fn fetch_counterproof_input(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
+    game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
 ) -> Result<CounterproofInput, ExecutorError> {
-    info!(%deposit_idx, %operator_idx, "fetching counterproof inputs for graph");
-
-    // v1: game index is `deposit_idx + 1`
-    let game_idx = deposit_idx + 1;
+    info!(%deposit_idx, %operator_idx, %game_index, "fetching counterproof inputs for graph");
 
     let operator_pubkey = output_handles
         .operator_table
@@ -141,7 +154,7 @@ async fn fetch_counterproof_input(
     }
 
     Ok(CounterproofInput {
-        game_idx,
+        game_idx: game_index.get(),
         operator_pubkey,
         bridge_proof_tx: RawBitcoinTx::from_raw_bytes(consensus::serialize(&bridge_proof_tx)),
         bridge_proof_tx_prevouts,
