@@ -149,7 +149,6 @@ pub async fn execute_graph_duty(
         GraphDuty::GenerateAndPublishCounterProof {
             graph_idx,
             counterproof_tx,
-            watchtower_idx,
             n_of_n_signature,
             bridge_proof_tx,
             ..
@@ -159,7 +158,6 @@ pub async fn execute_graph_duty(
                 counterproof_tx.clone(),
                 graph_idx.operator,
                 graph_idx.deposit,
-                *watchtower_idx,
                 *n_of_n_signature,
                 bridge_proof_tx.clone(),
             )

@@ -27,13 +27,10 @@ pub(super) async fn generate_and_publish_counterproof(
     counterproof_tx: CounterproofTx,
     operator_idx: OperatorIdx,
     deposit_idx: DepositIdx,
-    // Will be wired in once mock counterproof data below is replaced with the real
-    // proof-to-counterproof conversion.
-    _watchtower_idx: OperatorIdx,
     n_of_n_signature: Signature,
     bridge_proof_tx: Transaction,
 ) -> Result<(), ExecutorError> {
-    info!(%deposit_idx, %operator_idx, "generating and publishing counterproof transaction");
+    info!(%deposit_idx, %operator_idx, "generating and publishing counterproof for graph");
 
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-1981>
     // garble the receipt's proof into the wire-input representation.
@@ -43,7 +40,7 @@ pub(super) async fn generate_and_publish_counterproof(
     let counterproof_data = G16ProofRaw([0u8; N_WITHDRAWAL_INPUT_WIRES]);
 
     // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
-    info!(%deposit_idx, %operator_idx, "completing adaptor signatures via mosaic");
+    info!(%deposit_idx, %operator_idx, "completing adaptor signatures via mosaic for graph");
     let completed_sigs = output_handles
         .mosaic_client
         .complete_adaptor_sigs(operator_idx, deposit_idx, counterproof_data)
@@ -57,7 +54,7 @@ pub(super) async fn generate_and_publish_counterproof(
     // data (n_data = N_DEPOSIT + N_WITHDRAWAL wires), so we need ALL completed adaptor sigs.
     let operator_signatures = completed_sigs.to_vec();
 
-    info!(%deposit_idx, %operator_idx, "signing and publishing counterproof transaction");
+    info!(%deposit_idx, %operator_idx, "signing and publishing counterproof tx for graph");
 
     // Assemble witness and finalize.
     let witness = ContestCounterproofWitness {
@@ -86,7 +83,7 @@ async fn generate_counterproof(
         fetch_counterproof_input(output_handles, deposit_idx, operator_idx, bridge_proof_tx)
             .await?;
 
-    info!(%deposit_idx, %operator_idx, "generating counterproof");
+    info!(%deposit_idx, %operator_idx, "generating counterproof for graph");
     let prove_start = std::time::Instant::now();
     let receipt =
         prove::<CounterproofProgram, _>(proof_input, output_handles.counterproof_host.clone())
@@ -95,7 +92,7 @@ async fn generate_counterproof(
         %deposit_idx,
         %operator_idx,
         elapsed = ?prove_start.elapsed(),
-        "counterproof generated",
+        "counterproof generated for graph",
     );
 
     Ok(receipt)
@@ -109,7 +106,7 @@ async fn fetch_counterproof_input(
     operator_idx: OperatorIdx,
     bridge_proof_tx: Transaction,
 ) -> Result<CounterproofInput, ExecutorError> {
-    info!(%deposit_idx, %operator_idx, "fetching counterproof inputs");
+    info!(%deposit_idx, %operator_idx, "fetching counterproof inputs for graph");
 
     // v1: game index is `deposit_idx + 1`
     let game_idx = deposit_idx + 1;

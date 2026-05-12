@@ -457,7 +457,6 @@ mod tests {
         GraphDuty::GenerateAndPublishCounterProof {
             graph_idx: sm.context().graph_idx(),
             counterproof_tx: counterproof_graph.counterproof.clone(),
-            watchtower_idx: watchtower_idx as OperatorIdx,
             n_of_n_signature,
             proof: proof.clone(),
             bridge_proof_tx: bridge_proof_tx.clone(),
