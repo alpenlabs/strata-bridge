@@ -413,9 +413,22 @@ async fn fulfill_withdrawal(
         .estimate_smart_fee(1)
         .await
         .map_err(|e| ExecutorError::WalletErr(format!("failed to estimate fee: {e}")))?;
+    info!(%fee_rate, "estimated fee rate for withdrawal fulfillment");
+
     let fee_rate = FeeRate::from_sat_per_vb(fee_rate)
         .unwrap_or(fee::FEE_RATE)
         .max(fee::FEE_RATE);
+
+    // The following approach trades off maximal liveness for maximal safety:
+    // It is not safe to broadcast at a lower fee rate when the network fee rate is high as there is
+    // a chance that the fulfillment transaction will be settled after a reassignment, causing an
+    // operator to lose funds. The safest approach is to abort.
+    if fee_rate > cfg.maximum_fee_rate {
+        return Err(ExecutorError::FeeRateTooHigh {
+            fee_rate,
+            max: cfg.maximum_fee_rate,
+        });
+    }
 
     // Check if fee rate exceeds maximum configured rate
     if fee_rate > cfg.maximum_fee_rate {

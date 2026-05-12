@@ -103,6 +103,7 @@ async fn create_stake_funding_tx(
         .bitcoind_rpc_client
         .estimate_smart_fee(1)
         .await?;
+    info!(%fee_rate, "fetched fee rate from bitcoind");
 
     // Bound the rate from below by `fee::FEE_RATE` so this v3 (TRUC) funding transaction
     // always meets the bridge's hardcoded minimum, even on networks like signet where
@@ -110,6 +111,13 @@ async fn create_stake_funding_tx(
     let fee_rate = FeeRate::from_sat_per_vb(fee_rate)
         .unwrap_or(fee::FEE_RATE)
         .max(fee::FEE_RATE);
+
+    if fee_rate > cfg.maximum_fee_rate {
+        return Err(ExecutorError::FeeRateTooHigh {
+            fee_rate,
+            max: cfg.maximum_fee_rate,
+        });
+    }
 
     let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
 

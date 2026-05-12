@@ -1,7 +1,7 @@
 //! Error types for the bridge-exec executors.
 
 use bdk_wallet::error::CreateTxError;
-use bitcoin::Txid;
+use bitcoin::{FeeRate, Txid};
 use foundationdb::FdbBindingError;
 use strata_bridge_db::fdb::errors::LayerError;
 use terrors::OneOf;
@@ -69,6 +69,15 @@ pub enum ExecutorError {
     /// A transaction or its template violates a protocol invariant
     #[error("invalid transaction structure: {0}")]
     InvalidTxStructure(String),
+
+    /// The fee rate estimated for a transaction exceeds the maximum allowed by the configuration.
+    #[error("fee rate {fee_rate} exceeds maximum of {max}")]
+    FeeRateTooHigh {
+        /// The fee rate that was estimated for the transaction.
+        fee_rate: FeeRate,
+        /// The maximum fee rate allowed by the configuration.
+        max: FeeRate,
+    },
 }
 
 impl From<OneOf<(FdbBindingError, LayerError)>> for ExecutorError {

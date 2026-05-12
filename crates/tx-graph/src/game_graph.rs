@@ -987,11 +987,34 @@ mod tests {
             assert_eq!(child.version, Version(3));
             let slash = game.slash.finalize(presigned.slash);
             assert_eq!(slash.version, Version(3));
-            let package = [slash, child];
+            let package = [slash.clone(), child];
 
             node.submit_package_invalid(&package);
             node.mine_blocks(1);
             node.submit_package(&package);
+
+            let total_output_amount: Amount = slash.output.iter().map(|o| o.value).sum();
+            let total_input_amount: Amount = slash
+                .input
+                .iter()
+                .map(|i| {
+                    let outpoint = i.previous_output;
+                    let tx = node
+                        .client()
+                        .get_raw_transaction(outpoint.txid)
+                        .unwrap()
+                        .transaction()
+                        .unwrap();
+                    tx.output[outpoint.vout as usize].value
+                })
+                .sum();
+            let slash_fee = total_input_amount - total_output_amount;
+            let slash_fee_rate = slash_fee.to_sat().div_ceil(slash.vsize() as u64);
+
+            assert!(
+                slash_fee_rate >= crate::fee::FEE_RATE_SAT_PER_VB,
+                "slash fee must be greater than or equal to the minimum fee rate"
+            );
 
             return;
         };
