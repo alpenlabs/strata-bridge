@@ -149,3 +149,54 @@ impl AsRef<Transaction> for DepositTx {
         &self.psbt.unsigned_tx
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{relative, Network};
+    use secp256k1::Keypair;
+    use strata_bridge_test_utils::bitcoin::generate_keypair;
+
+    use super::*;
+
+    const DEPOSIT_AMOUNT: Amount = Amount::from_int_btc(10);
+    const RECOVERY_DELAY: u16 = 1_008;
+
+    fn dummy_sig() -> schnorr::Signature {
+        schnorr::Signature::from_slice(&[0xAA; 64]).expect("64 bytes is a valid sig length")
+    }
+
+    fn make_deposit_tx(drt_value: Amount) -> DepositTx {
+        let n_of_n: Keypair = generate_keypair();
+        let depositor: Keypair = generate_keypair();
+        let deposit_request = DepositRequestConnector::new(
+            Network::Regtest,
+            n_of_n.x_only_public_key().0,
+            depositor.x_only_public_key().0,
+            relative::Height::from_height(RECOVERY_DELAY),
+            drt_value,
+        );
+        let deposit_connector = NOfNConnector::new(
+            Network::Regtest,
+            n_of_n.x_only_public_key().0,
+            DEPOSIT_AMOUNT,
+        );
+        let data = DepositData {
+            deposit_idx: 0,
+            deposit_request_outpoint: OutPoint::null(),
+            magic_bytes: (*b"ALPN").into(),
+        };
+        DepositTx::new(data, deposit_connector, deposit_request)
+    }
+
+    // Regression test for STR-3430: a depositor-controlled DRT amount large enough to push the
+    // deposit-tx fee rate above `Psbt::DEFAULT_MAX_FEE_RATE` (25 ksat/vb) currently crashes
+    // `finalize` via the `expect` on `Psbt::extract_tx`. The `should_panic` arm locks in that
+    // buggy behavior; removing it (and the panic) is the actual fix.
+    #[test]
+    #[should_panic(expected = "should be able to extract tx")]
+    fn finalize_panics_on_absurd_fee_rate() {
+        // 0.034 BTC = 3,400,000 sats => ~25k sat/vbyte fee rate on a 132 vbyte tx
+        let drt_value = DEPOSIT_AMOUNT + Amount::from_int_btc(10);
+        let _ = make_deposit_tx(drt_value).finalize(dummy_sig());
+    }
+}
