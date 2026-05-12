@@ -229,9 +229,6 @@ pub enum GraphDuty {
         /// The unsigned counterproof transaction to publish.
         counterproof_tx: CounterproofTx,
 
-        /// The watchtower slot for the counterproof.
-        watchtower_idx: OperatorIdx,
-
         /// Pre-computed aggregated N-of-N signature for the counterproof input.
         n_of_n_signature: Signature,
 

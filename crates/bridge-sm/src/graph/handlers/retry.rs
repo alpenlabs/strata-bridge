@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bitcoin::Transaction;
 use musig2::secp256k1::schnorr::Signature;
-use strata_bridge_primitives::{proof::verify_bridge_proof, types::OperatorIdx};
+use strata_bridge_primitives::proof::verify_bridge_proof;
 use strata_bridge_tx_graph::{
     game_graph::{DepositParams, GameConnectors},
     musig_functor::GameFunctor,
@@ -260,7 +260,6 @@ impl GraphSM {
         Ok(GraphDuty::GenerateAndPublishCounterProof {
             graph_idx: self.context().graph_idx(),
             counterproof_tx: counterproof_graph.counterproof.clone(),
-            watchtower_idx: watchtower_idx as OperatorIdx,
             n_of_n_signature,
             proof: proof.clone(),
             bridge_proof_tx: bridge_proof_tx.clone(),
