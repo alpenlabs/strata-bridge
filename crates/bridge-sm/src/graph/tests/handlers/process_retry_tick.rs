@@ -420,19 +420,21 @@ mod tests {
         sm: &GraphSM,
         state: &GraphState,
     ) -> GraphDuty {
-        let (graph_data, signatures, proof) = match state {
+        let (graph_data, signatures, proof, bridge_proof_tx) = match state {
             GraphState::BridgeProofPosted {
                 graph_data,
                 signatures,
                 proof,
+                bridge_proof_tx,
                 ..
-            } => (graph_data, signatures, proof),
+            } => (graph_data, signatures, proof, bridge_proof_tx),
             GraphState::CounterProofPosted {
                 graph_data,
                 signatures,
                 refuted_proof: Some(proof),
+                refuted_bridge_proof_tx: Some(bridge_proof_tx),
                 ..
-            } => (graph_data, signatures, proof),
+            } => (graph_data, signatures, proof, bridge_proof_tx),
             _ => panic!(
                 "expected BridgeProofPosted or CounterProofPosted with refuted_proof present"
             ),
@@ -458,6 +460,7 @@ mod tests {
             watchtower_idx: watchtower_idx as OperatorIdx,
             n_of_n_signature,
             proof: proof.clone(),
+            bridge_proof_tx: bridge_proof_tx.clone(),
         }
     }
 

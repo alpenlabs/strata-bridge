@@ -81,6 +81,7 @@ fn counter_proof_posted_state_with_nacks(nacked_idxs: &[u32]) -> GraphState {
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         refuted_proof: None,
+        refuted_bridge_proof_tx: None,
         counterproofs_and_confs: BTreeMap::from([
             (
                 TEST_NONPOV_IDX,
@@ -124,6 +125,7 @@ fn first_nack_stays_in_counter_proof_posted() {
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
             contest_block_height: LATER_BLOCK_HEIGHT,
             refuted_proof: None,
+            refuted_bridge_proof_tx: None,
             counterproofs_and_confs: BTreeMap::from([
                 (
                     TEST_NONPOV_IDX,
@@ -270,6 +272,7 @@ fn event_rejected_when_tx_is_counterproof_ack() {
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         refuted_proof: None,
+        refuted_bridge_proof_tx: None,
         counterproofs_and_confs: BTreeMap::from([
             (
                 TEST_NONPOV_IDX,

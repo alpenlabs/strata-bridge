@@ -1,7 +1,7 @@
 //! Unit Tests for process_payout transitions.
 #[cfg(test)]
 mod tests {
-    use strata_bridge_test_utils::bitcoin::generate_txid;
+    use strata_bridge_test_utils::bitcoin::{generate_tx, generate_txid};
 
     use crate::graph::{
         errors::GSMError,
@@ -100,7 +100,7 @@ mod tests {
                 signatures: Default::default(),
                 fulfillment_txid: Some(generate_txid()),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                bridge_proof_txid: generate_txid(),
+                bridge_proof_tx: generate_tx(1, 1),
                 bridge_proof_block_height: LATER_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
             },

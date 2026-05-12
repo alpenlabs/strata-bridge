@@ -57,6 +57,7 @@ impl GraphSM {
                     fulfillment_txid,
                     contest_block_height,
                     refuted_proof: None,
+                    refuted_bridge_proof_tx: None,
                     counterproofs_and_confs,
                     counterproof_nacks: BTreeMap::new(),
                 };
@@ -71,6 +72,7 @@ impl GraphSM {
                 fulfillment_txid,
                 contest_block_height,
                 proof,
+                bridge_proof_tx,
                 ..
             } => {
                 let (nack_duties, completed_signatures) =
@@ -94,6 +96,7 @@ impl GraphSM {
                     fulfillment_txid,
                     contest_block_height,
                     refuted_proof: Some(proof),
+                    refuted_bridge_proof_tx: Some(bridge_proof_tx),
                     counterproofs_and_confs,
                     counterproof_nacks: BTreeMap::new(),
                 };
@@ -108,6 +111,7 @@ impl GraphSM {
                 fulfillment_txid,
                 contest_block_height,
                 refuted_proof,
+                refuted_bridge_proof_tx,
                 counterproof_nacks,
                 ..
             } => {
@@ -135,6 +139,7 @@ impl GraphSM {
                     fulfillment_txid,
                     contest_block_height,
                     refuted_proof,
+                    refuted_bridge_proof_tx,
                     counterproofs_and_confs,
                     counterproof_nacks,
                 };

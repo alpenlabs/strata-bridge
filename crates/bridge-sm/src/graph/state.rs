@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeMap, fmt::Display};
 
-use bitcoin::Txid;
+use bitcoin::{Transaction, Txid};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 use serde::{Deserialize, Serialize};
@@ -230,8 +230,8 @@ pub enum GraphState {
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
-        /// The txid of the bridge proof transaction submitted on chain.
-        bridge_proof_txid: Txid,
+        /// The bridge proof transaction submitted on chain.
+        bridge_proof_tx: Transaction,
 
         /// The block height at which the bridge proof transaction was confirmed.
         bridge_proof_block_height: BitcoinBlockHeight,
@@ -291,6 +291,10 @@ pub enum GraphState {
 
         /// The bridge proof currently being refuted, if one has been posted.
         refuted_proof: Option<ProofReceipt>,
+
+        /// The bridge proof transaction currently being refuted, if one has been posted.
+        /// Always `Some` exactly when [`Self::CounterProofPosted::refuted_proof`] is `Some`.
+        refuted_bridge_proof_tx: Option<Transaction>,
 
         /// Per-counterprover record of confirmed counterproofs.
         counterproofs_and_confs: BTreeMap<OperatorIdx, CounterproofData>,
