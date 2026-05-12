@@ -172,8 +172,7 @@ fn accepts_bridge_proof_posted_after_counterproof() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                refuted_proof: Some(dummy_proof_receipt()),
-                refuted_bridge_proof_tx: Some(event_tx),
+                refuted_bridge_proof: Some((event_tx, dummy_proof_receipt())),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
             },
@@ -212,8 +211,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
         signatures: signatures.clone(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
-        refuted_proof: None,
-        refuted_bridge_proof_tx: None,
+        refuted_bridge_proof: None,
         counterproofs_and_confs: Default::default(),
         counterproof_nacks: Default::default(),
     };
@@ -232,8 +230,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
                 signatures,
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                refuted_proof: Some(dummy_proof_receipt()),
-                refuted_bridge_proof_tx: Some(event.tx.clone()),
+                refuted_bridge_proof: Some((event.tx.clone(), dummy_proof_receipt())),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
             },
@@ -302,8 +299,7 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
         signatures: Default::default(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
-        refuted_proof: None,
-        refuted_bridge_proof_tx: None,
+        refuted_bridge_proof: None,
         counterproofs_and_confs: counterproofs_and_confs.clone(),
         counterproof_nacks: BTreeMap::new(),
     };
@@ -323,8 +319,7 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                refuted_proof: Some(dummy_proof_receipt()),
-                refuted_bridge_proof_tx: Some(event_tx),
+                refuted_bridge_proof: Some((event_tx, dummy_proof_receipt())),
                 counterproofs_and_confs,
                 counterproof_nacks: BTreeMap::new(),
             },
@@ -354,8 +349,7 @@ fn pov_skips_counterproof_on_late_invalid_proof() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                refuted_proof: Some(dummy_proof_receipt()),
-                refuted_bridge_proof_tx: Some(event_tx),
+                refuted_bridge_proof: Some((event_tx, dummy_proof_receipt())),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
             },
@@ -480,8 +474,7 @@ fn counter_proof_posted_without_refuted_proof_state_with_timeout_txid(
         signatures: Default::default(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
-        refuted_proof: None,
-        refuted_bridge_proof_tx: None,
+        refuted_bridge_proof: None,
         counterproofs_and_confs: Default::default(),
         counterproof_nacks: Default::default(),
     }
@@ -490,8 +483,8 @@ fn counter_proof_posted_without_refuted_proof_state_with_timeout_txid(
 /// Returns `true` if the state is valid for [`GraphEvent::BridgeProofConfirmed`].
 fn state_is_valid(state: &GraphState) -> bool {
     matches!(state, GraphState::Contested { .. })
-        || matches!(state, GraphState::CounterProofPosted { refuted_proof, .. } if refuted_proof.is_none())
+        || matches!(state, GraphState::CounterProofPosted { refuted_bridge_proof, .. } if refuted_bridge_proof.is_none())
         // Yield Duplicate error, but still valid to receive the event:
         || matches!(state, GraphState::BridgeProofPosted { .. })
-        || matches!(state, GraphState::CounterProofPosted { refuted_proof, .. } if refuted_proof.is_some())
+        || matches!(state, GraphState::CounterProofPosted { refuted_bridge_proof, .. } if refuted_bridge_proof.is_some())
 }

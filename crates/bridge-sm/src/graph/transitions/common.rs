@@ -211,7 +211,7 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
-                refuted_proof,
+                refuted_bridge_proof,
                 counterproofs_and_confs,
                 ..
             } => {
@@ -245,7 +245,7 @@ impl GraphSM {
 
                 // If proof is missing, then we use the absence of a valid fulfillment txid as a
                 // proxy for determining whether a claim is valid.
-                let invalid_claim = refuted_proof.is_none() && fulfillment_txid.is_none();
+                let invalid_claim = refuted_bridge_proof.is_none() && fulfillment_txid.is_none();
 
                 let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
                 if !is_own_graph

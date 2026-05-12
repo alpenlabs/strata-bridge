@@ -188,12 +188,12 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
-                refuted_proof,
+                refuted_bridge_proof,
                 counterproofs_and_confs,
                 counterproof_nacks,
                 ..
             } => {
-                if refuted_proof.is_some() {
+                if refuted_bridge_proof.is_some() {
                     return Err(GSMError::duplicate(self.state.clone(), event.into()));
                 }
 
@@ -250,8 +250,7 @@ impl GraphSM {
                     signatures,
                     fulfillment_txid,
                     contest_block_height,
-                    refuted_proof: Some(bridge_proof),
-                    refuted_bridge_proof_tx: Some(event.tx.clone()),
+                    refuted_bridge_proof: Some((event.tx.clone(), bridge_proof)),
                     counterproofs_and_confs,
                     counterproof_nacks,
                 };
@@ -306,9 +305,9 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
-                refuted_proof,
+                refuted_bridge_proof,
                 ..
-            } if refuted_proof.is_none() => {
+            } if refuted_bridge_proof.is_none() => {
                 if event.bridge_proof_timeout_txid != graph_summary.bridge_proof_timeout {
                     return Err(GSMError::rejected(
                         self.state.clone(),
@@ -352,8 +351,7 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
-                refuted_proof,
-                refuted_bridge_proof_tx,
+                refuted_bridge_proof,
                 counterproofs_and_confs,
                 mut counterproof_nacks,
             } => {
@@ -412,8 +410,7 @@ impl GraphSM {
                         signatures,
                         fulfillment_txid,
                         contest_block_height,
-                        refuted_proof,
-                        refuted_bridge_proof_tx,
+                        refuted_bridge_proof,
                         counterproofs_and_confs,
                         counterproof_nacks,
                     };

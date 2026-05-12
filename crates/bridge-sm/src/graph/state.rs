@@ -289,12 +289,9 @@ pub enum GraphState {
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
-        /// The bridge proof currently being refuted, if one has been posted.
-        refuted_proof: Option<ProofReceipt>,
-
-        /// The bridge proof transaction currently being refuted, if one has been posted.
-        /// Always `Some` exactly when [`Self::CounterProofPosted::refuted_proof`] is `Some`.
-        refuted_bridge_proof_tx: Option<Transaction>,
+        /// The bridge proof transaction and its receipt currently being refuted, if one has
+        /// been posted.
+        refuted_bridge_proof: Option<(Transaction, ProofReceipt)>,
 
         /// Per-counterprover record of confirmed counterproofs.
         counterproofs_and_confs: BTreeMap<OperatorIdx, CounterproofData>,

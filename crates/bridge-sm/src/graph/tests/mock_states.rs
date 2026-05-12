@@ -203,8 +203,7 @@ pub(super) fn counter_proof_posted_state() -> GraphState {
         signatures: Default::default(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
-        refuted_proof: Some(dummy_proof_receipt()),
-        refuted_bridge_proof_tx: Some(TEST_BRIDGE_PROOF_TX.clone()),
+        refuted_bridge_proof: Some((TEST_BRIDGE_PROOF_TX.clone(), dummy_proof_receipt())),
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
     }
@@ -219,15 +218,14 @@ pub(super) fn counter_proof_posted_without_refuted_proof_state() -> GraphState {
         signatures: Default::default(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
-        refuted_proof: None,
-        refuted_bridge_proof_tx: None,
+        refuted_bridge_proof: None,
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
     }
 }
 
 /// Builds a mock `CounterProofPosted` state with explicit values for
-/// `refuted_proof`, confirmed counterproofs, and counterproof NACKs.
+/// `refuted_bridge_proof`, confirmed counterproofs, and counterproof NACKs.
 ///
 /// Each entry of `counterprover_idxs` is mapped to its real counterproof txid
 /// from the test graph summary so the resulting state mirrors what the SM
@@ -254,7 +252,7 @@ pub(super) fn counter_proof_posted_state_with(
         })
         .collect();
 
-    let refuted_bridge_proof_tx = refuted_proof.as_ref().map(|_| TEST_BRIDGE_PROOF_TX.clone());
+    let refuted_bridge_proof = refuted_proof.map(|proof| (TEST_BRIDGE_PROOF_TX.clone(), proof));
     GraphState::CounterProofPosted {
         last_block_height: LATER_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
@@ -262,8 +260,7 @@ pub(super) fn counter_proof_posted_state_with(
         signatures: Default::default(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
-        refuted_proof,
-        refuted_bridge_proof_tx,
+        refuted_bridge_proof,
         counterproofs_and_confs,
         counterproof_nacks: nacked_idxs
             .iter()

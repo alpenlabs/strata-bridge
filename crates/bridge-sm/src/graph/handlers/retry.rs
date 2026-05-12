@@ -140,8 +140,7 @@ impl GraphSM {
                 graph_data,
                 graph_summary,
                 signatures,
-                refuted_proof,
-                refuted_bridge_proof_tx,
+                refuted_bridge_proof,
                 counterproofs_and_confs,
                 counterproof_nacks,
                 ..
@@ -159,7 +158,7 @@ impl GraphSM {
 
                     let mut duties: Vec<GraphDuty> = Vec::new();
 
-                    if refuted_proof.is_none() {
+                    if refuted_bridge_proof.is_none() {
                         duties.push(GraphDuty::GenerateAndPublishBridgeProof {
                             graph_idx: self.context().graph_idx(),
                             last_block_height: *last_block_height,
@@ -200,8 +199,7 @@ impl GraphSM {
                     // PoV operator is NOT the graph owner: retry counterproof when an
                     // invalid bridge proof exists and PoV operator's counterproof has not
                     // appeared on chain yet.
-                    if let Some(proof) = refuted_proof
-                        && let Some(bridge_proof_tx) = refuted_bridge_proof_tx
+                    if let Some((bridge_proof_tx, proof)) = refuted_bridge_proof
                         && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof)
                         && !counterproofs_and_confs.contains_key(&pov_idx)
                     {
