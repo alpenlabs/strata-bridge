@@ -10,12 +10,12 @@
 
 use std::sync::Arc;
 
-use bitcoin::{Amount, Transaction, hex::DisplayHex, secp256k1::XOnlyPublicKey};
+use bitcoin::{Amount, OutPoint, Transaction, hex::DisplayHex, secp256k1::XOnlyPublicKey};
 use btc_tracker::event::BlockEvent;
 use strata_asm_proto_bridge_v1_txs::{
     BRIDGE_V1_SUBPROTOCOL_ID,
     constants::BridgeTxType,
-    deposit_request::{create_deposit_request_locking_script, parse_drt},
+    deposit_request::{DRT_OUTPUT_INDEX, create_deposit_request_locking_script, parse_drt},
     errors::TxStructureError,
 };
 use strata_bridge_primitives::{
@@ -43,7 +43,7 @@ use strata_bridge_sm::{
 use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::DepositData};
 use strata_l1_txfmt::extract_tx_magic_and_tag;
 use thiserror::Error;
-use tracing::{Level, error, info, warn};
+use tracing::{Level, info, warn};
 
 use crate::{
     applicator::Applicator,
@@ -125,13 +125,6 @@ pub(crate) fn process_block(
 }
 
 /// Successfully validated DRT data needed to construct a [`DepositSM`].
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "wired into try_register_deposit in the next commit"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ValidDrt {
     /// Depositor's x-only recovery pubkey parsed from the SPS-50 aux data.
@@ -141,13 +134,6 @@ struct ValidDrt {
 }
 
 /// Reason [`validate_drt`] rejected a transaction.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "wired into try_register_deposit in the next commit"
-    )
-)]
 #[derive(Debug, Error)]
 enum DrtValidationError {
     /// Transaction is not addressed to this bridge: missing SPS-50 OP_RETURN, or the magic /
@@ -179,13 +165,6 @@ enum DrtValidationError {
 /// Pure: no registry or applicator access. The caller is responsible for ensuring stake
 /// readiness and deriving `active_operator_table` from the active-operator snapshot before
 /// calling.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "wired into try_register_deposit in the next commit"
-    )
-)]
 fn validate_drt(
     tx: &Transaction,
     cfg: &DepositSMCfg,
@@ -242,9 +221,8 @@ fn validate_drt(
 /// [`GraphSM`]s into the registry.
 ///
 /// Returns initial duties emitted by [`GraphSM`] constructors (e.g., `GenerateGraphData`).
-/// Returns `Ok(Vec::new())` if the transaction is not a DRT or if the registry is not yet ready
-/// to accept deposits (either because not all operators have staked, or because this node's own
-/// operator is not active).
+/// Returns `Ok(Vec::new())` if the registry is not yet ready (no stakes confirmed, or this
+/// node's operator is not in the active set) or if [`validate_drt`] rejects the transaction.
 fn try_register_deposit(
     deposit_cfg: &Arc<DepositSMCfg>,
     full_operator_table: &OperatorTable,
@@ -252,22 +230,12 @@ fn try_register_deposit(
     tx: &Transaction,
     height: BitcoinBlockHeight,
 ) -> Result<Vec<UnifiedDuty>, ProcessError> {
-    let Ok(drt_info) = parse_drt(tx) else {
-        return Ok(Vec::new());
-    };
-
-    let drt_txid = tx.compute_txid();
-
-    let span = tracing::span!(Level::INFO, "registering new deposit", drt_txid=%drt_txid);
-    let _entered = span.entered();
-
     // Activation rule: before any DSM / GSM may become active, one stake state machine must exist
     // for every configured operator and all of them must have reached `Confirmed` or higher.
     if !applicator
         .registry()
         .all_operators_have_staked(full_operator_table)
     {
-        warn!("skipping DRT: not all operators have completed staking");
         return Ok(Vec::new());
     }
 
@@ -277,49 +245,9 @@ fn try_register_deposit(
     {
         Ok(snap) => snap,
         Err(err) => {
-            warn!(%err, "skipping DRT: could not derive active operator snapshot");
+            warn!(%err, "skipping DRT check: could not derive active operator snapshot");
             return Ok(Vec::new());
         }
-    };
-    info!(
-        active_operator_count = snapshot.operator_table.operator_idxs().len(),
-        "passed stake-readiness gate; registering DSM / GSMs from active operator snapshot"
-    );
-
-    let depositor_pubkey = drt_info.header_aux().recovery_pk();
-    let Ok(depositor_pubkey) = XOnlyPublicKey::from_slice(depositor_pubkey) else {
-        error!(pk=%depositor_pubkey.to_lower_hex_string(), "invalid depositor pubkey in DRT, ignoring");
-        return Ok(Vec::new());
-    };
-
-    let magic_bytes = deposit_cfg.magic_bytes;
-
-    let deposit_idx_offset = applicator.registry().next_deposit_idx()?;
-
-    // Always second output for now: output 0 is SPS-50 OP_RETURN and output 1 is DRT spend UTXO.
-    let Some(deposit_request_output) = tx.output.get(1) else {
-        error!("invalid DRT: expected spendable output at index 1, ignoring");
-        return Ok(Vec::new());
-    };
-
-    // The deposit-request UTXO must include the deposit amount plus the bridge's hardcoded
-    // deposit-tx fee — without that surplus the deposit transaction would have insufficient
-    // fee to relay.
-    let drt_required = DepositTx::drt_required(deposit_cfg.deposit_amount);
-    if deposit_request_output.value < drt_required {
-        error!(
-            drt_value = %deposit_request_output.value,
-            %drt_required,
-            "invalid DRT: spendable output value is less than deposit_amount + deposit_fee, ignoring"
-        );
-        return Ok(Vec::new());
-    }
-
-    let deposit_request_outpoint = bitcoin::OutPoint::new(drt_txid, 1);
-    let deposit_data = DepositData {
-        deposit_idx: deposit_idx_offset,
-        deposit_request_outpoint,
-        magic_bytes,
     };
 
     let ActiveOperatorSnapshot {
@@ -328,24 +256,49 @@ fn try_register_deposit(
         unstaking_images,
     } = snapshot;
 
+    let valid = match validate_drt(tx, deposit_cfg, &active_operator_table) {
+        Ok(valid) => valid,
+        Err(DrtValidationError::NotOurEnvelope) => return Ok(Vec::new()),
+        Err(err) => {
+            warn!(%err, txid=%tx.compute_txid(), "rejecting DRT candidate");
+            return Ok(Vec::new());
+        }
+    };
+
+    let drt_txid = tx.compute_txid();
+    let span = tracing::span!(Level::INFO, "registering new deposit", drt_txid=%drt_txid);
+    let _entered = span.entered();
+    info!(
+        active_operator_count = active_operator_table.operator_idxs().len(),
+        "passed validation; registering DSM / GSMs from active operator snapshot"
+    );
+
+    let deposit_idx = applicator.registry().next_deposit_idx()?;
+    let deposit_request_outpoint = OutPoint::new(drt_txid, DRT_OUTPUT_INDEX as u32);
+    let deposit_data = DepositData {
+        deposit_idx,
+        deposit_request_outpoint,
+        magic_bytes: deposit_cfg.magic_bytes,
+    };
+
     let dsm = DepositSM::new(
         deposit_cfg.clone(),
         active_operator_table.clone(),
         deposit_data,
-        depositor_pubkey,
-        deposit_request_output.value,
+        valid.depositor_pubkey,
+        valid.drt_output_amount,
         height,
     );
 
     let deposit_outpoint = dsm.context().deposit_outpoint();
-    info!(%deposit_outpoint, deposit_idx=deposit_idx_offset, "registering new DepositSM for detected DRT");
-    applicator.insert_deposit(deposit_idx_offset, dsm)?;
+    info!(%deposit_outpoint, %deposit_idx, "registering new DepositSM for detected DRT");
+    applicator.insert_deposit(deposit_idx, dsm)?;
 
     // Register one GraphSM per active operator, collecting initial duties.
     let mut duties = Vec::new();
     for &op_idx in active_operator_table.operator_idxs().iter() {
         let graph_idx = GraphIdx {
-            deposit: deposit_idx_offset,
+            deposit: deposit_idx,
             operator: op_idx,
         };
 
@@ -448,17 +401,17 @@ fn new_block_events(
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{Amount, Network, ScriptBuf, TxIn, TxOut, absolute, transaction};
-    use strata_bridge_test_utils::{
-        bitcoin::generate_xonly_pubkey,
-        bridge_fixtures::{TEST_MAGIC_BYTES, TEST_RECOVERY_DELAY},
-    };
+    use bitcoin::{Amount, ScriptBuf, TxIn, TxOut, absolute, transaction};
+    use strata_bridge_test_utils::bitcoin::{generate_txid, generate_xonly_pubkey};
     use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
 
     use super::*;
-    use crate::testing::{
-        N_TEST_OPERATORS, TEST_POV_IDX, test_deposit_sm_cfg, test_operator_table,
-        test_populated_registry,
+    use crate::{
+        sm_registry::SMRegistry,
+        testing::{
+            N_TEST_OPERATORS, TEST_POV_IDX, insert_confirmed_stake, test_deposit_sm_cfg,
+            test_operator_table, test_populated_registry,
+        },
     };
 
     const TEST_HEIGHT: BitcoinBlockHeight = 200;
@@ -644,21 +597,43 @@ mod tests {
 
     // ===== try_register_deposit tests =====
 
+    /// Pre-populates `registry` with one Confirmed stake per operator so that the
+    /// stake-readiness gate in [`try_register_deposit`] passes.
+    fn confirm_all_stakes(registry: &mut SMRegistry, operator_table: &OperatorTable) {
+        for op_idx in operator_table.operator_idxs() {
+            insert_confirmed_stake(registry, op_idx, operator_table.clone(), generate_txid());
+        }
+    }
+
     #[test]
-    fn try_register_deposit_non_drt() {
+    fn try_register_deposit_silent_when_stakes_not_ready() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-        let deposit_cfg = Arc::new(DepositSMCfg {
-            network: Network::Regtest,
-            cooperative_payout_timeout_blocks: 144,
-            deposit_amount: Amount::from_sat(10_000_000),
-            operator_fee: Amount::from_sat(10_000),
-            magic_bytes: TEST_MAGIC_BYTES.into(),
-            recovery_delay: TEST_RECOVERY_DELAY,
-        });
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_populated_registry(0); // no stakes
 
+        let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
+
+        let mut applicator = Applicator::new(&mut registry);
+        let duties =
+            try_register_deposit(&cfg, &operator_table, &mut applicator, &tx, TEST_HEIGHT).unwrap();
+        let (_, tracker) = applicator.finish();
+
+        assert!(duties.is_empty());
+        assert_eq!(registry.num_deposits(), 0);
+        assert!(
+            tracker.into_batches().is_empty(),
+            "stake-readiness gate must not record any SMs"
+        );
+    }
+
+    #[test]
+    fn try_register_deposit_silent_on_validate_rejection() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
         let mut registry = test_populated_registry(0);
+        confirm_all_stakes(&mut registry, &operator_table);
 
-        // A random transaction that is not a DRT
+        // A random transaction makes `validate_drt` return `NotOurEnvelope`.
         let random_tx = Transaction {
             version: transaction::Version::TWO,
             lock_time: absolute::LockTime::ZERO,
@@ -668,20 +643,47 @@ mod tests {
 
         let mut applicator = Applicator::new(&mut registry);
         let duties = try_register_deposit(
-            &deposit_cfg,
+            &cfg,
             &operator_table,
             &mut applicator,
             &random_tx,
-            100,
+            TEST_HEIGHT,
         )
-        .expect("non-DRT path should not fail");
-        let (_, tracker) = applicator.finish();
+        .unwrap();
+        let _ = applicator.finish();
 
         assert!(duties.is_empty());
         assert_eq!(registry.num_deposits(), 0);
-        assert!(
-            tracker.into_batches().is_empty(),
-            "non-DRT path must not record any SMs in the persistence tracker"
+    }
+
+    #[test]
+    fn try_register_deposit_registers_dsm_for_aligned_drt() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_populated_registry(0);
+        confirm_all_stakes(&mut registry, &operator_table);
+
+        let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
+
+        let mut applicator = Applicator::new(&mut registry);
+        let duties =
+            try_register_deposit(&cfg, &operator_table, &mut applicator, &tx, TEST_HEIGHT).unwrap();
+        let _ = applicator.finish();
+
+        assert_eq!(
+            registry.num_deposits(),
+            1,
+            "aligned DRT must register exactly one DSM"
+        );
+        assert_eq!(
+            registry.get_graph_ids().len(),
+            N_TEST_OPERATORS,
+            "one GraphSM per active operator is expected"
+        );
+        assert_eq!(
+            duties.len(),
+            1,
+            "exactly one GenerateGraphData duty is emitted, for the POV operator only"
         );
     }
 
