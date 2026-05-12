@@ -68,7 +68,8 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
 /// Verifies the schnorr signature in `tx.input[0]` against
 /// `bip340_tweak(operator_pubkey, game_idx)` over the BIP-341 key-path sighash.
 ///
-/// TODO: no-op for now; the body will land in a follow-up.
+/// no-op for now; the body will land in a follow-up.
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-1981>
 const fn verify_operator_signature(
     _tx: &Transaction,
     _prevouts: &[TxOut],
