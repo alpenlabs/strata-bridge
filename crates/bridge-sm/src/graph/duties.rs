@@ -237,6 +237,9 @@ pub enum GraphDuty {
 
         /// The bridge proof to counter.
         proof: ProofReceipt,
+
+        /// The on-chain bridge proof transaction to refute.
+        bridge_proof_tx: Transaction,
     },
 
     /// Publish a counterproof ACK transaction.

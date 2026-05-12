@@ -164,6 +164,7 @@ impl GraphSM {
                         watchtower_idx: watchtower_idx as OperatorIdx,
                         n_of_n_signature,
                         proof: bridge_proof.clone(),
+                        bridge_proof_tx: event.tx.clone(),
                     });
                 }
 
@@ -174,7 +175,7 @@ impl GraphSM {
                     signatures: signatures.clone(),
                     fulfillment_txid,
                     contest_block_height,
-                    bridge_proof_txid: event.tx.compute_txid(),
+                    bridge_proof_tx: event.tx.clone(),
                     bridge_proof_block_height: event.bridge_proof_block_height,
                     proof: bridge_proof,
                 };
@@ -238,6 +239,7 @@ impl GraphSM {
                         watchtower_idx: watchtower_idx as OperatorIdx,
                         n_of_n_signature,
                         proof: bridge_proof.clone(),
+                        bridge_proof_tx: event.tx.clone(),
                     });
                 }
 
@@ -249,6 +251,7 @@ impl GraphSM {
                     fulfillment_txid,
                     contest_block_height,
                     refuted_proof: Some(bridge_proof),
+                    refuted_bridge_proof_tx: Some(event.tx.clone()),
                     counterproofs_and_confs,
                     counterproof_nacks,
                 };
@@ -350,6 +353,7 @@ impl GraphSM {
                 fulfillment_txid,
                 contest_block_height,
                 refuted_proof,
+                refuted_bridge_proof_tx,
                 counterproofs_and_confs,
                 mut counterproof_nacks,
             } => {
@@ -409,6 +413,7 @@ impl GraphSM {
                         fulfillment_txid,
                         contest_block_height,
                         refuted_proof,
+                        refuted_bridge_proof_tx,
                         counterproofs_and_confs,
                         counterproof_nacks,
                     };

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bitcoin::Transaction;
 use musig2::secp256k1::schnorr::Signature;
 use strata_bridge_primitives::{proof::verify_bridge_proof, types::OperatorIdx};
 use strata_bridge_tx_graph::{
@@ -121,11 +122,18 @@ impl GraphSM {
                 graph_data,
                 signatures,
                 proof,
+                bridge_proof_tx,
                 ..
             } if self.context().operator_idx() != self.context().operator_table().pov_idx()
                 && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof) =>
             {
-                vec![self.generate_counterproof_duty(&cfg, graph_data, signatures, proof)?]
+                vec![self.generate_counterproof_duty(
+                    &cfg,
+                    graph_data,
+                    signatures,
+                    proof,
+                    bridge_proof_tx,
+                )?]
             }
             GraphState::CounterProofPosted {
                 last_block_height,
@@ -133,6 +141,7 @@ impl GraphSM {
                 graph_summary,
                 signatures,
                 refuted_proof,
+                refuted_bridge_proof_tx,
                 counterproofs_and_confs,
                 counterproof_nacks,
                 ..
@@ -192,10 +201,17 @@ impl GraphSM {
                     // invalid bridge proof exists and PoV operator's counterproof has not
                     // appeared on chain yet.
                     if let Some(proof) = refuted_proof
+                        && let Some(bridge_proof_tx) = refuted_bridge_proof_tx
                         && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof)
                         && !counterproofs_and_confs.contains_key(&pov_idx)
                     {
-                        vec![self.generate_counterproof_duty(&cfg, graph_data, signatures, proof)?]
+                        vec![self.generate_counterproof_duty(
+                            &cfg,
+                            graph_data,
+                            signatures,
+                            proof,
+                            bridge_proof_tx,
+                        )?]
                     } else {
                         Vec::new()
                     }
@@ -213,6 +229,7 @@ impl GraphSM {
         graph_data: &DepositParams,
         signatures: &[Signature],
         proof: &ProofReceipt,
+        bridge_proof_tx: &Transaction,
     ) -> GSMResult<GraphDuty> {
         let game_graph = generate_game_graph(cfg, self.context(), graph_data);
         let watchtower_idx = watchtower_slot_for_operator(
@@ -246,6 +263,7 @@ impl GraphSM {
             watchtower_idx: watchtower_idx as OperatorIdx,
             n_of_n_signature,
             proof: proof.clone(),
+            bridge_proof_tx: bridge_proof_tx.clone(),
         })
     }
 }

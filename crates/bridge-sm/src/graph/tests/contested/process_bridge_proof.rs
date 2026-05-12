@@ -63,7 +63,7 @@ fn event_accepted_pov_no_duties() {
             signatures: vec![],
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
             contest_block_height: LATER_BLOCK_HEIGHT,
-            bridge_proof_txid: event.tx.compute_txid(),
+            bridge_proof_tx: event.tx.clone(),
             bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
             proof: dummy_proof_receipt(),
         },
@@ -91,7 +91,7 @@ fn watchtower_skips_counterproof_when_proof_valid() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                bridge_proof_txid: event.tx.compute_txid(),
+                bridge_proof_tx: event.tx.clone(),
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
             },
@@ -137,7 +137,7 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
                 signatures,
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                bridge_proof_txid: event.tx.compute_txid(),
+                bridge_proof_tx: event.tx.clone(),
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
             },
@@ -147,6 +147,7 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
                 watchtower_idx: watchtower_idx as OperatorIdx,
                 n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),
+                bridge_proof_tx: event.tx.clone(),
             }],
             expected_signals: vec![],
         },
@@ -156,6 +157,7 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
 #[test]
 fn accepts_bridge_proof_posted_after_counterproof() {
     let event = bridge_proof_event();
+    let event_tx = event.tx.clone();
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
@@ -172,6 +174,7 @@ fn accepts_bridge_proof_posted_after_counterproof() {
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
                 refuted_proof: Some(dummy_proof_receipt()),
+                refuted_bridge_proof_tx: Some(event_tx),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
             },
@@ -211,6 +214,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         refuted_proof: None,
+        refuted_bridge_proof_tx: None,
         counterproofs_and_confs: Default::default(),
         counterproof_nacks: Default::default(),
     };
@@ -230,6 +234,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
                 refuted_proof: Some(dummy_proof_receipt()),
+                refuted_bridge_proof_tx: Some(event.tx.clone()),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
             },
@@ -239,6 +244,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
                 watchtower_idx: watchtower_idx as OperatorIdx,
                 n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),
+                bridge_proof_tx: event.tx.clone(),
             }],
             expected_signals: vec![],
         },
@@ -264,7 +270,7 @@ fn pov_watchtower_skips_counterproof_even_when_proof_invalid() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                bridge_proof_txid: event.tx.compute_txid(),
+                bridge_proof_tx: event.tx.clone(),
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 proof: dummy_proof_receipt(),
             },
@@ -298,10 +304,12 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         refuted_proof: None,
+        refuted_bridge_proof_tx: None,
         counterproofs_and_confs: counterproofs_and_confs.clone(),
         counterproof_nacks: BTreeMap::new(),
     };
 
+    let event_tx = event.tx.clone();
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
@@ -317,6 +325,7 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
                 refuted_proof: Some(dummy_proof_receipt()),
+                refuted_bridge_proof_tx: Some(event_tx),
                 counterproofs_and_confs,
                 counterproof_nacks: BTreeMap::new(),
             },
@@ -330,6 +339,7 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
 fn pov_skips_counterproof_on_late_invalid_proof() {
     let cfg = cfg_with_reject_predicate();
     let event = bridge_proof_event();
+    let event_tx = event.tx.clone();
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
         create_sm,
@@ -346,6 +356,7 @@ fn pov_skips_counterproof_on_late_invalid_proof() {
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
                 refuted_proof: Some(dummy_proof_receipt()),
+                refuted_bridge_proof_tx: Some(event_tx),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
             },
@@ -471,6 +482,7 @@ fn counter_proof_posted_without_refuted_proof_state_with_timeout_txid(
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         refuted_proof: None,
+        refuted_bridge_proof_tx: None,
         counterproofs_and_confs: Default::default(),
         counterproof_nacks: Default::default(),
     }

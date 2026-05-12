@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, sync::LazyLock};
 use musig2::secp256k1::schnorr::Signature;
 use secp256k1::schnorr;
 use strata_bridge_primitives::types::OperatorIdx;
-use strata_bridge_test_utils::prelude::generate_txid;
+use strata_bridge_test_utils::prelude::{generate_tx, generate_txid};
 use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary};
 use zkaleido::ProofReceipt;
 
@@ -26,6 +26,9 @@ pub(super) static TEST_GRAPH_SUMMARY: LazyLock<GameGraphSummary> =
     LazyLock::new(test_graph_summary);
 
 pub(super) static TEST_FULFILLMENT_TXID: LazyLock<bitcoin::Txid> = LazyLock::new(generate_txid);
+
+pub(super) static TEST_BRIDGE_PROOF_TX: LazyLock<bitcoin::Transaction> =
+    LazyLock::new(|| generate_tx(1, 1));
 
 /// Generates a test [`NonceContext`] for use with state builders.
 pub(super) fn test_nonce_context() -> (DepositParams, GameGraphSummary, NonceContext) {
@@ -163,7 +166,7 @@ pub(super) fn bridge_proof_posted_state_with(
         signatures,
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
-        bridge_proof_txid: graph_summary.bridge_proof_timeout,
+        bridge_proof_tx: TEST_BRIDGE_PROOF_TX.clone(),
         bridge_proof_block_height: LATER_BLOCK_HEIGHT,
         proof: dummy_proof_receipt(),
     }
@@ -201,6 +204,7 @@ pub(super) fn counter_proof_posted_state() -> GraphState {
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         refuted_proof: Some(dummy_proof_receipt()),
+        refuted_bridge_proof_tx: Some(TEST_BRIDGE_PROOF_TX.clone()),
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
     }
@@ -216,6 +220,7 @@ pub(super) fn counter_proof_posted_without_refuted_proof_state() -> GraphState {
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         refuted_proof: None,
+        refuted_bridge_proof_tx: None,
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
     }
@@ -249,6 +254,7 @@ pub(super) fn counter_proof_posted_state_with(
         })
         .collect();
 
+    let refuted_bridge_proof_tx = refuted_proof.as_ref().map(|_| TEST_BRIDGE_PROOF_TX.clone());
     GraphState::CounterProofPosted {
         last_block_height: LATER_BLOCK_HEIGHT,
         graph_data: test_deposit_params(),
@@ -257,6 +263,7 @@ pub(super) fn counter_proof_posted_state_with(
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         refuted_proof,
+        refuted_bridge_proof_tx,
         counterproofs_and_confs,
         counterproof_nacks: nacked_idxs
             .iter()
