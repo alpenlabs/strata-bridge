@@ -431,12 +431,11 @@ mod tests {
             GraphState::CounterProofPosted {
                 graph_data,
                 signatures,
-                refuted_proof: Some(proof),
-                refuted_bridge_proof_tx: Some(bridge_proof_tx),
+                refuted_bridge_proof: Some((bridge_proof_tx, proof)),
                 ..
             } => (graph_data, signatures, proof, bridge_proof_tx),
             _ => panic!(
-                "expected BridgeProofPosted or CounterProofPosted with refuted_proof present"
+                "expected BridgeProofPosted or CounterProofPosted with refuted_bridge_proof present"
             ),
         };
 

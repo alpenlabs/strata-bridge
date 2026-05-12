@@ -56,8 +56,7 @@ impl GraphSM {
                     signatures,
                     fulfillment_txid,
                     contest_block_height,
-                    refuted_proof: None,
-                    refuted_bridge_proof_tx: None,
+                    refuted_bridge_proof: None,
                     counterproofs_and_confs,
                     counterproof_nacks: BTreeMap::new(),
                 };
@@ -95,8 +94,7 @@ impl GraphSM {
                     signatures,
                     fulfillment_txid,
                     contest_block_height,
-                    refuted_proof: Some(proof),
-                    refuted_bridge_proof_tx: Some(bridge_proof_tx),
+                    refuted_bridge_proof: Some((bridge_proof_tx, proof)),
                     counterproofs_and_confs,
                     counterproof_nacks: BTreeMap::new(),
                 };
@@ -110,8 +108,7 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
-                refuted_proof,
-                refuted_bridge_proof_tx,
+                refuted_bridge_proof,
                 counterproof_nacks,
                 ..
             } => {
@@ -138,8 +135,7 @@ impl GraphSM {
                     signatures,
                     fulfillment_txid,
                     contest_block_height,
-                    refuted_proof,
-                    refuted_bridge_proof_tx,
+                    refuted_bridge_proof,
                     counterproofs_and_confs,
                     counterproof_nacks,
                 };

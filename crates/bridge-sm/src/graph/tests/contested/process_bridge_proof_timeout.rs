@@ -120,7 +120,7 @@ fn state_is_valid(state: &GraphState) -> bool {
         GraphState::Contested { .. }
             | GraphState::BridgeProofTimedout { .. }
             | GraphState::CounterProofPosted {
-                refuted_proof: None,
+                refuted_bridge_proof: None,
                 ..
             }
     )
