@@ -10,9 +10,14 @@
 
 use std::sync::Arc;
 
-use bitcoin::{Transaction, hex::DisplayHex, secp256k1::XOnlyPublicKey};
+use bitcoin::{Amount, Transaction, hex::DisplayHex, secp256k1::XOnlyPublicKey};
 use btc_tracker::event::BlockEvent;
-use strata_asm_proto_bridge_v1_txs::deposit_request::parse_drt;
+use strata_asm_proto_bridge_v1_txs::{
+    BRIDGE_V1_SUBPROTOCOL_ID,
+    constants::BridgeTxType,
+    deposit_request::{create_deposit_request_locking_script, parse_drt},
+    errors::TxStructureError,
+};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
@@ -36,6 +41,8 @@ use strata_bridge_sm::{
     tx_classifier::TxClassifier,
 };
 use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::DepositData};
+use strata_l1_txfmt::extract_tx_magic_and_tag;
+use thiserror::Error;
 use tracing::{Level, error, info, warn};
 
 use crate::{
@@ -115,6 +122,120 @@ pub(crate) fn process_block(
     applicator.apply_batch(new_block)?;
 
     Ok(())
+}
+
+/// Successfully validated DRT data needed to construct a [`DepositSM`].
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "wired into try_register_deposit in the next commit"
+    )
+)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ValidDrt {
+    /// Depositor's x-only recovery pubkey parsed from the SPS-50 aux data.
+    depositor_pubkey: XOnlyPublicKey,
+    /// Amount on the deposit-request output (output index 1).
+    drt_output_amount: Amount,
+}
+
+/// Reason [`validate_drt`] rejected a transaction.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "wired into try_register_deposit in the next commit"
+    )
+)]
+#[derive(Debug, Error)]
+enum DrtValidationError {
+    /// Transaction is not addressed to this bridge: missing SPS-50 OP_RETURN, or the magic /
+    /// subprotocol id / tx type do not identify it as a Bridge-v1 DRT for `cfg.magic_bytes`.
+    /// Expected for the vast majority of block transactions and not worth surfacing as an
+    /// error to the operator.
+    #[error("transaction is not a DRT for this bridge")]
+    NotOurEnvelope,
+    /// SPS-50 envelope identified the tx as our DRT, but the structural parse failed.
+    #[error("DRT is structurally invalid: {0}")]
+    Structure(#[source] TxStructureError),
+    /// The 32-byte recovery pubkey in the SPS-50 aux data is not a valid x-only point.
+    #[error("DRT aux carries invalid recovery pubkey: {0}")]
+    InvalidRecoveryPubkey(String),
+    /// Output-1 carries less than `deposit_amount + deposit-tx fee` and so cannot fund a
+    /// relayable deposit transaction.
+    #[error("DRT output value {actual} is below required {required}")]
+    OutputValueBelowRequired { actual: Amount, required: Amount },
+    /// Output-1's P2TR script does not match the script reconstructed from the depositor's
+    /// recovery pubkey, the active N-of-N aggregated key, and the bridge's recovery delay.
+    /// The DRT is therefore not cooperatively spendable by the bridge.
+    #[error("DRT output script does not match expected P2TR locking script")]
+    LockingScriptMismatch,
+}
+
+/// Validates that `tx` is a well-formed DRT for the bridge with the given `cfg` and the given
+/// active operator set, and returns the parts a [`DepositSM`] needs.
+///
+/// Pure: no registry or applicator access. The caller is responsible for ensuring stake
+/// readiness and deriving `active_operator_table` from the active-operator snapshot before
+/// calling.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "wired into try_register_deposit in the next commit"
+    )
+)]
+fn validate_drt(
+    tx: &Transaction,
+    cfg: &DepositSMCfg,
+    active_operator_table: &OperatorTable,
+) -> Result<ValidDrt, DrtValidationError> {
+    let Ok((magic, tag)) = extract_tx_magic_and_tag(tx) else {
+        return Err(DrtValidationError::NotOurEnvelope);
+    };
+    if magic != cfg.magic_bytes
+        || tag.subproto_id() != BRIDGE_V1_SUBPROTOCOL_ID
+        || tag.tx_type() != BridgeTxType::DepositRequest as u8
+    {
+        return Err(DrtValidationError::NotOurEnvelope);
+    }
+
+    let drt_info = parse_drt(tx).map_err(DrtValidationError::Structure)?;
+
+    let recovery_pk_bytes = drt_info.header_aux().recovery_pk();
+    let depositor_pubkey = XOnlyPublicKey::from_slice(recovery_pk_bytes).map_err(|_| {
+        DrtValidationError::InvalidRecoveryPubkey(recovery_pk_bytes.to_lower_hex_string())
+    })?;
+
+    // `parse_drt` already ensures output at index 1 exists.
+    let drt_output = tx
+        .output
+        .get(1)
+        .expect("parse_drt guarantees output index 1 exists");
+
+    let required = DepositTx::drt_required(cfg.deposit_amount);
+    if drt_output.value < required {
+        return Err(DrtValidationError::OutputValueBelowRequired {
+            actual: drt_output.value,
+            required,
+        });
+    }
+
+    let n_of_n = active_operator_table
+        .aggregated_btc_key()
+        .x_only_public_key()
+        .0;
+    let expected_script =
+        create_deposit_request_locking_script(recovery_pk_bytes, n_of_n, cfg.recovery_delay);
+    if drt_output.script_pubkey != expected_script {
+        return Err(DrtValidationError::LockingScriptMismatch);
+    }
+
+    Ok(ValidDrt {
+        depositor_pubkey,
+        drt_output_amount: drt_output.value,
+    })
 }
 
 /// If `tx` is a valid deposit request transaction, registers a [`DepositSM`] and per-operator
@@ -327,15 +448,98 @@ fn new_block_events(
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{Amount, Network, absolute, transaction};
-    use strata_bridge_test_utils::bridge_fixtures::{TEST_MAGIC_BYTES, TEST_RECOVERY_DELAY};
+    use bitcoin::{Amount, Network, ScriptBuf, TxIn, TxOut, absolute, transaction};
+    use strata_bridge_test_utils::{
+        bitcoin::generate_xonly_pubkey,
+        bridge_fixtures::{TEST_MAGIC_BYTES, TEST_RECOVERY_DELAY},
+    };
+    use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
 
     use super::*;
     use crate::testing::{
-        N_TEST_OPERATORS, TEST_POV_IDX, test_operator_table, test_populated_registry,
+        N_TEST_OPERATORS, TEST_POV_IDX, test_deposit_sm_cfg, test_operator_table,
+        test_populated_registry,
     };
 
     const TEST_HEIGHT: BitcoinBlockHeight = 200;
+
+    // ===== Test fixture builders =====
+
+    /// Configurable builder for synthetic DRTs. Defaults produce a structurally valid DRT for
+    /// the bridge whose `operator_table` and `cfg` are passed to [`Self::aligned`]; individual
+    /// fields can then be overridden to drive each gate in [`validate_drt`].
+    struct DrtBuilder {
+        magic: MagicBytes,
+        subproto_id: u8,
+        tx_type: u8,
+        /// Recovery pubkey bytes placed in the SPS-50 aux data.
+        recovery_pk_in_aux: [u8; 32],
+        /// N-of-N internal key used when building the output-1 P2TR script.
+        n_of_n_in_script: XOnlyPublicKey,
+        /// Recovery pubkey bytes used inside the output-1 takeback tapscript.
+        recovery_pk_in_script: [u8; 32],
+        /// CSV delay encoded inside the output-1 takeback tapscript.
+        recovery_delay_in_script: u16,
+        /// Amount placed on output 1.
+        output_value: Amount,
+        /// Optional destination bytes appended after the 32-byte recovery_pk in aux.
+        destination: Vec<u8>,
+    }
+
+    impl DrtBuilder {
+        /// Returns a builder whose every field is aligned with a valid DRT for the given
+        /// operator table and configuration.
+        fn aligned(operator_table: &OperatorTable, cfg: &DepositSMCfg) -> Self {
+            let recovery_pk = generate_xonly_pubkey().serialize();
+            let n_of_n = operator_table.aggregated_btc_key().x_only_public_key().0;
+            Self {
+                magic: cfg.magic_bytes,
+                subproto_id: BRIDGE_V1_SUBPROTOCOL_ID,
+                tx_type: BridgeTxType::DepositRequest as u8,
+                recovery_pk_in_aux: recovery_pk,
+                n_of_n_in_script: n_of_n,
+                recovery_pk_in_script: recovery_pk,
+                recovery_delay_in_script: cfg.recovery_delay,
+                output_value: DepositTx::drt_required(cfg.deposit_amount),
+                destination: Vec::new(),
+            }
+        }
+
+        /// Build the synthetic transaction.
+        fn build(&self) -> Transaction {
+            let mut aux = Vec::with_capacity(32 + self.destination.len());
+            aux.extend_from_slice(&self.recovery_pk_in_aux);
+            aux.extend_from_slice(&self.destination);
+
+            let tag = TagData::new(self.subproto_id, self.tx_type, aux)
+                .expect("aux must fit SPS-50 size limits");
+            let op_return = ParseConfig::new(self.magic)
+                .encode_script_buf(&tag.as_ref())
+                .expect("SPS-50 tag must encode");
+
+            let lock = create_deposit_request_locking_script(
+                &self.recovery_pk_in_script,
+                self.n_of_n_in_script,
+                self.recovery_delay_in_script,
+            );
+
+            Transaction {
+                version: transaction::Version::TWO,
+                lock_time: absolute::LockTime::ZERO,
+                input: vec![TxIn::default()],
+                output: vec![
+                    TxOut {
+                        value: Amount::ZERO,
+                        script_pubkey: op_return,
+                    },
+                    TxOut {
+                        value: self.output_value,
+                        script_pubkey: lock,
+                    },
+                ],
+            }
+        }
+    }
 
     // ===== new_block_events tests =====
 
@@ -479,5 +683,222 @@ mod tests {
             tracker.into_batches().is_empty(),
             "non-DRT path must not record any SMs in the persistence tracker"
         );
+    }
+
+    // ===== validate_drt tests =====
+
+    #[test]
+    fn validate_drt_accepts_aligned_drt() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let builder = DrtBuilder::aligned(&operator_table, &cfg);
+        let expected_pk = XOnlyPublicKey::from_slice(&builder.recovery_pk_in_aux).unwrap();
+        let expected_value = builder.output_value;
+
+        let valid = validate_drt(&builder.build(), &cfg, &operator_table)
+            .expect("aligned DRT must validate");
+
+        assert_eq!(valid.depositor_pubkey, expected_pk);
+        assert_eq!(valid.drt_output_amount, expected_value);
+    }
+
+    #[test]
+    fn validate_drt_rejects_tx_without_sps50_envelope() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+
+        let tx = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+
+        assert!(matches!(
+            validate_drt(&tx, &cfg, &operator_table),
+            Err(DrtValidationError::NotOurEnvelope)
+        ));
+    }
+
+    #[test]
+    fn validate_drt_rejects_non_op_return_first_output() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let tx = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn::default()],
+            output: vec![TxOut {
+                value: Amount::from_sat(1_000),
+                script_pubkey: ScriptBuf::new_p2tr(
+                    bitcoin::secp256k1::SECP256K1,
+                    generate_xonly_pubkey(),
+                    None,
+                ),
+            }],
+        };
+
+        assert!(matches!(
+            validate_drt(&tx, &cfg, &operator_table),
+            Err(DrtValidationError::NotOurEnvelope)
+        ));
+    }
+
+    #[test]
+    fn validate_drt_rejects_wrong_magic() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+
+        let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
+        builder.magic = MagicBytes::new(*b"XXXX");
+
+        assert!(matches!(
+            validate_drt(&builder.build(), &cfg, &operator_table),
+            Err(DrtValidationError::NotOurEnvelope)
+        ));
+    }
+
+    #[test]
+    fn validate_drt_rejects_wrong_subproto() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+
+        let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
+        builder.subproto_id = BRIDGE_V1_SUBPROTOCOL_ID.wrapping_add(1);
+
+        assert!(matches!(
+            validate_drt(&builder.build(), &cfg, &operator_table),
+            Err(DrtValidationError::NotOurEnvelope)
+        ));
+    }
+
+    #[test]
+    fn validate_drt_rejects_wrong_tx_type() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+
+        let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
+        builder.tx_type = BridgeTxType::Deposit as u8;
+
+        assert!(matches!(
+            validate_drt(&builder.build(), &cfg, &operator_table),
+            Err(DrtValidationError::NotOurEnvelope)
+        ));
+    }
+
+    #[test]
+    fn validate_drt_rejects_malformed_aux() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+
+        // Aux below 32 bytes makes `parse_drt` fail with InvalidAuxiliaryData; envelope is
+        // otherwise aligned for our bridge.
+        let tag = TagData::new(
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            BridgeTxType::DepositRequest as u8,
+            vec![0u8; 31],
+        )
+        .expect("aux must fit SPS-50 size limits");
+        let op_return = ParseConfig::new(cfg.magic_bytes)
+            .encode_script_buf(&tag.as_ref())
+            .expect("SPS-50 tag must encode");
+        let tx = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn::default()],
+            output: vec![TxOut {
+                value: Amount::ZERO,
+                script_pubkey: op_return,
+            }],
+        };
+
+        assert!(matches!(
+            validate_drt(&tx, &cfg, &operator_table),
+            Err(DrtValidationError::Structure(_))
+        ));
+    }
+
+    #[test]
+    fn validate_drt_rejects_invalid_recovery_pubkey() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+
+        let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
+        // 32 zero bytes are not a valid x-only point.
+        builder.recovery_pk_in_aux = [0u8; 32];
+        builder.recovery_pk_in_script = [0u8; 32];
+
+        assert!(matches!(
+            validate_drt(&builder.build(), &cfg, &operator_table),
+            Err(DrtValidationError::InvalidRecoveryPubkey(_))
+        ));
+    }
+
+    #[test]
+    fn validate_drt_rejects_output_value_below_required() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+
+        let required = DepositTx::drt_required(cfg.deposit_amount);
+        let actual = required - Amount::from_sat(1);
+        let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
+        builder.output_value = actual;
+
+        let err = validate_drt(&builder.build(), &cfg, &operator_table).unwrap_err();
+        match err {
+            DrtValidationError::OutputValueBelowRequired {
+                actual: got_actual,
+                required: got_required,
+            } => {
+                assert_eq!(got_actual, actual);
+                assert_eq!(got_required, required);
+            }
+            other => panic!("expected OutputValueBelowRequired, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_drt_rejects_mismatched_recovery_pk_in_script() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+
+        let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
+        // Aux carries one recovery pk, but the takeback tapscript commits to a different one.
+        builder.recovery_pk_in_script = generate_xonly_pubkey().serialize();
+        assert_ne!(builder.recovery_pk_in_aux, builder.recovery_pk_in_script);
+
+        assert!(matches!(
+            validate_drt(&builder.build(), &cfg, &operator_table),
+            Err(DrtValidationError::LockingScriptMismatch)
+        ));
+    }
+
+    #[test]
+    fn validate_drt_rejects_mismatched_internal_key() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+
+        let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
+        // Pin the output to a P2TR with a non-bridge internal key.
+        builder.n_of_n_in_script = generate_xonly_pubkey();
+
+        assert!(matches!(
+            validate_drt(&builder.build(), &cfg, &operator_table),
+            Err(DrtValidationError::LockingScriptMismatch)
+        ));
+    }
+
+    #[test]
+    fn validate_drt_rejects_mismatched_recovery_delay() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+
+        let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
+        builder.recovery_delay_in_script = cfg.recovery_delay.wrapping_add(1);
+
+        assert!(matches!(
+            validate_drt(&builder.build(), &cfg, &operator_table),
+            Err(DrtValidationError::LockingScriptMismatch)
+        ));
     }
 }

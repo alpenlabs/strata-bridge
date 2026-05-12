@@ -11153,6 +11153,7 @@ dependencies = [
  "strata-bridge-sm",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
+ "strata-l1-txfmt",
  "strata-mosaic-client-api",
  "strata-p2p",
  "strata-predicate",
