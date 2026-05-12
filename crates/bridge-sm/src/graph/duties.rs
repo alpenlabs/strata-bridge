@@ -226,6 +226,9 @@ pub enum GraphDuty {
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
 
+        /// The game index for operator key tweaking.
+        game_index: NonZero<u32>,
+
         /// The unsigned counterproof transaction to publish.
         counterproof_tx: CounterproofTx,
 

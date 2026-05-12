@@ -142,6 +142,7 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
             },
             expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
                 graph_idx: sm.context().graph_idx(),
+                game_index: test_deposit_params().game_index,
                 counterproof_tx: expected_counterproof_tx,
                 n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),
@@ -238,6 +239,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
             },
             expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
                 graph_idx: sm.context().graph_idx(),
+                game_index: test_deposit_params().game_index,
                 counterproof_tx: expected_counterproof_tx,
                 n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),

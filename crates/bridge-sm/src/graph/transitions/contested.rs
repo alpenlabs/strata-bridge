@@ -160,6 +160,7 @@ impl GraphSM {
 
                     duties.push(GraphDuty::GenerateAndPublishCounterProof {
                         graph_idx: self.context().graph_idx(),
+                        game_index: graph_data.game_index,
                         counterproof_tx: counterproof_graph.counterproof.clone(),
                         n_of_n_signature,
                         proof: bridge_proof.clone(),
@@ -234,6 +235,7 @@ impl GraphSM {
 
                     duties.push(GraphDuty::GenerateAndPublishCounterProof {
                         graph_idx: self.context().graph_idx(),
+                        game_index: graph_data.game_index,
                         counterproof_tx: counterproof_graph.counterproof.clone(),
                         n_of_n_signature,
                         proof: bridge_proof.clone(),
