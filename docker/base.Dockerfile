@@ -34,6 +34,9 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/app/target \
     cargo fetch
 
+# ELF will be built separately so no need to build it here.
+ENV SP1_SKIP_PROGRAM_BUILD=true
+
 # Build deps and everything except binaries
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
