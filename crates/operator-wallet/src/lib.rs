@@ -343,13 +343,17 @@ impl OperatorWallet {
     }
 
     /// Creates a new transaction by paying funds from the general wallet into the
-    /// stakechain wallet (excludes anchor outputs). The resulting UTXO is the single input to
-    /// the stake transaction.
+    /// stakechain wallet (excludes anchor outputs and currently leased outpoints). The
+    /// resulting UTXO is the single input to the stake transaction.
     ///
     /// The `funding_amount` must equal the sum of the stake transaction's outputs — the stake
     /// amount plus any connector dust the caller is
     /// responsible for covering (for example, the unstaking-intent connector's minimum non-dust
     /// value).
+    ///
+    /// The selected inputs are marked as leased so concurrent duties cannot re-select them. If
+    /// the caller fails to persist or sign the funding plan, the leases must be released via
+    /// [`Self::release_outpoints`].
     ///
     /// # Notes
     ///
@@ -361,15 +365,24 @@ impl OperatorWallet {
         funding_amount: Amount,
     ) -> Result<Psbt, CreateTxError> {
         let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
+        let leased: Vec<OutPoint> = self.leased_outpoints().collect();
+
         let mut tx_builder = self.general_wallet.build_tx();
         // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
         tx_builder.version(3);
-        // DON'T spend any of the anchor outputs
         tx_builder.unspendable(anchor_outpoints);
+        tx_builder.unspendable(leased);
         tx_builder.fee_rate(fee_rate);
         tx_builder.add_recipient(self.stakechain_addr_script_buf.clone(), funding_amount);
         tx_builder.ordering(TxOrdering::Untouched);
-        tx_builder.finish()
+
+        let psbt = tx_builder.finish()?;
+
+        for input in &psbt.unsigned_tx.input {
+            self.lease(input.previous_output);
+        }
+
+        Ok(psbt)
     }
 
     /// Returns the script buf of the general wallet address. External funds should be sent here.
