@@ -42,34 +42,44 @@ impl StakeSM {
                         .clone(),
                 })]
             }
-            StakeState::StakeGraphGenerated { .. } => expected_ids
-                .difference(&present_ids)
-                .map(|&operator_idx| {
-                    StakeDuty::Nag(NagDuty::NagUnstakingNonces {
-                        operator_idx,
-                        operator_pubkey: self
-                            .context()
-                            .operator_table()
-                            .idx_to_p2p_key(&operator_idx)
-                            .expect("operator idx from table must exist")
-                            .clone(),
+            StakeState::StakeGraphGenerated { .. } => {
+                // Per `NagDuty::NagUnstakingNonces`, `operator_idx` is the stake graph (ours)
+                // and `operator_pubkey` addresses the peer we want a nonce contribution from.
+                let stake_owner_idx = self.context().operator_idx();
+                expected_ids
+                    .difference(&present_ids)
+                    .map(|&missing_idx| {
+                        StakeDuty::Nag(NagDuty::NagUnstakingNonces {
+                            operator_idx: stake_owner_idx,
+                            operator_pubkey: self
+                                .context()
+                                .operator_table()
+                                .idx_to_p2p_key(&missing_idx)
+                                .expect("operator idx from table must exist")
+                                .clone(),
+                        })
                     })
-                })
-                .collect(),
-            StakeState::UnstakingNoncesCollected { .. } => expected_ids
-                .difference(&present_ids)
-                .map(|&operator_idx| {
-                    StakeDuty::Nag(NagDuty::NagUnstakingPartials {
-                        operator_idx,
-                        operator_pubkey: self
-                            .context()
-                            .operator_table()
-                            .idx_to_p2p_key(&operator_idx)
-                            .expect("operator idx from table must exist")
-                            .clone(),
+                    .collect()
+            }
+            StakeState::UnstakingNoncesCollected { .. } => {
+                // Per `NagDuty::NagUnstakingPartials`, `operator_idx` is the stake graph (ours)
+                // and `operator_pubkey` addresses the peer we want a partial signature from.
+                let stake_owner_idx = self.context().operator_idx();
+                expected_ids
+                    .difference(&present_ids)
+                    .map(|&missing_idx| {
+                        StakeDuty::Nag(NagDuty::NagUnstakingPartials {
+                            operator_idx: stake_owner_idx,
+                            operator_pubkey: self
+                                .context()
+                                .operator_table()
+                                .idx_to_p2p_key(&missing_idx)
+                                .expect("operator idx from table must exist")
+                                .clone(),
+                        })
                     })
-                })
-                .collect(),
+                    .collect()
+            }
             _ => Vec::new(),
         };
 
