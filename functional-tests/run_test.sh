@@ -68,6 +68,11 @@ echo "installing strata-asm-runner (rev $ASM_REV)"
 ASM_FEATURES=""
 if [ "$BRIDGE_SP1" = "1" ]; then
     ASM_FEATURES="--features sp1"
+    # Point AR at the SP1 toolchain's llvm-ar so secp256k1-sys' build.rs
+    # can produce a static lib for riscv64im-succinct-zkvm-elf.
+    SP1_AR="$(rustc +succinct --print sysroot)/lib/rustlib/$(rustc +succinct -vV | sed -n 's/^host: //p')/bin/llvm-ar"
+    export AR="$SP1_AR"
+    export AR_riscv64im_unknown_none_elf="$SP1_AR"
 fi
 RUSTFLAGS="" cargo install \
     --git https://github.com/alpenlabs/asm \
