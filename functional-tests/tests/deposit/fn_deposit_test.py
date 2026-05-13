@@ -2,6 +2,7 @@ import flexitest
 
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
+from factory.bridge_operator.config_cfg import BridgeConfigParams
 from rpc.types import RpcDepositStatusComplete, RpcDepositStatusInProgress
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
@@ -33,7 +34,15 @@ class BridgeDepositTest(StrataTestBase):
     """
 
     def __init__(self, ctx: flexitest.InitContext):
-        ctx.set_env(BridgeNetworkEnv())
+        # `nag_interval_secs=1` ensures a nag tick fires while the deposit SM is still in a
+        # naggable state post-restart. With the default 10s interval and fast P2P recovery,
+        # the SM can race through every naggable state between ticks and the nag assertion
+        # below would never observe a deposit-level nag.
+        ctx.set_env(
+            BridgeNetworkEnv(
+                bridge_config_params=BridgeConfigParams(nag_interval_secs=1),
+            )
+        )
 
     def main(self, ctx: flexitest.RunContext):
         # Number of DRTs to broadcast before restarting the operators. Tuned so that at least one

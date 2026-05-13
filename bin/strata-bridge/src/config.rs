@@ -208,6 +208,12 @@ pub(crate) struct P2PConfig {
     ///
     /// If [`None`], defaults to libp2p's default of 1 second.
     pub gossipsub_forward_queue_duration: Option<Duration>,
+
+    /// Interval between re-dial attempts for peers that have become disconnected.
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_PEER_RECONNECT_INTERVAL`](strata_bridge_p2p_service::constants::DEFAULT_PEER_RECONNECT_INTERVAL).
+    pub peer_reconnect_interval: Option<Duration>,
 }
 
 /// RPC server configuration.

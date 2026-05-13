@@ -15,7 +15,8 @@ use tracing::{debug, info};
 
 use crate::{
     config::{Configuration, GossipsubScoringPreset},
-    constants::DEFAULT_IDLE_CONNECTION_TIMEOUT,
+    constants::{DEFAULT_IDLE_CONNECTION_TIMEOUT, DEFAULT_PEER_RECONNECT_INTERVAL},
+    reconnect::maintain_connections,
 };
 
 /// The default gossipsub topic name (must match strata-p2p's default).
@@ -194,6 +195,31 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
     info!("establishing connections");
     let _ = p2p.establish_connections().await;
     debug!("connections established");
+
+    let peer_reconnect_interval = config
+        .peer_reconnect_interval
+        .unwrap_or(DEFAULT_PEER_RECONNECT_INTERVAL);
+    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-3442>
+    // `allowlist` and `connect_to` are parallel lists (in operator-index order, excluding self),
+    // so zipping them yields the `(peer_id, address)` pairs the maintainer needs.
+    // This is brittle as it relies on the config to maintain this invariant.
+    let peers: Vec<(libp2p::PeerId, libp2p::Multiaddr)> = config
+        .allowlist
+        .iter()
+        .copied()
+        .zip(config.connect_to.iter().cloned())
+        .collect();
+    let maintainer_handle = command_handle.clone();
+    let maintainer_cancel = cancel.clone();
+    tokio::spawn(async move {
+        maintain_connections(
+            maintainer_handle,
+            peers,
+            peer_reconnect_interval,
+            maintainer_cancel,
+        )
+        .await;
+    });
 
     info!("listening for network events and commands");
     let listen_task = tokio::spawn(p2p.listen());

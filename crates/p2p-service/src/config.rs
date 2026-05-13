@@ -111,6 +111,14 @@ pub struct Configuration {
 
     /// The duration a message to be forwarded can wait to be sent before it is abandoned.
     pub gossipsub_forward_queue_duration: Option<Duration>,
+
+    /// Interval between re-dial attempts for peers that have become disconnected.
+    ///
+    /// A background task wakes up every `peer_reconnect_interval`, queries the swarm for each
+    /// peer in `allowlist`, and issues a `ConnectToPeer` command for any peer that is no
+    /// longer connected. Defaults to
+    /// [`DEFAULT_PEER_RECONNECT_INTERVAL`](crate::constants::DEFAULT_PEER_RECONNECT_INTERVAL).
+    pub peer_reconnect_interval: Option<Duration>,
 }
 
 impl Configuration {
@@ -134,6 +142,7 @@ impl Configuration {
         gossipsub_heartbeat_initial_delay: Option<Duration>,
         gossipsub_publish_queue_duration: Option<Duration>,
         gossipsub_forward_queue_duration: Option<Duration>,
+        peer_reconnect_interval: Option<Duration>,
     ) -> Self {
         let keypair = Libp2pEdKeypair::from(sk);
         Self {
@@ -154,6 +163,7 @@ impl Configuration {
             gossipsub_heartbeat_initial_delay,
             gossipsub_publish_queue_duration,
             gossipsub_forward_queue_duration,
+            peer_reconnect_interval,
         }
     }
 }
@@ -173,6 +183,7 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            None,
             None,
             None,
             None,

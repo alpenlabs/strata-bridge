@@ -37,6 +37,7 @@ fn build_config(keypair: EdKeypair, allowlist: Vec<PeerId>) -> Configuration {
         gossipsub_heartbeat_initial_delay: None,
         gossipsub_publish_queue_duration: None,
         gossipsub_forward_queue_duration: None,
+        peer_reconnect_interval: None,
     }
 }
 
