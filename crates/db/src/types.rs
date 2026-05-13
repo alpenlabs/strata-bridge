@@ -1,8 +1,25 @@
 //! Database types that are agnostic to the underlying database implementation.
 
+use bitcoin::{Transaction, TxOut};
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
 };
+
+/// A persisted plan for an operator's stake funding transaction.
+///
+/// Pins the unsigned transaction and its prevouts so the same txid and signatures can be
+/// reproduced without re-running input selection or fee estimation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StakeFundingReservation {
+    /// The unsigned funding transaction.
+    pub unsigned_tx: Transaction,
+
+    /// The prevouts for the inputs of `unsigned_tx`, in input order.
+    pub prevouts: Vec<TxOut>,
+
+    /// Index of the stakechain funding output in `unsigned_tx.output`.
+    pub stake_output_vout: u32,
+}
 
 /// A batch of state machine writes to persist atomically.
 ///

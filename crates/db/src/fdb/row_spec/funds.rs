@@ -1,13 +1,17 @@
-//! Row specs for claim-funding and withdrawal-funding outpoints.
+//! Row specs for claim-funding, stake-funding, and withdrawal-funding rows.
 
 use std::convert::Infallible;
 
-use bitcoin::{OutPoint, Txid, hashes::Hash};
+use bitcoin::{
+    OutPoint, Transaction, TxOut, Txid,
+    consensus::{Decodable, Encodable, encode},
+    hashes::Hash,
+};
 use foundationdb::tuple::PackError;
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 
 use super::kv::{KVRowSpec, PackableKey, SerializableValue};
-use crate::fdb::dirs::Directories;
+use crate::{fdb::dirs::Directories, types::StakeFundingReservation};
 
 const SERIALIZED_TXID_SIZE: usize = 32;
 const SERIALIZED_VOUT_SIZE: usize = 4;
@@ -181,6 +185,105 @@ impl KVRowSpec for StakeFundingRowSpec {
     type Value = StakeFundingValue;
 }
 
+/// Key for stake-funding reservation rows: `OperatorIdx`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StakeFundingReservationKey {
+    /// Operator index.
+    pub operator_idx: OperatorIdx,
+}
+
+impl PackableKey for StakeFundingReservationKey {
+    type PackingError = Infallible;
+    type UnpackingError = PackError;
+    type Packed = Vec<u8>;
+
+    fn pack(&self, dirs: &Directories) -> Result<Self::Packed, Self::PackingError> {
+        Ok(dirs
+            .stake_funding_reservations
+            .pack::<(u32,)>(&(self.operator_idx,)))
+    }
+
+    fn unpack(dirs: &Directories, bytes: &[u8]) -> Result<Self, Self::UnpackingError> {
+        let (operator_idx,) = dirs.stake_funding_reservations.unpack::<(u32,)>(bytes)?;
+        Ok(Self { operator_idx })
+    }
+}
+
+/// Error returned when a stake-funding reservation's bytes cannot be parsed.
+#[derive(Debug)]
+pub enum InvalidStakeFundingReservationBytes {
+    /// The byte slice ended before all fields were read.
+    UnexpectedEof,
+    /// A consensus-encoded field failed to decode.
+    Decode(encode::Error),
+    /// Bytes past the encoded reservation were not consumed.
+    TrailingBytes,
+}
+
+impl From<encode::Error> for InvalidStakeFundingReservationBytes {
+    fn from(err: encode::Error) -> Self {
+        Self::Decode(err)
+    }
+}
+
+/// Value for a stake-funding reservation row: a [`StakeFundingReservation`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StakeFundingReservationValue(pub StakeFundingReservation);
+
+impl SerializableValue for StakeFundingReservationValue {
+    type SerializeError = Infallible;
+    type DeserializeError = InvalidStakeFundingReservationBytes;
+    type Serialized = Vec<u8>;
+
+    fn serialize(&self) -> Result<Self::Serialized, Self::SerializeError> {
+        let reservation = &self.0;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&reservation.stake_output_vout.to_le_bytes());
+        // `Transaction` and `Vec<TxOut>` are length-prefixed by their own consensus encoding,
+        // so concatenation is unambiguous.
+        reservation
+            .unsigned_tx
+            .consensus_encode(&mut buf)
+            .expect("writing to Vec<u8> is infallible");
+        reservation
+            .prevouts
+            .consensus_encode(&mut buf)
+            .expect("writing to Vec<u8> is infallible");
+        Ok(buf)
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Self::DeserializeError> {
+        if bytes.len() < SERIALIZED_VOUT_SIZE {
+            return Err(InvalidStakeFundingReservationBytes::UnexpectedEof);
+        }
+        let (vout_bytes, mut rest) = bytes.split_at(SERIALIZED_VOUT_SIZE);
+        let stake_output_vout = u32::from_le_bytes(
+            vout_bytes
+                .try_into()
+                .expect("split_at guarantees length matches"),
+        );
+        let unsigned_tx = Transaction::consensus_decode(&mut rest)?;
+        let prevouts = Vec::<TxOut>::consensus_decode(&mut rest)?;
+        if !rest.is_empty() {
+            return Err(InvalidStakeFundingReservationBytes::TrailingBytes);
+        }
+        Ok(Self(StakeFundingReservation {
+            unsigned_tx,
+            prevouts,
+            stake_output_vout,
+        }))
+    }
+}
+
+/// ZST for stake-funding reservation rows.
+#[derive(Debug)]
+pub struct StakeFundingReservationRowSpec;
+
+impl KVRowSpec for StakeFundingReservationRowSpec {
+    type Key = StakeFundingReservationKey;
+    type Value = StakeFundingReservationValue;
+}
+
 /// Key for withdrawal-funding rows: `DepositIdx`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithdrawalFundingKey {
@@ -228,4 +331,79 @@ pub struct WithdrawalFundingRowSpec;
 impl KVRowSpec for WithdrawalFundingRowSpec {
     type Key = WithdrawalFundingKey;
     type Value = WithdrawalFundingValue;
+}
+
+#[cfg(test)]
+mod tests {
+    use strata_bridge_test_utils::bitcoin::generate_tx;
+
+    use super::*;
+
+    fn sample_reservation(n_inputs: usize) -> StakeFundingReservation {
+        let unsigned_tx = generate_tx(n_inputs, 1);
+        let prevouts = unsigned_tx.output.clone();
+        StakeFundingReservation {
+            unsigned_tx,
+            prevouts,
+            stake_output_vout: 0,
+        }
+    }
+
+    #[test]
+    fn reservation_single_input_roundtrip() {
+        let reservation = sample_reservation(1);
+        let value = StakeFundingReservationValue(reservation.clone());
+        let bytes = value.serialize().unwrap();
+        let decoded = StakeFundingReservationValue::deserialize(bytes.as_ref()).unwrap();
+        assert_eq!(
+            decoded.0, reservation,
+            "decoded reservation must match the original"
+        );
+    }
+
+    #[test]
+    fn reservation_multi_input_roundtrip() {
+        let reservation = sample_reservation(3);
+        let value = StakeFundingReservationValue(reservation.clone());
+        let bytes = value.serialize().unwrap();
+        let decoded = StakeFundingReservationValue::deserialize(bytes.as_ref()).unwrap();
+        assert_eq!(
+            decoded.0, reservation,
+            "multi-input reservation must round-trip"
+        );
+    }
+
+    #[test]
+    fn reservation_deserialize_empty_bytes_errors() {
+        let err = StakeFundingReservationValue::deserialize(&[]).unwrap_err();
+        assert!(
+            matches!(err, InvalidStakeFundingReservationBytes::UnexpectedEof),
+            "empty bytes must be rejected as UnexpectedEof",
+        );
+    }
+
+    #[test]
+    fn reservation_deserialize_trailing_bytes_errors() {
+        let reservation = sample_reservation(1);
+        let value = StakeFundingReservationValue(reservation);
+        let mut bytes = value.serialize().unwrap();
+        bytes.push(0x42);
+        let err = StakeFundingReservationValue::deserialize(&bytes).unwrap_err();
+        assert!(
+            matches!(err, InvalidStakeFundingReservationBytes::TrailingBytes),
+            "trailing bytes after a valid reservation must be rejected",
+        );
+    }
+
+    #[test]
+    fn reservation_deserialize_truncated_errors() {
+        let reservation = sample_reservation(2);
+        let value = StakeFundingReservationValue(reservation);
+        let bytes = value.serialize().unwrap();
+        let err = StakeFundingReservationValue::deserialize(&bytes[..bytes.len() - 1]).unwrap_err();
+        assert!(
+            matches!(err, InvalidStakeFundingReservationBytes::Decode(_)),
+            "truncated bytes must surface a consensus decode error, got {err:?}",
+        );
+    }
 }
