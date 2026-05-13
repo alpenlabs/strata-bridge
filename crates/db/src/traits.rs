@@ -131,30 +131,6 @@ pub trait BridgeDb {
         outpoint: OutPoint,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// Gets, if present, the reserved [`OutPoint`] used to fund the stake transaction for the
-    /// given operator.
-    ///
-    /// Persisting the outpoint lets the stake executor retrieve the existing funding UTXO on
-    /// retry (after a crash, restart, or duty re-dispatch) without creating a new funding tx
-    /// each time, which would consume additional wallet funds.
-    fn get_stake_funding_outpoint(
-        &self,
-        operator_idx: OperatorIdx,
-    ) -> impl Future<Output = Result<Option<OutPoint>, Self::Error>> + Send;
-
-    /// Sets the reserved [`OutPoint`] used to fund the stake transaction for the given operator.
-    fn set_stake_funding_outpoint(
-        &self,
-        operator_idx: OperatorIdx,
-        outpoint: OutPoint,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
-
-    /// Deletes the reserved stake-funding [`OutPoint`] for the given operator.
-    fn delete_stake_funding_outpoint(
-        &self,
-        operator_idx: OperatorIdx,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
-
     /// Gets, if present, the [`StakeFundingReservation`] persisted for the given operator.
     fn get_stake_funding_reservation(
         &self,
@@ -187,8 +163,10 @@ pub trait BridgeDb {
         outpoints: Vec<OutPoint>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// Returns all stored funds entries as funding outpoints (including those used for funding both
-    /// claim and withdrawal fulfillment transactions).
+    /// Returns all reserved general-wallet outpoints across the claim, stake, and withdrawal rows.
+    ///
+    /// For stake reservations this is the set of inputs to the funding transaction, not the
+    /// resulting stakechain output.
     fn get_all_funds(&self) -> impl Future<Output = Result<Vec<OutPoint>, Self::Error>> + Send;
 
     /// Deletes the reserved [`OutPoint`]s for the given graph and purpose.

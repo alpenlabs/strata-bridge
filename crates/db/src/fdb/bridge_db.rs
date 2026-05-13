@@ -16,10 +16,10 @@ use crate::{
         row_spec::{
             deposits::{DepositStateKey, DepositStateRowSpec},
             funds::{
-                ClaimFundingKey, ClaimFundingRowSpec, ClaimFundingValue, StakeFundingKey,
+                ClaimFundingKey, ClaimFundingRowSpec, ClaimFundingValue,
                 StakeFundingReservationKey, StakeFundingReservationRowSpec,
-                StakeFundingReservationValue, StakeFundingRowSpec, StakeFundingValue,
-                WithdrawalFundingKey, WithdrawalFundingRowSpec, WithdrawalFundingValue,
+                StakeFundingReservationValue, WithdrawalFundingKey, WithdrawalFundingRowSpec,
+                WithdrawalFundingValue,
             },
             graphs::GraphStateRowSpec,
             signatures::{SignatureKey, SignatureRowSpec},
@@ -214,9 +214,6 @@ impl BridgeDb for FdbClient {
         let claim_pairs = self
             .basic_get_all::<ClaimFundingRowSpec>(|dirs| &dirs.claim_funds)
             .await?;
-        let stake_pairs = self
-            .basic_get_all::<StakeFundingRowSpec>(|dirs| &dirs.stake_funds)
-            .await?;
         let reservation_pairs = self
             .basic_get_all::<StakeFundingReservationRowSpec>(|dirs| {
                 &dirs.stake_funding_reservations
@@ -232,7 +229,6 @@ impl BridgeDb for FdbClient {
             .sum();
         let mut funds = Vec::with_capacity(
             claim_pairs.len()
-                + stake_pairs.len()
                 + reservation_input_count
                 + withdrawal_pairs
                     .iter()
@@ -240,7 +236,6 @@ impl BridgeDb for FdbClient {
                     .sum::<usize>(),
         );
         funds.extend(claim_pairs.into_iter().map(|(_, v)| v.0));
-        funds.extend(stake_pairs.into_iter().map(|(_, v)| v.0));
         funds.extend(reservation_pairs.into_iter().flat_map(|(_, v)| {
             v.0.unsigned_tx
                 .input
@@ -249,36 +244,6 @@ impl BridgeDb for FdbClient {
         }));
         funds.extend(withdrawal_pairs.into_iter().flat_map(|(_, v)| v.0));
         Ok(funds)
-    }
-
-    async fn get_stake_funding_outpoint(
-        &self,
-        operator_idx: OperatorIdx,
-    ) -> Result<Option<OutPoint>, Self::Error> {
-        let result = self
-            .basic_get::<StakeFundingRowSpec>(StakeFundingKey { operator_idx })
-            .await?;
-        Ok(result.map(|v| v.0))
-    }
-
-    async fn set_stake_funding_outpoint(
-        &self,
-        operator_idx: OperatorIdx,
-        outpoint: OutPoint,
-    ) -> Result<(), Self::Error> {
-        self.basic_set::<StakeFundingRowSpec>(
-            StakeFundingKey { operator_idx },
-            StakeFundingValue(outpoint),
-        )
-        .await
-    }
-
-    async fn delete_stake_funding_outpoint(
-        &self,
-        operator_idx: OperatorIdx,
-    ) -> Result<(), Self::Error> {
-        self.basic_delete::<StakeFundingRowSpec>(StakeFundingKey { operator_idx })
-            .await
     }
 
     async fn get_stake_funding_reservation(
