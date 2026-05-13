@@ -32,11 +32,11 @@ class BridgeProtocolParams:
     stake_amount: int = 100_000_000
     operator_fee: int = 10_000_000
     recovery_delay: int = 1_008
-    contest_timelock: int = 144
-    proof_timelock: int = 144
-    ack_timelock: int = 144
-    nack_timelock: int = 144
-    contested_payout_timelock: int = 1_008
+    contest_timelock: int = 45
+    proof_timelock: int = 15
+    ack_timelock: int = 35
+    nack_timelock: int = 30
+    contested_payout_timelock: int = 60
     bridge_proof_predicate: str = ProofPredicate.ALWAYS_ACCEPT
 
 
