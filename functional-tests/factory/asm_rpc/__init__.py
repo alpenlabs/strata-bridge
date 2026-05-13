@@ -164,10 +164,22 @@ def generate_asm_rpc_config(
         orchestrator=orchestrator_config,
     )
 
-    # toml.dump rejects None values, so drop the orchestrator key when unset.
-    config_dict = asdict(config)
-    if config_dict.get("orchestrator") is None:
-        config_dict.pop("orchestrator", None)
+    # toml.dump rejects None values, and Rust expects optional keys to be absent
+    # (not null) for `Option::None`. Strip all None values recursively.
+    config_dict = _strip_none(asdict(config))
 
     with open(output_path, "w") as f:
         toml.dump(config_dict, f)
+
+
+def _strip_none(d: dict) -> dict:
+    """Recursively remove keys with None values from a dict."""
+    cleaned = {}
+    for k, v in d.items():
+        if v is None:
+            continue
+        if isinstance(v, dict):
+            cleaned[k] = _strip_none(v)
+        else:
+            cleaned[k] = v
+    return cleaned

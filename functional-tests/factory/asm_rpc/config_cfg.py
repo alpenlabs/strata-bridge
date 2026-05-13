@@ -47,6 +47,15 @@ class ParamsConfig:
 
 
 @dataclass
+class NativeBackend:
+    """Native (in-process) proof backend configuration."""
+
+    asm_schnorr_signing_key: str
+    moho_schnorr_signing_key: str
+    kind: str = "native"
+
+
+@dataclass
 class OrchestratorConfig:
     """Proof orchestrator configuration.
 
@@ -58,6 +67,7 @@ class OrchestratorConfig:
     tick_interval: Duration
     max_concurrent_proofs: int
     proof_db_path: str
+    backend: NativeBackend
 
 
 @dataclass

@@ -2,7 +2,12 @@ from pathlib import Path
 
 import flexitest
 
-from factory.asm_rpc.config_cfg import Duration, OrchestratorConfig
+from constants import NATIVE_TEST_ASM_SIGNING_KEY, NATIVE_TEST_MOHO_SIGNING_KEY
+from factory.asm_rpc.config_cfg import (
+    Duration,
+    NativeBackend,
+    OrchestratorConfig,
+)
 from factory.bridge_operator.asm_cfg import build_asm_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
@@ -114,6 +119,10 @@ class BaseEnv(flexitest.EnvConfig):
             tick_interval=Duration(secs=1, nanos=0),
             max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
+            backend=NativeBackend(
+                asm_schnorr_signing_key=NATIVE_TEST_ASM_SIGNING_KEY,
+                moho_schnorr_signing_key=NATIVE_TEST_MOHO_SIGNING_KEY,
+            ),
         )
 
     def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
