@@ -15,7 +15,7 @@ ssz_derive.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-bridge-v1-txs.workspace = true
 strata-codec.workspace = true
-strata-merkle.workspace = true
+strata-merkle = { workspace = true, features = ["ssz"] }
 strata-predicate.workspace = true
 zkaleido = { workspace = true, features = ["ssz"] }
 zkaleido-native-adapter.workspace = true

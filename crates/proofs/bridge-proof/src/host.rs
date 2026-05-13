@@ -17,7 +17,7 @@ mod backend {
 
     /// Constructs the [`BridgeProofHost`] for the active backend.
     pub fn build_bridge_proof_host() -> BridgeProofHost {
-        NativeHost::new(process_bridge_proof)
+        NativeHost::new_with_random_key(process_bridge_proof)
     }
 }
 
