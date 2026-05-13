@@ -17,8 +17,9 @@ use crate::{
             deposits::{DepositStateKey, DepositStateRowSpec},
             funds::{
                 ClaimFundingKey, ClaimFundingRowSpec, ClaimFundingValue, StakeFundingKey,
-                StakeFundingRowSpec, StakeFundingValue, WithdrawalFundingKey,
-                WithdrawalFundingRowSpec, WithdrawalFundingValue,
+                StakeFundingReservationKey, StakeFundingReservationRowSpec,
+                StakeFundingReservationValue, StakeFundingRowSpec, StakeFundingValue,
+                WithdrawalFundingKey, WithdrawalFundingRowSpec, WithdrawalFundingValue,
             },
             graphs::GraphStateRowSpec,
             signatures::{SignatureKey, SignatureRowSpec},
@@ -26,7 +27,7 @@ use crate::{
         },
     },
     traits::BridgeDb,
-    types::WriteBatch,
+    types::{StakeFundingReservation, WriteBatch},
 };
 
 impl BridgeDb for FdbClient {
@@ -216,13 +217,23 @@ impl BridgeDb for FdbClient {
         let stake_pairs = self
             .basic_get_all::<StakeFundingRowSpec>(|dirs| &dirs.stake_funds)
             .await?;
+        let reservation_pairs = self
+            .basic_get_all::<StakeFundingReservationRowSpec>(|dirs| {
+                &dirs.stake_funding_reservations
+            })
+            .await?;
         let withdrawal_pairs = self
             .basic_get_all::<WithdrawalFundingRowSpec>(|dirs| &dirs.fulfillment_funds)
             .await?;
 
+        let reservation_input_count: usize = reservation_pairs
+            .iter()
+            .map(|(_, v)| v.0.unsigned_tx.input.len())
+            .sum();
         let mut funds = Vec::with_capacity(
             claim_pairs.len()
                 + stake_pairs.len()
+                + reservation_input_count
                 + withdrawal_pairs
                     .iter()
                     .map(|(_, v)| v.0.len())
@@ -230,6 +241,12 @@ impl BridgeDb for FdbClient {
         );
         funds.extend(claim_pairs.into_iter().map(|(_, v)| v.0));
         funds.extend(stake_pairs.into_iter().map(|(_, v)| v.0));
+        funds.extend(reservation_pairs.into_iter().flat_map(|(_, v)| {
+            v.0.unsigned_tx
+                .input
+                .into_iter()
+                .map(|txin| txin.previous_output)
+        }));
         funds.extend(withdrawal_pairs.into_iter().flat_map(|(_, v)| v.0));
         Ok(funds)
     }
@@ -262,6 +279,40 @@ impl BridgeDb for FdbClient {
     ) -> Result<(), Self::Error> {
         self.basic_delete::<StakeFundingRowSpec>(StakeFundingKey { operator_idx })
             .await
+    }
+
+    async fn get_stake_funding_reservation(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> Result<Option<StakeFundingReservation>, Self::Error> {
+        let result = self
+            .basic_get::<StakeFundingReservationRowSpec>(StakeFundingReservationKey {
+                operator_idx,
+            })
+            .await?;
+        Ok(result.map(|v| v.0))
+    }
+
+    async fn set_stake_funding_reservation(
+        &self,
+        operator_idx: OperatorIdx,
+        reservation: StakeFundingReservation,
+    ) -> Result<(), Self::Error> {
+        self.basic_set::<StakeFundingReservationRowSpec>(
+            StakeFundingReservationKey { operator_idx },
+            StakeFundingReservationValue(reservation),
+        )
+        .await
+    }
+
+    async fn delete_stake_funding_reservation(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> Result<(), Self::Error> {
+        self.basic_delete::<StakeFundingReservationRowSpec>(StakeFundingReservationKey {
+            operator_idx,
+        })
+        .await
     }
 
     async fn delete_claim_funding_outpoint(&self, graph_idx: GraphIdx) -> Result<(), Self::Error> {
@@ -385,7 +436,7 @@ mod tests {
     };
     use strata_bridge_test_utils::{
         arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid},
-        bitcoin::generate_xonly_pubkey,
+        bitcoin::{generate_tx, generate_xonly_pubkey},
     };
     use strata_bridge_tx_graph::game_graph::{
         CounterproofGraphSummary, DepositParams, GameGraphSummary,
@@ -469,6 +520,19 @@ mod tests {
         StakeSM {
             context: StakeSMCtx::new(operator_idx, operator_table),
             state,
+        }
+    }
+
+    /// Builds a [`StakeFundingReservation`] around an arbitrary unsigned transaction with
+    /// `num_inputs` inputs. Prevouts are stubbed from the transaction's own outputs, which is
+    /// sufficient for exercising the FDB round-trip.
+    fn make_reservation(num_inputs: usize, stake_output_vout: u32) -> StakeFundingReservation {
+        let unsigned_tx = generate_tx(num_inputs, stake_output_vout as usize + 1);
+        let prevouts = unsigned_tx.output.clone();
+        StakeFundingReservation {
+            unsigned_tx,
+            prevouts,
+            stake_output_vout,
         }
     }
 
@@ -953,6 +1017,107 @@ mod tests {
                 for op in outpoints_wf {
                     prop_assert!(all.contains(&op), "get_all_funds missing withdrawal outpoint: {op}");
                 }
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: a stake funding reservation can be stored/retrieved with the same operator key.
+        #[test]
+        fn stake_funding_reservation_roundtrip(
+            operator_idx in any::<OperatorIdx>(),
+            num_inputs in 1usize..4,
+            vout in 0u32..4,
+        ) {
+            let reservation = make_reservation(num_inputs, vout);
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_stake_funding_reservation(operator_idx, reservation.clone())
+                    .await
+                    .unwrap();
+
+                let retrieved = client
+                    .get_stake_funding_reservation(operator_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(Some(reservation), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: `get_all_funds` includes the general-wallet input outpoints from a stake reservation.
+        #[test]
+        fn get_all_funds_includes_stake_reservation_inputs(
+            operator_idx in any::<OperatorIdx>(),
+            num_inputs in 1usize..4,
+        ) {
+            let reservation = make_reservation(num_inputs, 0);
+            let expected_inputs: Vec<OutPoint> = reservation
+                .unsigned_tx
+                .input
+                .iter()
+                .map(|txin| txin.previous_output)
+                .collect();
+            let derived_stake_output = OutPoint {
+                txid: reservation.unsigned_tx.compute_txid(),
+                vout: reservation.stake_output_vout,
+            };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_stake_funding_reservation(operator_idx, reservation)
+                    .await
+                    .unwrap();
+
+                let all = client.get_all_funds().await.unwrap();
+                for op in &expected_inputs {
+                    prop_assert!(
+                        all.contains(op),
+                        "get_all_funds missing stake reservation input outpoint: {op}"
+                    );
+                }
+                prop_assert!(
+                    !all.contains(&derived_stake_output),
+                    "get_all_funds must not include the derived stake output {derived_stake_output}",
+                );
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: deleting a stake funding reservation makes it unreadable.
+        #[test]
+        fn delete_stake_funding_reservation_roundtrip(
+            operator_idx in any::<OperatorIdx>(),
+            num_inputs in 1usize..4,
+        ) {
+            let reservation = make_reservation(num_inputs, 0);
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .set_stake_funding_reservation(operator_idx, reservation)
+                    .await
+                    .unwrap();
+
+                client
+                    .delete_stake_funding_reservation(operator_idx)
+                    .await
+                    .unwrap();
+
+                let retrieved = client
+                    .get_stake_funding_reservation(operator_idx)
+                    .await
+                    .unwrap();
+                prop_assert_eq!(None, retrieved);
 
                 Ok(())
             })?;

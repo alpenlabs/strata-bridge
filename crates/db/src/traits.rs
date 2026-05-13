@@ -9,7 +9,7 @@ use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
 };
 
-use crate::types::WriteBatch;
+use crate::types::{StakeFundingReservation, WriteBatch};
 
 /// Standard persistence interface for a bridge node.
 pub trait BridgeDb {
@@ -151,6 +151,25 @@ pub trait BridgeDb {
 
     /// Deletes the reserved stake-funding [`OutPoint`] for the given operator.
     fn delete_stake_funding_outpoint(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Gets, if present, the [`StakeFundingReservation`] persisted for the given operator.
+    fn get_stake_funding_reservation(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> impl Future<Output = Result<Option<StakeFundingReservation>, Self::Error>> + Send;
+
+    /// Persists the [`StakeFundingReservation`] for the given operator.
+    fn set_stake_funding_reservation(
+        &self,
+        operator_idx: OperatorIdx,
+        reservation: StakeFundingReservation,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Deletes the [`StakeFundingReservation`] for the given operator.
+    fn delete_stake_funding_reservation(
         &self,
         operator_idx: OperatorIdx,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
