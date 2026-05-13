@@ -85,27 +85,38 @@ pub enum StakeDuty {
 }
 
 /// A nag duty of a Stake State Machine.
+///
+/// Every variant carries two fields with a fixed interpretation:
+///
+/// - `operator_idx` is the owner of the stake graph this nag is about. Consumers must apply the nag
+///   to the receiver's state machine for that stake graph.
+/// - `operator_pubkey` is the p2p key of the peer to address: the operator we expect to send the
+///   missing data back.
+///
+/// For [`NagDuty::NagUnstakingData`] the stake graph's owner is also the only peer that can
+/// produce the data, so the two fields refer to the same operator. For nonces and partials, the
+/// missing peer can be any operator that contributes to the stake graph, so they differ.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NagDuty {
     /// Nag an operator for missing stake data.
     NagUnstakingData {
-        /// The operator who is nagged.
+        /// The owner of the stake graph this nag is about.
         operator_idx: OperatorIdx,
-        /// The p2p key of the operator who is nagged, used to target the nag message.
+        /// The p2p key of the peer to address.
         operator_pubkey: P2POperatorPubKey,
     },
-    /// Nag an operator for missing nonces.
+    /// Nag a peer for their missing nonce contribution to our stake graph.
     NagUnstakingNonces {
-        /// The operator who is nagged.
+        /// The owner of the stake graph this nag is about.
         operator_idx: OperatorIdx,
-        /// The p2p key of the operator who is nagged, used to target the nag message.
+        /// The p2p key of the peer to address.
         operator_pubkey: P2POperatorPubKey,
     },
-    /// Nag an operator for missing partial signatures.
+    /// Nag a peer for their missing partial signature contribution to our stake graph.
     NagUnstakingPartials {
-        /// The operator who is nagged.
+        /// The owner of the stake graph this nag is about.
         operator_idx: OperatorIdx,
-        /// The p2p key of the operator who is nagged, used to target the nag message.
+        /// The p2p key of the peer to address.
         operator_pubkey: P2POperatorPubKey,
     },
 }

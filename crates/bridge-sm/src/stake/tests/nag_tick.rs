@@ -32,16 +32,17 @@ fn nag_stake_data() {
 fn nag_unstaking_nonces() {
     let pub_nonces = BTreeMap::from([(0, TEST_PUB_NONCES_MAP[&0].clone())]);
     let present: BTreeSet<_> = pub_nonces.keys().copied().collect();
+    let stake_owner_idx = TEST_CTX.operator_idx();
     let expected_duties = TEST_CTX
         .operator_table()
         .operator_idxs()
         .difference(&present)
-        .map(|&operator_idx| {
+        .map(|&missing_idx| {
             StakeDuty::Nag(NagDuty::NagUnstakingNonces {
-                operator_idx,
+                operator_idx: stake_owner_idx,
                 operator_pubkey: TEST_CTX
                     .operator_table()
-                    .idx_to_p2p_key(&operator_idx)
+                    .idx_to_p2p_key(&missing_idx)
                     .unwrap()
                     .clone(),
             })
@@ -63,16 +64,17 @@ fn nag_unstaking_nonces() {
 fn nag_unstaking_partials() {
     let partial_signatures = BTreeMap::from([(0, TEST_PARTIAL_SIGS_MAP[&0])]);
     let present: BTreeSet<_> = partial_signatures.keys().copied().collect();
+    let stake_owner_idx = TEST_CTX.operator_idx();
     let expected_duties = TEST_CTX
         .operator_table()
         .operator_idxs()
         .difference(&present)
-        .map(|&operator_idx| {
+        .map(|&missing_idx| {
             StakeDuty::Nag(NagDuty::NagUnstakingPartials {
-                operator_idx,
+                operator_idx: stake_owner_idx,
                 operator_pubkey: TEST_CTX
                     .operator_table()
-                    .idx_to_p2p_key(&operator_idx)
+                    .idx_to_p2p_key(&missing_idx)
                     .unwrap()
                     .clone(),
             })
