@@ -8,6 +8,9 @@ DEFAULT_LOG_LEVEL = "DEBUG"
 ASM_MAGIC_BYTES = "ALPN"
 MOSAIC_DIR = "mosaic"
 
+NATIVE_TEST_ASM_SIGNING_KEY = "01" * 32
+NATIVE_TEST_MOHO_SIGNING_KEY = "02" * 32
+
 # Deposit Transaction output indices
 DT_DEPOSIT_VOUT = 1  # Deposit funds locked in N/N taproot
 
