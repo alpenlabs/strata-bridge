@@ -50,7 +50,7 @@ def generate_config_toml(
     config = BridgeOperatorConfig(
         num_threads=None,
         thread_stack_size=None,
-        nag_interval=Duration(secs=10, nanos=0),
+        nag_interval=Duration(secs=bridge_config_params.nag_interval_secs, nanos=0),
         retry_interval=Duration(secs=1, nanos=0),
         min_withdrawal_fulfillment_window=bridge_config_params.min_withdrawal_fulfillment_window,
         shutdown_timeout=Duration(secs=30, nanos=0),
@@ -90,6 +90,7 @@ def generate_config_toml(
             ),
             gossipsub_forward_queue_duration=Duration(secs=60, nanos=0),
             gossipsub_publish_queue_duration=Duration(secs=60, nanos=0),
+            peer_reconnect_interval=Duration(secs=1, nanos=0),
             # Configure gossipsub mesh for small network
             # Each operator can only see n-1 peers, so mesh_n_low must be <= n-1
             gossipsub_mesh_n=total_peers - 1,
