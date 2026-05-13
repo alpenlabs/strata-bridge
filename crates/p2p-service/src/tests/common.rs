@@ -77,9 +77,6 @@ impl Operator {
             gossip_command_buffer_size: None,
             envelope_max_age: None,
             max_clock_skew: None,
-            kad_protocol_name: None,
-            kad_record_ttl: None,
-            kad_timer_putrecorderror: None,
             conn_limits: Default::default(),
         };
 
