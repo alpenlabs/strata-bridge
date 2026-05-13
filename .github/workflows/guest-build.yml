@@ -10,7 +10,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # Keep in sync with `sp1-sdk` / `sp1-verifier` versions in workspace `Cargo.toml`.
-  SP1_VERSION: v6.1.0
+  SP1_VERSION: v6.2.0
 
 permissions: {}
 
