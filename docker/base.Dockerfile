@@ -1,4 +1,6 @@
-FROM --platform=linux/amd64 ghcr.io/succinctlabs/sp1:nightly AS builder
+# ghcr.io/succinctlabs/sp1:v6.1.0
+# get image digest from: `docker buildx imagetools inspect ghcr.io/succinctlabs/sp1:v6.1.0 2>&1 | head -20`
+FROM --platform=linux/amd64 ghcr.io/succinctlabs/sp1@sha256:484abccef8b457bfce8159f53364e93e0c78be6e5187a17e04c09856a7861576 AS builder
 
 WORKDIR /app
 
