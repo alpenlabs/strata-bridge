@@ -87,10 +87,10 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-mosaic-client = { path = "crates/mosaic-client" }
 strata-mosaic-client-api = { path = "crates/mosaic-client-api" }
 
-# Dependencies from alpenlabs/alpen pinned to commit 2c6ae209
+# Dependencies from alpenlabs/alpen pinned to commit 2c6ae209 (main @ 2026-05-13)
 strata-ol-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "2c6ae209dd5f2ed71e6f9f7b721ea7ab21190e10" }
 
-# Dependencies from alpenlabs/asm pinned to commit dc6432ff
+# Dependencies from alpenlabs/asm pinned to commit dc6432ff (main @ 2026-05-13)
 asm-storage = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
 strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
 strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
