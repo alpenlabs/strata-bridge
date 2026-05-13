@@ -52,6 +52,7 @@ class P2pConfig:
     gossipsub_heartbeat_initial_delay: Duration | None
     gossipsub_publish_queue_duration: Duration | None
     gossipsub_forward_queue_duration: Duration | None
+    peer_reconnect_interval: Duration | None
 
 
 @dataclass
@@ -98,6 +99,7 @@ class BridgeConfigParams:
     min_withdrawal_fulfillment_window: int = 144
     cooperative_payout_timeout: int = 144
     max_fee_rate: int = 10
+    nag_interval_secs: int = 10
 
 
 @dataclass

@@ -389,3 +389,54 @@ def find_utxo_spender_txid(bitcoin_rpc, txid: str, vout: int, scan_blocks: int =
                     return tx["txid"]
 
     raise LookupError(f"no spender of {txid}:{vout} in mempool or last {scan_blocks} blocks")
+
+
+def find_mempool_txs_paying_to_address(bitcoin_rpc, address: str) -> list[str]:
+    """
+    Return every mempool transaction with at least one output paying to ``address``.
+
+    Args:
+        bitcoin_rpc: Bitcoin RPC client.
+        address: Address to match against each output's ``scriptPubKey.address``.
+    """
+    matches: list[str] = []
+    for txid in bitcoin_rpc.proxy.getrawmempool():
+        tx = bitcoin_rpc.proxy.getrawtransaction(txid, True)
+        for vout in tx.get("vout", []):
+            if vout.get("scriptPubKey", {}).get("address") == address:
+                matches.append(txid)
+                break
+    return matches
+
+
+def find_block_txs_paying_to_address(
+    bitcoin_rpc,
+    address: str,
+    from_height: int,
+    to_height: int | None = None,
+) -> list[str]:
+    """
+    Return every non-coinbase transaction in blocks ``[from_height, to_height]`` whose outputs
+    include a payment to ``address``. ``to_height`` defaults to the current chain tip.
+
+    Args:
+        bitcoin_rpc: Bitcoin RPC client.
+        address: Address to match against each output's ``scriptPubKey.address``.
+        from_height: First block height to scan, inclusive.
+        to_height: Last block height to scan, inclusive. Defaults to the current chain tip.
+    """
+    if to_height is None:
+        to_height = bitcoin_rpc.proxy.getblockcount()
+    matches: list[str] = []
+    for height in range(from_height, to_height + 1):
+        block_hash = bitcoin_rpc.proxy.getblockhash(height)
+        block = bitcoin_rpc.proxy.getblock(block_hash, 2)
+        for tx in block.get("tx", []):
+            vin = tx.get("vin", [])
+            if vin and vin[0].get("coinbase") is not None:
+                continue
+            for vout in tx.get("vout", []):
+                if vout.get("scriptPubKey", {}).get("address") == address:
+                    matches.append(tx["txid"])
+                    break
+    return matches
