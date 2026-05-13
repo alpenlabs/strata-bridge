@@ -36,28 +36,17 @@ pub(crate) async fn publish_stake_data(
     output_handles: &OutputHandles,
     operator_idx: OperatorIdx,
 ) -> Result<(), ExecutorError> {
-    info!(%operator_idx, "checking for a persisted stake funding reservation");
-    let reservation = match output_handles
-        .db
-        .get_stake_funding_reservation(operator_idx)
-        .await?
-    {
-        Some(reservation) => {
-            info!(%operator_idx, "reusing persisted stake funding reservation");
-            reservation
-        }
-        None => {
-            info!(%operator_idx, "no persisted stake funding reservation; creating a new funding tx");
-            create_and_persist_stake_funding(cfg, output_handles, operator_idx).await?
-        }
-    };
+    info!(%operator_idx, "executing duty to publish stake data");
 
+    let reservation = read_or_create_stake_funding(cfg, output_handles, operator_idx).await?;
+
+    let stake_funding_txid = reservation.unsigned_tx.compute_txid();
     let stake_funds = OutPoint {
-        txid: reservation.unsigned_tx.compute_txid(),
+        txid: stake_funding_txid,
         vout: reservation.stake_output_vout,
     };
 
-    info!(%operator_idx, %stake_funds, "submitting stake funding transaction");
+    info!(%operator_idx, %stake_funding_txid, "submitting stake funding transaction");
     let signed_tx = sign_reservation(output_handles, &reservation).await?;
     publish_signed_transaction(
         &output_handles.tx_driver,
@@ -101,22 +90,86 @@ pub(crate) async fn publish_stake_data(
     Ok(())
 }
 
-async fn create_and_persist_stake_funding(
+async fn read_or_create_stake_funding(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     operator_idx: OperatorIdx,
 ) -> Result<StakeFundingReservation, ExecutorError> {
+    let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
+
+    let mut wallet = output_handles.wallet.write().await;
+
+    match wallet.sync().await {
+        Ok(()) => info!("synced wallet successfully"),
+        Err(e) => error!(
+            ?e,
+            "could not sync wallet before stake funding lookup; still attempting"
+        ),
+    }
+
+    if let Some(reservation) = output_handles
+        .db
+        .get_stake_funding_reservation(operator_idx)
+        .await?
+    {
+        info!(%operator_idx, "reusing persisted stake funding reservation");
+        validate_reservation(&reservation, wallet.stakechain_script_buf(), funding_amount)?;
+        wallet.lease_outpoints(
+            reservation
+                .unsigned_tx
+                .input
+                .iter()
+                .map(|txin| txin.previous_output),
+        );
+        return Ok(reservation);
+    }
+
+    info!(%operator_idx, "no persisted stake funding reservation; creating a new funding tx");
+    let fee_rate = estimate_funding_fee_rate(cfg, output_handles).await?;
+
+    info!(%fee_rate, %funding_amount, "creating stake funding transaction");
+    let psbt = wallet
+        .create_stake_funding_tx(fee_rate, funding_amount)
+        .expect("must be able to create stake funding transaction");
+    let reservation = reservation_from_psbt(&psbt);
+
+    info!(%operator_idx, "persisting stake funding reservation");
+    if let Err(err) = output_handles
+        .db
+        .set_stake_funding_reservation(operator_idx, reservation.clone())
+        .await
+    {
+        let new_inputs: Vec<OutPoint> = reservation
+            .unsigned_tx
+            .input
+            .iter()
+            .map(|txin| txin.previous_output)
+            .collect();
+
+        // If we fail to persist the reservation, we must release the leased outpoints so they can
+        // be used
+        wallet.release_outpoints(&new_inputs);
+        return Err(err.into());
+    }
+
+    Ok(reservation)
+}
+
+async fn estimate_funding_fee_rate(
+    cfg: &ExecutionConfig,
+    output_handles: &OutputHandles,
+) -> Result<FeeRate, ExecutorError> {
     info!("fetching fee rate from bitcoind");
-    let fee_rate = output_handles
+    let raw_fee_rate = output_handles
         .bitcoind_rpc_client
         .estimate_smart_fee(1)
         .await?;
-    info!(%fee_rate, "fetched fee rate from bitcoind");
+    info!(%raw_fee_rate, "fetched fee rate from bitcoind");
 
     // Bound the rate from below by `fee::FEE_RATE` so this v3 (TRUC) funding transaction
     // always meets the bridge's hardcoded minimum, even on networks like signet where
     // `estimatesmartfee` may return a value below `minrelaytxfee`.
-    let fee_rate = FeeRate::from_sat_per_vb(fee_rate)
+    let fee_rate = FeeRate::from_sat_per_vb(raw_fee_rate)
         .unwrap_or(fee::FEE_RATE)
         .max(fee::FEE_RATE);
 
@@ -127,34 +180,44 @@ async fn create_and_persist_stake_funding(
         });
     }
 
-    let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
+    Ok(fee_rate)
+}
 
-    info!(%fee_rate, %funding_amount, "creating stake funding transaction");
-    let psbt = {
-        let mut wallet = output_handles.wallet.write().await;
-
-        match wallet.sync().await {
-            Ok(()) => info!("synced wallet successfully"),
-            Err(e) => error!(
-                ?e,
-                "could not sync wallet before creating stake funding tx; still attempting"
-            ),
-        }
-
-        wallet
-            .create_stake_funding_tx(fee_rate, funding_amount)
-            .expect("must be able to create stake funding transaction")
-    };
-
-    let reservation = reservation_from_psbt(&psbt);
-
-    info!(%operator_idx, "persisting stake funding reservation");
-    output_handles
-        .db
-        .set_stake_funding_reservation(operator_idx, reservation.clone())
-        .await?;
-
-    Ok(reservation)
+fn validate_reservation(
+    reservation: &StakeFundingReservation,
+    expected_stake_script: &bitcoin::ScriptBuf,
+    expected_funding_amount: Amount,
+) -> Result<(), ExecutorError> {
+    if reservation.prevouts.len() != reservation.unsigned_tx.input.len() {
+        return Err(ExecutorError::InvalidTxStructure(format!(
+            "stake funding reservation prevouts ({}) do not match input count ({})",
+            reservation.prevouts.len(),
+            reservation.unsigned_tx.input.len(),
+        )));
+    }
+    let stake_output = reservation
+        .unsigned_tx
+        .output
+        .get(reservation.stake_output_vout as usize)
+        .ok_or_else(|| {
+            ExecutorError::InvalidTxStructure(format!(
+                "stake funding reservation vout {} out of range ({} outputs)",
+                reservation.stake_output_vout,
+                reservation.unsigned_tx.output.len(),
+            ))
+        })?;
+    if stake_output.script_pubkey != *expected_stake_script {
+        return Err(ExecutorError::InvalidTxStructure(
+            "stake funding reservation output script does not match stakechain wallet".into(),
+        ));
+    }
+    if stake_output.value != expected_funding_amount {
+        return Err(ExecutorError::InvalidTxStructure(format!(
+            "stake funding reservation output value {} != expected {}",
+            stake_output.value, expected_funding_amount,
+        )));
+    }
+    Ok(())
 }
 
 fn reservation_from_psbt(psbt: &Psbt) -> StakeFundingReservation {

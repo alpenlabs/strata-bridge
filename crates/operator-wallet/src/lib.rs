@@ -270,6 +270,13 @@ impl OperatorWallet {
         }
     }
 
+    /// Marks each of the given outpoints as leased.
+    pub fn lease_outpoints(&mut self, outpoints: impl IntoIterator<Item = OutPoint>) {
+        for outpoint in outpoints {
+            self.lease(outpoint);
+        }
+    }
+
     /// Creates a PSBT that refills the pool of claim funding UTXOs from the general wallet
     /// (excluding anchor outputs). Needs signing by the general wallet.
     ///
