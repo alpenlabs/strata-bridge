@@ -63,9 +63,7 @@ jobs:
         run: cargo prove --version
 
       - name: Build SP1 guest with bundled stub params
-        env:
-          SKIP_PARAMS: "1"
-        run: cargo build --locked -p strata-bridge-sp1-guest-builder --release
+        run: SKIP_PARAMS=1 cargo build --locked -p strata-bridge-sp1-guest-builder --release
 
   guest-build-success:
     name: Check that guest build passed
