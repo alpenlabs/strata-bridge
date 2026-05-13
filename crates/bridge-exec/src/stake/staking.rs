@@ -17,10 +17,10 @@ use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PubNonce};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors::prelude::UnstakingIntentOutput;
-use strata_bridge_db::traits::BridgeDb;
+use strata_bridge_db::{traits::BridgeDb, types::StakeFundingReservation};
 use strata_bridge_p2p_types::UnstakingInput;
 use strata_bridge_primitives::{
-    scripts::taproot::{TaprootTweak, create_key_spend_hash, finalize_input},
+    scripts::taproot::{TaprootTweak, create_key_spend_hash},
     types::OperatorIdx,
 };
 use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::prelude::StakeTx};
@@ -36,29 +36,36 @@ pub(crate) async fn publish_stake_data(
     output_handles: &OutputHandles,
     operator_idx: OperatorIdx,
 ) -> Result<(), ExecutorError> {
-    // Check the database first — if we already created a stake funding tx on a prior attempt,
-    // reuse that outpoint so the stake flow is idempotent across retries / restarts.
-    info!(%operator_idx, "checking for a persisted stake funding outpoint");
-    let stake_funds = if let Some(outpoint) = output_handles
+    info!(%operator_idx, "checking for a persisted stake funding reservation");
+    let reservation = match output_handles
         .db
-        .get_stake_funding_outpoint(operator_idx)
+        .get_stake_funding_reservation(operator_idx)
         .await?
     {
-        info!(%operator_idx, %outpoint, "reusing persisted stake funding outpoint");
-        outpoint
-    } else {
-        info!(%operator_idx, "no persisted stake funding outpoint; creating a new funding tx");
-        let stake_funding_tx = create_stake_funding_tx(cfg, output_handles).await?;
-        let outpoint = OutPoint {
-            txid: stake_funding_tx.compute_txid(),
-            vout: 0, // there is only one recipient output in the stake funding transaction.
-        };
-        output_handles
-            .db
-            .set_stake_funding_outpoint(operator_idx, outpoint)
-            .await?;
-        outpoint
+        Some(reservation) => {
+            info!(%operator_idx, "reusing persisted stake funding reservation");
+            reservation
+        }
+        None => {
+            info!(%operator_idx, "no persisted stake funding reservation; creating a new funding tx");
+            create_and_persist_stake_funding(cfg, output_handles, operator_idx).await?
+        }
     };
+
+    let stake_funds = OutPoint {
+        txid: reservation.unsigned_tx.compute_txid(),
+        vout: reservation.stake_output_vout,
+    };
+
+    info!(%operator_idx, %stake_funds, "submitting stake funding transaction");
+    let signed_tx = sign_reservation(output_handles, &reservation).await?;
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        &signed_tx,
+        "stake funding tx",
+        TxStatus::is_buried,
+    )
+    .await?;
 
     info!("fetching unstaking intent preimage from secret-service");
     let preimage = get_preimage(&output_handles.s2_client, stake_funds).await?;
@@ -94,10 +101,11 @@ pub(crate) async fn publish_stake_data(
     Ok(())
 }
 
-async fn create_stake_funding_tx(
+async fn create_and_persist_stake_funding(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
-) -> Result<Transaction, ExecutorError> {
+    operator_idx: OperatorIdx,
+) -> Result<StakeFundingReservation, ExecutorError> {
     info!("fetching fee rate from bitcoind");
     let fee_rate = output_handles
         .bitcoind_rpc_client
@@ -138,76 +146,71 @@ async fn create_stake_funding_tx(
             .expect("must be able to create stake funding transaction")
     };
 
-    info!("signing stake funding transaction via secret-service");
-    let stake_funding_tx = sign_with_general_wallet(output_handles, psbt).await?;
+    let reservation = reservation_from_psbt(&psbt);
 
-    info!("publishing stake funding transaction");
-    publish_signed_transaction(
-        &output_handles.tx_driver,
-        &stake_funding_tx,
-        "stake funding tx",
-        TxStatus::is_buried,
-    )
-    .await?;
+    info!(%operator_idx, "persisting stake funding reservation");
+    output_handles
+        .db
+        .set_stake_funding_reservation(operator_idx, reservation.clone())
+        .await?;
 
-    Ok(stake_funding_tx)
+    Ok(reservation)
 }
 
-async fn sign_with_general_wallet(
+fn reservation_from_psbt(psbt: &Psbt) -> StakeFundingReservation {
+    let prevouts = psbt
+        .inputs
+        .iter()
+        .map(|input| {
+            input
+                .witness_utxo
+                .as_ref()
+                .expect("stake funding PSBT input must have a witness utxo")
+                .clone()
+        })
+        .collect();
+    // The stake funding PSBT is built with `TxOrdering::Untouched` and a single recipient at
+    // index 0; change (if any) is appended after.
+    StakeFundingReservation {
+        unsigned_tx: psbt.unsigned_tx.clone(),
+        prevouts,
+        stake_output_vout: 0,
+    }
+}
+
+async fn sign_reservation(
     output_handles: &OutputHandles,
-    mut psbt: Psbt,
+    reservation: &StakeFundingReservation,
 ) -> Result<Transaction, ExecutorError> {
-    let prevouts = Prevouts::All(
-        &psbt
-            .inputs
-            .iter()
-            .map(|input| {
-                input
-                    .witness_utxo
-                    .as_ref()
-                    .expect("must have witness utxo")
-                    .to_owned()
-            })
-            .collect::<Vec<_>>(),
-    );
+    let prevouts = Prevouts::All(&reservation.prevouts);
 
     const DEFAULT_SIGHASH_TYPE: TapSighashType = TapSighashType::Default;
 
-    let mut sighash_cache = SighashCache::new(&psbt.unsigned_tx);
-    let sighashes = psbt.inputs.iter().enumerate().map(|(input_index, input)| {
-        let prevout_sighash_type = input.sighash_type.unwrap_or(DEFAULT_SIGHASH_TYPE.into());
+    let mut sighash_cache = SighashCache::new(&reservation.unsigned_tx);
+    let sighashes = (0..reservation.unsigned_tx.input.len()).map(|input_index| {
         create_key_spend_hash(
             &mut sighash_cache,
             prevouts.clone(),
-            prevout_sighash_type
-                .taproot_hash_ty()
-                .unwrap_or(DEFAULT_SIGHASH_TYPE),
+            DEFAULT_SIGHASH_TYPE,
             input_index,
         )
         .expect("must be able to create key spend hash")
     });
 
     let s2_signer = output_handles.s2_client.general_wallet_signer();
-    let mut signatures = vec![];
+    let mut signatures = Vec::with_capacity(reservation.unsigned_tx.input.len());
     for sighash in sighashes {
         let signature = s2_signer
             .sign(sighash.as_ref(), None)
             .await
             .map_err(ExecutorError::SecretServiceErr)?;
-
         signatures.push(signature);
     }
-    psbt.inputs
-        .iter_mut()
-        .zip(signatures)
-        .for_each(|(input, signature)| {
-            let witness = signature.serialize();
-            finalize_input(input, [witness]);
-        });
 
-    let signed_tx = psbt
-        .extract_tx()
-        .expect("must be able to extract signed funding transaction");
+    let mut signed_tx = reservation.unsigned_tx.clone();
+    for (input, signature) in signed_tx.input.iter_mut().zip(signatures) {
+        input.witness.push(signature.serialize());
+    }
 
     Ok(signed_tx)
 }
