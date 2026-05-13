@@ -87,23 +87,23 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-mosaic-client = { path = "crates/mosaic-client" }
 strata-mosaic-client-api = { path = "crates/mosaic-client-api" }
 
-# Dependencies from alpenlabs/alpen pinned to commit 565fafcc (main @ 2026-04-30)
-strata-ol-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "565fafccf2fe181d2f93003f9135ceed126a01ad" }
+# Dependencies from alpenlabs/alpen pinned to commit c9eb6c70 (chore-update-sp1-v6 @ 2026-05-13)
+strata-ol-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "c9eb6c7072db0ec73db290cf91b790ac479ccad8" }
 
-# Dependencies from alpenlabs/asm pinned to commit a38db601
-asm-storage = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-proof-impl = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-rpc = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-spec = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
-strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "a38db6018a646708f24f115a8b10ff1d74f879c6" }
+# Dependencies from alpenlabs/asm pinned to commit 4f37c74f
+asm-storage = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-proof-impl = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-rpc = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-spec = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
+strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "4f37c74fc1347f1bca799613455d63fd86dfa4e0" }
 
 # Dependencies from alpenlabs/mosaic pinned to commit 0fc9ba8d (main @ 2026-04-20)
 mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2359c7509b8ebf65e8aa5d423704b505" }
@@ -111,17 +111,17 @@ mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2
 mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2359c7509b8ebf65e8aa5d423704b505" }
 
 # Dependencies from alpenlabs/strata-common
-strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc19" }
-strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc19" }
-strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc19" }
-strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc19" }
-strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc19" }
-strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc19" }
-strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc19" }
-strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc19", features = [
+strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
+strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
+strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
+strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
+strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
+strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
+strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
+strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21", features = [
   "all",
 ] }
-strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc19" }
+strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
 
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.7", features = [
   "quic",
@@ -135,9 +135,9 @@ ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
 ssz_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
 
 # Dependencies from alpenlabs/moho
-moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.2" }
-moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.2" }
-moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.2" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.5" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.5" }
+moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.5" }
 
 # Dependencies from alpenlabs/zkaleido
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.1" }
