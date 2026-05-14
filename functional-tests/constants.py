@@ -1,5 +1,3 @@
-from bitcoinlib.keys import Key
-
 DD_ROOT = "_dd"
 TEST_DIR: str = "tests"
 BRIDGE_NODE_DIR = "bridge_node"
@@ -9,11 +7,6 @@ BRIDGE_NETWORK_SIZE = 3
 DEFAULT_LOG_LEVEL = "DEBUG"
 ASM_MAGIC_BYTES = "ALPN"
 MOSAIC_DIR = "mosaic"
-
-NATIVE_TEST_ASM_SIGNING_KEY = "01" * 32
-NATIVE_TEST_MOHO_SIGNING_KEY = "02" * 32
-NATIVE_TEST_ASM_VERIFYING_KEY = Key(NATIVE_TEST_ASM_SIGNING_KEY, is_private=True).public_hex[2:]
-NATIVE_TEST_MOHO_VERIFYING_KEY = Key(NATIVE_TEST_MOHO_SIGNING_KEY, is_private=True).public_hex[2:]
 
 # Deposit Transaction output indices
 DT_DEPOSIT_VOUT = 1  # Deposit funds locked in N/N taproot
@@ -29,3 +22,17 @@ COUNTERPROOF_ACK_NACK_VOUT = 0
 # Bridge protocol params
 # Bridge supports this as u16, this is the max value
 MAX_BRIDGE_TIMEOUT = (1 << 16) - 1
+
+# Test signing keys for the asm-runner's native backend (asm-stf + moho hosts).
+NATIVE_TEST_ASM_SIGNING_KEY = "01" * 32
+NATIVE_TEST_MOHO_SIGNING_KEY = "02" * 32
+
+# Late import: `utils/__init__.py` eagerly re-exports `utils.bridge` etc., which
+# pull other constants from this module at load time. Importing `utils.crypto`
+# at the top of this file would resolve those submodules before their constants
+# exist and raise a circular ImportError. Placing the import after all
+# `from constants import …` consumers' inputs are defined breaks the cycle.
+from utils.crypto import xonly_pubkey  # noqa: E402
+
+NATIVE_TEST_ASM_VERIFYING_KEY = xonly_pubkey(NATIVE_TEST_ASM_SIGNING_KEY)
+NATIVE_TEST_MOHO_VERIFYING_KEY = xonly_pubkey(NATIVE_TEST_MOHO_SIGNING_KEY)

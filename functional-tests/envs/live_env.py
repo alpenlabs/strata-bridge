@@ -1,7 +1,6 @@
 import flexitest
 
-from utils import generate_blocks
-from utils.utils import MinerThread
+from utils.utils import MinerThread, generate_blocks
 
 
 class StrataLiveEnv(flexitest.LiveEnv):
