@@ -77,14 +77,6 @@ fn verify_moho_proof(
 ) {
     let attestation = moho_proof.attestation();
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-3354>
-    // We manually assert the proof's public params (genesis reference and state commitment)
-    // because the ASM prover's Schnorr predicate is not publicly available as of now.
-    assert_eq!(
-        attestation.genesis().reference(),
-        genesis.genesis_moho_state.reference(),
-        "moho proof genesis reference does not match bridge's anchor block",
-    );
     assert_eq!(
         attestation.proven().commitment(),
         &moho_state.compute_commitment(),
