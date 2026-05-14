@@ -26,10 +26,13 @@ mod release {
 
     use sp1_build::{build_program_with_args, BuildArgs};
     use ssz::Encode;
-    use strata_bridge_proof::{load_genesis_from_paths, ASM_PARAMS_PATH_ENV, MOHO_VK_PATH_ENV};
+    use strata_bridge_proof::{
+        load_genesis_from_paths, ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
+    };
 
     const SKIP_PARAMS_ENV: &str = "SKIP_PARAMS";
     const STUB_ASM_PARAMS: &str = "stub/asm-params.json";
+    const STUB_ASM_VK: &str = "stub/asm-vk.json";
     const STUB_MOHO_VK: &str = "stub/moho-vk.json";
     const GUEST_DIR: &str = "guest-bridge-proof";
     const GUEST_BIN_NAME: &str = "guest-sp1-bridge-proof";
@@ -39,6 +42,7 @@ mod release {
         println!("cargo:rerun-if-env-changed=SP1_SKIP_PROGRAM_BUILD");
         println!("cargo:rerun-if-env-changed={SKIP_PARAMS_ENV}");
         println!("cargo:rerun-if-env-changed={ASM_PARAMS_PATH_ENV}");
+        println!("cargo:rerun-if-env-changed={ASM_VK_PATH_ENV}");
         println!("cargo:rerun-if-env-changed={MOHO_VK_PATH_ENV}");
 
         // Mirror sp1-build's own skip predicates so `SP1_SKIP_PROGRAM_BUILD=true` and
@@ -52,15 +56,17 @@ mod release {
 
         let skip = std::env::var_os(SKIP_PARAMS_ENV).is_some();
         let asm_params_path = resolve_input(ASM_PARAMS_PATH_ENV, STUB_ASM_PARAMS, skip);
+        let asm_vk_path = resolve_input(ASM_VK_PATH_ENV, STUB_ASM_VK, skip);
         let moho_vk_path = resolve_input(MOHO_VK_PATH_ENV, STUB_MOHO_VK, skip);
 
         println!("cargo:rerun-if-changed={}", asm_params_path.display());
+        println!("cargo:rerun-if-changed={}", asm_vk_path.display());
         println!("cargo:rerun-if-changed={}", moho_vk_path.display());
 
         fs::create_dir_all(&build_out_dir)
             .unwrap_or_else(|e| panic!("create {}: {e}", build_out_dir.display()));
 
-        let genesis = load_genesis_from_paths(&asm_params_path, Some(&moho_vk_path));
+        let genesis = load_genesis_from_paths(&asm_params_path, &asm_vk_path, &moho_vk_path);
         fs::write(&genesis_out_file, genesis.as_ssz_bytes())
             .unwrap_or_else(|e| panic!("write {}: {e}", genesis_out_file.display()));
 
