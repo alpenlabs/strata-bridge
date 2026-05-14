@@ -8,6 +8,7 @@ the path to the resulting ELF.
 | Env var                            | Format     | Stub fallback under `SKIP_PARAMS=1` |
 |------------------------------------|------------|-------------------------------------|
 | `BRIDGE_PROOF_ASM_PARAMS_PATH`     | JSON file  | `stub/asm-params.json`              |
+| `BRIDGE_PROOF_ASM_VK_PATH`         | JSON file  | `stub/asm-vk.json`                  |
 | `BRIDGE_PROOF_MOHO_VK_PATH`        | JSON file  | `stub/moho-vk.json`                 |
 
 If either env var is unset on a release build and `SKIP_PARAMS` is not set, the build
@@ -35,9 +36,7 @@ A single JSON string in the `PredicateKey` human-readable serde form:
 `SKIP_PARAMS=1` redirects both inputs to the bundled `stub/` files so CI can
 verify the program **compiles** without provisioning real inputs.
 
-> **Warning.** `SKIP_PARAMS` builds use `PredicateKey::always_accept()` as the
-> Moho VK. The proof still runs end-to-end but accepts any Moho witness — these
-> builds are **not deployable**.
+> **Warning.** `SKIP_PARAMS` builds embeds a stale Moho VK — **not deployable**.
 
 ```bash
 SKIP_PARAMS=1 cargo build -p strata-bridge-sp1-guest-builder --release
