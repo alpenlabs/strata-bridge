@@ -15,3 +15,13 @@ rpc_password = "password"
 rawblock_connection_string = "tcp://bitcoind:28334"
 retry_count = 3
 retry_interval = { secs = 1, nanos = 0 }
+
+[orchestrator]
+max_concurrent_proofs = 4
+proof_db_path = "/app/proof_db"
+tick_interval = { secs = 1, nanos = 0 }
+
+[orchestrator.backend]
+kind = "native"
+asm_schnorr_signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
+moho_schnorr_signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
