@@ -28,7 +28,6 @@
 # External service components
 /crates/btc-tracker/ @Rajil1213
 /crates/asm-events/ @prajwolrg @MdTeach
-/crates/proof-db/ @prajwolrg @MdTeach
 /crates/mosaic-client/ @sapinb @Rajil1213
 /crates/mosaic-client-api/ @sapinb @Rajil1213
 
@@ -60,7 +59,6 @@
 # Test utilities
 /crates/test-utils/ @Rajil1213
 /bin/dev-cli/ @Rajil1213 @MdTeach
-/test-data/ @Rajil1213
 /crates/memory_pprof/ @Zk2u
 
 # Functional tests
