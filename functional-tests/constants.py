@@ -1,3 +1,5 @@
+from bitcoinlib.keys import Key
+
 DD_ROOT = "_dd"
 TEST_DIR: str = "tests"
 BRIDGE_NODE_DIR = "bridge_node"
@@ -10,6 +12,7 @@ MOSAIC_DIR = "mosaic"
 
 NATIVE_TEST_ASM_SIGNING_KEY = "01" * 32
 NATIVE_TEST_MOHO_SIGNING_KEY = "02" * 32
+NATIVE_TEST_MOHO_VERIFYING_KEY = Key(NATIVE_TEST_MOHO_SIGNING_KEY, is_private=True).public_hex[2:]
 
 # Deposit Transaction output indices
 DT_DEPOSIT_VOUT = 1  # Deposit funds locked in N/N taproot
