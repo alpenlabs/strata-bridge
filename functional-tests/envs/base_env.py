@@ -18,12 +18,13 @@ from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from factory.common.asm_params import write_asm_params_json
 from factory.fdb import generate_fdb_root_directory
-from utils import (
+from utils.mosaic import get_peer_ids
+from utils.utils import (
     generate_blocks,
+    generate_p2p_ports,
+    read_operator_key,
     wait_until_bitcoind_ready,
 )
-from utils.mosaic import get_peer_ids
-from utils.utils import generate_p2p_ports, read_operator_key
 
 from .asm_config import AsmEnvConfig
 from .btc_config import BitcoinEnvConfig
