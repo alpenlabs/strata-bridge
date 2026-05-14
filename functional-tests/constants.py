@@ -12,6 +12,7 @@ MOSAIC_DIR = "mosaic"
 
 NATIVE_TEST_ASM_SIGNING_KEY = "01" * 32
 NATIVE_TEST_MOHO_SIGNING_KEY = "02" * 32
+NATIVE_TEST_ASM_VERIFYING_KEY = Key(NATIVE_TEST_ASM_SIGNING_KEY, is_private=True).public_hex[2:]
 NATIVE_TEST_MOHO_VERIFYING_KEY = Key(NATIVE_TEST_MOHO_SIGNING_KEY, is_private=True).public_hex[2:]
 
 # Deposit Transaction output indices
