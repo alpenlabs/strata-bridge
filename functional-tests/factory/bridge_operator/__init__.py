@@ -150,6 +150,7 @@ class BridgeOperatorFactory(flexitest.Factory):
             "BRIDGE_PROOF_ASM_PARAMS_PATH": str(
                 (envdd_path / "generated" / "asm-params.json").resolve()
             ),
+            "BRIDGE_PROOF_ASM_VK_PATH": str((envdd_path / "generated" / "asm-vk.json").resolve()),
             "BRIDGE_PROOF_MOHO_VK_PATH": str((envdd_path / "generated" / "moho-vk.json").resolve()),
         }
         svc = ProcServiceWithEnv(

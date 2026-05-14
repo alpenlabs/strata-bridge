@@ -4,6 +4,7 @@ import flexitest
 
 from constants import (
     NATIVE_TEST_ASM_SIGNING_KEY,
+    NATIVE_TEST_ASM_VERIFYING_KEY,
     NATIVE_TEST_MOHO_SIGNING_KEY,
     NATIVE_TEST_MOHO_VERIFYING_KEY,
 )
@@ -50,6 +51,7 @@ class BaseEnv(flexitest.EnvConfig):
         self._asm_rpc_service = None
         self._bridge_genesis_height = None
         self._rollup_params_path = None
+        self._asm_vk_path = None
         self._moho_vk_path = None
         self._bridge_protocol_params = bridge_protocol_params
         self._bridge_config_params = bridge_config_params
@@ -131,8 +133,8 @@ class BaseEnv(flexitest.EnvConfig):
         )
 
     def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
-        """Build bridge/ASM params and write asm-params.json + moho-vk.json once per environment."""
-        # All three attrs are written together below; one sentinel is enough.
+        """Build bridge/ASM params once per environment."""
+        # All attrs are written together below; one sentinel is enough.
         if self._rollup_params_path is not None:
             return
 
@@ -144,13 +146,17 @@ class BaseEnv(flexitest.EnvConfig):
         )
         envdd_path = Path(ectx.envdd_path)
         generated_dir = envdd_path / "generated"
+        generated_dir.mkdir(parents=True, exist_ok=True)
         asm_params_path = generated_dir / "asm-params.json"
         self._rollup_params_path = write_asm_params_json(asm_params_path, asm_params)
 
-        # The asm-runner's native moho host signs proofs with NATIVE_TEST_MOHO_SIGNING_KEY,
-        # so the bridge proof must verify against the matching BIP-340 x-only pubkey.
+        # The asm-runner's native asm/moho hosts sign with NATIVE_TEST_{ASM,MOHO}_SIGNING_KEY;
+        # the bridge proof's genesis must carry the matching BIP-340 x-only pubkeys.
+        asm_vk_path = generated_dir / "asm-vk.json"
+        asm_vk_path.write_text(f'"Bip340Schnorr:{NATIVE_TEST_ASM_VERIFYING_KEY}"\n')
+        self._asm_vk_path = asm_vk_path.as_posix()
+
         moho_vk_path = generated_dir / "moho-vk.json"
-        moho_vk_path.parent.mkdir(parents=True, exist_ok=True)
         moho_vk_path.write_text(f'"Bip340Schnorr:{NATIVE_TEST_MOHO_VERIFYING_KEY}"\n')
         self._moho_vk_path = moho_vk_path.as_posix()
 
