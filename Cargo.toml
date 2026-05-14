@@ -10,7 +10,6 @@ members = [
   "crates/common",
   "crates/connectors",
   "crates/db",
-  "crates/proof-db",
   "crates/key-deriv",
   "crates/memory_pprof",
   "crates/mosaic-client",
@@ -78,7 +77,6 @@ strata-bridge-p2p-types = { path = "crates/p2p-types" }
 strata-bridge-primitives = { path = "crates/primitives" }
 strata-bridge-proof = { path = "crates/proofs/bridge-proof" }
 strata-bridge-proof-common = { path = "crates/proofs/common" }
-strata-bridge-proof-db = { path = "crates/proof-db" }
 strata-bridge-rpc = { path = "crates/rpc" }
 strata-bridge-sm = { path = "crates/bridge-sm" }
 strata-bridge-sp1-guest-builder = { path = "guest-builder/sp1" }
