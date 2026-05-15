@@ -75,7 +75,9 @@ runs:
     - name: Run Trivy JSON scan for ${{ inputs.display_name }}
       id: trivy_json
       continue-on-error: true
-      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+      # trivy is pinned to v0.69.3 by the setup-trivy step above; this invocation passes
+      # `skip-setup-trivy: "true"` to reuse that binary, so trivy itself is not unpinned here.
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 # zizmor: ignore[unpinned-tools]
       with:
         scan-type: image
         scan-ref: ${{ inputs.image_ref }}
@@ -95,7 +97,9 @@ runs:
     - name: Run Trivy SARIF scan for ${{ inputs.display_name }}
       id: trivy_sarif
       continue-on-error: true
-      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+      # trivy is pinned to v0.69.3 by the setup-trivy step above; this invocation passes
+      # `skip-setup-trivy: "true"` to reuse that binary, so trivy itself is not unpinned here.
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 # zizmor: ignore[unpinned-tools]
       with:
         scan-type: image
         scan-ref: ${{ inputs.image_ref }}
