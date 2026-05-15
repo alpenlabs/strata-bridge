@@ -8,10 +8,11 @@ import time
 import tomllib
 import urllib.error
 import urllib.request
-from dataclasses import asdict
 from pathlib import Path
 
-from asm_params import build_l1_anchor
+# Bitcoin's difficulty adjustment interval, in blocks. Identical across all networks
+# (mainnet, testnet, signet, regtest) per Bitcoin Core's consensus params.
+DIFFICULTY_ADJUSTMENT_INTERVAL = 2016
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,9 +64,7 @@ def wait_for_bitcoind(bitcoin_cfg: dict, timeout_secs: int) -> None:
     raise RuntimeError("bitcoind did not become ready in time")
 
 
-def wait_for_genesis_height(
-    bitcoin_cfg: dict, genesis_height: int, timeout_secs: int
-) -> None:
+def wait_for_genesis_height(bitcoin_cfg: dict, genesis_height: int, timeout_secs: int) -> None:
     deadline = time.time() + timeout_secs
 
     while time.time() < deadline:
@@ -77,6 +76,7 @@ def wait_for_genesis_height(
                 "getblockcount",
                 [],
             )
+
             if int(block_count) >= genesis_height:
                 return
         except (OSError, urllib.error.URLError, urllib.error.HTTPError, RuntimeError):
@@ -84,9 +84,7 @@ def wait_for_genesis_height(
 
         time.sleep(1)
 
-    raise RuntimeError(
-        f"bitcoind did not reach genesis height {genesis_height} in time"
-    )
+    raise RuntimeError(f"bitcoind did not reach genesis height {genesis_height} in time")
 
 
 def fetch_block_header(bitcoin_cfg: dict, height: int) -> dict:
@@ -104,6 +102,27 @@ def fetch_block_header(bitcoin_cfg: dict, height: int) -> dict:
         "getblockheader",
         [block_hash],
     )
+
+
+def build_l1_anchor(genesis_height: int, network: str, bitcoin_cfg: dict) -> dict:
+    """Builds the L1 anchor dict for the ASM params from on-chain context at ``genesis_height``.
+
+    Records ``genesis_height``'s hash and ``bits`` on the anchor, plus the timestamp of the
+    block at the start of the containing difficulty epoch — matching how the ASM recomputes
+    the next difficulty target.
+    """
+    epoch_start_height = (
+        genesis_height // DIFFICULTY_ADJUSTMENT_INTERVAL
+    ) * DIFFICULTY_ADJUSTMENT_INTERVAL
+    epoch_start_header = fetch_block_header(bitcoin_cfg, epoch_start_height)
+    genesis_header = fetch_block_header(bitcoin_cfg, genesis_height)
+
+    return {
+        "block": {"height": genesis_height, "blkid": genesis_header["hash"]},
+        "next_target": int(genesis_header["bits"], 16),
+        "epoch_start_timestamp": int(epoch_start_header["time"]),
+        "network": network,
+    }
 
 
 def validate_params(asm_params: dict, bridge_params: dict) -> None:
@@ -145,17 +164,13 @@ def validate_params(asm_params: dict, bridge_params: dict) -> None:
     ]
 
     if mismatches:
-        raise RuntimeError(
-            "asm and bridge params are misaligned:\n  " + "\n  ".join(mismatches)
-        )
+        raise RuntimeError("asm and bridge params are misaligned:\n  " + "\n  ".join(mismatches))
 
 
 def main() -> None:
     args = parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.info("Starting ASM params generation")
 
     config = tomllib.loads(Path(args.config).read_text())
@@ -176,13 +191,7 @@ def main() -> None:
 
     network = params["anchor"]["network"]
     logging.info(f"Updating ASM params with chain context for {network} network")
-    params["anchor"] = asdict(
-        build_l1_anchor(
-            genesis_height,
-            lambda h: fetch_block_header(config["bitcoin"], h),
-            network,
-        )
-    )
+    params["anchor"] = build_l1_anchor(genesis_height, network, config["bitcoin"])
 
     logging.info(f"Writing updated ASM params to {params_path}")
     params_path.write_text(json.dumps(params, indent=4) + "\n")
