@@ -1,8 +1,8 @@
 name: Trivy image scan and summarize
 description: >
-  Runs a Trivy image scan (JSON + SARIF), detects outputs, and writes a markdown summary.
-  Scans are intentionally advisory — failures emit a warning but never block image publication.
-  JSON output drives the job-summary table; SARIF is uploaded to GitHub Security for tracking.
+  Runs a Trivy image scan: hard gate (CRITICAL/HIGH, blocks push) then advisory SARIF
+  (all severities, Security tab) and CycloneDX SBOM (supply-chain artifact).
+  Gate failures propagate to the caller, preventing any push step from running.
 
 inputs:
   image_ref:
@@ -38,13 +38,17 @@ inputs:
   artifact_name:
     description: "Name of the GitHub Actions artifact to upload scan results under."
     required: true
+  trivyignores:
+    description: "Path to .trivyignore file for CVE suppressions. Pass empty string to use no ignore file."
+    required: false
+    default: ""
 
 outputs:
   status:
     description: "Scan status: 'success' or 'failed'."
     value: ${{ steps.trivy_scan.outputs.status }}
   json_rc:
-    description: "Exit code of the JSON-format scan."
+    description: "Exit code of the gate JSON-format scan."
     value: ${{ steps.trivy_scan.outputs.json_rc }}
   sarif_rc:
     description: "Exit code of the SARIF-format scan."
@@ -63,21 +67,18 @@ runs:
       shell: bash
       run: mkdir -p trivy-results
 
-    # Install Trivy once and reuse the same binary for both scan formats.
-    # setup-trivy v0.2.6 avoids the extra nested install flow that previously
-    # caused missing scan output when GitHub API requests were rate-limited.
+    # Install Trivy once and reuse the same binary for all scan formats.
     - name: Install Trivy once for ${{ inputs.display_name }}
       uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
       with:
         version: v0.69.3
         cache: true
 
-    - name: Run Trivy JSON scan for ${{ inputs.display_name }}
-      id: trivy_json
-      continue-on-error: true
-      # trivy is pinned to v0.69.3 by the setup-trivy step above; this invocation passes
-      # `skip-setup-trivy: "true"` to reuse that binary, so trivy itself is not unpinned here.
-      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 # zizmor: ignore[unpinned-tools]
+    # Hard gate — build fails and no image is pushed if CRITICAL or HIGH unfixed
+    # vulnerabilities are found. Add justified exceptions to .trivyignore via PR.
+    - name: Scan ${{ inputs.display_name }} with Trivy (hard gate)
+      id: trivy_gate
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
       with:
         scan-type: image
         scan-ref: ${{ inputs.image_ref }}
@@ -86,16 +87,18 @@ runs:
         timeout: ${{ inputs.trivy_timeout }}
         scanners: ${{ inputs.trivy_scanners }}
         docker-host: unix:///var/run/docker.sock
-        # exit-code 0 disables Trivy's built-in severity gating — we don't want the scan itself
-        # to fail the step. Severity review happens out-of-band via the SARIF upload and summary.
-        exit-code: "0"
+        severity: CRITICAL,HIGH
+        ignore-unfixed: "true"
+        exit-code: "1"
         hide-progress: "true"
-        # Use the binary installed above; skip-setup-trivy prevents a second nested install that
-        # was previously observed to corrupt report output.
         skip-setup-trivy: "true"
+        trivyignores: ${{ inputs.trivyignores }}
 
-    - name: Run Trivy SARIF scan for ${{ inputs.display_name }}
+    # Advisory SARIF scan — runs even if the hard gate failed so that findings
+    # are always visible in the Security tab for triage.
+    - name: Scan ${{ inputs.display_name }} with Trivy (SARIF — Security tab)
       id: trivy_sarif
+      if: always()
       continue-on-error: true
       # trivy is pinned to v0.69.3 by the setup-trivy step above; this invocation passes
       # `skip-setup-trivy: "true"` to reuse that binary, so trivy itself is not unpinned here.
@@ -108,22 +111,43 @@ runs:
         timeout: ${{ inputs.trivy_timeout }}
         scanners: ${{ inputs.trivy_scanners }}
         docker-host: unix:///var/run/docker.sock
+        severity: CRITICAL,HIGH,MEDIUM,LOW
+        ignore-unfixed: "true"
         exit-code: "0"
         hide-progress: "true"
         skip-setup-trivy: "true"
+        trivyignores: ${{ inputs.trivyignores }}
+
+    # Advisory SBOM — CycloneDX artifact for supply chain tracking.
+    - name: Generate SBOM for ${{ inputs.display_name }} (CycloneDX)
+      id: trivy_sbom
+      if: always()
+      continue-on-error: true
+      uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+      with:
+        scan-type: image
+        scan-ref: ${{ inputs.image_ref }}
+        format: cyclonedx
+        output: trivy-results/${{ inputs.component }}.sbom.json
+        timeout: ${{ inputs.trivy_timeout }}
+        scanners: ${{ inputs.trivy_scanners }}
+        docker-host: unix:///var/run/docker.sock
+        exit-code: "0"
+        hide-progress: "true"
+        skip-setup-trivy: "true"
+        trivyignores: ${{ inputs.trivyignores }}
 
     - name: Record Trivy scan status for ${{ inputs.display_name }}
       id: trivy_scan
+      if: always()
       shell: bash
       env:
         COMPONENT: ${{ inputs.component }}
         DISPLAY_NAME: ${{ inputs.display_name }}
-        JSON_OUTCOME: ${{ steps.trivy_json.outcome }}
+        GATE_OUTCOME: ${{ steps.trivy_gate.outcome }}
         SARIF_OUTCOME: ${{ steps.trivy_sarif.outcome }}
       run: |
-        # Keep the scans advisory: Trivy failures should not stop image publication, but we still
-        # want the summary and SARIF upload steps to reflect when either scan invocation failed.
-        if [[ "${JSON_OUTCOME}" == "success" ]]; then
+        if [[ "${GATE_OUTCOME}" == "success" ]]; then
           json_rc=0
         else
           json_rc=1
@@ -135,11 +159,11 @@ runs:
           sarif_rc=1
         fi
 
-        if [[ "${json_rc}" -eq 0 && "${sarif_rc}" -eq 0 ]]; then
+        if [[ "${json_rc}" -eq 0 ]]; then
           status="success"
         else
           status="failed"
-          echo "::warning::Advisory Trivy scan for ${DISPLAY_NAME} had json_rc=${json_rc} sarif_rc=${sarif_rc}"
+          echo "::error::Trivy hard gate for ${DISPLAY_NAME} found CRITICAL/HIGH unfixed CVEs"
         fi
 
         {
@@ -181,6 +205,7 @@ runs:
         cat "trivy-results/${COMPONENT_NAME}.md"
         echo "::endgroup::"
 
+    # Uploads SARIF to the repository's Security → Code scanning tab.
     - name: Upload Trivy SARIF for ${{ inputs.display_name }}
       if: always() && steps.trivy_outputs.outputs.sarif_exists == 'true'
       uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
@@ -188,6 +213,7 @@ runs:
         sarif_file: trivy-results/${{ inputs.component }}.sarif
         category: ${{ inputs.sarif_category }}
 
+    # Bundles JSON, SARIF, SBOM, and Markdown as a downloadable artifact.
     - name: Upload scan artifact for ${{ inputs.display_name }}
       if: always() && (steps.trivy_outputs.outputs.json_exists == 'true' || steps.trivy_outputs.outputs.sarif_exists == 'true')
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -197,4 +223,5 @@ runs:
         path: |
           trivy-results/${{ inputs.component }}.json
           trivy-results/${{ inputs.component }}.sarif
+          trivy-results/${{ inputs.component }}.sbom.json
           trivy-results/${{ inputs.component }}.md

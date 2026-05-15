@@ -1,0 +1,13 @@
+# .trivyignore — CVE suppressions for Trivy image scans
+#
+# Format: one CVE ID per line; blank lines and lines starting with # are ignored.
+#
+# Before adding an entry:
+#   1. Confirm the CVE does not affect this project (wrong arch, unexposed code path, etc.)
+#   2. Add the CVE ID with a comment explaining why it is safe to suppress
+#   3. Include a review-by date if a patched release is expected soon
+#   4. Open a PR — all exceptions require security review
+#
+# Example:
+#   # CVE-2023-12345: affects x86 only; targets amd64 via distroless base — review by 2024-06-01
+#   CVE-2023-12345
