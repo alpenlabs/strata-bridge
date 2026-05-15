@@ -71,8 +71,34 @@ fn accept_partials() {
 }
 
 #[test]
-fn accept_partials_all_collected() {
+fn accept_partials_all_collected_pov() {
     test_stake_transition(StakeTransition {
+        from_state: nonces_collected_state(BTreeMap::from([
+            (0, operator_partial_sigs(0)),
+            (1, operator_partial_sigs(1)),
+        ])),
+        event: UnstakingPartialsReceivedEvent {
+            operator_idx: 2,
+            partial_signatures: operator_partial_sigs(2),
+        }
+        .into(),
+        expected_state: StakeState::UnstakingSigned {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
+            signatures: Box::new(*TEST_FINAL_SIGS),
+        },
+        expected_duties: vec![StakeDuty::PublishStake {
+            operator_idx: 0,
+            tx: TEST_GRAPH.stake.as_ref().clone(),
+        }],
+        expected_signals: vec![],
+    });
+}
+
+#[test]
+fn accept_partials_all_collected_nonpov() {
+    test_nonpov_stake_transition(StakeTransition {
         from_state: nonces_collected_state(BTreeMap::from([
             (0, operator_partial_sigs(0)),
             (1, operator_partial_sigs(1)),
