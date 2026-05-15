@@ -5,6 +5,7 @@ use strata_bridge_tx_graph::{musig_functor::StakeFunctor, stake_graph::StakeGrap
 use crate::{
     stake::{
         config::StakeSMCfg,
+        duties::StakeDuty,
         errors::{SSMError, SSMResult},
         events::UnstakingPartialsReceivedEvent,
         machine::{SSMOutput, StakeSM},
@@ -40,6 +41,7 @@ impl StakeSM {
             .idx_to_btc_key(&event.operator_idx)
             .expect("operator index has been validated above");
 
+        let mut duties = vec![];
         match self.state_mut() {
             StakeState::UnstakingNoncesCollected {
                 last_block_height,
@@ -133,6 +135,15 @@ impl StakeSM {
                     )
                     .boxed();
 
+                    if context.operator_idx() == context.operator_table().pov_idx() {
+                        let stake_graph = StakeGraph::new(stake_data.expand(*cfg, &context));
+                        let stake_tx = stake_graph.stake.as_ref().clone();
+                        duties.push(StakeDuty::PublishStake {
+                            operator_idx: context.operator_idx(),
+                            tx: stake_tx,
+                        });
+                    }
+
                     self.state = StakeState::UnstakingSigned {
                         last_block_height: *last_block_height,
                         stake_data: stake_data.clone(),
@@ -141,7 +152,7 @@ impl StakeSM {
                     };
                 }
 
-                Ok(SMOutput::new())
+                Ok(SMOutput::with_duties(duties))
             }
             StakeState::UnstakingSigned { .. } => Err(SSMError::duplicate(
                 self.state.clone(),
