@@ -95,9 +95,6 @@ def parse_bits_to_target(bits: int | str) -> int:
     return int(bits)
 
 
-# NOTE: (@Rajil1213) This function is also used by the `gen_asm_params.py` script in the
-# `docker/asm-runner` directory, so it should be kept generic and not rely on any
-# test-specific logic.
 def build_l1_anchor(
     genesis_height: int,
     get_block_header: BlockHeaderFetcher,

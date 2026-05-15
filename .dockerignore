@@ -38,3 +38,10 @@ test-data/
 assets/
 *.bak
 seed
+
+# AI files
+.codex/
+.claude/
+
+# Run artifacts
+docker/vol/asm-runner/proof_db/
