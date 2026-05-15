@@ -16,6 +16,12 @@ on:
         description: Existing ECR tag for bridge-base and bridge-rt when they are not rebuilt in this run.
         required: false
         type: string
+  push:
+    branches:
+      - 'infra/**'
+    paths:
+      - 'docker/**'
+      - '.github/workflows/docker-publish-ecr.yml'
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
@@ -137,27 +143,41 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      - name: Build and push ${{ matrix.display_name }}
+      # Build to local Docker daemon so Trivy can scan before any push.
+      - name: Build ${{ matrix.display_name }}
         env:
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
         run: |
+          set -euo pipefail
+          local_tag="${{ matrix.component }}:local"
           image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
+          echo "LOCAL_TAG=${local_tag}" >> "${GITHUB_ENV}"
+          echo "IMAGE_REF=${image_ref}" >> "${GITHUB_ENV}"
           # Dependency images use buildx so GHA layer cache can reuse the expensive Rust build across runs.
           docker buildx build \
             --platform "${DOCKER_PLATFORM}" \
             --file "${{ matrix.dockerfile }}" \
             --cache-from "type=gha,scope=${{ matrix.cache_scope }}" \
             --cache-to "type=gha,scope=${{ matrix.cache_scope }},mode=max" \
-            --tag "${image_ref}" \
+            --tag "${local_tag}" \
             --pull \
-            --push \
+            --load \
             .
 
+      # .trivyignore lives at the repo root (checked out at resolved_sha).
+      # Guard creates an empty file for runs against refs that pre-date the file.
+      - name: Ensure .trivyignore exists
+        run: |
+          if [[ ! -f .trivyignore ]]; then
+            touch .trivyignore
+          fi
+
+      # Hard gate — no image is pushed if CRITICAL or HIGH unfixed vulnerabilities are found.
       - name: Scan ${{ matrix.display_name }} with Trivy
         id: trivy
         uses: ./.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
         with:
-          image_ref: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.repository }}:${{ needs.plan.outputs.image_tag }}
+          image_ref: ${{ env.LOCAL_TAG }}
           display_name: ${{ matrix.display_name }}
           component: ${{ matrix.component }}
           repository: ${{ matrix.repository }}
@@ -168,18 +188,24 @@ jobs:
           trivy_timeout: ${{ matrix.trivy_timeout }}
           sarif_category: bridge-ecr-${{ matrix.component }}
           artifact_name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
+          trivyignores: .trivyignore
+
+      # Push only reaches this step if the hard gate scan above passed.
+      - name: Push ${{ matrix.display_name }} to ECR
+        run: |
+          set -euo pipefail
+          docker tag "${LOCAL_TAG}" "${IMAGE_REF}"
+          docker push "${IMAGE_REF}"
 
       - name: Append publish summary
         if: always()
         env:
-          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
           TRIVY_STATUS: ${{ steps.trivy.outputs.status }}
         run: |
-          image_ref="${ECR_REGISTRY}/${ECR_REPOSITORY_PREFIX}/${{ matrix.repository }}:${IMAGE_TAG}"
           {
-            echo "- \`${image_ref}\`"
-            echo "  scan: advisory status \`${TRIVY_STATUS:-unknown}\`"
-            echo "  artifact: \`trivy-${{ matrix.component }}-${IMAGE_TAG}\`"
+            echo "- \`${IMAGE_REF}\`"
+            echo "  scan: \`${TRIVY_STATUS:-unknown}\`"
+            echo "  artifact: \`trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}\`"
             echo
             if [[ -f "trivy-results/${{ matrix.component }}.md" ]]; then
               cat "trivy-results/${{ matrix.component }}.md"
@@ -268,6 +294,15 @@ jobs:
             --tag "${{ matrix.local_tag }}" \
             .
 
+      # .trivyignore lives at the repo root (checked out at resolved_sha).
+      # Guard creates an empty file for runs against refs that pre-date the file.
+      - name: Ensure .trivyignore exists
+        run: |
+          if [[ ! -f .trivyignore ]]; then
+            touch .trivyignore
+          fi
+
+      # Hard gate — no image is pushed if CRITICAL or HIGH unfixed vulnerabilities are found.
       - name: Scan ${{ matrix.display_name }} with Trivy
         id: trivy
         uses: ./.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
@@ -283,7 +318,9 @@ jobs:
           trivy_timeout: ${{ matrix.trivy_timeout }}
           sarif_category: bridge-ecr-${{ matrix.component }}
           artifact_name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
+          trivyignores: .trivyignore
 
+      # Push only reaches this step if the hard gate scan above passed.
       - name: Tag and push ${{ matrix.display_name }}
         env:
           IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
@@ -324,7 +361,7 @@ jobs:
           {
             echo "- \`${image_ref}\`"
             echo "  public: \`${public_image_ref}\`"
-            echo "  scan: advisory status \`${TRIVY_STATUS:-unknown}\`"
+            echo "  scan: \`${TRIVY_STATUS:-unknown}\`"
             echo "  artifact: \`trivy-${{ matrix.component }}-${IMAGE_TAG}\`"
             echo
             if [[ -f "trivy-results/${{ matrix.component }}.md" ]]; then
