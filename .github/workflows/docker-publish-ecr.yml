@@ -16,12 +16,7 @@ on:
         description: Existing ECR tag for bridge-base and bridge-rt when they are not rebuilt in this run.
         required: false
         type: string
-  push:
-    branches:
-      - 'infra/**'
-    paths:
-      - 'docker/**'
-      - '.github/workflows/docker-publish-ecr.yml'
+
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
