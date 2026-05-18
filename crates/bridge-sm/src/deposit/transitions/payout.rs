@@ -18,7 +18,7 @@ use crate::{
         machine::{DSMOutput, DepositSM},
         state::DepositState,
     },
-    state_machine::SMOutput,
+    state_machine::{SMOutput, StateMutation},
 };
 
 impl DepositSM {
@@ -604,6 +604,7 @@ impl DepositSM {
         Ok(SMOutput {
             duties: vec![],
             signals: vec![],
+            state_mutation: StateMutation::Mutated,
         })
     }
 }

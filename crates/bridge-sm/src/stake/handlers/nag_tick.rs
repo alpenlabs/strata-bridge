@@ -83,6 +83,6 @@ impl StakeSM {
             _ => Vec::new(),
         };
 
-        Ok(SMOutput::with_duties(duties))
+        Ok(SMOutput::with_duties(duties).mark_unchanged())
     }
 }

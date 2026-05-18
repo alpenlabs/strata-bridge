@@ -73,6 +73,6 @@ impl DepositSM {
             _ => Vec::new(),
         };
 
-        Ok(DSMOutput::with_duties(duties))
+        Ok(DSMOutput::with_duties(duties).mark_unchanged())
     }
 }

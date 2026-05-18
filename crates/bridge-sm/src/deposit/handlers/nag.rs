@@ -115,7 +115,7 @@ impl DepositSM {
             _ => Vec::new(),
         };
 
-        Ok(DSMOutput::with_duties(duties))
+        Ok(DSMOutput::with_duties(duties).mark_unchanged())
     }
 
     /// Processes an incoming nag from another operator.
@@ -140,7 +140,7 @@ impl DepositSM {
             )),
         }?;
 
-        Ok(DSMOutput::with_duties(duties))
+        Ok(DSMOutput::with_duties(duties).mark_unchanged())
     }
 
     fn reject_nag(&self, event: &NagReceivedEvent, detail: impl Into<String>) -> DSMError {

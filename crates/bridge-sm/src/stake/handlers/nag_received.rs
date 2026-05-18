@@ -47,7 +47,7 @@ impl StakeSM {
             }
         }?;
 
-        Ok(SMOutput::with_duties(duties))
+        Ok(SMOutput::with_duties(duties).mark_unchanged())
     }
 
     fn reject_nag(&self, event: &NagReceivedEvent, detail: impl Into<String>) -> SSMError {

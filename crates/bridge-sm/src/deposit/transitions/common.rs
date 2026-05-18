@@ -8,7 +8,7 @@ use crate::{
         state::DepositState,
     },
     signals::{DepositSignal, DepositToGraph},
-    state_machine::SMOutput,
+    state_machine::{SMOutput, StateMutation},
 };
 
 impl DepositSM {
@@ -44,6 +44,7 @@ impl DepositSM {
                 Ok(SMOutput {
                     duties: vec![],
                     signals: vec![],
+                    state_mutation: StateMutation::Mutated,
                 })
             }
 
@@ -64,6 +65,7 @@ impl DepositSM {
                 Ok(SMOutput {
                     duties: vec![],
                     signals: vec![],
+                    state_mutation: StateMutation::Mutated,
                 })
             }
 
@@ -116,6 +118,7 @@ impl DepositSM {
                                 },
                             },
                         )],
+                        state_mutation: StateMutation::Mutated,
                     });
                 }
 
@@ -124,6 +127,7 @@ impl DepositSM {
                 Ok(SMOutput {
                     duties: vec![],
                     signals: vec![],
+                    state_mutation: StateMutation::Mutated,
                 })
             }
 

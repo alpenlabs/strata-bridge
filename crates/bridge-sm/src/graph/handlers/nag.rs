@@ -78,7 +78,7 @@ impl GraphSM {
             _ => Vec::new(),
         };
 
-        Ok(GSMOutput::with_duties(duties))
+        Ok(GSMOutput::with_duties(duties).mark_unchanged())
     }
 
     /// Processes an incoming nag from another operator.
@@ -108,7 +108,7 @@ impl GraphSM {
             }
         }?;
 
-        Ok(GSMOutput::with_duties(duties))
+        Ok(GSMOutput::with_duties(duties).mark_unchanged())
     }
 
     fn reject_nag(&self, event: &NagReceivedEvent, detail: impl Into<String>) -> GSMError {

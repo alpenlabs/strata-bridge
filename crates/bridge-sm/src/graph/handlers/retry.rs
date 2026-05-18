@@ -218,7 +218,7 @@ impl GraphSM {
             _ => Vec::new(),
         };
 
-        Ok(GSMOutput::with_duties(duties))
+        Ok(GSMOutput::with_duties(duties).mark_unchanged())
     }
 
     fn generate_counterproof_duty(
