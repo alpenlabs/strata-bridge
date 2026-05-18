@@ -1,6 +1,6 @@
 //! Provides operator wallet initialization.
 
-use std::{num::NonZero, sync::Arc};
+use std::{num::NonZero, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
 use bdk_bitcoind_rpc::bitcoincore_rpc;
@@ -17,7 +17,8 @@ use strata_bridge_connectors::prelude::{ClaimContestConnector, ClaimPayoutConnec
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb};
 use strata_bridge_primitives::constants::SEGWIT_MIN_AMOUNT;
 use strata_bridge_tx_graph::{fee, transactions::prelude::ClaimTx};
-use tracing::{debug, info};
+use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
 
 use crate::config::Config;
 
@@ -68,6 +69,24 @@ pub(in crate::mode) async fn init_operator_wallet(
     debug!("operator wallet initialized");
 
     Ok(operator_wallet)
+}
+
+/// Performs a one-shot sync of the operator wallet against its backend.
+///
+/// Intended to run as a background task at startup so the wallet has a head start before its
+/// first on-demand use. A sync failure is logged and swallowed: callers must still sync the wallet
+/// before use, so a failed initial sync must not crash the node.
+pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(
+    wallet: Arc<RwLock<OperatorWallet>>,
+) {
+    info!("starting initial operator wallet sync");
+    let start = Instant::now();
+    match wallet.write().await.sync().await {
+        Ok(()) => info!(time_spent=?start.elapsed(), "initial operator wallet sync complete"),
+        Err(e) => {
+            warn!(?e, time_spent=?start.elapsed(), "initial operator wallet sync failed, first use might be slow")
+        }
+    }
 }
 
 /// Computes the funding amount for the transaction graph based on the nature of the graph being
