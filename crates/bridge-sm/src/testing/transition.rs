@@ -8,7 +8,7 @@ use std::fmt::Debug;
 
 use crate::{
     signals::Signal,
-    state_machine::{SMOutput, StateMachine},
+    state_machine::{SMOutput, StateMachine, StateMutation},
 };
 
 /// Describes a valid state transition for value-based testing.
@@ -47,13 +47,14 @@ pub fn test_transition<SM, S, E, D, Sig, Err, CreateFn, GetStateFn>(
     transition: Transition<S, E, D, Sig>,
 ) where
     SM: StateMachine<Event = E, Duty = D, OutgoingSignal = Sig, Error = Err>,
-    S: PartialEq + Debug,
+    S: PartialEq + Debug + Clone,
     D: PartialEq + Debug,
     Sig: PartialEq + Debug + Into<Signal>,
     Err: Debug,
     CreateFn: Fn(S) -> SM,
     GetStateFn: Fn(&SM) -> &S,
 {
+    let from_state = transition.from_state.clone();
     let mut sm = create_sm(transition.from_state);
 
     let result = sm.process_event(config, transition.event);
@@ -77,6 +78,19 @@ pub fn test_transition<SM, S, E, D, Sig, Err, CreateFn, GetStateFn>(
     assert_eq!(
         output.signals, transition.expected_signals,
         "Signals mismatch"
+    );
+
+    // The reported `state_mutation` must agree with whether the state value actually
+    // changed: a transition that leaves state byte-identical must report `Unchanged`,
+    // and one that advances it must report `Mutated`.
+    let expected_mutation = if get_state(&sm) == &from_state {
+        StateMutation::Unchanged
+    } else {
+        StateMutation::Mutated
+    };
+    assert_eq!(
+        output.state_mutation, expected_mutation,
+        "state_mutation must reflect whether the transition changed state"
     );
 }
 

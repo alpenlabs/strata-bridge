@@ -5,11 +5,30 @@
 
 use crate::{cross_sm_context::CrossSmContext, signals::Signal};
 
+/// Whether a state transition mutated the state machine's persistent state.
+///
+/// Every [`SMOutput`] constructor defaults to [`Mutated`](Self::Mutated); a transition that
+/// leaves state unchanged opts in to [`Unchanged`](Self::Unchanged) via
+/// [`SMOutput::mark_unchanged`]. The default fails safe: a handler that omits the marker is
+/// treated as mutating, so a state change is never silently dropped.
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-3493>
+// Remove this enum once only true transitions exist in the `process_event` STF, and the rest (nags,
+// retries) are moved to separate handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StateMutation {
+    /// The transition mutated state and must be persisted.
+    #[default]
+    Mutated,
+    /// The transition left the state machine unchanged.
+    Unchanged,
+}
+
 /// Generic output from any state machine after processing an event.
 ///
 /// This struct is used by all state machines in the bridge system. It contains:
 /// - `duties`: Actions that need to be executed externally
 /// - `signals`: Messages to be sent to other state machines
+/// - `state_mutation`: Whether the transition changed persistent state
 ///
 /// The type parameters ensure that each state machine can only emit duties and signals
 /// that are appropriate for that state machine.
@@ -24,6 +43,8 @@ pub struct SMOutput<D, S: Into<Signal>> {
     pub duties: Vec<D>,
     /// The signals that need to be sent to other state machines.
     pub signals: Vec<S>,
+    /// Whether the transition that produced this output mutated state machine state.
+    pub state_mutation: StateMutation,
 }
 
 impl<D, S> Default for SMOutput<D, S>
@@ -34,6 +55,7 @@ where
         Self {
             duties: Vec::new(),
             signals: Vec::new(),
+            state_mutation: StateMutation::Mutated,
         }
     }
 }
@@ -52,6 +74,7 @@ where
         Self {
             duties,
             signals: Vec::new(),
+            state_mutation: StateMutation::Mutated,
         }
     }
 
@@ -60,12 +83,28 @@ where
         Self {
             duties: Vec::new(),
             signals,
+            state_mutation: StateMutation::Mutated,
         }
     }
 
     /// Creates an output with both duties and signals.
     pub const fn with_duties_and_signals(duties: Vec<D>, signals: Vec<S>) -> Self {
-        Self { duties, signals }
+        Self {
+            duties,
+            signals,
+            state_mutation: StateMutation::Mutated,
+        }
+    }
+
+    /// Marks this output as the result of a transition that left state unchanged.
+    pub const fn mark_unchanged(mut self) -> Self {
+        self.state_mutation = StateMutation::Unchanged;
+        self
+    }
+
+    /// Returns whether this output is the result of a transition that mutated state.
+    pub const fn did_mutate(&self) -> bool {
+        matches!(self.state_mutation, StateMutation::Mutated)
     }
 }
 

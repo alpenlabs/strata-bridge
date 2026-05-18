@@ -421,6 +421,7 @@ impl SMRegistry {
                         ProcessOutcome::Applied(SMOutput {
                             duties: duties.into_iter().map(UnifiedDuty::Deposit).collect(),
                             signals: out.signals.into_iter().map(Into::into).collect(),
+                            state_mutation: out.state_mutation,
                         })
                     })
                     .or_else(|err| sm_to_process_result(id, event, err))
@@ -439,6 +440,7 @@ impl SMRegistry {
                         ProcessOutcome::Applied(SMOutput {
                             duties: duties.into_iter().map(UnifiedDuty::Graph).collect(),
                             signals: out.signals.into_iter().map(Into::into).collect(),
+                            state_mutation: out.state_mutation,
                         })
                     })
                     .or_else(|err| sm_to_process_result(id, event, err))
@@ -457,6 +459,7 @@ impl SMRegistry {
                         ProcessOutcome::Applied(SMOutput {
                             duties: duties.into_iter().map(UnifiedDuty::Stake).collect(),
                             signals: out.signals,
+                            state_mutation: out.state_mutation,
                         })
                     })
                     .or_else(|err| sm_to_process_result(id, event, err))
