@@ -50,7 +50,7 @@ pub(crate) async fn init_orchestrator<M>(
     gossip_handle: GossipHandle,
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,
-    wallet: OperatorWallet,
+    wallet: Arc<RwLock<OperatorWallet>>,
     btc_rpc_client: BitcoinClient,
     asm_rpc_client: HttpClient,
     fdb_client: Arc<FdbClient>,
@@ -115,7 +115,7 @@ where
     let exec_cfg = build_exec_config(params, config, &sm_config);
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
     let output_handles = OutputHandles {
-        wallet: RwLock::new(wallet),
+        wallet,
         msg_handler: RwLock::new(message_handler),
         db: fdb_client.clone(),
         bitcoind_rpc_client: btc_rpc_client,

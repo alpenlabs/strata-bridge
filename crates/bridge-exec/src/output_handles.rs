@@ -21,7 +21,7 @@ use tokio::sync::RwLock;
 /// [`Arc`].
 pub struct OutputHandles {
     /// Handle for accessing operator funds.
-    pub wallet: RwLock<OperatorWallet>,
+    pub wallet: Arc<RwLock<OperatorWallet>>,
 
     /// Handle for accessing the database.
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-2670>
