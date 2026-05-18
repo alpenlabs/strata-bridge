@@ -42,6 +42,10 @@ inputs:
     description: "Path to .trivyignore file for CVE suppressions. Pass empty string to use no ignore file."
     required: false
     default: ""
+  skip_dirs:
+    description: "Comma-separated directories to exclude from the scan (e.g. /root/.cargo,/root/.rustup for builder images)."
+    required: false
+    default: ""
 
 outputs:
   status:
@@ -76,10 +80,8 @@ runs:
 
     # Hard gate — build fails and no image is pushed if CRITICAL or HIGH unfixed
     # vulnerabilities are found. Add justified exceptions to .trivyignore via PR.
-    # TODO: remove continue-on-error once CVEs in bridge-base are resolved
     - name: Scan ${{ inputs.display_name }} with Trivy (hard gate)
       id: trivy_gate
-      continue-on-error: true
       uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
       with:
         scan-type: image
@@ -95,6 +97,7 @@ runs:
         hide-progress: "true"
         skip-setup-trivy: "true"
         trivyignores: ${{ inputs.trivyignores }}
+        skip-dirs: ${{ inputs.skip_dirs }}
 
     # Advisory SARIF scan — runs even if the hard gate failed so that findings
     # are always visible in the Security tab for triage.
@@ -119,6 +122,7 @@ runs:
         hide-progress: "true"
         skip-setup-trivy: "true"
         trivyignores: ${{ inputs.trivyignores }}
+        skip-dirs: ${{ inputs.skip_dirs }}
 
     # Advisory SBOM — CycloneDX artifact for supply chain tracking.
     - name: Generate SBOM for ${{ inputs.display_name }} (CycloneDX)

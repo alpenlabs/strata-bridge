@@ -194,6 +194,7 @@ jobs:
           sarif_category: bridge-ecr-${{ matrix.component }}
           artifact_name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
           trivyignores: .trivyignore
+          skip_dirs: /root/.cargo,/root/.rustup
 
       # Push only reaches this step if the hard gate scan above passed.
       - name: Push ${{ matrix.display_name }} to ECR
