@@ -247,7 +247,7 @@ tokio-util = { version = "0.7.18", default-features = false, features = ["rt"] }
 
 toml = "0.8.20"
 tracing = "0.1.44"
-tracing-opentelemetry = "0.30.0"
+tracing-opentelemetry = "0.32.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 zeroize = { version = "1.8.2", features = ["derive"] }
 
