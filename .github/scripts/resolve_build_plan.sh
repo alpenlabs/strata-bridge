@@ -28,9 +28,9 @@ if [[ -z "${checkout_ref}" ]]; then
   checkout_ref="${GITHUB_SHA}"
 fi
 
-resolved_sha="$(git rev-parse HEAD)"
+resolved_sha="$(git -C plan-src rev-parse HEAD)"
 # 8-char short SHA — short enough to fit in Docker tag limits, unique enough for any single repo.
-image_tag="$(git rev-parse --short=8 HEAD)"
+image_tag="$(git -C plan-src rev-parse --short=8 HEAD)"
 
 # ---------------------------------------------------------------------------
 # 2. Parse component selection
