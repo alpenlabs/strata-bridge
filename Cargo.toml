@@ -169,7 +169,7 @@ bitcoind-async-client = { version = "0.10.2", features = ["29_0"] }
 borsh = { version = "1.6.1", features = ["derive"] }
 cfg-if = "1.0"
 chrono = "0.4.44"
-clap = { version = "4.5.60", features = ["cargo", "derive", "env"] }
+clap = { version = "4.6.1", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.10.1", features = ["29_0"] }
 ed25519-dalek = { version = "2.2.0", features = ["zeroize"] }
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
@@ -218,7 +218,7 @@ proptest = "1.11.0"
 proptest-derive = "0.5.1"
 quinn = "0.11.9"
 rand = "0.8.5"
-rkyv = "0.8.8"
+rkyv = "0.8.16"
 rustls-pemfile = "2.2.0"
 secp256k1 = "0.29.1"
 serde = { version = "1.0", features = ["derive"] }
@@ -241,7 +241,7 @@ terrors = { version = "0.3.2", git = "https://github.com/alpenlabs/terrors", fea
   "rkyv_bytecheck",
 ] }
 thiserror = "2.0.3"
-tokio = { version = "1.37", features = ["full"] }
+tokio = { version = "1.52", features = ["full"] }
 tokio-stream = "0.1.18"
 tokio-util = { version = "0.7.18", default-features = false, features = ["rt"] }
 
