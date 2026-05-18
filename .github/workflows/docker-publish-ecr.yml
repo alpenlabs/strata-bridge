@@ -1,6 +1,9 @@
 name: Docker Publish to ECR
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       ref:
