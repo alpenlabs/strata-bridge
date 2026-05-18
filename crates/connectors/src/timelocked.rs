@@ -200,6 +200,11 @@ impl ContestProofConnector {
         Scalar::from_be_bytes(tweak_bytes)
             .expect("the game index must be less than the secp curve order")
     }
+
+    /// Returns the P2TR output key.
+    pub fn output_key(&self) -> bitcoin::key::TweakedPublicKey {
+        self.spend_info().output_key()
+    }
 }
 
 impl_timelocked_connector! {
