@@ -98,9 +98,9 @@ impl SchnorrSigner<Client> for GeneralWalletClient {
     }
 }
 
-/// Stakechain wallet signer client.
+/// Reserved wallet signer client.
 #[derive(Debug, Clone)]
-pub struct StakechainWalletClient {
+pub struct ReservedWalletClient {
     /// QUIC connection to the server.
     conn: Connection,
 
@@ -108,21 +108,21 @@ pub struct StakechainWalletClient {
     config: Arc<Config>,
 }
 
-impl StakechainWalletClient {
+impl ReservedWalletClient {
     /// Creates a new operator client with an existing QUIC connection and configuration.
     pub const fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }
 }
 
-impl SchnorrSigner<Client> for StakechainWalletClient {
+impl SchnorrSigner<Client> for ReservedWalletClient {
     async fn sign(
         &self,
         digest: &[u8; 32],
         tweak: Option<TapNodeHash>,
     ) -> <Client as Origin>::Container<Signature> {
         let msg = ClientMessage::SchnorrSignerSign {
-            target: SignerTarget::Stakechain,
+            target: SignerTarget::Reserved,
             digest: *digest,
             tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
@@ -142,7 +142,7 @@ impl SchnorrSigner<Client> for StakechainWalletClient {
         tap_tweak: Option<TapNodeHash>,
     ) -> <Client as Origin>::Container<Signature> {
         let msg = ClientMessage::SchnorrSignerSignWithKeyTweak {
-            target: SignerTarget::Stakechain,
+            target: SignerTarget::Reserved,
             digest: *digest,
             key_tweak: *key_tweak,
             tap_tweak: tap_tweak.map(|t| t.to_raw_hash().to_byte_array()),
@@ -158,7 +158,7 @@ impl SchnorrSigner<Client> for StakechainWalletClient {
 
     async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
         let msg = ClientMessage::SchnorrSignerSignNoTweak {
-            target: SignerTarget::Stakechain,
+            target: SignerTarget::Reserved,
             digest: *digest,
         };
         let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
@@ -172,7 +172,7 @@ impl SchnorrSigner<Client> for StakechainWalletClient {
 
     async fn pubkey(&self) -> <Client as Origin>::Container<XOnlyPublicKey> {
         let msg = ClientMessage::SchnorrSignerPubkey {
-            target: SignerTarget::Stakechain,
+            target: SignerTarget::Reserved,
         };
         let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         match res {

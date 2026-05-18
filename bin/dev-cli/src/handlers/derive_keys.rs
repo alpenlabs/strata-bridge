@@ -51,9 +51,7 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
     let general_wallet_descriptor = Descriptor::try_from(general_wallet_addr.clone())
         .map_err(|e| anyhow::anyhow!("Failed to parse general wallet descriptor: {e:?}"))?;
 
-    let stake_chain_wallet = wallet_keys
-        .stakechain_p2tr_address(args.network)
-        .to_string();
+    let reserved_wallet = wallet_keys.reserved_p2tr_address(args.network).to_string();
 
     // Derive MuSig2 keys using key-deriv crate
     let musig2_keys = Musig2Keys::derive(base_xpriv)?;
@@ -71,7 +69,7 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
         "seed": seed.to_lower_hex_string(),
         "general_wallet_address": general_wallet_addr.to_string(),
         "general_wallet_descriptor": general_wallet_descriptor.to_string(),
-        "stake_chain_wallet_address": stake_chain_wallet,
+        "reserved_wallet_address": reserved_wallet,
         "musig2_key": musig2_pubkey_hex,
         "p2p_key": p2p_pubkey
     });

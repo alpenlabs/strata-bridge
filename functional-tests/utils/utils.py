@@ -20,7 +20,7 @@ class OperatorKeyInfo:
     SEED: str
     GENERAL_WALLET: str
     GENERAL_WALLET_DESCRIPTOR: str
-    STAKE_CHAIN_WALLET: str
+    RESERVED_WALLET: str
     MUSIG2_KEY: str
     P2P_KEY: str
 

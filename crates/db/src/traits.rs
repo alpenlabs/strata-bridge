@@ -166,7 +166,7 @@ pub trait BridgeDb {
     /// Returns all reserved general-wallet outpoints across the claim, stake, and withdrawal rows.
     ///
     /// For stake reservations this is the set of inputs to the funding transaction, not the
-    /// resulting stakechain output.
+    /// resulting reserved-wallet output.
     fn get_all_funds(&self) -> impl Future<Output = Result<Vec<OutPoint>, Self::Error>> + Send;
 
     /// Deletes the reserved [`OutPoint`]s for the given graph and purpose.

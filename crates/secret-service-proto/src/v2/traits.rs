@@ -24,8 +24,8 @@ where
 {
     /// Implementation of the [`SchnorrSigner`] trait for the general wallet.
     type GeneralWalletSigner: SchnorrSigner<O>;
-    /// Implementation of the [`SchnorrSigner`] trait for the stakechain wallet.
-    type StakechainWalletSigner: SchnorrSigner<O>;
+    /// Implementation of the [`SchnorrSigner`] trait for the reserved wallet.
+    type ReservedWalletSigner: SchnorrSigner<O>;
 
     /// Implementation of the [`P2PSigner`] trait.
     type P2PSigner: P2PSigner<O>;
@@ -33,17 +33,17 @@ where
     /// Implementation of the [`Musig2Signer`] trait.
     type Musig2Signer: Musig2Signer<O>;
 
-    /// Implementation of the [`StakeChainPreimages`] trait.
-    type StakeChainPreimages: StakeChainPreimages<O>;
+    /// Implementation of the [`Preimages`] trait.
+    type Preimages: Preimages<O>;
 
     /// The general wallet signer signs transactions for the operator's wallet
-    /// for fronting withdrawals, CPFP ops and funding the stakechain wallet
+    /// for fronting withdrawals, CPFP ops and funding the reserved wallet
     fn general_wallet_signer(&self) -> Self::GeneralWalletSigner;
 
-    /// The stakechain wallet signer signs transactions for the operator's stakechain wallet
+    /// The reserved wallet signer signs transactions for the operator's reserved wallet
     /// which manages the stake `s` from an operator as well as a smaller set of UTXOs for funding
     /// claim transactions.
-    fn stakechain_wallet_signer(&self) -> Self::StakechainWalletSigner;
+    fn reserved_wallet_signer(&self) -> Self::ReservedWalletSigner;
 
     /// Creates an instance of the [`P2PSigner`].
     fn p2p_signer(&self) -> Self::P2PSigner;
@@ -51,8 +51,8 @@ where
     /// Creates an instance of the [`Musig2Signer`].
     fn musig2_signer(&self) -> Self::Musig2Signer;
 
-    /// Creates an instance of the [`StakeChainPreimages`].
-    fn stake_chain_preimages(&self) -> Self::StakeChainPreimages;
+    /// Creates an instance of the [`Preimages`].
+    fn preimages(&self) -> Self::Preimages;
 }
 
 /// Wallet signers sign transactions for one of the operator's wallets
@@ -247,10 +247,10 @@ pub struct Musig2Params {
     pub input: OutPoint,
 }
 
-/// The Stake Chain preimages are used to generate deterministic preimages for the Stake Chain
+/// The preimages are used to generate deterministic preimages
 /// used to advance the operator's stake while fulfilling withdrawals.
-pub trait StakeChainPreimages<O: Origin>: Send {
-    /// Returns a deterministic preimage for a given stakechain withdrawal through a given pre-stake
+pub trait Preimages<O: Origin>: Send {
+    /// Returns a deterministic preimage for a given pre-stake
     /// txid, and vout; and stake index.
     fn get_preimg(
         &self,

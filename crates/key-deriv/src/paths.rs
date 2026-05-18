@@ -12,11 +12,11 @@
 //!     ├── m/20000'/20'/100' ─────── Operator message signing key (ed25519)
 //!     ├── m/20000'/20'/20'/101' ─── MuSig2 signing key (threshold multisig)
 //!     ├── m/20000'/20'/20'/102' ─── General wallet key (external funds)
-//!     ├── m/20000'/20'/20'/103' ─── Stakechain wallet key (reserved funds)
+//!     ├── m/20000'/20'/20'/103' ─── Reserved wallet key (reserved funds)
 //!     ├── m/20000'/20'/666'/0' ──── MuSig2 nonce IKM (secnonce generation)
 //!     ├── m/20000'/20'/79'/128'/0' ─ WOTS 128-bit IKM
 //!     ├── m/20000'/20'/79'/256'/0' ─ WOTS 256-bit IKM
-//!     └── m/20000'/20'/80'/0' ───── Stakechain preimage IKM
+//!     └── m/20000'/20'/80'/0' ───── Preimage IKM
 //! ```
 //!
 //! # Path Purpose Reference
@@ -28,11 +28,11 @@
 //! | `100'` | Operator message signing key (ed25519) | `p2p-service`, `secret-service`, `dev-cli` |
 //! | `20'/101'` | MuSig2 signing key for threshold multisig | `secret-service`, `dev-cli` |
 //! | `20'/102'` | General wallet (external funds management) | `operator-wallet`, `secret-service` |
-//! | `20'/103'` | Stakechain wallet (stake operations) | `operator-wallet`, `secret-service` |
+//! | `20'/103'` | Reserved wallet (stake operations) | `operator-wallet`, `secret-service` |
 //! | `666'/0'` | MuSig2 nonce seed material | `secret-service` |
 //! | `79'/128'/0'` | WOTS 128-bit initial key material | `secret-service` |
 //! | `79'/256'/0'` | WOTS 256-bit initial key material | `secret-service` |
-//! | `80'/0'` | Stakechain preimage seed | `secret-service` |
+//! | `80'/0'` | Preimage seed | `secret-service` |
 use bitcoin::bip32::ChildNumber;
 
 /// Strata base index for keys.
@@ -62,8 +62,8 @@ pub(crate) const STRATA_OPERATOR_WALLET_IDX: ChildNumber = ChildNumber::Hardened
 pub(crate) const STRATA_OPERATOR_GENERAL_WALLET_IDX: ChildNumber =
     ChildNumber::Hardened { index: 102 };
 
-/// Operator stakechain wallet index (`m/20000'/20'/103'`).
-pub(crate) const STRATA_OPERATOR_STAKECHAIN_WALLET_IDX: ChildNumber =
+/// Operator reserved wallet index (`m/20000'/20'/103'`).
+pub(crate) const STRATA_OPERATOR_RESERVED_WALLET_IDX: ChildNumber =
     ChildNumber::Hardened { index: 103 };
 
 /// Operator message signing path relative to the operator branch (`m/20000'/20'`).
@@ -94,8 +94,8 @@ pub(crate) const MUSIG2_NONCE_IKM_PATH: &[ChildNumber] = &[
     ChildNumber::Hardened { index: 0 },
 ];
 
-/// Path for initial key material for stakechain preimages
-pub(crate) const STAKECHAIN_PREIMG_IKM_PATH: &[ChildNumber] = &[
+/// Path for initial key material for preimages
+pub(crate) const PREIMG_IKM_PATH: &[ChildNumber] = &[
     ChildNumber::Hardened { index: 80 },
     ChildNumber::Hardened { index: 0 },
 ];
@@ -104,6 +104,6 @@ pub(crate) const STAKECHAIN_PREIMG_IKM_PATH: &[ChildNumber] = &[
 pub(crate) const GENERAL_WALLET_KEY_PATH: &[ChildNumber] =
     &[STRATA_OPERATOR_IDX, STRATA_OPERATOR_GENERAL_WALLET_IDX];
 
-/// Path for the stakechain wallet key
-pub(crate) const STAKECHAIN_WALLET_KEY_PATH: &[ChildNumber] =
-    &[STRATA_OPERATOR_IDX, STRATA_OPERATOR_STAKECHAIN_WALLET_IDX];
+/// Path for the reserved wallet key
+pub(crate) const RESERVED_WALLET_KEY_PATH: &[ChildNumber] =
+    &[STRATA_OPERATOR_IDX, STRATA_OPERATOR_RESERVED_WALLET_IDX];

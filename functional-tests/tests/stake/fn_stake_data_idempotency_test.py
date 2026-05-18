@@ -2,7 +2,7 @@
 Stake Data Idempotency Test
 
 Verifies that operator-0 does not build a second stake funding transaction after
-a crash + restart. The assertion is on-chain: every operator's stakechain address
+a crash + restart. The assertion is on-chain: every operator's reserved-wallet address
 must receive exactly one funding tx, and operator-0's must match the txid first
 seen in the mempool.
 
@@ -11,11 +11,11 @@ Test flow:
    `nag_interval_secs=1` keeps peers constantly nagging the restarted operator so
    `PublishStakeData` re-runs quickly after restart.
 2. Wait for each operator's funding tx to land in the mempool, identifying it by
-   its output paying into the operator's stakechain address.
+   its output paying into the operator's reserved-wallet address.
 3. Restart operator-0 to force `PublishStakeData` to re-execute.
 4. Resume mining and wait for every operator's stake to reach `confirmed`.
 5. Walk every block mined during the test and count funding-tx outputs paying
-   into each operator's stakechain address. Assert exactly one per operator and
+   into each operator's reserved-wallet address. Assert exactly one per operator and
    that operator-0's funding txid is unchanged.
 """
 
@@ -60,7 +60,7 @@ class StakeDataIdempotencyTest(StrataTestBase):
         bridge_nodes = [ctx.get_service(f"bridge_node_{i}") for i in range(BRIDGE_NETWORK_SIZE)]
         # `Service` is the static type; concrete bridge-node services attach `create_rpc`.
         bridge_rpcs = [node.create_rpc() for node in bridge_nodes]  # ty: ignore[possibly-missing-attribute]
-        sc_addresses = [node.props["sc_wallet_address"] for node in bridge_nodes]
+        reserved_addresses = [node.props["reserved_wallet_address"] for node in bridge_nodes]
 
         bitcoind_service = ctx.get_service("bitcoin")
         bitcoin_rpc = bitcoind_service.create_rpc()
@@ -69,8 +69,10 @@ class StakeDataIdempotencyTest(StrataTestBase):
         start_height = bitcoin_rpc.proxy.getblockcount()
 
         # --- Wait for every operator to broadcast its stake funding tx ---
-        initial_funding_txids = self._wait_for_funding_txids(bitcoin_rpc, sc_addresses)
-        self.logger.info(f"Initial funding txids by stakechain address: {initial_funding_txids}")
+        initial_funding_txids = self._wait_for_funding_txids(bitcoin_rpc, reserved_addresses)
+        self.logger.info(
+            f"Initial funding txids by reserved-wallet address: {initial_funding_txids}"
+        )
 
         # --- Restart operator-0 to force `PublishStakeData` to re-execute ---
         self.logger.info("Restarting operator-0")
@@ -89,11 +91,11 @@ class StakeDataIdempotencyTest(StrataTestBase):
         finally:
             cast(StrataLiveEnv, ctx.env).stop_miner()
 
-        # --- Verify on-chain: exactly one funding tx per operator stakechain address ---
-        for idx, addr in enumerate(sc_addresses):
+        # --- Verify on-chain: exactly one funding tx per operator reserved-wallet address ---
+        for idx, addr in enumerate(reserved_addresses):
             mined = find_block_txs_paying_to_address(bitcoin_rpc, addr, start_height + 1)
             assert len(mined) == 1, (
-                f"operator-{idx} stakechain address {addr} received "
+                f"operator-{idx} reserved-wallet address {addr} received "
                 f"{len(mined)} funding txs (expected 1): {mined}"
             )
             assert mined[0] == initial_funding_txids[addr], (
@@ -103,24 +105,24 @@ class StakeDataIdempotencyTest(StrataTestBase):
             )
 
         self.logger.info(
-            "IDEMPOTENCY VERIFIED: each operator's stakechain address received exactly "
+            "IDEMPOTENCY VERIFIED: each operator's reserved-wallet address received exactly "
             "one funding tx, and operator-0's matches the pre-restart mempool entry"
         )
         return True
 
-    def _wait_for_funding_txids(self, bitcoin_rpc, sc_addresses: list[str]) -> dict[str, str]:
-        """Wait for the mempool to contain a funding tx for each stakechain address and return
+    def _wait_for_funding_txids(self, bitcoin_rpc, reserved_addresses: list[str]) -> dict[str, str]:
+        """Wait for the mempool to contain a funding tx for each reserved-wallet address and return
         a mapping from address to the txid that pays into it."""
         per_addr: dict[str, str] = {}
 
         def check():
-            for addr in sc_addresses:
+            for addr in reserved_addresses:
                 if addr in per_addr:
                     continue
                 matches = find_mempool_txs_paying_to_address(bitcoin_rpc, addr)
                 if matches:
                     per_addr[addr] = matches[0]
-            return len(per_addr) == len(sc_addresses)
+            return len(per_addr) == len(reserved_addresses)
 
         wait_until(
             check,

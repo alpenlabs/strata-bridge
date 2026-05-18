@@ -17,7 +17,7 @@ pub struct StakeFundingReservation {
     /// The prevouts for the inputs of `unsigned_tx`, in input order.
     pub prevouts: Vec<TxOut>,
 
-    /// Index of the stakechain funding output in `unsigned_tx.output`.
+    /// Index of the reserved-wallet funding output in `unsigned_tx.output`.
     pub stake_output_vout: u32,
 }
 

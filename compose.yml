@@ -161,7 +161,7 @@ services:
     # Example:
     #
     # INFO operator_wallet: crates/operator-wallet/src/lib.rs:87: general wallet address: bcrt1pjrd2pungnh6ae7acw9dt92t5hj8gkn2gh8nuwu2r3kakklkswqrquyus8n
-    # INFO operator_wallet: crates/operator-wallet/src/lib.rs:95: stakechain wallet address: bcrt1pga206rnnd9vchqvs5s0gax4v99pdzlml470f3tfw8nfaemmmu0wsjru24g
+    # INFO operator_wallet: crates/operator-wallet/src/lib.rs:95: reserved wallet address: bcrt1pga206rnnd9vchqvs5s0gax4v99pdzlml470f3tfw8nfaemmmu0wsjru24g
     environment:
       - GENERAL_WALLET_1=$GENERAL_WALLET_1
       - GENERAL_WALLET_2=$GENERAL_WALLET_2

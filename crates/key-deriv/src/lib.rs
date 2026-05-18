@@ -16,7 +16,7 @@
 //! // Derive wallet keys
 //! let wallet_keys = WalletKeys::derive(keys.base_xpriv())?;
 //! let general_pubkey = wallet_keys.general_pubkey();
-//! let stakechain_pubkey = wallet_keys.stakechain_pubkey();
+//! let reserved_pubkey = wallet_keys.reserved_pubkey();
 //!
 //! // Generate P2TR addresses
 //! let general_addr = wallet_keys.general_p2tr_address(Network::Regtest);
@@ -30,7 +30,7 @@
 //!
 //! All keys derive from a master seed through `OperatorKeys::base_xpriv()` (`m/20000'`).
 //! Use the provided structs ([`WalletKeys`], [`Musig2Keys`], [`WotsIkm`],
-//! [`StakechainPreimageIkm`]) to derive keys at the correct paths.
+//! [`PreimageIkm`]) to derive keys at the correct paths.
 
 pub mod address;
 pub mod derive;
@@ -50,8 +50,8 @@ pub use derive::{
     // Grouped structs
     Musig2Keys,
     Musig2NonceIkm,
-    StakechainPreimageIkm,
-    StakechainWalletKey,
+    PreimageIkm,
+    ReservedWalletKey,
     WalletKeys,
     WotsIkm,
     WotsIkm128,

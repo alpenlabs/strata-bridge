@@ -227,7 +227,7 @@ class BaseEnv(flexitest.EnvConfig):
     def fund_operator(self, brpc, bridge_operator_props, wallet_addr):
         """Fund an operator's wallet.
         Only the general wallet needs to be funded.
-        The node will take care of funding the stakechain wallet from the general wallet.
+        The node will take care of funding the reserved wallet from the general wallet.
         """
         general_wallet_address = bridge_operator_props["general_wallet_address"]
         brpc.proxy.sendtoaddress(general_wallet_address, self.funding_amount)

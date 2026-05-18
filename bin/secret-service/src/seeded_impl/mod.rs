@@ -11,17 +11,17 @@ use colored::Colorize;
 use libp2p_identity::ed25519::SecretKey;
 use musig2::Ms2Signer;
 use p2p::ServerP2PSigner;
+use preimage::Preimg;
 use rand::Rng;
 use secret_service_proto::v2::traits::{SecretService, Server};
-use stakechain::StakeChain;
 use strata_bridge_key_deriv::OperatorKeys;
 use tokio::{fs, io};
 use tracing::info;
-use wallet::{GeneralWalletSigner, StakechainWalletSigner};
+use wallet::{GeneralWalletSigner, ReservedWalletSigner};
 
 pub mod musig2;
 pub mod p2p;
-pub mod stakechain;
+pub mod preimage;
 pub mod wallet;
 
 /// Secret data for the Secret Service.
@@ -80,20 +80,20 @@ impl Service {
 impl SecretService<Server> for Service {
     type GeneralWalletSigner = GeneralWalletSigner;
 
-    type StakechainWalletSigner = StakechainWalletSigner;
+    type ReservedWalletSigner = ReservedWalletSigner;
 
     type P2PSigner = ServerP2PSigner;
 
     type Musig2Signer = Ms2Signer;
 
-    type StakeChainPreimages = StakeChain;
+    type Preimages = Preimg;
 
     fn general_wallet_signer(&self) -> Self::GeneralWalletSigner {
         GeneralWalletSigner::new(self.keys.base_xpriv())
     }
 
-    fn stakechain_wallet_signer(&self) -> Self::StakechainWalletSigner {
-        StakechainWalletSigner::new(self.keys.base_xpriv())
+    fn reserved_wallet_signer(&self) -> Self::ReservedWalletSigner {
+        ReservedWalletSigner::new(self.keys.base_xpriv())
     }
 
     fn p2p_signer(&self) -> Self::P2PSigner {
@@ -106,7 +106,7 @@ impl SecretService<Server> for Service {
         Ms2Signer::new(self.keys.base_xpriv())
     }
 
-    fn stake_chain_preimages(&self) -> Self::StakeChainPreimages {
-        StakeChain::new(self.keys.base_xpriv())
+    fn preimages(&self) -> Self::Preimages {
+        Preimg::new(self.keys.base_xpriv())
     }
 }

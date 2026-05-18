@@ -140,7 +140,7 @@ class BridgeOperatorFactory(flexitest.Factory):
         props = {
             "rpc_port": rpc_port,
             "logfile": logfile_path,
-            "sc_wallet_address": current_operator_key.STAKE_CHAIN_WALLET,
+            "reserved_wallet_address": current_operator_key.RESERVED_WALLET,
             "general_wallet_address": current_operator_key.GENERAL_WALLET,
         }
 

@@ -56,8 +56,8 @@ pub enum ServerMessage {
     Musig2GetOurPartialSig(Result<[u8; 32], OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>>),
 
     /// Response for
-    /// [`StakeChainPreimages::get_preimg`](super::traits::StakeChainPreimages::get_preimg).
-    StakeChainGetPreimage {
+    /// [`Preimages::get_preimg`](super::traits::Preimages::get_preimg).
+    GetPreimage {
         /// The preimage that was requested.
         preimg: [u8; 32],
     },
@@ -130,15 +130,15 @@ pub enum ClientMessage {
     },
 
     /// Request for
-    /// [`StakeChainPreimages::get_preimg`](super::traits::StakeChainPreimages::get_preimg).
-    StakeChainGetPreimage {
-        /// The Pre-Stake [`Txid`](bitcoin::Txid) that this Stake Chain preimage is derived from.
+    /// [`Preimages::get_preimg`](super::traits::Preimages::get_preimg).
+    GetPreimage {
+        /// The Pre-Stake [`Txid`](bitcoin::Txid) that this preimage is derived from.
         prestake_txid: [u8; 32],
 
-        /// The Pre-Stake transaction's vout that this Stake Chain preimage is derived from.
+        /// The Pre-Stake transaction's vout that this preimage is derived from.
         prestake_vout: u32,
 
-        /// Stake index that this Stake Chain preimage is derived from.
+        /// Stake index that this preimage is derived from.
         stake_index: u32,
     },
 }
@@ -177,7 +177,7 @@ impl From<TaprootTweak> for SerializableTaprootTweak {
 #[derive(Debug, Clone, Copy, Archive, Serialize, Deserialize)]
 pub enum SignerTarget {
     General,
-    Stakechain,
+    Reserved,
     Musig2,
 }
 
