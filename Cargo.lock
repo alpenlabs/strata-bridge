@@ -11237,6 +11237,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
+ "secp256k1 0.29.1",
  "ssz",
  "ssz_derive",
  "strata-btc-types",
