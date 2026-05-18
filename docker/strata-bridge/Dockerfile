@@ -14,8 +14,10 @@ RUN --mount=type=cache,target=/app/target cp /app/target/release/strata-bridge /
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 
-# Copy the built binaries from the builder stage
+# Copy the built binary and lock file from the builder stage.
+# Cargo.lock is included so Trivy can scan Rust dependency CVEs in the final image.
 COPY --from=builder /app/strata-bridge /usr/local/bin/strata-bridge
+COPY --from=builder /app/Cargo.lock /Cargo.lock
 COPY docker/strata-bridge/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["sh", "/usr/local/bin/entrypoint.sh"]

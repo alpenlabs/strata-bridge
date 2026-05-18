@@ -13,7 +13,9 @@ RUN --mount=type=cache,target=/app/target cp /app/target/release/secret-service 
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 
-# Copy the built binaries from the builder stage
+# Copy the built binary and lock file from the builder stage.
+# Cargo.lock is included so Trivy can scan Rust dependency CVEs in the final image.
 COPY --from=builder /app/secret-service /usr/local/bin/secret-service
+COPY --from=builder /app/Cargo.lock /Cargo.lock
 
 ENTRYPOINT ["/usr/local/bin/secret-service", "/app/config.toml"]
