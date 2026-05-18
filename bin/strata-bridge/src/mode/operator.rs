@@ -16,7 +16,7 @@ use crate::{
         btc_client::init_btc_rpc_client,
         mosaic_client::{init_mosaic_client, run_mosaic_setup, spawn_mosaic_poller},
         operator_table::init_operator_table,
-        operator_wallet::init_operator_wallet,
+        operator_wallet::{init_operator_wallet, spawn_initial_operator_wallet_sync},
         orchestrator::init_orchestrator,
         p2p_handles::{P2PHandles, init_p2p_handles},
         rpc_server::init_rpc_server,
@@ -53,6 +53,13 @@ pub(crate) async fn bootstrap(
     let operator_wallet = init_operator_wallet(&config, &params, &s2_client, &db).await?;
     let operator_wallet = Arc::new(RwLock::new(operator_wallet));
     info!("operator wallet initialized");
+
+    debug!("spawning initial operator wallet sync");
+    let sync_wallet = operator_wallet.clone();
+    // Sync the wallet on a best-effort basis in the background.
+    // This is just to speed up syncing when we actually need to use the funds.
+    tokio::spawn(async move { spawn_initial_operator_wallet_sync(sync_wallet).await });
+    info!("initial operator wallet sync task spawned");
 
     debug!("initializing bitcoin client");
     let btc_rpc_client = init_btc_rpc_client(&config)?;
