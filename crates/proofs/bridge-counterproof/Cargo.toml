@@ -7,6 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+strata-bridge-connectors.workspace = true
 strata-btc-types.workspace = true
 strata-predicate.workspace = true
 zkaleido = { workspace = true, features = ["ssz"] }

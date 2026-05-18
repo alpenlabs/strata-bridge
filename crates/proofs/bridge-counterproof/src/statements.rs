@@ -1,15 +1,17 @@
 //! Bridge counterproof statements.
 
+use std::num::NonZero;
+
 use bitcoin::{
-    Script, ScriptBuf, Sequence, Transaction, TxOut,
-    hashes::Hash as _,
-    key::TapTweak as _,
+    Script, ScriptBuf, Transaction, TxOut,
+    hashes::Hash,
     opcodes, relative,
-    script::{self, Instruction},
+    script::Instruction,
     sighash::{Prevouts, SighashCache, TapSighashType},
-    taproot::{self, LeafVersion, TapLeafHash, TapNodeHash},
+    taproot,
 };
-use secp256k1::{Message, SECP256K1, Scalar};
+use secp256k1::{Message, SECP256K1};
+use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_btc_types::BitcoinXOnlyPublicKey;
 use zkaleido::{ProofReceipt, ZkVmEnv, ZkVmEnvSsz};
 
@@ -62,11 +64,12 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     );
 
     // 2: Verify the operator signed the bridge-proof tx.
+    let game_idx_nz = NonZero::new(game_idx).expect("game_idx must be non-zero");
     verify_operator_signature(
         &tx,
         &prevouts,
         &operator_pubkey,
-        game_idx,
+        game_idx_nz,
         &n_of_n_pubkey,
         relative::Height::from_height(proof_timelock),
     );
@@ -81,13 +84,13 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     });
 }
 
-/// Checks that the operator really signed this bridge-proof tx, by rebuilding
+/// Checks that the operator really signed this bridge-proof tx by deriving
 /// the `ContestProofConnector` output key and verifying against it.
 fn verify_operator_signature(
     tx: &Transaction,
     prevouts: &[TxOut],
     operator_pubkey: &BitcoinXOnlyPublicKey,
-    game_idx: u32,
+    game_idx: NonZero<u32>,
     n_of_n_pubkey: &BitcoinXOnlyPublicKey,
     proof_timelock: relative::Height,
 ) {
@@ -105,20 +108,12 @@ fn verify_operator_signature(
         .expect("sighash should compute");
     let msg = Message::from_digest_slice(&sighash.to_byte_array()).expect("sighash is 32 bytes");
 
-    // Bake game_idx into the operator key — mirrors ContestProofConnector::operator_key_tweak.
-    let mut tweak_bytes = [0u8; 32];
-    tweak_bytes[28..32].copy_from_slice(&game_idx.to_be_bytes());
-    let game_tweak = Scalar::from_be_bytes(tweak_bytes).expect("game_idx is tiny");
-    let (internal_key, _parity) = operator_pubkey
-        .to_xonly_public_key()
-        .add_tweak(SECP256K1, &game_tweak)
-        .expect("tweak addition only fails for hostile operator keys");
-
-    // Single-leaf tap tree, so the merkle root is just the leaf hash.
-    let leaf_script = contest_proof_timelocked_leaf(n_of_n_pubkey, proof_timelock);
-    let merkle_root: TapNodeHash =
-        TapLeafHash::from_script(&leaf_script, LeafVersion::TapScript).into();
-    let (output_key, _parity) = internal_key.tap_tweak(SECP256K1, Some(merkle_root));
+    let output_key = ContestProofConnector::output_key(
+        n_of_n_pubkey.to_xonly_public_key(),
+        operator_pubkey.to_xonly_public_key(),
+        game_idx,
+        proof_timelock,
+    );
 
     // Without this, an attacker could swap in a signature the operator made for
     // some unrelated taproot output.
@@ -131,20 +126,6 @@ fn verify_operator_signature(
     SECP256K1
         .verify_schnorr(&tap_sig.signature, &msg, &output_key.to_x_only_public_key())
         .expect("operator signature should verify");
-}
-
-/// Must stay byte-for-byte identical to `TimelockedConnector::leaf_scripts()`
-/// in `crates/connectors` — otherwise the derived output key won't match on-chain.
-fn contest_proof_timelocked_leaf(
-    n_of_n_pubkey: &BitcoinXOnlyPublicKey,
-    proof_timelock: bitcoin::relative::Height,
-) -> ScriptBuf {
-    script::Builder::new()
-        .push_slice(n_of_n_pubkey.to_xonly_public_key().serialize())
-        .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
-        .push_sequence(Sequence::from_height(proof_timelock.value()))
-        .push_opcode(opcodes::all::OP_CSV)
-        .into_script()
 }
 
 /// Pulls the `ProofReceipt` out of `tx.output[0]`'s OP_RETURN and panics if

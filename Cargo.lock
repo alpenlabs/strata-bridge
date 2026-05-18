@@ -11240,6 +11240,7 @@ dependencies = [
  "secp256k1 0.29.1",
  "ssz",
  "ssz_derive",
+ "strata-bridge-connectors",
  "strata-btc-types",
  "strata-predicate",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
