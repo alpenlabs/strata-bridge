@@ -143,7 +143,7 @@ zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido",
 zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2" }
 
 # external deps
-alloy = { version = "1.8.1", features = ["full", "node-bindings"] }
+alloy = { version = "2.0.4", features = ["full", "node-bindings"] }
 alloy-signer = "1.4.3"
 anyhow = "1.0.102"
 arbitrary = { version = "1.4.2", features = ["derive"] }
