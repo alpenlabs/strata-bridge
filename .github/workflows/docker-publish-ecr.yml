@@ -78,11 +78,23 @@ jobs:
             fi
           fi
 
-      - name: Checkout repository
+      # Workflow scripts (resolve_build_plan.sh, build_matrix.py) always come from main
+      # so only reviewed, merged code runs on the runner — an untrusted inputs.ref cannot
+      # inject code into the plan step.
+      - name: Checkout workflow scripts from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: main
+
+      # The requested build ref is checked out into plan-src/ solely to resolve its SHA.
+      # No code from it is executed by the runner directly.
+      - name: Checkout build ref into plan-src/
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+          path: plan-src
 
       - name: Resolve plan
         id: plan
@@ -390,11 +402,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout repository
+      # Render scripts always come from main — the resolved_sha is user-supplied and must
+      # not execute on the runner. Artifacts are downloaded separately and contain no code.
+      - name: Checkout workflow scripts from main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.resolved_sha }}
+          ref: main
 
       - name: Download Trivy artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
