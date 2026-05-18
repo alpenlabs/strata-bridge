@@ -3,6 +3,7 @@
 
 use std::{
     collections::{BTreeMap, btree_map::Entry},
+    fmt::{Debug, Display},
     sync::Arc,
 };
 
@@ -16,6 +17,7 @@ use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, machine::DepositSM},
     errors::BridgeSMError,
     graph::{config::GraphSMCfg, machine::GraphSM},
+    signals,
     stake::{config::StakeSMCfg, machine::StakeSM, state::StakeState},
     state_machine::{SMOutput, StateMachine},
 };
@@ -416,15 +418,12 @@ impl SMRegistry {
                 let event = SMEvent::Deposit(deposit_event.clone());
                 sm.process_event(self.cfg.deposit.clone(), *deposit_event)
                     .map(|out| {
-                        let mut duties = out.duties;
-                        duties.extend(sm.run_post_stf_hook(&self.cfg.deposit, &cross_sm_context));
-                        ProcessOutcome::Applied(SMOutput {
-                            duties: duties.into_iter().map(UnifiedDuty::Deposit).collect(),
-                            signals: out.signals.into_iter().map(Into::into).collect(),
-                            state_mutation: out.state_mutation,
-                        })
+                        let mut out = out;
+                        out.duties
+                            .extend(sm.run_post_stf_hook(&self.cfg.deposit, &cross_sm_context));
+                        applied_process_outcome(out, UnifiedDuty::Deposit)
                     })
-                    .or_else(|err| sm_to_process_result(id, event, err))
+                    .or_else(|err| process_result_from_sm_error(id, event, err))
             }
 
             (SMId::Graph(idx), SMEvent::Graph(graph_event)) => {
@@ -435,15 +434,12 @@ impl SMRegistry {
                 let event = SMEvent::Graph(graph_event.clone());
                 sm.process_event(self.cfg.graph.clone(), *graph_event)
                     .map(|out| {
-                        let mut duties = out.duties;
-                        duties.extend(sm.run_post_stf_hook(&self.cfg.graph, &cross_sm_context));
-                        ProcessOutcome::Applied(SMOutput {
-                            duties: duties.into_iter().map(UnifiedDuty::Graph).collect(),
-                            signals: out.signals.into_iter().map(Into::into).collect(),
-                            state_mutation: out.state_mutation,
-                        })
+                        let mut out = out;
+                        out.duties
+                            .extend(sm.run_post_stf_hook(&self.cfg.graph, &cross_sm_context));
+                        applied_process_outcome(out, UnifiedDuty::Graph)
                     })
-                    .or_else(|err| sm_to_process_result(id, event, err))
+                    .or_else(|err| process_result_from_sm_error(id, event, err))
             }
 
             (SMId::Stake(idx), SMEvent::Stake(stake_event)) => {
@@ -454,15 +450,12 @@ impl SMRegistry {
                 let event = SMEvent::Stake(stake_event.clone());
                 sm.process_event(self.cfg.stake.clone(), *stake_event)
                     .map(|out| {
-                        let mut duties = out.duties;
-                        duties.extend(sm.run_post_stf_hook(&self.cfg.stake, &cross_sm_context));
-                        ProcessOutcome::Applied(SMOutput {
-                            duties: duties.into_iter().map(UnifiedDuty::Stake).collect(),
-                            signals: out.signals,
-                            state_mutation: out.state_mutation,
-                        })
+                        let mut out = out;
+                        out.duties
+                            .extend(sm.run_post_stf_hook(&self.cfg.stake, &cross_sm_context));
+                        applied_process_outcome(out, UnifiedDuty::Stake)
                     })
-                    .or_else(|err| sm_to_process_result(id, event, err))
+                    .or_else(|err| process_result_from_sm_error(id, event, err))
             }
 
             (id, event) => Err(ProcessError::InvalidInvocation(*id, event)),
@@ -496,14 +489,34 @@ impl SMRegistry {
     }
 }
 
-fn sm_to_process_result<S, E>(
+fn applied_process_outcome<D, S, MapDuty>(out: SMOutput<D, S>, map_duty: MapDuty) -> ProcessOutcome
+where
+    S: Into<signals::Signal>,
+    MapDuty: FnMut(D) -> UnifiedDuty,
+{
+    let did_mutate = out.did_mutate();
+    let output: ProcessOutput = SMOutput::with_duties_and_signals(
+        out.duties.into_iter().map(map_duty).collect(),
+        out.signals.into_iter().map(Into::into).collect(),
+    );
+
+    let output = if did_mutate {
+        output
+    } else {
+        output.mark_unchanged()
+    };
+
+    ProcessOutcome::Applied(output)
+}
+
+fn process_result_from_sm_error<S, E>(
     id: &SMId,
     event: SMEvent,
     err: BridgeSMError<S, E>,
 ) -> Result<ProcessOutcome, ProcessError>
 where
-    S: std::fmt::Display + std::fmt::Debug,
-    E: std::fmt::Display + std::fmt::Debug,
+    S: Display + Debug,
+    E: Display + Debug,
 {
     match err {
         BridgeSMError::InvalidEvent { reason, state, .. } => Err(ProcessError::InvariantViolation(
@@ -873,7 +886,7 @@ mod tests {
             block_height: 200,
         })));
 
-        let result = sm_to_process_result(
+        let result = process_result_from_sm_error(
             &id,
             event,
             BridgeSMError::Duplicate {
@@ -900,7 +913,7 @@ mod tests {
         })));
         let reason = "stale event".to_string();
 
-        let result = sm_to_process_result(
+        let result = process_result_from_sm_error(
             &id,
             event,
             BridgeSMError::Rejected {
@@ -929,7 +942,7 @@ mod tests {
         let reason = "invalid transition".to_string();
 
         let state_str = "state".to_string();
-        let result = sm_to_process_result(
+        let result = process_result_from_sm_error(
             &id,
             event.clone(),
             BridgeSMError::InvalidEvent {

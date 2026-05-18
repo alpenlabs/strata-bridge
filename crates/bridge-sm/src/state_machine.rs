@@ -15,19 +15,12 @@ use crate::{cross_sm_context::CrossSmContext, signals::Signal};
 // Remove this enum once only true transitions exist in the `process_event` STF, and the rest (nags,
 // retries) are moved to separate handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum StateMutation {
+pub(crate) enum StateMutation {
     /// The transition mutated state and must be persisted.
     #[default]
     Mutated,
     /// The transition left the state machine unchanged.
     Unchanged,
-}
-
-impl StateMutation {
-    /// Returns whether this transition mutated state.
-    pub const fn did_mutate(&self) -> bool {
-        matches!(self, Self::Mutated)
-    }
 }
 
 /// Generic output from any state machine after processing an event.
@@ -51,7 +44,7 @@ pub struct SMOutput<D, S: Into<Signal>> {
     /// The signals that need to be sent to other state machines.
     pub signals: Vec<S>,
     /// Whether the transition that produced this output mutated state machine state.
-    pub state_mutation: StateMutation,
+    pub(crate) state_mutation: StateMutation,
 }
 
 impl<D, S> Default for SMOutput<D, S>
