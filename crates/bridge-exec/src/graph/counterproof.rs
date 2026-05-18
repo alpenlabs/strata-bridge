@@ -18,13 +18,15 @@ use tracing::{info, warn};
 use zkaleido::ProofReceipt;
 
 use crate::{
-    chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
+    chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
+    output_handles::OutputHandles,
 };
 
 /// Generates the counterproof, completes adaptor signatures via mosaic,
 /// assembles the witness with the pre-computed N-of-N signature, and publishes
 /// the counterproof transaction to Bitcoin.
 pub(super) async fn generate_and_publish_counterproof(
+    cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     counterproof_tx: CounterproofTx,
     operator_idx: OperatorIdx,
@@ -39,6 +41,7 @@ pub(super) async fn generate_and_publish_counterproof(
     // garble the receipt's proof into the wire-input representation.
     // Using mock counterproof data until that conversion is wired in.
     let _receipt = generate_counterproof(
+        cfg,
         output_handles,
         deposit_idx,
         operator_idx,
@@ -83,6 +86,7 @@ pub(super) async fn generate_and_publish_counterproof(
 
 /// Fetches the prover inputs and generates the counterproof receipt.
 async fn generate_counterproof(
+    cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
@@ -90,6 +94,7 @@ async fn generate_counterproof(
     bridge_proof_tx: Transaction,
 ) -> Result<ProofReceipt, ExecutorError> {
     let proof_input = fetch_counterproof_input(
+        cfg,
         output_handles,
         deposit_idx,
         operator_idx,
@@ -116,6 +121,7 @@ async fn generate_counterproof(
 /// Fetches the inputs needed for counterproof generation and assembles them
 /// into a [`CounterproofInput`] ready to feed into the counterproof program.
 async fn fetch_counterproof_input(
+    cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
@@ -131,6 +137,19 @@ async fn fetch_counterproof_input(
         .x_only_public_key()
         .0
         .into();
+
+    let n_of_n_pubkey = output_handles
+        .operator_table
+        .aggregated_btc_key()
+        .x_only_public_key()
+        .0
+        .into();
+
+    let proof_timelock = cfg
+        .graph_sm_cfg
+        .game_graph_params
+        .proof_timelock
+        .value();
 
     let mut bridge_proof_tx_prevouts = Vec::with_capacity(bridge_proof_tx.input.len());
     for txin in &bridge_proof_tx.input {
@@ -156,6 +175,8 @@ async fn fetch_counterproof_input(
     Ok(CounterproofInput {
         game_idx: game_index.get(),
         operator_pubkey,
+        n_of_n_pubkey,
+        proof_timelock,
         bridge_proof_tx: RawBitcoinTx::from_raw_bytes(consensus::serialize(&bridge_proof_tx)),
         bridge_proof_tx_prevouts,
     })

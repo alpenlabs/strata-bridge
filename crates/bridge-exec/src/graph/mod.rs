@@ -173,6 +173,7 @@ pub async fn execute_graph_duty(
             ..
         } => {
             generate_and_publish_counterproof(
+                &cfg,
                 &output_handles,
                 counterproof_tx.clone(),
                 graph_idx.operator,
