@@ -12,6 +12,13 @@ pub struct CounterproofInput {
     /// Public input: operator master x-only pubkey (BIP-340).
     pub operator_pubkey: BitcoinXOnlyPublicKey,
 
+    /// N-of-N covenant x-only pubkey pushed into the `ContestProofConnector`
+    pub n_of_n_pubkey: BitcoinXOnlyPublicKey,
+
+    /// Relative-height timelock (in blocks) encoded into the
+    /// `ContestProofConnector` tap-leaf
+    pub proof_timelock: u16,
+
     /// The operator's BridgeProof tx, consensus-encoded.
     pub bridge_proof_tx: RawBitcoinTx,
 

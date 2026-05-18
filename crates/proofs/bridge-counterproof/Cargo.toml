@@ -15,6 +15,7 @@ zkaleido-sp1-host = { workspace = true, optional = true }
 
 bitcoin.workspace = true
 borsh.workspace = true
+secp256k1.workspace = true
 ssz.workspace = true
 ssz_derive.workspace = true
 
