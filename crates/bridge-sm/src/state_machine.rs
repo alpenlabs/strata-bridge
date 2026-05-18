@@ -23,6 +23,13 @@ pub enum StateMutation {
     Unchanged,
 }
 
+impl StateMutation {
+    /// Returns whether this transition mutated state.
+    pub const fn did_mutate(&self) -> bool {
+        matches!(self, Self::Mutated)
+    }
+}
+
 /// Generic output from any state machine after processing an event.
 ///
 /// This struct is used by all state machines in the bridge system. It contains:

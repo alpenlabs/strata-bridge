@@ -133,17 +133,27 @@ impl<'a> Applicator<'a> {
     ///
     /// On success, accumulates duties and enqueues any signal-derived events. Ignored outcomes
     /// (duplicates, rejections) are non-fatal and logged. Fatal errors are propagated.
+    ///
+    /// Persistence tracking follows the state machine's own report: a transition that leaves state
+    /// unchanged (e.g. a nag or retry tick) still has its duties accumulated and its signals
+    /// enqueued, but the source SM is neither recorded for persistence nor linked into a batch.
     fn apply_one(&mut self, sm_id: SMId, sm_event: SMEvent) -> Result<(), PipelineError> {
         match self.registry.process_event(&sm_id, sm_event) {
             Ok(ProcessOutcome::Applied(output)) => {
+                let mutated = output.did_mutate();
+                if mutated {
+                    self.tracker.record(sm_id);
+                }
+
                 self.duties.extend(output.duties);
-                self.tracker.record(sm_id);
 
                 for signal in output.signals {
                     for (target_id, target_event) in
                         signals_router::route_signal(self.registry, signal)
                     {
-                        self.tracker.link(sm_id, target_id);
+                        if mutated {
+                            self.tracker.link(sm_id, target_id);
+                        }
                         self.signal_queue.push_back((target_id, target_event));
                     }
                 }
