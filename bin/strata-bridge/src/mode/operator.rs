@@ -6,6 +6,7 @@ use bitcoind_async_client::traits::Reader;
 use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_tasks::TaskExecutor;
+use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 use crate::{
@@ -50,6 +51,7 @@ pub(crate) async fn bootstrap(
 
     debug!("initializing operator wallet");
     let operator_wallet = init_operator_wallet(&config, &params, &s2_client, &db).await?;
+    let operator_wallet = Arc::new(RwLock::new(operator_wallet));
     info!("operator wallet initialized");
 
     debug!("initializing bitcoin client");
