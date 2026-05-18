@@ -111,11 +111,23 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.plan.outputs.dependency_matrix) }}
     steps:
-      - name: Checkout repository
+      # Workflow scripts (.trivyignore, trivy-scan action, render scripts) always come from
+      # main so only reviewed, merged code can affect the gate — an untrusted resolved_sha
+      # cannot manipulate CVE suppressions or bypass the scan action.
+      - name: Checkout workflow scripts from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: main
+
+      # The build ref is checked out into build-src/ and used only as Docker build context —
+      # no code from it is executed by the runner directly.
+      - name: Checkout build ref into build-src/
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.plan.outputs.resolved_sha }}
+          path: build-src
 
       - name: Cleanup space
         uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
@@ -156,23 +168,16 @@ jobs:
           # Dependency images use buildx so GHA layer cache can reuse the expensive Rust build across runs.
           docker buildx build \
             --platform "${DOCKER_PLATFORM}" \
-            --file "${{ matrix.dockerfile }}" \
+            --file "build-src/${{ matrix.dockerfile }}" \
             --cache-from "type=gha,scope=${{ matrix.cache_scope }}" \
             --cache-to "type=gha,scope=${{ matrix.cache_scope }},mode=max" \
             --tag "${local_tag}" \
             --pull \
             --load \
-            .
-
-      # .trivyignore lives at the repo root (checked out at resolved_sha).
-      # Guard creates an empty file for runs against refs that pre-date the file.
-      - name: Ensure .trivyignore exists
-        run: |
-          if [[ ! -f .trivyignore ]]; then
-            touch .trivyignore
-          fi
+            build-src
 
       # Hard gate — no image is pushed if CRITICAL or HIGH unfixed vulnerabilities are found.
+      # .trivyignore comes from the root (main) checkout — untrusted build refs cannot suppress CVEs.
       - name: Scan ${{ matrix.display_name }} with Trivy
         id: trivy
         uses: ./.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
@@ -238,11 +243,23 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.plan.outputs.app_matrix) }}
     steps:
-      - name: Checkout repository
+      # Workflow scripts (.trivyignore, trivy-scan action, render scripts) always come from
+      # main so only reviewed, merged code can affect the gate — an untrusted resolved_sha
+      # cannot manipulate CVE suppressions or bypass the scan action.
+      - name: Checkout workflow scripts from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: main
+
+      # The build ref is checked out into build-src/ and used only as Docker build context —
+      # no code from it is executed by the runner directly.
+      - name: Checkout build ref into build-src/
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.plan.outputs.resolved_sha }}
+          path: build-src
 
       - name: Cleanup space
         uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
@@ -290,19 +307,12 @@ jobs:
           # cannot reference those host-daemon tags directly.
           DOCKER_BUILDKIT=1 docker build \
             --platform "${DOCKER_PLATFORM}" \
-            --file "${{ matrix.dockerfile }}" \
+            --file "build-src/${{ matrix.dockerfile }}" \
             --tag "${{ matrix.local_tag }}" \
-            .
-
-      # .trivyignore lives at the repo root (checked out at resolved_sha).
-      # Guard creates an empty file for runs against refs that pre-date the file.
-      - name: Ensure .trivyignore exists
-        run: |
-          if [[ ! -f .trivyignore ]]; then
-            touch .trivyignore
-          fi
+            build-src
 
       # Hard gate — no image is pushed if CRITICAL or HIGH unfixed vulnerabilities are found.
+      # .trivyignore comes from the root (main) checkout — untrusted build refs cannot suppress CVEs.
       - name: Scan ${{ matrix.display_name }} with Trivy
         id: trivy
         uses: ./.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
