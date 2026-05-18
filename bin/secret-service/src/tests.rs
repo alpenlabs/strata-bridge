@@ -82,10 +82,10 @@ async fn p2p() {
 }
 
 #[tokio::test]
-async fn stakechain_preimg() {
+async fn preimg() {
     let client = setup().await;
 
-    let sc_preimg = client.stake_chain_preimages();
+    let sc_preimg = client.preimages();
     sc_preimg
         .get_preimg(Txid::all_zeros(), 0, 0)
         .await
@@ -97,15 +97,15 @@ async fn schnorr_signers() {
     let client = setup().await;
 
     let general_wallet_signer = client.general_wallet_signer();
-    let stakechain_wallet_signer = client.stakechain_wallet_signer();
+    let reserved_wallet_signer = client.reserved_wallet_signer();
     let musig2_signer = client.musig2_signer();
     let general_pubkey = general_wallet_signer.pubkey().await.expect("good response");
     let (general_tweaked_pubkey, _) = general_pubkey.tap_tweak(SECP256K1, None);
-    let stakechain_pubkey = stakechain_wallet_signer
+    let reserved_pubkey = reserved_wallet_signer
         .pubkey()
         .await
         .expect("good response");
-    let (stakechain_tweaked_pubkey, _) = stakechain_pubkey.tap_tweak(SECP256K1, None);
+    let (reserved_tweaked_pubkey, _) = reserved_pubkey.tap_tweak(SECP256K1, None);
     let musig2_pubkey = musig2_signer.pubkey().await.expect("good response");
     let (musig2_tweaked_pubkey, _) = musig2_pubkey.tap_tweak(SECP256K1, None);
 
@@ -113,7 +113,7 @@ async fn schnorr_signers() {
     let handles = (0..100)
         .map(|_| {
             let general_wallet_signer = general_wallet_signer.clone();
-            let stakechain_wallet_signer = stakechain_wallet_signer.clone();
+            let reserved_wallet_signer = reserved_wallet_signer.clone();
             let musig2_signer = musig2_signer.clone();
             let secp_ctx = secp_ctx.clone();
             tokio::spawn(async move {
@@ -136,26 +136,22 @@ async fn schnorr_signers() {
                     .expect("good response");
                 assert!(secp_ctx.verify_schnorr(&sig, &msg, &general_pubkey).is_ok());
 
-                // sign stakechain wallet
-                let sig = stakechain_wallet_signer
+                // sign reserved wallet
+                let sig = reserved_wallet_signer
                     .sign(&to_sign, None)
                     .await
                     .expect("good response");
                 assert!(secp_ctx
-                    .verify_schnorr(
-                        &sig,
-                        &msg,
-                        &stakechain_tweaked_pubkey.to_x_only_public_key()
-                    )
+                    .verify_schnorr(&sig, &msg, &reserved_tweaked_pubkey.to_x_only_public_key())
                     .is_ok());
 
-                // sign stakechain wallet no tweak
-                let sig = stakechain_wallet_signer
+                // sign reserved wallet no tweak
+                let sig = reserved_wallet_signer
                     .sign_no_tweak(&to_sign)
                     .await
                     .expect("good response");
                 assert!(secp_ctx
-                    .verify_schnorr(&sig, &msg, &stakechain_pubkey)
+                    .verify_schnorr(&sig, &msg, &reserved_pubkey)
                     .is_ok());
 
                 // sign musig2
@@ -186,10 +182,10 @@ async fn schnorr_signers_with_key_tweak() {
     let client = setup().await;
 
     let general_wallet_signer = client.general_wallet_signer();
-    let stakechain_wallet_signer = client.stakechain_wallet_signer();
+    let reserved_wallet_signer = client.reserved_wallet_signer();
     let musig2_signer = client.musig2_signer();
     let general_pubkey = general_wallet_signer.pubkey().await.expect("good response");
-    let stakechain_pubkey = stakechain_wallet_signer
+    let reserved_pubkey = reserved_wallet_signer
         .pubkey()
         .await
         .expect("good response");
@@ -203,7 +199,7 @@ async fn schnorr_signers_with_key_tweak() {
         .add_tweak(SECP256K1, &scalar)
         .expect("valid tweak")
         .0;
-    let stakechain_key_tweaked = stakechain_pubkey
+    let reserved_key_tweaked = reserved_pubkey
         .add_tweak(SECP256K1, &scalar)
         .expect("valid tweak")
         .0;
@@ -237,9 +233,9 @@ async fn schnorr_signers_with_key_tweak() {
         .verify_schnorr(&sig, &msg, &expected.to_x_only_public_key())
         .is_ok());
 
-    // sign stakechain wallet with key tweak
-    let (expected, _) = stakechain_key_tweaked.tap_tweak(SECP256K1, None);
-    let sig = stakechain_wallet_signer
+    // sign reserved wallet with key tweak
+    let (expected, _) = reserved_key_tweaked.tap_tweak(SECP256K1, None);
+    let sig = reserved_wallet_signer
         .sign_with_key_tweak(&to_sign, &key_tweak, None)
         .await
         .expect("good response");
@@ -247,9 +243,9 @@ async fn schnorr_signers_with_key_tweak() {
         .verify_schnorr(&sig, &msg, &expected.to_x_only_public_key())
         .is_ok());
 
-    // sign stakechain wallet with key tweak and tap tweak
-    let (expected, _) = stakechain_key_tweaked.tap_tweak(SECP256K1, Some(tap_hash));
-    let sig = stakechain_wallet_signer
+    // sign reserved wallet with key tweak and tap tweak
+    let (expected, _) = reserved_key_tweaked.tap_tweak(SECP256K1, Some(tap_hash));
+    let sig = reserved_wallet_signer
         .sign_with_key_tweak(&to_sign, &key_tweak, Some(tap_hash))
         .await
         .expect("good response");

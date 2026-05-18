@@ -16,9 +16,7 @@ use quinn::{
 use rkyv::{rancor::Error, util::AlignedVec};
 use secret_service_proto::{
     v2::{
-        traits::{
-            Musig2Signer, P2PSigner, SchnorrSigner, SecretService, Server, StakeChainPreimages,
-        },
+        traits::{Musig2Signer, P2PSigner, Preimages, SchnorrSigner, SecretService, Server},
         wire::{ClientMessage, ServerMessage, SignerTarget},
     },
     wire::{LengthUint, VersionedClientMessage, VersionedServerMessage, WireMessage},
@@ -230,11 +228,8 @@ where
                     SignerTarget::General => {
                         service.general_wallet_signer().sign(&digest, tweak).await
                     }
-                    SignerTarget::Stakechain => {
-                        service
-                            .stakechain_wallet_signer()
-                            .sign(&digest, tweak)
-                            .await
+                    SignerTarget::Reserved => {
+                        service.reserved_wallet_signer().sign(&digest, tweak).await
                     }
                     SignerTarget::Musig2 => service.musig2_signer().sign(&digest, tweak).await,
                 };
@@ -258,9 +253,9 @@ where
                             .sign_with_key_tweak(&digest, &key_tweak, tap_tweak)
                             .await
                     }
-                    SignerTarget::Stakechain => {
+                    SignerTarget::Reserved => {
                         service
-                            .stakechain_wallet_signer()
+                            .reserved_wallet_signer()
                             .sign_with_key_tweak(&digest, &key_tweak, tap_tweak)
                             .await
                     }
@@ -281,9 +276,9 @@ where
                     SignerTarget::General => {
                         service.general_wallet_signer().sign_no_tweak(&digest).await
                     }
-                    SignerTarget::Stakechain => {
+                    SignerTarget::Reserved => {
                         service
-                            .stakechain_wallet_signer()
+                            .reserved_wallet_signer()
                             .sign_no_tweak(&digest)
                             .await
                     }
@@ -299,29 +294,27 @@ where
                     SignerTarget::General => {
                         service.general_wallet_signer().pubkey().await.serialize()
                     }
-                    SignerTarget::Stakechain => service
-                        .stakechain_wallet_signer()
-                        .pubkey()
-                        .await
-                        .serialize(),
+                    SignerTarget::Reserved => {
+                        service.reserved_wallet_signer().pubkey().await.serialize()
+                    }
                     SignerTarget::Musig2 => service.musig2_signer().pubkey().await.serialize(),
                 },
             },
 
-            ClientMessage::StakeChainGetPreimage {
+            ClientMessage::GetPreimage {
                 prestake_txid,
                 prestake_vout,
                 stake_index,
             } => {
                 let preimg = service
-                    .stake_chain_preimages()
+                    .preimages()
                     .get_preimg(
                         Txid::from_slice(&prestake_txid).expect("correct length"),
                         prestake_vout,
                         stake_index,
                     )
                     .await;
-                ServerMessage::StakeChainGetPreimage { preimg }
+                ServerMessage::GetPreimage { preimg }
             }
         },
     })

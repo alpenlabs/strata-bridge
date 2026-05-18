@@ -548,12 +548,12 @@ pub(super) async fn publish_claim(
         })?;
 
         // NOTE: (mukeshdroid) Preserve the funding UTXO for the claim.
-        // This means we should not use the general wallet. `stakechain_signer` is currently used
+        // This means we should not use the general wallet. `reserved_signer` is currently used
         // as a placeholder non-general wallet, so the funding outputs should also be generated
-        // from the `stakechain_signer` wallet.
+        // from the `reserved_signer` wallet.
         let signature = output_handles
             .s2_client
-            .stakechain_wallet_signer()
+            .reserved_wallet_signer()
             .sign(msg.as_ref(), None)
             .await
             .map_err(|e| {

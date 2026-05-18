@@ -22,8 +22,8 @@ impl WalletKeys {
         p2tr_address(self.general_pubkey(), network)
     }
 
-    /// Generate the stakechain wallet's P2TR address.
-    pub fn stakechain_p2tr_address(&self, network: Network) -> Address {
-        p2tr_address(self.stakechain_pubkey(), network)
+    /// Generate the reserved wallet's P2TR address.
+    pub fn reserved_p2tr_address(&self, network: Network) -> Address {
+        p2tr_address(self.reserved_pubkey(), network)
     }
 }

@@ -49,8 +49,8 @@ pub(in crate::mode) async fn init_operator_wallet(
 
     let general_key = s2_client.general_wallet_signer().pubkey().await?;
     info!(%general_key, "operator wallet general key");
-    let stakechain_key = s2_client.stakechain_wallet_signer().pubkey().await?;
-    info!(%stakechain_key, "operator wallet stakechain key");
+    let reserved_key = s2_client.reserved_wallet_signer().pubkey().await?;
+    info!(%reserved_key, "operator wallet reserved key");
     let own_musig2_key = s2_client.musig2_signer().pubkey().await?;
     let operator_funds = compute_funding_amount(params, own_musig2_key);
     let operator_wallet_config =
@@ -61,7 +61,7 @@ pub(in crate::mode) async fn init_operator_wallet(
     debug!(?sync_backend, "operator wallet sync backend");
     let operator_wallet = OperatorWallet::new(
         general_key,
-        stakechain_key,
+        reserved_key,
         operator_wallet_config,
         sync_backend,
         leased_outpoints,

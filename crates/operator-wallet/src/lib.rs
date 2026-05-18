@@ -48,13 +48,13 @@ impl OperatorWalletConfig {
 }
 
 /// The [`OperatorWallet`] is responsible for managing an operator's L1 funds, split into a general
-/// wallet and a dedicated stakechain wallet.
+/// wallet and a dedicated reserved wallet.
 #[derive(Debug)]
 pub struct OperatorWallet {
     general_wallet: Wallet,
-    stakechain_wallet: Wallet,
+    reserved_wallet: Wallet,
     config: OperatorWalletConfig,
-    stakechain_addr_script_buf: ScriptBuf,
+    reserved_addr_script_buf: ScriptBuf,
     general_addr_script_buf: ScriptBuf,
     sync_backend: Backend,
     leased_outpoints: BTreeSet<OutPoint>,
@@ -64,13 +64,13 @@ impl OperatorWallet {
     /// Creates a new [`OperatorWallet`]
     pub fn new(
         general: XOnlyPublicKey,
-        stakechain: XOnlyPublicKey,
+        reserved: XOnlyPublicKey,
         config: OperatorWalletConfig,
         sync_backend: Backend,
         leased_outpoints: BTreeSet<OutPoint>,
     ) -> Self {
         let (general_desc, ..) = descriptor!(tr(general)).unwrap();
-        let (stakechain_desc, ..) = descriptor!(tr(stakechain)).unwrap();
+        let (reserved_desc, ..) = descriptor!(tr(reserved)).unwrap();
         let general_wallet = Wallet::create_single(general_desc)
             .network(config.network)
             .create_wallet_no_persist()
@@ -79,20 +79,20 @@ impl OperatorWallet {
             .peek_address(KeychainKind::External, 0)
             .address;
         info!("general wallet address: {general_addr}");
-        let stakechain_wallet = Wallet::create_single(stakechain_desc)
+        let reserved_wallet = Wallet::create_single(reserved_desc)
             .network(config.network)
             .create_wallet_no_persist()
             .unwrap();
-        let stakechain_addr = stakechain_wallet
+        let reserved_addr = reserved_wallet
             .peek_address(KeychainKind::External, 0)
             .address;
-        info!("stakechain wallet address: {stakechain_addr}");
+        info!("reserved wallet address: {reserved_addr}");
         Self {
             config,
-            stakechain_addr_script_buf: stakechain_addr.script_pubkey(),
+            reserved_addr_script_buf: reserved_addr.script_pubkey(),
             general_addr_script_buf: general_addr.script_pubkey(),
             general_wallet,
-            stakechain_wallet,
+            reserved_wallet,
             sync_backend,
             leased_outpoints,
         }
@@ -117,7 +117,7 @@ impl OperatorWallet {
 
     /// Returns the list of outputs that match the criteria for claim funding.
     pub fn claim_funding_outputs(&self) -> impl Iterator<Item = LocalOutput> + '_ {
-        self.stakechain_wallet
+        self.reserved_wallet
             .list_unspent()
             .filter(|txout| self.is_claim_funding_output(txout))
     }
@@ -316,7 +316,7 @@ impl OperatorWallet {
         let batch_size = target_size - current_size;
         for _ in 0..batch_size {
             tx_builder.add_recipient(
-                self.stakechain_addr_script_buf.clone(),
+                self.reserved_addr_script_buf.clone(),
                 self.config.stake_funding_utxo_value,
             );
         }
@@ -350,7 +350,7 @@ impl OperatorWallet {
     }
 
     /// Creates a new transaction by paying funds from the general wallet into the
-    /// stakechain wallet (excludes anchor outputs and currently leased outpoints). The
+    /// reserved wallet (excludes anchor outputs and currently leased outpoints). The
     /// resulting UTXO is the single input to the stake transaction.
     ///
     /// The `funding_amount` must equal the sum of the stake transaction's outputs — the stake
@@ -380,7 +380,7 @@ impl OperatorWallet {
         tx_builder.unspendable(anchor_outpoints);
         tx_builder.unspendable(leased);
         tx_builder.fee_rate(fee_rate);
-        tx_builder.add_recipient(self.stakechain_addr_script_buf.clone(), funding_amount);
+        tx_builder.add_recipient(self.reserved_addr_script_buf.clone(), funding_amount);
         tx_builder.ordering(TxOrdering::Untouched);
 
         let psbt = tx_builder.finish()?;
@@ -397,11 +397,11 @@ impl OperatorWallet {
         &self.general_addr_script_buf
     }
 
-    /// Returns the script buf of the stake chain wallet address.
+    /// Returns the script buf of the reserved wallet address.
     ///
     /// This is where the reserved funds for funding dust outputs reside.
-    pub const fn stakechain_script_buf(&self) -> &ScriptBuf {
-        &self.stakechain_addr_script_buf
+    pub const fn reserved_script_buf(&self) -> &ScriptBuf {
+        &self.reserved_addr_script_buf
     }
 
     /// Returns an immutable reference to the general wallet
@@ -409,9 +409,9 @@ impl OperatorWallet {
         &self.general_wallet
     }
 
-    /// Returns an immutable reference to the stakechain wallet
-    pub const fn stakechain_wallet(&self) -> &Wallet {
-        &self.stakechain_wallet
+    /// Returns an immutable reference to the reserved wallet
+    pub const fn reserved_wallet(&self) -> &Wallet {
+        &self.reserved_wallet
     }
 
     /// Syncs the wallet using the backend provided on construction.
@@ -428,7 +428,7 @@ impl OperatorWallet {
             }
             if let Err(e) = self
                 .sync_backend
-                .sync_wallet(&mut self.stakechain_wallet, &mut self.leased_outpoints)
+                .sync_wallet(&mut self.reserved_wallet, &mut self.leased_outpoints)
                 .await
             {
                 err = Some(e);

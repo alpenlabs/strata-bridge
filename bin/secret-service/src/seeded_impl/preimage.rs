@@ -1,29 +1,29 @@
-//! In-memory persistence for Stake Chain preimages.
+//! In-memory persistence for preimages.
 
 use bitcoin::{bip32::Xpriv, hashes::Hash, Txid};
 use hkdf::Hkdf;
 use make_buf::make_buf;
-use secret_service_proto::v2::traits::{Server, StakeChainPreimages};
+use secret_service_proto::v2::traits::{Preimages, Server};
 use sha2::Sha256;
-use strata_bridge_key_deriv::StakechainPreimageIkm;
+use strata_bridge_key_deriv::PreimageIkm;
 
-/// Secret data for the Stake Chain preimages.
+/// Secret data for the preimages.
 #[derive(Debug)]
-pub struct StakeChain {
-    /// The initial key material to derive Stake Chain preimages.
-    ikm: StakechainPreimageIkm,
+pub struct Preimg {
+    /// The initial key material to derive preimages.
+    ikm: PreimageIkm,
 }
 
-impl StakeChain {
-    /// Creates a new [`StakeChain`] given a master [`Xpriv`].
+impl Preimg {
+    /// Creates a new [`Preimg`] given a master [`Xpriv`].
     pub fn new(base: &Xpriv) -> Self {
-        let preimage_ikm = StakechainPreimageIkm::derive(base).expect("valid preimage ikm");
+        let preimage_ikm = PreimageIkm::derive(base).expect("valid preimage ikm");
         Self { ikm: preimage_ikm }
     }
 }
 
-impl StakeChainPreimages<Server> for StakeChain {
-    /// Gets a preimage for a Stake Chain, given a pre-stake transaction ID, and output index; and
+impl Preimages<Server> for Preimg {
+    /// Gets a preimage given a pre-stake transaction ID, and output index; and
     /// stake index.
     async fn get_preimg(
         &self,

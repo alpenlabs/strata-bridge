@@ -20,13 +20,13 @@ use crate::{
 /// Post a claim transaction for the given graph idx.
 ///
 /// Reconstructs the game graph from on-chain data, signs the claim transaction
-/// with the derived stakechain wallet key and broadcasts it.
+/// with the derived reserved wallet key and broadcasts it.
 pub(crate) async fn handle_claim(args: cli::ClaimArgs) -> anyhow::Result<()> {
     let params = Params::from_path(&args.params)?;
     let operator_keys = derive_keys::derive_operator_keys(&args.seed, params.network)?;
     let wallet_keys = WalletKeys::derive(operator_keys.base_xpriv())
         .map_err(|e| anyhow::anyhow!("failed to derive wallet keys: {}", e))?;
-    let stakechain_keypair = wallet_keys.stakechain;
+    let reserved_keypair = wallet_keys.reserved;
 
     let btc_client =
         rpc::get_btc_client(&args.btc_args.url, args.btc_args.user, args.btc_args.pass)?;
@@ -72,7 +72,7 @@ pub(crate) async fn handle_claim(args: cli::ClaimArgs) -> anyhow::Result<()> {
     info!(?graph_idx, "reconstructed game graph");
 
     let claim_tx = game_graph.claim;
-    // The claim tx is constructed with exactly one input (the stakechain funding outpoint).
+    // The claim tx is constructed with exactly one input (the reserved funding outpoint).
     let unsigned_claim_tx = claim_tx.as_ref().clone();
     let claim_txid = unsigned_claim_tx.compute_txid();
 
@@ -108,9 +108,9 @@ pub(crate) async fn handle_claim(args: cli::ClaimArgs) -> anyhow::Result<()> {
     let msg = secp256k1::Message::from_digest_slice(sighash.as_ref())
         .map_err(|e| anyhow::anyhow!("failed to create message from sighash: {}", e))?;
 
-    // Assumes the claim funding output is a BIP86 key-path spend under the un-merkled stakechain
+    // Assumes the claim funding output is a BIP86 key-path spend under the un-merkled reserved
     // key.
-    let signature = stakechain_keypair
+    let signature = reserved_keypair
         .tap_tweak(SECP256K1, None)
         .to_keypair()
         .sign_schnorr(msg);

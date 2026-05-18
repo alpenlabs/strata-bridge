@@ -113,7 +113,7 @@ async fn read_or_create_stake_funding(
         .await?
     {
         info!(%operator_idx, "reusing persisted stake funding reservation");
-        validate_reservation(&reservation, wallet.stakechain_script_buf(), funding_amount)?;
+        validate_reservation(&reservation, wallet.reserved_script_buf(), funding_amount)?;
         wallet.lease_outpoints(
             reservation
                 .unsigned_tx
@@ -208,7 +208,7 @@ fn validate_reservation(
         })?;
     if stake_output.script_pubkey != *expected_stake_script {
         return Err(ExecutorError::InvalidTxStructure(
-            "stake funding reservation output script does not match stakechain wallet".into(),
+            "stake funding reservation output script does not match reserved wallet".into(),
         ));
     }
     if stake_output.value != expected_funding_amount {
@@ -386,17 +386,17 @@ pub(crate) async fn publish_stake(
     let stake_txid = tx.compute_txid();
     let funding_input = tx.input[0].previous_output;
 
-    // The stake tx spends a single funding UTXO in the stakechain wallet and is not presigned by
-    // the covenant, so key-path sign it with the stakechain wallet signer before broadcasting.
-    // Reconstruct the prevout from known values: the funding UTXO is always at the stakechain
+    // The stake tx spends a single funding UTXO in the reserved wallet and is not presigned by
+    // the covenant, so key-path sign it with the reserved wallet signer before broadcasting.
+    // Reconstruct the prevout from known values: the funding UTXO is always at the reserved
     // address with value `stake_amount + unstaking_intent_output.value() + stake_fee`.
-    let stakechain_script = {
+    let reserved_script = {
         let wallet = output_handles.wallet.read().await;
-        wallet.stakechain_script_buf().clone()
+        wallet.reserved_script_buf().clone()
     };
     let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
     let prevout = TxOut {
-        script_pubkey: stakechain_script,
+        script_pubkey: reserved_script,
         value: funding_amount,
     };
 
@@ -404,7 +404,7 @@ pub(crate) async fn publish_stake(
         %stake_txid,
         %funding_input,
         %funding_amount,
-        "signing stake transaction with stakechain wallet signer"
+        "signing stake transaction with reserved wallet signer"
     );
 
     let prevouts = Prevouts::All(&[prevout]);
@@ -414,7 +414,7 @@ pub(crate) async fn publish_stake(
 
     let signature = output_handles
         .s2_client
-        .stakechain_wallet_signer()
+        .reserved_wallet_signer()
         .sign(sighash.as_ref(), None)
         .await
         .map_err(ExecutorError::SecretServiceErr)?;

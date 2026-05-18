@@ -29,8 +29,8 @@ use secp256k1::SECP256K1;
 use strata_bridge_primitives::secp::EvenSecretKey;
 
 use crate::paths::{
-    GENERAL_WALLET_KEY_PATH, MUSIG2_KEY_PATH, MUSIG2_NONCE_IKM_PATH, STAKECHAIN_PREIMG_IKM_PATH,
-    STAKECHAIN_WALLET_KEY_PATH, WOTS_IKM_128_PATH, WOTS_IKM_256_PATH,
+    GENERAL_WALLET_KEY_PATH, MUSIG2_KEY_PATH, MUSIG2_NONCE_IKM_PATH, PREIMG_IKM_PATH,
+    RESERVED_WALLET_KEY_PATH, WOTS_IKM_128_PATH, WOTS_IKM_256_PATH,
 };
 
 /// Error type for key derivation operations.
@@ -60,14 +60,14 @@ impl Deref for GeneralWalletKey {
     }
 }
 
-/// Stakechain wallet keypair for stake operations.
+/// Reserved wallet keypair for operations that require reserving UTXOs long-term.
 ///
 /// This type can only be constructed via [`WalletKeys::derive`].
 /// Implements [`Deref<Target = Keypair>`] for access to signing methods.
 #[derive(Debug)]
-pub struct StakechainWalletKey(Keypair);
+pub struct ReservedWalletKey(Keypair);
 
-impl Deref for StakechainWalletKey {
+impl Deref for ReservedWalletKey {
     type Target = Keypair;
 
     fn deref(&self) -> &Self::Target {
@@ -75,13 +75,13 @@ impl Deref for StakechainWalletKey {
     }
 }
 
-/// Wallet keypairs for general and stakechain operations.
+/// Wallet keypairs for general and reserved operations.
 #[derive(Debug)]
 pub struct WalletKeys {
     /// Keypair for the general wallet (external funds).
     pub general: GeneralWalletKey,
-    /// Keypair for the stakechain wallet (reserved funds).
-    pub stakechain: StakechainWalletKey,
+    /// Keypair for the reserved wallet (reserved funds).
+    pub reserved: ReservedWalletKey,
 }
 
 impl WalletKeys {
@@ -93,16 +93,13 @@ impl WalletKeys {
             &EvenSecretKey::from(general_child.private_key),
         ));
 
-        let stakechain_child = base.derive_priv(SECP256K1, &STAKECHAIN_WALLET_KEY_PATH)?;
-        let stakechain = StakechainWalletKey(Keypair::from_secret_key(
+        let reserved_child = base.derive_priv(SECP256K1, &RESERVED_WALLET_KEY_PATH)?;
+        let reserved = ReservedWalletKey(Keypair::from_secret_key(
             SECP256K1,
-            &EvenSecretKey::from(stakechain_child.private_key),
+            &EvenSecretKey::from(reserved_child.private_key),
         ));
 
-        Ok(Self {
-            general,
-            stakechain,
-        })
+        Ok(Self { general, reserved })
     }
 
     /// Get the general wallet's x-only public key.
@@ -110,9 +107,9 @@ impl WalletKeys {
         self.general.x_only_public_key().0
     }
 
-    /// Get the stakechain wallet's x-only public key.
-    pub fn stakechain_pubkey(&self) -> XOnlyPublicKey {
-        self.stakechain.x_only_public_key().0
+    /// Get the reserved wallet's x-only public key.
+    pub fn reserved_pubkey(&self) -> XOnlyPublicKey {
+        self.reserved.x_only_public_key().0
     }
 }
 
@@ -237,17 +234,17 @@ impl WotsIkm {
 }
 
 // =============================================================================
-// Stakechain Preimage Types
+// Preimage Types
 // =============================================================================
 
-/// Stakechain preimage initial key material.
+/// Preimage initial key material.
 ///
-/// This type can only be constructed via [`StakechainPreimageIkm::derive`].
+/// This type can only be constructed via [`PreimageIkm::derive`].
 /// Implements [`Deref<Target = [u8; 32]>`] for access to the raw bytes.
 #[derive(Debug)]
-pub struct StakechainPreimageIkm([u8; 32]);
+pub struct PreimageIkm([u8; 32]);
 
-impl Deref for StakechainPreimageIkm {
+impl Deref for PreimageIkm {
     type Target = [u8; 32];
 
     fn deref(&self) -> &Self::Target {
@@ -255,10 +252,10 @@ impl Deref for StakechainPreimageIkm {
     }
 }
 
-impl StakechainPreimageIkm {
-    /// Derive stakechain preimage IKM from the base xpriv.
+impl PreimageIkm {
+    /// Derive preimage IKM from the base xpriv.
     pub fn derive(base: &Xpriv) -> Result<Self, DerivationError> {
-        let child = base.derive_priv(SECP256K1, &STAKECHAIN_PREIMG_IKM_PATH)?;
+        let child = base.derive_priv(SECP256K1, &PREIMG_IKM_PATH)?;
         let ikm = child.private_key.secret_bytes();
         Ok(Self(ikm))
     }

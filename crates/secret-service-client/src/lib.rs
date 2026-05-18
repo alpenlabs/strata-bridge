@@ -5,7 +5,7 @@
 
 pub mod musig2;
 pub mod p2p;
-pub mod stakechain;
+pub mod preimage;
 pub mod wallet;
 
 use std::{
@@ -17,6 +17,7 @@ use std::{
 
 use musig2::Musig2Client;
 use p2p::P2PClient;
+use preimage::PreimgClient;
 pub use quinn::rustls;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
@@ -33,10 +34,9 @@ use secret_service_proto::{
         WireMessage,
     },
 };
-use stakechain::StakeChainPreimgClient;
 use terrors::OneOf;
 use tokio::time::timeout;
-use wallet::{GeneralWalletClient, StakechainWalletClient};
+use wallet::{GeneralWalletClient, ReservedWalletClient};
 
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(25);
 
@@ -116,20 +116,20 @@ impl SecretServiceClient {
 
 impl SecretService<Client> for SecretServiceClient {
     type GeneralWalletSigner = GeneralWalletClient;
-    type StakechainWalletSigner = StakechainWalletClient;
+    type ReservedWalletSigner = ReservedWalletClient;
 
     type P2PSigner = P2PClient;
 
     type Musig2Signer = Musig2Client;
 
-    type StakeChainPreimages = StakeChainPreimgClient;
+    type Preimages = PreimgClient;
 
     fn general_wallet_signer(&self) -> Self::GeneralWalletSigner {
         GeneralWalletClient::new(self.conn.clone(), self.config.clone())
     }
 
-    fn stakechain_wallet_signer(&self) -> Self::StakechainWalletSigner {
-        StakechainWalletClient::new(self.conn.clone(), self.config.clone())
+    fn reserved_wallet_signer(&self) -> Self::ReservedWalletSigner {
+        ReservedWalletClient::new(self.conn.clone(), self.config.clone())
     }
 
     fn p2p_signer(&self) -> Self::P2PSigner {
@@ -140,8 +140,8 @@ impl SecretService<Client> for SecretServiceClient {
         Musig2Client::new(self.conn.clone(), self.config.clone())
     }
 
-    fn stake_chain_preimages(&self) -> Self::StakeChainPreimages {
-        StakeChainPreimgClient::new(self.conn.clone(), self.config.clone())
+    fn preimages(&self) -> Self::Preimages {
+        PreimgClient::new(self.conn.clone(), self.config.clone())
     }
 }
 

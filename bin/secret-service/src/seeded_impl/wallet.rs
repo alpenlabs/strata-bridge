@@ -3,7 +3,7 @@
 use bitcoin::{bip32::Xpriv, key::TapTweak, TapNodeHash, XOnlyPublicKey};
 use musig2::secp256k1::{schnorr::Signature, Message, Scalar, SECP256K1};
 use secret_service_proto::v2::traits::{Origin, SchnorrSigner, Server};
-use strata_bridge_key_deriv::{GeneralWalletKey, StakechainWalletKey, WalletKeys};
+use strata_bridge_key_deriv::{GeneralWalletKey, ReservedWalletKey, WalletKeys};
 
 /// General wallet signer in-memory implementation.
 #[derive(Debug)]
@@ -61,24 +61,24 @@ impl SchnorrSigner<Server> for GeneralWalletSigner {
     }
 }
 
-/// Stakechain wallet signer in-memory implementation.
+/// Reserved wallet signer in-memory implementation.
 #[derive(Debug)]
-pub struct StakechainWalletSigner {
+pub struct ReservedWalletSigner {
     /// Keypair for signing messages.
-    kp: StakechainWalletKey,
+    kp: ReservedWalletKey,
 }
 
-impl StakechainWalletSigner {
+impl ReservedWalletSigner {
     /// Create a new operator with the given base xpriv.
     pub fn new(base: &Xpriv) -> Self {
         let wallet_keys = WalletKeys::derive(base).expect("valid wallet keys");
         Self {
-            kp: wallet_keys.stakechain,
+            kp: wallet_keys.reserved,
         }
     }
 }
 
-impl SchnorrSigner<Server> for StakechainWalletSigner {
+impl SchnorrSigner<Server> for ReservedWalletSigner {
     async fn sign(
         &self,
         digest: &[u8; 32],
