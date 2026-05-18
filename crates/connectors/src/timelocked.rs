@@ -12,7 +12,12 @@
 
 use std::num::NonZero;
 
-use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf, Sequence};
+use bitcoin::{
+    key::{TapTweak as _, TweakedPublicKey},
+    opcodes, relative, script,
+    taproot::{LeafVersion, TapLeafHash, TapNodeHash},
+    Amount, Network, ScriptBuf, Sequence,
+};
 use secp256k1::{schnorr, Scalar, XOnlyPublicKey, SECP256K1};
 use serde::{Deserialize, Serialize};
 use strata_crypto::keys::constants::UNSPENDABLE_PUBLIC_KEY;
@@ -42,17 +47,7 @@ impl Connector for TimelockedConnector {
     }
 
     fn leaf_scripts(&self) -> Vec<ScriptBuf> {
-        let mut scripts = Vec::new();
-
-        let payout_script = script::Builder::new()
-            .push_slice(self.timelocked_key.serialize())
-            .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
-            .push_sequence(Sequence::from_height(self.timelock.value()))
-            .push_opcode(opcodes::all::OP_CSV)
-            .into_script();
-        scripts.push(payout_script);
-
-        scripts
+        vec![timelocked_leaf_script(self.timelocked_key, self.timelock)]
     }
 
     fn value(&self) -> Amount {
@@ -201,10 +196,33 @@ impl ContestProofConnector {
             .expect("the game index must be less than the secp curve order")
     }
 
-    /// Returns the P2TR output key.
-    pub fn output_key(&self) -> bitcoin::key::TweakedPublicKey {
-        self.spend_info().output_key()
+    /// Computes the P2TR output key without constructing a connector.
+    pub fn output_key(
+        n_of_n_pubkey: XOnlyPublicKey,
+        operator_pubkey: XOnlyPublicKey,
+        game_index: NonZero<u32>,
+        proof_timelock: relative::Height,
+    ) -> TweakedPublicKey {
+        let internal_key = operator_pubkey
+            .add_tweak(SECP256K1, &Self::operator_key_tweak(game_index))
+            .expect("tweak is valid")
+            .0;
+        let leaf = timelocked_leaf_script(n_of_n_pubkey, proof_timelock);
+        let merkle_root: TapNodeHash =
+            TapLeafHash::from_script(&leaf, LeafVersion::TapScript).into();
+        internal_key.tap_tweak(SECP256K1, Some(merkle_root)).0
     }
+}
+
+/// Builds the timelocked tap-leaf script shared by every timelocked connector
+/// variant.
+fn timelocked_leaf_script(timelocked_key: XOnlyPublicKey, timelock: relative::Height) -> ScriptBuf {
+    script::Builder::new()
+        .push_slice(timelocked_key.serialize())
+        .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
+        .push_sequence(Sequence::from_height(timelock.value()))
+        .push_opcode(opcodes::all::OP_CSV)
+        .into_script()
 }
 
 impl_timelocked_connector! {
@@ -450,5 +468,33 @@ mod tests {
     #[test]
     fn timeout_spend() {
         TimelockedNOfNSigner::assert_connector_is_spendable(TimelockedSpendPath::Timeout);
+    }
+
+    #[test]
+    fn contest_proof_output_key_matches_new() {
+        let operator_pubkey = generate_keypair().x_only_public_key().0;
+        let n_of_n_pubkey = generate_keypair().x_only_public_key().0;
+        let game_index = NonZero::new(7).unwrap();
+        let proof_timelock = relative::Height::from_height(100);
+
+        let via_new = ContestProofConnector::new(
+            Network::Regtest,
+            n_of_n_pubkey,
+            operator_pubkey,
+            game_index,
+            proof_timelock,
+            Amount::ZERO,
+        )
+        .0
+        .spend_info()
+        .output_key();
+        let via_assoc = ContestProofConnector::output_key(
+            n_of_n_pubkey,
+            operator_pubkey,
+            game_index,
+            proof_timelock,
+        );
+
+        assert_eq!(via_new, via_assoc);
     }
 }
