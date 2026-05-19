@@ -323,11 +323,29 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_bridge_duties_by_operator_pk(
         &self,
-        _operator_pk: PublicKey,
+        operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(vec![])
+        let cached_registry = self.cached_registry.read().await;
+
+        let Some(operator_idx) = operator_idx_from_registry(&cached_registry, &operator_pk) else {
+            return Err(rpc_error(
+                ErrorCode::InvalidRequest,
+                "Invalid operator public key",
+                operator_pk,
+            ));
+        };
+
+        Ok(cached_registry
+            .deposits()
+            .flat_map(|(&deposit_idx, dsm)| {
+                bridge_duties_for_deposit(
+                    deposit_idx,
+                    dsm.state(),
+                    dsm.context().deposit_request_outpoint().txid,
+                )
+            })
+            .filter(|duty| duty_applies_to_operator(duty, operator_idx))
+            .collect())
     }
 
     async fn get_withdrawal_status(
@@ -480,6 +498,29 @@ const fn has_deposit_duty(state: &DepositState) -> bool {
             | DepositState::DepositNoncesCollected { .. }
             | DepositState::DepositPartialsCollected { .. }
     )
+}
+
+/// Returns whether a bridge duty applies to a resolved operator index.
+const fn duty_applies_to_operator(duty: &RpcBridgeDutyStatus, operator_idx: OperatorIdx) -> bool {
+    match duty {
+        RpcBridgeDutyStatus::Deposit { .. } => true,
+        RpcBridgeDutyStatus::Withdrawal {
+            assigned_operator_idx,
+            ..
+        } => *assigned_operator_idx == operator_idx,
+    }
+}
+
+/// Resolves a MuSig2 public key to an operator index using recovered deposit state-machine tables.
+fn operator_idx_from_registry(
+    registry: &SMRegistry,
+    operator_pk: &PublicKey,
+) -> Option<OperatorIdx> {
+    registry.deposits().find_map(|(_deposit_idx, sm)| {
+        sm.context()
+            .operator_table()
+            .btc_key_to_idx(&operator_pk.inner)
+    })
 }
 
 const fn active_claim_from_state(
@@ -670,32 +711,40 @@ fn rpc_error<T: fmt::Display + Serialize>(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, num::NonZero};
+    use std::{collections::BTreeMap, num::NonZero, sync::Arc};
 
     use bitcoin::{
-        Amount, Network, OutPoint, Txid,
+        Amount, Network, OutPoint, PublicKey, Txid,
         hashes::{Hash, sha256},
         relative,
     };
     use secp256k1::schnorr::Signature;
     use strata_bridge_connectors::prelude::{DepositRequestConnector, NOfNConnector};
-    use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+    use strata_bridge_orchestrator::sm_registry::{SMConfig, SMRegistry};
+    use strata_bridge_primitives::{
+        operator_table::OperatorTable,
+        types::{DepositIdx, GraphIdx, OperatorIdx},
+    };
     use strata_bridge_rpc::types::{RpcBridgeDutyStatus, RpcClaimPhase};
     use strata_bridge_sm::{
-        deposit::state::DepositState,
+        deposit::{
+            config::DepositSMCfg, context::DepositSMCtx, machine::DepositSM, state::DepositState,
+        },
         graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState},
+        stake::config::StakeSMCfg,
     };
     use strata_bridge_test_utils::{
         bitcoin::{generate_tx, generate_xonly_pubkey},
         bridge_fixtures::{
             TEST_DEPOSIT_AMOUNT, TEST_MAGIC_BYTES, TEST_OPERATOR_FEE, TEST_POV_IDX,
-            random_p2tr_desc, test_operator_table,
+            TEST_RECOVERY_DELAY, random_p2tr_desc, test_operator_table,
         },
         musig2::{generate_agg_nonce, generate_partial_signature, generate_pubnonce},
         prelude::generate_txid,
     };
     use strata_bridge_tx_graph::{
         game_graph::{DepositParams, GameGraphSummary, ProtocolParams},
+        stake_graph::ProtocolParams as StakeProtocolParams,
         transactions::{
             cooperative_payout::{CooperativePayoutData, CooperativePayoutTx},
             deposit::{DepositData, DepositTx},
@@ -705,7 +754,7 @@ mod tests {
 
     use super::{
         active_claim_from_state, aggregate_signatures_response, bridge_duties_for_deposit,
-        graph_data_response,
+        duty_applies_to_operator, graph_data_response, operator_idx_from_registry,
     };
 
     const DEPOSIT_IDX: DepositIdx = 3;
@@ -796,6 +845,42 @@ mod tests {
             deposit_connector,
             random_p2tr_desc(),
         )
+    }
+
+    fn test_sm_config() -> SMConfig {
+        SMConfig {
+            deposit: Arc::new(DepositSMCfg {
+                network: Network::Regtest,
+                cooperative_payout_timeout_blocks: 144,
+                deposit_amount: TEST_DEPOSIT_AMOUNT,
+                operator_fee: TEST_OPERATOR_FEE,
+                magic_bytes: TEST_MAGIC_BYTES.into(),
+                recovery_delay: TEST_RECOVERY_DELAY,
+            }),
+            graph: Arc::new(test_graph_cfg()),
+            stake: Arc::new(StakeSMCfg {
+                protocol_params: StakeProtocolParams {
+                    network: Network::Regtest,
+                    magic_bytes: TEST_MAGIC_BYTES.into(),
+                    unstaking_timelock: relative::Height::from_height(144),
+                    stake_amount: Amount::from_sat(20_000),
+                },
+            }),
+        }
+    }
+
+    fn test_deposit_sm(deposit_idx: DepositIdx, operator_table: OperatorTable) -> DepositSM {
+        DepositSM {
+            context: DepositSMCtx {
+                deposit_idx,
+                deposit_request_outpoint: OutPoint::new(Txid::all_zeros(), 1),
+                deposit_outpoint: OutPoint::new(Txid::all_zeros(), 2),
+                operator_table,
+            },
+            state: DepositState::Deposited {
+                last_block_height: 100,
+            },
+        }
     }
 
     fn test_graph_summary() -> GameGraphSummary {
@@ -1091,5 +1176,47 @@ mod tests {
                 "unexpected duties for {state_name}",
             );
         }
+    }
+
+    #[test]
+    fn operator_idx_from_registry_checks_until_btc_key_is_found() {
+        let mut registry = SMRegistry::new(test_sm_config());
+        let table_without_operator = test_operator_table(1, TEST_POV_IDX);
+        let table_with_operator = test_operator_table(3, TEST_POV_IDX);
+        let operator_pk = PublicKey::from(
+            table_with_operator
+                .idx_to_btc_key(&OPERATOR_IDX)
+                .expect("operator should be in test operator table"),
+        );
+
+        registry
+            .insert_deposit(0, test_deposit_sm(0, table_without_operator))
+            .expect("first test deposit should be inserted");
+        registry
+            .insert_deposit(1, test_deposit_sm(1, table_with_operator))
+            .expect("second test deposit should be inserted");
+
+        let operator_idx = operator_idx_from_registry(&registry, &operator_pk);
+
+        assert_eq!(operator_idx, Some(OPERATOR_IDX));
+    }
+
+    #[test]
+    fn duty_applies_to_operator_matches_withdrawal_assignee() {
+        let deposit_duty = RpcBridgeDutyStatus::Deposit {
+            deposit_idx: DEPOSIT_IDX,
+            deposit_request_txid: generate_txid(),
+        };
+        let withdrawal_duty = RpcBridgeDutyStatus::Withdrawal {
+            deposit_idx: DEPOSIT_IDX,
+            assigned_operator_idx: OPERATOR_IDX,
+        };
+
+        assert!(duty_applies_to_operator(&deposit_duty, OPERATOR_IDX));
+        assert!(duty_applies_to_operator(&withdrawal_duty, OPERATOR_IDX));
+        assert!(!duty_applies_to_operator(
+            &withdrawal_duty,
+            OPERATOR_IDX + 1
+        ));
     }
 }
