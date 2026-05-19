@@ -142,6 +142,7 @@ runs:
         hide-progress: "true"
         skip-setup-trivy: "true"
         trivyignores: ${{ inputs.trivyignores }}
+        skip-dirs: ${{ inputs.skip_dirs }}
 
     - name: Record Trivy scan status for ${{ inputs.display_name }}
       id: trivy_scan
