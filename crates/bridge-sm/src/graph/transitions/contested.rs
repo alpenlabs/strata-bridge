@@ -511,6 +511,7 @@ impl GraphSM {
                 }
 
                 self.state = GraphState::Slashed {
+                    claim_txid: graph_summary.claim,
                     slash_txid: event.slash_txid,
                 };
 
@@ -519,10 +520,12 @@ impl GraphSM {
             // States with expected_slash_txid field
             GraphState::BridgeProofTimedout {
                 expected_slash_txid,
+                claim_txid,
                 ..
             }
             | GraphState::Acked {
                 expected_slash_txid,
+                claim_txid,
                 ..
             } => {
                 if event.slash_txid != expected_slash_txid {
@@ -534,6 +537,7 @@ impl GraphSM {
                 }
 
                 self.state = GraphState::Slashed {
+                    claim_txid,
                     slash_txid: event.slash_txid,
                 };
 
@@ -541,6 +545,7 @@ impl GraphSM {
             }
             GraphState::AllNackd {
                 possible_slash_txid,
+                claim_txid,
                 ..
             } => {
                 if event.slash_txid != possible_slash_txid {
@@ -552,6 +557,7 @@ impl GraphSM {
                 }
 
                 self.state = GraphState::Slashed {
+                    claim_txid,
                     slash_txid: event.slash_txid,
                 };
 

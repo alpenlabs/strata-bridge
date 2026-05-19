@@ -95,6 +95,7 @@ mod tests {
     fn test_invalid_process_adaptors_verification_from_withdrawn() {
         // AdaptorsVerified is only valid in GraphGenerated; any other state should be InvalidEvent
         let state = GraphState::Withdrawn {
+            claim_txid: generate_txid(),
             payout_txid: generate_txid(),
         };
 

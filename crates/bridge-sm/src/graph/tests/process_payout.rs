@@ -22,6 +22,7 @@ mod tests {
     #[test]
     fn test_payout_from_claimed() {
         let graph_summary = test_graph_summary();
+        let claim_txid = graph_summary.claim;
         let payout_txid = graph_summary.uncontested_payout;
 
         test_graph_transition(GraphTransition {
@@ -35,7 +36,10 @@ mod tests {
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
             },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
-            expected_state: GraphState::Withdrawn { payout_txid },
+            expected_state: GraphState::Withdrawn {
+                claim_txid,
+                payout_txid,
+            },
             expected_duties: vec![],
             expected_signals: vec![],
         });
@@ -54,12 +58,17 @@ mod tests {
 
     #[test]
     fn test_payout_from_all_nackd() {
-        let payout_txid = test_graph_summary().contested_payout;
+        let graph_summary = test_graph_summary();
+        let claim_txid = graph_summary.claim;
+        let payout_txid = graph_summary.contested_payout;
 
         test_graph_transition(GraphTransition {
             from_state: all_nackd_state(),
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
-            expected_state: GraphState::Withdrawn { payout_txid },
+            expected_state: GraphState::Withdrawn {
+                claim_txid,
+                payout_txid,
+            },
             expected_duties: vec![],
             expected_signals: vec![],
         });
@@ -78,10 +87,14 @@ mod tests {
 
     #[test]
     fn test_duplicate_payout() {
+        let claim_txid = generate_txid();
         let payout_txid = generate_txid();
 
         test_graph_invalid_transition(GraphInvalidTransition {
-            from_state: GraphState::Withdrawn { payout_txid },
+            from_state: GraphState::Withdrawn {
+                claim_txid,
+                payout_txid,
+            },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
             expected_error: |e| matches!(e, GSMError::Duplicate { .. }),
         });
@@ -90,6 +103,7 @@ mod tests {
     #[test]
     fn test_payout_from_bridge_proof_posted() {
         let graph_summary = test_graph_summary();
+        let claim_txid = graph_summary.claim;
         let payout_txid = graph_summary.contested_payout;
 
         test_graph_transition(GraphTransition {
@@ -105,7 +119,10 @@ mod tests {
                 proof: dummy_proof_receipt(),
             },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
-            expected_state: GraphState::Withdrawn { payout_txid },
+            expected_state: GraphState::Withdrawn {
+                claim_txid,
+                payout_txid,
+            },
             expected_duties: vec![],
             expected_signals: vec![],
         });
@@ -125,12 +142,16 @@ mod tests {
     #[test]
     fn test_payout_from_contested() {
         let graph_summary = test_graph_summary();
+        let claim_txid = graph_summary.claim;
         let payout_txid = graph_summary.contested_payout;
 
         test_graph_transition(GraphTransition {
             from_state: contested_state(),
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
-            expected_state: GraphState::Withdrawn { payout_txid },
+            expected_state: GraphState::Withdrawn {
+                claim_txid,
+                payout_txid,
+            },
             expected_duties: vec![],
             expected_signals: vec![],
         });

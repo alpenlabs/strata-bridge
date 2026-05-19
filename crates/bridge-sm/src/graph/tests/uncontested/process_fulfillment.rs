@@ -116,6 +116,7 @@ mod tests {
     #[test]
     fn test_process_fulfillment_from_invalid_state() {
         let state = GraphState::Withdrawn {
+            claim_txid: generate_txid(),
             payout_txid: generate_txid(),
         };
 
