@@ -290,12 +290,10 @@ impl BridgeDb for FdbClient {
 
     async fn delete_withdrawal_funding_outpoints(
         &self,
-        graph_idx: GraphIdx,
+        deposit_idx: DepositIdx,
     ) -> Result<(), Self::Error> {
-        self.basic_delete::<WithdrawalFundingRowSpec>(WithdrawalFundingKey {
-            deposit_idx: graph_idx.deposit,
-        })
-        .await
+        self.basic_delete::<WithdrawalFundingRowSpec>(WithdrawalFundingKey { deposit_idx })
+            .await
     }
 
     // ── Batch Persistence ─────────────────────────────────────────
@@ -1124,11 +1122,8 @@ mod tests {
         #[test]
         fn delete_withdrawal_funding_outpoints_roundtrip(
             deposit_idx in any::<DepositIdx>(),
-            operator_idx in any::<OperatorIdx>(),
             outpoints in arb_outpoints(),
         ) {
-            let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
-
             block_on(async {
                 let client = get_client();
 
@@ -1138,7 +1133,7 @@ mod tests {
                     .unwrap();
 
                 client
-                    .delete_withdrawal_funding_outpoints(graph_idx)
+                    .delete_withdrawal_funding_outpoints(deposit_idx)
                     .await
                     .unwrap();
 

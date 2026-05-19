@@ -594,6 +594,17 @@ async fn fulfill_withdrawal(
 
     info!(%deposit_idx, %txid, "withdrawal fulfillment confirmed");
 
+    // The funding outpoints are now spent on-chain; drop the persisted row so the funds table
+    // doesn't grow unbounded. Failure to delete is non-fatal — `wallet.sync()` will observe the
+    // spend and unlease the outpoints regardless.
+    if let Err(e) = output_handles
+        .db
+        .delete_withdrawal_funding_outpoints(deposit_idx)
+        .await
+    {
+        warn!(%deposit_idx, ?e, "failed to delete persisted withdrawal funding outpoints");
+    }
+
     Ok(())
 }
 

@@ -174,10 +174,10 @@ pub trait BridgeDb {
         &self,
         graph_idx: GraphIdx,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
-    /// Deletes the reserved [`OutPoint`]s for the given graph and purpose.
+    /// Deletes the reserved [`OutPoint`]s used to fulfil the given deposit's withdrawal request.
     fn delete_withdrawal_funding_outpoints(
         &self,
-        graph_idx: GraphIdx,
+        deposit_idx: DepositIdx,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     // ── Batch Persistence ─────────────────────────────────────────────
