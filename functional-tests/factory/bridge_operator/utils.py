@@ -3,12 +3,14 @@ from pathlib import Path
 
 import toml
 
+from constants import NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY
 from utils.utils import OperatorKeyInfo
 
 from .config_cfg import (
     AsmRpcConfig,
     BridgeConfigParams,
     BridgeOperatorConfig,
+    BridgeProofConfig,
     BtcClientConfig,
     BtcZmqConfig,
     DbConfig,
@@ -122,6 +124,10 @@ def generate_config_toml(
             retry_delay=Duration(secs=2, nanos=0),
             max_retries=1000,
             poll_interval=Duration(secs=2, nanos=0),
+        ),
+        bridge_proof=BridgeProofConfig(
+            kind="native",
+            schnorr_signing_key=NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY,
         ),
     )
 

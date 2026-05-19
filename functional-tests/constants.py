@@ -26,6 +26,7 @@ MAX_BRIDGE_TIMEOUT = (1 << 16) - 1
 # Test signing keys for the asm-runner's native backend (asm-stf + moho hosts).
 NATIVE_TEST_ASM_SIGNING_KEY = "01" * 32
 NATIVE_TEST_MOHO_SIGNING_KEY = "02" * 32
+NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY = "03" * 32
 
 # Late import: `utils/__init__.py` eagerly re-exports `utils.bridge` etc., which
 # pull other constants from this module at load time. Importing `utils.crypto`
