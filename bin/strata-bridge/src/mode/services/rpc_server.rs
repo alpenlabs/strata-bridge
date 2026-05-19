@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use anyhow::Context;
 use async_trait::async_trait;
-use bitcoin::PublicKey;
+use bitcoin::{PublicKey, Txid};
 use chrono::{DateTime, Utc};
 use jsonrpsee::{
     RpcModule,
@@ -307,9 +307,18 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(vec![])
+        let cached_registry = self.cached_registry.read().await;
+
+        Ok(cached_registry
+            .deposits()
+            .flat_map(|(&deposit_idx, dsm)| {
+                bridge_duties_for_deposit(
+                    deposit_idx,
+                    dsm.state(),
+                    dsm.context().deposit_request_outpoint().txid,
+                )
+            })
+            .collect())
     }
 
     async fn get_bridge_duties_by_operator_pk(
@@ -435,6 +444,42 @@ const fn get_assigned_operator(state: &DepositState) -> Option<OperatorIdx> {
         | DepositState::CooperativePathFailed { assignee, .. } => Some(*assignee),
         _ => None,
     }
+}
+
+/// Builds the deposit and withdrawal duties currently implied by a single deposit state machine.
+fn bridge_duties_for_deposit(
+    deposit_idx: DepositIdx,
+    state: &DepositState,
+    deposit_request_txid: Txid,
+) -> Vec<RpcBridgeDutyStatus> {
+    let mut duties = Vec::new();
+
+    if has_deposit_duty(state) {
+        duties.push(RpcBridgeDutyStatus::Deposit {
+            deposit_idx,
+            deposit_request_txid,
+        });
+    }
+
+    if let DepositState::Assigned { assignee, .. } = state {
+        duties.push(RpcBridgeDutyStatus::Withdrawal {
+            deposit_idx,
+            assigned_operator_idx: *assignee,
+        });
+    }
+
+    duties
+}
+
+/// Returns whether the deposit state still requires operators to publish the deposit transaction.
+const fn has_deposit_duty(state: &DepositState) -> bool {
+    matches!(
+        state,
+        DepositState::Created { .. }
+            | DepositState::GraphGenerated { .. }
+            | DepositState::DepositNoncesCollected { .. }
+            | DepositState::DepositPartialsCollected { .. }
+    )
 }
 
 const fn active_claim_from_state(
@@ -628,26 +673,40 @@ mod tests {
     use std::{collections::BTreeMap, num::NonZero};
 
     use bitcoin::{
-        Amount, Network, OutPoint,
+        Amount, Network, OutPoint, Txid,
         hashes::{Hash, sha256},
         relative,
     };
     use secp256k1::schnorr::Signature;
+    use strata_bridge_connectors::prelude::{DepositRequestConnector, NOfNConnector};
     use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
-    use strata_bridge_rpc::types::RpcClaimPhase;
-    use strata_bridge_sm::graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState};
+    use strata_bridge_rpc::types::{RpcBridgeDutyStatus, RpcClaimPhase};
+    use strata_bridge_sm::{
+        deposit::state::DepositState,
+        graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState},
+    };
     use strata_bridge_test_utils::{
-        bitcoin::generate_xonly_pubkey,
+        bitcoin::{generate_tx, generate_xonly_pubkey},
         bridge_fixtures::{
             TEST_DEPOSIT_AMOUNT, TEST_MAGIC_BYTES, TEST_OPERATOR_FEE, TEST_POV_IDX,
             random_p2tr_desc, test_operator_table,
         },
+        musig2::{generate_agg_nonce, generate_partial_signature, generate_pubnonce},
         prelude::generate_txid,
     };
-    use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary, ProtocolParams};
+    use strata_bridge_tx_graph::{
+        game_graph::{DepositParams, GameGraphSummary, ProtocolParams},
+        transactions::{
+            cooperative_payout::{CooperativePayoutData, CooperativePayoutTx},
+            deposit::{DepositData, DepositTx},
+        },
+    };
     use strata_predicate::PredicateKey;
 
-    use super::{active_claim_from_state, aggregate_signatures_response, graph_data_response};
+    use super::{
+        active_claim_from_state, aggregate_signatures_response, bridge_duties_for_deposit,
+        graph_data_response,
+    };
 
     const DEPOSIT_IDX: DepositIdx = 3;
     const OPERATOR_IDX: OperatorIdx = 1;
@@ -698,6 +757,45 @@ mod tests {
             payout_descs: (0..3).map(|_| random_p2tr_desc()).collect(),
             bridge_proof_predicate: PredicateKey::always_accept(),
         }
+    }
+
+    fn test_deposit_tx() -> DepositTx {
+        let n_of_n_pubkey = generate_xonly_pubkey();
+        let deposit_connector =
+            NOfNConnector::new(Network::Regtest, n_of_n_pubkey, TEST_DEPOSIT_AMOUNT);
+        let deposit_request_connector = DepositRequestConnector::new(
+            Network::Regtest,
+            n_of_n_pubkey,
+            generate_xonly_pubkey(),
+            relative::Height::from_height(144),
+            DepositTx::drt_required(TEST_DEPOSIT_AMOUNT),
+        );
+
+        DepositTx::new(
+            DepositData {
+                deposit_idx: DEPOSIT_IDX,
+                deposit_request_outpoint: OutPoint::new(Txid::all_zeros(), 0),
+                magic_bytes: TEST_MAGIC_BYTES.into(),
+            },
+            deposit_connector,
+            deposit_request_connector,
+        )
+    }
+
+    fn test_cooperative_payout_tx() -> CooperativePayoutTx {
+        let deposit_connector = NOfNConnector::new(
+            Network::Regtest,
+            generate_xonly_pubkey(),
+            TEST_DEPOSIT_AMOUNT,
+        );
+
+        CooperativePayoutTx::new(
+            CooperativePayoutData {
+                deposit_outpoint: OutPoint::new(Txid::all_zeros(), 1),
+            },
+            deposit_connector,
+            random_p2tr_desc(),
+        )
     }
 
     fn test_graph_summary() -> GameGraphSummary {
@@ -864,5 +962,134 @@ mod tests {
 
         assert!(claim.fulfilled);
         assert_eq!(claim.phase, RpcClaimPhase::Contested);
+    }
+
+    #[test]
+    fn bridge_duties_for_deposit_reports_each_deposit_state() {
+        let deposit_request_txid = generate_txid();
+        let claim_txids = BTreeMap::from([(OPERATOR_IDX, generate_txid())]);
+        let pubnonces = BTreeMap::from([(OPERATOR_IDX, generate_pubnonce())]);
+        let partial_signatures = BTreeMap::from([(OPERATOR_IDX, generate_partial_signature())]);
+        let deposit_duty = vec![RpcBridgeDutyStatus::Deposit {
+            deposit_idx: DEPOSIT_IDX,
+            deposit_request_txid,
+        }];
+        let withdrawal_duty = vec![RpcBridgeDutyStatus::Withdrawal {
+            deposit_idx: DEPOSIT_IDX,
+            assigned_operator_idx: OPERATOR_IDX,
+        }];
+        let no_duties = Vec::<RpcBridgeDutyStatus>::new();
+
+        let cases = vec![
+            (
+                "Created",
+                DepositState::Created {
+                    deposit_transaction: test_deposit_tx(),
+                    last_block_height: 100,
+                    claim_txids: claim_txids.clone(),
+                },
+                deposit_duty.clone(),
+            ),
+            (
+                "GraphGenerated",
+                DepositState::GraphGenerated {
+                    deposit_transaction: test_deposit_tx(),
+                    last_block_height: 100,
+                    claim_txids: claim_txids.clone(),
+                    pubnonces: pubnonces.clone(),
+                },
+                deposit_duty.clone(),
+            ),
+            (
+                "DepositNoncesCollected",
+                DepositState::DepositNoncesCollected {
+                    deposit_transaction: test_deposit_tx(),
+                    last_block_height: 100,
+                    claim_txids,
+                    agg_nonce: generate_agg_nonce(),
+                    pubnonces: pubnonces.clone(),
+                    partial_signatures: partial_signatures.clone(),
+                },
+                deposit_duty.clone(),
+            ),
+            (
+                "DepositPartialsCollected",
+                DepositState::DepositPartialsCollected {
+                    last_block_height: 100,
+                    deposit_transaction: generate_tx(1, 1),
+                },
+                deposit_duty,
+            ),
+            (
+                "Deposited",
+                DepositState::Deposited {
+                    last_block_height: 100,
+                },
+                no_duties.clone(),
+            ),
+            (
+                "Assigned",
+                DepositState::Assigned {
+                    last_block_height: 100,
+                    assignee: OPERATOR_IDX,
+                    deadline: 120,
+                    recipient_desc: random_p2tr_desc(),
+                },
+                withdrawal_duty,
+            ),
+            (
+                "Fulfilled",
+                DepositState::Fulfilled {
+                    last_block_height: 100,
+                    assignee: OPERATOR_IDX,
+                    fulfillment_txid: generate_txid(),
+                    fulfillment_height: 95,
+                    cooperative_payout_deadline: 120,
+                },
+                no_duties.clone(),
+            ),
+            (
+                "PayoutDescriptorReceived",
+                DepositState::PayoutDescriptorReceived {
+                    last_block_height: 100,
+                    assignee: OPERATOR_IDX,
+                    cooperative_payment_deadline: 120,
+                    cooperative_payout_tx: test_cooperative_payout_tx(),
+                    payout_nonces: pubnonces.clone(),
+                },
+                no_duties.clone(),
+            ),
+            (
+                "PayoutNoncesCollected",
+                DepositState::PayoutNoncesCollected {
+                    last_block_height: 100,
+                    assignee: OPERATOR_IDX,
+                    cooperative_payout_tx: test_cooperative_payout_tx(),
+                    cooperative_payment_deadline: 120,
+                    payout_nonces: pubnonces,
+                    payout_aggregated_nonce: generate_agg_nonce(),
+                    payout_partial_signatures: partial_signatures,
+                },
+                no_duties.clone(),
+            ),
+            (
+                "CooperativePathFailed",
+                DepositState::CooperativePathFailed {
+                    assignee: OPERATOR_IDX,
+                    last_block_height: 100,
+                },
+                no_duties.clone(),
+            ),
+            ("Spent", DepositState::Spent, no_duties.clone()),
+            ("Aborted", DepositState::Aborted, no_duties),
+        ];
+
+        for (state_name, state, expected_duties) in cases {
+            assert_eq!(
+                bridge_duties_for_deposit(DEPOSIT_IDX, &state, deposit_request_txid),
+                expected_duties,
+                "unexpected duties for {state_name}",
+            );
+        }
     }
 }
