@@ -25,6 +25,7 @@ use crate::{
 /// Generates the counterproof, completes adaptor signatures via mosaic,
 /// assembles the witness with the pre-computed N-of-N signature, and publishes
 /// the counterproof transaction to Bitcoin.
+#[expect(clippy::too_many_arguments)]
 pub(super) async fn generate_and_publish_counterproof(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
@@ -145,11 +146,7 @@ async fn fetch_counterproof_input(
         .0
         .into();
 
-    let proof_timelock = cfg
-        .graph_sm_cfg
-        .game_graph_params
-        .proof_timelock
-        .value();
+    let proof_timelock = cfg.graph_sm_cfg.game_graph_params.proof_timelock.value();
 
     let mut bridge_proof_tx_prevouts = Vec::with_capacity(bridge_proof_tx.input.len());
     for txin in &bridge_proof_tx.input {

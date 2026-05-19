@@ -115,8 +115,6 @@ fn verify_operator_signature(
         proof_timelock,
     );
 
-    // Without this, an attacker could swap in a signature the operator made for
-    // some unrelated taproot output.
     assert_eq!(
         prevouts[0].script_pubkey,
         ScriptBuf::new_p2tr_tweaked(output_key),
