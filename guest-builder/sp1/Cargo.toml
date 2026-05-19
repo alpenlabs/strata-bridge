@@ -10,4 +10,4 @@ docker-build = []
 [build-dependencies]
 sp1-build = "6.2.0"
 ssz.workspace = true
-strata-bridge-proof = { path = "../../crates/proofs/bridge-proof" }
+strata-bridge-proof = { path = "../../crates/proofs/bridge-proof", default-features = false }

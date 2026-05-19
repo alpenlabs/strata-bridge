@@ -12,8 +12,8 @@ use strata_asm_rpc::traits::AsmProofApiClient;
 use strata_bridge_connectors::{Connector, prelude::ContestProofConnector};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, OperatorIdx};
 use strata_bridge_proof::{
-    BridgeProofInput, BridgeProofProgram, MerkleProofB32, MohoRecursiveOutput, MohoState,
-    RecursiveMohoProof,
+    BridgeProofHost, BridgeProofInput, BridgeProofProgram, MerkleProofB32, MohoRecursiveOutput,
+    MohoState, RecursiveMohoProof,
 };
 use strata_bridge_proof_common::{ProofError, prove};
 use strata_bridge_tx_graph::transactions::bridge_proof::{BridgeProofData, BridgeProofTx};
@@ -116,9 +116,13 @@ async fn generate_bridge_proof(
 
     info!(%last_block_height, "generating bridge proof");
     let prove_start = std::time::Instant::now();
-    let receipt =
-        prove::<BridgeProofProgram, _>(proof_input, output_handles.bridge_proof_host.clone())
-            .await?;
+    let receipt = match output_handles.bridge_proof_host.clone() {
+        BridgeProofHost::Native(host) => {
+            prove::<BridgeProofProgram, _>(proof_input, host).await?
+        }
+        #[cfg(feature = "sp1")]
+        BridgeProofHost::Sp1(host) => prove::<BridgeProofProgram, _>(proof_input, *host).await?,
+    };
     info!(
         %last_block_height,
         elapsed = ?prove_start.elapsed(),

@@ -11415,10 +11415,14 @@ dependencies = [
 name = "strata-bridge-proof"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "cfg-if 1.0.4",
+ "hex",
+ "k256",
  "moho-recursive-proof",
  "moho-runtime-interface",
  "moho-types",
+ "serde",
  "serde_json",
  "ssz",
  "ssz_derive",

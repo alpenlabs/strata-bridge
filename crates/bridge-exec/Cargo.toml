@@ -50,3 +50,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 corepc-node.workspace = true
+
+[features]
+default = []
+sp1 = ["strata-bridge-proof/sp1"]
