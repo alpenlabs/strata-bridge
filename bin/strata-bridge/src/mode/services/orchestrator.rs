@@ -172,7 +172,7 @@ where
     Ok(())
 }
 
-pub(super) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
+pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
     // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2665>
     // Import this from the counterproof module once it exists.
     const COUNTERPROOF_N_DATA: usize = 128 + 4; // proof bytes (groth16) + deposit_idx (4 bytes)

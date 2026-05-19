@@ -11,16 +11,18 @@ use tracing::{debug, info};
 
 use crate::{
     config::Config,
-    mode::services::{
-        asm_rpc::init_asm_rpc_client,
-        btc_client::init_btc_rpc_client,
-        mosaic_client::{init_mosaic_client, run_mosaic_setup, spawn_mosaic_poller},
-        operator_table::init_operator_table,
-        operator_wallet::{init_operator_wallet, spawn_initial_operator_wallet_sync},
-        orchestrator::init_orchestrator,
-        p2p_handles::{P2PHandles, init_p2p_handles},
+    mode::{
         rpc_server::init_rpc_server,
-        secret_service::init_secret_service_client,
+        services::{
+            asm_rpc::init_asm_rpc_client,
+            btc_client::init_btc_rpc_client,
+            mosaic_client::{init_mosaic_client, run_mosaic_setup, spawn_mosaic_poller},
+            operator_table::init_operator_table,
+            operator_wallet::{init_operator_wallet, spawn_initial_operator_wallet_sync},
+            orchestrator::init_orchestrator,
+            p2p_handles::{P2PHandles, init_p2p_handles},
+            secret_service::init_secret_service_client,
+        },
     },
 };
 
