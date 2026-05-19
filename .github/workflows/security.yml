@@ -26,3 +26,72 @@ jobs:
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  trivy-cargo:
+    name: Trivy Cargo.lock scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        with:
+          version: v0.69.3
+          cache: true
+
+      # Guard for refs that predate .trivyignore (e.g. before STR-2637 merges).
+      - name: Ensure .trivyignore exists
+        run: |
+          if [[ ! -f .trivyignore ]]; then
+            touch .trivyignore
+          fi
+
+      # Hard gate — fails the check if unfixed CRITICAL or HIGH CVEs are found in any
+      # Cargo.lock in the repo. Complements cargo audit (RustSec DB) with CVE/GHSA coverage.
+      # Add justified exceptions to .trivyignore via PR.
+      - name: Scan Cargo.lock with Trivy (hard gate)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: "true"
+          exit-code: "1"
+          format: table
+          trivyignores: .trivyignore
+          hide-progress: "true"
+          skip-setup-trivy: "true"
+
+      # Advisory SARIF — runs even if the hard gate failed so findings are always visible
+      # in the Security tab for triage.
+      - name: Scan Cargo.lock with Trivy (SARIF — Security tab)
+        if: always()
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          ignore-unfixed: "true"
+          exit-code: "0"
+          format: sarif
+          output: trivy-cargo.sarif
+          trivyignores: .trivyignore
+          hide-progress: "true"
+          skip-setup-trivy: "true"
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
+        with:
+          sarif_file: trivy-cargo.sarif
+          category: cargo-fs
