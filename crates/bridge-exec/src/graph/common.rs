@@ -167,7 +167,6 @@ async fn ensure_claim_funding_outpoint(
                 finalize_claim_funding_tx(
                     &output_handles.s2_client,
                     &output_handles.tx_driver,
-                    wallet.general_wallet(),
                     psbt,
                 )
                 .await?;

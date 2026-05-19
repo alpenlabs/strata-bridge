@@ -404,16 +404,6 @@ impl OperatorWallet {
         &self.reserved_addr_script_buf
     }
 
-    /// Returns an immutable reference to the general wallet
-    pub const fn general_wallet(&self) -> &Wallet {
-        &self.general_wallet
-    }
-
-    /// Returns an immutable reference to the reserved wallet
-    pub const fn reserved_wallet(&self) -> &Wallet {
-        &self.reserved_wallet
-    }
-
     /// Syncs the wallet using the backend provided on construction.
     pub async fn sync(&mut self) -> Result<(), SyncError> {
         let mut attempt = 0;
