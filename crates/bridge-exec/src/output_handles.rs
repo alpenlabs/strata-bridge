@@ -5,7 +5,7 @@ use std::{fmt, sync::Arc};
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use jsonrpsee::http_client::HttpClient;
-use operator_wallet::OperatorWallet;
+use operator_wallet::{NativeGeneralWallet, OperatorWallet};
 use secret_service_client::SecretServiceClient;
 use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
@@ -15,13 +15,22 @@ use strata_bridge_proof::BridgeProofHost;
 use strata_mosaic_client_api::MosaicClientApi;
 use tokio::sync::RwLock;
 
+/// Concrete operator-wallet type used by bridge-exec. Today the only general-wallet backend in
+/// use is [`NativeGeneralWallet`]; Fireblocks support (STR-3437) will add a sibling impl and
+/// the binary will pick between them at startup.
+pub type NativeWallet = OperatorWallet<NativeGeneralWallet>;
+
 /// The handles for external services that need to be accessed by the executors.
 ///
 /// If this needs to be shared across multiple executors, it should be wrapped in an
 /// [`Arc`].
 pub struct OutputHandles {
     /// Handle for accessing operator funds.
-    pub wallet: Arc<RwLock<OperatorWallet>>,
+    ///
+    /// Methods on [`OperatorWallet`] take `&mut self`. The outer `RwLock` also lets executors
+    /// span multi-step critical sections (e.g. DB-lookup-then-fund-then-persist) without
+    /// races between concurrent duties.
+    pub wallet: Arc<RwLock<NativeWallet>>,
 
     /// Handle for accessing the database.
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-2670>

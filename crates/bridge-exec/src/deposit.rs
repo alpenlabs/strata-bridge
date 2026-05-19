@@ -477,29 +477,25 @@ async fn fulfill_withdrawal(
         let funding_result = match persisted_funding_outpoints.as_deref() {
             Some(outpoints) => {
                 info!(%deposit_idx, "reusing persisted funding outpoints");
-                wallet.fund_v3_transaction_with_outpoints(outpoints, unfunded_tx, fee_rate)
+                wallet
+                    .fund_v3_transaction_with_inputs(unfunded_tx, outpoints, fee_rate)
+                    .await
             }
             None => {
                 info!(%deposit_idx, "selecting new funding outpoints");
-                wallet.fund_v3_transaction(unfunded_tx, fee_rate)
+                wallet.fund_v3_transaction(unfunded_tx, fee_rate).await
             }
         };
 
         match funding_result {
-            Ok(psbt) => {
+            Ok(funded) => {
                 // Track which outpoints were newly leased (only in None path)
                 let newly_leased = if persisted_funding_outpoints.is_none() {
-                    Some(
-                        psbt.unsigned_tx
-                            .input
-                            .iter()
-                            .map(|input| input.previous_output)
-                            .collect::<Vec<_>>(),
-                    )
+                    Some(funded.spent.clone())
                 } else {
                     None
                 };
-                (psbt, newly_leased)
+                (funded.psbt, newly_leased)
             }
             Err(err) => {
                 error!(%deposit_idx, %err, "could not fund withdrawal");
@@ -553,11 +549,7 @@ async fn fulfill_withdrawal(
             // Release newly leased outpoints so they can be reused on retry.
             // Nothing was persisted, so retry will select fresh UTXOs.
             if let Some(ref outpoints) = newly_leased_outpoints {
-                output_handles
-                    .wallet
-                    .write()
-                    .await
-                    .release_outpoints(outpoints);
+                output_handles.wallet.write().await.release(outpoints);
             }
             return Err(e);
         }
@@ -579,11 +571,7 @@ async fn fulfill_withdrawal(
     {
         error!(%deposit_idx, ?e, "failed to persist withdrawal funding outpoints");
         if let Some(ref outpoints) = newly_leased_outpoints {
-            output_handles
-                .wallet
-                .write()
-                .await
-                .release_outpoints(outpoints);
+            output_handles.wallet.write().await.release(outpoints);
         }
         return Err(e.into());
     }

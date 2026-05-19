@@ -7400,9 +7400,9 @@ dependencies = [
 name = "operator-wallet"
 version = "0.1.0"
 dependencies = [
- "algebra",
  "bdk_bitcoind_rpc",
  "bdk_wallet",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]

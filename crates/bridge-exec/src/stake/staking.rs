@@ -113,14 +113,18 @@ async fn read_or_create_stake_funding(
         .await?
     {
         info!(%operator_idx, "reusing persisted stake funding reservation");
-        validate_reservation(&reservation, wallet.reserved_script_buf(), funding_amount)?;
-        wallet.lease_outpoints(
-            reservation
-                .unsigned_tx
-                .input
-                .iter()
-                .map(|txin| txin.previous_output),
-        );
+        validate_reservation(
+            &reservation,
+            &wallet.reserved_script_pubkey(),
+            funding_amount,
+        )?;
+        let inputs: Vec<OutPoint> = reservation
+            .unsigned_tx
+            .input
+            .iter()
+            .map(|txin| txin.previous_output)
+            .collect();
+        wallet.lease(&inputs);
         return Ok(reservation);
     }
 
@@ -128,10 +132,11 @@ async fn read_or_create_stake_funding(
     let fee_rate = estimate_funding_fee_rate(cfg, output_handles).await?;
 
     info!(%fee_rate, %funding_amount, "creating stake funding transaction");
-    let psbt = wallet
+    let funded = wallet
         .create_stake_funding_tx(fee_rate, funding_amount)
+        .await
         .expect("must be able to create stake funding transaction");
-    let reservation = reservation_from_psbt(&psbt);
+    let reservation = reservation_from_psbt(&funded.psbt);
 
     info!(%operator_idx, "persisting stake funding reservation");
     if let Err(err) = output_handles
@@ -148,7 +153,7 @@ async fn read_or_create_stake_funding(
 
         // If we fail to persist the reservation, we must release the leased outpoints so they can
         // be used
-        wallet.release_outpoints(&new_inputs);
+        wallet.release(&new_inputs);
         return Err(err.into());
     }
 
@@ -392,10 +397,7 @@ pub(crate) async fn publish_stake(
     // the covenant, so key-path sign it with the reserved wallet signer before broadcasting.
     // Reconstruct the prevout from known values: the funding UTXO is always at the reserved
     // address with value `stake_amount + unstaking_intent_output.value() + stake_fee`.
-    let reserved_script = {
-        let wallet = output_handles.wallet.read().await;
-        wallet.reserved_script_buf().clone()
-    };
+    let reserved_script = output_handles.wallet.read().await.reserved_script_pubkey();
     let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
     let prevout = TxOut {
         script_pubkey: reserved_script,

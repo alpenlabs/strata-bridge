@@ -32,12 +32,7 @@ pub(super) async fn publish_counterproof_nack(
     // subtraction.
     let connector_value = counterproof_nack_tx.prevouts()[0].value;
     let payout_value = connector_value - fee::counterproof_nack_fee();
-    let payout_script = output_handles
-        .wallet
-        .read()
-        .await
-        .general_script_buf()
-        .clone();
+    let payout_script = output_handles.wallet.read().await.general_script_pubkey();
     counterproof_nack_tx.push_output(TxOut {
         value: payout_value,
         script_pubkey: payout_script,
