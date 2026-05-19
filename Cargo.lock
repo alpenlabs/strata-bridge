@@ -9219,6 +9219,7 @@ dependencies = [
  "secret-service-proto",
  "terrors",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

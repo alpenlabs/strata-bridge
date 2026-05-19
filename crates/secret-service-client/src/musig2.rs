@@ -1,10 +1,7 @@
 //! MuSig2 signer client
 
-use std::sync::Arc;
-
 use bitcoin::{hashes::Hash, TapNodeHash, XOnlyPublicKey};
 use musig2::{secp256k1::schnorr::Signature, AggNonce, PartialSignature, PubNonce};
-use quinn::Connection;
 use secret_service_proto::v2::{
     traits::{
         Client, ClientError, Musig2Params, Musig2Signer, Origin, OurPubKeyIsNotInParams,
@@ -13,22 +10,19 @@ use secret_service_proto::v2::{
     wire::{ClientMessage, ServerMessage, SignerTarget},
 };
 
-use crate::{make_v2_req, Config};
+use crate::ConnHandle;
 
 /// MuSig2 client.
 #[derive(Debug, Clone)]
 pub struct Musig2Client {
-    /// QUIC connection to the server.
-    conn: Connection,
-
-    /// Configuration for the client.
-    config: Arc<Config>,
+    /// Shared QUIC connection handle (transparently reconnects on dead-connection errors).
+    conn: ConnHandle,
 }
 
 impl Musig2Client {
-    /// Creates a new MuSig2 client with an existing QUIC connection and configuration.
-    pub const fn new(conn: Connection, config: Arc<Config>) -> Self {
-        Self { conn, config }
+    /// Creates a new MuSig2 client with the given shared connection handle.
+    pub(crate) const fn new(conn: ConnHandle) -> Self {
+        Self { conn }
     }
 }
 
@@ -40,7 +34,7 @@ impl Musig2Signer<Client> for Musig2Client {
         let msg = ClientMessage::Musig2GetPubNonce {
             params: params.into(),
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         if let ServerMessage::Musig2GetPubNonce(res) = res {
             Ok(match res {
                 Ok(bs) => Ok(PubNonce::from_bytes(&bs).map_err(|_| ClientError::BadData)?),
@@ -64,7 +58,7 @@ impl Musig2Signer<Client> for Musig2Client {
             aggnonce: aggnonce.serialize(),
             message,
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         if let ServerMessage::Musig2GetOurPartialSig(res) = res {
             Ok(match res {
                 Ok(bs) => Ok(PartialSignature::from_slice(&bs).map_err(|_| ClientError::BadData)?),
@@ -87,7 +81,7 @@ impl SchnorrSigner<Client> for Musig2Client {
             digest: *digest,
             tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -108,7 +102,7 @@ impl SchnorrSigner<Client> for Musig2Client {
             key_tweak: *key_tweak,
             tap_tweak: tap_tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -122,7 +116,7 @@ impl SchnorrSigner<Client> for Musig2Client {
             target: SignerTarget::Musig2,
             digest: *digest,
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -135,7 +129,7 @@ impl SchnorrSigner<Client> for Musig2Client {
         let msg = ClientMessage::SchnorrSignerPubkey {
             target: SignerTarget::Musig2,
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         let ServerMessage::SchnorrSignerPubkey { pubkey } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
