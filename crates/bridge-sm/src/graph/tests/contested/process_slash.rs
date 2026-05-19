@@ -38,6 +38,7 @@ fn event_accepted() {
                 slash_txid: TEST_GRAPH_SUMMARY.slash,
             }),
             expected_state: GraphState::Slashed {
+                claim_txid: TEST_GRAPH_SUMMARY.claim,
                 slash_txid: TEST_GRAPH_SUMMARY.slash,
             },
             expected_duties: vec![],
@@ -50,6 +51,7 @@ fn event_accepted() {
 fn event_duplicate() {
     test_graph_invalid_transition(GraphInvalidTransition {
         from_state: GraphState::Slashed {
+            claim_txid: TEST_GRAPH_SUMMARY.claim,
             slash_txid: TEST_GRAPH_SUMMARY.slash,
         },
         event: GraphEvent::SlashConfirmed(SlashConfirmedEvent {

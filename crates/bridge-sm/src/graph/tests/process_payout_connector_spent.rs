@@ -23,11 +23,13 @@ fn payout_connector_spent_event() -> PayoutConnectorSpentEvent {
 fn event_accepted() {
     for from_state in payout_connector_spent_states() {
         let event = payout_connector_spent_event();
+        let claim_txid = claim_txid_for_abort_state(&from_state);
 
         test_graph_transition(GraphTransition {
             from_state,
             event: GraphEvent::PayoutConnectorSpent(event.clone()),
             expected_state: GraphState::Aborted {
+                claim_txid,
                 payout_connector_spend_txid: event.spending_txid,
                 reason: "Payout connector spent".to_string(),
             },
@@ -39,10 +41,12 @@ fn event_accepted() {
 
 #[test]
 fn event_duplicate() {
+    let claim_txid = generate_txid();
     let spending_txid = generate_txid();
 
     test_graph_invalid_transition(GraphInvalidTransition {
         from_state: GraphState::Aborted {
+            claim_txid,
             payout_connector_spend_txid: spending_txid,
             reason: "Payout connector spent".to_string(),
         },
@@ -76,4 +80,15 @@ fn state_is_valid(state: &GraphState) -> bool {
             | GraphState::CounterProofPosted { .. }
             | GraphState::Aborted { .. }
     )
+}
+
+fn claim_txid_for_abort_state(state: &GraphState) -> bitcoin::Txid {
+    match state {
+        GraphState::Claimed { graph_summary, .. }
+        | GraphState::Contested { graph_summary, .. }
+        | GraphState::BridgeProofPosted { graph_summary, .. }
+        | GraphState::CounterProofPosted { graph_summary, .. } => graph_summary.claim,
+        GraphState::BridgeProofTimedout { claim_txid, .. } => *claim_txid,
+        _ => panic!("state cannot transition to Aborted"),
+    }
 }
