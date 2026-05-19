@@ -1,16 +1,15 @@
 //! Build script for the SP1 `guest-bridge-proof` ELF.
 //!
-//! Active only in `--release`. Reads `BRIDGE_PROOF_ASM_PARAMS_PATH` and
-//! `BRIDGE_PROOF_MOHO_VK_PATH` (or `stub/` files under `SKIP_PARAMS=1`), writes
-//! the SSZ-encoded `BridgeProofGenesis` to
-//! `guest-bridge-proof/build/genesis.bin`, compiles the SP1 guest ELF, then
-//! migrates the compiled ELF to a stable cache path
-//! `guest-bridge-proof/build/guest-sp1-bridge-proof.elf` that
-//! `bridge_proof_elf_path()` returns at runtime.
+//! Active only in `--release`. Reads `BRIDGE_PROOF_ASM_PARAMS_PATH`,
+//! `BRIDGE_PROOF_ASM_VK_PATH`, and `BRIDGE_PROOF_MOHO_VK_PATH` (or `stub/`
+//! files under `SKIP_PARAMS=1`), writes the SSZ-encoded `BridgeProofGenesis`
+//! to `guest-bridge-proof/build/genesis.bin`, and compiles the SP1 guest ELF
+//! directly into `<crate>/elfs/bridge-proof.elf` (referenced at runtime via
+//! [`strata_bridge_sp1_guest_builder::BRIDGE_PROOF_ELF_PATH`]).
 //!
 //! In `dev` profile the script is a no-op — consumers of
-//! `bridge_proof_elf_path()` see whatever a prior release build left in the
-//! cache (potentially stale or missing).
+//! `BRIDGE_PROOF_ELF_PATH` see whatever a prior release build left in
+//! `elfs/` (potentially stale or missing).
 
 fn main() {
     #[cfg(not(debug_assertions))]
@@ -35,8 +34,8 @@ mod release {
     const STUB_ASM_VK: &str = "stub/asm-vk.json";
     const STUB_MOHO_VK: &str = "stub/moho-vk.json";
     const GUEST_DIR: &str = "guest-bridge-proof";
-    const GUEST_BIN_NAME: &str = "guest-sp1-bridge-proof";
-    const SP1_TARGET_TRIPLE: &str = "riscv64im-succinct-zkvm-elf";
+    const ELF_NAME: &str = "bridge-proof.elf";
+    const ELFS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/elfs");
 
     pub fn run() {
         println!("cargo:rerun-if-env-changed=SP1_SKIP_PROGRAM_BUILD");
@@ -70,18 +69,17 @@ mod release {
         fs::write(&genesis_out_file, genesis.as_ssz_bytes())
             .unwrap_or_else(|e| panic!("write {}: {e}", genesis_out_file.display()));
 
-        #[cfg(not(feature = "docker-build"))]
-        let build_args = BuildArgs::default();
-
-        #[cfg(feature = "docker-build")]
         let build_args = BuildArgs {
+            output_directory: Some(ELFS_DIR.to_owned()),
+            elf_name: Some(ELF_NAME.to_owned()),
+            #[cfg(feature = "docker-build")]
             docker: true,
+            #[cfg(feature = "docker-build")]
             workspace_directory: Some("../../".to_owned()),
             ..BuildArgs::default()
         };
 
         build_program_with_args(GUEST_DIR, build_args);
-        migrate_elf();
     }
 
     fn resolve_input(env_var: &str, stub_path: &str, skip: bool) -> PathBuf {
@@ -96,35 +94,6 @@ mod release {
                     )
                 })
         }
-    }
-
-    /// Copies the freshly compiled guest ELF from sp1-build's output directory to a stable
-    /// cache path that `bridge_proof_elf_path()` resolves. No-op when sp1-build skipped the
-    /// compile (e.g., `SP1_SKIP_PROGRAM_BUILD=true`) — any prior cached ELF stays in place.
-    fn migrate_elf() {
-        let guest_dir = Path::new(GUEST_DIR);
-
-        let elf_subdir = if cfg!(feature = "docker-build") {
-            format!("docker/{SP1_TARGET_TRIPLE}")
-        } else {
-            SP1_TARGET_TRIPLE.to_owned()
-        };
-
-        let src = guest_dir
-            .join("target/elf-compilation")
-            .join(elf_subdir)
-            .join("release")
-            .join(GUEST_BIN_NAME);
-        let dst = guest_dir
-            .join("build")
-            .join(format!("{GUEST_BIN_NAME}.elf"));
-
-        if !src.exists() {
-            return;
-        }
-
-        fs::copy(&src, &dst)
-            .unwrap_or_else(|e| panic!("copy {} -> {}: {e}", src.display(), dst.display()));
     }
 
     fn sp1_build_will_skip() -> bool {
