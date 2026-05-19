@@ -1,31 +1,25 @@
 //! Operator signer client
 
-use std::sync::Arc;
-
 use bitcoin::{hashes::Hash, TapNodeHash, XOnlyPublicKey};
 use musig2::secp256k1::schnorr::Signature;
-use quinn::Connection;
 use secret_service_proto::v2::{
     traits::{Client, ClientError, Origin, SchnorrSigner},
     wire::{ClientMessage, ServerMessage, SignerTarget},
 };
 
-use crate::{make_v2_req, Config};
+use crate::ConnHandle;
 
 /// General wallet signer client.
 #[derive(Debug, Clone)]
 pub struct GeneralWalletClient {
-    /// QUIC connection to the server.
-    conn: Connection,
-
-    /// Configuration for the client.
-    config: Arc<Config>,
+    /// Shared QUIC connection handle (transparently reconnects on dead-connection errors).
+    conn: ConnHandle,
 }
 
 impl GeneralWalletClient {
-    /// Creates a new operator client with an existing QUIC connection and configuration.
-    pub const fn new(conn: Connection, config: Arc<Config>) -> Self {
-        Self { conn, config }
+    /// Creates a new general wallet signer client with the given shared connection handle.
+    pub(crate) const fn new(conn: ConnHandle) -> Self {
+        Self { conn }
     }
 }
 
@@ -40,7 +34,7 @@ impl SchnorrSigner<Client> for GeneralWalletClient {
             digest: *digest,
             tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -61,7 +55,7 @@ impl SchnorrSigner<Client> for GeneralWalletClient {
             key_tweak: *key_tweak,
             tap_tweak: tap_tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -75,7 +69,7 @@ impl SchnorrSigner<Client> for GeneralWalletClient {
             target: SignerTarget::General,
             digest: *digest,
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -88,7 +82,7 @@ impl SchnorrSigner<Client> for GeneralWalletClient {
         let msg = ClientMessage::SchnorrSignerPubkey {
             target: SignerTarget::General,
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerPubkey { pubkey } => {
                 XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
@@ -101,17 +95,14 @@ impl SchnorrSigner<Client> for GeneralWalletClient {
 /// Reserved wallet signer client.
 #[derive(Debug, Clone)]
 pub struct ReservedWalletClient {
-    /// QUIC connection to the server.
-    conn: Connection,
-
-    /// Configuration for the client.
-    config: Arc<Config>,
+    /// Shared QUIC connection handle (transparently reconnects on dead-connection errors).
+    conn: ConnHandle,
 }
 
 impl ReservedWalletClient {
-    /// Creates a new operator client with an existing QUIC connection and configuration.
-    pub const fn new(conn: Connection, config: Arc<Config>) -> Self {
-        Self { conn, config }
+    /// Creates a new reserved wallet signer client with the given shared connection handle.
+    pub(crate) const fn new(conn: ConnHandle) -> Self {
+        Self { conn }
     }
 }
 
@@ -126,7 +117,7 @@ impl SchnorrSigner<Client> for ReservedWalletClient {
             digest: *digest,
             tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -147,7 +138,7 @@ impl SchnorrSigner<Client> for ReservedWalletClient {
             key_tweak: *key_tweak,
             tap_tweak: tap_tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -161,7 +152,7 @@ impl SchnorrSigner<Client> for ReservedWalletClient {
             target: SignerTarget::Reserved,
             digest: *digest,
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -174,7 +165,7 @@ impl SchnorrSigner<Client> for ReservedWalletClient {
         let msg = ClientMessage::SchnorrSignerPubkey {
             target: SignerTarget::Reserved,
         };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
+        let res = self.conn.make_v2_req(msg).await?;
         match res {
             ServerMessage::SchnorrSignerPubkey { pubkey } => {
                 XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
