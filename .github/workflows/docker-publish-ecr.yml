@@ -20,7 +20,6 @@ on:
         required: false
         type: string
 
-
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   ECR_REGISTRY: ${{ vars.ECR_REGISTRY || '888577024788.dkr.ecr.us-east-1.amazonaws.com' }}
