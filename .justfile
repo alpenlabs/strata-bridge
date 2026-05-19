@@ -52,10 +52,10 @@ sec: audit trivy
 audit: ensure-cargo-audit
     cargo audit
 
-# Scan `Cargo.lock` for HIGH/CRITICAL vulnerabilities (honours `.trivyignore`)
+# Scan `Cargo.lock` for HIGH/CRITICAL vulnerabilities (honours `.trivyignore.yaml`)
 [group('test')]
 trivy: ensure-trivy
-    trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 Cargo.lock
+    trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --show-suppressed --ignorefile .trivyignore.yaml Cargo.lock
 
 # cargo clean
 [group('build')]
