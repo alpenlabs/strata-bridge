@@ -120,7 +120,7 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.plan.outputs.dependency_matrix) }}
     steps:
-      # Workflow scripts (.trivyignore, trivy-scan action, render scripts) always come from
+      # Workflow scripts (.trivyignore.yaml, trivy-scan action, render scripts) always come from
       # main so only reviewed, merged code can affect the gate — an untrusted resolved_sha
       # cannot manipulate CVE suppressions or bypass the scan action.
       - name: Checkout workflow scripts from main
@@ -186,7 +186,7 @@ jobs:
             build-src
 
       # Hard gate — no image is pushed if CRITICAL or HIGH unfixed vulnerabilities are found.
-      # .trivyignore comes from the root (main) checkout — untrusted build refs cannot suppress CVEs.
+      # .trivyignore.yaml comes from the root (main) checkout — untrusted build refs cannot suppress CVEs.
       - name: Scan ${{ matrix.display_name }} with Trivy
         id: trivy
         uses: ./.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
@@ -202,7 +202,7 @@ jobs:
           trivy_timeout: ${{ matrix.trivy_timeout }}
           sarif_category: bridge-ecr-${{ matrix.component }}
           artifact_name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
-          trivyignores: .trivyignore
+          trivyignores: .trivyignore.yaml
           skip_dirs: /root/.cargo,/root/.rustup
 
       # Push only reaches this step if the hard gate scan above passed.
@@ -253,7 +253,7 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.plan.outputs.app_matrix) }}
     steps:
-      # Workflow scripts (.trivyignore, trivy-scan action, render scripts) always come from
+      # Workflow scripts (.trivyignore.yaml, trivy-scan action, render scripts) always come from
       # main so only reviewed, merged code can affect the gate — an untrusted resolved_sha
       # cannot manipulate CVE suppressions or bypass the scan action.
       - name: Checkout workflow scripts from main
@@ -322,7 +322,7 @@ jobs:
             build-src
 
       # Hard gate — no image is pushed if CRITICAL or HIGH unfixed vulnerabilities are found.
-      # .trivyignore comes from the root (main) checkout — untrusted build refs cannot suppress CVEs.
+      # .trivyignore.yaml comes from the root (main) checkout — untrusted build refs cannot suppress CVEs.
       - name: Scan ${{ matrix.display_name }} with Trivy
         id: trivy
         uses: ./.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
@@ -338,7 +338,7 @@ jobs:
           trivy_timeout: ${{ matrix.trivy_timeout }}
           sarif_category: bridge-ecr-${{ matrix.component }}
           artifact_name: trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}
-          trivyignores: .trivyignore
+          trivyignores: .trivyignore.yaml
 
       # Push only reaches this step if the hard gate scan above passed.
       - name: Tag and push ${{ matrix.display_name }}
