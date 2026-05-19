@@ -48,6 +48,11 @@ mutants-test: ensure-cargo-mutants
 sec: ensure-cargo-audit
     cargo audit
 
+# Scan `Cargo.lock` for HIGH/CRITICAL vulnerabilities (honours `.trivyignore`)
+[group('test')]
+trivy-scan: ensure-trivy
+    trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 Cargo.lock
+
 # cargo clean
 [group('build')]
 clean-cargo:
@@ -206,6 +211,15 @@ ensure-taplo:
     #!/usr/bin/env bash
     if ! command -v taplo &> /dev/null; then
         echo "taplo not found. Please install it by following the instructions from: https://taplo.tamasfe.dev/cli/installation/binary.html"
+        exit 1
+    fi
+
+# Check if trivy is installed
+[group('prerequisites')]
+ensure-trivy:
+    #!/usr/bin/env bash
+    if ! command -v trivy &> /dev/null; then
+        echo "trivy not found. On macOS install it by running the command 'brew install trivy', or refer to the following link for more information: https://trivy.dev/latest/getting-started/installation/"
         exit 1
     fi
 
