@@ -39,7 +39,7 @@ inputs:
     description: "Name of the GitHub Actions artifact to upload scan results under."
     required: true
   trivyignores:
-    description: "Path to .trivyignore file for CVE suppressions. Pass empty string to use no ignore file."
+    description: "Path to .trivyignore.yaml file for CVE suppressions. Pass empty string to use no ignore file."
     required: false
     default: ""
   skip_dirs:
@@ -79,7 +79,7 @@ runs:
         cache: true
 
     # Hard gate — build fails and no image is pushed if CRITICAL or HIGH unfixed
-    # vulnerabilities are found. Add justified exceptions to .trivyignore via PR.
+    # vulnerabilities are found. Add justified exceptions to .trivyignore.yaml via PR.
     - name: Scan ${{ inputs.display_name }} with Trivy (hard gate)
       id: trivy_gate
       uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
