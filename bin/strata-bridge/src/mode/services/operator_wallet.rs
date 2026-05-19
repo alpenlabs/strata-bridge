@@ -9,12 +9,13 @@ use bitcoin::{
     hashes::{Hash, sha256},
     relative,
 };
-use operator_wallet::{OperatorWallet, OperatorWalletConfig, sync::Backend};
+use operator_wallet::{NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_common::params::Params;
 use strata_bridge_connectors::prelude::{ClaimContestConnector, ClaimPayoutConnector};
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb};
+use strata_bridge_exec::output_handles::NativeWallet;
 use strata_bridge_primitives::constants::SEGWIT_MIN_AMOUNT;
 use strata_bridge_tx_graph::{fee, transactions::prelude::ClaimTx};
 use tokio::sync::RwLock;
@@ -27,7 +28,7 @@ pub(in crate::mode) async fn init_operator_wallet(
     params: &Params,
     s2_client: &SecretServiceClient,
     db_client: &FdbClient,
-) -> anyhow::Result<OperatorWallet> {
+) -> anyhow::Result<NativeWallet> {
     info!("fetching leased utxos from database");
     let leased_outpoints = db_client
         .get_all_funds()
@@ -57,13 +58,16 @@ pub(in crate::mode) async fn init_operator_wallet(
         OperatorWalletConfig::new(operator_funds, SEGWIT_MIN_AMOUNT, params.network);
     debug!(?operator_wallet_config, "operator wallet config");
 
-    let sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
-    debug!(?sync_backend, "operator wallet sync backend");
+    let general_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
+    let reserved_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
+    debug!(?general_sync_backend, "operator wallet sync backend");
+    let general_wallet =
+        NativeGeneralWallet::new(general_key, params.network, general_sync_backend);
     let operator_wallet = OperatorWallet::new(
-        general_key,
+        general_wallet,
         reserved_key,
         operator_wallet_config,
-        sync_backend,
+        reserved_sync_backend,
         leased_outpoints,
     );
     debug!("operator wallet initialized");
@@ -76,9 +80,7 @@ pub(in crate::mode) async fn init_operator_wallet(
 /// Intended to run as a background task at startup so the wallet has a head start before its
 /// first on-demand use. A sync failure is logged and swallowed: callers must still sync the wallet
 /// before use, so a failed initial sync must not crash the node.
-pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(
-    wallet: Arc<RwLock<OperatorWallet>>,
-) {
+pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(wallet: Arc<RwLock<NativeWallet>>) {
     info!("starting initial operator wallet sync");
     let start = Instant::now();
     match wallet.write().await.sync().await {

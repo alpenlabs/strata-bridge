@@ -8,13 +8,15 @@ use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use jsonrpsee::http_client::HttpClient;
 use libp2p_identity::ed25519::Keypair;
-use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_asm_events::client::AsmEventFeed;
 use strata_bridge_common::params::Params;
 use strata_bridge_counterproof::build_bridge_counterproof_host;
 use strata_bridge_db::fdb::client::FdbClient;
-use strata_bridge_exec::{config::ExecutionConfig, output_handles::OutputHandles};
+use strata_bridge_exec::{
+    config::ExecutionConfig,
+    output_handles::{NativeWallet, OutputHandles},
+};
 use strata_bridge_orchestrator::{
     duty_dispatcher::DutyDispatcher, events_mux::EventsMux, persister::Persister,
     pipeline::Pipeline, sm_registry::SMConfig,
@@ -50,7 +52,7 @@ pub(crate) async fn init_orchestrator<M>(
     gossip_handle: GossipHandle,
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,
-    wallet: Arc<RwLock<OperatorWallet>>,
+    wallet: Arc<RwLock<NativeWallet>>,
     btc_rpc_client: BitcoinClient,
     asm_rpc_client: HttpClient,
     fdb_client: Arc<FdbClient>,

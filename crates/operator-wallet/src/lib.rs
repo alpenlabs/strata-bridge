@@ -1,34 +1,51 @@
-//! Operator wallet
+//! Operator wallet — composition over a swappable [`GeneralWallet`] backend.
+//!
+//! The bridge node holds an `OperatorWallet<G>` where `G: GeneralWallet`. The composer
+//! manages:
+//! - the always-native reserved wallet (BDK descriptor-only, signing via secret-service),
+//! - the in-memory lease set (shared bookkeeping that doesn't differ between backends),
+//! - anchor identification and exclusion,
+//! - cross-wallet transaction construction (refill claim-funding pool, create stake funding tx).
+//!
+//! The `general` backend handles only what genuinely varies between native and Fireblocks:
+//! its own UTXO discovery, its own signing, and its share of transaction building (funding,
+//! CPFP child).
+//!
+//! Methods on [`OperatorWallet`] are `&mut self`. Callers serialize via an outer lock (today
+//! `Arc<RwLock<OperatorWallet<_>>>` in `bridge-exec`) which also lets the executor span
+//! multi-step critical sections (e.g. DB-lookup-then-fund-then-persist).
+
+pub mod general;
 pub mod sync;
 
 use std::{collections::BTreeSet, time::Duration};
 
-use algebra::predicate;
 use bdk_wallet::{
-    bitcoin::{Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, Transaction, XOnlyPublicKey},
-    descriptor,
-    error::CreateTxError,
-    KeychainKind, LocalOutput, TxOrdering, Wallet,
+    bitcoin::{Amount, FeeRate, Network, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
+    chain::ChainPosition,
+    descriptor, KeychainKind, Wallet,
 };
-use sync::{Backend, SyncError};
+use thiserror::Error;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
-/// How many times we should reattempt after an error during a wallet sync
+pub use crate::general::{native::NativeGeneralWallet, FundedPsbt, GeneralWallet, UtxoInfo};
+use crate::sync::{Backend, SyncError};
+
+/// How many times we should reattempt after an error during a wallet sync.
 const SYNC_RETRIES: u32 = 5;
-/// The wallet will delay a retry by SYNC_BASE_DELAY*SYNC_BACKOFF^current_retry,
-/// exponential backoff
+/// The wallet will delay a retry by SYNC_BASE_DELAY * SYNC_BACKOFF.pow(current_retry).
 const SYNC_BACKOFF: u32 = 3;
 const SYNC_BASE_DELAY: Duration = Duration::from_millis(100);
 
-/// Config for [`OperatorWallet`]
-#[derive(Debug)]
+/// Config for [`OperatorWallet`].
+#[derive(Debug, Clone)]
 pub struct OperatorWalletConfig {
     /// Value of the funding UTXO for stakes. Not the `s` connector value.
     stake_funding_utxo_value: Amount,
-    /// Value of CPFP UTXOs to identify them
+    /// Value of CPFP UTXOs to identify them.
     cpfp_value: Amount,
-    /// Bitcoin network we're on
+    /// Bitcoin network we're on.
     network: Network,
 }
 
@@ -47,221 +64,108 @@ impl OperatorWalletConfig {
     }
 }
 
-/// The [`OperatorWallet`] is responsible for managing an operator's L1 funds, split into a general
-/// wallet and a dedicated reserved wallet.
+/// Errors returned by [`OperatorWallet`] methods. Backend errors are boxed so call sites don't
+/// have to be generic over `G::Error`.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// The general wallet backend reported an error.
+    #[error("general wallet: {0}")]
+    General(Box<dyn std::error::Error + Send + Sync>),
+    /// BDK reported an error building a transaction on the reserved wallet.
+    #[error("reserved wallet create-tx: {0}")]
+    Reserved(#[from] bdk_wallet::error::CreateTxError),
+    /// Reserved-wallet sync against the chain failed.
+    #[error("reserved wallet sync: {0:?}")]
+    Sync(SyncError),
+}
+
+impl Error {
+    fn from_general<E: std::error::Error + Send + Sync + 'static>(e: E) -> Self {
+        Self::General(Box::new(e))
+    }
+}
+
+/// The operator's wallet, composing a swappable general-wallet backend with the always-native
+/// reserved wallet, lease bookkeeping, and cross-wallet transaction construction.
 #[derive(Debug)]
-pub struct OperatorWallet {
-    general_wallet: Wallet,
-    reserved_wallet: Wallet,
+pub struct OperatorWallet<G: GeneralWallet> {
+    general: G,
+    reserved: Wallet,
+    reserved_sync_backend: Backend,
+    reserved_script_pubkey: ScriptBuf,
     config: OperatorWalletConfig,
-    reserved_addr_script_buf: ScriptBuf,
-    general_addr_script_buf: ScriptBuf,
-    sync_backend: Backend,
     leased_outpoints: BTreeSet<OutPoint>,
 }
 
-impl OperatorWallet {
-    /// Creates a new [`OperatorWallet`]
+impl<G: GeneralWallet> OperatorWallet<G> {
+    /// Constructs a new [`OperatorWallet`] from a [`GeneralWallet`] backend and a native
+    /// reserved-wallet pubkey. `initial_leases` is the set of outpoints to seed the lease
+    /// state with (typically rehydrated from FDB at startup).
     pub fn new(
-        general: XOnlyPublicKey,
-        reserved: XOnlyPublicKey,
+        general: G,
+        reserved_pubkey: XOnlyPublicKey,
         config: OperatorWalletConfig,
-        sync_backend: Backend,
-        leased_outpoints: BTreeSet<OutPoint>,
+        reserved_sync_backend: Backend,
+        initial_leases: BTreeSet<OutPoint>,
     ) -> Self {
-        let (general_desc, ..) = descriptor!(tr(general)).unwrap();
-        let (reserved_desc, ..) = descriptor!(tr(reserved)).unwrap();
-        let general_wallet = Wallet::create_single(general_desc)
-            .network(config.network)
-            .create_wallet_no_persist()
-            .unwrap();
-        let general_addr = general_wallet
-            .peek_address(KeychainKind::External, 0)
-            .address;
-        info!("general wallet address: {general_addr}");
+        let (reserved_desc, ..) =
+            descriptor!(tr(reserved_pubkey)).expect("valid tr() descriptor for reserved");
         let reserved_wallet = Wallet::create_single(reserved_desc)
             .network(config.network)
             .create_wallet_no_persist()
-            .unwrap();
+            .expect("reserved wallet creation must not fail");
         let reserved_addr = reserved_wallet
             .peek_address(KeychainKind::External, 0)
             .address;
         info!("reserved wallet address: {reserved_addr}");
+        let reserved_script_pubkey = reserved_addr.script_pubkey();
         Self {
+            general,
+            reserved: reserved_wallet,
+            reserved_sync_backend,
+            reserved_script_pubkey,
             config,
-            reserved_addr_script_buf: reserved_addr.script_pubkey(),
-            general_addr_script_buf: general_addr.script_pubkey(),
-            general_wallet,
-            reserved_wallet,
-            sync_backend,
-            leased_outpoints,
+            leased_outpoints: initial_leases,
         }
     }
 
-    /// Predicate for determining whether a utxo can be used as an anchor. This will only select
-    /// unconfirmed minimum value outputs.
-    fn is_anchor(&self, txout: &LocalOutput) -> bool {
-        txout.txout.value == self.config.cpfp_value && !txout.chain_position.is_confirmed()
+    /// Returns a reference to the underlying [`GeneralWallet`] for callers that need
+    /// backend-specific operations the composer doesn't wrap. Use sparingly.
+    pub const fn general(&self) -> &G {
+        &self.general
     }
 
-    fn is_claim_funding_output(&self, txout: &LocalOutput) -> bool {
-        txout.txout.value == self.config.stake_funding_utxo_value
+    // ── Script accessors ────────────────────────────────────────────────────
+
+    /// Returns the general wallet's receive script.
+    pub fn general_script_pubkey(&self) -> ScriptBuf {
+        self.general.script_pubkey()
     }
 
-    /// Returns the list of known anchor outputs that should only be spent when fee bumping.
-    pub fn anchor_outputs(&self) -> impl Iterator<Item = LocalOutput> + '_ {
-        self.general_wallet
-            .list_unspent()
-            .filter(|utxo| self.is_anchor(utxo))
+    /// Returns the reserved wallet's receive script.
+    pub fn reserved_script_pubkey(&self) -> ScriptBuf {
+        self.reserved_script_pubkey.clone()
     }
 
-    /// Returns the list of outputs that match the criteria for claim funding.
-    pub fn claim_funding_outputs(&self) -> impl Iterator<Item = LocalOutput> + '_ {
-        self.reserved_wallet
-            .list_unspent()
-            .filter(|txout| self.is_claim_funding_output(txout))
+    // ── Lease bookkeeping ───────────────────────────────────────────────────
+
+    /// Returns the currently-leased outpoints.
+    pub const fn leased_outpoints(&self) -> &BTreeSet<OutPoint> {
+        &self.leased_outpoints
     }
 
-    /// Returns the list of [`OutPoint`]s that are currently being leased by the system.
-    pub fn leased_outpoints(&self) -> impl Iterator<Item = OutPoint> + '_ {
-        self.leased_outpoints.iter().copied()
-    }
-
-    /// Returns a list of UTXOs from the general wallet that can be used for fronting withdrawals.
-    /// Excludes anchor outputs.
-    pub fn general_utxos(&self) -> impl Iterator<Item = LocalOutput> + '_ {
-        self.general_wallet
-            .list_unspent()
-            .filter(|utxo| !self.is_anchor(utxo))
-    }
-
-    fn lease(&mut self, outpoint: OutPoint) -> bool {
-        self.leased_outpoints.insert(outpoint)
-    }
-
-    fn is_leased_pred<'a>(&'a self) -> impl Fn(&OutPoint) -> bool + 'a {
-        |outpoint| self.leased_outpoints.contains(outpoint)
-    }
-
-    fn release(&mut self, outpoint: &OutPoint) -> bool {
-        self.leased_outpoints.remove(outpoint)
-    }
-
-    /// Selects the first non-anchor, non-leased general-wallet UTXO that satisfies
-    /// `predicate`, leases it to prevent concurrent duties from re-selecting the same
-    /// outpoint, and returns its [`LocalOutput`].
-    ///
-    /// Returns `None` if no UTXO matches.
-    pub fn select_and_lease_general_utxo(
-        &mut self,
-        predicate: impl Fn(&LocalOutput) -> bool,
-    ) -> Option<LocalOutput> {
-        // Snapshot the leased set so we can mutably borrow `self` after the search.
-        let leased: BTreeSet<OutPoint> = self.leased_outpoints.iter().copied().collect();
-        let selected = self
-            .general_utxos()
-            .filter(|u| !leased.contains(&u.outpoint))
-            .find(predicate)?;
-        self.lease(selected.outpoint);
-        Some(selected)
-    }
-
-    /// Funds an unfunded version 3 transaction by adding inputs and change.
-    ///
-    /// Takes a transaction with outputs only and adds inputs from the general wallet to cover the
-    /// outputs plus fees. Change, if any, is added at the end of vouts.
-    ///
-    /// The used input UTXOs are marked as leased so that two different executors do not end up
-    /// using the same UTXOs and failing due to double-spend.
-    ///
-    /// # Notes
-    ///
-    /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
-    /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
-    pub fn fund_v3_transaction(
-        &mut self,
-        unfunded_tx: Transaction,
-        fee_rate: FeeRate,
-    ) -> Result<Psbt, CreateTxError> {
-        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
-        // Outpoints already committed to other transactions - exclude to prevent double-spend
-        let leased: Vec<OutPoint> = self.leased_outpoints().collect();
-
-        let mut tx_builder = self.general_wallet.build_tx();
-        // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
-        tx_builder.version(3);
-        tx_builder.unspendable(anchor_outpoints);
-        tx_builder.unspendable(leased);
-        tx_builder.fee_rate(fee_rate);
-
-        // Add all outputs from the unfunded transaction
-        for output in &unfunded_tx.output {
-            tx_builder.add_recipient(output.script_pubkey.clone(), output.value);
-        }
-
-        tx_builder.ordering(TxOrdering::Untouched);
-
-        let psbt = tx_builder.finish()?;
-
-        // Mark the used input(s) as leased so they won't be reused
-        psbt.unsigned_tx.input.iter().for_each(|input| {
-            self.lease(input.previous_output);
-        });
-
-        Ok(psbt)
-    }
-
-    /// Creates a funded PSBT for a V3 transaction using explicit outpoints.
-    ///
-    /// This is used for idempotent transaction creation when the funding outpoints
-    /// have been persisted from a previous run.
-    ///
-    /// The specified outpoints are marked as leased to prevent concurrent duties from
-    /// selecting them via [`Self::fund_v3_transaction`].
-    pub fn fund_v3_transaction_with_outpoints(
-        &mut self,
-        outpoints: &[OutPoint],
-        unfunded_tx: Transaction,
-        fee_rate: FeeRate,
-    ) -> Result<Psbt, CreateTxError> {
-        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
-
-        let mut tx_builder = self.general_wallet.build_tx();
-        tx_builder.version(3);
-        tx_builder.unspendable(anchor_outpoints);
-
+    /// Marks each of `outpoints` as leased.
+    pub fn lease(&mut self, outpoints: &[OutPoint]) {
         for outpoint in outpoints {
-            tx_builder
-                .add_utxo(*outpoint)
-                .map_err(|_| CreateTxError::UnknownUtxo)?;
+            self.leased_outpoints.insert(*outpoint);
         }
-        tx_builder.manually_selected_only();
-        tx_builder.fee_rate(fee_rate);
-
-        for output in &unfunded_tx.output {
-            tx_builder.add_recipient(output.script_pubkey.clone(), output.value);
-        }
-        tx_builder.ordering(TxOrdering::Untouched);
-
-        let psbt = tx_builder.finish()?;
-
-        // Lease the outpoints to prevent concurrent duties from selecting them.
-        // This is necessary because sync may have removed leases when the previous
-        // transaction was in mempool, and if that transaction was later dropped,
-        // these outpoints would become available for selection again.
-        for outpoint in outpoints {
-            self.lease(*outpoint);
-        }
-
-        Ok(psbt)
     }
 
-    /// Releases the outpoints from leased_outpoints.
-    /// This is used to free up outpoints if the outpoints were not persisted due to issues
-    /// like failure to sign.
-    pub fn release_outpoints(&mut self, outpoints: &[OutPoint]) {
+    /// Removes each of `outpoints` from the lease set. Logs (at `warn`) but does not error
+    /// when a given outpoint wasn't leased — releases are idempotent.
+    pub fn release(&mut self, outpoints: &[OutPoint]) {
         for outpoint in outpoints {
-            if !self.release(outpoint) {
+            if !self.leased_outpoints.remove(outpoint) {
                 warn!(
                     ?outpoint,
                     "attempted to release outpoint that was not leased"
@@ -270,171 +174,230 @@ impl OperatorWallet {
         }
     }
 
-    /// Marks each of the given outpoints as leased.
-    pub fn lease_outpoints(&mut self, outpoints: impl IntoIterator<Item = OutPoint>) {
-        for outpoint in outpoints {
-            self.lease(outpoint);
-        }
+    // ── Reserved-wallet operations ─────────────────────────────────────────
+
+    /// Returns the reserved-wallet UTXOs that match the claim-funding value (i.e. the dust
+    /// pool used to fund claim transactions).
+    pub fn claim_funding_outputs(&self) -> Vec<UtxoInfo> {
+        let tip = self.reserved.latest_checkpoint().height();
+        self.reserved
+            .list_unspent()
+            .filter(|utxo| utxo.txout.value == self.config.stake_funding_utxo_value)
+            .map(|lo| UtxoInfo {
+                outpoint: lo.outpoint,
+                amount: lo.txout.value,
+                confirmations: match &lo.chain_position {
+                    ChainPosition::Confirmed { anchor, .. } => {
+                        tip.saturating_sub(anchor.block_id.height).saturating_add(1)
+                    }
+                    ChainPosition::Unconfirmed { .. } => 0,
+                },
+                script_pubkey: lo.txout.script_pubkey.clone(),
+            })
+            .collect()
     }
 
-    /// Creates a PSBT that refills the pool of claim funding UTXOs from the general wallet
-    /// (excluding anchor outputs). Needs signing by the general wallet.
+    /// Selects an unleased claim-funding UTXO that the `ignore` predicate doesn't reject,
+    /// leases it, and returns it along with the remaining count.
+    pub fn claim_funding_utxo(
+        &mut self,
+        ignore: impl Fn(&UtxoInfo) -> bool,
+    ) -> (Option<OutPoint>, u64) {
+        let available = self.claim_funding_outputs();
+        let leased = &self.leased_outpoints;
+        let mut considered = available
+            .into_iter()
+            .filter(|u| !leased.contains(&u.outpoint) && !ignore(u));
+        let selected = considered.next();
+        let remaining = considered.count() as u64;
+        if let Some(ref utxo) = selected {
+            self.leased_outpoints.insert(utxo.outpoint);
+        }
+        (selected.map(|u| u.outpoint), remaining)
+    }
+
+    // ── General-wallet pass-throughs with lease bookkeeping ────────────────
+
+    /// Funds an unsigned v3 transaction from the general wallet.
     ///
-    /// # Notes
+    /// Selects inputs from spendable general-wallet UTXOs (excluding anchors and currently-
+    /// leased outpoints), signs them where the backend has key material, and returns a
+    /// [`FundedPsbt`]. The consumed inputs are leased before return.
+    pub async fn fund_v3_transaction(
+        &mut self,
+        unsigned_tx: Transaction,
+        fee_rate: FeeRate,
+    ) -> Result<FundedPsbt, Error> {
+        let exclude = self.exclude_anchors_and_leases();
+        let funded = self
+            .general
+            .fund_v3_transaction(unsigned_tx.output, None, fee_rate, &exclude)
+            .await
+            .map_err(Error::from_general)?;
+        self.lease(&funded.spent);
+        Ok(funded)
+    }
+
+    /// Funds an unsigned v3 transaction using `inputs` as the input set (typically a
+    /// previously-persisted funding plan being replayed on retry).
+    pub async fn fund_v3_transaction_with_inputs(
+        &mut self,
+        unsigned_tx: Transaction,
+        inputs: &[OutPoint],
+        fee_rate: FeeRate,
+    ) -> Result<FundedPsbt, Error> {
+        let funded = self
+            .general
+            .fund_v3_transaction(unsigned_tx.output, Some(inputs), fee_rate, &[])
+            .await
+            .map_err(Error::from_general)?;
+        self.lease(&funded.spent);
+        Ok(funded)
+    }
+
+    /// Builds a CPFP child for `parent` spending the anchor at `anchor_vout`.
     ///
-    /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
-    /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
-    pub fn refill_claim_funding_utxos(
+    /// `replacing`, when `Some`, identifies the funding outpoints of a prior child being
+    /// replaced via RBF. Those outpoints are released from the lease set before
+    /// fee-paying-input selection so they can be re-selected.
+    pub async fn build_cpfp_child(
+        &mut self,
+        parent: &Transaction,
+        anchor_vout: u32,
+        target_pkg_fee_rate: FeeRate,
+        replacing: Option<&[OutPoint]>,
+    ) -> Result<FundedPsbt, Error> {
+        if let Some(prior) = replacing {
+            self.release(prior);
+        }
+        let exclude = self.exclude_anchors_and_leases();
+        let funded = self
+            .general
+            .build_cpfp_child(parent, anchor_vout, target_pkg_fee_rate, &exclude)
+            .await
+            .map_err(Error::from_general)?;
+        self.lease(&funded.spent);
+        Ok(funded)
+    }
+
+    // ── Cross-wallet (general → reserved) ──────────────────────────────────
+
+    /// Creates a PSBT that refills the pool of claim-funding UTXOs in the reserved wallet by
+    /// sending `stake_funding_utxo_value`-sized outputs from the general wallet to the
+    /// reserved script. The returned PSBT still needs signing for any inputs the backend
+    /// couldn't sign.
+    pub async fn refill_claim_funding_utxos(
         &mut self,
         fee_rate: FeeRate,
         target_size: usize,
-    ) -> Result<Psbt, CreateTxError> {
-        let current_claim_funding_outpoints: Vec<OutPoint> = self
+    ) -> Result<FundedPsbt, Error> {
+        let claim_funding_outpoints: BTreeSet<OutPoint> = self
             .claim_funding_outputs()
-            .map(|o| o.outpoint)
-            .filter(predicate::not(self.is_leased_pred()))
+            .into_iter()
+            .map(|u| u.outpoint)
+            .collect();
+        let current_size = claim_funding_outpoints.len();
+        let batch_size = target_size.saturating_sub(current_size);
+
+        let outputs = (0..batch_size)
+            .map(|_| TxOut {
+                value: self.config.stake_funding_utxo_value,
+                script_pubkey: self.reserved_script_pubkey.clone(),
+            })
             .collect();
 
-        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint);
-        let leased_outpoints = self.leased_outpoints();
+        let mut exclude = self.exclude_anchors_and_leases();
+        exclude.extend(claim_funding_outpoints);
 
-        // DON'T spend any of the anchor outputs or the existing claim funding utxos or
-        // anything leased.
-        let excluded = current_claim_funding_outpoints
-            .iter()
-            .copied()
-            .chain(anchor_outpoints)
-            .chain(leased_outpoints)
-            .collect();
-
-        let mut tx_builder = self.general_wallet.build_tx();
-        // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
-        tx_builder.version(3);
-        tx_builder.unspendable(excluded);
-
-        let current_size = current_claim_funding_outpoints.len();
-        let batch_size = target_size - current_size;
-        for _ in 0..batch_size {
-            tx_builder.add_recipient(
-                self.reserved_addr_script_buf.clone(),
-                self.config.stake_funding_utxo_value,
-            );
-        }
-
-        tx_builder.fee_rate(fee_rate);
-
-        tx_builder.finish()
+        let funded = self
+            .general
+            .fund_v3_transaction(outputs, None, fee_rate, &exclude)
+            .await
+            .map_err(Error::from_general)?;
+        self.lease(&funded.spent);
+        Ok(funded)
     }
 
-    /// Attempts to find a funding UTXO for a stake, ignoring outpoints for which ignore returns
-    /// `true`. The first value returned is the assigned claim funding output if one is found. The
-    /// second value returned is the remaining number of claim funding outputs excluding the one
-    /// in the first return value.
-    pub fn claim_funding_utxo(
-        &mut self,
-        ignore: impl Fn(&OutPoint) -> bool,
-    ) -> (Option<OutPoint>, u64) {
-        let ignore_leased = |o: &OutPoint| self.leased_outpoints.contains(o);
-        let consider = predicate::contramap(
-            |o: &LocalOutput| o.outpoint,
-            predicate::nor(ignore, ignore_leased),
-        );
-
-        let mut considered = self.claim_funding_outputs().filter(consider);
-        let claim_funding_output = considered.next().map(|utxo| utxo.outpoint);
-        let remaining = considered.count() as u64;
-
-        let leased = claim_funding_output.and_then(predicate::guard_mut(|o| self.lease(*o)));
-
-        (leased, remaining)
-    }
-
-    /// Creates a new transaction by paying funds from the general wallet into the
-    /// reserved wallet (excludes anchor outputs and currently leased outpoints). The
-    /// resulting UTXO is the single input to the stake transaction.
-    ///
-    /// The `funding_amount` must equal the sum of the stake transaction's outputs — the stake
-    /// amount plus any connector dust the caller is
-    /// responsible for covering (for example, the unstaking-intent connector's minimum non-dust
-    /// value).
-    ///
-    /// The selected inputs are marked as leased so concurrent duties cannot re-select them. If
-    /// the caller fails to persist or sign the funding plan, the leases must be released via
-    /// [`Self::release_outpoints`].
-    ///
-    /// # Notes
-    ///
-    /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
-    /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
-    pub fn create_stake_funding_tx(
+    /// Creates a PSBT that funds a stake-chain transaction by paying `funding_amount` from
+    /// the general wallet into the reserved script.
+    pub async fn create_stake_funding_tx(
         &mut self,
         fee_rate: FeeRate,
         funding_amount: Amount,
-    ) -> Result<Psbt, CreateTxError> {
-        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
-        let leased: Vec<OutPoint> = self.leased_outpoints().collect();
-
-        let mut tx_builder = self.general_wallet.build_tx();
-        // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
-        tx_builder.version(3);
-        tx_builder.unspendable(anchor_outpoints);
-        tx_builder.unspendable(leased);
-        tx_builder.fee_rate(fee_rate);
-        tx_builder.add_recipient(self.reserved_addr_script_buf.clone(), funding_amount);
-        tx_builder.ordering(TxOrdering::Untouched);
-
-        let psbt = tx_builder.finish()?;
-
-        for input in &psbt.unsigned_tx.input {
-            self.lease(input.previous_output);
-        }
-
-        Ok(psbt)
+    ) -> Result<FundedPsbt, Error> {
+        let outputs = vec![TxOut {
+            value: funding_amount,
+            script_pubkey: self.reserved_script_pubkey.clone(),
+        }];
+        let exclude = self.exclude_anchors_and_leases();
+        let funded = self
+            .general
+            .fund_v3_transaction(outputs, None, fee_rate, &exclude)
+            .await
+            .map_err(Error::from_general)?;
+        self.lease(&funded.spent);
+        Ok(funded)
     }
 
-    /// Returns the script buf of the general wallet address. External funds should be sent here.
-    pub const fn general_script_buf(&self) -> &ScriptBuf {
-        &self.general_addr_script_buf
-    }
+    // ── Sync ───────────────────────────────────────────────────────────────
 
-    /// Returns the script buf of the reserved wallet address.
-    ///
-    /// This is where the reserved funds for funding dust outputs reside.
-    pub const fn reserved_script_buf(&self) -> &ScriptBuf {
-        &self.reserved_addr_script_buf
-    }
-
-    /// Syncs the wallet using the backend provided on construction.
-    pub async fn sync(&mut self) -> Result<(), SyncError> {
-        let mut attempt = 0;
+    /// Syncs both wallets against their respective backends and then prunes the lease set:
+    /// any leased outpoint that is no longer in either wallet's spendable UTXO set is
+    /// dropped (it was observed spent on-chain).
+    pub async fn sync(&mut self) -> Result<(), Error> {
+        let mut attempt = 0u32;
         loop {
-            let mut err = None;
-            if let Err(e) = self
-                .sync_backend
-                .sync_wallet(&mut self.general_wallet, &mut self.leased_outpoints)
-                .await
-            {
-                err = Some(e);
+            let mut err: Option<Error> = None;
+            if let Err(e) = self.general.sync().await {
+                err = Some(Error::from_general(e));
             }
             if let Err(e) = self
-                .sync_backend
-                .sync_wallet(&mut self.reserved_wallet, &mut self.leased_outpoints)
+                .reserved_sync_backend
+                .sync_wallet(&mut self.reserved)
                 .await
             {
-                err = Some(e);
+                err = Some(Error::Sync(e));
             }
-
             match err {
                 Some(e) => {
                     error!(?e, "error syncing wallet");
                     if attempt >= SYNC_RETRIES {
-                        break Err(e);
+                        return Err(e);
                     }
                     sleep(SYNC_BASE_DELAY * SYNC_BACKOFF.pow(attempt)).await;
                     attempt += 1;
                 }
-                None => break Ok(()),
+                None => break,
             }
         }
+
+        // Prune stale leases. After a successful sync, drop any leased outpoint whose
+        // underlying UTXO is no longer in either wallet's spendable set — it was observed
+        // spent on-chain (the on-chain spend supersedes our local lease bookkeeping).
+        let live: BTreeSet<OutPoint> = self
+            .general
+            .list_utxos()
+            .into_iter()
+            .map(|u| u.outpoint)
+            .chain(self.reserved.list_unspent().map(|lo| lo.outpoint))
+            .collect();
+        self.leased_outpoints.retain(|o| live.contains(o));
+        Ok(())
+    }
+
+    // ── Internal helpers ───────────────────────────────────────────────────
+
+    /// Returns the set of general-wallet outpoints that should be excluded from input
+    /// selection: anchors (zero/dust-value unconfirmed outputs we keep around for fee
+    /// bumping) plus currently-leased outpoints.
+    fn exclude_anchors_and_leases(&self) -> Vec<OutPoint> {
+        let utxos = self.general.list_utxos();
+        let anchors = utxos
+            .iter()
+            .filter(|u| u.amount == self.config.cpfp_value && u.confirmations == 0)
+            .map(|u| u.outpoint);
+        anchors
+            .chain(self.leased_outpoints.iter().copied())
+            .collect()
     }
 }

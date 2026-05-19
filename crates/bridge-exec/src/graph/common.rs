@@ -11,6 +11,7 @@ use bitcoin::{
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
+use operator_wallet::UtxoInfo;
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_db::traits::BridgeDb;
 use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
@@ -158,16 +159,18 @@ async fn ensure_claim_funding_outpoint(
             ),
         }
 
-        match wallet.claim_funding_utxo(predicate::never).0 {
+        match wallet.claim_funding_utxo(predicate::never::<UtxoInfo>).0 {
             Some(outpoint) => outpoint,
             None => {
                 warn!("could not acquire claim funding utxo. attempting refill...");
-                let psbt =
-                    wallet.refill_claim_funding_utxos(fee::FEE_RATE, cfg.funding_uxto_pool_size)?;
+                let funded = wallet
+                    .refill_claim_funding_utxos(fee::FEE_RATE, cfg.funding_uxto_pool_size)
+                    .await
+                    .map_err(|e| ExecutorError::WalletErr(format!("refill failed: {e}")))?;
                 finalize_claim_funding_tx(
                     &output_handles.s2_client,
                     &output_handles.tx_driver,
-                    psbt,
+                    funded.psbt,
                 )
                 .await?;
                 wallet.sync().await.map_err(|e| {
@@ -175,7 +178,7 @@ async fn ensure_claim_funding_outpoint(
                     ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
                 })?;
                 wallet
-                    .claim_funding_utxo(predicate::never)
+                    .claim_funding_utxo(predicate::never::<UtxoInfo>)
                     .0
                     .expect("funding utxos must be available after refill")
             }
@@ -539,9 +542,10 @@ pub(super) async fn publish_claim(
         let wallet = output_handles.wallet.read().await;
         wallet
             .claim_funding_outputs()
+            .into_iter()
             .find(|utxo| utxo.outpoint == claim_tx.as_ref().input[0].previous_output)
             .expect("claim funding outpoint not found in wallet")
-            .txout
+            .as_txout()
     };
 
     let prevouts = Prevouts::All(&[claim_prevout]);
