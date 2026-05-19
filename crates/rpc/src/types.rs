@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::graph::context::GraphSMCtx;
 use strata_bridge_tx_graph::game_graph::{DepositParams, SetupParams};
-use strata_identifiers::Buf32;
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +41,7 @@ pub enum RpcDepositStatus {
 }
 
 /// Represents a valid withdrawal status
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RpcWithdrawalStatus {
     /// Withdrawal is assigned or being processed, and no fulfillment transaction is known yet.
@@ -56,7 +55,7 @@ pub enum RpcWithdrawalStatus {
 }
 
 /// Represents a valid reimbursement status
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RpcReimbursementStatus {
     /// No reimbursement claim has been observed for this deposit's assigned operator.
@@ -107,21 +106,21 @@ pub struct RpcDepositInfo {
 }
 
 /// Represents a valid bridge duty status
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RpcBridgeDutyStatus {
     /// Deposit duty
     Deposit {
+        /// Bridge deposit index.
+        deposit_idx: DepositIdx,
+
         /// Transaction ID of the deposit request transaction (DRT).
         deposit_request_txid: Txid,
     },
 
     /// Withdrawal duty
     Withdrawal {
-        /// Transaction ID of the withdrawal request transaction (WRT).
-        ///
-        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
-        /// the withdrawal transaction in the sidesystem's execution environment.
-        withdrawal_request_txid: Buf32,
+        /// Bridge deposit index.
+        deposit_idx: DepositIdx,
 
         /// Assigned operator index.
         assigned_operator_idx: OperatorIdx,

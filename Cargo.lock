@@ -11465,7 +11465,6 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-tx-graph",
- "strata-identifiers",
 ]
 
 [[package]]
