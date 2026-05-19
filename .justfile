@@ -43,14 +43,18 @@ cov-report-html: ensure-cargo-llvm-cov ensure-cargo-nextest
 mutants-test: ensure-cargo-mutants
     cargo mutants --workspace -j2
 
+# Run all dependency security checks
+[group('test')]
+sec: audit trivy
+
 # Check for security advisories on any dependencies
 [group('test')]
-sec: ensure-cargo-audit
+audit: ensure-cargo-audit
     cargo audit
 
 # Scan `Cargo.lock` for HIGH/CRITICAL vulnerabilities (honours `.trivyignore`)
 [group('test')]
-trivy-scan: ensure-trivy
+trivy: ensure-trivy
     trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 Cargo.lock
 
 # cargo clean
