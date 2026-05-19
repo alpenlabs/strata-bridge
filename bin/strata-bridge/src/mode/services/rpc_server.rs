@@ -350,11 +350,18 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_withdrawal_status(
         &self,
-        _deposit_idx: DepositIdx,
+        deposit_idx: DepositIdx,
     ) -> RpcResult<Option<RpcWithdrawalStatus>> {
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2657>
-        // Update this based on monitoring requirements.
-        Ok(None)
+        let cached_registry = self.cached_registry.read().await;
+
+        let Some(deposit_state) = cached_registry
+            .get_deposit(&deposit_idx)
+            .map(|dsm| dsm.state())
+        else {
+            return Ok(None);
+        };
+
+        Ok(withdrawal_status(deposit_state))
     }
 
     async fn get_reimbursement_status(
@@ -521,6 +528,19 @@ fn operator_idx_from_registry(
             .operator_table()
             .btc_key_to_idx(&operator_pk.inner)
     })
+}
+
+/// Derives the withdrawal RPC status from the deposit state.
+const fn withdrawal_status(deposit_state: &DepositState) -> Option<RpcWithdrawalStatus> {
+    match deposit_state {
+        DepositState::Assigned { .. } => Some(RpcWithdrawalStatus::InProgress),
+        DepositState::Fulfilled {
+            fulfillment_txid, ..
+        } => Some(RpcWithdrawalStatus::Complete {
+            fulfillment_txid: *fulfillment_txid,
+        }),
+        _ => None,
+    }
 }
 
 const fn active_claim_from_state(
@@ -725,7 +745,7 @@ mod tests {
         operator_table::OperatorTable,
         types::{DepositIdx, GraphIdx, OperatorIdx},
     };
-    use strata_bridge_rpc::types::{RpcBridgeDutyStatus, RpcClaimPhase};
+    use strata_bridge_rpc::types::{RpcBridgeDutyStatus, RpcClaimPhase, RpcWithdrawalStatus};
     use strata_bridge_sm::{
         deposit::{
             config::DepositSMCfg, context::DepositSMCtx, machine::DepositSM, state::DepositState,
@@ -755,6 +775,7 @@ mod tests {
     use super::{
         active_claim_from_state, aggregate_signatures_response, bridge_duties_for_deposit,
         duty_applies_to_operator, graph_data_response, operator_idx_from_registry,
+        withdrawal_status,
     };
 
     const DEPOSIT_IDX: DepositIdx = 3;
@@ -1218,5 +1239,125 @@ mod tests {
             &withdrawal_duty,
             OPERATOR_IDX + 1
         ));
+    }
+
+    #[test]
+    fn withdrawal_status_reports_each_deposit_state() {
+        let claim_txids = BTreeMap::from([(OPERATOR_IDX, generate_txid())]);
+        let pubnonces = BTreeMap::from([(OPERATOR_IDX, generate_pubnonce())]);
+        let partial_signatures = BTreeMap::from([(OPERATOR_IDX, generate_partial_signature())]);
+        let fulfillment_txid = generate_txid();
+
+        let cases = vec![
+            (
+                "Created",
+                DepositState::Created {
+                    deposit_transaction: test_deposit_tx(),
+                    last_block_height: 100,
+                    claim_txids: claim_txids.clone(),
+                },
+            ),
+            (
+                "GraphGenerated",
+                DepositState::GraphGenerated {
+                    deposit_transaction: test_deposit_tx(),
+                    last_block_height: 100,
+                    claim_txids: claim_txids.clone(),
+                    pubnonces: pubnonces.clone(),
+                },
+            ),
+            (
+                "DepositNoncesCollected",
+                DepositState::DepositNoncesCollected {
+                    deposit_transaction: test_deposit_tx(),
+                    last_block_height: 100,
+                    claim_txids,
+                    agg_nonce: generate_agg_nonce(),
+                    pubnonces: pubnonces.clone(),
+                    partial_signatures: partial_signatures.clone(),
+                },
+            ),
+            (
+                "DepositPartialsCollected",
+                DepositState::DepositPartialsCollected {
+                    last_block_height: 100,
+                    deposit_transaction: generate_tx(1, 1),
+                },
+            ),
+            (
+                "Deposited",
+                DepositState::Deposited {
+                    last_block_height: 100,
+                },
+            ),
+            (
+                "Assigned",
+                DepositState::Assigned {
+                    last_block_height: 100,
+                    assignee: OPERATOR_IDX,
+                    deadline: 120,
+                    recipient_desc: random_p2tr_desc(),
+                },
+            ),
+            (
+                "Fulfilled",
+                DepositState::Fulfilled {
+                    last_block_height: 100,
+                    assignee: OPERATOR_IDX,
+                    fulfillment_txid,
+                    fulfillment_height: 95,
+                    cooperative_payout_deadline: 120,
+                },
+            ),
+            (
+                "PayoutDescriptorReceived",
+                DepositState::PayoutDescriptorReceived {
+                    last_block_height: 100,
+                    assignee: OPERATOR_IDX,
+                    cooperative_payment_deadline: 120,
+                    cooperative_payout_tx: test_cooperative_payout_tx(),
+                    payout_nonces: pubnonces.clone(),
+                },
+            ),
+            (
+                "PayoutNoncesCollected",
+                DepositState::PayoutNoncesCollected {
+                    last_block_height: 100,
+                    assignee: OPERATOR_IDX,
+                    cooperative_payout_tx: test_cooperative_payout_tx(),
+                    cooperative_payment_deadline: 120,
+                    payout_nonces: pubnonces,
+                    payout_aggregated_nonce: generate_agg_nonce(),
+                    payout_partial_signatures: partial_signatures,
+                },
+            ),
+            (
+                "CooperativePathFailed",
+                DepositState::CooperativePathFailed {
+                    assignee: OPERATOR_IDX,
+                    last_block_height: 100,
+                },
+            ),
+            ("Spent", DepositState::Spent),
+            ("Aborted", DepositState::Aborted),
+        ];
+
+        for (state_name, state) in cases {
+            let expected_status = match &state {
+                DepositState::Assigned { .. } => Some(RpcWithdrawalStatus::InProgress),
+                DepositState::Fulfilled {
+                    fulfillment_txid, ..
+                } => Some(RpcWithdrawalStatus::Complete {
+                    fulfillment_txid: *fulfillment_txid,
+                }),
+                _ => None,
+            };
+
+            assert_eq!(
+                withdrawal_status(&state),
+                expected_status,
+                "unexpected withdrawal status for {state_name}",
+            );
+        }
     }
 }
