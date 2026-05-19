@@ -11,8 +11,6 @@ strata-bridge-primitives.workspace = true
 strata-bridge-sm.workspace = true
 strata-bridge-tx-graph.workspace = true
 
-strata-identifiers.workspace = true
-
 bitcoin.workspace = true
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
 secp256k1 = { workspace = true, features = ["serde"] }

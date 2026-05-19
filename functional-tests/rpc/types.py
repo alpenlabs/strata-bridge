@@ -170,6 +170,7 @@ class RpcPendingWithdrawalInfo:
 class RpcBridgeDutyDeposit:
     """Deposit duty."""
 
+    deposit_idx: int
     deposit_request_txid: str
 
 
@@ -177,7 +178,7 @@ class RpcBridgeDutyDeposit:
 class RpcBridgeDutyWithdrawal:
     """Withdrawal duty."""
 
-    withdrawal_request_txid: str
+    deposit_idx: int
     assigned_operator_idx: int
 
 
