@@ -28,3 +28,10 @@ GHSA-82j2-j2ch-gfr8
 # review by 2026-07-01
 CVE-2026-31814
 CVE-2026-32314
+
+# urllib3 2.5.0 in functional-tests/uv.lock: decompression vulnerabilities.
+# Test-only dependency, not shipped. Fix: uv lock --upgrade-package urllib3 (>=2.6.3).
+# review by 2026-07-01
+CVE-2025-66418
+CVE-2025-66471
+CVE-2026-21441
