@@ -91,9 +91,9 @@ class DeferredStartBridgeNetworkEnv(BaseEnv):
         brpc.proxy.generatetoaddress(self.finalization_blocks, wallet_addr)
 
         for i, s2_service, bridge_node, asm_service, mosaic_service in created:
-            bridge_node.start()
-            bridge_rpc = bridge_node.create_rpc()
-            wait_until_bridge_ready(bridge_rpc)
+            # bridge_node.start()
+            # bridge_rpc = bridge_node.create_rpc()
+            # wait_until_bridge_ready(bridge_rpc)
 
             svcs[f"s2_{i}"] = s2_service
             svcs[f"bridge_node_{i}"] = bridge_node
