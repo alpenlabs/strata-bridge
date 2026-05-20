@@ -11,3 +11,6 @@ wheels/
 
 # DB Migrations
 migrations/
+
+# Local SP1 proving config (copied from sp1-env.bash.sample; holds secrets)
+sp1-env.bash

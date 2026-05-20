@@ -28,8 +28,8 @@ from .params_cfg import BridgeOperatorParams, BridgeProtocolParams, CovenantKeys
 DEFAULT_INITIAL_HEARBEAT_DELAY_SECS = 10
 
 
-def zmq_connection_string(port: int) -> str:
-    return f"tcp://127.0.0.1:{port}"
+def zmq_connection_string(port: int, host: str = "127.0.0.1") -> str:
+    return f"tcp://{host}:{port}"
 
 
 def generate_config_toml(
@@ -50,6 +50,12 @@ def generate_config_toml(
     mtls_dir = Path(tls_dir)
     total_peers = len(other_p2p_addrs) + 1  # +1 for self
 
+    # Read connection details from props; defaults preserve the spawn-path behavior.
+    rpc_host = bitcoind_props.get("rpc_host", "127.0.0.1")
+    rpc_user = bitcoind_props.get("rpc_user", "user")
+    rpc_pass = bitcoind_props.get("rpc_password", "password")
+    zmq_host = bitcoind_props.get("zmq_host", "127.0.0.1")
+
     config = BridgeOperatorConfig(
         num_threads=None,
         thread_stack_size=None,
@@ -68,9 +74,9 @@ def generate_config_toml(
             service_ca=str(mtls_dir / "s2.ca.pem"),
         ),
         btc_client=BtcClientConfig(
-            url=f"http://127.0.0.1:{bitcoind_props.get('rpc_port')}",
-            user="user",
-            pass_="password",
+            url=f"http://{rpc_host}:{bitcoind_props.get('rpc_port')}",
+            user=rpc_user,
+            pass_=rpc_pass,
             retry_count=3,
             retry_interval=1000,
         ),
@@ -112,11 +118,17 @@ def generate_config_toml(
             retry_multiplier=2,
         ),
         btc_zmq=BtcZmqConfig(
-            hashblock_connection_string=zmq_connection_string(bitcoind_props["zmq_hashblock"]),
-            hashtx_connection_string=zmq_connection_string(bitcoind_props["zmq_hashtx"]),
-            rawblock_connection_string=zmq_connection_string(bitcoind_props["zmq_rawblock"]),
-            rawtx_connection_string=zmq_connection_string(bitcoind_props["zmq_rawtx"]),
-            sequence_connection_string=zmq_connection_string(bitcoind_props["zmq_sequence"]),
+            hashblock_connection_string=zmq_connection_string(
+                bitcoind_props["zmq_hashblock"], zmq_host
+            ),
+            hashtx_connection_string=zmq_connection_string(bitcoind_props["zmq_hashtx"], zmq_host),
+            rawblock_connection_string=zmq_connection_string(
+                bitcoind_props["zmq_rawblock"], zmq_host
+            ),
+            rawtx_connection_string=zmq_connection_string(bitcoind_props["zmq_rawtx"], zmq_host),
+            sequence_connection_string=zmq_connection_string(
+                bitcoind_props["zmq_sequence"], zmq_host
+            ),
         ),
         operator_wallet=OperatorWalletConfig(claim_funding_pool_size=32),
         mosaic=MosaicConfig(

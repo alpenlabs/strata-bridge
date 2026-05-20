@@ -1,6 +1,8 @@
+import os
+
 import flexitest
 
-from envs import BridgeNetworkEnv
+from envs import BridgeNetworkEnv, ExternalBtcBridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
@@ -43,8 +45,15 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
             # (expensive) SP1 bridge proof before the timeout path can be taken.
             proof_timelock=10_000,
         )
+        # Attach to an externally-managed regtest bitcoind when running in SP1
+        # proving mode (BRIDGE_EXTERNAL_BITCOIN=1); otherwise spawn one as usual.
+        env_cls = (
+            ExternalBtcBridgeNetworkEnv
+            if os.environ.get("BRIDGE_EXTERNAL_BITCOIN") == "1"
+            else BridgeNetworkEnv
+        )
         ctx.set_env(
-            BridgeNetworkEnv(
+            env_cls(
                 bridge_protocol_params=self.bridge_protocol_params,
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=0,

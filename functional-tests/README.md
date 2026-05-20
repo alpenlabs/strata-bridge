@@ -100,6 +100,30 @@ uv run python entry.py
 ./run_test.sh -g contested_payout uncontested_payout
 ```
 
+## Running in SP1 proving mode
+
+In SP1 proving mode the tests prove on SP1 and run against an externally-managed
+regtest `bitcoind` (the `network-extbtc` environment).
+
+1. Start a fresh regtest `bitcoind` with ZMQ enabled:
+
+   ```bash
+   TMPBTC=$(mktemp -d)
+   bitcoind -regtest -server=1 -txindex=1 -listen=0 -datadir="$TMPBTC" \
+     -rpcbind=127.0.0.1 -rpcallowip=127.0.0.1 -rpcport=18443 \
+     -rpcuser=user -rpcpassword=password -fallbackfee=0.00001 -acceptnonstdtxn=0 \
+     -zmqpubhashblock=tcp://127.0.0.1:28332 -zmqpubhashtx=tcp://127.0.0.1:28333 \
+     -zmqpubrawblock=tcp://127.0.0.1:28334 -zmqpubrawtx=tcp://127.0.0.1:28335 \
+     -zmqpubsequence=tcp://127.0.0.1:28336 -daemon
+   ```
+
+2. Run an SP1-proving test against the external node (the proof key is read from
+   `.env`):
+
+   ```bash
+   ./run_test.sh -t tests/contested_payout/fn_contest_without_counterproof.py
+   ```
+
 ## Running with code coverage
 
 ```bash

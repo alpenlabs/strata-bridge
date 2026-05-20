@@ -74,7 +74,10 @@ class BaseEnv(flexitest.EnvConfig):
     def setup_bitcoin(self, ectx: flexitest.EnvContext):
         """Setup Bitcoin node with wallet and initial funding."""
         btc_fac = ectx.get_factory("bitcoin")
-        bitcoind = btc_fac.create_regtest_bitcoin()
+        if self.btc_config.external:
+            bitcoind = btc_fac.connect_external_bitcoin()
+        else:
+            bitcoind = btc_fac.create_regtest_bitcoin()
         brpc = bitcoind.create_rpc()
         wait_until_bitcoind_ready(brpc, timeout=10)
 

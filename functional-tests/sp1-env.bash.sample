@@ -1,0 +1,26 @@
+# SP1 proving config for the functional tests.
+#
+# Copy this to `sp1-env.bash` and fill in the values (notably NETWORK_PRIVATE_KEY).
+# `run_test.sh` sources `sp1-env.bash` when it exists, so its mere presence opts the
+# run into SP1 proving against an externally-managed regtest bitcoind. Delete the file
+# to return to default (native-proof, self-spawned bitcoind) runs. Every value uses
+# ${VAR:-default} so you can still override any of them inline on the command.
+
+# --- SP1 bridge proving ---
+export BRIDGE_PROOF_SP1=${BRIDGE_PROOF_SP1:-1}
+export SP1_PROVER=${SP1_PROVER:-network}              # mock | cpu | cuda | network
+export SP1_PROOF_STRATEGY=${SP1_PROOF_STRATEGY:-reserved}
+export NETWORK_RPC_URL=${NETWORK_RPC_URL:-https://rpc.production.succinct.xyz}
+export NETWORK_PRIVATE_KEY=${NETWORK_PRIVATE_KEY:-}   # required for SP1_PROVER=network
+
+# --- External regtest bitcoind (network-extbtc env) ---
+export BRIDGE_EXTERNAL_BITCOIN=${BRIDGE_EXTERNAL_BITCOIN:-1}
+export BITCOIN_RPC_URL=${BITCOIN_RPC_URL:-http://127.0.0.1:18443}
+export BITCOIN_RPC_USER=${BITCOIN_RPC_USER:-user}
+export BITCOIN_RPC_PASSWORD=${BITCOIN_RPC_PASSWORD:-password}
+export BITCOIN_ZMQ_HOST=${BITCOIN_ZMQ_HOST:-127.0.0.1}
+export BITCOIN_ZMQ_HASHBLOCK_PORT=${BITCOIN_ZMQ_HASHBLOCK_PORT:-28332}
+export BITCOIN_ZMQ_HASHTX_PORT=${BITCOIN_ZMQ_HASHTX_PORT:-28333}
+export BITCOIN_ZMQ_RAWBLOCK_PORT=${BITCOIN_ZMQ_RAWBLOCK_PORT:-28334}
+export BITCOIN_ZMQ_RAWTX_PORT=${BITCOIN_ZMQ_RAWTX_PORT:-28335}
+export BITCOIN_ZMQ_SEQUENCE_PORT=${BITCOIN_ZMQ_SEQUENCE_PORT:-28336}

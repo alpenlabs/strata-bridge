@@ -3,6 +3,12 @@ set -e
 cd $(dirname $(realpath $0))
 source env.bash
 
+# Opt-in SP1 proving + external bitcoin config (see sp1-env.bash.sample).
+# Present only when the user has set it up; absence = default runs.
+if [ -f sp1-env.bash ]; then
+    source sp1-env.bash
+fi
+
 # Set an explicit finite limit so bitcoind (and other
 # subprocesses) inherit a sane value.
 ulimit -n 10240
@@ -47,6 +53,20 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
     BRIDGE_FEATURES="--features sp1"
     export BRIDGE_PROOF_SP1_ELF="$(realpath guest-builder/sp1/elfs/bridge-proof.elf)"
     echo "SP1 ELF: $BRIDGE_PROOF_SP1_ELF (SP1_PROVER=$SP1_PROVER)"
+fi
+
+# Validate the external Bitcoin contract (network-extbtc env) before the slow build.
+if [ "$BRIDGE_EXTERNAL_BITCOIN" = "1" ]; then
+    : "${BITCOIN_RPC_URL:?set BITCOIN_RPC_URL=http://host:port for external bitcoin}"
+    : "${BITCOIN_RPC_USER:?set BITCOIN_RPC_USER for external bitcoin}"
+    : "${BITCOIN_RPC_PASSWORD:?set BITCOIN_RPC_PASSWORD for external bitcoin}"
+    : "${BITCOIN_ZMQ_HOST:?set BITCOIN_ZMQ_HOST for external bitcoin}"
+    : "${BITCOIN_ZMQ_HASHBLOCK_PORT:?set BITCOIN_ZMQ_HASHBLOCK_PORT for external bitcoin}"
+    : "${BITCOIN_ZMQ_HASHTX_PORT:?set BITCOIN_ZMQ_HASHTX_PORT for external bitcoin}"
+    : "${BITCOIN_ZMQ_RAWBLOCK_PORT:?set BITCOIN_ZMQ_RAWBLOCK_PORT for external bitcoin}"
+    : "${BITCOIN_ZMQ_RAWTX_PORT:?set BITCOIN_ZMQ_RAWTX_PORT for external bitcoin}"
+    : "${BITCOIN_ZMQ_SEQUENCE_PORT:?set BITCOIN_ZMQ_SEQUENCE_PORT for external bitcoin}"
+    echo "External bitcoin mode: $BITCOIN_RPC_URL (zmq $BITCOIN_ZMQ_HOST), use env 'network-extbtc'"
 fi
 
 # Build all required binaries (only strata-bridge and secret-service gets coverage instrumentation)

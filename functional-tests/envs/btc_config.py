@@ -12,3 +12,4 @@ class BitcoinEnvConfig:
     auto_mine: bool = True
     finalization_blocks: int = 10
     funding_amount: float = 30
+    external: bool = False
