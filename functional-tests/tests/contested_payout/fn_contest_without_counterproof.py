@@ -39,21 +39,27 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
         self.bridge_protocol_params = BridgeProtocolParams(
             contest_timelock=5,
             ack_timelock=10,
+            # Large proof timelock so the operator has ample time to produce the
+            # (expensive) SP1 bridge proof before the timeout path can be taken.
+            proof_timelock=10_000,
         )
         ctx.set_env(
             BridgeNetworkEnv(
                 bridge_protocol_params=self.bridge_protocol_params,
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=0,
+                    # SP1 bridge-proof generation is expensive and the retry tick
+                    # re-emits the proof duty every tick while the graph sits in
+                    # Contested. Use a long retry interval here so the proof isn't
+                    # regenerated from scratch each second.
+                    retry_interval_secs=600,
                 ),
                 num_operators=self.NUM_OPERATORS,
             )
         )
 
     def main(self, ctx: flexitest.RunContext):
-        bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(
-            ctx, num_operators=self.NUM_OPERATORS
-        )
+        bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx, num_operators=self.NUM_OPERATORS)
         bridge_rpc = bridge_rpcs[0]
 
         bitcoind_service = ctx.get_service("bitcoin")

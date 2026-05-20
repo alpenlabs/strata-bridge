@@ -30,13 +30,22 @@ fi
 # Opt-in SP1 proving mode: build the guest ELF with stub params and
 # enable the `sp1` feature on the bridge node. Path is exported for
 # generate_config_toml to pick up.
+#
+# The mock-vs-real choice is driven entirely by SP1_PROVER, which every
+# operator's bridge node inherits from this exported env:
+#   - unset / "mock": fast mock proofs (default; no real proving)
+#   - "cpu" / "cuda" / "network": real SP1 proving (much slower)
 BRIDGE_FEATURES=""
 if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
-    echo "SP1 proving mode: building guest ELF with stub params (may take several minutes)"
+    export SP1_PROVER="${SP1_PROVER:-mock}"
+    if [ "$SP1_PROVER" = "mock" ]; then
+        echo "SP1 proving mode (mock): building guest ELF with stub params (may take several minutes)"
+    else
+        echo "SP1 proving mode (real, SP1_PROVER=$SP1_PROVER): building guest ELF with stub params; real proving will be slow"
+    fi
     SKIP_PARAMS=1 cargo build --release -p strata-bridge-sp1-guest-builder
     BRIDGE_FEATURES="--features sp1"
     export BRIDGE_PROOF_SP1_ELF="$(realpath guest-builder/sp1/elfs/bridge-proof.elf)"
-    export SP1_PROVER="${SP1_PROVER:-mock}"
     echo "SP1 ELF: $BRIDGE_PROOF_SP1_ELF (SP1_PROVER=$SP1_PROVER)"
 fi
 

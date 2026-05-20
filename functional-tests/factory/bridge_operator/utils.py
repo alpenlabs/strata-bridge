@@ -54,7 +54,7 @@ def generate_config_toml(
         num_threads=None,
         thread_stack_size=None,
         nag_interval=Duration(secs=bridge_config_params.nag_interval_secs, nanos=0),
-        retry_interval=Duration(secs=1, nanos=0),
+        retry_interval=Duration(secs=bridge_config_params.retry_interval_secs, nanos=0),
         min_withdrawal_fulfillment_window=bridge_config_params.min_withdrawal_fulfillment_window,
         shutdown_timeout=Duration(secs=30, nanos=0),
         cooperative_payout_timeout=bridge_config_params.cooperative_payout_timeout,

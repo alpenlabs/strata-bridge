@@ -100,6 +100,7 @@ class BridgeConfigParams:
     cooperative_payout_timeout: int = 144
     max_fee_rate: int = 10
     nag_interval_secs: int = 10
+    retry_interval_secs: int = 10
 
 
 @dataclass
