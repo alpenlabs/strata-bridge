@@ -215,17 +215,20 @@ jobs:
       - name: Append publish summary
         if: always()
         env:
+          COMPONENT: ${{ matrix.component }}
+          DISPLAY_NAME: ${{ matrix.display_name }}
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
           TRIVY_STATUS: ${{ steps.trivy.outputs.status }}
         run: |
           {
             echo "- \`${IMAGE_REF}\`"
             echo "  scan: \`${TRIVY_STATUS:-unknown}\`"
-            echo "  artifact: \`trivy-${{ matrix.component }}-${{ needs.plan.outputs.image_tag }}\`"
+            echo "  artifact: \`trivy-${COMPONENT}-${IMAGE_TAG}\`"
             echo
-            if [[ -f "trivy-results/${{ matrix.component }}.md" ]]; then
-              cat "trivy-results/${{ matrix.component }}.md"
+            if [[ -f "trivy-results/${COMPONENT}.md" ]]; then
+              cat "trivy-results/${COMPONENT}.md"
             else
-              echo "Trivy summary unavailable for \`${{ matrix.display_name }}\`."
+              echo "Trivy summary unavailable for \`${DISPLAY_NAME}\`."
             fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
