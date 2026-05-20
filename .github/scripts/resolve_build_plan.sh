@@ -28,6 +28,9 @@ if [[ -z "${checkout_ref}" ]]; then
   checkout_ref="${GITHUB_SHA}"
 fi
 
+# plan-src/ is the build-ref checkout created by the workflow's second checkout step.
+# Using -C plan-src keeps the SHA derivation scoped to the ref being built, not the
+# workflow scripts checkout that occupies the workspace root (always pinned to main).
 resolved_sha="$(git -C plan-src rev-parse HEAD)"
 # 8-char short SHA — short enough to fit in Docker tag limits, unique enough for any single repo.
 image_tag="$(git -C plan-src rev-parse --short=8 HEAD)"
