@@ -1,7 +1,6 @@
 //! Unit Tests for process_new_block
 #[cfg(test)]
 mod tests {
-    use bitcoin::{Txid, hashes::Hash};
 
     use crate::{
         deposit::{
@@ -16,10 +15,11 @@ mod tests {
     #[test]
     fn test_cooperative_timeout_sequence() {
         const FULFILLMENT_HEIGHT: u64 = INITIAL_BLOCK_HEIGHT;
+        let fulfillment_txid = generate_txid();
         let initial_state = DepositState::Fulfilled {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
-            fulfillment_txid: Txid::all_zeros(),
+            fulfillment_txid,
             fulfillment_height: FULFILLMENT_HEIGHT,
             cooperative_payout_deadline: FULFILLMENT_HEIGHT
                 + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
@@ -48,6 +48,7 @@ mod tests {
             &DepositState::CooperativePathFailed {
                 last_block_height: timeout_height,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
             }
         );
 

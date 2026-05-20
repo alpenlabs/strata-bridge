@@ -402,6 +402,7 @@ mod tests {
     use strata_bridge_test_utils::{
         arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid},
         bitcoin::{generate_tx, generate_xonly_pubkey},
+        prelude::generate_txid,
     };
     use strata_bridge_tx_graph::game_graph::{
         CounterproofGraphSummary, DepositParams, GameGraphSummary,
@@ -578,8 +579,11 @@ mod tests {
             // Implement `Arbitrary` for `DepositSM` to allow testing of all variants.
             let state = match variant_selector {
                 0 => DepositState::Deposited { last_block_height },
-                1 => DepositState::CooperativePathFailed { last_block_height, assignee: 0 },
-                2 => DepositState::Spent,
+                1 => DepositState::CooperativePathFailed { last_block_height, fulfillment_txid: generate_txid(), assignee: 0 },
+                2 => DepositState::Spent {
+                    fulfillment_txid: Some(generate_txid()),
+                    assignee: Some(0),
+                },
                 _ => DepositState::Aborted,
             };
 

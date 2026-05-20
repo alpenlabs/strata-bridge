@@ -1,15 +1,8 @@
 //! Unit Tests for process_new_block
 #[cfg(test)]
 mod tests {
-    use bitcoin::{OutPoint, Txid, hashes::Hash};
-
     use crate::{
-        deposit::{
-            errors::DSMError,
-            events::{DepositEvent, NewBlockEvent, PayoutConfirmedEvent},
-            state::DepositState,
-            tests::*,
-        },
+        deposit::{errors::DSMError, events::NewBlockEvent, state::DepositState, tests::*},
         signals::{DepositSignal, DepositToGraph},
         testing::fixtures::*,
     };
@@ -37,10 +30,11 @@ mod tests {
     #[test]
     fn test_new_block_triggers_cooperative_timeout() {
         const FULFILLMENT_HEIGHT: u64 = INITIAL_BLOCK_HEIGHT;
+        let fulfillment_txid = generate_txid();
         let state = DepositState::Fulfilled {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
-            fulfillment_txid: Txid::all_zeros(),
+            fulfillment_txid,
             fulfillment_height: FULFILLMENT_HEIGHT,
             cooperative_payout_deadline: FULFILLMENT_HEIGHT
                 + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
@@ -58,6 +52,7 @@ mod tests {
             &DepositState::CooperativePathFailed {
                 last_block_height: block_height,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
             }
         );
 
@@ -158,7 +153,13 @@ mod tests {
     fn test_new_block_rejects_in_terminal_states() {
         let block_height = LATER_BLOCK_HEIGHT;
 
-        for terminal_state in [DepositState::Spent, DepositState::Aborted] {
+        for terminal_state in [
+            DepositState::Spent {
+                fulfillment_txid: Some(generate_txid()),
+                assignee: Some(TEST_ASSIGNEE),
+            },
+            DepositState::Aborted,
+        ] {
             let mut sm = create_sm(terminal_state.clone());
             let result = sm.process_new_block(NewBlockEvent { block_height });
 
@@ -168,16 +169,5 @@ mod tests {
                 terminal_state
             );
         }
-    }
-
-    #[test]
-    fn test_payout_confirmed_duplicate_in_spent() {
-        let tx = test_payout_tx(OutPoint::default());
-
-        test_deposit_invalid_transition(DepositInvalidTransition {
-            from_state: DepositState::Spent,
-            event: DepositEvent::PayoutConfirmed(PayoutConfirmedEvent { tx }),
-            expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
-        });
     }
 }

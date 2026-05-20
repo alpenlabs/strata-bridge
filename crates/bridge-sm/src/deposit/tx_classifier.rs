@@ -84,7 +84,7 @@ impl TxClassifier for DepositSM {
             }
 
             // terminal states expect no txs
-            DepositState::Spent => None,
+            DepositState::Spent { .. } => None,
             DepositState::Aborted => None,
 
             _ => None,

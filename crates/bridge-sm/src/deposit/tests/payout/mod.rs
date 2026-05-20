@@ -1,5 +1,6 @@
 mod process_assignment;
 mod process_fulfillment;
+mod process_payout_confirmed;
 mod process_payout_descriptor_received;
 mod process_payout_nonce_received;
 mod process_payout_partial_received;

@@ -233,6 +233,7 @@ mod tests {
             state: DepositState::PayoutDescriptorReceived {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 cooperative_payout_tx,
                 payout_nonces,
@@ -269,6 +270,7 @@ mod tests {
             state: DepositState::PayoutDescriptorReceived {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 cooperative_payout_tx,
                 payout_nonces: BTreeMap::new(),
@@ -294,6 +296,7 @@ mod tests {
             state: DepositState::PayoutDescriptorReceived {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 cooperative_payout_tx,
                 payout_nonces,
@@ -339,6 +342,7 @@ mod tests {
             state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: BTreeMap::new(),
@@ -381,6 +385,7 @@ mod tests {
             state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: BTreeMap::new(),
@@ -411,6 +416,7 @@ mod tests {
             state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: BTreeMap::new(),
@@ -455,8 +461,12 @@ mod tests {
             DepositState::CooperativePathFailed {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
             },
-            DepositState::Spent,
+            DepositState::Spent {
+                fulfillment_txid: Some(generate_txid()),
+                assignee: Some(TEST_ASSIGNEE),
+            },
             DepositState::Aborted,
         ];
 

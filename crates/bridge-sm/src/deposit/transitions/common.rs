@@ -71,18 +71,21 @@ impl DepositSM {
                 last_block_height,
                 assignee,
                 cooperative_payout_deadline: cooperative_payment_deadline,
+                fulfillment_txid,
                 ..
             }
             | DepositState::PayoutDescriptorReceived {
                 last_block_height,
                 assignee,
                 cooperative_payment_deadline,
+                fulfillment_txid,
                 ..
             }
             | DepositState::PayoutNoncesCollected {
                 last_block_height,
                 assignee,
                 cooperative_payment_deadline,
+                fulfillment_txid,
                 ..
             } => {
                 let assignee = *assignee; // reassign to get past the borrow-checker
@@ -98,6 +101,7 @@ impl DepositSM {
                     self.state = DepositState::CooperativePathFailed {
                         last_block_height: new_block.block_height,
                         assignee,
+                        fulfillment_txid: *fulfillment_txid,
                     };
 
                     // activate the graph if the cooperative payout path has failed
@@ -123,7 +127,7 @@ impl DepositSM {
                 })
             }
 
-            DepositState::Spent | DepositState::Aborted => Err(DSMError::rejected(
+            DepositState::Spent { .. } | DepositState::Aborted => Err(DSMError::rejected(
                 self.state().clone(),
                 new_block.into(),
                 "New blocks irrelevant in terminal state",

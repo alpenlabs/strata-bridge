@@ -104,6 +104,7 @@ mod tests {
             DepositState::PayoutNoncesCollected {
                 last_block_height: h,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payment_deadline: h + 1008,
                 payout_nonces: nonces,
                 payout_aggregated_nonce: agg_nonce,
@@ -113,6 +114,7 @@ mod tests {
             DepositState::CooperativePathFailed {
                 last_block_height: h,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
             },
         ]
     }
@@ -135,6 +137,7 @@ mod tests {
         states.push(DepositState::PayoutDescriptorReceived {
             last_block_height: h,
             assignee: TEST_ASSIGNEE,
+            fulfillment_txid: generate_txid(),
             cooperative_payment_deadline: h + 1008,
             cooperative_payout_tx: test_cooperative_payout_txn(
                 Descriptor::new_op_return(&[0u8; 32]).unwrap(),
@@ -142,7 +145,10 @@ mod tests {
             payout_nonces: BTreeMap::new(),
         });
         states.extend(payout_pending_states());
-        states.push(DepositState::Spent);
+        states.push(DepositState::Spent {
+            fulfillment_txid: Some(generate_txid()),
+            assignee: Some(TEST_ASSIGNEE),
+        });
         states.push(DepositState::Aborted);
         states
     }
@@ -225,7 +231,13 @@ mod tests {
     #[test]
     fn classify_tx_returns_none_in_terminal_states() {
         let cfg = test_deposit_sm_cfg();
-        let terminal = [DepositState::Spent, DepositState::Aborted];
+        let terminal = [
+            DepositState::Spent {
+                fulfillment_txid: Some(generate_txid()),
+                assignee: Some(TEST_ASSIGNEE),
+            },
+            DepositState::Aborted,
+        ];
         let deposit_tx = test_deposit_txn().as_ref().clone();
         let fulfillment_tx = test_fulfillment_tx();
 
