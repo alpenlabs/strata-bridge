@@ -83,12 +83,19 @@ mod tests {
 
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::NoncesCollected { .. }));
+        // Own-graph transition emits `PublishGraphPartials` AND the claim-funding cleanup duty
+        // (past `AdaptorsVerified`, nag-receive rejects `GenerateGraphData`, so the persisted
+        // claim-funding outpoint row is no longer load-bearing).
         assert!(
             matches!(
                 seq.all_duties().as_slice(),
-                [GraphDuty::PublishGraphPartials { .. }]
+                [
+                    GraphDuty::PublishGraphPartials { .. },
+                    GraphDuty::DeleteClaimFundingOutpoint { .. },
+                ]
             ),
-            "Expected exactly 1 PublishGraphPartials duty to be emitted"
+            "Expected PublishGraphPartials + DeleteClaimFundingOutpoint duties, got {:?}",
+            seq.all_duties()
         );
         assert!(seq.all_signals().is_empty());
     }

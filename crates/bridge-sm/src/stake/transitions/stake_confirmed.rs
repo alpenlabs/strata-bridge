@@ -1,5 +1,6 @@
 use crate::{
     stake::{
+        duties::StakeDuty,
         errors::{SSMError, SSMResult},
         events::StakeConfirmedEvent,
         machine::{SSMOutput, StakeSM},
@@ -74,7 +75,21 @@ impl StakeSM {
                     signatures: Box::new(Some(*signatures.clone())),
                 };
 
-                Ok(SMOutput::new())
+                // Only the operator that owns this stake graph persisted a stake-funding
+                // reservation, so only that operator emits the cleanup duty. Reaching
+                // `UnstakingSigned -> Confirmed` is the happy-path own-stake transition;
+                // before this point peer nags can re-emit `PublishStakeData`, so the
+                // reservation must remain persisted to keep that path idempotent.
+                let pov_idx = self.context.operator_table().pov_idx();
+                if self.context.operator_idx() == pov_idx {
+                    Ok(SMOutput::with_duties(vec![
+                        StakeDuty::DeleteStakeFundingReservation {
+                            operator_idx: pov_idx,
+                        },
+                    ]))
+                } else {
+                    Ok(SMOutput::new())
+                }
             }
             StakeState::Confirmed { .. } => {
                 Err(SSMError::duplicate(self.state.clone(), event.into()))

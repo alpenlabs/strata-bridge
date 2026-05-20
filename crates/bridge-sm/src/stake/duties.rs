@@ -80,6 +80,14 @@ pub enum StakeDuty {
         /// The signed unstaking transaction.
         signed_tx: Transaction,
     },
+    /// Delete the persisted stake-funding reservation. Emitted once the stake transaction
+    /// confirms — i.e. the SM has reached the `Confirmed` state — at which point peer nags
+    /// can no longer re-emit [`StakeDuty::PublishStakeData`], so the persisted reservation is no
+    /// longer load-bearing for idempotency.
+    DeleteStakeFundingReservation {
+        /// The index of the operator that owns the stake.
+        operator_idx: OperatorIdx,
+    },
     /// Nag a given operator to provide missing data.
     Nag(NagDuty),
 }
@@ -134,6 +142,9 @@ impl std::fmt::Display for StakeDuty {
             Self::PublishUnstakingPartials { .. } => "PublishUnstakingPartials".to_string(),
             Self::PublishUnstakingIntent { .. } => "PublishUnstakingIntent".to_string(),
             Self::PublishUnstakingTx { .. } => "PublishUnstakingTx".to_string(),
+            Self::DeleteStakeFundingReservation { operator_idx } => {
+                format!("DeleteStakeFundingReservation (operator_idx: {operator_idx})")
+            }
             Self::Nag(duty) => format!("Nag ({duty})"),
         };
 

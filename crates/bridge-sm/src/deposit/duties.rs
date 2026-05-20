@@ -192,6 +192,14 @@ pub enum DepositDuty {
         /// The index of the point-of-view operator (the assignee).
         pov_operator_idx: OperatorIdx,
     },
+    /// Delete the persisted withdrawal-funding outpoints for a deposit. Emitted by the assignee
+    /// once the deposit SM leaves `Assigned` (transitions to `Fulfilled`) — at which point
+    /// retry-tick can no longer re-emit [`DepositDuty::FulfillWithdrawalRequest`], so the
+    /// persisted row is no longer load-bearing for idempotency.
+    DeleteWithdrawalFundingOutpoints {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
+    },
     /// Nag other operators for missing information.
     Nag {
         /// The specific nag duty to perform.
@@ -228,6 +236,12 @@ impl std::fmt::Display for DepositDuty {
             DepositDuty::PublishPayoutNonce { .. } => "PublishPayoutNonce".to_string(),
             DepositDuty::PublishPayoutPartial { .. } => "PublishPayoutPartial".to_string(),
             DepositDuty::PublishPayout { .. } => "PublishPayout".to_string(),
+            DepositDuty::DeleteWithdrawalFundingOutpoints { deposit_idx } => {
+                format!(
+                    "DeleteWithdrawalFundingOutpoints (deposit_idx: {})",
+                    deposit_idx
+                )
+            }
             DepositDuty::Nag { duty } => format!("Nag({})", duty),
         };
         write!(f, "{}", display_str)

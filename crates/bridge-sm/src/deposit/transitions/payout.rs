@@ -125,20 +125,28 @@ impl DepositSM {
                     fulfillment_height: fulfillment.fulfillment_height,
                     cooperative_payout_deadline: cooperative_payment_deadline,
                 };
-                // Dispatch the duty to request the payout nonces if:
-                // 1. The assignee is the pov operator, AND
-                // 2. The cooperative payout timeout is non-zero (otherwise skip the cooperative
-                //    path)
+                // Dispatch any duties the new state requires. The assignee — and only the assignee
+                // — persisted withdrawal-funding outpoints under `deposit_idx` before broadcast,
+                // so only the assignee emits the cleanup duty here.
                 let pov_operator_idx = self.context.operator_table().pov_idx();
-                if pov_operator_idx == assignee && timeout > 0 {
-                    Ok(DSMOutput::with_duties(vec![
-                        DepositDuty::RequestPayoutNonces {
+                let mut duties = Vec::new();
+                if pov_operator_idx == assignee {
+                    duties.push(DepositDuty::DeleteWithdrawalFundingOutpoints {
+                        deposit_idx: self.context.deposit_idx(),
+                    });
+                    // Request payout nonces only if the cooperative payout timeout is non-zero
+                    // (otherwise skip the cooperative path entirely).
+                    if timeout > 0 {
+                        duties.push(DepositDuty::RequestPayoutNonces {
                             deposit_idx: self.context.deposit_idx(),
                             pov_operator_idx,
-                        },
-                    ]))
-                } else {
+                        });
+                    }
+                }
+                if duties.is_empty() {
                     Ok(DSMOutput::new())
+                } else {
+                    Ok(DSMOutput::with_duties(duties))
                 }
             }
 

@@ -56,17 +56,6 @@ pub(crate) async fn publish_stake_data(
     )
     .await?;
 
-    // Funding tx is buried; the reservation has served its purpose. Wallet sync will pick up the
-    // new stake-funding output on its next pass. Failure to delete is non-fatal — the row will
-    // stay around but the inputs it referenced are already spent on-chain.
-    if let Err(e) = output_handles
-        .db
-        .delete_stake_funding_reservation(operator_idx)
-        .await
-    {
-        warn!(%operator_idx, ?e, "failed to delete persisted stake funding reservation");
-    }
-
     info!("fetching unstaking intent preimage from secret-service");
     let preimage = get_preimage(&output_handles.s2_client, stake_funds).await?;
     let unstaking_image = sha256::Hash::hash(&preimage);
@@ -98,6 +87,24 @@ pub(crate) async fn publish_stake_data(
         .send_unstaking_input(operator_idx, unstaking_input, None)
         .await;
 
+    Ok(())
+}
+
+/// Deletes the persisted stake-funding reservation for `operator_idx`. Emitted by the stake state
+/// machine on transition to `Confirmed`, so peer nags can no longer re-issue `PublishStakeData`
+/// and the row is safe to drop. Failure is non-fatal — the reserved inputs are already spent
+/// on-chain by the buried funding tx.
+pub(crate) async fn delete_stake_funding_reservation(
+    output_handles: &OutputHandles,
+    operator_idx: OperatorIdx,
+) -> Result<(), ExecutorError> {
+    if let Err(e) = output_handles
+        .db
+        .delete_stake_funding_reservation(operator_idx)
+        .await
+    {
+        warn!(%operator_idx, ?e, "failed to delete persisted stake funding reservation");
+    }
     Ok(())
 }
 

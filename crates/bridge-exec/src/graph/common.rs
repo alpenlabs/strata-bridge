@@ -126,6 +126,28 @@ fn invalid_mosaic_key(err: bitcoin::secp256k1::Error) -> ExecutorError {
     ExecutorError::MosaicErr(format!("invalid mosaic pubkey: {err:?}"))
 }
 
+/// Deletes the persisted claim-funding outpoint for `graph_idx`. Emitted by the graph state
+/// machine on transition past `AdaptorsVerified`, where nag-receive can no longer re-issue
+/// `GenerateGraphData`. Failure is non-fatal — the row would only be re-read by a
+/// `GenerateGraphData` invocation that the SM now refuses to dispatch.
+pub(super) async fn delete_claim_funding_outpoint(
+    output_handles: &OutputHandles,
+    graph_idx: GraphIdx,
+) -> Result<(), ExecutorError> {
+    if let Err(e) = output_handles
+        .db
+        .delete_claim_funding_outpoint(graph_idx)
+        .await
+    {
+        warn!(
+            ?graph_idx,
+            ?e,
+            "failed to delete persisted claim funding outpoint"
+        );
+    }
+    Ok(())
+}
+
 /// Returns the claim-funding outpoint for `graph_idx`, fetching it from the wallet (refilling
 /// if necessary) and caching to disk when not already saved.
 async fn ensure_claim_funding_outpoint(

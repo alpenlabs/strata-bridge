@@ -275,6 +275,14 @@ pub enum GraphDuty {
         /// The signed contested payout transaction to be published.
         signed_contested_payout_tx: Transaction,
     },
+    /// Delete the persisted claim-funding outpoint for the graph. Emitted by the graph owner once
+    /// the SM leaves the `AdaptorsVerified` state (transitions to `NoncesCollected`) — at which
+    /// point nag-receive can no longer re-emit `GenerateGraphData`, so the persisted row is no
+    /// longer load-bearing for idempotency.
+    DeleteClaimFundingOutpoint {
+        /// The index of the graph this duty is associated with.
+        graph_idx: GraphIdx,
+    },
     /// Nag other operators for missing information.
     Nag {
         /// The specific nag duty to perform.
@@ -301,6 +309,9 @@ impl std::fmt::Display for GraphDuty {
             GraphDuty::PublishCounterProofNack { .. } => "PublishCounterProofNack".to_string(),
             GraphDuty::PublishSlash { .. } => "PublishSlash".to_string(),
             GraphDuty::PublishContestedPayout { .. } => "PublishContestedPayout".to_string(),
+            GraphDuty::DeleteClaimFundingOutpoint { graph_idx } => {
+                format!("DeleteClaimFundingOutpoint (graph_idx: {:?})", graph_idx)
+            }
             GraphDuty::Nag { duty } => format!("Nag({})", duty),
         };
         write!(f, "{s}")

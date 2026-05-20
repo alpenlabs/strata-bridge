@@ -18,7 +18,8 @@ mod tests {
     };
 
     /// tests correct transition from Assigned to Fulfilled state when FulfillmentConfirmed event
-    /// is received and POV operator is the assignee (should emit RequestPayoutNonces duty)
+    /// is received and POV operator is the assignee (should emit cleanup +
+    /// RequestPayoutNonces duties)
     #[test]
     fn test_fulfillment_confirmed_from_assigned_pov_is_assignee() {
         let fulfillment_tx = generate_spending_tx(OutPoint::default(), &[]);
@@ -45,10 +46,15 @@ mod tests {
                 cooperative_payout_deadline: LATER_BLOCK_HEIGHT
                     + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
             },
-            expected_duties: vec![DepositDuty::RequestPayoutNonces {
-                deposit_idx: TEST_DEPOSIT_IDX,
-                pov_operator_idx: TEST_POV_IDX,
-            }],
+            expected_duties: vec![
+                DepositDuty::DeleteWithdrawalFundingOutpoints {
+                    deposit_idx: TEST_DEPOSIT_IDX,
+                },
+                DepositDuty::RequestPayoutNonces {
+                    deposit_idx: TEST_DEPOSIT_IDX,
+                    pov_operator_idx: TEST_POV_IDX,
+                },
+            ],
             expected_signals: vec![],
         });
     }
@@ -194,9 +200,10 @@ mod tests {
         }
     }
 
-    /// Tests that no RequestPayoutNonces duty is emitted when cooperative_payout_timeout = 0,
-    /// even when the POV operator is the assignee. This ensures the cooperative path is
-    /// skipped entirely when the timeout is set to zero.
+    /// Tests that no `RequestPayoutNonces` duty is emitted when `cooperative_payout_timeout = 0`,
+    /// even when the POV operator is the assignee. The cleanup duty still fires because the
+    /// assignee always persisted withdrawal-funding outpoints — they need cleaning up regardless
+    /// of whether the cooperative path runs.
     #[test]
     fn test_fulfillment_confirmed_no_duty_when_timeout_is_zero() {
         let fulfillment_tx = generate_spending_tx(OutPoint::default(), &[]);
@@ -228,8 +235,10 @@ mod tests {
                     // With timeout = 0, deadline equals fulfillment_height
                     cooperative_payout_deadline: LATER_BLOCK_HEIGHT,
                 },
-                // No duty should be emitted when timeout is 0
-                expected_duties: vec![],
+                // Cleanup still fires; cooperative path is skipped.
+                expected_duties: vec![DepositDuty::DeleteWithdrawalFundingOutpoints {
+                    deposit_idx: TEST_DEPOSIT_IDX,
+                }],
                 expected_signals: vec![],
             },
         );

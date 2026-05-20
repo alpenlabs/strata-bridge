@@ -156,6 +156,9 @@ pub async fn execute_deposit_duty(
             )
             .await
         }
+        DepositDuty::DeleteWithdrawalFundingOutpoints { deposit_idx } => {
+            delete_withdrawal_funding_outpoints(&output_handles, *deposit_idx).await
+        }
         DepositDuty::Nag { duty } => {
             let (deposit_idx, operator_idx, nag_request) = match duty {
                 NagDuty::NagDepositNonce {
@@ -594,9 +597,17 @@ async fn fulfill_withdrawal(
 
     info!(%deposit_idx, %txid, "withdrawal fulfillment confirmed");
 
-    // The funding outpoints are now spent on-chain; drop the persisted row so the funds table
-    // doesn't grow unbounded. Failure to delete is non-fatal — `wallet.sync()` will observe the
-    // spend and unlease the outpoints regardless.
+    Ok(())
+}
+
+/// Deletes the persisted withdrawal-funding outpoints for `deposit_idx`. Emitted by the deposit
+/// state machine on `Assigned -> Fulfilled`, so at this point retry-tick can no longer re-issue
+/// `FulfillWithdrawalRequest` and the persisted row is safe to drop. Failure is non-fatal — the
+/// outpoints are already spent on-chain.
+async fn delete_withdrawal_funding_outpoints(
+    output_handles: &OutputHandles,
+    deposit_idx: DepositIdx,
+) -> Result<(), ExecutorError> {
     if let Err(e) = output_handles
         .db
         .delete_withdrawal_funding_outpoints(deposit_idx)
@@ -604,7 +615,6 @@ async fn fulfill_withdrawal(
     {
         warn!(%deposit_idx, ?e, "failed to delete persisted withdrawal funding outpoints");
     }
-
     Ok(())
 }
 

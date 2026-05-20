@@ -355,17 +355,25 @@ impl GraphSM {
                         partial_signatures: BTreeMap::new(),
                     };
 
-                    return Ok(GSMOutput::with_duties(vec![
-                        GraphDuty::PublishGraphPartials {
-                            graph_idx: self.context().graph_idx(),
-                            agg_nonces,
-                            sighashes,
-                            graph_inpoints,
-                            graph_tweaks,
-                            claim_txid,
-                            ordered_pubkeys,
-                        },
-                    ]));
+                    let mut duties = vec![GraphDuty::PublishGraphPartials {
+                        graph_idx: self.context().graph_idx(),
+                        agg_nonces,
+                        sighashes,
+                        graph_inpoints,
+                        graph_tweaks,
+                        claim_txid,
+                        ordered_pubkeys,
+                    }];
+                    // Only the graph owner persisted a claim-funding outpoint for this graph,
+                    // so only the owner emits the cleanup duty. Past `AdaptorsVerified`, the
+                    // nag-receive handler rejects `GenerateGraphData`, so the persisted row is
+                    // no longer load-bearing.
+                    if graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx() {
+                        duties.push(GraphDuty::DeleteClaimFundingOutpoint {
+                            graph_idx: graph_ctx.graph_idx(),
+                        });
+                    }
+                    return Ok(GSMOutput::with_duties(duties));
                 }
 
                 Ok(GSMOutput::default())

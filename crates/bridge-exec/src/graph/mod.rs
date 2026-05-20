@@ -189,6 +189,13 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishContestedPayout {
             signed_contested_payout_tx,
         } => publish_contested_payout(&output_handles, signed_contested_payout_tx).await,
+        GraphDuty::DeleteClaimFundingOutpoint { graph_idx } => {
+            info!(
+                ?graph_idx,
+                "executing GraphDuty::DeleteClaimFundingOutpoint"
+            );
+            common::delete_claim_funding_outpoint(&output_handles, *graph_idx).await
+        }
         GraphDuty::Nag { duty } => {
             let (graph_idx, operator_idx, nag_request) = match duty {
                 strata_bridge_sm::graph::duties::NagDuty::NagGraphData {

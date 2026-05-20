@@ -83,6 +83,10 @@ pub async fn execute_stake_duty(
             info!(unstaking_txid=%signed_tx.compute_txid(), "executing StakeDuty::PublishUnstakingTx");
             unstaking::publish_unstaking_tx(&output_handles, signed_tx).await
         }
+        StakeDuty::DeleteStakeFundingReservation { operator_idx } => {
+            info!(%operator_idx, "executing StakeDuty::DeleteStakeFundingReservation");
+            staking::delete_stake_funding_reservation(&output_handles, *operator_idx).await
+        }
         StakeDuty::Nag(nag_duty) => {
             info!(?nag_duty, "executing StakeDuty::Nag");
             nag::execute_nag_duty(&output_handles, nag_duty).await

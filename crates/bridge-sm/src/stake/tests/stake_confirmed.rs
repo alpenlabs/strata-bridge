@@ -1,7 +1,9 @@
 //! Unit tests for [`StakeSM::process_stake_confirmed`].
 
 use super::*;
-use crate::stake::{errors::SSMError, events::StakeConfirmedEvent, state::StakeState};
+use crate::stake::{
+    duties::StakeDuty, errors::SSMError, events::StakeConfirmedEvent, state::StakeState,
+};
 
 fn signed_state() -> StakeState {
     StakeState::UnstakingSigned {
@@ -56,6 +58,9 @@ fn invalid_states() -> [StakeState; 2] {
 
 #[test]
 fn accept_stake_tx_from_signed() {
+    // Own-stake happy path: emits the stake-funding-reservation cleanup duty so the persisted
+    // row no longer prevents idempotent re-broadcast (peer nags can no longer reach
+    // `PublishStakeData` past `Confirmed`).
     test_stake_transition(StakeTransition {
         from_state: signed_state(),
         event: StakeConfirmedEvent {
@@ -68,7 +73,9 @@ fn accept_stake_tx_from_signed() {
             summary: *TEST_GRAPH_SUMMARY,
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
-        expected_duties: vec![],
+        expected_duties: vec![StakeDuty::DeleteStakeFundingReservation {
+            operator_idx: TEST_POV_IDX,
+        }],
         expected_signals: vec![],
     });
 }
