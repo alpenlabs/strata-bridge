@@ -4,6 +4,9 @@
 //! [`ProofBackendConfig`] into a ready-to-use [`BridgeProofHost`].
 
 use anyhow::{Context, Result};
+#[cfg(feature = "sp1")]
+use std::time::Instant;
+use tracing::info;
 use zkaleido_native_adapter::NativeHost;
 #[cfg(feature = "sp1")]
 use zkaleido_sp1_host::SP1Host;
@@ -43,19 +46,33 @@ async fn build_bridge_proof_host(cfg: &ProofBackendConfig) -> Result<BridgeProof
     match cfg {
         #[cfg(feature = "sp1")]
         ProofBackendConfig::Sp1 { elf_path } => {
+            info!(elf_path = %elf_path.display(), "sp1 host: reading guest ELF");
+            let read_started = Instant::now();
             let elf = std::fs::read(elf_path).with_context(|| {
                 format!(
                     "failed to read bridge-proof guest ELF at {}",
                     elf_path.display()
                 )
             })?;
-            Ok(BridgeProofHost::Sp1(Box::new(SP1Host::init(&elf).await)))
+            info!(
+                elf_bytes = elf.len(),
+                elapsed_ms = read_started.elapsed().as_millis() as u64,
+                "sp1 host: ELF read complete; initializing SP1Host",
+            );
+            let init_started = Instant::now();
+            let host = SP1Host::init(&elf).await;
+            info!(
+                elapsed_ms = init_started.elapsed().as_millis() as u64,
+                "sp1 host: SP1Host::init complete",
+            );
+            Ok(BridgeProofHost::Sp1(Box::new(host)))
         }
         ProofBackendConfig::Native {
             schnorr_signing_key,
         } => {
             use crate::statements::process_bridge_proof;
 
+            info!("native host: initializing");
             Ok(BridgeProofHost::Native(NativeHost::new(
                 schnorr_signing_key.clone(),
                 process_bridge_proof,

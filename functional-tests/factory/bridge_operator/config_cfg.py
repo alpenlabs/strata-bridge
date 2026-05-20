@@ -105,7 +105,8 @@ class BridgeConfigParams:
 @dataclass
 class BridgeProofConfig:
     kind: str
-    schnorr_signing_key: str
+    schnorr_signing_key: str | None = None
+    elf_path: str | None = None
 
 
 @dataclass

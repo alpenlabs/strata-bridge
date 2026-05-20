@@ -11434,6 +11434,7 @@ dependencies = [
  "strata-codec",
  "strata-merkle",
  "strata-predicate",
+ "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
  "zkaleido-native-adapter",
  "zkaleido-sp1-host",

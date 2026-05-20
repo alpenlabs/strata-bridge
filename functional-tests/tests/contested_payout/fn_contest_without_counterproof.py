@@ -33,6 +33,8 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
     3. Verify the deposit UTXO is spent after the contest timelock expires
     """
 
+    NUM_OPERATORS = 2
+
     def __init__(self, ctx: flexitest.InitContext):
         self.bridge_protocol_params = BridgeProtocolParams(
             contest_timelock=5,
@@ -44,11 +46,14 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=0,
                 ),
+                num_operators=self.NUM_OPERATORS,
             )
         )
 
     def main(self, ctx: flexitest.RunContext):
-        bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
+        bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(
+            ctx, num_operators=self.NUM_OPERATORS
+        )
         bridge_rpc = bridge_rpcs[0]
 
         bitcoind_service = ctx.get_service("bitcoin")

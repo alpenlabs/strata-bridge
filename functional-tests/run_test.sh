@@ -27,8 +27,21 @@ else
     BIN_PATH=$(realpath target/debug/)
 fi
 
+# Opt-in SP1 proving mode: build the guest ELF with stub params and
+# enable the `sp1` feature on the bridge node. Path is exported for
+# generate_config_toml to pick up.
+BRIDGE_FEATURES=""
+if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
+    echo "SP1 proving mode: building guest ELF with stub params (may take several minutes)"
+    SKIP_PARAMS=1 cargo build --release -p strata-bridge-sp1-guest-builder
+    BRIDGE_FEATURES="--features sp1"
+    export BRIDGE_PROOF_SP1_ELF="$(realpath guest-builder/sp1/elfs/bridge-proof.elf)"
+    export SP1_PROVER="${SP1_PROVER:-mock}"
+    echo "SP1 ELF: $BRIDGE_PROOF_SP1_ELF (SP1_PROVER=$SP1_PROVER)"
+fi
+
 # Build all required binaries (only strata-bridge and secret-service gets coverage instrumentation)
-RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-bridge $CARGO_ARGS
+RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-bridge $CARGO_ARGS $BRIDGE_FEATURES
 RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO_ARGS
 cargo build --bin dev-cli $CARGO_ARGS
 

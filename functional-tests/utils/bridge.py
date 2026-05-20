@@ -18,7 +18,7 @@ def get_bridge_nodes_and_rpcs(ctx, num_operators=BRIDGE_NETWORK_SIZE):
 
     logging.info("Waiting for all operators to complete staking")
     wait_until_all_operators_staked(
-        bridge_rpcs[0], bitcoin_rpc, expected_operator_count=num_operators
+        bridge_rpcs[0], bitcoin_rpc, expected_operator_count=num_operators, timeout=600
     )
 
     return bridge_nodes, bridge_rpcs

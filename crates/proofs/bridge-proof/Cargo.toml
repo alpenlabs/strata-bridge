@@ -18,7 +18,6 @@ strata-codec.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 strata-predicate.workspace = true
 zkaleido = { workspace = true, features = ["ssz"] }
-zkaleido-native-adapter.workspace = true
 zkaleido-sp1-host = { workspace = true, optional = true }
 
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
@@ -31,6 +30,8 @@ serde_json.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proof-impl.workspace = true
 strata-asm-spec.workspace = true
+tracing.workspace = true
+zkaleido-native-adapter.workspace = true
 
 [features]
 default = []

@@ -1,3 +1,4 @@
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -125,17 +126,24 @@ def generate_config_toml(
             max_retries=1000,
             poll_interval=Duration(secs=2, nanos=0),
         ),
-        bridge_proof=BridgeProofConfig(
-            kind="native",
-            schnorr_signing_key=NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY,
-        ),
+        bridge_proof=_build_bridge_proof_config(),
     )
 
     with open(output_path, "w") as f:
-        config_dict = asdict(config)
+        config_dict = _strip_nones(asdict(config))
         # Fix the 'pass_' field name back to 'pass' for TOML
         config_dict["btc_client"]["pass"] = config_dict["btc_client"].pop("pass_")
         toml.dump(config_dict, f)
+
+
+def _build_bridge_proof_config() -> BridgeProofConfig:
+    sp1_elf = os.environ.get("BRIDGE_PROOF_SP1_ELF")
+    if sp1_elf:
+        return BridgeProofConfig(kind="sp1", elf_path=sp1_elf)
+    return BridgeProofConfig(
+        kind="native",
+        schnorr_signing_key=NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY,
+    )
 
 
 def generate_params_toml(
@@ -171,3 +179,11 @@ def generate_params_toml(
 
     with open(output_path, "w") as f:
         toml.dump(asdict(params), f)
+
+
+def _strip_nones(value):
+    if isinstance(value, dict):
+        return {k: _strip_nones(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_strip_nones(x) for x in value]
+    return value
