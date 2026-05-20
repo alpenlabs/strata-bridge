@@ -68,7 +68,7 @@ mod signer {
             let signer = Self::generate();
 
             let service_base_name = format!("{}-connector", signer.get_connector_name());
-            logging::init_from_env(&service_base_name, "connector-test");
+            logging::init_from_env(&service_base_name);
 
             let connector = signer.get_connector();
             let mut node = BitcoinNode::new();

@@ -408,7 +408,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn tx_drive_idempotence() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init_from_env("tx_drive_idempotence", "tx-drive-idempotence");
+        logging::init_from_env("tx_drive_idempotence");
 
         let (driver, bitcoind) = setup().await?;
 
@@ -482,7 +482,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn tx_drive_mempool() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init_from_env("tx_drive_idempotence", "tx-drive-idempotence");
+        logging::init_from_env("tx_drive_idempotence");
 
         let (driver, bitcoind) = setup().await?;
 

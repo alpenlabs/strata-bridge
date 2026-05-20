@@ -83,10 +83,7 @@ async fn connects_within(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bootstrap_enforces_transport_allowlist() -> anyhow::Result<()> {
-    logging::init_from_env(
-        "p2p-test-bootstrap-transport-allowlist",
-        "p2p-test-bootstrap-transport-allowlist",
-    );
+    logging::init_from_env("p2p-test-bootstrap-transport-allowlist");
 
     let victim_keypair = EdKeypair::generate();
     let attacker_keypair = EdKeypair::generate();

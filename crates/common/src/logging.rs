@@ -17,7 +17,11 @@ pub const DEFAULT_EXTRA_FILTER_DIRECTIVES: &[&str] =
     &["sp1_core_executor=warn", "jsonrpsee_server::server=warn"];
 
 /// Initializes logging with bridge-standard environment variables.
-pub fn init_from_env(service_base_name: &str, default_log_prefix: &str) {
+///
+/// This is intended for tests and small helpers. Production binaries should
+/// build [`LoggingInitConfig`] directly so observability options remain
+/// explicit.
+pub fn init_from_env(service_base_name: &str) {
     let service_label = get_service_label_from_env();
     let otlp_url = get_otlp_url_from_env();
 
@@ -28,7 +32,7 @@ pub fn init_from_env(service_base_name: &str, default_log_prefix: &str) {
         log_dir: None,
         log_file_prefix: None,
         json_format: None,
-        default_log_prefix,
+        default_log_prefix: service_base_name,
         enable_metrics_layer: false,
         extra_filter_directives: DEFAULT_EXTRA_FILTER_DIRECTIVES,
     });

@@ -22,7 +22,7 @@ fn mock_partial() -> musig2::PartialSignature {
 async fn dispatch_all_message_types() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 2;
 
-    logging::init_from_env("p2p-test-dispatch-all", "p2p-test-dispatch-all");
+    logging::init_from_env("p2p-test-dispatch-all");
 
     let Setup {
         mut operators,
@@ -187,7 +187,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
 async fn dispatch_direct_peer() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 2;
 
-    logging::init_from_env("p2p-test-dispatch-direct", "p2p-test-dispatch-direct");
+    logging::init_from_env("p2p-test-dispatch-direct");
 
     let Setup {
         mut operators,
