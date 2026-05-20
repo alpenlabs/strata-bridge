@@ -116,7 +116,8 @@ impl GeneralWallet for NativeGeneralWallet {
         _target_pkg_fee_rate: FeeRate,
         _exclude: &[OutPoint],
     ) -> Result<FundedPsbt, Self::Error> {
-        // TODO(STR-3439): wire up CPFP child construction during the tx-driver / RBF work.
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-3439>
+        // Wire up CPFP child construction during the tx-driver / RBF work.
         Err(NativeGeneralError::CpfpChildNotImplemented)
     }
 }
