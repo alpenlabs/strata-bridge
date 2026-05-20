@@ -9,3 +9,8 @@
 
 pub const BRIDGE_PROOF_ELF_PATH: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/elfs/bridge-proof.elf");
+
+/// Path to the `Sp1Groth16:<hex>` predicate string emitted next to the ELF by
+/// `build.rs`. Operators load this into their consensus params.
+pub const BRIDGE_PROOF_PREDICATE_PATH: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/elfs/bridge-proof.predicate");

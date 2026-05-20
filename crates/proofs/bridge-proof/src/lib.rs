@@ -24,3 +24,5 @@ cfg_if::cfg_if! {
 pub mod host;
 #[cfg(not(target_os = "zkvm"))]
 pub use host::{BridgeProofHost, ProofBackend, ProofBackendConfig};
+#[cfg(all(not(target_os = "zkvm"), feature = "sp1"))]
+pub use host::{sp1_groth16_predicate_key, sp1_groth16_predicate_string};

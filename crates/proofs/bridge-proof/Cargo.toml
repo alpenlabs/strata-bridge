@@ -7,9 +7,12 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+borsh = { workspace = true, optional = true }
 cfg-if.workspace = true
 moho-recursive-proof.workspace = true
 moho-types.workspace = true
+sp1-sdk = { workspace = true, optional = true }
+sp1-verifier = { workspace = true, optional = true }
 ssz.workspace = true
 ssz_derive.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
@@ -18,6 +21,9 @@ strata-codec.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 strata-predicate.workspace = true
 zkaleido = { workspace = true, features = ["ssz"] }
+zkaleido-sp1-groth16-verifier = { workspace = true, optional = true, features = [
+  "borsh",
+] }
 zkaleido-sp1-host = { workspace = true, optional = true }
 
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
@@ -35,4 +41,10 @@ zkaleido-native-adapter.workspace = true
 
 [features]
 default = []
-sp1 = ["dep:zkaleido-sp1-host"]
+sp1 = [
+  "dep:zkaleido-sp1-host",
+  "dep:borsh",
+  "dep:sp1-sdk",
+  "dep:sp1-verifier",
+  "dep:zkaleido-sp1-groth16-verifier",
+]

@@ -1,10 +1,10 @@
 import os
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import toml
 
-from constants import NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY
+from constants import NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY, NATIVE_TEST_BRIDGE_PROOF_VERIFYING_KEY
 from utils.utils import OperatorKeyInfo
 
 from .config_cfg import (
@@ -146,6 +146,15 @@ def _build_bridge_proof_config() -> BridgeProofConfig:
     )
 
 
+def resolve_bridge_proof_predicate() -> str:
+    """Predicate string matching the active bridge-proof backend."""
+    sp1_elf = os.environ.get("BRIDGE_PROOF_SP1_ELF")
+    if sp1_elf:
+        predicate_path = Path(sp1_elf).with_suffix(".predicate")
+        return predicate_path.read_text().strip()
+    return f"Bip340Schnorr:{NATIVE_TEST_BRIDGE_PROOF_VERIFYING_KEY}"
+
+
 def generate_params_toml(
     output_path: str,
     operator_key_infos: list[OperatorKeyInfo],
@@ -170,11 +179,16 @@ def generate_params_toml(
         for key in operator_key_infos
     ]
 
+    # Resolve the predicate from the active backend unless the test pinned one explicitly.
+    protocol = bridge_protocol_params
+    if protocol.bridge_proof_predicate is None:
+        protocol = replace(protocol, bridge_proof_predicate=resolve_bridge_proof_predicate())
+
     params = BridgeOperatorParams(
         network="regtest",
         genesis_height=genesis_height,
         keys=Keys(admin=operator_key_infos[0].MUSIG2_KEY, covenant=covenant),
-        protocol=bridge_protocol_params,
+        protocol=protocol,
     )
 
     with open(output_path, "w") as f:

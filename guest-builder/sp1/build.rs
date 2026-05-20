@@ -26,7 +26,8 @@ mod release {
     use sp1_build::{build_program_with_args, BuildArgs};
     use ssz::Encode;
     use strata_bridge_proof::{
-        load_genesis_from_paths, ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
+        load_genesis_from_paths, sp1_groth16_predicate_string, ASM_PARAMS_PATH_ENV,
+        ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
     };
 
     const SKIP_PARAMS_ENV: &str = "SKIP_PARAMS";
@@ -35,6 +36,7 @@ mod release {
     const STUB_MOHO_VK: &str = "stub/moho-vk.json";
     const GUEST_DIR: &str = "guest-bridge-proof";
     const ELF_NAME: &str = "bridge-proof.elf";
+    const PREDICATE_NAME: &str = "bridge-proof.predicate";
     const ELFS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/elfs");
 
     pub fn run() {
@@ -80,6 +82,18 @@ mod release {
         };
 
         build_program_with_args(GUEST_DIR, build_args);
+
+        // Emit the on-chain predicate identity for the freshly built ELF alongside it.
+        // Operators load this `Sp1Groth16:<hex>` string into their consensus params so the
+        // network actually verifies the Groth16-wrapped bridge proofs this guest produces.
+        let elf_path = Path::new(ELFS_DIR).join(ELF_NAME);
+        let elf = fs::read(&elf_path)
+            .unwrap_or_else(|e| panic!("read built ELF {}: {e}", elf_path.display()));
+        let predicate = sp1_groth16_predicate_string(&elf)
+            .unwrap_or_else(|e| panic!("derive sp1 groth16 predicate: {e}"));
+        let predicate_out_file = Path::new(ELFS_DIR).join(PREDICATE_NAME);
+        fs::write(&predicate_out_file, predicate)
+            .unwrap_or_else(|e| panic!("write {}: {e}", predicate_out_file.display()));
     }
 
     fn resolve_input(env_var: &str, stub_path: &str, skip: bool) -> PathBuf {
