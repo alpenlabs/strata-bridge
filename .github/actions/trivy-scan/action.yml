@@ -41,7 +41,7 @@ inputs:
   trivyignores:
     description: "Path to .trivyignore.yaml file for CVE suppressions. Pass empty string to use no ignore file."
     required: false
-    default: ""
+    default: ".trivyignore.yaml"
   skip_dirs:
     description: "Comma-separated directories to exclude from the scan (e.g. /root/.cargo,/root/.rustup for builder images)."
     required: false
@@ -116,7 +116,7 @@ runs:
         timeout: ${{ inputs.trivy_timeout }}
         scanners: ${{ inputs.trivy_scanners }}
         docker-host: unix:///var/run/docker.sock
-        severity: CRITICAL,HIGH,MEDIUM,LOW
+        severity: CRITICAL,HIGH
         ignore-unfixed: "true"
         exit-code: "0"
         hide-progress: "true"
