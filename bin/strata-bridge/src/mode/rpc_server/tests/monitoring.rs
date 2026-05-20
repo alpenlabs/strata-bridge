@@ -46,8 +46,8 @@ use zkaleido::{Proof, ProofReceipt, PublicValues};
 
 use super::super::monitoring::{
     active_claim_from_state, aggregate_signatures_response, bridge_duties_for_deposit,
-    duty_applies_to_operator, get_pending_assigned_operator, get_reimbursement_operator,
-    graph_data_response, operator_idx_from_registry, reimbursement_status, withdrawal_status,
+    bridge_duties_for_operator_pk, duty_applies_to_operator, get_pending_assigned_operator,
+    get_reimbursement_operator, graph_data_response, reimbursement_status, withdrawal_status,
 };
 
 const DEPOSIT_IDX: DepositIdx = 3;
@@ -483,7 +483,7 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
 }
 
 #[test]
-fn operator_idx_from_registry_checks_until_btc_key_is_found() {
+fn bridge_duties_for_operator_pk_filters_deposit_duties_by_each_operator_table() {
     let mut registry = SMRegistry::new(test_sm_config());
     let table_without_operator = test_operator_table(1, TEST_POV_IDX);
     let table_with_operator = test_operator_table(3, TEST_POV_IDX);
@@ -493,16 +493,68 @@ fn operator_idx_from_registry_checks_until_btc_key_is_found() {
             .expect("operator should be in test operator table"),
     );
 
-    registry
-        .insert_deposit(0, test_deposit_sm(0, table_without_operator))
-        .expect("first test deposit should be inserted");
-    registry
-        .insert_deposit(1, test_deposit_sm(1, table_with_operator))
-        .expect("second test deposit should be inserted");
+    let mut inactive_deposit = test_deposit_sm(0, table_without_operator);
+    inactive_deposit.state = DepositState::Created {
+        deposit_transaction: test_deposit_tx(),
+        last_block_height: 100,
+        claim_txids: BTreeMap::new(),
+    };
+    let mut active_deposit = test_deposit_sm(1, table_with_operator);
+    active_deposit.state = DepositState::Created {
+        deposit_transaction: test_deposit_tx(),
+        last_block_height: 100,
+        claim_txids: BTreeMap::new(),
+    };
 
-    let operator_idx = operator_idx_from_registry(&registry, &operator_pk);
+    registry
+        .insert_deposit(0, inactive_deposit)
+        .expect("inactive test deposit should be inserted");
+    registry
+        .insert_deposit(1, active_deposit)
+        .expect("active test deposit should be inserted");
 
-    assert_eq!(operator_idx, Some(OPERATOR_IDX));
+    let duties = bridge_duties_for_operator_pk(&registry, &operator_pk)
+        .expect("operator key should be found in at least one deposit");
+
+    assert_eq!(
+        duties,
+        vec![RpcBridgeDutyStatus::Deposit {
+            deposit_idx: 1,
+            deposit_request_txid: Txid::all_zeros(),
+        }]
+    );
+}
+
+#[test]
+fn bridge_duties_for_operator_pk_does_not_overproduce_deposit_duties() {
+    let mut registry = SMRegistry::new(test_sm_config());
+    let table_without_operator = test_operator_table(1, TEST_POV_IDX);
+    let table_with_operator = test_operator_table(3, TEST_POV_IDX);
+    let operator_pk = PublicKey::from(
+        table_with_operator
+            .idx_to_btc_key(&OPERATOR_IDX)
+            .expect("operator should be in test operator table"),
+    );
+
+    let mut inactive_deposit_with_duty = test_deposit_sm(0, table_without_operator);
+    inactive_deposit_with_duty.state = DepositState::Created {
+        deposit_transaction: test_deposit_tx(),
+        last_block_height: 100,
+        claim_txids: BTreeMap::new(),
+    };
+    let active_deposit_without_duty = test_deposit_sm(1, table_with_operator);
+
+    registry
+        .insert_deposit(0, inactive_deposit_with_duty)
+        .expect("inactive test deposit should be inserted");
+    registry
+        .insert_deposit(1, active_deposit_without_duty)
+        .expect("active test deposit should be inserted");
+
+    let duties = bridge_duties_for_operator_pk(&registry, &operator_pk)
+        .expect("operator key should be found in at least one deposit");
+
+    assert_eq!(duties, vec![]);
 }
 
 #[test]
