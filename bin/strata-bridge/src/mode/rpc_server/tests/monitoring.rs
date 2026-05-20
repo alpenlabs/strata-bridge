@@ -432,6 +432,7 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
             DepositState::PayoutDescriptorReceived {
                 last_block_height: 100,
                 assignee: OPERATOR_IDX,
+                fulfillment_txid: generate_txid(),
                 cooperative_payment_deadline: 120,
                 cooperative_payout_tx: test_cooperative_payout_tx(),
                 payout_nonces: pubnonces.clone(),
@@ -443,6 +444,7 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
             DepositState::PayoutNoncesCollected {
                 last_block_height: 100,
                 assignee: OPERATOR_IDX,
+                fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: test_cooperative_payout_tx(),
                 cooperative_payment_deadline: 120,
                 payout_nonces: pubnonces,
@@ -455,11 +457,18 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
             "CooperativePathFailed",
             DepositState::CooperativePathFailed {
                 assignee: OPERATOR_IDX,
+                fulfillment_txid: generate_txid(),
                 last_block_height: 100,
             },
             no_duties.clone(),
         ),
-        ("Spent", DepositState::Spent, no_duties.clone()),
+        (
+            "Spent",
+            DepositState::Spent {
+                fulfillment_txid: Some(generate_txid()),
+            },
+            no_duties.clone(),
+        ),
         ("Aborted", DepositState::Aborted, no_duties),
     ];
 
@@ -587,6 +596,7 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::PayoutDescriptorReceived {
                 last_block_height: 100,
                 assignee: OPERATOR_IDX,
+                fulfillment_txid: generate_txid(),
                 cooperative_payment_deadline: 120,
                 cooperative_payout_tx: test_cooperative_payout_tx(),
                 payout_nonces: pubnonces.clone(),
@@ -597,6 +607,7 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::PayoutNoncesCollected {
                 last_block_height: 100,
                 assignee: OPERATOR_IDX,
+                fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: test_cooperative_payout_tx(),
                 cooperative_payment_deadline: 120,
                 payout_nonces: pubnonces,
@@ -609,9 +620,21 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::CooperativePathFailed {
                 assignee: OPERATOR_IDX,
                 last_block_height: 100,
+                fulfillment_txid: generate_txid(),
             },
         ),
-        ("Spent", DepositState::Spent),
+        (
+            "Spent",
+            DepositState::Spent {
+                fulfillment_txid: Some(fulfillment_txid),
+            },
+        ),
+        (
+            "SpentWithoutFulfillmentTxid",
+            DepositState::Spent {
+                fulfillment_txid: None,
+            },
+        ),
         ("Aborted", DepositState::Aborted),
     ];
 
@@ -620,6 +643,18 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::Assigned { .. } => Some(RpcWithdrawalStatus::InProgress),
             DepositState::Fulfilled {
                 fulfillment_txid, ..
+            }
+            | DepositState::PayoutDescriptorReceived {
+                fulfillment_txid, ..
+            }
+            | DepositState::PayoutNoncesCollected {
+                fulfillment_txid, ..
+            }
+            | DepositState::CooperativePathFailed {
+                fulfillment_txid, ..
+            }
+            | DepositState::Spent {
+                fulfillment_txid: Some(fulfillment_txid),
             } => Some(RpcWithdrawalStatus::Complete {
                 fulfillment_txid: *fulfillment_txid,
             }),

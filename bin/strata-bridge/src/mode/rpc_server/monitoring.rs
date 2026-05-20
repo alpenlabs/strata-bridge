@@ -109,13 +109,42 @@ pub(super) fn operator_idx_from_registry(
 /// Derives the withdrawal RPC status from the deposit state.
 pub(super) const fn withdrawal_status(deposit_state: &DepositState) -> Option<RpcWithdrawalStatus> {
     match deposit_state {
+        // Unassigned states
+        DepositState::Created { .. }
+        | DepositState::GraphGenerated { .. }
+        | DepositState::DepositNoncesCollected { .. }
+        | DepositState::DepositPartialsCollected { .. }
+        | DepositState::Deposited { .. } => None,
+
+        // Withdrawal in progress states
         DepositState::Assigned { .. } => Some(RpcWithdrawalStatus::InProgress),
+
+        // Withdrawal completed states
         DepositState::Fulfilled {
+            fulfillment_txid, ..
+        }
+        | DepositState::PayoutDescriptorReceived {
+            fulfillment_txid, ..
+        }
+        | DepositState::PayoutNoncesCollected {
+            fulfillment_txid, ..
+        }
+        | DepositState::CooperativePathFailed {
             fulfillment_txid, ..
         } => Some(RpcWithdrawalStatus::Complete {
             fulfillment_txid: *fulfillment_txid,
         }),
-        _ => None,
+
+        // Terminal states
+        DepositState::Spent {
+            fulfillment_txid: Some(fulfillment_txid),
+        } => Some(RpcWithdrawalStatus::Complete {
+            fulfillment_txid: *fulfillment_txid,
+        }),
+        DepositState::Spent {
+            fulfillment_txid: None,
+        }
+        | DepositState::Aborted => None,
     }
 }
 
