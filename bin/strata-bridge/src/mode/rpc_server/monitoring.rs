@@ -33,7 +33,7 @@ pub(super) const fn stake_state_to_rpc(state: &StakeState) -> RpcStakeState {
     }
 }
 
-pub(super) const fn get_assigned_operator(state: &DepositState) -> Option<OperatorIdx> {
+pub(super) const fn get_pending_assigned_operator(state: &DepositState) -> Option<OperatorIdx> {
     match state {
         DepositState::Assigned { assignee, .. }
         | DepositState::Fulfilled { assignee, .. }
@@ -41,6 +41,17 @@ pub(super) const fn get_assigned_operator(state: &DepositState) -> Option<Operat
         | DepositState::PayoutNoncesCollected { assignee, .. }
         | DepositState::CooperativePathFailed { assignee, .. } => Some(*assignee),
         _ => None,
+    }
+}
+
+/// Returns the operator whose graph should back reimbursement status for this deposit state.
+pub(super) const fn get_reimbursement_operator(state: &DepositState) -> Option<OperatorIdx> {
+    match state {
+        DepositState::Spent {
+            assignee: Some(assignee),
+            ..
+        } => Some(*assignee),
+        _ => get_pending_assigned_operator(state),
     }
 }
 
@@ -138,11 +149,13 @@ pub(super) const fn withdrawal_status(deposit_state: &DepositState) -> Option<Rp
         // Terminal states
         DepositState::Spent {
             fulfillment_txid: Some(fulfillment_txid),
+            ..
         } => Some(RpcWithdrawalStatus::Complete {
             fulfillment_txid: *fulfillment_txid,
         }),
         DepositState::Spent {
             fulfillment_txid: None,
+            ..
         }
         | DepositState::Aborted => None,
     }

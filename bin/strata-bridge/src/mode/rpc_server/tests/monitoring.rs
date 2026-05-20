@@ -46,8 +46,8 @@ use zkaleido::{Proof, ProofReceipt, PublicValues};
 
 use super::super::monitoring::{
     active_claim_from_state, aggregate_signatures_response, bridge_duties_for_deposit,
-    duty_applies_to_operator, graph_data_response, operator_idx_from_registry,
-    reimbursement_status, withdrawal_status,
+    duty_applies_to_operator, get_pending_assigned_operator, get_reimbursement_operator,
+    graph_data_response, operator_idx_from_registry, reimbursement_status, withdrawal_status,
 };
 
 const DEPOSIT_IDX: DepositIdx = 3;
@@ -466,6 +466,7 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
             "Spent",
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
+                assignee: Some(OPERATOR_IDX),
             },
             no_duties.clone(),
         ),
@@ -521,6 +522,17 @@ fn duty_applies_to_operator_matches_withdrawal_assignee() {
         &withdrawal_duty,
         OPERATOR_IDX + 1
     ));
+}
+
+#[test]
+fn reimbursement_operator_uses_terminal_spent_assignee_without_marking_it_pending() {
+    let state = DepositState::Spent {
+        fulfillment_txid: Some(generate_txid()),
+        assignee: Some(OPERATOR_IDX),
+    };
+
+    assert_eq!(get_reimbursement_operator(&state), Some(OPERATOR_IDX));
+    assert_eq!(get_pending_assigned_operator(&state), None);
 }
 
 #[test]
@@ -627,12 +639,14 @@ fn withdrawal_status_reports_each_deposit_state() {
             "Spent",
             DepositState::Spent {
                 fulfillment_txid: Some(fulfillment_txid),
+                assignee: Some(OPERATOR_IDX),
             },
         ),
         (
             "SpentWithoutFulfillmentTxid",
             DepositState::Spent {
                 fulfillment_txid: None,
+                assignee: None,
             },
         ),
         ("Aborted", DepositState::Aborted),
@@ -655,6 +669,7 @@ fn withdrawal_status_reports_each_deposit_state() {
             }
             | DepositState::Spent {
                 fulfillment_txid: Some(fulfillment_txid),
+                ..
             } => Some(RpcWithdrawalStatus::Complete {
                 fulfillment_txid: *fulfillment_txid,
             }),
