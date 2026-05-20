@@ -28,11 +28,8 @@ pub fn load_genesis_from_paths(
     moho_vk_path: &Path,
 ) -> BridgeProofGenesis {
     let asm_bytes = read_or_panic("asm-params", asm_params_path);
-    // let asm_vk = parse_predicate_json(&read_or_panic("asm-vk", asm_vk_path));
-    // let moho_vk = parse_predicate_json(&read_or_panic("moho-vk", moho_vk_path));
-    let _ = (asm_vk_path, moho_vk_path);
-    let asm_vk = PredicateKey::always_accept();
-    let moho_vk = PredicateKey::always_accept();
+    let asm_vk = parse_predicate_json(&read_or_panic("asm-vk", asm_vk_path));
+    let moho_vk = parse_predicate_json(&read_or_panic("moho-vk", moho_vk_path));
 
     let genesis_moho_state = derive_anchor_attestation(&asm_bytes, asm_vk);
 

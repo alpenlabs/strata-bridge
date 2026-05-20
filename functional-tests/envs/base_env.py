@@ -1,22 +1,21 @@
+import os
 from pathlib import Path
 
 import flexitest
 
 from constants import (
+    GENERATED_DIR,
     NATIVE_TEST_ASM_SIGNING_KEY,
-    NATIVE_TEST_ASM_VERIFYING_KEY,
     NATIVE_TEST_MOHO_SIGNING_KEY,
-    NATIVE_TEST_MOHO_VERIFYING_KEY,
 )
 from factory.asm_rpc.config_cfg import (
     Duration,
     NativeBackend,
     OrchestratorConfig,
 )
-from factory.bridge_operator.asm_cfg import build_asm_params
+from factory.bridge_operator.asm_cfg import copy_rollup_params, write_rollup_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
-from factory.common.asm_params import write_asm_params_json
 from factory.fdb import generate_fdb_root_directory
 from utils.mosaic import get_peer_ids
 from utils.utils import (
@@ -81,12 +80,27 @@ class BaseEnv(flexitest.EnvConfig):
         brpc = bitcoind.create_rpc()
         wait_until_bitcoind_ready(brpc, timeout=10)
 
-        # Create new wallet
-        brpc.proxy.createwallet(bitcoind.get_prop("walletname"))
-        wallet_addr = brpc.proxy.getnewaddress()
+        walletname = bitcoind.get_prop("walletname")
+        if self.btc_config.external:
+            # run_test.sh (SP1 mode) may have already created the wallet and mined to the
+            # genesis height on this externally-managed node. Load it instead of creating,
+            # and only mine the shortfall.
+            if walletname not in brpc.proxy.listwallets():
+                try:
+                    brpc.proxy.loadwallet(walletname)
+                except Exception:
+                    brpc.proxy.createwallet(walletname)
+            wallet_addr = brpc.proxy.getnewaddress()
+            shortfall = self.initial_blocks - brpc.proxy.getblockcount()
+            if shortfall > 0:
+                brpc.proxy.generatetoaddress(shortfall, wallet_addr)
+        else:
+            # Create new wallet
+            brpc.proxy.createwallet(walletname)
+            wallet_addr = brpc.proxy.getnewaddress()
 
-        # Mine initial blocks to have usable funds
-        brpc.proxy.generatetoaddress(self.initial_blocks, wallet_addr)
+            # Mine initial blocks to have usable funds
+            brpc.proxy.generatetoaddress(self.initial_blocks, wallet_addr)
 
         # Start automatic block generation
         miner = None
@@ -145,24 +159,23 @@ class BaseEnv(flexitest.EnvConfig):
         genesis_height = int(self.initial_blocks)
         self._bridge_genesis_height = genesis_height
 
-        asm_params = build_asm_params(
-            bitcoind_rpc, self.operator_key_infos, genesis_height, self._asm_config
-        )
-        envdd_path = Path(ectx.envdd_path)
-        generated_dir = envdd_path / "generated"
-        generated_dir.mkdir(parents=True, exist_ok=True)
-        asm_params_path = generated_dir / "asm-params.json"
-        self._rollup_params_path = write_asm_params_json(asm_params_path, asm_params)
+        generated_dir = Path(ectx.envdd_path) / GENERATED_DIR
 
-        # The asm-runner's native asm/moho hosts sign with NATIVE_TEST_{ASM,MOHO}_SIGNING_KEY;
-        # the bridge proof's genesis must carry the matching BIP-340 x-only pubkeys.
-        asm_vk_path = generated_dir / "asm-vk.json"
-        asm_vk_path.write_text(f'"Bip340Schnorr:{NATIVE_TEST_ASM_VERIFYING_KEY}"\n')
-        self._asm_vk_path = asm_vk_path.as_posix()
-
-        moho_vk_path = generated_dir / "moho-vk.json"
-        moho_vk_path.write_text(f'"Bip340Schnorr:{NATIVE_TEST_MOHO_VERIFYING_KEY}"\n')
-        self._moho_vk_path = moho_vk_path.as_posix()
+        # In SP1 proving mode run_test.sh pre-generates these params from the external L1
+        # and bakes them into the guest ELF. Reuse the exact files so the runtime
+        # asm-runner anchors to the same genesis the ELF was built against.
+        prebuilt_dir = os.environ.get("BRIDGE_PROOF_SP1_PARAMS_DIR")
+        if prebuilt_dir:
+            params = copy_rollup_params(prebuilt_dir, generated_dir)
+        else:
+            params = write_rollup_params(
+                bitcoind_rpc,
+                self.operator_key_infos,
+                genesis_height,
+                self._asm_config,
+                generated_dir,
+            )
+        self._rollup_params_path, self._asm_vk_path, self._moho_vk_path = params
 
     def create_operator(
         self,

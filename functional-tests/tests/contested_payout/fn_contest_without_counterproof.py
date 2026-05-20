@@ -38,6 +38,9 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
     NUM_OPERATORS = 2
 
     def __init__(self, ctx: flexitest.InitContext):
+        # In SP1 proving mode the operator set is baked into the guest ELF by run_test.sh;
+        # read the shared count so the running operators match the baked asm-params.
+        self.NUM_OPERATORS = int(os.environ.get("BRIDGE_PROOF_SP1_NUM_OPERATORS", "2"))
         self.bridge_protocol_params = BridgeProtocolParams(
             contest_timelock=5,
             ack_timelock=10,
@@ -61,7 +64,7 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
                     # re-emits the proof duty every tick while the graph sits in
                     # Contested. Use a long retry interval here so the proof isn't
                     # regenerated from scratch each second.
-                    retry_interval_secs=600,
+                    retry_interval_secs=120,
                 ),
                 num_operators=self.NUM_OPERATORS,
             )

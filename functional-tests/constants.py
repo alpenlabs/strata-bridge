@@ -8,6 +8,13 @@ DEFAULT_LOG_LEVEL = "DEBUG"
 ASM_MAGIC_BYTES = "ALPN"
 MOSAIC_DIR = "mosaic"
 
+# Rollup-param artifacts written under each env's `GENERATED_DIR`, consumed by the
+# asm-runner, the bridge-proof host, and (when baking real params) the SP1 guest ELF.
+GENERATED_DIR = "generated"
+ASM_PARAMS_FILE = "asm-params.json"
+ASM_VK_FILE = "asm-vk.json"
+MOHO_VK_FILE = "moho-vk.json"
+
 # Deposit Transaction output indices
 DT_DEPOSIT_VOUT = 1  # Deposit funds locked in N/N taproot
 

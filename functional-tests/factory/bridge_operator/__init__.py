@@ -5,7 +5,13 @@ from pathlib import Path
 
 import flexitest
 
-from constants import BRIDGE_NODE_DIR
+from constants import (
+    ASM_PARAMS_FILE,
+    ASM_VK_FILE,
+    BRIDGE_NODE_DIR,
+    GENERATED_DIR,
+    MOHO_VK_FILE,
+)
 from rpc import inject_service_create_rpc
 from utils.service_names import get_mtls_cred_path, get_operator_service_name
 from utils.utils import OperatorKeyInfo
@@ -148,10 +154,10 @@ class BridgeOperatorFactory(flexitest.Factory):
         env = {
             **_get_fdb_env(),
             "BRIDGE_PROOF_ASM_PARAMS_PATH": str(
-                (envdd_path / "generated" / "asm-params.json").resolve()
+                (envdd_path / GENERATED_DIR / ASM_PARAMS_FILE).resolve()
             ),
-            "BRIDGE_PROOF_ASM_VK_PATH": str((envdd_path / "generated" / "asm-vk.json").resolve()),
-            "BRIDGE_PROOF_MOHO_VK_PATH": str((envdd_path / "generated" / "moho-vk.json").resolve()),
+            "BRIDGE_PROOF_ASM_VK_PATH": str((envdd_path / GENERATED_DIR / ASM_VK_FILE).resolve()),
+            "BRIDGE_PROOF_MOHO_VK_PATH": str((envdd_path / GENERATED_DIR / MOHO_VK_FILE).resolve()),
         }
         svc = ProcServiceWithEnv(
             props,

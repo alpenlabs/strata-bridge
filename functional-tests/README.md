@@ -124,6 +124,11 @@ regtest `bitcoind` (the `network-extbtc` environment).
    ./run_test.sh -t tests/contested_payout/fn_contest_without_counterproof.py
    ```
 
+   `run_test.sh` mines the external L1 to the genesis height, generates `asm-params.json`
+   from it, and bakes it into the guest ELF (no manual params step) so proofs verify
+   against the actual chain. `BRIDGE_PROOF_SP1_NUM_OPERATORS` (default 2) must match the
+   target test's operator count.
+
 ## Running with code coverage
 
 ```bash

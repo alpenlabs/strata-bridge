@@ -33,28 +33,6 @@ else
     BIN_PATH=$(realpath target/debug/)
 fi
 
-# Opt-in SP1 proving mode: build the guest ELF with stub params and
-# enable the `sp1` feature on the bridge node. Path is exported for
-# generate_config_toml to pick up.
-#
-# The mock-vs-real choice is driven entirely by SP1_PROVER, which every
-# operator's bridge node inherits from this exported env:
-#   - unset / "mock": fast mock proofs (default; no real proving)
-#   - "cpu" / "cuda" / "network": real SP1 proving (much slower)
-BRIDGE_FEATURES=""
-if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
-    export SP1_PROVER="${SP1_PROVER:-mock}"
-    if [ "$SP1_PROVER" = "mock" ]; then
-        echo "SP1 proving mode (mock): building guest ELF with stub params (may take several minutes)"
-    else
-        echo "SP1 proving mode (real, SP1_PROVER=$SP1_PROVER): building guest ELF with stub params; real proving will be slow"
-    fi
-    SKIP_PARAMS=1 cargo build --release -p strata-bridge-sp1-guest-builder
-    BRIDGE_FEATURES="--features sp1"
-    export BRIDGE_PROOF_SP1_ELF="$(realpath guest-builder/sp1/elfs/bridge-proof.elf)"
-    echo "SP1 ELF: $BRIDGE_PROOF_SP1_ELF (SP1_PROVER=$SP1_PROVER)"
-fi
-
 # Validate the external Bitcoin contract (network-extbtc env) before the slow build.
 if [ "$BRIDGE_EXTERNAL_BITCOIN" = "1" ]; then
     : "${BITCOIN_RPC_URL:?set BITCOIN_RPC_URL=http://host:port for external bitcoin}"
@@ -67,6 +45,36 @@ if [ "$BRIDGE_EXTERNAL_BITCOIN" = "1" ]; then
     : "${BITCOIN_ZMQ_RAWTX_PORT:?set BITCOIN_ZMQ_RAWTX_PORT for external bitcoin}"
     : "${BITCOIN_ZMQ_SEQUENCE_PORT:?set BITCOIN_ZMQ_SEQUENCE_PORT for external bitcoin}"
     echo "External bitcoin mode: $BITCOIN_RPC_URL (zmq $BITCOIN_ZMQ_HOST), use env 'network-extbtc'"
+fi
+
+# Opt-in SP1 proving mode: build the guest ELF and enable the `sp1` feature on the bridge
+# node. The mock-vs-real choice is driven entirely by SP1_PROVER, which every operator's
+# bridge node inherits from this exported env:
+#   - unset / "mock": fast mock proofs (default; no real proving)
+#   - "cpu" / "cuda" / "network": real SP1 proving (much slower)
+#
+# With external bitcoin, generate asm-params from the live L1 (mining to genesis height)
+# and bake them into the ELF so proofs verify against the actual chain; otherwise build
+# with bundled stub params.
+BRIDGE_FEATURES=""
+if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
+    export SP1_PROVER="${SP1_PROVER:-mock}"
+    if [ "$BRIDGE_EXTERNAL_BITCOIN" = "1" ]; then
+        export BRIDGE_PROOF_SP1_PARAMS_DIR="$(realpath functional-tests)/_sp1_params"
+        mkdir -p "$BRIDGE_PROOF_SP1_PARAMS_DIR"
+        echo "SP1 proving mode (SP1_PROVER=$SP1_PROVER): generating asm-params from external L1 $BITCOIN_RPC_URL"
+        ( cd functional-tests && uv run python gen_sp1_params.py )
+        export BRIDGE_PROOF_ASM_PARAMS_PATH="$BRIDGE_PROOF_SP1_PARAMS_DIR/asm-params.json"
+        export BRIDGE_PROOF_ASM_VK_PATH="$BRIDGE_PROOF_SP1_PARAMS_DIR/asm-vk.json"
+        export BRIDGE_PROOF_MOHO_VK_PATH="$BRIDGE_PROOF_SP1_PARAMS_DIR/moho-vk.json"
+        cargo build --release -p strata-bridge-sp1-guest-builder
+    else
+        echo "SP1 proving mode (SP1_PROVER=$SP1_PROVER): building guest ELF with stub params (may take several minutes)"
+        SKIP_PARAMS=1 cargo build --release -p strata-bridge-sp1-guest-builder
+    fi
+    BRIDGE_FEATURES="--features sp1"
+    export BRIDGE_PROOF_SP1_ELF="$(realpath guest-builder/sp1/elfs/bridge-proof.elf)"
+    echo "SP1 ELF: $BRIDGE_PROOF_SP1_ELF (SP1_PROVER=$SP1_PROVER)"
 fi
 
 # Build all required binaries (only strata-bridge and secret-service gets coverage instrumentation)

@@ -14,3 +14,6 @@ migrations/
 
 # Local SP1 proving config (copied from sp1-env.bash.sample; holds secrets)
 sp1-env.bash
+
+# asm-params generated from the external L1 and baked into the SP1 guest ELF
+_sp1_params/
