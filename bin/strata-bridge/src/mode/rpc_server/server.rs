@@ -42,8 +42,9 @@ use tracing::{debug, info, warn};
 
 use super::monitoring::{
     active_claim_from_state, aggregate_signatures_response, bridge_duties_for_deposit,
-    duty_applies_to_operator, get_assigned_operator, graph_data_response,
-    operator_idx_from_registry, reimbursement_status, stake_state_to_rpc, withdrawal_status,
+    duty_applies_to_operator, get_pending_assigned_operator, get_reimbursement_operator,
+    graph_data_response, operator_idx_from_registry, reimbursement_status, stake_state_to_rpc,
+    withdrawal_status,
 };
 use crate::{
     config::{Config, RpcConfig},
@@ -380,7 +381,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             return Ok(None);
         };
 
-        let Some(assignee) = get_assigned_operator(deposit_state) else {
+        let Some(assignee) = get_reimbursement_operator(deposit_state) else {
             return Err(rpc_error(
                 ErrorCode::InvalidRequest,
                 "Deposit has no assigned operator",
@@ -410,7 +411,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             .await
             .deposits()
             .filter_map(|(&deposit_idx, dsm)| {
-                get_assigned_operator(dsm.state()).map(|_assignee| deposit_idx)
+                get_pending_assigned_operator(dsm.state()).map(|_assignee| deposit_idx)
             })
             .collect())
     }
@@ -428,7 +429,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             return Ok(None);
         };
 
-        let Some(assignee) = get_assigned_operator(deposit_state) else {
+        let Some(assignee) = get_pending_assigned_operator(deposit_state) else {
             return Ok(None);
         };
 
