@@ -74,6 +74,7 @@ jobs:
       # Advisory SARIF — runs even if the hard gate failed so findings are always visible
       # in the Security tab for triage.
       - name: Scan Cargo.lock with Trivy (SARIF — Security tab)
+        id: trivy_sarif_cargo
         if: always()
         continue-on-error: true
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
@@ -81,7 +82,7 @@ jobs:
           scan-type: fs
           scan-ref: .
           scanners: vuln
-          severity: CRITICAL,HIGH,MEDIUM,LOW
+          severity: CRITICAL,HIGH
           ignore-unfixed: "true"
           exit-code: "0"
           format: sarif
@@ -92,7 +93,7 @@ jobs:
           skip-setup-trivy: "true"
 
       - name: Upload SARIF to GitHub Security tab
-        if: always()
+        if: steps.trivy_sarif_cargo.outcome == 'success'
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
         with:
