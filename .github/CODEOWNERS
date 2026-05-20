@@ -79,6 +79,12 @@
 # CI/CD
 /.github/ @Rajil1213 @storopoli
 
+# Security and publish workflows
+/.github/workflows/security.yml @madan-oss @Rajil1213
+/.github/workflows/docker-publish-ecr.yml @madan-oss @Rajil1213
+/.github/actions/trivy-scan/ @madan-oss @Rajil1213
+/.trivyignore.yaml @madan-oss @Rajil1213
+
 # Nix
 **/*.nix @storopoli
 flake.lock @storopoli
