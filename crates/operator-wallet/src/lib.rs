@@ -271,13 +271,25 @@ impl<G: GeneralWallet> OperatorWallet<G> {
             self.release(prior);
         }
         let exclude = self.exclude_anchors_and_leases();
-        let funded = self
+        match self
             .general
             .build_cpfp_child(parent, anchor_vout, target_pkg_fee_rate, &exclude)
             .await
-            .map_err(Error::from_general)?;
-        self.lease(&funded.spent);
-        Ok(funded)
+        {
+            Ok(funded) => {
+                self.lease(&funded.spent);
+                Ok(funded)
+            }
+            Err(e) => {
+                // Restore the lease state torn down before selection so a retry observes the
+                // same world. Without this, a backend failure silently un-leases the prior
+                // child's funding inputs.
+                if let Some(prior) = replacing {
+                    self.lease(prior);
+                }
+                Err(Error::from_general(e))
+            }
+        }
     }
 
     // ── Cross-wallet (general → reserved) ──────────────────────────────────

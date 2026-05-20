@@ -69,8 +69,12 @@ pub trait GeneralWallet: Send + Sync {
         exclude: &[OutPoint],
     ) -> impl std::future::Future<Output = Result<FundedPsbt, Self::Error>> + Send;
 
-    /// Builds a v3 TRUC CPFP child for `parent`, spending the BIP-431 ephemeral anchor at
+    /// Builds a v3 TRUC CPFP child for `parent`, spending the keyed-Taproot anchor at
     /// `parent.output[anchor_vout]` plus one fee-paying input drawn from this wallet.
+    ///
+    /// The project uses a keyed-Taproot anchor at the segwit-dust minimum (`SEGWIT_MIN_AMOUNT`,
+    /// 330 sat) rather than a BIP-431 ephemeral P2A (value-0) output. Implementers must spend
+    /// the 330-sat anchor and account for its value when constructing the child.
     ///
     /// * `target_pkg_fee_rate` — sat-per-vbyte target for the (parent, child) package as a whole.
     /// * `exclude` — fee-paying-input selection skips these outpoints. Used to avoid re-selecting
