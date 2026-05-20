@@ -382,6 +382,7 @@ impl Arbitrary for DepositState {
                 DepositState::PayoutDescriptorReceived {
                     last_block_height: height,
                     assignee: TEST_ASSIGNEE,
+                    fulfillment_txid: generate_txid(),
                     cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
                     cooperative_payout_tx: test_cooperative_payout_txn(operator_desc),
                     payout_nonces: BTreeMap::new(),
@@ -397,6 +398,7 @@ impl Arbitrary for DepositState {
                 DepositState::PayoutNoncesCollected {
                     last_block_height: height,
                     assignee: TEST_ASSIGNEE,
+                    fulfillment_txid: generate_txid(),
                     cooperative_payout_tx: test_cooperative_payout_txn(operator_desc),
                     cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
                     payout_nonces: nonces,
@@ -407,8 +409,12 @@ impl Arbitrary for DepositState {
             block_height.prop_map(|height| DepositState::CooperativePathFailed {
                 last_block_height: height,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
             }),
-            Just(DepositState::Spent),
+            Just(DepositState::Spent {
+                fulfillment_txid: Some(generate_txid()),
+                assignee: Some(TEST_ASSIGNEE),
+            }),
             Just(DepositState::Aborted),
         ]
         .boxed()
@@ -488,7 +494,17 @@ impl Arbitrary for DepositEvent {
 
 /// Strategy for generating only terminal states.
 pub(super) fn arb_terminal_state() -> impl Strategy<Value = DepositState> {
-    prop_oneof![Just(DepositState::Spent), Just(DepositState::Aborted),]
+    prop_oneof![
+        Just(DepositState::Spent {
+            fulfillment_txid: Some(generate_txid()),
+            assignee: Some(TEST_ASSIGNEE),
+        }),
+        Just(DepositState::Spent {
+            fulfillment_txid: None,
+            assignee: None,
+        }),
+        Just(DepositState::Aborted),
+    ]
 }
 
 /// Strategy for generating only events which have been handled in STFs.

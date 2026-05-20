@@ -18,11 +18,12 @@ mod tests {
     #[test]
     fn test_payout_descriptor_received_from_fulfilled() {
         let operator_desc = random_p2tr_desc();
+        let fulfillment_txid = generate_txid();
 
         let state = DepositState::Fulfilled {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
-            fulfillment_txid: generate_txid(),
+            fulfillment_txid,
             fulfillment_height: LATER_BLOCK_HEIGHT,
             cooperative_payout_deadline: LATER_BLOCK_HEIGHT
                 + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
@@ -37,6 +38,7 @@ mod tests {
             expected_state: DepositState::PayoutDescriptorReceived {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT
                     + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
                 cooperative_payout_tx: test_cooperative_payout_txn(operator_desc),
@@ -125,6 +127,7 @@ mod tests {
             DepositState::PayoutDescriptorReceived {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
                 payout_nonces: BTreeMap::new(),
@@ -132,6 +135,7 @@ mod tests {
             DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: BTreeMap::new(),
@@ -141,8 +145,12 @@ mod tests {
             DepositState::CooperativePathFailed {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
             },
-            DepositState::Spent,
+            DepositState::Spent {
+                fulfillment_txid: Some(generate_txid()),
+                assignee: Some(TEST_ASSIGNEE),
+            },
             DepositState::Aborted,
         ];
 

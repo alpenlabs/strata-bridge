@@ -64,7 +64,7 @@ impl DepositSM {
             | DepositState::PayoutDescriptorReceived { .. }
             | DepositState::PayoutNoncesCollected { .. }
             | DepositState::CooperativePathFailed { .. }
-            | DepositState::Spent => {
+            | DepositState::Spent { .. } => {
                 Err(DSMError::duplicate(self.state.clone(), assignment.into()))
             }
 
@@ -169,6 +169,7 @@ impl DepositSM {
                 last_block_height,
                 assignee,
                 cooperative_payout_deadline,
+                fulfillment_txid,
                 ..
             } => {
                 let sender_idx = descriptor.operator_idx;
@@ -197,6 +198,7 @@ impl DepositSM {
                 self.state = DepositState::PayoutDescriptorReceived {
                     last_block_height: *last_block_height,
                     assignee: *assignee,
+                    fulfillment_txid: *fulfillment_txid,
                     cooperative_payment_deadline: *cooperative_payout_deadline,
                     cooperative_payout_tx,
                     payout_nonces: BTreeMap::new(),
@@ -265,6 +267,7 @@ impl DepositSM {
             DepositState::PayoutDescriptorReceived {
                 last_block_height,
                 assignee,
+                fulfillment_txid,
                 cooperative_payment_deadline,
                 cooperative_payout_tx,
                 payout_nonces,
@@ -300,6 +303,7 @@ impl DepositSM {
                     self.state = DepositState::PayoutNoncesCollected {
                         last_block_height: *last_block_height,
                         assignee,
+                        fulfillment_txid: *fulfillment_txid,
                         cooperative_payout_tx: cooperative_payout_tx.clone(),
                         cooperative_payment_deadline: *cooperative_payment_deadline,
                         payout_nonces: payout_nonces.clone(),
@@ -530,51 +534,69 @@ impl DepositSM {
         &mut self,
         payout_confirmed: &PayoutConfirmedEvent,
     ) -> DSMResult<DSMOutput> {
-        match self.state() {
+        let (fulfillment_txid, assignee) = match self.state() {
             // It must be the sweep transaction in case of a hard upgrade
-            DepositState::Deposited { .. }
+            DepositState::Deposited { .. } => (None, None),
             // It must be a cooperative payout transaction.
             // The assignee withholds their own partial and broadcasts the payout tx themselves,
             // In this case, we still want other nodes' state machines to transition from
             // `PayoutNoncesCollected` to `Spent`. This can also happen if there are network delays.
-            | DepositState::PayoutNoncesCollected { .. }
+            DepositState::PayoutNoncesCollected {
+                fulfillment_txid,
+                assignee,
+                ..
+            }
             // It can be a contested/uncontested payout transaction
             // It can also be a cooperative payout transaction due to delayed settlement of the
             // transaction on-chain or because each operator has a different configuration for how
             // long to wait till the cooperative payout path is considered failed.
-            | DepositState::CooperativePathFailed { .. } => {
-                payout_confirmed.tx
-                .input
-                .iter()
-                .any(|input| input.previous_output == self.context().deposit_outpoint)
-                .ok_or_else(|| DSMError::invalid_event(
+            | DepositState::CooperativePathFailed {
+                fulfillment_txid,
+                assignee,
+                ..
+            } => (Some(*fulfillment_txid), Some(*assignee)),
+            DepositState::Spent { .. } => {
+                return Err(DSMError::duplicate(
                     self.state().clone(),
                     payout_confirmed.clone().into(),
-                    Some(format!(
+                ));
+            }
+            _ => {
+                return Err(DSMError::invalid_event(
+                    self.state().clone(),
+                    payout_confirmed.clone().into(),
+                    None,
+                ));
+            }
+        };
+
+        payout_confirmed
+            .tx
+            .input
+            .iter()
+            .any(|input| input.previous_output == self.context().deposit_outpoint)
+            .ok_or_else(|| {
+                DSMError::rejected(
+                    self.state().clone(),
+                    payout_confirmed.clone().into(),
+                    format!(
                         "Transaction {} does not spend from the expected deposit outpoint {}",
                         payout_confirmed.tx.compute_txid(),
                         self.context().deposit_outpoint
-                    )),
-                ))?;
+                    ),
+                )
+            })?;
 
-                // Transition to Spent state
-                self.state = DepositState::Spent;
+        // Transition to Spent state
+        self.state = DepositState::Spent {
+            fulfillment_txid,
+            assignee,
+        };
 
-                // This is a terminal state
-                Ok(SMOutput {
-                    duties: vec![],
-                    signals: vec![],
-                })
-            }
-            DepositState::Spent => Err(DSMError::duplicate(
-                self.state().clone(),
-                payout_confirmed.clone().into(),
-            )),
-            _ => Err(DSMError::invalid_event(
-                self.state().clone(),
-                payout_confirmed.clone().into(),
-                None,
-            )),
-        }
+        // This is a terminal state
+        Ok(SMOutput {
+            duties: vec![],
+            signals: vec![],
+        })
     }
 }

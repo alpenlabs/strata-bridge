@@ -5,6 +5,7 @@ mod tests {
 
     use bitcoin::{Txid, hashes::Hash};
     use musig2::{AggNonce, PubNonce};
+    use strata_bridge_tx_graph::transactions::cooperative_payout::CooperativePayoutTx;
 
     use crate::{
         deposit::{
@@ -27,10 +28,11 @@ mod tests {
         musig2::KeyAggContext,
         AggNonce,
         Message,
-        strata_bridge_tx_graph::transactions::prelude::CooperativePayoutTx,
+        CooperativePayoutTx,
     ) {
         let signers = test_operator_signers();
         let operator_desc = random_p2tr_desc();
+        let fulfillment_txid = generate_txid();
 
         // Build cooperative payout tx and get signing info
         let payout_tx = test_cooperative_payout_txn(operator_desc);
@@ -48,6 +50,7 @@ mod tests {
         let state = DepositState::PayoutNoncesCollected {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee,
+            fulfillment_txid,
             cooperative_payout_tx: payout_tx.clone(),
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             payout_nonces: nonces,
@@ -64,8 +67,15 @@ mod tests {
         let (state, signers, key_agg_ctx, agg_nonce, message, cooperative_payout_tx) =
             create_payout_partial_test_setup(TEST_ASSIGNEE);
 
+        let test_fulfillment_txid;
         // Extract nonces from state for expected state construction
-        let nonces = if let DepositState::PayoutNoncesCollected { payout_nonces, .. } = &state {
+        let nonces = if let DepositState::PayoutNoncesCollected {
+            payout_nonces,
+            fulfillment_txid,
+            ..
+        } = &state
+        {
+            test_fulfillment_txid = *fulfillment_txid;
             payout_nonces.clone()
         } else {
             panic!("Expected PayoutNoncesCollected state");
@@ -92,6 +102,7 @@ mod tests {
             expected_state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: test_fulfillment_txid,
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: nonces,
@@ -137,13 +148,18 @@ mod tests {
             .collect();
         let incoming_partial = all_partials[&incoming_idx];
 
+        let test_fulfillment_txid;
         // Pre-populate state with initial partials
         if let DepositState::PayoutNoncesCollected {
             payout_partial_signatures,
+            fulfillment_txid,
             ..
         } = &mut state
         {
             *payout_partial_signatures = initial_partials;
+            test_fulfillment_txid = *fulfillment_txid;
+        } else {
+            panic!("Expected PayoutNoncesCollected state");
         }
 
         test_deposit_transition(DepositTransition {
@@ -155,6 +171,7 @@ mod tests {
             expected_state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_POV_IDX,
+                fulfillment_txid: test_fulfillment_txid,
                 cooperative_payout_tx: cooperative_payout_tx.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: nonces,
@@ -211,13 +228,18 @@ mod tests {
             .collect();
         let incoming_partial = all_partials[&incoming_idx];
 
+        let test_fulfillment_txid;
         // Pre-populate state with initial partials
         if let DepositState::PayoutNoncesCollected {
             payout_partial_signatures,
+            fulfillment_txid,
             ..
         } = &mut state
         {
             *payout_partial_signatures = initial_partials;
+            test_fulfillment_txid = *fulfillment_txid;
+        } else {
+            panic!("Expected PayoutNoncesCollected state");
         }
 
         test_deposit_transition(DepositTransition {
@@ -229,6 +251,7 @@ mod tests {
             expected_state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_NONPOV_IDX,
+                fulfillment_txid: test_fulfillment_txid,
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: nonces,
@@ -428,6 +451,7 @@ mod tests {
             DepositState::PayoutDescriptorReceived {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 cooperative_payout_tx: cooperative_payout_tx.clone(),
                 payout_nonces: BTreeMap::new(),
@@ -435,8 +459,12 @@ mod tests {
             DepositState::CooperativePathFailed {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
             },
-            DepositState::Spent,
+            DepositState::Spent {
+                fulfillment_txid: Some(generate_txid()),
+                assignee: Some(TEST_ASSIGNEE),
+            },
             DepositState::Aborted,
         ];
 

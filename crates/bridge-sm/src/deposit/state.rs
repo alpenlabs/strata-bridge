@@ -122,6 +122,9 @@ pub enum DepositState {
         last_block_height: u64,
         /// The index of the operator assigned to fulfill the withdrawal request.
         assignee: OperatorIdx,
+        /// The txid of the fulfillment transaction.
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        fulfillment_txid: Txid,
         /// The block height by which the cooperative payout must be completed.
         cooperative_payment_deadline: BitcoinBlockHeight,
         /// The cooperative payout transaction.
@@ -137,6 +140,9 @@ pub enum DepositState {
         last_block_height: u64,
         /// The index of the operator assigned to fulfill the withdrawal request.
         assignee: OperatorIdx,
+        /// The txid of the fulfillment transaction.
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        fulfillment_txid: Txid,
         /// The cooperative payout transaction.
         cooperative_payout_tx: CooperativePayoutTx,
         /// The block height by which the cooperative payout must be completed.
@@ -159,12 +165,24 @@ pub enum DepositState {
         // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
         assignee: OperatorIdx,
 
+        /// The txid of the fulfillment transaction.
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        fulfillment_txid: Txid,
+
         /// The height of the latest block that this state machine is aware of.
         last_block_height: u64,
     },
     /// This represents the terminal state where the deposit has been spent.
-    Spent,
-    /// This represents the terminal state where the payout connector has been spent.
+    Spent {
+        /// The txid of the fulfillment transaction, if known.
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        fulfillment_txid: Option<Txid>,
+
+        /// The operator assigned to fulfill the withdrawal, if known.
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        assignee: Option<OperatorIdx>,
+    },
+    /// This represents the terminal state where the deposit request has been spent elsewhere.
     Aborted,
 }
 
@@ -181,7 +199,7 @@ impl Display for DepositState {
             DepositState::PayoutDescriptorReceived { .. } => "PayoutDescriptorReceived".to_string(),
             DepositState::PayoutNoncesCollected { .. } => "PayoutNoncesCollected".to_string(),
             DepositState::CooperativePathFailed { .. } => "CooperativePathFailed".to_string(),
-            DepositState::Spent => "Spent".to_string(),
+            DepositState::Spent { .. } => "Spent".to_string(),
             DepositState::Aborted => "Aborted".to_string(),
         };
         write!(f, "{}", display_str)
@@ -244,7 +262,7 @@ impl DepositState {
                 last_block_height: block_height,
                 ..
             } => Some(block_height),
-            DepositState::Spent | DepositState::Aborted => {
+            DepositState::Spent { .. } | DepositState::Aborted => {
                 // Terminal states do not track block height
                 None
             }

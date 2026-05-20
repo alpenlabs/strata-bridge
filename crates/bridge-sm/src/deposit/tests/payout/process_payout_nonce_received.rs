@@ -21,6 +21,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_partial_collection() {
         let desc = random_p2tr_desc();
+        let fulfillment_txid = generate_txid();
 
         let nonce = generate_pubnonce();
 
@@ -29,6 +30,7 @@ mod tests {
         let state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
+            fulfillment_txid,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             cooperative_payout_tx: cooperative_payout_tx.clone(),
             payout_nonces: BTreeMap::new(),
@@ -46,6 +48,7 @@ mod tests {
             expected_state: DepositState::PayoutDescriptorReceived {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 cooperative_payout_tx,
                 payout_nonces: expected_nonces,
@@ -60,6 +63,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_second_nonce() {
         let desc = random_p2tr_desc();
+        let fulfillment_txid = generate_txid();
         let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         // Generate nonces for all operators except the last one.
@@ -80,6 +84,7 @@ mod tests {
         let state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
+            fulfillment_txid,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             cooperative_payout_tx: cooperative_payout_tx.clone(),
             payout_nonces: initial_nonces,
@@ -94,6 +99,7 @@ mod tests {
             expected_state: DepositState::PayoutDescriptorReceived {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 cooperative_payout_tx,
                 payout_nonces: nonces,
@@ -108,6 +114,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_all_collected_pov_is_not_assignee() {
         let desc = random_p2tr_desc();
+        let fulfillment_txid = generate_txid();
         let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         // Generate nonces for all operators
@@ -127,6 +134,7 @@ mod tests {
         let state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_NONPOV_IDX,
+            fulfillment_txid,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             cooperative_payout_tx: cooperative_payout_tx.clone(),
             payout_nonces: initial_nonces,
@@ -151,6 +159,7 @@ mod tests {
             expected_state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_NONPOV_IDX,
+                fulfillment_txid,
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: all_nonces,
@@ -176,6 +185,7 @@ mod tests {
     #[test]
     fn test_payout_nonce_received_all_collected_pov_is_assignee() {
         let desc = random_p2tr_desc();
+        let fulfillment_txid = generate_txid();
         let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
         // Generate nonces for all operators
@@ -195,6 +205,7 @@ mod tests {
         let state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_POV_IDX,
+            fulfillment_txid,
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             cooperative_payout_tx: cooperative_payout_tx.clone(),
             payout_nonces: initial_nonces,
@@ -212,6 +223,7 @@ mod tests {
             expected_state: DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_POV_IDX,
+                fulfillment_txid,
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: all_nonces,
@@ -234,6 +246,7 @@ mod tests {
         let initial_state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
+            fulfillment_txid: generate_txid(),
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             cooperative_payout_tx,
             payout_nonces: BTreeMap::new(),
@@ -278,6 +291,7 @@ mod tests {
         let initial_state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
+            fulfillment_txid: generate_txid(),
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             cooperative_payout_tx,
             payout_nonces: BTreeMap::new(),
@@ -323,6 +337,7 @@ mod tests {
         let initial_state = DepositState::PayoutDescriptorReceived {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
+            fulfillment_txid: generate_txid(),
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
             cooperative_payout_tx,
             payout_nonces: BTreeMap::new(),
@@ -402,6 +417,7 @@ mod tests {
             DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: cooperative_payout_tx.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
                 payout_nonces: BTreeMap::new(),
@@ -411,8 +427,12 @@ mod tests {
             DepositState::CooperativePathFailed {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
             },
-            DepositState::Spent,
+            DepositState::Spent {
+                fulfillment_txid: Some(generate_txid()),
+                assignee: Some(TEST_ASSIGNEE),
+            },
             DepositState::Aborted,
         ];
 
