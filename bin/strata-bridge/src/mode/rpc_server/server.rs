@@ -42,9 +42,8 @@ use tracing::{debug, info, warn};
 
 use super::monitoring::{
     active_claim_from_state, aggregate_signatures_response, bridge_duties_for_deposit,
-    duty_applies_to_operator, get_pending_assigned_operator, get_reimbursement_operator,
-    graph_data_response, operator_idx_from_registry, reimbursement_status, stake_state_to_rpc,
-    withdrawal_status,
+    bridge_duties_for_operator_pk, get_pending_assigned_operator, get_reimbursement_operator,
+    graph_data_response, reimbursement_status, stake_state_to_rpc, withdrawal_status,
 };
 use crate::{
     config::{Config, RpcConfig},
@@ -331,7 +330,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
         let cached_registry = self.cached_registry.read().await;
 
-        let Some(operator_idx) = operator_idx_from_registry(&cached_registry, &operator_pk) else {
+        let Some(duties) = bridge_duties_for_operator_pk(&cached_registry, &operator_pk) else {
             return Err(rpc_error(
                 ErrorCode::InvalidRequest,
                 "Invalid operator public key",
@@ -339,17 +338,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             ));
         };
 
-        Ok(cached_registry
-            .deposits()
-            .flat_map(|(&deposit_idx, dsm)| {
-                bridge_duties_for_deposit(
-                    deposit_idx,
-                    dsm.state(),
-                    dsm.context().deposit_request_outpoint().txid,
-                )
-            })
-            .filter(|duty| duty_applies_to_operator(duty, operator_idx))
-            .collect())
+        Ok(duties)
     }
 
     async fn get_withdrawal_status(

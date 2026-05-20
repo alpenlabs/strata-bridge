@@ -80,6 +80,38 @@ pub(super) fn bridge_duties_for_deposit(
     duties
 }
 
+/// Builds the bridge duties applicable to an operator key, scoped by each deposit's operator table.
+pub(super) fn bridge_duties_for_operator_pk(
+    registry: &SMRegistry,
+    operator_pk: &PublicKey,
+) -> Option<Vec<RpcBridgeDutyStatus>> {
+    let mut found_operator = false;
+    let mut duties = Vec::new();
+
+    for (&deposit_idx, dsm) in registry.deposits() {
+        let Some(operator_idx) = dsm
+            .context()
+            .operator_table()
+            .btc_key_to_idx(&operator_pk.inner)
+        else {
+            continue;
+        };
+
+        found_operator = true;
+        duties.extend(
+            bridge_duties_for_deposit(
+                deposit_idx,
+                dsm.state(),
+                dsm.context().deposit_request_outpoint().txid,
+            )
+            .into_iter()
+            .filter(|duty| duty_applies_to_operator(duty, operator_idx)),
+        );
+    }
+
+    found_operator.then_some(duties)
+}
+
 /// Returns whether the deposit state still requires operators to publish the deposit transaction.
 const fn has_deposit_duty(state: &DepositState) -> bool {
     matches!(
@@ -103,18 +135,6 @@ pub(super) const fn duty_applies_to_operator(
             ..
         } => *assigned_operator_idx == operator_idx,
     }
-}
-
-/// Resolves a MuSig2 public key to an operator index using recovered deposit state-machine tables.
-pub(super) fn operator_idx_from_registry(
-    registry: &SMRegistry,
-    operator_pk: &PublicKey,
-) -> Option<OperatorIdx> {
-    registry.deposits().find_map(|(_deposit_idx, sm)| {
-        sm.context()
-            .operator_table()
-            .btc_key_to_idx(&operator_pk.inner)
-    })
 }
 
 /// Derives the withdrawal RPC status from the deposit state.
