@@ -255,6 +255,8 @@ tokio-util = { version = "0.7.18", default-features = false, features = ["rt"] }
 toml = "0.8.20"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = { version = "2.5", features = ["serde"] }
+wiremock = "0.6"
 zeroize = { version = "1.8.2", features = ["derive"] }
 
 [patch.crates-io]

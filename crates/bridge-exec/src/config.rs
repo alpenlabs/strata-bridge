@@ -6,6 +6,8 @@ use bitcoin::{Amount, FeeRate, Network};
 use strata_bridge_sm::graph::config::GraphSMCfg;
 use strata_l1_txfmt::MagicBytes;
 
+use crate::fees::FeeSource;
+
 /// The static configuration for the duty executors.
 #[derive(Debug, Clone)]
 pub struct ExecutionConfig {
@@ -42,4 +44,8 @@ pub struct ExecutionConfig {
     /// The graph state-machine configuration, shared with the GSM to keep protocol parameters
     /// and static keys consistent across graph construction paths.
     pub graph_sm_cfg: Arc<GraphSMCfg>,
+
+    /// Source of fee-rate estimates for all bridge-broadcast transactions. Queried per
+    /// tx-build; periodic re-fetching for live tracking is the tx-driver's responsibility.
+    pub fee_source: Arc<dyn FeeSource>,
 }

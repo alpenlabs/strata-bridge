@@ -23,6 +23,7 @@ use strata_bridge_exec::{
         BitcoindCpfpFeeSource, BitcoindCpfpPackageSubmitter, OperatorWalletCpfpAdapter,
         build_anchor_input_signer, build_wallet_input_signer,
     },
+    fees::FeeSource,
     output_handles::OutputHandles,
 };
 use strata_bridge_orchestrator::{
@@ -122,7 +123,22 @@ where
         retry_tick,
     };
 
-    let exec_cfg = build_exec_config(params, config, &sm_config, claim_funding_utxo_value);
+    // Build the executor fee source up-front so a misconfigured operator config fails fast at
+    // boot rather than on the first duty firing. This feeds the executors' fee-rate estimates
+    // (WFT, stake funding); the CPFP bump loop below uses its own cached bitcoind source.
+    let fee_source = config
+        .fee_source
+        .clone()
+        .build(Arc::new(btc_rpc_client.clone()))
+        .map_err(|e| anyhow!("failed to construct fee source from config: {e}"))?;
+
+    let exec_cfg = build_exec_config(
+        params,
+        config,
+        &sm_config,
+        claim_funding_utxo_value,
+        fee_source,
+    );
 
     // CPFP wiring: build the cached fee-source over a bitcoind-backed estimator, then bundle
     // the wallet / fee-source / package-submitter / anchor-signer adapters into a
@@ -354,6 +370,7 @@ fn build_exec_config(
     config: &Config,
     sm_config: &SMConfig,
     claim_funding_utxo_value: bitcoin::Amount,
+    fee_source: Arc<dyn FeeSource>,
 ) -> ExecutionConfig {
     ExecutionConfig {
         network: params.network,
@@ -365,5 +382,6 @@ fn build_exec_config(
         claim_funding_utxo_value,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
         graph_sm_cfg: sm_config.graph.clone(),
+        fee_source,
     }
 }
