@@ -28,7 +28,9 @@ class ExternalBtcBridgeNetworkEnv(BridgeNetworkEnv):
         enable_asm_proof: bool = True,
         num_operators: int = BRIDGE_NETWORK_SIZE,
     ):
-        btc_config = btc_config or BitcoinEnvConfig()
+        # External regtest is used for slow real-SP1 proving runs; mine on a 30s
+        # cadence so blocks aren't churned faster than proving can keep up.
+        btc_config = btc_config or BitcoinEnvConfig(block_generation_interval_secs=30)
         btc_config = dataclasses.replace(btc_config, external=True)
         super().__init__(
             bridge_protocol_params,

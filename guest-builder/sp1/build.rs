@@ -68,6 +68,9 @@ mod release {
             .unwrap_or_else(|e| panic!("create {}: {e}", build_out_dir.display()));
 
         let genesis = load_genesis_from_paths(&asm_params_path, &asm_vk_path, &moho_vk_path);
+        // Surface the genesis baked into this ELF; it pins the trust anchors the guest verifies
+        // against.
+        println!("cargo:warning=bridge-proof ELF baking in genesis: {genesis:?}");
         fs::write(&genesis_out_file, genesis.as_ssz_bytes())
             .unwrap_or_else(|e| panic!("write {}: {e}", genesis_out_file.display()));
 

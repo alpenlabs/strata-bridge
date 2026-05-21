@@ -17,3 +17,6 @@ sp1-env.bash
 
 # asm-params generated from the external L1 and baked into the SP1 guest ELF
 _sp1_params/
+
+# asm repo checkout (pinned rev) used to build the ASM/Moho SP1 guest ELFs
+.asm-src/

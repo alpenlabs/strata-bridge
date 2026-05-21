@@ -54,8 +54,19 @@ def main() -> int:
     _ensure_chain(rpc, props["walletname"], genesis_height)
 
     operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
+    # When the asm-runner runs the SP1 backend (BRIDGE_PROOF_SP1_ASM), run_test.sh
+    # derives the Sp1Groth16 predicates of the asm/moho ELFs and passes them here so the
+    # bridge proof verifies real Groth16 proofs. Absent -> Bip340Schnorr (native) defaults.
+    asm_vk = os.environ.get("BRIDGE_PROOF_SP1_ASM_PREDICATE")
+    moho_vk = os.environ.get("BRIDGE_PROOF_SP1_MOHO_PREDICATE")
     params_path, asm_vk_path, moho_vk_path = write_rollup_params(
-        rpc, operator_key_infos, genesis_height, AsmEnvConfig(), Path(out_dir)
+        rpc,
+        operator_key_infos,
+        genesis_height,
+        AsmEnvConfig(assignment_duration=144),
+        Path(out_dir),
+        asm_vk=asm_vk,
+        moho_vk=moho_vk,
     )
 
     logging.info(

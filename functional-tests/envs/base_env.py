@@ -12,6 +12,7 @@ from factory.asm_rpc.config_cfg import (
     Duration,
     NativeBackend,
     OrchestratorConfig,
+    Sp1Backend,
 )
 from factory.bridge_operator.asm_cfg import copy_rollup_params, write_rollup_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
@@ -140,14 +141,25 @@ class BaseEnv(flexitest.EnvConfig):
 
         envdd_path = Path(ectx.envdd_path)
         proof_db_path = str((envdd_path / "asm_rpc" / "proof_db").resolve())
+
+        # When run_test.sh built the ASM/Moho SP1 ELFs (BRIDGE_PROOF_SP1_ASM=1) it exports
+        # their paths; use the SP1 backend so the asm-runner emits real Groth16 proofs.
+        # Otherwise sign native Schnorr attestations.
+        asm_elf = os.environ.get("BRIDGE_PROOF_ASM_ELF_PATH")
+        moho_elf = os.environ.get("BRIDGE_PROOF_MOHO_ELF_PATH")
+        if asm_elf and moho_elf:
+            backend = Sp1Backend(asm_elf_path=asm_elf, moho_elf_path=moho_elf)
+        else:
+            backend = NativeBackend(
+                asm_schnorr_signing_key=NATIVE_TEST_ASM_SIGNING_KEY,
+                moho_schnorr_signing_key=NATIVE_TEST_MOHO_SIGNING_KEY,
+            )
+
         return OrchestratorConfig(
             tick_interval=Duration(secs=1, nanos=0),
             max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
-            backend=NativeBackend(
-                asm_schnorr_signing_key=NATIVE_TEST_ASM_SIGNING_KEY,
-                moho_schnorr_signing_key=NATIVE_TEST_MOHO_SIGNING_KEY,
-            ),
+            backend=backend,
         )
 
     def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:

@@ -62,6 +62,39 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
     if [ "$BRIDGE_EXTERNAL_BITCOIN" = "1" ]; then
         export BRIDGE_PROOF_SP1_PARAMS_DIR="$(realpath functional-tests)/_sp1_params"
         mkdir -p "$BRIDGE_PROOF_SP1_PARAMS_DIR"
+
+        # Opt-in: real SP1 Groth16 ASM+Moho proving. Build the asm/moho guest ELFs at the
+        # pinned asm rev, derive their Sp1Groth16 predicates, and (later) point the
+        # asm-runner at the ELFs. Without this, the asm-runner signs native Schnorr
+        # attestations and the vk files stay Bip340Schnorr.
+        if [ "$BRIDGE_PROOF_SP1_ASM" = "1" ]; then
+            ASM_REV=$(grep 'strata-asm-worker.*rev' Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/')
+            [ -n "$ASM_REV" ] || { echo "ERROR: failed to extract asm rev from Cargo.toml" >&2; exit 1; }
+            ASM_SRC="$(realpath functional-tests)/.asm-src"
+            if [ "$(git -C "$ASM_SRC" rev-parse HEAD 2>/dev/null)" != "$ASM_REV" ]; then
+                rm -rf "$ASM_SRC"
+                git clone https://github.com/alpenlabs/asm "$ASM_SRC"
+                git -C "$ASM_SRC" checkout "$ASM_REV"
+            fi
+            echo "Building ASM/Moho SP1 guest ELFs (asm rev $ASM_REV); this is slow"
+            # The asm guest-builder compiles C deps for the riscv guest target; point AR at
+            # the succinct toolchain's llvm-ar so cross-compilation finds a compatible archiver.
+            SP1_AR="$(rustc +succinct --print sysroot)/lib/rustlib/$(rustc +succinct -vV | sed -n 's/^host: //p')/bin/llvm-ar"
+            export AR="$SP1_AR"
+            export AR_riscv64im_unknown_none_elf="$SP1_AR"
+            ( cd "$ASM_SRC" && cargo build --release -p strata-asm-sp1-guest-builder )
+            export BRIDGE_PROOF_ASM_ELF_PATH="$ASM_SRC/guest-builder/sp1/elfs/asm.elf"
+            export BRIDGE_PROOF_MOHO_ELF_PATH="$ASM_SRC/guest-builder/sp1/elfs/moho.elf"
+
+            # Derive the Sp1Groth16 predicates the bridge proof verifies against. These
+            # match the asm-runner's own (shared sp1 6.2.0 / zkaleido v0.1-beta.2).
+            cargo build --release -p strata-bridge-proof --features sp1 --bin sp1-predicate
+            export BRIDGE_PROOF_SP1_ASM_PREDICATE="$(target/release/sp1-predicate "$BRIDGE_PROOF_ASM_ELF_PATH")"
+            export BRIDGE_PROOF_SP1_MOHO_PREDICATE="$(target/release/sp1-predicate "$BRIDGE_PROOF_MOHO_ELF_PATH")"
+            echo "ASM predicate:  $BRIDGE_PROOF_SP1_ASM_PREDICATE"
+            echo "MOHO predicate: $BRIDGE_PROOF_SP1_MOHO_PREDICATE"
+        fi
+
         echo "SP1 proving mode (SP1_PROVER=$SP1_PROVER): generating asm-params from external L1 $BITCOIN_RPC_URL"
         ( cd functional-tests && uv run python gen_sp1_params.py )
         export BRIDGE_PROOF_ASM_PARAMS_PATH="$BRIDGE_PROOF_SP1_PARAMS_DIR/asm-params.json"
@@ -107,10 +140,16 @@ if [ -z "$ASM_REV" ]; then
     exit 1
 fi
 
-echo "installing strata-asm-runner (rev $ASM_REV)"
+# Real SP1 ASM/Moho proving needs the asm-runner's `sp1` feature (the Sp1 backend).
+ASM_RUNNER_FEATURES=""
+if [ "$BRIDGE_PROOF_SP1_ASM" = "1" ]; then
+    ASM_RUNNER_FEATURES="--features sp1"
+fi
+echo "installing strata-asm-runner (rev $ASM_REV) $ASM_RUNNER_FEATURES"
 RUSTFLAGS="" cargo install \
     --git https://github.com/alpenlabs/asm \
     --rev "$ASM_REV" \
+    $ASM_RUNNER_FEATURES \
     --root "$CARGO_LOCAL_BIN" \
     strata-asm-runner
 

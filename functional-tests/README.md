@@ -129,6 +129,13 @@ regtest `bitcoind` (the `network-extbtc` environment).
    against the actual chain. `BRIDGE_PROOF_SP1_NUM_OPERATORS` (default 2) must match the
    target test's operator count.
 
+   With `BRIDGE_PROOF_SP1_ASM=1` (default in the sample), `run_test.sh` also builds the
+   ASM and Moho SP1 guest ELFs (cloning the asm repo at its pinned rev into `.asm-src/`)
+   and runs the asm-runner's SP1 backend, so the ASM/Moho proofs are real SP1 Groth16
+   proofs the bridge verifies via `Sp1Groth16` predicates. Set `BRIDGE_PROOF_SP1_ASM=0`
+   to keep the ASM/Moho layer as native Schnorr attestations. Real Groth16 proving
+   (and the extra ELF builds) only happens under `SP1_PROVER` ≠ `mock`.
+
 ## Running with code coverage
 
 ```bash

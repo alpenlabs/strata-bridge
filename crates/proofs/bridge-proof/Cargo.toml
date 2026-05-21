@@ -6,6 +6,14 @@ edition = "2024"
 [lints]
 workspace = true
 
+# Dev helper: prints the `Sp1Groth16:<hex>` predicate for a given SP1 guest ELF.
+# Used by the functional tests to derive asm-vk.json / moho-vk.json from the
+# asm/moho ELFs. Needs `--features sp1`.
+[[bin]]
+name = "sp1-predicate"
+path = "src/bin/sp1_predicate.rs"
+required-features = ["sp1"]
+
 [dependencies]
 borsh = { workspace = true, optional = true }
 cfg-if.workspace = true

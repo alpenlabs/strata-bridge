@@ -50,12 +50,17 @@ def write_rollup_params(
     genesis_height: int,
     asm_config: AsmEnvConfig | None,
     generated_dir: str | Path,
+    asm_vk: str | None = None,
+    moho_vk: str | None = None,
 ) -> tuple[str, str, str]:
     """Write asm-params.json (derived from the live L1), asm-vk.json, and moho-vk.json
     into ``generated_dir`` and return their paths.
 
-    The asm/moho hosts sign with NATIVE_TEST_{ASM,MOHO}_SIGNING_KEY; the verifying-key
-    files carry the matching BIP-340 x-only pubkeys.
+    By default the asm/moho hosts sign with NATIVE_TEST_{ASM,MOHO}_SIGNING_KEY, so the
+    verifying-key files carry the matching ``Bip340Schnorr`` x-only pubkeys. When
+    ``asm_vk`` / ``moho_vk`` are given (full predicate strings such as
+    ``"Sp1Groth16:<hex>"``, used when the asm-runner produces real SP1 Groth16 proofs),
+    they are written verbatim instead.
     """
     generated_dir = Path(generated_dir)
     generated_dir.mkdir(parents=True, exist_ok=True)
@@ -63,11 +68,13 @@ def write_rollup_params(
     asm_params = build_asm_params(bitcoind_rpc, operator_key_infos, genesis_height, asm_config)
     params_path = write_asm_params_json(generated_dir / ASM_PARAMS_FILE, asm_params)
 
+    asm_vk = asm_vk or f"Bip340Schnorr:{NATIVE_TEST_ASM_VERIFYING_KEY}"
     asm_vk_path = generated_dir / ASM_VK_FILE
-    asm_vk_path.write_text(f'"Bip340Schnorr:{NATIVE_TEST_ASM_VERIFYING_KEY}"\n')
+    asm_vk_path.write_text(f'"{asm_vk}"\n')
 
+    moho_vk = moho_vk or f"Bip340Schnorr:{NATIVE_TEST_MOHO_VERIFYING_KEY}"
     moho_vk_path = generated_dir / MOHO_VK_FILE
-    moho_vk_path.write_text(f'"Bip340Schnorr:{NATIVE_TEST_MOHO_VERIFYING_KEY}"\n')
+    moho_vk_path.write_text(f'"{moho_vk}"\n')
 
     return params_path, asm_vk_path.as_posix(), moho_vk_path.as_posix()
 
