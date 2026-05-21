@@ -117,9 +117,7 @@ async fn generate_bridge_proof(
     info!(%last_block_height, "generating bridge proof");
     let prove_start = std::time::Instant::now();
     let receipt = match output_handles.bridge_proof_host.clone() {
-        BridgeProofHost::Native(host) => {
-            prove::<BridgeProofProgram, _>(proof_input, host).await?
-        }
+        BridgeProofHost::Native(host) => prove::<BridgeProofProgram, _>(proof_input, host).await?,
         #[cfg(feature = "sp1")]
         BridgeProofHost::Sp1(host) => prove::<BridgeProofProgram, _>(proof_input, *host).await?,
     };

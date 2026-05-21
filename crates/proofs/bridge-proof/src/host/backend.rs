@@ -3,9 +3,10 @@
 //! Bundles the runtime host enum and the constructor that turns a
 //! [`ProofBackendConfig`] into a ready-to-use [`BridgeProofHost`].
 
-use anyhow::{Context, Result};
 #[cfg(feature = "sp1")]
 use std::time::Instant;
+
+use anyhow::{Context, Result};
 use tracing::info;
 use zkaleido_native_adapter::NativeHost;
 #[cfg(feature = "sp1")]
@@ -19,8 +20,6 @@ pub enum BridgeProofHost {
     /// Native in-process host.
     Native(NativeHost),
     /// SP1 host loaded from a compiled guest ELF.
-    ///
-    /// Boxed to keep the enum compact — `SP1Host` is ~3x larger than `NativeHost`.
     #[cfg(feature = "sp1")]
     Sp1(Box<SP1Host>),
 }
