@@ -29,6 +29,7 @@ members = [
   "bin/strata-bridge",
   "bin/dev-cli",
   "bin/secret-service",
+  "bin/datatool",
 
   # test utilities
   "crates/test-utils",

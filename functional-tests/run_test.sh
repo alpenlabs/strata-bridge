@@ -88,9 +88,9 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
 
             # Derive the Sp1Groth16 predicates the bridge proof verifies against. These
             # match the asm-runner's own (shared sp1 6.2.0 / zkaleido v0.1-beta.2).
-            cargo build --release -p strata-bridge-proof --features sp1 --bin sp1-predicate
-            export BRIDGE_PROOF_SP1_ASM_PREDICATE="$(target/release/sp1-predicate "$BRIDGE_PROOF_ASM_ELF_PATH")"
-            export BRIDGE_PROOF_SP1_MOHO_PREDICATE="$(target/release/sp1-predicate "$BRIDGE_PROOF_MOHO_ELF_PATH")"
+            cargo build --release -p datatool --features sp1
+            export BRIDGE_PROOF_SP1_ASM_PREDICATE="$(target/release/datatool sp1-predicate "$BRIDGE_PROOF_ASM_ELF_PATH")"
+            export BRIDGE_PROOF_SP1_MOHO_PREDICATE="$(target/release/datatool sp1-predicate "$BRIDGE_PROOF_MOHO_ELF_PATH")"
             echo "ASM predicate:  $BRIDGE_PROOF_SP1_ASM_PREDICATE"
             echo "MOHO predicate: $BRIDGE_PROOF_SP1_MOHO_PREDICATE"
         fi

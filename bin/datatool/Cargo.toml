@@ -1,0 +1,22 @@
+[package]
+name = "datatool"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "datatool"
+path = "src/main.rs"
+required-features = ["sp1"]
+
+[features]
+default = []
+# Prover tooling that links the SP1 host stack (sp1-sdk etc.).
+sp1 = ["strata-bridge-proof/sp1"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+strata-bridge-proof.workspace = true
