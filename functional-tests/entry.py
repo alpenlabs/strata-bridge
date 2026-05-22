@@ -7,7 +7,7 @@ import sys
 import flexitest
 
 from constants import BRIDGE_NETWORK_SIZE, TEST_DIR
-from envs import AsmEnv, BridgeNetworkEnv, ExternalBtcBridgeNetworkEnv
+from envs import AsmEnv, BitcoinEnvConfig, BridgeNetworkEnv, ExternalBtcBridgeNetworkEnv
 from envs.testenv import StrataTestRuntime
 from factory.asm_rpc import AsmRpcFactory
 from factory.bitcoin import BitcoinFactory
@@ -98,7 +98,12 @@ def main(argv):
     # Register envs
     asm_env = AsmEnv()
     network_env = BridgeNetworkEnv()
-    external_btc_network_env = ExternalBtcBridgeNetworkEnv()
+    external_btc_network_env = ExternalBtcBridgeNetworkEnv(
+        btc_config=BitcoinEnvConfig(
+            mine_on_demand=True,
+            mine_on_demand_trailing_blocks=2,
+        ),
+    )
     env_configs = {
         "asm": asm_env,
         "network": network_env,

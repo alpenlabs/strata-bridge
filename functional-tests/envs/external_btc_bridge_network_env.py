@@ -12,25 +12,28 @@ from .btc_config import BitcoinEnvConfig
 class ExternalBtcBridgeNetworkEnv(BridgeNetworkEnv):
     """BridgeNetworkEnv that attaches to an already-running external regtest bitcoind.
 
-    Connection details (RPC url/user/password and ZMQ endpoints) are read from env
-    vars by the bitcoin factory; see `connect_external_bitcoin`. Useful for slow
-    real-SP1 proving runs that want to reuse a pre-launched node instead of spawning
-    one. All block generation, wallet funding, and operator setup are driven exactly
-    as in `BridgeNetworkEnv` — only the bitcoind service construction differs.
+    Connection details are read from env vars by the bitcoin factory (see
+    `connect_external_bitcoin`); only bitcoind service construction differs from
+    `BridgeNetworkEnv`. Useful for slow real-SP1 runs that reuse a pre-launched node.
+
+    Attributes:
+        btc_config: Bitcoin env config; `external=True` is forced on.
+        bridge_protocol_params: On-chain bridge protocol parameters.
+        bridge_config_params: Per-operator bridge node config.
+        asm_config: ASM env config; defaults applied when None.
+        enable_asm_proof: Whether operators produce ASM proofs.
+        num_operators: Number of bridge operators to launch.
     """
 
     def __init__(
         self,
+        btc_config: BitcoinEnvConfig,
         bridge_protocol_params=BridgeProtocolParams(),  # noqa: B008
         bridge_config_params=BridgeConfigParams(),  # noqa: B008
-        btc_config: BitcoinEnvConfig | None = None,
         asm_config: AsmEnvConfig | None = None,
         enable_asm_proof: bool = True,
         num_operators: int = BRIDGE_NETWORK_SIZE,
     ):
-        # External regtest is used for slow real-SP1 proving runs; mine on a 30s
-        # cadence so blocks aren't churned faster than proving can keep up.
-        btc_config = btc_config or BitcoinEnvConfig(block_generation_interval_secs=30)
         btc_config = dataclasses.replace(btc_config, external=True)
         super().__init__(
             bridge_protocol_params,

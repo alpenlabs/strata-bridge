@@ -6,9 +6,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Event, Thread
-
-from bitcoinlib.services.bitcoind import BitcoindClient
 
 from constants import *
 
@@ -41,92 +38,6 @@ def read_operator_key(operator_idx: int) -> OperatorKeyInfo:
 
     raw_keys = keys_data[operator_idx]
     return OperatorKeyInfo(**raw_keys)
-
-
-class MinerThread:
-    """Wraps the block-generation thread with a stop signal."""
-
-    def __init__(self, thread: Thread, stop_event: Event):
-        self._thread = thread
-        self._stop_event = stop_event
-
-    def stop(self, timeout: float = 5):
-        self._stop_event.set()
-        self._thread.join(timeout=timeout)
-
-
-def generate_blocks(
-    bitcoin_rpc: BitcoindClient,
-    wait_dur,
-    addr: str,
-) -> MinerThread:
-    stop_event = Event()
-    thr = Thread(
-        target=generate_task,
-        args=(
-            bitcoin_rpc,
-            wait_dur,
-            addr,
-            stop_event,
-        ),
-    )
-    thr.start()
-    return MinerThread(thr, stop_event)
-
-
-def generate_task(
-    rpc: BitcoindClient,
-    wait_dur,
-    addr,
-    stop_event: Event,
-    max_retries_per_tick: int = 3,
-    max_consecutive_failed_ticks: int = 5,
-    max_retry_delay: int = 3,
-):
-    consecutive_failed_ticks = 0
-
-    while not stop_event.is_set():
-        if stop_event.wait(timeout=wait_dur):
-            break
-        logging.debug(f"Generating block to address {addr}")
-        retry_delay = 1
-        tick_succeeded = False
-
-        for attempt in range(1, max_retries_per_tick + 1):
-            if stop_event.is_set():
-                return
-            try:
-                rpc.proxy.generatetoaddress(1, addr)
-                tick_succeeded = True
-                break
-            except Exception as ex:
-                if attempt == max_retries_per_tick:
-                    logging.warning(
-                        f"{ex} while generating to address {addr} "
-                        f"(attempt {attempt}/{max_retries_per_tick})"
-                    )
-                    break
-
-                logging.warning(
-                    f"{ex} while generating to address {addr} "
-                    f"(attempt {attempt}/{max_retries_per_tick}); retrying in {retry_delay}s"
-                )
-                if stop_event.wait(timeout=retry_delay):
-                    return
-                retry_delay = min(retry_delay * 2, max_retry_delay)
-
-        if tick_succeeded:
-            consecutive_failed_ticks = 0
-            continue
-
-        consecutive_failed_ticks += 1
-        if consecutive_failed_ticks >= max_consecutive_failed_ticks:
-            logging.error(
-                "Stopping miner thread after %s consecutive failed ticks while generating to %s",
-                consecutive_failed_ticks,
-                addr,
-            )
-            return
 
 
 def wait_until(

@@ -18,9 +18,9 @@ from factory.bridge_operator.asm_cfg import copy_rollup_params, write_rollup_par
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from factory.fdb import generate_fdb_root_directory
+from utils.bitcoin import generate_blocks
 from utils.mosaic import get_peer_ids
 from utils.utils import (
-    generate_blocks,
     generate_p2p_ports,
     read_operator_key,
     wait_until_bitcoind_ready,
@@ -107,7 +107,11 @@ class BaseEnv(flexitest.EnvConfig):
         miner = None
         if self.btc_config.auto_mine:
             miner = generate_blocks(
-                brpc, self.btc_config.block_generation_interval_secs, wallet_addr
+                brpc,
+                self.btc_config.block_generation_interval_secs,
+                wallet_addr,
+                mine_on_demand=self.btc_config.mine_on_demand,
+                trailing_blocks=self.btc_config.mine_on_demand_trailing_blocks,
             )
 
         return bitcoind, brpc, wallet_addr, miner
