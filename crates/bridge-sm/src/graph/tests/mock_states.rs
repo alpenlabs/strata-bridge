@@ -454,6 +454,7 @@ pub(super) fn contested_payout_detecting_states() -> Vec<GraphState> {
     vec![
         contested_state(),
         bridge_proof_posted_state(),
+        counter_proof_posted_state(),
         all_nackd_state(),
     ]
 }

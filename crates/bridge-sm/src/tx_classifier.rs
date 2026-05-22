@@ -152,7 +152,7 @@ pub fn nack_counterprover_idx(
         })
 }
 
-/// Check if the payout connector has been spent (via admin or unstaking burn txs).
+/// Check if the payout connector has been spent (via admin or unstaking burn txs or payout txs).
 pub fn is_payout_connector_spent(claim_txid: &Txid, tx: &Transaction) -> bool {
     let payout_connector_outpoint = OutPoint {
         txid: *claim_txid,
