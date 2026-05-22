@@ -64,3 +64,26 @@ vulnerabilities:
       never configures it, so the live path is yamux 0.13 — already bumped
       to the patched 0.13.10. The vulnerable yamux 0.12 code path is linked
       but not reachable at runtime.
+
+  - id: CVE-2026-46654
+    statement: |
+      p3-challenger 0.3.3-succinct — MultiField32Challenger Fiat-Shamir
+      transcript malleability / challenge entropy loss (GHSA-vj64-rjf3-w3v7).
+
+      Dependency path:
+        p3-challenger 0.3.3-succinct
+          -> slop-* / sp1-prover 6.2.0 -> sp1-sdk 6.2.0
+            -> zkaleido-sp1-host (`sp1` feature) -> strata-bridge-proof
+
+      Why unfixable: the fix lands only in the upstream p3-challenger
+      0.4.3 / 0.5.3. The installed crate is Succinct's Plonky3 fork, whose
+      latest release is 0.3.3-succinct; sp1-sdk 6.2.x pins the fork, so the
+      0.4/0.5 line is unreachable via semver.
+
+      Required fix: Succinct ships a patched fork and bumps SP1's Plonky3
+      pin, then this workspace bumps sp1-sdk / sp1-verifier.
+
+      Risk: proving-side Fiat-Shamir soundness flaw in SP1's BN254-wrapping
+      challenger. The workspace delegates proving to SP1 rather than driving
+      this challenger directly; it is not a remotely reachable path in the
+      running bridge node.
