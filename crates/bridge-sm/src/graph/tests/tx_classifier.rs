@@ -327,7 +327,7 @@ mod tests {
     fn classify_tx_recognizes_contested_payout() {
         let cfg = test_graph_sm_cfg();
         for state in contested_payout_detecting_states() {
-            let sm = create_sm(state);
+            let sm = create_sm(state.clone());
             let result = sm.classify_tx(
                 &cfg,
                 &TestGraphTxKind::ContestedPayout.into(),
@@ -335,7 +335,7 @@ mod tests {
             );
             assert!(
                 matches!(result, Some(GraphEvent::PayoutConfirmed(_))),
-                "expected Some(PayoutConfirmed) but got {result:?}"
+                "expected Some(PayoutConfirmed) in {state} but got {result:?}"
             );
         }
     }

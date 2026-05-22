@@ -245,6 +245,10 @@ impl TxClassifier for GraphSM {
                             counterprover_idx,
                         },
                     ))
+                } else if txid == graph_summary.contested_payout {
+                    Some(GraphEvent::PayoutConfirmed(PayoutConfirmedEvent {
+                        payout_txid: txid,
+                    }))
                 } else if is_payout_connector_spent(&graph_summary.claim, tx) {
                     Some(GraphEvent::PayoutConnectorSpent(
                         PayoutConnectorSpentEvent { tx: tx.clone() },
