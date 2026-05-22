@@ -67,7 +67,6 @@ fn derive_anchor_attestation(bytes: &[u8], asm_predicate: PredicateKey) -> State
     StateRefAttestation::new(state_ref, commitment)
 }
 
-#[allow(dead_code)]
 fn parse_predicate_json(bytes: &[u8]) -> PredicateKey {
     serde_json::from_slice(bytes)
         .expect("failed to deserialize into PredicateKey (e.g., \"Bip340Schnorr:<hex>\")")

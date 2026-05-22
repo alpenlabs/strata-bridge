@@ -13,16 +13,14 @@ pub use types::{
 cfg_if::cfg_if! {
     if #[cfg(not(target_os = "zkvm"))] {
         pub mod genesis;
+        pub mod host;
         pub mod program;
 
         pub use genesis::{ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV, load_genesis_from_env, load_genesis_from_paths};
+        pub use host::{BridgeProofHost, ProofBackend, ProofBackendConfig};
         pub use program::BridgeProofProgram;
+
+        #[cfg(feature = "sp1")]
+        pub use host::{sp1_groth16_predicate_key, sp1_groth16_predicate_string};
     }
 }
-
-#[cfg(not(target_os = "zkvm"))]
-pub mod host;
-#[cfg(not(target_os = "zkvm"))]
-pub use host::{BridgeProofHost, ProofBackend, ProofBackendConfig};
-#[cfg(all(not(target_os = "zkvm"), feature = "sp1"))]
-pub use host::{sp1_groth16_predicate_key, sp1_groth16_predicate_string};
