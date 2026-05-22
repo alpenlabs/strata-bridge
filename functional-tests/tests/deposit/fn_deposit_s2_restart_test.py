@@ -44,8 +44,8 @@ class DepositTolerantOfS2RestartTest(StrataTestBase):
         bridge_rpc = bridge_rpcs[0]
         num_operators = len(bridge_nodes)
 
-        # `Service` is the static type returned by `get_service`; the concrete s2 services are
-        # `ProcService`s with `.stop()`/`.start()`.
+        # `get_service` is typed as the base `Service`; the s2 services are concretely
+        # `ProcService`s with `.start()`/`.stop()`.
         s2_services = [ctx.get_service(f"s2_{i}") for i in range(num_operators)]
 
         bitcoind_service = ctx.get_service("bitcoin")
@@ -68,13 +68,13 @@ class DepositTolerantOfS2RestartTest(StrataTestBase):
         self.logger.info("Stopping all secret-service nodes mid-deposit")
         for i, s2 in enumerate(s2_services):
             self.logger.info(f"Stopping s2 node {i}")
-            s2.stop()  # ty: ignore[possibly-missing-attribute]
+            s2.stop()
 
         # --- Restart on the same port; the bridge clients must reconnect on demand ---
         self.logger.info("Restarting all secret-service nodes")
         for i, s2 in enumerate(s2_services):
             self.logger.info(f"Starting s2 node {i}")
-            s2.start()  # ty: ignore[possibly-missing-attribute]
+            s2.start()
 
         # --- The deposit must complete: any signing call on a stale connection should
         #     trigger reconnect in `make_v2_req`, succeed on the second attempt against the

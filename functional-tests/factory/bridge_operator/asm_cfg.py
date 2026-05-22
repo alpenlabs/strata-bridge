@@ -44,7 +44,7 @@ def build_asm_params(
     )
 
 
-def write_rollup_params(
+def write_asm_params(
     bitcoind_rpc: Any,
     operator_key_infos: list[OperatorKeyInfo],
     genesis_height: int,
@@ -79,7 +79,7 @@ def write_rollup_params(
     return params_path, asm_vk_path.as_posix(), moho_vk_path.as_posix()
 
 
-def copy_rollup_params(src_dir: str | Path, generated_dir: str | Path) -> tuple[str, str, str]:
+def copy_asm_params(src_dir: str | Path, generated_dir: str | Path) -> tuple[str, str, str]:
     """Copy pre-generated asm-params.json/asm-vk.json/moho-vk.json from ``src_dir`` into
     ``generated_dir`` and return the destination paths.
 

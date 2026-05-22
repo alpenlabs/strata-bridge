@@ -40,7 +40,7 @@ class BitcoinConfig:
 
 @dataclass
 class ParamsConfig:
-    """Rollup parameters configuration."""
+    """ASM parameters configuration."""
 
     params_file: str | None
     network: str

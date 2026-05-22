@@ -1,10 +1,11 @@
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import flexitest
 
 from constants import (
-    GENERATED_DIR,
+    ASM_PARAMS_DIR,
     NATIVE_TEST_ASM_SIGNING_KEY,
     NATIVE_TEST_MOHO_SIGNING_KEY,
 )
@@ -14,7 +15,7 @@ from factory.asm_rpc.config_cfg import (
     OrchestratorConfig,
     Sp1Backend,
 )
-from factory.bridge_operator.asm_cfg import copy_rollup_params, write_rollup_params
+from factory.bridge_operator.asm_cfg import copy_asm_params, write_asm_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from factory.fdb import generate_fdb_root_directory
@@ -28,6 +29,14 @@ from utils.utils import (
 
 from .asm_config import AsmEnvConfig
 from .btc_config import BitcoinEnvConfig
+
+
+@dataclass(frozen=True)
+class AsmParams:
+    """ASM params materialized once per environment."""
+
+    params_file_path: str
+    genesis_height: int
 
 
 class BaseEnv(flexitest.EnvConfig):
@@ -50,10 +59,8 @@ class BaseEnv(flexitest.EnvConfig):
         self.finalization_blocks = self.btc_config.finalization_blocks
         self._asm_config = asm_config
         self._asm_rpc_service = None
-        self._bridge_genesis_height = None
-        self._rollup_params_path = None
-        self._asm_vk_path = None
-        self._moho_vk_path = None
+        self._prebuilt_params_dir = os.environ.get("BRIDGE_PROOF_SP1_PARAMS_DIR")
+        self._asm_params: AsmParams | None = None
         self._bridge_protocol_params = bridge_protocol_params
         self._bridge_config_params = bridge_config_params
         self._enable_asm_proof = enable_asm_proof
@@ -72,7 +79,11 @@ class BaseEnv(flexitest.EnvConfig):
         self.mosaic_peer_ids = get_peer_ids(num_operators)
 
     def setup_bitcoin(self, ectx: flexitest.EnvContext):
-        """Setup Bitcoin node with wallet and initial funding."""
+        """Setup Bitcoin node with wallet and initial funding.
+
+        Connects to an already-running external bitcoind when `btc_config.external` is
+        set, otherwise spawns a fresh internal regtest node.
+        """
         btc_fac = ectx.get_factory("bitcoin")
         if self.btc_config.external:
             bitcoind = btc_fac.connect_external_bitcoin()
@@ -83,9 +94,7 @@ class BaseEnv(flexitest.EnvConfig):
 
         walletname = bitcoind.get_prop("walletname")
         if self.btc_config.external:
-            # run_test.sh (SP1 mode) may have already created the wallet and mined to the
-            # genesis height on this externally-managed node. Load it instead of creating,
-            # and only mine the shortfall.
+            # Reuse the existing wallet if present, else fall back to creating one.
             if walletname not in brpc.proxy.listwallets():
                 try:
                     brpc.proxy.loadwallet(walletname)
@@ -146,11 +155,11 @@ class BaseEnv(flexitest.EnvConfig):
         envdd_path = Path(ectx.envdd_path)
         proof_db_path = str((envdd_path / "asm_rpc" / "proof_db").resolve())
 
-        # When run_test.sh built the ASM/Moho SP1 ELFs (BRIDGE_PROOF_SP1_ASM=1) it exports
-        # their paths; use the SP1 backend so the asm-runner emits real Groth16 proofs.
-        # Otherwise sign native Schnorr attestations.
+        # When ASM/Moho guest ELF paths are provided via env, use the real proving
+        # backend; otherwise sign native Schnorr attestations.
         asm_elf = os.environ.get("BRIDGE_PROOF_ASM_ELF_PATH")
         moho_elf = os.environ.get("BRIDGE_PROOF_MOHO_ELF_PATH")
+        backend: NativeBackend | Sp1Backend
         if asm_elf and moho_elf:
             backend = Sp1Backend(asm_elf_path=asm_elf, moho_elf_path=moho_elf)
         else:
@@ -166,32 +175,29 @@ class BaseEnv(flexitest.EnvConfig):
             backend=backend,
         )
 
-    def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
-        """Build bridge/ASM params once per environment."""
-        # All attrs are written together below; one sentinel is enough.
-        if self._rollup_params_path is not None:
+    def ensure_asm_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
+        """Build ASM params once per environment."""
+        if self._asm_params is not None:
             return
 
         genesis_height = int(self.initial_blocks)
-        self._bridge_genesis_height = genesis_height
+        generated_dir = Path(ectx.envdd_path) / ASM_PARAMS_DIR
 
-        generated_dir = Path(ectx.envdd_path) / GENERATED_DIR
-
-        # In SP1 proving mode run_test.sh pre-generates these params from the external L1
-        # and bakes them into the guest ELF. Reuse the exact files so the runtime
-        # asm-runner anchors to the same genesis the ELF was built against.
-        prebuilt_dir = os.environ.get("BRIDGE_PROOF_SP1_PARAMS_DIR")
-        if prebuilt_dir:
-            params = copy_rollup_params(prebuilt_dir, generated_dir)
+        # When run_test.sh pre-generated params (and baked them into the guest ELF),
+        # reuse those exact files so the asm-runner anchors to the same genesis the ELF
+        # was built against; otherwise derive fresh params from the live L1. The VK files
+        # are written into generated_dir either way and read by the operator factory.
+        if self._prebuilt_params_dir:
+            params_file_path, _, _ = copy_asm_params(self._prebuilt_params_dir, generated_dir)
         else:
-            params = write_rollup_params(
+            params_file_path, _, _ = write_asm_params(
                 bitcoind_rpc,
                 self.operator_key_infos,
                 genesis_height,
                 self._asm_config,
                 generated_dir,
             )
-        self._rollup_params_path, self._asm_vk_path, self._moho_vk_path = params
+        self._asm_params = AsmParams(params_file_path, genesis_height)
 
     def create_operator(
         self,
@@ -210,10 +216,7 @@ class BaseEnv(flexitest.EnvConfig):
         operator_key = self.operator_key_infos[operator_idx]
 
         # Build bridge/ASM params once using live bitcoind data.
-        self._ensure_rollup_params(ectx, bitcoind_rpc)
-
-        if self._bridge_genesis_height is None:
-            raise RuntimeError("Bridge genesis height must be initialized before operators")
+        self.ensure_asm_params(ectx, bitcoind_rpc)
 
         if self.fdb_root_directory_prefix is None:
             raise RuntimeError("FDB root directory prefix must be initialized before operators")
@@ -228,7 +231,7 @@ class BaseEnv(flexitest.EnvConfig):
 
         if self._asm_rpc_service is None:
             asm_fac = ectx.get_factory("asm_rpc")
-            params_file_path = self._rollup_params_path
+            params_file_path = self.asm_params.params_file_path
             orchestrator_config = self._build_orchestrator_config(ectx)
             self._asm_rpc_service = asm_fac.create_asm_rpc_service(
                 bitcoind_props,
@@ -247,7 +250,7 @@ class BaseEnv(flexitest.EnvConfig):
             asm_props,
             self.operator_key_infos,
             self.p2p_ports,
-            genesis_height=self._bridge_genesis_height,
+            genesis_height=self.asm_params.genesis_height,
             bridge_protocol_params=self._bridge_protocol_params,
             bridge_config_params=self._bridge_config_params,
             mosaic_rpc=mosaic_rpc,
@@ -266,3 +269,10 @@ class BaseEnv(flexitest.EnvConfig):
 
         # Generate blocks for finalization
         brpc.proxy.generatetoaddress(self.finalization_blocks, wallet_addr)
+
+    @property
+    def asm_params(self) -> AsmParams:
+        """ASM params, available after `ensure_asm_params` has run."""
+        if self._asm_params is None:
+            raise RuntimeError("asm params not initialized; call ensure_asm_params first")
+        return self._asm_params

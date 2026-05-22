@@ -46,7 +46,7 @@ class AsmRpcFactory(flexitest.Factory):
 
         Args:
             bitcoind_props: Properties from the Bitcoin service (includes zmq ports, rpc details)
-            params_file_path: Path to the params.json file for rollup parameters
+            params_file_path: Path to the params.json file for ASM parameters
             ctx: Environment context from flexitest
             orchestrator_config: Optional proof orchestrator config. When set, the asm-runner
                 also opens its `MohoStateDb` and `ExportEntriesDb`, which are required for

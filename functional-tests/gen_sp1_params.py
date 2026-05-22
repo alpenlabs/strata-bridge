@@ -3,7 +3,7 @@
 Run by run_test.sh in SP1 proving mode (BRIDGE_PROOF_SP1=1 + BRIDGE_EXTERNAL_BITCOIN=1)
 *before* the guest ELF build, so the ELF bakes a genesis anchor that matches the actual
 chain the test runs against. The same files are reused at runtime by the test
-(see base_env._ensure_rollup_params), keeping ELF-baked params == runtime params.
+(see base_env.ensure_asm_params), keeping ELF-baked params == runtime params.
 
 Connection details come from the external-bitcoin env vars; output goes to
 BRIDGE_PROOF_SP1_PARAMS_DIR; operator count from BRIDGE_PROOF_SP1_NUM_OPERATORS.
@@ -19,7 +19,7 @@ from bitcoinlib.services.bitcoind import BitcoindClient
 from envs.asm_config import AsmEnvConfig
 from envs.btc_config import BitcoinEnvConfig
 from factory.bitcoin import _read_external_btc_env
-from factory.bridge_operator.asm_cfg import write_rollup_params
+from factory.bridge_operator.asm_cfg import write_asm_params
 from utils.logging import setup_root_logger
 from utils.utils import read_operator_key, wait_until_bitcoind_ready
 
@@ -59,7 +59,7 @@ def main() -> int:
     # bridge proof verifies real Groth16 proofs. Absent -> Bip340Schnorr (native) defaults.
     asm_vk = os.environ.get("BRIDGE_PROOF_SP1_ASM_PREDICATE")
     moho_vk = os.environ.get("BRIDGE_PROOF_SP1_MOHO_PREDICATE")
-    params_path, asm_vk_path, moho_vk_path = write_rollup_params(
+    params_path, asm_vk_path, moho_vk_path = write_asm_params(
         rpc,
         operator_key_infos,
         genesis_height,
