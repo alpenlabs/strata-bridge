@@ -209,6 +209,48 @@ async fn bump_all_entries<W, F, P>(
     }
 }
 
+/// Inserts a [`CpfpEntry`] for `parent` into the shared entries map and runs one initial
+/// `NewJob` bump. Used by the new-job arm in three places: after a successful bare
+/// broadcast, when the parent is already in the mempool at job arrival, and as a
+/// fallback when bare broadcast fails (so a properly-priced child can carry an
+/// underpriced parent in via `submitpackage`).
+///
+/// Returns the bump outcome: `Ok(true)` means a `[parent, child]` package was actually
+/// submitted (relevant for the fallback caller — the parent is now in the mempool);
+/// `Ok(false)` means the bump was skipped (target at or below floor / last rate);
+/// `Err` is a build/sign/submit failure. The entry is inserted regardless, so reactive
+/// bumps on block / tick / eviction will retry.
+async fn register_cpfp_entry_and_bump<W, F, P>(
+    ctx: &CpfpContext<W, F, P>,
+    entries: &CpfpEntries,
+    parent: Transaction,
+    strategy: CpfpStrategy,
+    bridge_protocol_floor: FeeRate,
+) -> Result<bool, cpfp::CpfpError>
+where
+    W: CpfpWallet + 'static,
+    F: CpfpFeeSource + 'static,
+    P: CpfpPackageSubmitter + 'static,
+{
+    let txid = parent.compute_txid();
+    let mut entry = CpfpEntry {
+        parent,
+        strategy,
+        handle: CpfpHandle::default(),
+    };
+    let result = cpfp::perform_bump(
+        ctx,
+        &entry.parent,
+        entry.strategy,
+        &mut entry.handle,
+        bridge_protocol_floor,
+        BumpReason::NewJob,
+    )
+    .await;
+    entries.lock().await.insert(txid, entry);
+    result
+}
+
 /// System for driving a signed transaction to confirmation.
 #[derive(Debug)]
 pub struct TxDriver {
@@ -341,7 +383,29 @@ impl TxDriver {
                                 // Handle the race where the relevant event may already have
                                 // happened before the subscription is established.
                                 active_tx_subs.push(tx_sub);
+                                let job_parent = job.tx.clone();
+                                let job_cpfp = job.cpfp;
                                 active_jobs = active_jobs.merge(job.into());
+
+                                // Register CPFP for an already-resident parent. Without
+                                // this, parents broadcast in a prior incarnation that are
+                                // still in the mempool when the driver comes back up would
+                                // never be re-bumped on block / tick / eviction events.
+                                // The first bump runs here too so a deeply-underpriced
+                                // resident parent gets a fresh package immediately.
+                                if let (Some(ctx), Some(strategy)) = (cpfp_ctx.as_ref(), job_cpfp) {
+                                    if let Err(e) = register_cpfp_entry_and_bump(
+                                        ctx.as_ref(),
+                                        &cpfp_entries,
+                                        job_parent,
+                                        strategy,
+                                        bridge_protocol_floor,
+                                    )
+                                    .await
+                                    {
+                                        warn!(%txid, error = %e, "initial CPFP bump for already-known parent failed; will retry on next trigger");
+                                    }
+                                }
                             }
 
                             continue;
@@ -362,45 +426,67 @@ impl TxDriver {
 
                                 // Eager initial bump: if CPFP is configured and the fee
                                 // source's target is above the protocol floor, build and
-                                // submit a CPFP child as a package right now. Per design
-                                // decision Q4 (see STR-3439-PLAN.md): targets at or below
-                                // the floor mean the presigned parent's own rate is
-                                // sufficient; skip the child.
+                                // submit a CPFP child as a package right now. Targets at or
+                                // below the floor mean the presigned parent's own rate is
+                                // sufficient; the helper's `perform_bump` skips internally.
                                 if let (Some(ctx), Some(strategy)) = (cpfp_ctx.as_ref(), job_cpfp) {
-                                    let mut entry = CpfpEntry {
-                                        parent: job_parent.clone(),
-                                        strategy,
-                                        handle: CpfpHandle::default(),
-                                    };
-                                    if let Err(e) = cpfp::perform_bump(
+                                    if let Err(e) = register_cpfp_entry_and_bump(
                                         ctx.as_ref(),
-                                        &entry.parent,
-                                        entry.strategy,
-                                        &mut entry.handle,
+                                        &cpfp_entries,
+                                        job_parent,
+                                        strategy,
                                         bridge_protocol_floor,
-                                        BumpReason::NewJob,
                                     )
                                     .await
                                     {
                                         warn!(%txid, error = %e, "initial CPFP bump failed; will retry on next trigger");
                                     }
-                                    cpfp_entries.lock().await.insert(txid, entry);
                                 }
                             },
                             Err(err) => {
-                                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2688>
-                                // If we have not hit the mempool purge rate, CPFP using the
-                                // anchor from the start and retry as a package.
-                                //
+                                // Bare broadcast failed. Most commonly the parent's own fee
+                                // rate is below the mempool's minimum and a CPFP child can
+                                // carry it in via `submitpackage` (package validation is
+                                // more lenient than single-tx acceptance). If CPFP is
+                                // configured, try that fallback before surfacing the error.
                                 // TODO: <https://alpenlabs.atlassian.net/browse/STR-2689>
-                                // Distinguish invalid transactions and notify the job submitter
-                                // instead of treating them like fee-bumping work.
-                                // For now, we just inform the caller until we add fee-bumping
-                                // support.
-                                error!(%txid, tx=?rawtx_rpc_client, %err, "could not submit transaction");
-                                // send feedback to the job submitter
-                                if job.respond_on.send(Err(DriveErr::PublishFailed(err))).is_err() {
-                                    error!("could not send error response to job submitter");
+                                // Distinguish invalid transactions and notify the job
+                                // submitter directly instead of attempting fee bumping.
+                                let job_parent = job.tx.clone();
+                                let job_cpfp = job.cpfp;
+                                let pkg_submitted = if let (Some(ctx), Some(strategy)) =
+                                    (cpfp_ctx.as_ref(), job_cpfp)
+                                {
+                                    warn!(%txid, %err, "bare broadcast failed; attempting CPFP package fallback");
+                                    match register_cpfp_entry_and_bump(
+                                        ctx.as_ref(),
+                                        &cpfp_entries,
+                                        job_parent,
+                                        strategy,
+                                        bridge_protocol_floor,
+                                    )
+                                    .await
+                                    {
+                                        Ok(submitted) => submitted,
+                                        Err(e) => {
+                                            warn!(%txid, error = %e, "CPFP fallback after bare-broadcast failure also failed");
+                                            false
+                                        }
+                                    }
+                                } else {
+                                    false
+                                };
+
+                                if pkg_submitted {
+                                    info!(%txid, "parent reached mempool via CPFP package fallback");
+                                    active_tx_subs.push(tx_sub);
+                                    active_jobs = active_jobs.merge(job.into());
+                                } else {
+                                    error!(%txid, tx=?rawtx_rpc_client, %err, "could not submit transaction");
+                                    // send feedback to the job submitter
+                                    if job.respond_on.send(Err(DriveErr::PublishFailed(err))).is_err() {
+                                        error!("could not send error response to job submitter");
+                                    }
                                 }
                             }
                         }
