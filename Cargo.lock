@@ -2377,7 +2377,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -2444,7 +2444,7 @@ dependencies = [
  "hex-conservative",
  "secp256k1 0.29.1",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_types",
 ]
 
@@ -3634,7 +3634,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -3786,7 +3786,7 @@ dependencies = [
  "rand 0.8.5",
  "secp256k1 0.29.1",
  "serde_json",
- "ssz",
+ "ssz 0.16.0",
  "strata-asm-proto-bridge-v1-txs",
  "strata-asm-proto-checkpoint-txs",
  "strata-asm-proto-checkpoint-types",
@@ -4128,7 +4128,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6569,7 +6569,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.6#e3345559b2b91c653ff16c3d90efded1f0e54172"
 dependencies = [
  "moho-types",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-merkle",
  "strata-predicate",
@@ -6586,7 +6586,7 @@ source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.6#e3345559b2b91c6
 dependencies = [
  "moho-runtime-interface",
  "moho-types",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
 ]
 
@@ -6596,7 +6596,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.6#e3345559b2b91c653ff16c3d90efded1f0e54172"
 dependencies = [
  "moho-types",
- "ssz",
+ "ssz 0.15.0",
  "strata-predicate",
 ]
 
@@ -6607,10 +6607,10 @@ source = "git+https://github.com/alpenlabs/moho?tag=v0.1-alpha.6#e3345559b2b91c6
 dependencies = [
  "hex",
  "sha2 0.11.0",
- "ssz",
+ "ssz 0.15.0",
  "ssz_codegen",
  "ssz_derive",
- "ssz_primitives",
+ "ssz_primitives 0.15.0",
  "ssz_types",
  "strata-merkle",
  "strata-predicate",
@@ -6972,7 +6972,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7138,7 +7138,7 @@ version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77e878c846a8abae00dd069496dbe8751b16ac1c3d6bd2a7283a938e8228f90d"
 dependencies = [
- "proc-macro-crate 3.3.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -8271,7 +8271,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8738,9 +8738,9 @@ dependencies = [
 
 [[package]]
 name = "ruint"
-version = "1.17.2"
+version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c141e807189ad38a07276942c6623032d3753c8859c146104ac2e4d68865945a"
+checksum = "0298da754d1395046b0afdc2f20ee76d29a8ae310cd30ffa84ed42acba9cb12a"
 dependencies = [
  "alloy-rlp",
  "ark-ff 0.3.0",
@@ -8825,7 +8825,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8893,7 +8893,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8914,7 +8914,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.1",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -10676,7 +10676,18 @@ dependencies = [
  "itertools 0.13.0",
  "serde",
  "smallvec",
- "ssz_primitives",
+ "ssz_primitives 0.15.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "ssz"
+version = "0.16.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.16.0#a43cb62e88b22a4626dddc158bcd09b298c103e7"
+dependencies = [
+ "itertools 0.14.0",
+ "smallvec",
+ "ssz_primitives 0.16.0",
  "thiserror 2.0.18",
 ]
 
@@ -10690,9 +10701,9 @@ dependencies = [
  "quote",
  "serde",
  "sizzle-parser",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
- "ssz_primitives",
+ "ssz_primitives 0.15.0",
  "ssz_types",
  "syn 2.0.117",
  "toml",
@@ -10721,6 +10732,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ssz_primitives"
+version = "0.16.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.16.0#a43cb62e88b22a4626dddc158bcd09b298c103e7"
+dependencies = [
+ "hex",
+ "rand 0.8.5",
+ "ruint",
+]
+
+[[package]]
 name = "ssz_types"
 version = "0.15.0"
 source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.15.0#6e4b99ef2831ea3a97b8cb98a88c06206395f337"
@@ -10728,8 +10749,8 @@ dependencies = [
  "itertools 0.13.0",
  "serde",
  "serde_derive",
- "ssz",
- "ssz_primitives",
+ "ssz 0.15.0",
+ "ssz_primitives 0.15.0",
  "thiserror 2.0.18",
  "tree_hash",
 ]
@@ -10766,10 +10787,10 @@ dependencies = [
  "bitcoin",
  "borsh",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_codegen",
  "ssz_derive",
- "ssz_primitives",
+ "ssz_primitives 0.15.0",
  "ssz_types",
  "strata-asm-manifest-types",
  "strata-btc-types",
@@ -10806,10 +10827,10 @@ source = "git+https://github.com/alpenlabs/asm.git?rev=dc6432ffef44597c7db244707
 dependencies = [
  "borsh",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_codegen",
  "ssz_derive",
- "ssz_primitives",
+ "ssz_primitives 0.15.0",
  "ssz_types",
  "strata-codec",
  "strata-crypto",
@@ -10828,7 +10849,7 @@ dependencies = [
  "arbitrary",
  "bitcoin",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-btc-types",
  "strata-btc-verification",
@@ -10847,7 +10868,7 @@ dependencies = [
  "moho-runtime-impl",
  "moho-runtime-interface",
  "moho-types",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-logs",
@@ -10877,7 +10898,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/asm.git?rev=dc6432ffef44597c7db2447077f1e0fd677bff42#dc6432ffef44597c7db2447077f1e0fd677bff42"
 dependencies = [
  "arbitrary",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-logs",
@@ -10899,7 +10920,7 @@ dependencies = [
  "arbitrary",
  "bitcoin",
  "hex",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-params",
@@ -10920,7 +10941,7 @@ dependencies = [
  "bitcoin",
  "rand_chacha 0.9.0",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-logs",
@@ -10941,7 +10962,7 @@ name = "strata-asm-proto-bridge-v1-msgs"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/asm.git?rev=dc6432ffef44597c7db2447077f1e0fd677bff42#dc6432ffef44597c7db2447077f1e0fd677bff42"
 dependencies = [
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-proto-bridge-v1-txs",
@@ -10975,7 +10996,7 @@ dependencies = [
  "bitvec",
  "borsh",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-btc-types",
  "strata-identifiers",
@@ -10992,7 +11013,7 @@ dependencies = [
  "bitvec",
  "borsh",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-btc-types",
  "strata-identifiers",
@@ -11020,7 +11041,7 @@ name = "strata-asm-proto-checkpoint-msgs"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/asm.git?rev=dc6432ffef44597c7db2447077f1e0fd677bff42#dc6432ffef44597c7db2447077f1e0fd677bff42"
 dependencies = [
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-asm-common",
  "strata-asm-proto-checkpoint-txs",
@@ -11050,10 +11071,10 @@ source = "git+https://github.com/alpenlabs/asm.git?rev=dc6432ffef44597c7db244707
 dependencies = [
  "borsh",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_codegen",
  "ssz_derive",
- "ssz_primitives",
+ "ssz_primitives 0.15.0",
  "ssz_types",
  "strata-asm-manifest-types",
  "strata-codec",
@@ -11238,7 +11259,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
- "ssz",
+ "ssz 0.16.0",
  "ssz_derive",
  "strata-btc-types",
  "strata-predicate",
@@ -11284,7 +11305,7 @@ dependencies = [
  "operator-wallet",
  "secret-service-client",
  "secret-service-proto",
- "ssz",
+ "ssz 0.16.0",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-txs",
  "strata-asm-rpc",
@@ -11431,7 +11452,7 @@ dependencies = [
  "moho-runtime-interface",
  "moho-types",
  "serde_json",
- "ssz",
+ "ssz 0.16.0",
  "ssz_derive",
  "strata-asm-params",
  "strata-asm-proof-impl",
@@ -11499,7 +11520,7 @@ name = "strata-bridge-sp1-guest-builder"
 version = "0.1.0"
 dependencies = [
  "sp1-build",
- "ssz",
+ "ssz 0.16.0",
  "strata-bridge-proof",
 ]
 
@@ -11554,7 +11575,7 @@ dependencies = [
  "borsh",
  "num_enum 0.7.4",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-codec",
  "strata-identifiers",
@@ -11572,7 +11593,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-btc-types",
  "strata-crypto",
@@ -11586,10 +11607,10 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/asm.git?rev=dc6432ffef44597c7db2447077f1e0fd677bff42#dc6432ffef44597c7db2447077f1e0fd677bff42"
 dependencies = [
  "bitcoin-bosd 0.10.0",
- "ssz",
+ "ssz 0.15.0",
  "ssz_codegen",
  "ssz_derive",
- "ssz_primitives",
+ "ssz_primitives 0.15.0",
  "ssz_types",
  "strata-asm-manifest-types",
  "strata-asm-params",
@@ -11630,7 +11651,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata-common?tag=v0.1.0-alpha-rc21#bb060d613880d8d4c8decd0e7544acb54e4d5a25"
 dependencies = [
  "borsh",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-codec",
 ]
@@ -11648,7 +11669,7 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "sha2 0.10.9",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-identifiers",
  "thiserror 2.0.18",
@@ -11667,9 +11688,9 @@ dependencies = [
  "int-enum",
  "paste",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
- "ssz_primitives",
+ "ssz_primitives 0.15.0",
  "ssz_types",
  "strata-codec",
  "tree_hash",
@@ -11706,10 +11727,10 @@ dependencies = [
  "digest 0.10.7",
  "serde",
  "sha2 0.10.9",
- "ssz",
+ "ssz 0.15.0",
  "ssz_codegen",
  "ssz_derive",
- "ssz_primitives",
+ "ssz_primitives 0.15.0",
  "ssz_types",
  "strata-codec",
  "thiserror 2.0.18",
@@ -11759,7 +11780,7 @@ dependencies = [
  "arbitrary",
  "borsh",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "ssz_derive",
  "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?tag=v0.1-alpha.8)",
  "strata-codec",
@@ -11795,10 +11816,10 @@ dependencies = [
  "k256",
  "serde",
  "signature",
- "ssz",
+ "ssz 0.15.0",
  "ssz_codegen",
  "ssz_derive",
- "ssz_primitives",
+ "ssz_primitives 0.15.0",
  "ssz_types",
  "thiserror 2.0.18",
  "tree_hash",
@@ -12097,7 +12118,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -12639,8 +12660,8 @@ dependencies = [
  "digest 0.10.7",
  "sha2 0.10.9",
  "smallvec",
- "ssz",
- "ssz_primitives",
+ "ssz 0.15.0",
+ "ssz_primitives 0.15.0",
  "thiserror 2.0.18",
 ]
 
@@ -13145,7 +13166,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -13847,7 +13868,7 @@ dependencies = [
  "bincode",
  "borsh",
  "serde",
- "ssz",
+ "ssz 0.15.0",
  "thiserror 1.0.69",
 ]
 
