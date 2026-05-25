@@ -123,11 +123,10 @@ regtest `bitcoind` (the `network-extbtc` environment).
      -rpcuser=user -rpcpassword=password -fallbackfee=0.00001 -acceptnonstdtxn=0 \
      -zmqpubhashblock=tcp://127.0.0.1:28332 -zmqpubhashtx=tcp://127.0.0.1:28333 \
      -zmqpubrawblock=tcp://127.0.0.1:28334 -zmqpubrawtx=tcp://127.0.0.1:28335 \
-     -zmqpubsequence=tcp://127.0.0.1:28336 -daemon
+     -zmqpubsequence=tcp://127.0.0.1:28336
    ```
 
-2. Run an SP1-proving test against the external node (the proof key is read from
-   `.env`):
+2. Run an SP1-proving test against the external node:
 
    ```bash
    ./run_test.sh -t tests/contested_payout/fn_contest_without_counterproof.py
@@ -143,6 +142,21 @@ regtest `bitcoind` (the `network-extbtc` environment).
    proofs the bridge verifies via `Sp1Groth16` predicates. Set `BRIDGE_PROOF_SP1_ASM=0`
    to keep the ASM/Moho layer as native Schnorr attestations. Real Groth16 proving
    (and the extra ELF builds) only happens under `SP1_PROVER` ≠ `mock`.
+
+### SP1 env vars
+
+Defaults come from [`sp1-env.bash.sample`](sp1-env.bash.sample). Override any of
+them inline (e.g. `SP1_PROVER=cpu ./run_test.sh ...`) or by editing your local
+`sp1-env.bash`.
+
+| Variable | Default | Effect when overridden |
+| --- | --- | --- |
+| `BRIDGE_PROOF_SP1` | `1` | `0` disables SP1 proving entirely (native proofs, no guest ELF build). |
+| `SP1_PROVER` | `network` | `mock` = fast stub proofs (no real proving); `cpu`/`cuda` = local real proving; `network` = remote proving via Succinct (requires `NETWORK_*`). |
+| `SP1_PROOF_STRATEGY` | `reserved` | Succinct Network proof-request strategy (e.g. `reserved`, `hosted`, `auction`). Only used when `SP1_PROVER=network`. |
+| `NETWORK_RPC_URL` | `https://rpc.production.succinct.xyz` | Point at a different Succinct prover network endpoint. |
+| `NETWORK_PRIVATE_KEY` | _(unset)_ | **Required** for `SP1_PROVER=network`. Your Succinct prover account key; the network rejects requests without it. |
+| `BRIDGE_PROOF_SP1_ASM` | `1` | `0` keeps the ASM/Moho layer as native Schnorr attestations (`Bip340Schnorr`) and skips the asm/moho guest ELF builds; `1` builds them and the bridge verifies real `Sp1Groth16` predicates. |
 
 ## Running with code coverage
 

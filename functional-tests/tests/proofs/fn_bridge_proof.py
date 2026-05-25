@@ -34,9 +34,11 @@ class SP1BridgeProofTest(StrataTestBase):
     """
 
     NUM_OPERATORS = 2
+    BURY_DEPTH = 0
 
     def __init__(self, ctx: flexitest.InitContext):
         self.bridge_protocol_params = BridgeProtocolParams(
+            bury_depth=self.BURY_DEPTH,
             contest_timelock=5,
             ack_timelock=10,
             proof_timelock=10_000,
@@ -49,14 +51,15 @@ class SP1BridgeProofTest(StrataTestBase):
                     min_withdrawal_fulfillment_window=0,
                     retry_interval_secs=120,
                 ),
-                btc_config=BitcoinEnvConfig(block_generation_interval_secs=180),
+                btc_config=BitcoinEnvConfig(
+                    mine_on_demand=True,
+                    mine_on_demand_trailing_blocks=self.BURY_DEPTH,
+                ),
                 num_operators=self.NUM_OPERATORS,
             )
         )
 
     def main(self, ctx: flexitest.RunContext):
-        # Stake confirmation is block-bound; the 3-minute block cadence needs a much
-        # larger budget than the default 600s.
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(
             ctx, num_operators=self.NUM_OPERATORS, stake_timeout=7200
         )
