@@ -132,6 +132,25 @@ pub struct CovenantKeys {
     pub payout_descriptor: Descriptor,
 }
 
+/// Forces a compile-error if [`CovenantKeys`] grows or shrinks a field. The CPFP anchor
+/// inference path in `strata_bridge_exec::cpfp_adapters::infer_anchor_strategy` assumes
+/// `watchtower_pubkey == musig2_pubkey` for counterproof / counterproof_ack txs — an
+/// assumption made elsewhere too (see `bin/strata-bridge/src/mode/services/operator_wallet.rs`
+/// where `watchtower_keys` is sourced from `covenant[i].musig2`).
+///
+/// If anyone adds e.g. a `watchtower: XOnlyPublicKey` field to [`CovenantKeys`] in the future,
+/// this destructuring will fail to compile with "missing field `watchtower`" — that's the
+/// trigger to audit the CPFP path. The right fix at that point is to thread the per-anchor
+/// key through `CpfpKind::InferAnchor` and add a watchtower signer to `CpfpContext`.
+#[allow(dead_code)]
+fn _covenant_keys_field_audit(c: CovenantKeys) {
+    let CovenantKeys {
+        musig2: _,
+        p2p: _,
+        payout_descriptor: _,
+    } = c;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct EncodedCovenantKeys {
     musig2: String,

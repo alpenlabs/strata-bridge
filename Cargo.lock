@@ -11478,6 +11478,7 @@ dependencies = [
  "operator-wallet",
  "secret-service-client",
  "secret-service-proto",
+ "serial_test",
  "ssz",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-txs",

@@ -12,9 +12,25 @@ pub mod native;
 use std::error::Error as StdError;
 
 use bdk_wallet::{
-    bitcoin::{Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut},
+    bitcoin::{Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
     chain::ChainPosition,
 };
+
+/// Metadata about the keyed-Taproot anchor that the CPFP child will spend.
+///
+/// Carried into [`GeneralWallet::build_cpfp_child`] so the backend can populate the PSBT
+/// input without having to recover the internal key from the parent's anchor `script_pubkey`
+/// (which is impossible — Taproot output keys are tweaked).
+#[derive(Debug, Clone, Copy)]
+pub struct AnchorInfo {
+    /// Index of the anchor output in `parent.output`.
+    pub vout: u32,
+    /// Internal x-only key the anchor was constructed from. For a keyed-Taproot output with
+    /// no script tree, the output key is this internal key BIP-341-tweaked by an empty
+    /// merkle root. The downstream signer needs the internal key (not the output key) to
+    /// construct a key-path signature.
+    pub internal_key: XOnlyPublicKey,
+}
 
 /// A backend that manages the operator's general-purpose Bitcoin funds.
 ///
@@ -67,20 +83,27 @@ pub trait GeneralWallet: Send + Sync {
         exclude: &[OutPoint],
     ) -> impl std::future::Future<Output = Result<FundedPsbt, Self::Error>> + Send;
 
-    /// Builds a v3 TRUC CPFP child for `parent`, spending the keyed-Taproot anchor at
-    /// `parent.output[anchor_vout]` plus one fee-paying input drawn from this wallet.
+    /// Builds a v3 TRUC CPFP child for `parent`, spending the keyed-Taproot output described
+    /// by `anchor` plus inputs drawn from this wallet to cover the child's share of the
+    /// package fee.
     ///
+    /// * `parent_fee` — caller-provided fee already paid by `parent`. Used together with parent
+    ///   vbytes and `target_pkg_fee_rate` to compute the implied child fee. The caller always knows
+    ///   this (it built or has access to the parent's prevouts), so the backend can stay I/O-free.
+    /// * `anchor` — [`AnchorInfo`] identifying the foreign-key output to spend and its internal
+    ///   key.
     /// * `target_pkg_fee_rate` — sat-per-vbyte target for the (parent, child) package as a whole.
     /// * `exclude` — fee-paying-input selection skips these outpoints. Used to avoid re-selecting
     ///   the funding input of a prior child being replaced via RBF.
     ///
     /// Per the trait-level signing contract, the anchor input is left unsigned with
-    /// `witness_utxo` and `tap_internal_key` populated; the fee-paying input is signed iff
-    /// the backend holds its key material.
+    /// `witness_utxo` and `tap_internal_key` populated (the latter sourced from
+    /// `anchor.internal_key`); inputs the backend holds key material for are signed.
     fn build_cpfp_child(
         &mut self,
         parent: &Transaction,
-        anchor_vout: u32,
+        parent_fee: Amount,
+        anchor: AnchorInfo,
         target_pkg_fee_rate: FeeRate,
         exclude: &[OutPoint],
     ) -> impl std::future::Future<Output = Result<FundedPsbt, Self::Error>> + Send;
