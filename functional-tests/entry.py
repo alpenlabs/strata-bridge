@@ -17,28 +17,41 @@ from factory.mosaic import MosaicFactory
 from factory.s2 import S2Factory
 from utils.logging import setup_root_logger
 
+# Groups in here don't run when you just call `./run_test.sh` with no
+# arguments. They're the slow / expensive ones that we never want sweeping up the default
+# regression run. They still run when you ask for them — either by
+# file (`-t tests/proofs/fn_bridge_proof.py`) or by group (`-g proofs`).
+SKIP_GROUPS_BY_DEFAULT = frozenset({"proofs"})
+
 parser = argparse.ArgumentParser(prog="entry.py")
 parser.add_argument("-g", "--groups", nargs="*", help="Test groups (subdirectory names) to run")
 parser.add_argument("-t", "--tests", nargs="*", help="Specific test files to run")
 
 
+def groups_for_test(path: str) -> frozenset[str]:
+    """Return the group names (subdirectories under `tests/`) on this test's path."""
+    path_parts = os.path.normpath(path).split(os.sep)
+    idx = next((i for i, part in enumerate(path_parts) if part == TEST_DIR), None)
+    return frozenset(path_parts[idx + 1 : -1]) if idx is not None else frozenset()
+
+
 def filter_tests(parsed_args, modules):
-    """Filter discovered test modules by group and/or test name."""
+    """Pick which discovered test modules actually run."""
     arg_groups = frozenset(parsed_args.groups or [])
     arg_tests = frozenset(
         os.path.splitext(os.path.basename(t))[0] for t in (parsed_args.tests or [])
     )
 
-    # If no filters specified, return all modules.
     if not arg_groups and not arg_tests:
-        return modules
+        return {
+            test: path
+            for test, path in modules.items()
+            if not (groups_for_test(path) & SKIP_GROUPS_BY_DEFAULT)
+        }
 
     filtered = {}
     for test, path in modules.items():
-        # Extract the group (subdirectory) from the test path.
-        path_parts = os.path.normpath(path).split(os.sep)
-        idx = next((i for i, part in enumerate(path_parts) if part == TEST_DIR), None)
-        test_groups = frozenset(path_parts[idx + 1 : -1]) if idx is not None else frozenset()
+        test_groups = groups_for_test(path)
 
         take = False
         if arg_groups and (arg_groups & test_groups):

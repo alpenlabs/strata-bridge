@@ -87,10 +87,10 @@ uv run python entry.py
 
 ## Running tests
 ```bash
-# Run all tests
+# Run all tests (skips groups marked SKIP_GROUPS_BY_DEFAULT — see note below)
 ./run_test.sh
 
-# Run a specific test by path
+# Run a specific test by path (always runs, even for skipped groups)
 ./run_test.sh -t tests/liveness/fn_network_test.py
 
 # Run all tests in a group (subdirectory)
@@ -98,7 +98,16 @@ uv run python entry.py
 
 # Run multiple groups
 ./run_test.sh -g contested_payout uncontested_payout
+
+# Force-run an otherwise-skipped group by selecting it explicitly:
+./run_test.sh -g proofs
 ```
+
+> A few groups are deliberately skipped by the no-arg run because they're
+> too expensive to drag into a default regression sweep. Today that's just
+> `proofs/` (the SP1 end-to-end bridge-proof test). They still run when you
+> pick them by path (`-t …`) or by group (`-g proofs`). The list lives in
+> `SKIP_GROUPS_BY_DEFAULT` in [`entry.py`](entry.py).
 
 ## Running in SP1 proving mode
 
