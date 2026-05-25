@@ -30,7 +30,13 @@ pub struct ExecutionConfig {
     /// stake transaction must carry `stake_amount` plus any connector dust the stake tx produces.
     pub stake_amount: Amount,
 
-    /// The number of claim funding utxos to generate at any given time when the pool is exhausted.
+    /// The denomination of each UTXO in the claim-funding pool. The composer creates
+    /// reserved-wallet UTXOs of exactly this value when refilling the pool, and the duty
+    /// dispatcher selects them by exact value match.
+    pub claim_funding_utxo_value: Amount,
+
+    /// The target number of claim-funding UTXOs to keep available in the reserved wallet.
+    /// When the pool is exhausted, the duty dispatcher tops it back up to this size.
     pub funding_uxto_pool_size: usize,
 
     /// The graph state-machine configuration, shared with the GSM to keep protocol parameters

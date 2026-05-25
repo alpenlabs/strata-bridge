@@ -7402,6 +7402,8 @@ version = "0.1.0"
 dependencies = [
  "bdk_bitcoind_rpc",
  "bdk_wallet",
+ "corepc-node",
+ "serial_test",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

@@ -23,12 +23,26 @@ use tracing::{debug, info, warn};
 
 use crate::config::Config;
 
+/// Result of [`init_operator_wallet`] — the constructed wallet plus the per-UTXO
+/// denomination of the claim-funding pool. The latter is no longer stored on
+/// `OperatorWalletConfig` (the composer is now agnostic of caller denominations); the
+/// orchestrator forwards it into `ExecutionConfig` so duty executors can reference the
+/// pool by value.
+pub(in crate::mode) struct InitializedOperatorWallet {
+    /// The composed operator wallet, ready to lease + sign against.
+    pub wallet: NativeWallet,
+    /// Per-UTXO denomination of the claim-funding pool. The composer is denomination-
+    /// agnostic; this value is propagated into [`ExecutionConfig`] so duty executors can
+    /// reference the pool by value.
+    pub claim_funding_utxo_value: Amount,
+}
+
 pub(in crate::mode) async fn init_operator_wallet(
     config: &Config,
     params: &Params,
     s2_client: &SecretServiceClient,
     db_client: &FdbClient,
-) -> anyhow::Result<NativeWallet> {
+) -> anyhow::Result<InitializedOperatorWallet> {
     info!("fetching leased utxos from database");
     let leased_outpoints = db_client
         .get_all_funds()
@@ -53,17 +67,16 @@ pub(in crate::mode) async fn init_operator_wallet(
     let reserved_key = s2_client.reserved_wallet_signer().pubkey().await?;
     info!(%reserved_key, "operator wallet reserved key");
     let own_musig2_key = s2_client.musig2_signer().pubkey().await?;
-    let operator_funds = compute_funding_amount(params, own_musig2_key);
-    let operator_wallet_config =
-        OperatorWalletConfig::new(operator_funds, SEGWIT_MIN_AMOUNT, params.network);
-    debug!(?operator_wallet_config, "operator wallet config");
+    let claim_funding_utxo_value = compute_claim_funding_utxo_value(params, own_musig2_key);
+    let operator_wallet_config = OperatorWalletConfig::new(SEGWIT_MIN_AMOUNT, params.network);
+    debug!(?operator_wallet_config, %claim_funding_utxo_value, "operator wallet config");
 
     let general_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
     let reserved_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
     debug!(?general_sync_backend, "operator wallet sync backend");
     let general_wallet =
         NativeGeneralWallet::new(general_key, params.network, general_sync_backend);
-    let operator_wallet = OperatorWallet::new(
+    let wallet = OperatorWallet::new(
         general_wallet,
         reserved_key,
         operator_wallet_config,
@@ -72,7 +85,10 @@ pub(in crate::mode) async fn init_operator_wallet(
     );
     debug!("operator wallet initialized");
 
-    Ok(operator_wallet)
+    Ok(InitializedOperatorWallet {
+        wallet,
+        claim_funding_utxo_value,
+    })
 }
 
 /// Performs a one-shot sync of the operator wallet against its backend.
@@ -91,12 +107,12 @@ pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(wallet: Arc<RwLo
     }
 }
 
-/// Computes the funding amount for the transaction graph based on the nature of the graph being
-/// constructed.
+/// Computes the per-UTXO denomination for the claim-funding pool. Each claim transaction
+/// consumes one UTXO of this size from the reserved wallet, so the value is derived from
+/// the connectors that the claim tx must pay for (which depend on the watchtower set size).
 ///
-/// This amount is not a constant since it depends upon the number of watchtowers that are allowed
-/// to contest a claim.
-fn compute_funding_amount(params: &Params, own_musig2_key: XOnlyPublicKey) -> Amount {
+/// Not a constant since it depends on the number of watchtowers allowed to contest a claim.
+fn compute_claim_funding_utxo_value(params: &Params, own_musig2_key: XOnlyPublicKey) -> Amount {
     // Must match the value used in `orchestrator.rs::COUNTERPROOF_N_DATA`. Hardcoded here too
     // because `Params` does not currently expose it.
     const COUNTERPROOF_N_DATA: NonZero<usize> =

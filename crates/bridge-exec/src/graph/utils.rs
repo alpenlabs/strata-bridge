@@ -16,11 +16,11 @@ use crate::errors::ExecutorError;
 
 /// Finalizes and broadcasts a claim funding transaction.
 ///
-/// This function assumes that the [`Psbt`] has already been funded with `witness_utxo` populated
-/// on every input (which `OperatorWallet::refill_claim_funding_utxos` guarantees). It signs all
-/// inputs using the general wallet signer in the secret service, submits the finalized
-/// transaction to the tx driver for broadcasting, and then waits for the transaction to appear
-/// in the mempool.
+/// This function assumes that the [`Psbt`] has already been funded with `witness_utxo`
+/// populated on every input (which `OperatorWallet::create_reserved_utxos` guarantees by
+/// returning a [`crate::Psbt`] whose inputs all carry the wallet's `witness_utxo`). It signs
+/// all inputs via the caller-provided signer, submits the finalized transaction to the tx
+/// driver for broadcasting, and waits for it to appear in the mempool.
 pub(super) async fn finalize_claim_funding_tx(
     s2_client: &SecretServiceClient,
     tx_driver: &TxDriver,

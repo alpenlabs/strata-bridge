@@ -1,15 +1,14 @@
 //! Native BDK-backed implementation of [`GeneralWallet`].
 //!
 //! The native wallet holds the operator's general-funds descriptor (`tr(general_pubkey)`) but
-//! never holds private keys: signing is delegated to the secret-service by the caller. As a
-//! consequence every PSBT returned by this impl carries `witness_utxo` and `tap_internal_key`
-//! on its inputs but no signatures — the caller signs downstream.
+//! never holds private keys. Per the [`GeneralWallet`] signing contract, every PSBT this impl
+//! returns carries `witness_utxo` and `tap_internal_key` on its inputs but no signatures —
+//! the caller signs downstream.
 
 use std::collections::BTreeSet;
 
 use bdk_wallet::{
     bitcoin::{FeeRate, Network, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
-    chain::ChainPosition,
     descriptor,
     error::CreateTxError,
     KeychainKind, TxOrdering, Wallet,
@@ -18,7 +17,7 @@ use thiserror::Error;
 use tracing::info;
 
 use crate::{
-    general::{FundedPsbt, GeneralWallet, UtxoInfo},
+    general::{local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
     sync::{Backend, SyncError},
 };
 
@@ -100,13 +99,7 @@ impl GeneralWallet for NativeGeneralWallet {
             fee_rate,
             exclude,
         )?;
-        let spent = psbt
-            .unsigned_tx
-            .input
-            .iter()
-            .map(|txin| txin.previous_output)
-            .collect();
-        Ok(FundedPsbt { psbt, spent })
+        Ok(FundedPsbt { psbt })
     }
 
     async fn build_cpfp_child(
@@ -119,23 +112,6 @@ impl GeneralWallet for NativeGeneralWallet {
         // TODO: <https://alpenlabs.atlassian.net/browse/STR-3439>
         // Wire up CPFP child construction during the tx-driver / RBF work.
         Err(NativeGeneralError::CpfpChildNotImplemented)
-    }
-}
-
-/// Converts a BDK [`bdk_wallet::LocalOutput`] into a backend-neutral [`UtxoInfo`], computing
-/// confirmations against the wallet's current tip.
-fn local_output_to_utxo_info(lo: &bdk_wallet::LocalOutput, tip_height: u32) -> UtxoInfo {
-    let confirmations = match &lo.chain_position {
-        ChainPosition::Confirmed { anchor, .. } => tip_height
-            .saturating_sub(anchor.block_id.height)
-            .saturating_add(1),
-        ChainPosition::Unconfirmed { .. } => 0,
-    };
-    UtxoInfo {
-        outpoint: lo.outpoint,
-        amount: lo.txout.value,
-        confirmations,
-        script_pubkey: lo.txout.script_pubkey.clone(),
     }
 }
 

@@ -1,40 +1,37 @@
-//! The `GeneralWallet` trait — abstraction over the part of an operator's funds that pays for
-//! bridge operations (fronting withdrawals, CPFP, top-ups). The trait isolates the surface that
-//! genuinely differs between backends: today the native BDK-backed wallet, tomorrow a Fireblocks
-//! adapter.
+//! The [`GeneralWallet`] trait — abstraction over the operator's general-purpose funds
+//! (the wallet that fronts payments, pays CPFP fees, and tops up other internal pools).
+//! The trait isolates the surface that genuinely varies between backends; concrete
+//! implementations live in submodules.
 //!
 //! Everything that doesn't vary between backends — leasing, the reserved wallet, anchor
-//! filtering, cross-wallet transaction construction — lives on the concrete
-//! [`crate::OperatorWallet<G>`] composer that wraps a `GeneralWallet`.
+//! filtering, cross-wallet transaction construction — lives on the composer
+//! [`crate::OperatorWallet<G>`] that wraps a `GeneralWallet`.
 
 pub mod native;
 
 use std::error::Error as StdError;
 
-use bdk_wallet::bitcoin::{Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut};
+use bdk_wallet::{
+    bitcoin::{Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut},
+    chain::ChainPosition,
+};
 
 /// A backend that manages the operator's general-purpose Bitcoin funds.
 ///
-/// Concrete implementations:
-/// - [`native::NativeGeneralWallet`] — BDK-backed, descriptor-only (no key material). Signing is
-///   delegated to the secret-service by the caller.
-/// - Fireblocks adapter (forthcoming) — ECDSA signing via Fireblocks API.
-///
-/// The trait is intentionally narrow: it covers signing + UTXO discovery + transaction
+/// The trait is intentionally narrow: it covers UTXO discovery + signing + transaction
 /// construction for the general wallet only. Lease bookkeeping, the reserved wallet, and
 /// anchor handling live on the composer.
 ///
 /// # Signing contract
 ///
-/// A backend signs inputs it has key material for. Inputs it leaves unsigned must be populated
-/// with `witness_utxo` and `tap_internal_key` (or analogous fields) so the caller can sign
-/// downstream — typically by routing the sighash through the secret service.
+/// A backend signs the inputs it has key material for. Inputs it leaves unsigned must
+/// carry `witness_utxo` (and `tap_internal_key` for Taproot key-path) so the caller can
+/// sign them downstream by whatever means it sees fit.
 pub trait GeneralWallet: Send + Sync {
     /// Backend-specific error type.
     type Error: StdError + Send + Sync + 'static;
 
-    /// Refreshes internal state from the underlying source (chain RPC for native, vault API for
-    /// remote backends like Fireblocks). Idempotent.
+    /// Refreshes internal state from the underlying source. Idempotent.
     ///
     /// Takes `&mut self` because the typical native impl needs to mutate its BDK wallet
     /// state. Callers serialize via an outer lock; the trait doesn't impose interior
@@ -50,17 +47,18 @@ pub trait GeneralWallet: Send + Sync {
     /// exclusions before requesting funding.
     fn list_utxos(&self) -> Vec<UtxoInfo>;
 
-    /// Builds and (where possible) signs a v3 TRUC funding transaction.
+    /// Builds a v3 TRUC funding transaction and signs the inputs it has key material for.
     ///
     /// * `outputs` — recipient outputs to fund. Change (if any) is appended.
     /// * `explicit_inputs` — when `Some`, only these outpoints are used as inputs. When `None`, the
     ///   backend selects inputs from its spendable UTXO set, skipping `exclude`.
     /// * `fee_rate` — target sat-per-vbyte for the transaction itself.
     /// * `exclude` — outpoints the backend must not select (anchors, currently-leased outpoints,
-    ///   etc.). Ignored if `explicit_inputs` is `Some`.
+    ///   etc.). Ignored when `explicit_inputs` is `Some`.
     ///
-    /// Inputs the backend has key material for are signed. Anything left unsigned must have
-    /// `witness_utxo` (and `tap_internal_key` for Taproot inputs) populated.
+    /// Inputs the backend can sign are returned with their witnesses populated; the rest
+    /// carry `witness_utxo` and `tap_internal_key` (for Taproot) so the caller can sign
+    /// downstream.
     fn fund_v3_transaction(
         &mut self,
         outputs: Vec<TxOut>,
@@ -72,17 +70,13 @@ pub trait GeneralWallet: Send + Sync {
     /// Builds a v3 TRUC CPFP child for `parent`, spending the keyed-Taproot anchor at
     /// `parent.output[anchor_vout]` plus one fee-paying input drawn from this wallet.
     ///
-    /// The project uses a keyed-Taproot anchor at the segwit-dust minimum (`SEGWIT_MIN_AMOUNT`,
-    /// 330 sat) rather than a BIP-431 ephemeral P2A (value-0) output. Implementers must spend
-    /// the 330-sat anchor and account for its value when constructing the child.
-    ///
     /// * `target_pkg_fee_rate` — sat-per-vbyte target for the (parent, child) package as a whole.
     /// * `exclude` — fee-paying-input selection skips these outpoints. Used to avoid re-selecting
     ///   the funding input of a prior child being replaced via RBF.
     ///
-    /// **The anchor input is never signed** — backends populate its `witness_utxo` and
-    /// `tap_internal_key` and leave the caller to sign it via the secret service. The
-    /// funding input is signed iff the backend holds its key material.
+    /// Per the trait-level signing contract, the anchor input is left unsigned with
+    /// `witness_utxo` and `tap_internal_key` populated; the fee-paying input is signed iff
+    /// the backend holds its key material.
     fn build_cpfp_child(
         &mut self,
         parent: &Transaction,
@@ -95,34 +89,72 @@ pub trait GeneralWallet: Send + Sync {
 /// A funded PSBT returned by [`GeneralWallet`] funding operations.
 #[derive(Debug, Clone)]
 pub struct FundedPsbt {
-    /// The funded PSBT. Inputs the backend could sign are signed; the rest carry
-    /// `witness_utxo` (and `tap_internal_key` for Taproot) for downstream signing.
+    /// The funded PSBT. See the [`GeneralWallet`] signing contract for which inputs are
+    /// signed vs. left for downstream signing.
     pub psbt: Psbt,
-    /// Outpoints consumed as inputs to this PSBT. The caller leases these so they aren't
-    /// re-selected by concurrent duties.
-    pub spent: Vec<OutPoint>,
+}
+
+impl FundedPsbt {
+    /// Returns the outpoints consumed as inputs to this PSBT, derived from
+    /// `psbt.unsigned_tx`. Use this to lease the spent UTXOs against re-selection by
+    /// concurrent callers.
+    pub fn spent(&self) -> Vec<OutPoint> {
+        self.psbt
+            .unsigned_tx
+            .input
+            .iter()
+            .map(|txin| txin.previous_output)
+            .collect()
+    }
 }
 
 /// A snapshot of a single UTXO controlled by a [`GeneralWallet`] (or, by convention, the
 /// reserved wallet that the [`crate::OperatorWallet`] composer manages internally).
 #[derive(Debug, Clone)]
 pub struct UtxoInfo {
-    /// On-chain outpoint of the UTXO.
+    /// Outpoint identifying this UTXO.
     pub outpoint: OutPoint,
     /// Output amount.
     pub amount: Amount,
-    /// Confirmations as of the most recent sync. `0` if unconfirmed.
+    /// Confirmations as of the most recent sync. `0` if the UTXO is in the mempool only
+    /// (not yet on chain).
     pub confirmations: u32,
     /// Output script.
     pub script_pubkey: ScriptBuf,
 }
 
-impl UtxoInfo {
-    /// Reconstructs the [`TxOut`] this UTXO refers to.
-    pub fn as_txout(&self) -> TxOut {
-        TxOut {
-            value: self.amount,
-            script_pubkey: self.script_pubkey.clone(),
+impl From<UtxoInfo> for TxOut {
+    fn from(u: UtxoInfo) -> Self {
+        Self {
+            value: u.amount,
+            script_pubkey: u.script_pubkey,
         }
+    }
+}
+
+impl From<&UtxoInfo> for TxOut {
+    fn from(u: &UtxoInfo) -> Self {
+        Self {
+            value: u.amount,
+            script_pubkey: u.script_pubkey.clone(),
+        }
+    }
+}
+
+/// Converts a BDK [`bdk_wallet::LocalOutput`] into a backend-neutral [`UtxoInfo`], computing
+/// confirmations against `tip_height`. Shared between the native general-wallet backend and
+/// the composer's reserved-wallet lookup since both are BDK-backed.
+pub(crate) fn local_output_to_utxo_info(lo: &bdk_wallet::LocalOutput, tip_height: u32) -> UtxoInfo {
+    let confirmations = match &lo.chain_position {
+        ChainPosition::Confirmed { anchor, .. } => tip_height
+            .saturating_sub(anchor.block_id.height)
+            .saturating_add(1),
+        ChainPosition::Unconfirmed { .. } => 0,
+    };
+    UtxoInfo {
+        outpoint: lo.outpoint,
+        amount: lo.txout.value,
+        confirmations,
+        script_pubkey: lo.txout.script_pubkey.clone(),
     }
 }
