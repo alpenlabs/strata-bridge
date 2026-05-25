@@ -20,4 +20,4 @@ def pre_fund_operators(rpc, miner_addr, operator_key_infos, btc_config):
 
 def read_genesis_height_from_params(params_file_path) -> int:
     """Parse the ASM genesis block height out of an `asm-params.json` file."""
-    return json.loads(Path(params_file_path).read_text())["block"]["height"]
+    return json.loads(Path(params_file_path).read_text())["anchor"]["block"]["height"]
