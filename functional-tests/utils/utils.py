@@ -40,6 +40,14 @@ def read_operator_key(operator_idx: int) -> OperatorKeyInfo:
     return OperatorKeyInfo(**raw_keys)
 
 
+def read_all_operator_keys() -> list[OperatorKeyInfo]:
+    """Get every operator key entry from artifacts/keys.json."""
+    keys_path = Path(__file__).parent.parent / "artifacts" / "keys.json"
+    with open(keys_path) as f:
+        keys_data = json.load(f)
+    return [OperatorKeyInfo(**raw) for raw in keys_data]
+
+
 def wait_until(
     condition: Callable[[], bool],
     timeout: int = 120,

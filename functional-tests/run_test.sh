@@ -95,7 +95,10 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
             echo "MOHO predicate: $BRIDGE_PROOF_SP1_MOHO_PREDICATE"
         fi
 
-        echo "SP1 proving mode (SP1_PROVER=$SP1_PROVER): generating asm-params from external L1 $BITCOIN_RPC_URL"
+        # Also pre-funds operator general wallets so ASM genesis anchors at the
+        # post-funded tip; env init skips its own funding when BRIDGE_PROOF_ASM_PARAMS_DIR
+        # is exported (see BaseEnv._is_pre_funded).
+        echo "SP1 proving mode (SP1_PROVER=$SP1_PROVER): pre-funding operators and generating asm-params from external L1 $BITCOIN_RPC_URL"
         ( cd functional-tests && uv run python gen_asm_params_external.py )
         export BRIDGE_PROOF_ASM_PARAMS_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/asm-params.json"
         export BRIDGE_PROOF_ASM_VK_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/asm-vk.json"

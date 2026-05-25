@@ -1,13 +1,5 @@
-"""Generate asm-params.json (+ asm-vk.json / moho-vk.json) from an external regtest L1.
-
-Run by run_test.sh in SP1 proving mode (BRIDGE_PROOF_SP1=1 + BRIDGE_EXTERNAL_BITCOIN=1)
-*before* the guest ELF build, so the ELF bakes a genesis anchor that matches the actual
-chain the test runs against. The same files are reused at runtime by the test
-(see base_env.ensure_asm_params), keeping ELF-baked params == runtime params.
-
-Connection details come from the external-bitcoin env vars; output goes to
-BRIDGE_PROOF_ASM_PARAMS_DIR. Operator count is hard-coded to match the proofs test.
-"""
+"""Generate asm-params.json + asm/moho VKs from an external regtest L1, run by
+run_test.sh before the guest ELF build so the ELF bakes a matching genesis anchor."""
 
 import logging
 import os
@@ -22,7 +14,8 @@ from factory.bitcoin import _read_external_btc_env
 from factory.bridge_operator.asm_cfg import write_asm_params
 from utils.bitcoin import prepare_wallet_and_chain
 from utils.logging import setup_root_logger
-from utils.utils import read_operator_key, wait_until_bitcoind_ready
+from utils.sp1_pre_setup import pre_fund_operators
+from utils.utils import read_all_operator_keys, read_operator_key, wait_until_bitcoind_ready
 
 
 def main() -> int:
@@ -37,13 +30,15 @@ def main() -> int:
     rpc = BitcoindClient(base_url=client_url, network="regtest")
     wait_until_bitcoind_ready(rpc, timeout=30)
 
-    genesis_height = BitcoinEnvConfig().initial_blocks
-    prepare_wallet_and_chain(rpc, props["walletname"], genesis_height)
+    btc_config = BitcoinEnvConfig()
+    miner_addr = prepare_wallet_and_chain(rpc, props["walletname"], btc_config.initial_blocks)
+
+    # Fund the bridge operator wallets.
+    pre_fund_operators(rpc, miner_addr, read_all_operator_keys(), btc_config)
+    genesis_height = rpc.proxy.getblockcount()
 
     operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
-    # When the asm-runner runs the SP1 backend (BRIDGE_PROOF_SP1_ASM), run_test.sh
-    # derives the Sp1Groth16 predicates of the asm/moho ELFs and passes them here so the
-    # bridge proof verifies real Groth16 proofs. Absent -> Bip340Schnorr (native) defaults.
+    # Sp1Groth16 predicates when BRIDGE_PROOF_SP1_ASM=1, else Bip340Schnorr defaults.
     asm_vk = os.environ.get("BRIDGE_PROOF_SP1_ASM_PREDICATE")
     moho_vk = os.environ.get("BRIDGE_PROOF_SP1_MOHO_PREDICATE")
     params_path, asm_vk_path, moho_vk_path = write_asm_params(

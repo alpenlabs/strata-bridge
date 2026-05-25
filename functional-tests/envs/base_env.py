@@ -21,6 +21,7 @@ from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from factory.fdb import generate_fdb_root_directory
 from utils.bitcoin import generate_blocks, prepare_wallet_and_chain
 from utils.mosaic import get_peer_ids
+from utils.sp1_pre_setup import read_genesis_height_from_params
 from utils.utils import (
     generate_p2p_ports,
     read_operator_key,
@@ -167,12 +168,18 @@ class BaseEnv(flexitest.EnvConfig):
             backend=backend,
         )
 
+    @property
+    def _is_pre_funded(self) -> bool:
+        """True when run_test.sh's SP1+external path has pre-funded operators
+        before snapshotting ASM genesis. Env init must skip its own funding
+        so it doesn't append blocks past genesis."""
+        return bool(self._prebuilt_params_dir)
+
     def ensure_asm_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
         """Build ASM params once per environment."""
         if self._asm_params is not None:
             return
 
-        genesis_height = int(self.initial_blocks)
         generated_dir = Path(ectx.envdd_path) / ASM_PARAMS_DIR
 
         # When run_test.sh pre-generated params (and baked them into the guest ELF),
@@ -181,7 +188,9 @@ class BaseEnv(flexitest.EnvConfig):
         # are written into generated_dir either way and read by the operator factory.
         if self._prebuilt_params_dir:
             params_file_path, _, _ = copy_asm_params(self._prebuilt_params_dir, generated_dir)
+            genesis_height = read_genesis_height_from_params(params_file_path)
         else:
+            genesis_height = int(self.initial_blocks)
             params_file_path, _, _ = write_asm_params(
                 bitcoind_rpc,
                 self.operator_key_infos,
@@ -255,7 +264,10 @@ class BaseEnv(flexitest.EnvConfig):
         """Fund an operator's wallet.
         Only the general wallet needs to be funded.
         The node will take care of funding the reserved wallet from the general wallet.
+        Skipped under pre-funded mode.
         """
+        if self._is_pre_funded:
+            return
         general_wallet_address = bridge_operator_props["general_wallet_address"]
         brpc.proxy.sendtoaddress(general_wallet_address, self.funding_amount)
 

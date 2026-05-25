@@ -22,8 +22,8 @@ class BitcoinEnvConfig:
     initial_blocks: int = 101
     block_generation_interval_secs: int = BLOCK_GENERATION_INTERVAL_SECS
     auto_mine: bool = True
-    finalization_blocks: int = 10
+    finalization_blocks: int = 4
     funding_amount: float = 30
     external: bool = False
     mine_on_demand: bool = False
-    mine_on_demand_trailing_blocks: int = 10
+    mine_on_demand_trailing_blocks: int = 4
