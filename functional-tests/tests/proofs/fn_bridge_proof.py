@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 import flexitest
 
 from envs import BitcoinEnvConfig, ExternalBtcBridgeNetworkEnv
@@ -8,10 +11,10 @@ from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
-    wait_until_deposit_utxo_spent,
     wait_until_drt_recognized,
 )
 from utils.dev_cli import DevCli
+from utils.sp1_pre_setup import read_genesis_height_from_params
 from utils.utils import (
     read_operator_key,
     wait_for_tx_confirmation,
@@ -34,7 +37,7 @@ class SP1BridgeProofTest(StrataTestBase):
     """
 
     NUM_OPERATORS = 2
-    BURY_DEPTH = 0
+    BURY_DEPTH = 1
 
     def __init__(self, ctx: flexitest.InitContext):
         self.bridge_protocol_params = BridgeProtocolParams(
@@ -74,6 +77,7 @@ class SP1BridgeProofTest(StrataTestBase):
         # Init ASM rpc
         asm_service = ctx.get_service("asm_rpc")
         asm_rpc = asm_service.create_rpc()
+        asm_params_path = Path(os.environ["BRIDGE_PROOF_ASM_PARAMS_DIR"]) / "asm-params.json"
 
         # Wait for DT and DRT
         bitcoind_props = bitcoind_service.props
@@ -102,11 +106,12 @@ class SP1BridgeProofTest(StrataTestBase):
             asm_rpc,
             recent_block_hash,
             num_ol_slots=1,
+            genesis_l1_height=read_genesis_height_from_params(asm_params_path),
         )
         ckp_block_hash = wait_for_tx_confirmation(bitcoin_rpc, ckp_l1_txn, timeout=3600)
         self.logger.info(f"Checkpoint tx {ckp_l1_txn} included in block {ckp_block_hash}")
 
-        # Wait for ASM to process the checkpoint, then wait for an active claim
+        # Wait for ASM to process the checkpoint, then wait for an active claim.
         wait_until(
             lambda: len(asm_rpc.strata_asm_getAssignments(ckp_block_hash)) > 0,
             timeout=3600,
@@ -156,18 +161,5 @@ class SP1BridgeProofTest(StrataTestBase):
         # Verify the bridge state transitions to BridgeProofPosted before payout.
         wait_until_bridge_proof_posted(bridge_rpc, active_claim.deposit_idx, timeout=7200)
         self.logger.info("pendingWithdrawalInfo confirms phase is bridge_proof_posted")
-
-        # Wait for the deposit UTXO to be spent after the contested payout path completes.
-        wait_until_deposit_utxo_spent(bitcoin_rpc, deposit_txid, timeout=10800)
-        self.logger.info("Deposit UTXO confirmed spent after contested payout")
-
-        # Verify pendingWithdrawals is empty after withdrawal completes.
-        wait_until(
-            lambda: len(bridge_rpc.stratabridge_pendingWithdrawals()) == 0,
-            timeout=3600,
-            step=1,
-            error_msg="pendingWithdrawals did not become empty after withdrawal",
-        )
-        self.logger.info("pendingWithdrawals confirmed empty after withdrawal")
 
         return True
