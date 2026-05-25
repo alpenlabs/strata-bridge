@@ -1,6 +1,6 @@
 import flexitest
 
-from envs import BridgeNetworkEnv
+from envs import BitcoinEnvConfig, ExternalBtcBridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
@@ -21,7 +21,7 @@ from utils.withdrawal import wait_until_active_valid_claim, wait_until_bridge_pr
 
 
 @flexitest.register
-class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
+class SP1BridgeProofTest(StrataTestBase):
     """
     Test that a contested payout completes when no counterproof is submitted.
 
@@ -33,22 +33,33 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
     3. Verify the deposit UTXO is spent after the contest timelock expires
     """
 
+    NUM_OPERATORS = 2
+
     def __init__(self, ctx: flexitest.InitContext):
         self.bridge_protocol_params = BridgeProtocolParams(
             contest_timelock=5,
             ack_timelock=10,
+            proof_timelock=10_000,
         )
         ctx.set_env(
-            BridgeNetworkEnv(
+            ExternalBtcBridgeNetworkEnv(
                 bridge_protocol_params=self.bridge_protocol_params,
                 bridge_config_params=BridgeConfigParams(
                     cooperative_payout_timeout=0,
+                    min_withdrawal_fulfillment_window=0,
+                    retry_interval_secs=120,
                 ),
+                btc_config=BitcoinEnvConfig(block_generation_interval_secs=180),
+                num_operators=self.NUM_OPERATORS,
             )
         )
 
     def main(self, ctx: flexitest.RunContext):
-        bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
+        # Stake confirmation is block-bound; the 3-minute block cadence needs a much
+        # larger budget than the default 600s.
+        bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(
+            ctx, num_operators=self.NUM_OPERATORS, stake_timeout=7200
+        )
         bridge_rpc = bridge_rpcs[0]
 
         bitcoind_service = ctx.get_service("bitcoin")
@@ -71,10 +82,12 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
 
         drt_txid = dev_cli.send_deposit_request()
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
-        deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
+        deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid, timeout=3600)
         self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")
 
-        deposit_info = wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
+        deposit_info = wait_until_deposit_status(
+            bridge_rpc, deposit_id, RpcDepositStatusComplete, timeout=7200
+        )
         assert deposit_info is not None, "Deposit did not complete"
         self.logger.info("Deposit completed")
         deposit_txid = deposit_info.get("status").get("deposit_txid")
@@ -87,17 +100,17 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
             recent_block_hash,
             num_ol_slots=1,
         )
-        ckp_block_hash = wait_for_tx_confirmation(bitcoin_rpc, ckp_l1_txn)
+        ckp_block_hash = wait_for_tx_confirmation(bitcoin_rpc, ckp_l1_txn, timeout=3600)
         self.logger.info(f"Checkpoint tx {ckp_l1_txn} included in block {ckp_block_hash}")
 
         # Wait for ASM to process the checkpoint, then wait for an active claim
         wait_until(
             lambda: len(asm_rpc.strata_asm_getAssignments(ckp_block_hash)) > 0,
-            timeout=300,
+            timeout=3600,
             error_msg="ASM did not produce assignment",
         )
 
-        active_claim = wait_until_active_valid_claim(bridge_rpc)
+        active_claim = wait_until_active_valid_claim(bridge_rpc, timeout=3600)
         self.logger.info(
             "Active claim %s for deposit %s assigned to operator %s",
             active_claim.claim_txid,
@@ -108,7 +121,7 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
         claim_block_hash = wait_for_tx_confirmation(
             bitcoin_rpc,
             active_claim.claim_txid,
-            timeout=300,
+            timeout=3600,
         )
         self.logger.info(
             f"Claim tx {active_claim.claim_txid} confirmed in block {claim_block_hash}"
@@ -133,22 +146,22 @@ class ContestedPayoutCompletesWithoutCounterproofTest(StrataTestBase):
         contest_block_hash = wait_for_tx_confirmation(
             bitcoin_rpc,
             contest_txid,
-            timeout=300,
+            timeout=3600,
         )
         self.logger.info(f"Contest tx {contest_txid} confirmed in block {contest_block_hash}")
 
         # Verify the bridge state transitions to BridgeProofPosted before payout.
-        wait_until_bridge_proof_posted(bridge_rpc, active_claim.deposit_idx)
+        wait_until_bridge_proof_posted(bridge_rpc, active_claim.deposit_idx, timeout=7200)
         self.logger.info("pendingWithdrawalInfo confirms phase is bridge_proof_posted")
 
         # Wait for the deposit UTXO to be spent after the contested payout path completes.
-        wait_until_deposit_utxo_spent(bitcoin_rpc, deposit_txid, timeout=450)
+        wait_until_deposit_utxo_spent(bitcoin_rpc, deposit_txid, timeout=10800)
         self.logger.info("Deposit UTXO confirmed spent after contested payout")
 
         # Verify pendingWithdrawals is empty after withdrawal completes.
         wait_until(
             lambda: len(bridge_rpc.stratabridge_pendingWithdrawals()) == 0,
-            timeout=60,
+            timeout=3600,
             step=1,
             error_msg="pendingWithdrawals did not become empty after withdrawal",
         )

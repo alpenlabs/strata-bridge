@@ -126,8 +126,7 @@ regtest `bitcoind` (the `network-extbtc` environment).
 
    `run_test.sh` mines the external L1 to the genesis height, generates `asm-params.json`
    from it, and bakes it into the guest ELF (no manual params step) so proofs verify
-   against the actual chain. `BRIDGE_PROOF_NUM_OPERATORS` (default 2) must match the
-   target test's operator count.
+   against the actual chain.
 
    With `BRIDGE_PROOF_SP1_ASM=1` (default in the sample), `run_test.sh` also builds the
    ASM and Moho SP1 guest ELFs (cloning the asm repo at its pinned rev into `.asm-src/`)
