@@ -26,14 +26,14 @@ use crate::config::Config;
 /// Result of [`init_operator_wallet`] — the constructed wallet plus the per-UTXO
 /// denomination of the claim-funding pool. The latter is no longer stored on
 /// `OperatorWalletConfig` (the composer is now agnostic of caller denominations); the
-/// orchestrator forwards it into `ExecutionConfig` so duty executors can reference the
-/// pool by value.
+/// orchestrator forwards it into `strata_bridge_exec::config::ExecutionConfig` so duty
+/// executors can reference the pool by value.
 pub(in crate::mode) struct InitializedOperatorWallet {
     /// The composed operator wallet, ready to lease + sign against.
     pub wallet: NativeWallet,
     /// Per-UTXO denomination of the claim-funding pool. The composer is denomination-
-    /// agnostic; this value is propagated into [`ExecutionConfig`] so duty executors can
-    /// reference the pool by value.
+    /// agnostic; this value is propagated into `strata_bridge_exec::config::ExecutionConfig`
+    /// so duty executors can reference the pool by value.
     pub claim_funding_utxo_value: Amount,
 }
 
