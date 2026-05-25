@@ -19,7 +19,7 @@ from factory.bridge_operator.asm_cfg import copy_asm_params, write_asm_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from factory.fdb import generate_fdb_root_directory
-from utils.bitcoin import generate_blocks
+from utils.bitcoin import generate_blocks, prepare_wallet_and_chain
 from utils.mosaic import get_peer_ids
 from utils.utils import (
     generate_p2p_ports,
@@ -94,16 +94,8 @@ class BaseEnv(flexitest.EnvConfig):
 
         walletname = bitcoind.get_prop("walletname")
         if self.btc_config.external:
-            # Reuse the existing wallet if present, else fall back to creating one.
-            if walletname not in brpc.proxy.listwallets():
-                try:
-                    brpc.proxy.loadwallet(walletname)
-                except Exception:
-                    brpc.proxy.createwallet(walletname)
-            wallet_addr = brpc.proxy.getnewaddress()
-            shortfall = self.initial_blocks - brpc.proxy.getblockcount()
-            if shortfall > 0:
-                brpc.proxy.generatetoaddress(shortfall, wallet_addr)
+            # External node may already have the wallet + blocks; reuse and top up.
+            wallet_addr = prepare_wallet_and_chain(brpc, walletname, self.initial_blocks)
         else:
             # Create new wallet
             brpc.proxy.createwallet(walletname)

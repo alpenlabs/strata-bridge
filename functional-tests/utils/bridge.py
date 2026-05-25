@@ -5,13 +5,8 @@ from utils.network import wait_until_p2p_connected
 from utils.stake import wait_until_all_operators_staked
 
 
-def get_bridge_nodes_and_rpcs(ctx, num_operators=BRIDGE_NETWORK_SIZE, stake_timeout=600):
-    """Get bridge nodes and their RPC clients for the network.
-
-    `stake_timeout` bounds the wait for every operator's stake to confirm on-chain;
-    raise it for slow-cadence runs (e.g. SP1 proving mode mines on a 3-minute block
-    interval, so stake confirmation takes far longer than the default 600s).
-    """
+def get_bridge_nodes_and_rpcs(ctx, num_operators=BRIDGE_NETWORK_SIZE, stake_timeout=300):
+    """Get bridge nodes and their RPC clients for the network."""
     bridge_nodes = [ctx.get_service(f"bridge_node_{idx}") for idx in range(num_operators)]
     bridge_rpcs = [bridge_node.create_rpc() for bridge_node in bridge_nodes]
 

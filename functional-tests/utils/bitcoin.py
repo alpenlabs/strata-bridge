@@ -3,8 +3,21 @@ from threading import Event, Thread
 
 from bitcoinlib.services.bitcoind import BitcoindClient
 
-# How often on-demand mode polls the mempool for pending txs.
-MEMPOOL_POLL_INTERVAL_SECS = 1
+from constants import MEMPOOL_POLL_INTERVAL_SECS
+
+
+def prepare_wallet_and_chain(rpc: BitcoindClient, walletname: str, min_height: int) -> str:
+    """Load-or-create `walletname`, mine up to `min_height`, and return a wallet address."""
+    if walletname not in rpc.proxy.listwallets():
+        try:
+            rpc.proxy.loadwallet(walletname)
+        except Exception:
+            rpc.proxy.createwallet(walletname)
+    addr = rpc.proxy.getnewaddress()
+    shortfall = min_height - rpc.proxy.getblockcount()
+    if shortfall > 0:
+        rpc.proxy.generatetoaddress(shortfall, addr)
+    return addr
 
 
 class MinerThread:

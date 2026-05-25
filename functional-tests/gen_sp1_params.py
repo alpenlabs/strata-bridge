@@ -20,22 +20,9 @@ from envs.asm_config import AsmEnvConfig
 from envs.btc_config import BitcoinEnvConfig
 from factory.bitcoin import _read_external_btc_env
 from factory.bridge_operator.asm_cfg import write_asm_params
+from utils.bitcoin import prepare_wallet_and_chain
 from utils.logging import setup_root_logger
 from utils.utils import read_operator_key, wait_until_bitcoind_ready
-
-
-def _ensure_chain(rpc: BitcoindClient, walletname: str, genesis_height: int) -> None:
-    """Ensure the wallet exists and the chain has at least `genesis_height` blocks."""
-    if walletname not in rpc.proxy.listwallets():
-        try:
-            rpc.proxy.loadwallet(walletname)
-        except Exception:
-            rpc.proxy.createwallet(walletname)
-
-    shortfall = genesis_height - rpc.proxy.getblockcount()
-    if shortfall > 0:
-        addr = rpc.proxy.getnewaddress()
-        rpc.proxy.generatetoaddress(shortfall, addr)
 
 
 def main() -> int:
@@ -51,7 +38,7 @@ def main() -> int:
     wait_until_bitcoind_ready(rpc, timeout=30)
 
     genesis_height = BitcoinEnvConfig().initial_blocks
-    _ensure_chain(rpc, props["walletname"], genesis_height)
+    prepare_wallet_and_chain(rpc, props["walletname"], genesis_height)
 
     operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
     # When the asm-runner runs the SP1 backend (BRIDGE_PROOF_SP1_ASM), run_test.sh

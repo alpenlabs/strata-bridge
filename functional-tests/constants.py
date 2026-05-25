@@ -3,13 +3,14 @@ TEST_DIR: str = "tests"
 BRIDGE_NODE_DIR = "bridge_node"
 SECRET_SERVICE_DIR = "secret_service"
 BLOCK_GENERATION_INTERVAL_SECS = 2
+MEMPOOL_POLL_INTERVAL_SECS = 1
 BRIDGE_NETWORK_SIZE = 3
 DEFAULT_LOG_LEVEL = "DEBUG"
 ASM_MAGIC_BYTES = "ALPN"
 MOSAIC_DIR = "mosaic"
 
 # ASM-param artifacts written under each env's `ASM_PARAMS_DIR`, consumed by the
-# asm-runner, the bridge-proof host, and (when baking real params) the SP1 guest ELF.
+# asm-runner, the bridge-proof host, and SP1 guest ELF.
 ASM_PARAMS_DIR = "generated"
 ASM_PARAMS_FILE = "asm-params.json"
 ASM_VK_FILE = "asm-vk.json"
