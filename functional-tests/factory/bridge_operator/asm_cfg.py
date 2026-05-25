@@ -84,7 +84,7 @@ def copy_asm_params(src_dir: str | Path, generated_dir: str | Path) -> tuple[str
     ``generated_dir`` and return the destination paths.
 
     Used in SP1 proving mode so the runtime asm-runner anchors to the exact params baked
-    into the guest ELF by ``run_test.sh`` (see gen_sp1_params.py).
+    into the guest ELF by ``run_test.sh`` (see gen_asm_params_external.py).
     """
     src_dir = Path(src_dir)
     generated_dir = Path(generated_dir)

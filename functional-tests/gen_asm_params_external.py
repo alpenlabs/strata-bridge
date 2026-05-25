@@ -6,7 +6,7 @@ chain the test runs against. The same files are reused at runtime by the test
 (see base_env.ensure_asm_params), keeping ELF-baked params == runtime params.
 
 Connection details come from the external-bitcoin env vars; output goes to
-BRIDGE_PROOF_SP1_PARAMS_DIR; operator count from BRIDGE_PROOF_SP1_NUM_OPERATORS.
+BRIDGE_PROOF_ASM_PARAMS_DIR; operator count from BRIDGE_PROOF_NUM_OPERATORS.
 """
 
 import logging
@@ -28,10 +28,10 @@ from utils.utils import read_operator_key, wait_until_bitcoind_ready
 def main() -> int:
     setup_root_logger()
 
-    out_dir = os.environ.get("BRIDGE_PROOF_SP1_PARAMS_DIR")
+    out_dir = os.environ.get("BRIDGE_PROOF_ASM_PARAMS_DIR")
     if not out_dir:
-        raise RuntimeError("BRIDGE_PROOF_SP1_PARAMS_DIR must be set")
-    num_operators = int(os.environ.get("BRIDGE_PROOF_SP1_NUM_OPERATORS", "2"))
+        raise RuntimeError("BRIDGE_PROOF_ASM_PARAMS_DIR must be set")
+    num_operators = int(os.environ.get("BRIDGE_PROOF_NUM_OPERATORS", "2"))
 
     props, client_url = _read_external_btc_env()
     rpc = BitcoindClient(base_url=client_url, network="regtest")

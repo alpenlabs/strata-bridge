@@ -59,7 +59,7 @@ class BaseEnv(flexitest.EnvConfig):
         self.finalization_blocks = self.btc_config.finalization_blocks
         self._asm_config = asm_config
         self._asm_rpc_service = None
-        self._prebuilt_params_dir = os.environ.get("BRIDGE_PROOF_SP1_PARAMS_DIR")
+        self._prebuilt_params_dir = os.environ.get("BRIDGE_PROOF_ASM_PARAMS_DIR")
         self._asm_params: AsmParams | None = None
         self._bridge_protocol_params = bridge_protocol_params
         self._bridge_config_params = bridge_config_params

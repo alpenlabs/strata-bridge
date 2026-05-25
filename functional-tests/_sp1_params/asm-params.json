@@ -1,0 +1,70 @@
+{
+    "magic": "ALPN",
+    "anchor": {
+        "block": {
+            "height": 101,
+            "blkid": "33d9a45e6fff4209a8d00faa3e54392ab7dd75ea01a2a14d7b3f7e879a753f1b"
+        },
+        "next_target": 545259519,
+        "epoch_start_timestamp": 1296688602,
+        "network": "regtest"
+    },
+    "subprotocols": [
+        {
+            "Admin": {
+                "strata_administrator": {
+                    "keys": [
+                        "02ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
+                        "02c8200b381f7dd57f4c474d2bea56747fdfba32f2d20463f4269a1cf06a1acd77"
+                    ],
+                    "threshold": 1
+                },
+                "strata_sequencer_manager": {
+                    "keys": [
+                        "02ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
+                        "02c8200b381f7dd57f4c474d2bea56747fdfba32f2d20463f4269a1cf06a1acd77"
+                    ],
+                    "threshold": 1
+                },
+                "alpen_administrator": {
+                    "keys": [
+                        "02ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
+                        "02c8200b381f7dd57f4c474d2bea56747fdfba32f2d20463f4269a1cf06a1acd77"
+                    ],
+                    "threshold": 1
+                },
+                "confirmation_depths": {
+                    "strata_admin_multisig_update": 144,
+                    "strata_seq_manager_multisig_update": 144,
+                    "alpen_admin_multisig_update": 144,
+                    "operator_update": 144,
+                    "sequencer_update": 144,
+                    "ol_stf_vk_update": 144,
+                    "asm_stf_vk_update": 144,
+                    "ee_stf_vk_update": 144
+                },
+                "max_seqno_gap": 10
+            }
+        },
+        {
+            "Checkpoint": {
+                "sequencer_predicate": "AlwaysAccept",
+                "checkpoint_predicate": "AlwaysAccept",
+                "genesis_l1_height": 101,
+                "genesis_ol_blkid": "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+        },
+        {
+            "Bridge": {
+                "operators": [
+                    "02ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
+                    "02c8200b381f7dd57f4c474d2bea56747fdfba32f2d20463f4269a1cf06a1acd77"
+                ],
+                "denomination": 1000000000,
+                "assignment_duration": 144,
+                "operator_fee": 10000000,
+                "recovery_delay": 1008
+            }
+        }
+    ]
+}

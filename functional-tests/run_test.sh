@@ -60,8 +60,8 @@ BRIDGE_FEATURES=""
 if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
     export SP1_PROVER="${SP1_PROVER:-mock}"
     if [ "$BRIDGE_EXTERNAL_BITCOIN" = "1" ]; then
-        export BRIDGE_PROOF_SP1_PARAMS_DIR="$(realpath functional-tests)/_sp1_params"
-        mkdir -p "$BRIDGE_PROOF_SP1_PARAMS_DIR"
+        export BRIDGE_PROOF_ASM_PARAMS_DIR="$(realpath functional-tests)/_asm_params"
+        mkdir -p "$BRIDGE_PROOF_ASM_PARAMS_DIR"
 
         # Opt-in: real SP1 Groth16 ASM+Moho proving. Build the asm/moho guest ELFs at the
         # pinned asm rev, derive their Sp1Groth16 predicates, and (later) point the
@@ -96,10 +96,10 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
         fi
 
         echo "SP1 proving mode (SP1_PROVER=$SP1_PROVER): generating asm-params from external L1 $BITCOIN_RPC_URL"
-        ( cd functional-tests && uv run python gen_sp1_params.py )
-        export BRIDGE_PROOF_ASM_PARAMS_PATH="$BRIDGE_PROOF_SP1_PARAMS_DIR/asm-params.json"
-        export BRIDGE_PROOF_ASM_VK_PATH="$BRIDGE_PROOF_SP1_PARAMS_DIR/asm-vk.json"
-        export BRIDGE_PROOF_MOHO_VK_PATH="$BRIDGE_PROOF_SP1_PARAMS_DIR/moho-vk.json"
+        ( cd functional-tests && uv run python gen_asm_params_external.py )
+        export BRIDGE_PROOF_ASM_PARAMS_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/asm-params.json"
+        export BRIDGE_PROOF_ASM_VK_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/asm-vk.json"
+        export BRIDGE_PROOF_MOHO_VK_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/moho-vk.json"
         cargo build --release -p strata-bridge-sp1-guest-builder
     else
         echo "SP1 proving mode (SP1_PROVER=$SP1_PROVER): building guest ELF with stub params (may take several minutes)"
