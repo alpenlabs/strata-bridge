@@ -132,8 +132,11 @@ async fn read_or_create_stake_funding(
     let fee_rate = estimate_funding_fee_rate(cfg, output_handles).await?;
 
     info!(%fee_rate, %funding_amount, "creating stake funding transaction");
+    // Stake funding is one reserved-wallet UTXO of `funding_amount`. The reserved-utxo API
+    // takes denomination + quantity uniformly (claim-funding pool uses larger quantity
+    // with a smaller per-UTXO value); for the stake-funding case it's always quantity 1.
     let funded = wallet
-        .create_stake_funding_tx(fee_rate, funding_amount)
+        .create_reserved_utxos(fee_rate, funding_amount, 1)
         .await
         .expect("must be able to create stake funding transaction");
     let reservation = reservation_from_psbt(&funded.psbt);

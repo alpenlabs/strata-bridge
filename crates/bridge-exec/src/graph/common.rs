@@ -4,7 +4,7 @@ use std::num::NonZero;
 
 use algebra::predicate;
 use bitcoin::{
-    OutPoint, TapSighashType, Txid, XOnlyPublicKey,
+    OutPoint, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     hashes::sha256,
     sighash::{Prevouts, SighashCache},
 };
@@ -159,12 +159,23 @@ async fn ensure_claim_funding_outpoint(
             ),
         }
 
-        match wallet.claim_funding_utxo(predicate::never::<UtxoInfo>).0 {
+        match wallet
+            .reserve_utxo_with_value(cfg.claim_funding_utxo_value, predicate::never::<UtxoInfo>)
+            .0
+        {
             Some(outpoint) => outpoint,
             None => {
                 warn!("could not acquire claim funding utxo. attempting refill...");
+                // How many we need to top the pool back up to the configured target. The
+                // existing pool count is read by `reserve_utxo_with_value`'s peer
+                // `reserved_utxos_with_value` — we use the current size to compute the
+                // batch ourselves so the wallet stays denomination-agnostic.
+                let current_pool_size = wallet
+                    .reserved_utxos_with_value(cfg.claim_funding_utxo_value)
+                    .len();
+                let batch_size = cfg.funding_uxto_pool_size.saturating_sub(current_pool_size);
                 let funded = wallet
-                    .refill_claim_funding_utxos(fee::FEE_RATE, cfg.funding_uxto_pool_size)
+                    .create_reserved_utxos(fee::FEE_RATE, cfg.claim_funding_utxo_value, batch_size)
                     .await
                     .map_err(|e| ExecutorError::WalletErr(format!("refill failed: {e}")))?;
                 finalize_claim_funding_tx(
@@ -178,7 +189,10 @@ async fn ensure_claim_funding_outpoint(
                     ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
                 })?;
                 wallet
-                    .claim_funding_utxo(predicate::never::<UtxoInfo>)
+                    .reserve_utxo_with_value(
+                        cfg.claim_funding_utxo_value,
+                        predicate::never::<UtxoInfo>,
+                    )
                     .0
                     .expect("funding utxos must be available after refill")
             }
@@ -528,6 +542,7 @@ pub(super) async fn publish_graph_partials(
 
 /// Publishes the claim transaction to Bitcoin.
 pub(super) async fn publish_claim(
+    cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     claim_tx: &ClaimTx,
 ) -> Result<(), ExecutorError> {
@@ -538,14 +553,14 @@ pub(super) async fn publish_claim(
         "signing claim transaction"
     );
 
-    let claim_prevout = {
+    let claim_prevout: TxOut = {
         let wallet = output_handles.wallet.read().await;
         wallet
-            .claim_funding_outputs()
+            .reserved_utxos_with_value(cfg.claim_funding_utxo_value)
             .into_iter()
             .find(|utxo| utxo.outpoint == claim_tx.as_ref().input[0].previous_output)
             .expect("claim funding outpoint not found in wallet")
-            .as_txout()
+            .into()
     };
 
     let prevouts = Prevouts::All(&[claim_prevout]);

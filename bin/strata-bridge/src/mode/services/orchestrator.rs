@@ -53,6 +53,7 @@ pub(crate) async fn init_orchestrator<M>(
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,
     wallet: Arc<RwLock<NativeWallet>>,
+    claim_funding_utxo_value: bitcoin::Amount,
     btc_rpc_client: BitcoinClient,
     asm_rpc_client: HttpClient,
     fdb_client: Arc<FdbClient>,
@@ -114,7 +115,7 @@ where
         retry_tick,
     };
 
-    let exec_cfg = build_exec_config(params, config, &sm_config);
+    let exec_cfg = build_exec_config(params, config, &sm_config, claim_funding_utxo_value);
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
     let ProofBackend { bridge_proof_host } = ProofBackend::new(&config.bridge_proof).await?;
     let output_handles = OutputHandles {
@@ -242,7 +243,12 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
     }
 }
 
-fn build_exec_config(params: &Params, config: &Config, sm_config: &SMConfig) -> ExecutionConfig {
+fn build_exec_config(
+    params: &Params,
+    config: &Config,
+    sm_config: &SMConfig,
+    claim_funding_utxo_value: bitcoin::Amount,
+) -> ExecutionConfig {
     ExecutionConfig {
         network: params.network,
         min_withdrawal_fulfillment_window: config.min_withdrawal_fulfillment_window,
@@ -250,6 +256,7 @@ fn build_exec_config(params: &Params, config: &Config, sm_config: &SMConfig) -> 
         maximum_fee_rate: FeeRate::from_sat_per_vb(config.max_fee_rate).unwrap(),
         operator_fee: params.protocol.operator_fee,
         stake_amount: params.protocol.stake_amount,
+        claim_funding_utxo_value,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
         graph_sm_cfg: sm_config.graph.clone(),
     }

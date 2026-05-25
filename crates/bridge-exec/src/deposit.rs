@@ -491,7 +491,7 @@ async fn fulfill_withdrawal(
             Ok(funded) => {
                 // Track which outpoints were newly leased (only in None path)
                 let newly_leased = if persisted_funding_outpoints.is_none() {
-                    Some(funded.spent.clone())
+                    Some(funded.spent())
                 } else {
                     None
                 };
