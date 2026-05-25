@@ -44,8 +44,6 @@ pub fn get_connector_txs<const NUM_LEAVES: usize>(
 
     let change_amount = utxo
         .amount
-        .to_unsigned()
-        .expect("amount must be valid")
         .checked_sub(tx.output.iter().map(|output| output.value).sum::<Amount>() + FEES);
 
     tx.output.push(TxOut {
@@ -128,9 +126,7 @@ pub fn get_mock_deposit(
     let utxo = utxos
         .0
         .iter()
-        .find(|utxo| {
-            utxo.amount.to_unsigned().expect("amount must be valid") >= deposit_amount + FEES
-        })
+        .find(|utxo| utxo.amount >= deposit_amount + FEES)
         .expect("must have at least one valid utxo");
 
     let mut tx = create_tx(
@@ -141,11 +137,7 @@ pub fn get_mock_deposit(
         create_tx_outs(vec![(bridge_address.script_pubkey(), deposit_amount)]),
     );
 
-    let change_amount = utxo
-        .amount
-        .to_unsigned()
-        .expect("amount must be valid")
-        .checked_sub(deposit_amount + FEES);
+    let change_amount = utxo.amount.checked_sub(deposit_amount + FEES);
 
     tx.output.push(TxOut {
         script_pubkey: src.script_pubkey(),

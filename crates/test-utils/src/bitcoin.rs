@@ -204,7 +204,7 @@ pub fn find_funding_utxo(
         .0
         .iter()
         .find_map(|utxo| {
-            let amount = utxo.amount.to_unsigned().expect("amount must be valid");
+            let amount = utxo.amount;
             if amount > total_amount && !ignore_list.contains(&OutPoint::new(utxo.txid, utxo.vout))
             {
                 Some((
