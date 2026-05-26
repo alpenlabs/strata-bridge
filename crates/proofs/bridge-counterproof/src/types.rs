@@ -2,6 +2,14 @@
 
 use ssz_derive::{Decode, Encode};
 pub use strata_btc_types::{BitcoinTxOut, BitcoinXOnlyPublicKey, RawBitcoinTx};
+use strata_predicate::PredicateKey;
+
+/// Trust anchors for verifying the embedded bridge proof.
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct BridgeCounterproofGenesis {
+    /// Verifying key for the bridge proof
+    pub bridge_proof_vk: PredicateKey,
+}
 
 /// Inputs to the counterproof program.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]

@@ -6,10 +6,9 @@ use bitcoin::{
 use strata_btc_types::BitcoinXOnlyPublicKey;
 use zkaleido::{ProofReceipt, ZkVmEnv, ZkVmEnvSsz};
 
-use crate::{
-    genesis::{BridgeCounterproofGenesis, load_genesis},
-    types::{CounterproofInput, CounterproofOutput},
-};
+#[cfg(not(target_os = "zkvm"))]
+use crate::genesis::load_genesis;
+use crate::types::{BridgeCounterproofGenesis, CounterproofInput, CounterproofOutput};
 
 /// Native entry point: loads genesis and runs the counterproof.
 #[cfg(not(target_os = "zkvm"))]
