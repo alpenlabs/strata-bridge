@@ -49,6 +49,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
         proof_timelock,
         bridge_proof_tx,
         bridge_proof_tx_prevouts,
+        bridge_proof_tx_input_idx,
     } = zkvm.read_ssz();
     let tx: Transaction = (&bridge_proof_tx)
         .try_into()
@@ -68,6 +69,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     verify_operator_signature(
         &tx,
         &prevouts,
+        bridge_proof_tx_input_idx,
         &operator_pubkey,
         game_idx_nz,
         &n_of_n_pubkey,
@@ -75,7 +77,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     );
 
     // 3: Parse the embedded proof receipt and assert it fails verification.
-    parse_and_verify_bridge_proof(&tx, genesis);
+    parse_and_verify_bridge_proof(&tx, bridge_proof_tx_input_idx, genesis);
 
     // 4: Commit public values.
     zkvm.commit_ssz(&CounterproofOutput {
@@ -89,22 +91,24 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
 fn verify_operator_signature(
     tx: &Transaction,
     prevouts: &[TxOut],
+    txin_idx: u32,
     operator_pubkey: &BitcoinXOnlyPublicKey,
     game_idx: NonZero<u32>,
     n_of_n_pubkey: &BitcoinXOnlyPublicKey,
     proof_timelock: relative::Height,
 ) {
-    let wit_elem = tx.input[0]
+    let txin_idx = txin_idx as usize;
+    let wit_elem = tx.input[txin_idx]
         .witness
         .iter()
         .next()
-        .expect("first input should carry a key-path witness");
+        .expect("contest-proof input should carry a key-path witness");
     let tap_sig = taproot::Signature::from_slice(wit_elem)
         .expect("witness should be a taproot key-spend signature");
 
     let mut cache = SighashCache::new(tx);
     let sighash = cache
-        .taproot_key_spend_signature_hash(0, &Prevouts::All(prevouts), tap_sig.sighash_type)
+        .taproot_key_spend_signature_hash(txin_idx, &Prevouts::All(prevouts), tap_sig.sighash_type)
         .expect("sighash should compute");
     let msg = Message::from_digest_slice(&sighash.to_byte_array()).expect("sighash is 32 bytes");
 
@@ -116,9 +120,9 @@ fn verify_operator_signature(
     );
 
     assert_eq!(
-        prevouts[0].script_pubkey,
+        prevouts[txin_idx].script_pubkey,
         ScriptBuf::new_p2tr_tweaked(output_key),
-        "prevouts[0] is not the ContestProofConnector output for this operator + game_idx",
+        "prevouts[{txin_idx}] is not the ContestProofConnector output for this operator + game_idx",
     );
 
     SECP256K1
@@ -133,12 +137,16 @@ fn verify_operator_signature(
 /// If the tx doesn't look like a bridge-proof tx we skip the Groth16
 /// check entirely: the operator's signature has already been authenticated,
 /// and signing an off-shape tx is misbehavior on its own.
-fn parse_and_verify_bridge_proof(tx: &Transaction, genesis: &BridgeCounterproofGenesis) {
-    let wit_elem = tx.input[0]
+fn parse_and_verify_bridge_proof(
+    tx: &Transaction,
+    txin_idx: u32,
+    genesis: &BridgeCounterproofGenesis,
+) {
+    let wit_elem = tx.input[txin_idx as usize]
         .witness
         .iter()
         .next()
-        .expect("txin[0] witness checked in verify_operator_signature");
+        .expect("contest-proof input witness checked in verify_operator_signature");
     let tap_sig =
         taproot::Signature::from_slice(wit_elem).expect("valid taproot key-spend signature");
 
@@ -204,6 +212,7 @@ mod tests {
 
     const GAME_IDX: u32 = 7;
     const PROOF_TIMELOCK: u16 = 100;
+    const TXIN_IDX: u32 = 0;
 
     fn taproot_witness(sighash_type: TapSighashType) -> Witness {
         let mut signature = vec![1u8; 64];
@@ -352,6 +361,7 @@ mod tests {
             proof_timelock: PROOF_TIMELOCK,
             bridge_proof_tx: RawBitcoinTx::from(tx),
             bridge_proof_tx_prevouts: prevouts.into_iter().map(BitcoinTxOut::from).collect(),
+            bridge_proof_tx_input_idx: TXIN_IDX,
         }
     }
 
@@ -411,7 +421,7 @@ mod tests {
         };
 
         for tx in cases {
-            parse_and_verify_bridge_proof(&tx, &genesis);
+            parse_and_verify_bridge_proof(&tx, TXIN_IDX, &genesis);
         }
     }
 
@@ -422,7 +432,7 @@ mod tests {
             bridge_proof_vk: PredicateKey::never_accept(),
         };
 
-        parse_and_verify_bridge_proof(&tx, &genesis);
+        parse_and_verify_bridge_proof(&tx, TXIN_IDX, &genesis);
     }
 
     #[test]
@@ -433,7 +443,7 @@ mod tests {
             bridge_proof_vk: PredicateKey::always_accept(),
         };
 
-        parse_and_verify_bridge_proof(&tx, &genesis);
+        parse_and_verify_bridge_proof(&tx, TXIN_IDX, &genesis);
     }
 
     #[test]
@@ -443,6 +453,7 @@ mod tests {
         verify_operator_signature(
             &tx,
             &prevouts,
+            TXIN_IDX,
             &xonly(&operator_kp).into(),
             NonZero::new(GAME_IDX).unwrap(),
             &xonly(&n_of_n_kp).into(),
@@ -459,6 +470,7 @@ mod tests {
         verify_operator_signature(
             &tx,
             &prevouts,
+            TXIN_IDX,
             &xonly(&other).into(),
             NonZero::new(GAME_IDX).unwrap(),
             &xonly(&n_of_n_kp).into(),
@@ -474,6 +486,7 @@ mod tests {
         verify_operator_signature(
             &tx,
             &prevouts,
+            TXIN_IDX,
             &xonly(&operator_kp).into(),
             NonZero::new(GAME_IDX + 1).unwrap(),
             &xonly(&n_of_n_kp).into(),
@@ -490,6 +503,7 @@ mod tests {
         verify_operator_signature(
             &tx,
             &prevouts,
+            TXIN_IDX,
             &xonly(&operator_kp).into(),
             NonZero::new(GAME_IDX).unwrap(),
             &xonly(&other).into(),
@@ -505,6 +519,7 @@ mod tests {
         verify_operator_signature(
             &tx,
             &prevouts,
+            TXIN_IDX,
             &xonly(&operator_kp).into(),
             NonZero::new(GAME_IDX).unwrap(),
             &xonly(&n_of_n_kp).into(),
@@ -523,6 +538,7 @@ mod tests {
         verify_operator_signature(
             &tx,
             &prevouts,
+            TXIN_IDX,
             &xonly(&operator_kp).into(),
             NonZero::new(GAME_IDX).unwrap(),
             &xonly(&n_of_n_kp).into(),
@@ -531,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "first input should carry a key-path witness")]
+    #[should_panic(expected = "contest-proof input should carry a key-path witness")]
     fn verify_operator_signature_rejects_empty_witness() {
         let (mut tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
         tx.input[0].witness = Witness::new();
@@ -539,6 +555,7 @@ mod tests {
         verify_operator_signature(
             &tx,
             &prevouts,
+            TXIN_IDX,
             &xonly(&operator_kp).into(),
             NonZero::new(GAME_IDX).unwrap(),
             &xonly(&n_of_n_kp).into(),
@@ -555,6 +572,7 @@ mod tests {
         verify_operator_signature(
             &tx,
             &prevouts,
+            TXIN_IDX,
             &xonly(&operator_kp).into(),
             NonZero::new(GAME_IDX).unwrap(),
             &xonly(&n_of_n_kp).into(),
