@@ -2,7 +2,7 @@
 
 use std::num::NonZero;
 
-use bitcoin::{ScriptBuf, Transaction, consensus, relative};
+use bitcoin::{Amount, Network, ScriptBuf, Transaction, consensus, relative};
 use bitcoind_async_client::{error::ClientError, traits::Reader};
 use btc_tracker::event::TxStatus;
 use musig2::secp256k1::schnorr::Signature;
@@ -167,12 +167,17 @@ async fn fetch_counterproof_input(
         bridge_proof_tx_prevouts.push(BitcoinTxOut::from(prevout));
     }
 
-    let expected_spk = ScriptBuf::new_p2tr_tweaked(ContestProofConnector::output_key(
-        n_of_n_xonly,
-        operator_xonly,
-        game_index,
-        relative::Height::from_height(proof_timelock),
-    ));
+    let expected_spk = ScriptBuf::new_p2tr_tweaked(
+        ContestProofConnector::new(
+            Network::Bitcoin,
+            n_of_n_xonly,
+            operator_xonly,
+            game_index,
+            relative::Height::from_height(proof_timelock),
+            Amount::ZERO,
+        )
+        .output_key(),
+    );
 
     let bridge_proof_tx_input_idx = bridge_proof_tx_prevouts
         .iter()
