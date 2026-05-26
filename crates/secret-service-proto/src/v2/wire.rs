@@ -187,6 +187,7 @@ pub struct SerializableMusig2Params {
     pub tweak: SerializableTaprootTweak,
     #[rkyv(with = super::rkyv_wrappers::OutPoint)]
     pub input: OutPoint,
+    pub sighash: [u8; 32],
 }
 
 impl From<Musig2Params> for SerializableMusig2Params {
@@ -199,6 +200,7 @@ impl From<Musig2Params> for SerializableMusig2Params {
                 .collect(),
             tweak: From::from(value.tweak),
             input: value.input,
+            sighash: value.sighash,
         }
     }
 }
@@ -221,6 +223,7 @@ impl TryFrom<SerializableMusig2Params> for Musig2Params {
             ordered_pubkeys,
             tweak: value.tweak.into(),
             input: value.input,
+            sighash: value.sighash,
         })
     }
 }

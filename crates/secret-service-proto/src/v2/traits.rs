@@ -245,6 +245,10 @@ pub struct Musig2Params {
     /// This is composed of the [`Txid`] of the transaction being signed and its input index
     /// (`vout`).
     pub input: OutPoint,
+    /// The sighash of the transaction input being signed.
+    ///
+    /// Included in the cache key so that nonce derivation is bound to the exact message.
+    pub sighash: [u8; 32],
 }
 
 /// The preimages are used to generate deterministic preimages

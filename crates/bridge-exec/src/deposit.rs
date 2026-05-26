@@ -271,6 +271,7 @@ async fn publish_deposit_nonce(
         ordered_pubkeys: ordered_pubkeys.to_vec(),
         tweak: drt_tweak,
         input: drt_outpoint,
+        sighash: *sighash.as_ref(),
     };
 
     // Generate nonce via secret service
@@ -330,6 +331,7 @@ async fn publish_deposit_partial(
         ordered_pubkeys: ordered_pubkeys.to_vec(),
         tweak: signing_info.tweak,
         input: drt_outpoint,
+        sighash: *signing_info.sighash.as_ref(),
     };
 
     // Generate partial signature via secret service
@@ -657,6 +659,7 @@ async fn publish_payout_nonce(
         ordered_pubkeys: ordered_pubkeys.to_vec(),
         tweak,
         input: deposit_outpoint,
+        sighash: *payout_sighash.as_ref(),
     };
 
     // Generate nonce via secret service
@@ -701,6 +704,7 @@ async fn publish_payout_partial(
         ordered_pubkeys: ordered_pubkeys.to_vec(),
         tweak: TaprootTweak::Key { tweak: None },
         input: deposit_outpoint,
+        sighash: *payout_sighash.as_ref(),
     };
 
     // Generate partial signature via secret service
@@ -763,6 +767,7 @@ async fn publish_payout(
         ordered_pubkeys: ordered_pubkeys.to_vec(),
         tweak: TaprootTweak::Key { tweak: None },
         input: deposit_outpoint,
+        sighash: *payout_sighash.as_ref(),
     };
 
     // Generate assignee's partial signature

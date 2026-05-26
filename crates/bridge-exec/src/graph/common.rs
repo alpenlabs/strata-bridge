@@ -389,11 +389,13 @@ pub(super) async fn publish_graph_nonces(
     let nonce_futures = graph_inpoints
         .iter()
         .zip(graph_tweaks.iter())
-        .map(|(inpoint, tweak)| {
+        .zip(sighashes.iter())
+        .map(|((inpoint, tweak), sighash)| {
             let params = Musig2Params {
                 ordered_pubkeys: ordered_pubkeys.clone(),
                 tweak: *tweak,
                 input: *inpoint,
+                sighash: *sighash.as_ref(),
             };
             musig_signer.get_pub_nonce(params).map(move |res| match res {
                 Ok(inner) => inner.map_err(|_| {
@@ -487,6 +489,7 @@ pub(super) async fn publish_graph_partials(
                 ordered_pubkeys: ordered_pubkeys.clone(),
                 tweak: *tweak,
                 input: *inpoint,
+                sighash: *sighash.as_ref(),
             };
             musig_signer
                 .get_our_partial_sig(params, agg_nonce.clone(), *sighash.as_ref())
