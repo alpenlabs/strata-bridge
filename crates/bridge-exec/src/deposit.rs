@@ -338,7 +338,7 @@ async fn publish_deposit_partial(
     let partial_sig: PartialSignature = output_handles
         .s2_client
         .musig2_signer()
-        .get_our_partial_sig(params, deposit_agg_nonce, *signing_info.sighash.as_ref())
+        .get_our_partial_sig(params, deposit_agg_nonce)
         .await?
         .map_err(|e| match e.to_enum() {
             terrors::E2::A(_) => ExecutorError::OurPubKeyNotInParams,
@@ -711,7 +711,7 @@ async fn publish_payout_partial(
     let partial_sig: PartialSignature = output_handles
         .s2_client
         .musig2_signer()
-        .get_our_partial_sig(params, payout_agg_nonce, *payout_sighash.as_ref())
+        .get_our_partial_sig(params, payout_agg_nonce)
         .await?
         .map_err(|e| match e.to_enum() {
             terrors::E2::A(_) => ExecutorError::OurPubKeyNotInParams,
@@ -774,7 +774,7 @@ async fn publish_payout(
     let assignee_partial: PartialSignature = output_handles
         .s2_client
         .musig2_signer()
-        .get_our_partial_sig(params, payout_agg_nonce.clone(), *payout_sighash.as_ref())
+        .get_our_partial_sig(params, payout_agg_nonce.clone())
         .await?
         .map_err(|e| match e.to_enum() {
             terrors::E2::A(_) => ExecutorError::OurPubKeyNotInParams,

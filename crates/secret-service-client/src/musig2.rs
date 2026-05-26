@@ -49,14 +49,12 @@ impl Musig2Signer<Client> for Musig2Client {
         &self,
         params: Musig2Params,
         aggnonce: AggNonce,
-        message: [u8; 32],
     ) -> <Client as Origin>::Container<
         Result<PartialSignature, terrors::OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>>,
     > {
         let msg = ClientMessage::Musig2GetOurPartialSig {
             params: params.into(),
             aggnonce: aggnonce.serialize(),
-            message,
         };
         let res = self.conn.make_v2_req(msg).await?;
         if let ServerMessage::Musig2GetOurPartialSig(res) = res {

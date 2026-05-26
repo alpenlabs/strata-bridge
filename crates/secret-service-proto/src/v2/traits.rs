@@ -217,10 +217,15 @@ pub trait Musig2Signer<O: Origin>: SchnorrSigner<O> + Send + Sync {
         params: Musig2Params,
     ) -> impl Future<Output = O::Container<Result<PubNonce, OurPubKeyIsNotInParams>>> + Send;
 
-    /// Given the params of a musig2 session, an aggregated nonce created from
-    /// the signers' session pubnonces and the message to sign, return a partial
-    /// signature. These can be validated and aggregated into the final
-    /// signature valid for the musig2 group public key by the caller.
+    /// Given the params of a musig2 session and an aggregated nonce created from
+    /// the signers' session pubnonces, return a partial signature over
+    /// [`Musig2Params::sighash`]. These can be validated and aggregated into the
+    /// final signature valid for the musig2 group public key by the caller.
+    ///
+    /// The message being signed is taken from `params.sighash` — the same value
+    /// that bound the secret nonce derivation — so the caller cannot accidentally
+    /// (or maliciously) request a partial signature over a different message than
+    /// the one the nonce was bound to.
     ///
     /// Fails if our pubkey wasn't present in [`Musig2Params::ordered_pubkeys`],
     /// or if the signature we produced fails to verify.
@@ -228,7 +233,6 @@ pub trait Musig2Signer<O: Origin>: SchnorrSigner<O> + Send + Sync {
         &self,
         params: Musig2Params,
         aggnonce: AggNonce,
-        message: [u8; 32],
     ) -> impl Future<
         Output = O::Container<
             Result<PartialSignature, OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>>,
@@ -247,7 +251,8 @@ pub struct Musig2Params {
     pub input: OutPoint,
     /// The sighash of the transaction input being signed.
     ///
-    /// Included in the cache key so that nonce derivation is bound to the exact message.
+    /// Used as the partial-signature message and as part of deterministic
+    /// secret nonce derivation.
     pub sighash: [u8; 32],
 }
 

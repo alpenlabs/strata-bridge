@@ -192,7 +192,6 @@ impl Musig2Signer<Server> for Ms2Signer {
         &self,
         params: Musig2Params,
         aggnonce: AggNonce,
-        message: [u8; 32],
     ) -> Result<PartialSignature, OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>> {
         let key_agg_ctx = Self::key_agg_ctx(&params);
         let secnonce = self
@@ -205,7 +204,7 @@ impl Musig2Signer<Server> for Ms2Signer {
             secnonce,
             &aggnonce,
             MaybePoint::Infinity,
-            message,
+            params.sighash,
         ) {
             Ok(ps) => ps,
             Err(SigningError::UnknownKey) => {
