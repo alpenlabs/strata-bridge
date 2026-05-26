@@ -9154,7 +9154,6 @@ dependencies = [
  "colored",
  "hkdf",
  "libp2p-identity",
- "make_buf",
  "memory_pprof",
  "musig2",
  "rand 0.8.5",
