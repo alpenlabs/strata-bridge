@@ -30,7 +30,7 @@ mod signer {
         sighash::{Prevouts, SighashCache},
         Psbt,
     };
-    use strata_bridge_common::logging::{self, LoggerConfig};
+    use strata_bridge_common::logging;
     use tracing::info;
 
     use super::*;
@@ -67,10 +67,8 @@ mod signer {
         fn assert_connector_is_spendable(spend_path: <Self::Connector as Connector>::SpendPath) {
             let signer = Self::generate();
 
-            logging::init(LoggerConfig::new(format!(
-                "{}-connector",
-                signer.get_connector_name()
-            )));
+            let service_base_name = format!("{}-connector", signer.get_connector_name());
+            logging::init_from_env(&service_base_name, "connector-test");
 
             let connector = signer.get_connector();
             let mut node = BitcoinNode::new();

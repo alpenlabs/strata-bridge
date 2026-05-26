@@ -306,7 +306,7 @@ mod e2e_tests {
     use corepc_node::{client::client_sync::Auth, vtype::FundRawTransaction, CookieValues, Output};
     use futures::join;
     use serial_test::serial;
-    use strata_bridge_common::logging::{self, LoggerConfig};
+    use strata_bridge_common::logging;
     use strata_bridge_test_utils::prelude::wait_for_height;
     use tracing::{debug, info};
 
@@ -408,7 +408,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn tx_drive_idempotence() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init(LoggerConfig::new("tx_drive_idempotence".to_string()));
+        logging::init_from_env("tx_drive_idempotence", "tx-drive-idempotence");
 
         let (driver, bitcoind) = setup().await?;
 
@@ -482,7 +482,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn tx_drive_mempool() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init(LoggerConfig::new("tx_drive_idempotence".to_string()));
+        logging::init_from_env("tx_drive_idempotence", "tx-drive-idempotence");
 
         let (driver, bitcoind) = setup().await?;
 

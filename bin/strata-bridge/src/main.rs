@@ -7,7 +7,10 @@ use config::Config;
 use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE};
 use mode::{operator, watchtower};
 use serde::de::DeserializeOwned;
-use strata_bridge_common::{logging, logging::LoggerConfig, params::Params};
+use strata_bridge_common::{
+    logging::{self, LoggingInitConfig, init_logging_from_config},
+    params::Params,
+};
 use strata_bridge_db::fdb::client::{FdbClient, MustDrop};
 use strata_tasks::TaskManager;
 use tokio::runtime;
@@ -40,7 +43,19 @@ static GLOBAL: Jemalloc = Jemalloc;
 pub static malloc_conf: &[u8] = b"prof:true,prof_active:true,lg_prof_sample:19\0";
 
 fn main() {
-    logging::init(LoggerConfig::with_base_name("strata-bridge"));
+    let service_label = logging::get_service_label_from_env();
+    let otlp_url = logging::get_otlp_url_from_env();
+    init_logging_from_config(LoggingInitConfig {
+        service_base_name: "strata-bridge",
+        service_label: service_label.as_deref(),
+        otlp_url: otlp_url.as_deref(),
+        log_dir: None,
+        log_file_prefix: None,
+        json_format: None,
+        default_log_prefix: "strata-bridge",
+        enable_metrics_layer: false,
+        extra_filter_directives: logging::DEFAULT_EXTRA_FILTER_DIRECTIVES,
+    });
 
     let cli = args::Cli::parse();
     info!(mode = %cli.mode, "starting bridge node");
@@ -105,6 +120,7 @@ fn main() {
     }
 
     info!("bridge node shutdown complete");
+    logging::finalize();
 }
 
 /// Reads and parses a TOML file from the given path into the given type `T`.

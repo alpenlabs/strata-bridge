@@ -1,5 +1,5 @@
 use bitcoin::{hashes::Hash, OutPoint, Txid};
-use strata_bridge_common::logging::{self, LoggerConfig};
+use strata_bridge_common::logging;
 use strata_bridge_p2p_types::{
     GraphData, NagRequest, NagRequestPayload, PayoutDescriptor, UnsignedGossipsubMsg, XOnlyPubKey,
 };
@@ -22,7 +22,7 @@ fn mock_partial() -> musig2::PartialSignature {
 async fn dispatch_all_message_types() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 2;
 
-    logging::init(LoggerConfig::new("p2p-test-dispatch-all".to_string()));
+    logging::init_from_env("p2p-test-dispatch-all", "p2p-test-dispatch-all");
 
     let Setup {
         mut operators,
@@ -187,7 +187,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
 async fn dispatch_direct_peer() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 2;
 
-    logging::init(LoggerConfig::new("p2p-test-dispatch-direct".to_string()));
+    logging::init_from_env("p2p-test-dispatch-direct", "p2p-test-dispatch-direct");
 
     let Setup {
         mut operators,

@@ -4,7 +4,7 @@ use libp2p::{
     identity::{ed25519::Keypair as EdKeypair, Keypair},
     Multiaddr, PeerId,
 };
-use strata_bridge_common::logging::{self, LoggerConfig};
+use strata_bridge_common::logging;
 use strata_p2p::{
     commands::{Command, QueryP2PStateCommand},
     swarm::handle::CommandHandle,
@@ -83,9 +83,10 @@ async fn connects_within(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bootstrap_enforces_transport_allowlist() -> anyhow::Result<()> {
-    logging::init(LoggerConfig::new(
-        "p2p-test-bootstrap-transport-allowlist".to_string(),
-    ));
+    logging::init_from_env(
+        "p2p-test-bootstrap-transport-allowlist",
+        "p2p-test-bootstrap-transport-allowlist",
+    );
 
     let victim_keypair = EdKeypair::generate();
     let attacker_keypair = EdKeypair::generate();
