@@ -39,14 +39,14 @@ verify the program **compiles** without provisioning real inputs.
 > **Warning.** `SKIP_PARAMS` builds embeds a stale Moho VK — **not deployable**.
 
 ```bash
-SKIP_PARAMS=1 cargo build -p strata-bridge-sp1-guest-builder --release
+SKIP_PARAMS=1 cargo build -p strata-bridge-sp1-guest-builder --release --features build-elf
 ```
 
 ## Build flow
 
-The build script is **active only in `--release`** (gated on `cfg(not(debug_assertions))`).
-`dev`-profile builds are a no-op — `cargo build`, `cargo check`, and `cargo clippy` on
-the host workspace run without invoking the SP1 toolchain or requiring the input JSONs.
+The guest ELF is built only when you pass **`--release --features build-elf`**.
+Everything else (`cargo build`, `cargo check`, `cargo clippy`, plain `--release`)
+is a no-op for this crate and does not pull in the SP1 toolchain.
 
 In release the script:
 
@@ -70,8 +70,14 @@ a prior real build is left in `elfs/`.
 
 ## Features
 
+- `build-elf` — opt-in: actually compile the SP1 guest ELF in release builds.
+  Required to bring in the SP1 host stack (`sp1-build`, `ssz`,
+  `strata-bridge-proof/sp1`) as build-dependencies. Without it, `build.rs` is a
+  no-op even in `--release` and plain workspace builds (`cargo build
+  --workspace`) do not pull the SP1 toolchain.
 - `docker-build` — compile the guest inside Docker (via `BuildArgs { docker: true, .. }`)
-  instead of the local SP1 toolchain. Useful for reproducible builds.
+  instead of the local SP1 toolchain. Useful for reproducible builds. Implies
+  `build-elf`.
 
 ## Consumer API
 

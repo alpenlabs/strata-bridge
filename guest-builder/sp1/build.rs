@@ -1,22 +1,24 @@
 //! Build script for the SP1 `guest-bridge-proof` ELF.
 //!
-//! Active only in `--release`. Reads `BRIDGE_PROOF_ASM_PARAMS_PATH`,
-//! `BRIDGE_PROOF_ASM_VK_PATH`, and `BRIDGE_PROOF_MOHO_VK_PATH` (or `stub/`
-//! files under `SKIP_PARAMS=1`), writes the SSZ-encoded `BridgeProofGenesis`
-//! to `guest-bridge-proof/build/genesis.bin`, and compiles the SP1 guest ELF
+//! Active only in `--release` **and** with the `build-elf` feature enabled.
+//! Reads `BRIDGE_PROOF_ASM_PARAMS_PATH`, `BRIDGE_PROOF_ASM_VK_PATH`, and
+//! `BRIDGE_PROOF_MOHO_VK_PATH` (or `stub/` files under `SKIP_PARAMS=1`),
+//! writes the SSZ-encoded `BridgeProofGenesis` to
+//! `guest-bridge-proof/build/genesis.bin`, and compiles the SP1 guest ELF
 //! directly into `<crate>/elfs/bridge-proof.elf` (referenced at runtime via
 //! [`strata_bridge_sp1_guest_builder::BRIDGE_PROOF_ELF_PATH`]).
 //!
-//! In `dev` profile the script is a no-op — consumers of
-//! `BRIDGE_PROOF_ELF_PATH` see whatever a prior release build left in
-//! `elfs/` (potentially stale or missing).
+//! In `dev` profile, or whenever `build-elf` is inactive, the script is a
+//! no-op — and the heavy SP1 host stack stays out of the build-dependency
+//! graph entirely. Consumers of `BRIDGE_PROOF_ELF_PATH` see whatever a prior
+//! release build left in `elfs/` (potentially stale or missing).
 
 fn main() {
-    #[cfg(not(debug_assertions))]
+    #[cfg(all(not(debug_assertions), feature = "build-elf"))]
     release::run();
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(all(not(debug_assertions), feature = "build-elf"))]
 mod release {
     use std::{
         fs,

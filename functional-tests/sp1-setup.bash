@@ -55,10 +55,10 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
         export BRIDGE_PROOF_ASM_PARAMS_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/asm-params.json"
         export BRIDGE_PROOF_ASM_VK_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/asm-vk.json"
         export BRIDGE_PROOF_MOHO_VK_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/moho-vk.json"
-        cargo build --release -p strata-bridge-sp1-guest-builder
+        cargo build --release -p strata-bridge-sp1-guest-builder --features build-elf
     else
         echo "SP1 proving mode (SP1_PROVER=$SP1_PROVER): building guest ELF with stub params (may take several minutes)"
-        SKIP_PARAMS=1 cargo build --release -p strata-bridge-sp1-guest-builder
+        SKIP_PARAMS=1 cargo build --release -p strata-bridge-sp1-guest-builder --features build-elf
     fi
     BRIDGE_FEATURES="--features sp1"
     export BRIDGE_PROOF_SP1_ELF="$(realpath guest-builder/sp1/elfs/bridge-proof.elf)"
