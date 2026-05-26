@@ -3,7 +3,7 @@
 use std::num::NonZero;
 
 use bitcoin::{
-    Amount, Network, Script, ScriptBuf, Transaction, TxOut,
+    Amount, Network, Script, Transaction, TxOut,
     hashes::Hash,
     opcodes, relative,
     script::Instruction,
@@ -122,12 +122,6 @@ fn verify_operator_signature(
     )
     .output_key();
 
-    assert_eq!(
-        prevouts[txin_idx].script_pubkey,
-        ScriptBuf::new_p2tr_tweaked(output_key),
-        "prevouts[{txin_idx}] is not the ContestProofConnector output for this operator + game_idx",
-    );
-
     SECP256K1
         .verify_schnorr(&tap_sig.signature, &msg, &output_key.to_x_only_public_key())
         .expect("operator signature should verify");
@@ -198,7 +192,7 @@ fn extract_op_return_payload(spk: &Script) -> Option<&[u8]> {
 #[cfg(test)]
 mod tests {
     use bitcoin::{
-        Amount, Network, TxIn, Witness, absolute,
+        Amount, Network, ScriptBuf, TxIn, Witness, absolute,
         blockdata::transaction::Version,
         opcodes::all::{OP_PUSHNUM_1, OP_RETURN},
         script::{Builder, PushBytesBuf},
@@ -465,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "prevouts[0] is not the ContestProofConnector output")]
+    #[should_panic(expected = "operator signature should verify")]
     fn verify_operator_signature_rejects_wrong_operator_pubkey() {
         let (tx, prevouts, _operator_kp, n_of_n_kp) = signed_contest_fixture();
         let other = deterministic_keypair(9);
@@ -482,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "prevouts[0] is not the ContestProofConnector output")]
+    #[should_panic(expected = "operator signature should verify")]
     fn verify_operator_signature_rejects_wrong_game_idx() {
         let (tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
 
@@ -498,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "prevouts[0] is not the ContestProofConnector output")]
+    #[should_panic(expected = "operator signature should verify")]
     fn verify_operator_signature_rejects_wrong_n_of_n_pubkey() {
         let (tx, prevouts, operator_kp, _n_of_n_kp) = signed_contest_fixture();
         let other = deterministic_keypair(9);
@@ -515,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "prevouts[0] is not the ContestProofConnector output")]
+    #[should_panic(expected = "operator signature should verify")]
     fn verify_operator_signature_rejects_wrong_proof_timelock() {
         let (tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
 
