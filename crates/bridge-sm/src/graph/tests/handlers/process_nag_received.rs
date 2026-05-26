@@ -3,7 +3,7 @@
 mod tests {
     use std::collections::BTreeMap;
 
-    use musig2::AggNonce;
+    use musig2::{AggNonce, secp256k1::Message};
     use strata_bridge_p2p_types::NagRequestPayload;
     use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 
@@ -38,12 +38,12 @@ mod tests {
         let ctx = test_graph_sm_ctx();
         let game_graph = generate_game_graph(cfg, &ctx, &test_deposit_params());
         let graph_inpoints = game_graph.musig_inpoints().pack();
-        let graph_tweaks = game_graph
+        let (graph_tweaks, sighashes): (Vec<TaprootTweak>, Vec<Message>) = game_graph
             .musig_signing_info()
             .pack()
             .iter()
-            .map(|m| m.tweak)
-            .collect::<Vec<TaprootTweak>>();
+            .map(|m| (m.tweak, m.sighash))
+            .unzip();
         let ordered_pubkeys = ctx
             .operator_table()
             .btc_keys()
@@ -55,6 +55,7 @@ mod tests {
             graph_idx: ctx.graph_idx(),
             graph_inpoints,
             graph_tweaks,
+            sighashes,
             ordered_pubkeys,
         }
     }

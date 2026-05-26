@@ -46,17 +46,17 @@ mod tests {
             .collect();
 
         let signing_info = deposit_tx.signing_info();
-        let drt_tweak = signing_info
+        let drt_signing_info = *signing_info
             .first()
-            .expect("deposit tx must have signing info")
-            .tweak;
+            .expect("deposit tx must have signing info");
 
         let expected_duty = DepositDuty::PublishDepositNonce {
             deposit_idx: TEST_DEPOSIT_IDX,
             drt_outpoint: test_deposit_outpoint(),
             claim_txids: expected_claim_txids,
             ordered_pubkeys,
-            drt_tweak,
+            drt_tweak: drt_signing_info.tweak,
+            sighash: drt_signing_info.sighash,
         };
 
         let nag_event = create_nag_event(NagRequestPayload::DepositNonce {
@@ -90,10 +90,9 @@ mod tests {
             .collect();
 
         let signing_info = deposit_tx.signing_info();
-        let drt_tweak = signing_info
+        let drt_signing_info = *signing_info
             .first()
-            .expect("deposit tx must have signing info")
-            .tweak;
+            .expect("deposit tx must have signing info");
         let agg_nonce = AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
 
         let expected_duty = DepositDuty::PublishDepositNonce {
@@ -101,7 +100,8 @@ mod tests {
             drt_outpoint: test_deposit_outpoint(),
             claim_txids: expected_claim_txids,
             ordered_pubkeys,
-            drt_tweak,
+            drt_tweak: drt_signing_info.tweak,
+            sighash: drt_signing_info.sighash,
         };
 
         let nag_event = create_nag_event(NagRequestPayload::DepositNonce {
@@ -183,11 +183,18 @@ mod tests {
             .map(|pk| pk.x_only_public_key().0)
             .collect();
 
+        let payout_sighash = cooperative_payout_tx
+            .signing_info()
+            .first()
+            .expect("cooperative payout tx must have signing info")
+            .sighash;
+
         let expected_duty = DepositDuty::PublishPayoutNonce {
             deposit_idx: TEST_DEPOSIT_IDX,
             deposit_outpoint: test_deposit_outpoint(),
             ordered_pubkeys,
             tweak: TaprootTweak::Key { tweak: None },
+            payout_sighash,
         };
 
         let nag_event = create_nag_event(NagRequestPayload::PayoutNonce {
@@ -222,11 +229,18 @@ mod tests {
         let payout_aggregated_nonce =
             AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
 
+        let payout_sighash = cooperative_payout_tx
+            .signing_info()
+            .first()
+            .expect("cooperative payout tx must have signing info")
+            .sighash;
+
         let expected_duty = DepositDuty::PublishPayoutNonce {
             deposit_idx: TEST_DEPOSIT_IDX,
             deposit_outpoint: test_deposit_outpoint(),
             ordered_pubkeys,
             tweak: TaprootTweak::Key { tweak: None },
+            payout_sighash,
         };
 
         let nag_event = create_nag_event(NagRequestPayload::PayoutNonce {

@@ -140,6 +140,10 @@ pub enum GraphDuty {
         /// The tweak required for taproot spend per input being signed.
         graph_tweaks: Vec<TaprootTweak>,
 
+        /// Sighashes to sign. Used to bind the per-input MuSig2 nonce to the message,
+        /// preventing nonce reuse across distinct spend paths sharing an outpoint.
+        sighashes: Vec<Message>,
+
         /// The ordered public keys of all operators for MuSig2 aggregation.
         ordered_pubkeys: Vec<XOnlyPublicKey>,
     },

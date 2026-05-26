@@ -377,6 +377,7 @@ pub(super) async fn publish_graph_nonces(
     graph_idx: GraphIdx,
     graph_inpoints: &[OutPoint],
     graph_tweaks: &[TaprootTweak],
+    sighashes: &[Message],
     ordered_pubkeys: &[XOnlyPublicKey],
 ) -> Result<(), ExecutorError> {
     info!(?graph_idx, "publishing graph nonces");

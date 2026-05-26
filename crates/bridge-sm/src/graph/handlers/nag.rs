@@ -217,12 +217,12 @@ impl GraphSM {
     ) -> GraphDuty {
         let game_graph = generate_game_graph(cfg, self.context(), graph_data);
         let graph_inpoints = game_graph.musig_inpoints().pack();
-        let graph_tweaks = game_graph
+        let (graph_tweaks, sighashes): (Vec<TaprootTweak>, Vec<Message>) = game_graph
             .musig_signing_info()
             .pack()
             .iter()
-            .map(|m| m.tweak)
-            .collect::<Vec<TaprootTweak>>();
+            .map(|m| (m.tweak, m.sighash))
+            .unzip();
         let ordered_pubkeys = self
             .context()
             .operator_table()
@@ -235,6 +235,7 @@ impl GraphSM {
             graph_idx: self.context().graph_idx(),
             graph_inpoints,
             graph_tweaks,
+            sighashes,
             ordered_pubkeys,
         }
     }

@@ -172,11 +172,10 @@ impl DepositSM {
                 claim_txids,
                 ..
             } => {
-                let drt_tweak = deposit_transaction
+                let drt_signing_info = *deposit_transaction
                     .signing_info()
                     .first()
-                    .expect("deposit transaction must have signing info")
-                    .tweak;
+                    .expect("deposit transaction must have signing info");
                 let ordered_pubkeys = self
                     .context()
                     .operator_table()
@@ -189,7 +188,8 @@ impl DepositSM {
                     drt_outpoint: self.context().deposit_outpoint(),
                     claim_txids: claim_txids.values().copied().collect(),
                     ordered_pubkeys,
-                    drt_tweak,
+                    drt_tweak: drt_signing_info.tweak,
+                    sighash: drt_signing_info.sighash,
                 }])
             }
             _ => {
@@ -251,8 +251,19 @@ impl DepositSM {
     fn process_payout_nonce_nag(&self, event: &NagReceivedEvent) -> DSMResult<Vec<DepositDuty>> {
         let deposit_idx = self.context().deposit_idx();
         match self.state() {
-            DepositState::PayoutDescriptorReceived { .. }
-            | DepositState::PayoutNoncesCollected { .. } => {
+            DepositState::PayoutDescriptorReceived {
+                cooperative_payout_tx,
+                ..
+            }
+            | DepositState::PayoutNoncesCollected {
+                cooperative_payout_tx,
+                ..
+            } => {
+                let payout_sighash = cooperative_payout_tx
+                    .signing_info()
+                    .first()
+                    .expect("cooperative payout transaction must have signing info")
+                    .sighash;
                 let ordered_pubkeys = self
                     .context()
                     .operator_table()
@@ -266,6 +277,7 @@ impl DepositSM {
                     ordered_pubkeys,
                     // NOfNConnector uses key-path spend with no script tree
                     tweak: TaprootTweak::Key { tweak: None },
+                    payout_sighash,
                 }])
             }
             _ => {

@@ -52,6 +52,7 @@ pub async fn execute_deposit_duty(
             claim_txids,
             ordered_pubkeys,
             drt_tweak,
+            sighash,
         } => {
             publish_deposit_nonce(
                 &output_handles,
@@ -60,6 +61,7 @@ pub async fn execute_deposit_duty(
                 claim_txids,
                 ordered_pubkeys,
                 *drt_tweak,
+                *sighash,
             )
             .await
         }
@@ -110,6 +112,7 @@ pub async fn execute_deposit_duty(
             deposit_outpoint,
             ordered_pubkeys,
             tweak,
+            payout_sighash,
         } => {
             publish_payout_nonce(
                 &output_handles,
@@ -117,6 +120,7 @@ pub async fn execute_deposit_duty(
                 *deposit_outpoint,
                 ordered_pubkeys,
                 *tweak,
+                *payout_sighash,
             )
             .await
         }
@@ -239,6 +243,7 @@ async fn publish_deposit_nonce(
     claim_txids: &[Txid],
     ordered_pubkeys: &[XOnlyPublicKey],
     drt_tweak: TaprootTweak,
+    sighash: Message,
 ) -> Result<(), ExecutorError> {
     info!(%drt_outpoint, "checking pre-conditions before generating deposit nonce");
     info!(
@@ -643,6 +648,7 @@ async fn publish_payout_nonce(
     deposit_outpoint: OutPoint,
     ordered_pubkeys: &[XOnlyPublicKey],
     tweak: TaprootTweak,
+    payout_sighash: Message,
 ) -> Result<(), ExecutorError> {
     info!(%deposit_outpoint, "generating payout nonce");
 

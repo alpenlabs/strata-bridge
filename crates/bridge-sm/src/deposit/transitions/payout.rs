@@ -194,6 +194,12 @@ impl DepositSM {
                     descriptor.operator_desc,
                 );
 
+                let payout_sighash = cooperative_payout_tx
+                    .signing_info()
+                    .first()
+                    .expect("cooperative payout transaction must have signing info")
+                    .sighash;
+
                 // Transition to the PayoutDescriptorReceived state
                 self.state = DepositState::PayoutDescriptorReceived {
                     last_block_height: *last_block_height,
@@ -220,6 +226,7 @@ impl DepositSM {
                         ordered_pubkeys,
                         // NOfNConnector uses key-path spend with no script tree
                         tweak: TaprootTweak::Key { tweak: None },
+                        payout_sighash,
                     },
                 ]))
             }

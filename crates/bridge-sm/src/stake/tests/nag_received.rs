@@ -20,10 +20,10 @@ fn create_nag_event(payload: NagRequestPayload) -> NagReceivedEvent {
 
 fn expected_publish_unstaking_nonces_duty() -> StakeDuty {
     let graph_inpoints = TEST_GRAPH.musig_inpoints().boxed();
-    let graph_tweaks = TEST_GRAPH
+    let (graph_tweaks, sighashes) = TEST_GRAPH
         .musig_signing_info()
-        .map(|info| info.tweak)
-        .boxed();
+        .map(|info| (info.tweak, info.sighash))
+        .unzip();
     let ordered_pubkeys = TEST_CTX
         .operator_table()
         .btc_keys()
@@ -34,7 +34,8 @@ fn expected_publish_unstaking_nonces_duty() -> StakeDuty {
     StakeDuty::PublishUnstakingNonces {
         operator_idx: TEST_CTX.operator_idx(),
         graph_inpoints,
-        graph_tweaks,
+        graph_tweaks: graph_tweaks.boxed(),
+        sighashes: sighashes.boxed(),
         ordered_pubkeys,
     }
 }

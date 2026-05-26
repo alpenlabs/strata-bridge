@@ -123,12 +123,11 @@ impl DepositSM {
                             let claim_txids = claim_txids.clone();
                             let claim_txids_list = claim_txids.values().copied().collect();
 
-                            // Get the tweak from signing_info
-                            let drt_tweak = deposit_transaction
+                            // Get the signing info (tweak + sighash) from the deposit tx
+                            let drt_signing_info = *deposit_transaction
                                 .signing_info()
                                 .first()
-                                .expect("deposit transaction must have signing info")
-                                .tweak;
+                                .expect("deposit transaction must have signing info");
 
                             // All operators have linked their graphs, transition to GraphGenerated
                             // state
@@ -155,7 +154,8 @@ impl DepositSM {
                                 drt_outpoint: deposit_outpoint,
                                 claim_txids: claim_txids_list,
                                 ordered_pubkeys,
-                                drt_tweak,
+                                drt_tweak: drt_signing_info.tweak,
+                                sighash: drt_signing_info.sighash,
                             };
 
                             return Ok(DSMOutput::with_duties(vec![duty]));
