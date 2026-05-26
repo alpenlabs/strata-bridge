@@ -1,16 +1,20 @@
-//! Build script for the SP1 `guest-bridge-proof` ELF.
+//! Build script for the SP1 `guest-bridge-proof` and `guest-counterproof` ELFs.
 //!
 //! Active only in `--release` **and** with the `build-elf` feature enabled.
-//! Reads `BRIDGE_PROOF_ASM_PARAMS_PATH`, `BRIDGE_PROOF_ASM_VK_PATH`, and
-//! `BRIDGE_PROOF_MOHO_VK_PATH` (or `stub/` files under `SKIP_PARAMS=1`),
-//! writes the SSZ-encoded `BridgeProofGenesis` to
-//! `guest-bridge-proof/build/genesis.bin`, and compiles the SP1 guest ELF
+//! For `guest-bridge-proof`, reads `BRIDGE_PROOF_ASM_PARAMS_PATH`,
+//! `BRIDGE_PROOF_ASM_VK_PATH`, and `BRIDGE_PROOF_MOHO_VK_PATH` (or `stub/`
+//! files under `SKIP_PARAMS=1`), writes the SSZ-encoded `BridgeProofGenesis`
+//! to `guest-bridge-proof/build/genesis.bin`, and compiles the SP1 guest ELF
 //! directly into `<crate>/elfs/bridge-proof.elf` (referenced at runtime via
-//! [`strata_bridge_sp1_guest_builder::BRIDGE_PROOF_ELF_PATH`]).
+//! [`strata_bridge_sp1_guest_builder::BRIDGE_PROOF_ELF_PATH`]). For
+//! `guest-counterproof`, calls `strata_bridge_counterproof::load_genesis()`,
+//! writes the SSZ-encoded `BridgeCounterproofGenesis` to
+//! `guest-counterproof/build/genesis.bin`, and compiles the ELF into
+//! `<crate>/elfs/counterproof.elf`.
 //!
 //! In `dev` profile, or whenever `build-elf` is inactive, the script is a
 //! no-op — and the heavy SP1 host stack stays out of the build-dependency
-//! graph entirely. Consumers of `BRIDGE_PROOF_ELF_PATH` see whatever a prior
+//! graph entirely. Consumers of the ELF path constants see whatever a prior
 //! release build left in `elfs/` (potentially stale or missing).
 
 fn main() {
@@ -27,6 +31,7 @@ mod release {
 
     use sp1_build::{build_program_with_args, BuildArgs};
     use ssz::Encode;
+    use strata_bridge_counterproof::load_genesis as load_counterproof_genesis;
     use strata_bridge_proof::{
         load_genesis_from_paths, sp1_groth16_predicate_string, ASM_PARAMS_PATH_ENV,
         ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
@@ -36,9 +41,11 @@ mod release {
     const STUB_ASM_PARAMS: &str = "stub/asm-params.json";
     const STUB_ASM_VK: &str = "stub/asm-vk.json";
     const STUB_MOHO_VK: &str = "stub/moho-vk.json";
-    const GUEST_DIR: &str = "guest-bridge-proof";
-    const ELF_NAME: &str = "bridge-proof.elf";
-    const PREDICATE_NAME: &str = "bridge-proof.predicate";
+    const BRIDGE_PROOF_GUEST_DIR: &str = "guest-bridge-proof";
+    const BRIDGE_PROOF_ELF_NAME: &str = "bridge-proof.elf";
+    const BRIDGE_PROOF_PREDICATE_NAME: &str = "bridge-proof.predicate";
+    const COUNTERPROOF_GUEST_DIR: &str = "guest-counterproof";
+    const COUNTERPROOF_ELF_NAME: &str = "counterproof.elf";
     const ELFS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/elfs");
 
     pub fn run() {
@@ -54,7 +61,17 @@ mod release {
             return;
         }
 
-        let build_out_dir = Path::new(GUEST_DIR).join("build");
+        write_bridge_proof_genesis();
+        write_counterproof_genesis();
+
+        build_guest(BRIDGE_PROOF_GUEST_DIR, BRIDGE_PROOF_ELF_NAME);
+        emit_bridge_proof_predicate();
+
+        build_guest(COUNTERPROOF_GUEST_DIR, COUNTERPROOF_ELF_NAME);
+    }
+
+    fn write_bridge_proof_genesis() {
+        let build_out_dir = Path::new(BRIDGE_PROOF_GUEST_DIR).join("build");
         let genesis_out_file = build_out_dir.join("genesis.bin");
 
         let skip = std::env::var_os(SKIP_PARAMS_ENV).is_some();
@@ -75,10 +92,24 @@ mod release {
         println!("cargo:warning=bridge-proof ELF baking in genesis: {genesis:?}");
         fs::write(&genesis_out_file, genesis.as_ssz_bytes())
             .unwrap_or_else(|e| panic!("write {}: {e}", genesis_out_file.display()));
+    }
 
+    fn write_counterproof_genesis() {
+        let build_out_dir = Path::new(COUNTERPROOF_GUEST_DIR).join("build");
+        let genesis_out_file = build_out_dir.join("genesis.bin");
+
+        fs::create_dir_all(&build_out_dir)
+            .unwrap_or_else(|e| panic!("create {}: {e}", build_out_dir.display()));
+
+        let genesis = load_counterproof_genesis();
+        fs::write(&genesis_out_file, genesis.as_ssz_bytes())
+            .unwrap_or_else(|e| panic!("write {}: {e}", genesis_out_file.display()));
+    }
+
+    fn build_guest(guest_dir: &str, elf_name: &str) {
         let build_args = BuildArgs {
             output_directory: Some(ELFS_DIR.to_owned()),
-            elf_name: Some(ELF_NAME.to_owned()),
+            elf_name: Some(elf_name.to_owned()),
             #[cfg(feature = "docker-build")]
             docker: true,
             #[cfg(feature = "docker-build")]
@@ -86,17 +117,19 @@ mod release {
             ..BuildArgs::default()
         };
 
-        build_program_with_args(GUEST_DIR, build_args);
+        build_program_with_args(guest_dir, build_args);
+    }
 
-        // Emit the on-chain predicate identity for the freshly built ELF alongside it.
-        // Operators load this `Sp1Groth16:<hex>` string into their consensus params so the
-        // network actually verifies the Groth16-wrapped bridge proofs this guest produces.
-        let elf_path = Path::new(ELFS_DIR).join(ELF_NAME);
+    // Emit the on-chain predicate identity for the freshly built bridge-proof ELF alongside it.
+    // Operators load this `Sp1Groth16:<hex>` string into their consensus params so the network
+    // actually verifies the Groth16-wrapped bridge proofs this guest produces.
+    fn emit_bridge_proof_predicate() {
+        let elf_path = Path::new(ELFS_DIR).join(BRIDGE_PROOF_ELF_NAME);
         let elf = fs::read(&elf_path)
             .unwrap_or_else(|e| panic!("read built ELF {}: {e}", elf_path.display()));
         let predicate = sp1_groth16_predicate_string(&elf)
             .unwrap_or_else(|e| panic!("derive sp1 groth16 predicate: {e}"));
-        let predicate_out_file = Path::new(ELFS_DIR).join(PREDICATE_NAME);
+        let predicate_out_file = Path::new(ELFS_DIR).join(BRIDGE_PROOF_PREDICATE_NAME);
         fs::write(&predicate_out_file, predicate)
             .unwrap_or_else(|e| panic!("write {}: {e}", predicate_out_file.display()));
     }

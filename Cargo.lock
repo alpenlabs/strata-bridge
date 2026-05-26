@@ -11236,6 +11236,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
+ "cfg-if 1.0.4",
  "ssz",
  "ssz_derive",
  "strata-btc-types",
@@ -11507,6 +11508,7 @@ version = "0.1.0"
 dependencies = [
  "sp1-build",
  "ssz",
+ "strata-bridge-counterproof",
  "strata-bridge-proof",
 ]
 

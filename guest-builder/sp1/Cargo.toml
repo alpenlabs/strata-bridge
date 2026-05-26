@@ -5,10 +5,16 @@ edition = "2021"
 
 [features]
 default = []
-build-elf = ["dep:sp1-build", "dep:ssz", "dep:strata-bridge-proof"]
+build-elf = [
+  "dep:sp1-build",
+  "dep:ssz",
+  "dep:strata-bridge-counterproof",
+  "dep:strata-bridge-proof",
+]
 docker-build = ["build-elf"]
 
 [build-dependencies]
 sp1-build = { version = "6.2.0", optional = true }
 ssz = { workspace = true, optional = true }
+strata-bridge-counterproof = { workspace = true, optional = true }
 strata-bridge-proof = { workspace = true, optional = true, features = ["sp1"] }
