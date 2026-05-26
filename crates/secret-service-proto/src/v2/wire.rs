@@ -2,7 +2,7 @@
 // TODO: <https://alpenlabs.atlassian.net/browse/STR-2706>
 // Calculate these hardcoded lengths at compile time once the compiler upgrade lands.
 
-use bitcoin::{taproot::TaprootError, OutPoint, XOnlyPublicKey};
+use bitcoin::{taproot::TaprootError, XOnlyPublicKey};
 use rkyv::{Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 use terrors::OneOf;
@@ -184,8 +184,6 @@ pub enum SignerTarget {
 pub struct SerializableMusig2Params {
     pub ordered_pubkeys: Vec<[u8; 32]>,
     pub tweak: SerializableTaprootTweak,
-    #[rkyv(with = super::rkyv_wrappers::OutPoint)]
-    pub input: OutPoint,
     pub sighash: [u8; 32],
 }
 
@@ -198,7 +196,6 @@ impl From<Musig2Params> for SerializableMusig2Params {
                 .map(|pk| pk.serialize())
                 .collect(),
             tweak: From::from(value.tweak),
-            input: value.input,
             sighash: value.sighash,
         }
     }
@@ -221,7 +218,6 @@ impl TryFrom<SerializableMusig2Params> for Musig2Params {
         Ok(Self {
             ordered_pubkeys,
             tweak: value.tweak.into(),
-            input: value.input,
             sighash: value.sighash,
         })
     }

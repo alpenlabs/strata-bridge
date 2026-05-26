@@ -257,7 +257,7 @@ impl SchnorrSigner<Server> for Ms2Signer {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{bip32::Xpriv, hashes::Hash, Network, OutPoint, Txid};
+    use bitcoin::{bip32::Xpriv, Network};
     use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer};
     use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 
@@ -273,7 +273,6 @@ mod tests {
         Musig2Params {
             ordered_pubkeys: vec![signer.kp.x_only_public_key().0],
             tweak,
-            input: OutPoint::new(Txid::all_zeros(), 0),
             sighash,
         }
     }

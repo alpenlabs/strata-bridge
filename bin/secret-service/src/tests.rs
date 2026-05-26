@@ -10,7 +10,7 @@ use std::{
 use bitcoin::{
     hashes::Hash,
     key::{Parity, Secp256k1, TapTweak},
-    Network, OutPoint, TapNodeHash, Txid, XOnlyPublicKey,
+    Network, TapNodeHash, Txid, XOnlyPublicKey,
 };
 use musig2::{
     secp256k1::{Message, Scalar, SecretKey, SECP256K1},
@@ -305,7 +305,6 @@ async fn musig2() {
             pubkeys
         },
         tweak,
-        input: OutPoint::new(Txid::all_zeros(), 0),
         sighash: digest_to_sign,
     };
 

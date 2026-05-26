@@ -270,7 +270,6 @@ async fn publish_deposit_nonce(
     let params = Musig2Params {
         ordered_pubkeys: ordered_pubkeys.to_vec(),
         tweak: drt_tweak,
-        input: drt_outpoint,
         sighash: *sighash.as_ref(),
     };
 
@@ -330,7 +329,6 @@ async fn publish_deposit_partial(
     let params = Musig2Params {
         ordered_pubkeys: ordered_pubkeys.to_vec(),
         tweak: signing_info.tweak,
-        input: drt_outpoint,
         sighash: *signing_info.sighash.as_ref(),
     };
 
@@ -658,7 +656,6 @@ async fn publish_payout_nonce(
     let params = Musig2Params {
         ordered_pubkeys: ordered_pubkeys.to_vec(),
         tweak,
-        input: deposit_outpoint,
         sighash: *payout_sighash.as_ref(),
     };
 
@@ -703,7 +700,6 @@ async fn publish_payout_partial(
     let params = Musig2Params {
         ordered_pubkeys: ordered_pubkeys.to_vec(),
         tweak: TaprootTweak::Key { tweak: None },
-        input: deposit_outpoint,
         sighash: *payout_sighash.as_ref(),
     };
 
@@ -752,7 +748,7 @@ async fn publish_payout(
     pov_operator_idx: OperatorIdx,
 ) -> Result<(), ExecutorError> {
     let txid = (*payout_coop_tx).as_ref().compute_txid();
-    info!(%txid, "signing cooperative payout");
+    info!(%deposit_outpoint, %txid, "signing cooperative payout");
 
     // Derive the sighash from the cooperative payout transaction
     let payout_sighash = payout_coop_tx
@@ -766,7 +762,6 @@ async fn publish_payout(
     let params = Musig2Params {
         ordered_pubkeys: ordered_pubkeys.to_vec(),
         tweak: TaprootTweak::Key { tweak: None },
-        input: deposit_outpoint,
         sighash: *payout_sighash.as_ref(),
     };
 

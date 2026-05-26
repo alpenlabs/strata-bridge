@@ -394,7 +394,6 @@ pub(super) async fn publish_graph_nonces(
             let params = Musig2Params {
                 ordered_pubkeys: ordered_pubkeys.clone(),
                 tweak: *tweak,
-                input: *inpoint,
                 sighash: *sighash.as_ref(),
             };
             musig_signer.get_pub_nonce(params).map(move |res| match res {
@@ -488,7 +487,6 @@ pub(super) async fn publish_graph_partials(
             let params = Musig2Params {
                 ordered_pubkeys: ordered_pubkeys.clone(),
                 tweak: *tweak,
-                input: *inpoint,
                 sighash: *sighash.as_ref(),
             };
             musig_signer

@@ -296,7 +296,6 @@ pub(crate) async fn publish_unstaking_nonces(
             let params = Musig2Params {
                 ordered_pubkeys: ordered_pubkeys.clone(),
                 tweak,
-                input: inpoint,
                 sighash: *sighash.as_ref(),
             };
 
@@ -343,7 +342,6 @@ pub(crate) async fn publish_unstaking_partials(
             let params = Musig2Params {
                 ordered_pubkeys: ordered_pubkeys.clone(),
                 tweak,
-                input: inpoint,
                 sighash: *sighash.as_ref(),
             };
 
