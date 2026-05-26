@@ -86,12 +86,12 @@ impl GraphSM {
                 // signatures. Transition directly to `AdaptorsVerified` state
                 if is_my_graph {
                     let graph_inpoints = game_graph.musig_inpoints().pack();
-                    let graph_tweaks = game_graph
+                    let (graph_tweaks, sighashes): (Vec<TaprootTweak>, Vec<Message>) = game_graph
                         .musig_signing_info()
                         .pack()
                         .iter()
-                        .map(|m| m.tweak)
-                        .collect::<Vec<TaprootTweak>>();
+                        .map(|m| (m.tweak, m.sighash))
+                        .unzip();
 
                     self.state = GraphState::AdaptorsVerified {
                         last_block_height: *last_block_height,
@@ -112,6 +112,7 @@ impl GraphSM {
                         graph_idx: self.context.graph_idx(),
                         graph_inpoints,
                         graph_tweaks,
+                        sighashes,
                         ordered_pubkeys,
                     }];
 
@@ -211,12 +212,12 @@ impl GraphSM {
             } => {
                 let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
                 let graph_inpoints = game_graph.musig_inpoints().pack();
-                let graph_tweaks = game_graph
+                let (graph_tweaks, sighashes): (Vec<TaprootTweak>, Vec<Message>) = game_graph
                     .musig_signing_info()
                     .pack()
                     .iter()
-                    .map(|m| m.tweak)
-                    .collect::<Vec<TaprootTweak>>();
+                    .map(|m| (m.tweak, m.sighash))
+                    .unzip();
 
                 self.state = GraphState::AdaptorsVerified {
                     last_block_height: *last_block_height,
@@ -238,6 +239,7 @@ impl GraphSM {
                         graph_idx: self.context.graph_idx(),
                         graph_inpoints,
                         graph_tweaks,
+                        sighashes,
                         ordered_pubkeys,
                     },
                 ]))

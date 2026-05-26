@@ -40,6 +40,10 @@ pub enum StakeDuty {
         /// The tweak required for taproot spend per input being signed.
         graph_tweaks: Box<StakeFunctor<TaprootTweak>>,
 
+        /// Sighashes per input being signed. Used to bind the MuSig2 nonce to the message,
+        /// preventing nonce reuse across distinct spend paths sharing an outpoint.
+        sighashes: Box<StakeFunctor<Message>>,
+
         /// The ordered public keys of all operators for MuSig2 aggregation.
         ordered_pubkeys: Vec<XOnlyPublicKey>,
     },

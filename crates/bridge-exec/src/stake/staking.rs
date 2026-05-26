@@ -283,6 +283,7 @@ pub(crate) async fn publish_unstaking_nonces(
     operator_idx: OperatorIdx,
     graph_inpoints: StakeFunctor<OutPoint>,
     graph_tweaks: StakeFunctor<TaprootTweak>,
+    sighashes: StakeFunctor<Message>,
     ordered_pubkeys: Vec<XOnlyPublicKey>,
 ) -> Result<(), ExecutorError> {
     info!(%operator_idx, "generating and publishing unstaking nonces for the stake graph");

@@ -112,6 +112,8 @@ pub enum DepositDuty {
         ordered_pubkeys: Vec<XOnlyPublicKey>,
         /// The taproot tweak for the DRT output (merkle root of take-back script)
         drt_tweak: TaprootTweak,
+        /// Sighash for the DRT input. Used to bind the MuSig2 nonce to the message.
+        sighash: Message,
     },
     /// Publish this operator's partial signature for spending the DRT
     PublishDepositPartial {
@@ -161,6 +163,9 @@ pub enum DepositDuty {
         ordered_pubkeys: Vec<XOnlyPublicKey>,
         /// The taproot tweak for the deposit output.
         tweak: TaprootTweak,
+        /// Sighash for the cooperative payout input. Used to bind the MuSig2 nonce to the
+        /// message.
+        payout_sighash: Message,
     },
     /// Publish the partial signature for spending the deposit UTXO cooperatively.
     PublishPayoutPartial {

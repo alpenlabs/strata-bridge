@@ -41,7 +41,7 @@ mod tests {
                 fulfillment_txid,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT
                     + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
-                cooperative_payout_tx: test_cooperative_payout_txn(operator_desc),
+                cooperative_payout_tx: test_cooperative_payout_txn(operator_desc.clone()),
                 payout_nonces: BTreeMap::new(),
             },
             expected_duties: vec![DepositDuty::PublishPayoutNonce {
@@ -53,6 +53,11 @@ mod tests {
                     .map(|pk| pk.x_only_public_key().0)
                     .collect(),
                 tweak: TaprootTweak::Key { tweak: None },
+                payout_sighash: test_cooperative_payout_txn(operator_desc)
+                    .signing_info()
+                    .first()
+                    .expect("cooperative payout tx must have signing info")
+                    .sighash,
             }],
             expected_signals: vec![],
         });

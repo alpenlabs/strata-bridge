@@ -78,6 +78,7 @@ pub async fn execute_graph_duty(
             graph_idx,
             graph_inpoints,
             graph_tweaks,
+            sighashes,
             ordered_pubkeys,
         } => {
             publish_graph_nonces(
@@ -85,6 +86,7 @@ pub async fn execute_graph_duty(
                 *graph_idx,
                 graph_inpoints,
                 graph_tweaks,
+                sighashes,
                 ordered_pubkeys,
             )
             .await

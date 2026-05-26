@@ -146,10 +146,10 @@ impl StakeSM {
     ) -> StakeDuty {
         let stake_graph = StakeGraph::new(stake_data.expand(*cfg, self.context()));
         let graph_inpoints = stake_graph.musig_inpoints().boxed();
-        let graph_tweaks = stake_graph
+        let (graph_tweaks, sighashes) = stake_graph
             .musig_signing_info()
-            .map(|info| info.tweak)
-            .boxed();
+            .map(|info| (info.tweak, info.sighash))
+            .unzip();
         let ordered_pubkeys = self
             .context()
             .operator_table()
@@ -161,7 +161,8 @@ impl StakeSM {
         StakeDuty::PublishUnstakingNonces {
             operator_idx: self.context().operator_idx(),
             graph_inpoints,
-            graph_tweaks,
+            graph_tweaks: graph_tweaks.boxed(),
+            sighashes: sighashes.boxed(),
             ordered_pubkeys,
         }
     }

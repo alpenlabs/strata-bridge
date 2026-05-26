@@ -29,6 +29,7 @@ pub async fn execute_stake_duty(
             operator_idx,
             graph_inpoints,
             graph_tweaks,
+            sighashes,
             ordered_pubkeys,
         } => {
             info!(%operator_idx, "executing StakeDuty::PublishUnstakingNonces");
@@ -37,6 +38,7 @@ pub async fn execute_stake_duty(
                 *operator_idx,
                 **graph_inpoints,
                 **graph_tweaks,
+                **sighashes,
                 ordered_pubkeys.clone(),
             )
             .await
