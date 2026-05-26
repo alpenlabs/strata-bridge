@@ -188,11 +188,7 @@ where
                 ServerMessage::Musig2GetPubNonce(res)
             }
 
-            ClientMessage::Musig2GetOurPartialSig {
-                params,
-                aggnonce,
-                message,
-            } => {
+            ClientMessage::Musig2GetOurPartialSig { params, aggnonce } => {
                 let params = match params.try_into() {
                     Ok(params) => params,
                     Err(e) => {
@@ -211,7 +207,7 @@ where
                 };
                 let res = service
                     .musig2_signer()
-                    .get_our_partial_sig(params, aggnonce, message)
+                    .get_our_partial_sig(params, aggnonce)
                     .await
                     .map(|ps| ps.serialize());
                 ServerMessage::Musig2GetOurPartialSig(res)

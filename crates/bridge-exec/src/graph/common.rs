@@ -492,7 +492,7 @@ pub(super) async fn publish_graph_partials(
                 sighash: *sighash.as_ref(),
             };
             musig_signer
-                .get_our_partial_sig(params, agg_nonce.clone(), *sighash.as_ref())
+                .get_our_partial_sig(params, agg_nonce.clone())
                 .map(move |res| match res {
                 Ok(inner) => inner.map_err(|e| match e.to_enum() {
                     terrors::E2::A(_) => {

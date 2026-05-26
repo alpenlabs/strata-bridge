@@ -121,12 +121,11 @@ pub enum ClientMessage {
     /// Request for
     /// [`Musig2Signer::get_our_partial_sig`](super::traits::Musig2Signer::get_our_partial_sig).
     Musig2GetOurPartialSig {
-        /// Params for the musig2 session
+        /// Params for the musig2 session. The message being signed is
+        /// `params.sighash` — see the trait method docs.
         params: SerializableMusig2Params,
         /// Aggregated nonce from round 1
         aggnonce: [u8; 66],
-        /// Message to be signed
-        message: [u8; 32],
     },
 
     /// Request for

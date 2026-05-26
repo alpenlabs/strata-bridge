@@ -348,7 +348,7 @@ pub(crate) async fn publish_unstaking_partials(
             };
 
             musig_signer
-                .get_our_partial_sig(params, agg_nonce, *sighash.as_ref())
+                .get_our_partial_sig(params, agg_nonce)
                 .map(move |res| match res {
                     Ok(inner) => inner.map_err(|e| match e.to_enum() {
                         terrors::E2::A(_) => {

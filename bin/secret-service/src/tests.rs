@@ -382,7 +382,7 @@ async fn musig2() {
 
     // send this signer's public nonce to secret service
     let remote_partial_sig = ms2_signer
-        .get_our_partial_sig(params.clone(), aggnonce.clone(), digest_to_sign)
+        .get_our_partial_sig(params.clone(), aggnonce.clone())
         .await
         .expect("good response")
         .expect("partial sig");
