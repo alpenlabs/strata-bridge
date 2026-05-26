@@ -31,8 +31,7 @@ class AsmEnv(BaseEnv):
         # Create asm
         self.ensure_asm_params(ectx, brpc)
         asm_fac = ectx.get_factory("asm_rpc")
-        params_file_path = self.asm_params.params_file_path
-        asm_service = asm_fac.create_asm_rpc_service(bitcoind.props, params_file_path)
+        asm_service = asm_fac.create_asm_rpc_service(bitcoind.props, self.asm_params_path)
 
         # register services
         svcs["asm_rpc"] = asm_service

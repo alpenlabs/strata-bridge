@@ -1,7 +1,3 @@
-import json
-from pathlib import Path
-
-
 def pre_fund_operators(rpc, miner_addr, operator_key_infos, btc_config):
     """Fund every operator with `btc_config.funding_amount`."""
     # Make sure we have one mature coinbase per operator to spend from.
@@ -16,8 +12,3 @@ def pre_fund_operators(rpc, miner_addr, operator_key_infos, btc_config):
 
     # One batched mine confirms every pending send at once.
     rpc.proxy.generatetoaddress(btc_config.finalization_blocks, miner_addr)
-
-
-def read_genesis_height_from_params(params_file_path) -> int:
-    """Parse the ASM genesis block height out of an `asm-params.json` file."""
-    return json.loads(Path(params_file_path).read_text())["anchor"]["block"]["height"]

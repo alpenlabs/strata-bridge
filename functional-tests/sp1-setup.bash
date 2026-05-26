@@ -16,6 +16,7 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
     if [ "$BRIDGE_EXTERNAL_BITCOIN" = "1" ]; then
         export BRIDGE_PROOF_ASM_PARAMS_DIR="$(realpath functional-tests)/_asm_params"
         mkdir -p "$BRIDGE_PROOF_ASM_PARAMS_DIR"
+        export BRIDGE_PROOF_NUM_OPERATORS="${BRIDGE_PROOF_NUM_OPERATORS:-2}"
 
         # Opt-in: real SP1 Groth16 ASM+Moho proving. Build the asm/moho guest ELFs at the
         # pinned asm rev, derive their Sp1Groth16 predicates, and (later) point the
@@ -48,8 +49,7 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
         fi
 
         # Also pre-funds operator general wallets so ASM genesis anchors at the
-        # post-funded tip; env init skips its own funding when BRIDGE_PROOF_ASM_PARAMS_DIR
-        # is exported (see BaseEnv._is_pre_funded).
+        # post-funded tip.
         echo "SP1 proving mode (SP1_PROVER=$SP1_PROVER): pre-funding operators and generating asm-params from external L1 $BITCOIN_RPC_URL"
         ( cd functional-tests && uv run python gen_asm_params_external.py )
         export BRIDGE_PROOF_ASM_PARAMS_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/asm-params.json"

@@ -1,5 +1,4 @@
 import os
-from dataclasses import dataclass
 from pathlib import Path
 
 import flexitest
@@ -18,10 +17,10 @@ from factory.asm_rpc.config_cfg import (
 from factory.bridge_operator.asm_cfg import copy_asm_params, write_asm_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
+from factory.common.asm_params import AsmParams
 from factory.fdb import generate_fdb_root_directory
 from utils.bitcoin import generate_blocks, prepare_wallet_and_chain
 from utils.mosaic import get_peer_ids
-from utils.sp1_pre_setup import read_genesis_height_from_params
 from utils.utils import (
     generate_p2p_ports,
     read_operator_key,
@@ -30,14 +29,6 @@ from utils.utils import (
 
 from .asm_config import AsmEnvConfig
 from .btc_config import BitcoinEnvConfig
-
-
-@dataclass(frozen=True)
-class AsmParams:
-    """ASM params materialized once per environment."""
-
-    params_file_path: str
-    genesis_height: int
 
 
 class BaseEnv(flexitest.EnvConfig):
@@ -61,6 +52,7 @@ class BaseEnv(flexitest.EnvConfig):
         self._asm_config = asm_config
         self._asm_rpc_service = None
         self._prebuilt_params_dir = os.environ.get("BRIDGE_PROOF_ASM_PARAMS_DIR")
+        self._asm_params_path: str | None = None
         self._asm_params: AsmParams | None = None
         self._bridge_protocol_params = bridge_protocol_params
         self._bridge_config_params = bridge_config_params
@@ -170,10 +162,11 @@ class BaseEnv(flexitest.EnvConfig):
 
     @property
     def _is_pre_funded(self) -> bool:
-        """True when run_test.sh's SP1+external path has pre-funded operators
-        before snapshotting ASM genesis. Env init must skip its own funding
-        so it doesn't append blocks past genesis."""
-        return bool(self._prebuilt_params_dir)
+        """True when run_test.sh pre-funded operators before snapshotting ASM
+        genesis. Requires `btc_config.external` since the env var is exported
+        script-wide and internal-regtest envs in the same session must not
+        inherit the skip."""
+        return bool(self._prebuilt_params_dir) and self.btc_config.external
 
     def ensure_asm_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
         """Build ASM params once per environment."""
@@ -188,17 +181,16 @@ class BaseEnv(flexitest.EnvConfig):
         # are written into generated_dir either way and read by the operator factory.
         if self._prebuilt_params_dir:
             params_file_path, _, _ = copy_asm_params(self._prebuilt_params_dir, generated_dir)
-            genesis_height = read_genesis_height_from_params(params_file_path)
         else:
-            genesis_height = int(self.initial_blocks)
             params_file_path, _, _ = write_asm_params(
                 bitcoind_rpc,
                 self.operator_key_infos,
-                genesis_height,
+                int(self.initial_blocks),
                 self._asm_config,
                 generated_dir,
             )
-        self._asm_params = AsmParams(params_file_path, genesis_height)
+        self._asm_params_path = params_file_path
+        self._asm_params = AsmParams.load(params_file_path)
 
     def create_operator(
         self,
@@ -232,11 +224,10 @@ class BaseEnv(flexitest.EnvConfig):
 
         if self._asm_rpc_service is None:
             asm_fac = ectx.get_factory("asm_rpc")
-            params_file_path = self.asm_params.params_file_path
             orchestrator_config = self._build_orchestrator_config(ectx)
             self._asm_rpc_service = asm_fac.create_asm_rpc_service(
                 bitcoind_props,
-                params_file_path,
+                self.asm_params_path,
                 orchestrator_config=orchestrator_config,
             )
         asm_props = self._asm_rpc_service.props
@@ -251,7 +242,7 @@ class BaseEnv(flexitest.EnvConfig):
             asm_props,
             self.operator_key_infos,
             self.p2p_ports,
-            genesis_height=self.asm_params.genesis_height,
+            genesis_height=self.asm_params.anchor.block.height,
             bridge_protocol_params=self._bridge_protocol_params,
             bridge_config_params=self._bridge_config_params,
             mosaic_rpc=mosaic_rpc,
@@ -276,7 +267,14 @@ class BaseEnv(flexitest.EnvConfig):
 
     @property
     def asm_params(self) -> AsmParams:
-        """ASM params, available after `ensure_asm_params` has run."""
+        """Parsed ASM params, available after `ensure_asm_params` has run."""
         if self._asm_params is None:
             raise RuntimeError("asm params not initialized; call ensure_asm_params first")
         return self._asm_params
+
+    @property
+    def asm_params_path(self) -> str:
+        """On-disk path of `asm-params.json`"""
+        if self._asm_params_path is None:
+            raise RuntimeError("asm params not initialized; call ensure_asm_params first")
+        return self._asm_params_path

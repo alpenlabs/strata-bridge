@@ -7,6 +7,7 @@ from envs import BitcoinEnvConfig, ExternalBtcBridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
+from factory.common.asm_params import AsmParams
 from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
@@ -14,7 +15,6 @@ from utils.deposit import (
     wait_until_drt_recognized,
 )
 from utils.dev_cli import DevCli
-from utils.sp1_pre_setup import read_genesis_height_from_params
 from utils.utils import (
     read_operator_key,
     wait_for_tx_confirmation,
@@ -36,10 +36,16 @@ class SP1BridgeProofTest(StrataTestBase):
     3. Verify the deposit UTXO is spent after the contest timelock expires
     """
 
-    NUM_OPERATORS = 2
     BURY_DEPTH = 1
 
     def __init__(self, ctx: flexitest.InitContext):
+        # Single source of truth: the asm-params baked by gen_asm_params_external.py
+        # determines how many operator key sets the bridge subprotocol covers, so the
+        # test must launch exactly that many operator nodes or N/N signing breaks.
+        asm_params_path = Path(os.environ["BRIDGE_PROOF_ASM_PARAMS_DIR"]) / "asm-params.json"
+        self.asm_params = AsmParams.load(asm_params_path)
+        self.num_operators = len(self.asm_params.bridge.operators)
+
         self.bridge_protocol_params = BridgeProtocolParams(
             bury_depth=self.BURY_DEPTH,
             contest_timelock=5,
@@ -58,26 +64,24 @@ class SP1BridgeProofTest(StrataTestBase):
                     mine_on_demand=True,
                     mine_on_demand_trailing_blocks=self.BURY_DEPTH,
                 ),
-                num_operators=self.NUM_OPERATORS,
+                num_operators=self.num_operators,
             )
         )
 
     def main(self, ctx: flexitest.RunContext):
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(
-            ctx, num_operators=self.NUM_OPERATORS, stake_timeout=7200
+            ctx, num_operators=self.num_operators, stake_timeout=7200
         )
         bridge_rpc = bridge_rpcs[0]
 
         bitcoind_service = ctx.get_service("bitcoin")
         bitcoin_rpc = bitcoind_service.create_rpc()
 
-        num_operators = len(bridge_nodes)
-        operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
+        operator_key_infos = [read_operator_key(i) for i in range(self.num_operators)]
 
         # Init ASM rpc
         asm_service = ctx.get_service("asm_rpc")
         asm_rpc = asm_service.create_rpc()
-        asm_params_path = Path(os.environ["BRIDGE_PROOF_ASM_PARAMS_DIR"]) / "asm-params.json"
 
         # Wait for DT and DRT
         bitcoind_props = bitcoind_service.props
@@ -106,7 +110,7 @@ class SP1BridgeProofTest(StrataTestBase):
             asm_rpc,
             recent_block_hash,
             num_ol_slots=1,
-            genesis_l1_height=read_genesis_height_from_params(asm_params_path),
+            genesis_l1_height=self.asm_params.anchor.block.height,
         )
         ckp_block_hash = wait_for_tx_confirmation(bitcoin_rpc, ckp_l1_txn, timeout=3600)
         self.logger.info(f"Checkpoint tx {ckp_l1_txn} included in block {ckp_block_hash}")
@@ -136,7 +140,7 @@ class SP1BridgeProofTest(StrataTestBase):
         )
 
         # Use a different operator's node to contest
-        contester_idx = (active_claim.assigned_operator + 1) % num_operators
+        contester_idx = (active_claim.assigned_operator + 1) % self.num_operators
         contester_node = bridge_nodes[contester_idx]
         contester_rpc_url = f"http://127.0.0.1:{contester_node.props['rpc_port']}"
 

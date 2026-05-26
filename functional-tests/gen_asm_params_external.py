@@ -21,10 +21,10 @@ from utils.utils import read_all_operator_keys, read_operator_key, wait_until_bi
 def main() -> int:
     setup_root_logger()
 
-    out_dir = os.environ.get("BRIDGE_PROOF_ASM_PARAMS_DIR")
-    if not out_dir:
-        raise RuntimeError("BRIDGE_PROOF_ASM_PARAMS_DIR must be set")
-    num_operators = 2
+    out_dir = os.environ["BRIDGE_PROOF_ASM_PARAMS_DIR"]
+    # Must match the consuming test's operator count so the covenant key set baked
+    # into asm-params lines up with the operator nodes the test actually launches.
+    num_operators = int(os.environ["BRIDGE_PROOF_NUM_OPERATORS"])
 
     props, client_url = _read_external_btc_env()
     rpc = BitcoindClient(base_url=client_url, network="regtest")
