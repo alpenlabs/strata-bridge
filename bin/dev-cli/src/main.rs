@@ -29,7 +29,5 @@ async fn main() -> Result<(), Error> {
         }
     };
 
-    logging::finalize();
-
     result
 }

@@ -1,20 +1,14 @@
 //! Strata Bridge is a bridge node for the Strata protocol.
-use std::{any::type_name, fs, net::SocketAddr, path::Path, sync::Arc};
+use std::{any::type_name, fs, path::Path, sync::Arc};
 
 use args::OperationMode;
 use clap::Parser;
 use config::Config;
 use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE};
-use metrics::{describe_gauge, gauge};
 use mode::{operator, watchtower};
 use serde::de::DeserializeOwned;
-use strata_bridge_common::{
-    logging::{self, LoggingInitConfig, init_logging_from_config},
-    params::Params,
-};
+use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::{FdbClient, MustDrop};
-use strata_bridge_p2p_service::GossipsubScoringPreset;
-use strata_metrics::{MetricsConfig as ProcessMetricsConfig, MetricsInitConfig};
 use strata_tasks::TaskManager;
 use tokio::runtime;
 use tracing::{debug, error, info, trace};
@@ -23,6 +17,7 @@ mod args;
 mod config;
 mod constants;
 mod mode;
+mod observability;
 
 /// The default glibc malloc was observed to be responsible for bad memory fragmentation during
 /// deposits which led to out-of-memory issues. [`Jemalloc`] is a general purpose malloc(3)
@@ -65,47 +60,7 @@ fn main() {
         .build()
         .expect("must be able to create runtime");
 
-    let service_label = logging::get_service_label_from_env();
-    let otlp_url = logging::get_otlp_url_from_env();
-    let service_name = logging::format_service_name("strata-bridge", service_label.as_deref());
-    let metrics_otlp_url = config.metrics.otlp_url.clone().or_else(|| otlp_url.clone());
-    let metrics_exporter = metrics_exporter_label(
-        metrics_otlp_url.as_deref(),
-        config.metrics.prometheus_listener_addr,
-    );
-    let p2p_scoring_preset = p2p_scoring_preset_label(&config);
-    let btc_zmq = btc_zmq_label(&config);
-    let fdb_tls = enabled_label(config.db.tls.is_some());
-    let metrics_config = ProcessMetricsConfig::from_exporters(
-        metrics_otlp_url,
-        config.metrics.prometheus_listener_addr,
-    );
-
-    init_logging_from_config(LoggingInitConfig {
-        service_base_name: "strata-bridge",
-        service_label: service_label.as_deref(),
-        otlp_url: otlp_url.as_deref(),
-        log_dir: None,
-        log_file_prefix: None,
-        json_format: None,
-        default_log_prefix: "strata-bridge",
-        extra_filter_directives: logging::DEFAULT_EXTRA_FILTER_DIRECTIVES,
-    });
-
-    let metrics_init =
-        MetricsInitConfig::new(service_name.clone()).with_metrics_config(metrics_config);
-    strata_metrics::init(metrics_init, runtime.handle())
-        .unwrap_or_else(|err| panic!("failed to initialize process metrics: {err}"));
-    emit_node_info_metric(&NodeInfoLabels {
-        service: &service_name,
-        mode: &mode_label,
-        network: &network_label,
-        version: env!("CARGO_PKG_VERSION"),
-        metrics_exporter,
-        p2p_scoring_preset,
-        btc_zmq,
-        fdb_tls,
-    });
+    observability::init(&config, &mode_label, &network_label, runtime.handle());
 
     info!(mode = %mode_label, network = %network_label, "starting bridge node");
 
@@ -151,77 +106,12 @@ fn main() {
 
     if let Err(e) = task_manager.monitor(Some(shutdown_timeout)) {
         error!(err = ?e, "bridge node crashed");
-        strata_metrics::finalize();
-        logging::finalize();
+        observability::finalize();
         panic!("bridge node crashed: {e:?}");
     }
 
     info!("bridge node shutdown complete");
-    strata_metrics::finalize();
-    logging::finalize();
-}
-
-struct NodeInfoLabels<'a> {
-    service: &'a str,
-    mode: &'a str,
-    network: &'a str,
-    version: &'a str,
-    metrics_exporter: &'a str,
-    p2p_scoring_preset: &'a str,
-    btc_zmq: &'a str,
-    fdb_tls: &'a str,
-}
-
-fn emit_node_info_metric(labels: &NodeInfoLabels<'_>) {
-    describe_gauge!(
-        "strata_bridge_node_info",
-        "Static bridge node metadata. Labels are intentionally low-cardinality."
-    );
-    gauge!(
-        "strata_bridge_node_info",
-        "service" => labels.service.to_owned(),
-        "mode" => labels.mode.to_owned(),
-        "network" => labels.network.to_owned(),
-        "version" => labels.version.to_owned(),
-        "metrics_exporter" => labels.metrics_exporter.to_owned(),
-        "p2p_scoring_preset" => labels.p2p_scoring_preset.to_owned(),
-        "btc_zmq" => labels.btc_zmq.to_owned(),
-        "fdb_tls" => labels.fdb_tls.to_owned(),
-    )
-    .set(1.0);
-}
-
-fn metrics_exporter_label(
-    otlp_url: Option<&str>,
-    prometheus_listener_addr: Option<SocketAddr>,
-) -> &'static str {
-    match (otlp_url.is_some(), prometheus_listener_addr.is_some()) {
-        (false, false) => "none",
-        (true, false) => "otlp",
-        (false, true) => "prometheus",
-        (true, true) => "otlp_prometheus",
-    }
-}
-
-fn p2p_scoring_preset_label(config: &Config) -> &'static str {
-    match config.p2p.gossipsub_scoring_preset.unwrap_or_default() {
-        GossipsubScoringPreset::Default => "default",
-        GossipsubScoringPreset::Permissive => "permissive",
-    }
-}
-
-fn btc_zmq_label(config: &Config) -> &'static str {
-    enabled_label(
-        config.btc_zmq.hashblock_connection_string.is_some()
-            || config.btc_zmq.hashtx_connection_string.is_some()
-            || config.btc_zmq.rawblock_connection_string.is_some()
-            || config.btc_zmq.rawtx_connection_string.is_some()
-            || config.btc_zmq.sequence_connection_string.is_some(),
-    )
-}
-
-fn enabled_label(enabled: bool) -> &'static str {
-    if enabled { "enabled" } else { "disabled" }
+    observability::finalize();
 }
 
 /// Reads and parses a TOML file from the given path into the given type `T`.
@@ -244,34 +134,4 @@ where
     debug!(path = %path.display(), target_type = type_name::<T>(), "parsed TOML file");
 
     parsed
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn metrics_exporter_label_reports_effective_exporters() {
-        let prometheus_addr = "127.0.0.1:9615".parse().unwrap();
-
-        assert_eq!(metrics_exporter_label(None, None), "none");
-        assert_eq!(
-            metrics_exporter_label(Some("http://otel:4317"), None),
-            "otlp"
-        );
-        assert_eq!(
-            metrics_exporter_label(None, Some(prometheus_addr)),
-            "prometheus"
-        );
-        assert_eq!(
-            metrics_exporter_label(Some("http://otel:4317"), Some(prometheus_addr)),
-            "otlp_prometheus"
-        );
-    }
-
-    #[test]
-    fn enabled_label_uses_bounded_values() {
-        assert_eq!(enabled_label(true), "enabled");
-        assert_eq!(enabled_label(false), "disabled");
-    }
 }

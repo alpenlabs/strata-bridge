@@ -85,6 +85,7 @@ services:
     <<: *base-secret-service
     ports:
       - 11000:3000
+      - 19616:9616
     volumes:
       - ./docker/vol/secret-service-1:/app
     networks:
@@ -107,6 +108,7 @@ services:
     <<: *base-secret-service
     ports:
       - 21000:3000
+      - 29616:9616
     volumes:
       - ./docker/vol/secret-service-2:/app
     networks:
@@ -129,6 +131,7 @@ services:
     <<: *base-secret-service
     ports:
       - 31000:3000
+      - 39616:9616
     volumes:
       - ./docker/vol/secret-service-3:/app
     networks:

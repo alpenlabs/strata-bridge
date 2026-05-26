@@ -16,19 +16,18 @@ pub const SVC_LABEL_ENVVAR: &str = "STRATA_BRIDGE_SVC_LABEL";
 pub const DEFAULT_EXTRA_FILTER_DIRECTIVES: &[&str] =
     &["sp1_core_executor=warn", "jsonrpsee_server::server=warn"];
 
-/// Initializes logging with bridge-standard environment variables.
+/// Initializes local/test logging with bridge-standard service labels.
 ///
 /// This is intended for tests and small helpers. Production binaries should
 /// build [`LoggingInitConfig`] directly so observability options remain
-/// explicit.
+/// explicit. This intentionally does not read [`OTLP_URL_ENVVAR`].
 pub fn init_from_env(service_base_name: &str) {
     let service_label = get_service_label_from_env();
-    let otlp_url = get_otlp_url_from_env();
 
     init_logging_from_config(LoggingInitConfig {
         service_base_name,
         service_label: service_label.as_deref(),
-        otlp_url: otlp_url.as_deref(),
+        otlp_url: None,
         log_dir: None,
         log_file_prefix: None,
         json_format: None,

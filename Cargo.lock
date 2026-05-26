@@ -9298,6 +9298,7 @@ dependencies = [
  "libp2p-identity",
  "make_buf",
  "memory_pprof",
+ "metrics",
  "musig2",
  "rand 0.8.5",
  "rcgen",
@@ -9307,14 +9308,15 @@ dependencies = [
  "secret-service-server",
  "serde",
  "sha2 0.10.9",
+ "strata-bridge-common",
  "strata-bridge-key-deriv",
  "strata-bridge-primitives",
+ "strata-metrics",
  "terrors",
  "tikv-jemallocator",
  "tokio",
  "toml",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
