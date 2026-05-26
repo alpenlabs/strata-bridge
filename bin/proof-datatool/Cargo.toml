@@ -13,7 +13,6 @@ required-features = ["sp1"]
 
 [features]
 default = []
-# Prover tooling that links the SP1 host stack (sp1-sdk etc.).
 sp1 = ["strata-bridge-proof/sp1"]
 
 [dependencies]
