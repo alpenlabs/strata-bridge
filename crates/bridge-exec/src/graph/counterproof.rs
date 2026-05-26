@@ -2,11 +2,11 @@
 
 use std::num::NonZero;
 
-use bitcoin::{Transaction, consensus};
+use bitcoin::{ScriptBuf, Transaction, consensus, relative};
 use bitcoind_async_client::{error::ClientError, traits::Reader};
 use btc_tracker::event::TxStatus;
 use musig2::secp256k1::schnorr::Signature;
-use strata_bridge_connectors::prelude::ContestCounterproofWitness;
+use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
     BitcoinTxOut, CounterproofInput, CounterproofProgram, RawBitcoinTx,
 };
@@ -131,20 +131,18 @@ async fn fetch_counterproof_input(
 ) -> Result<CounterproofInput, ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "fetching counterproof inputs for graph");
 
-    let operator_pubkey = output_handles
+    let operator_xonly = output_handles
         .operator_table
         .idx_to_btc_key(&operator_idx)
         .expect("operator_idx must be present in the operator table")
         .x_only_public_key()
-        .0
-        .into();
+        .0;
 
-    let n_of_n_pubkey = output_handles
+    let n_of_n_xonly = output_handles
         .operator_table
         .aggregated_btc_key()
         .x_only_public_key()
-        .0
-        .into();
+        .0;
 
     let proof_timelock = cfg.graph_sm_cfg.game_graph_params.proof_timelock.value();
 
@@ -169,12 +167,29 @@ async fn fetch_counterproof_input(
         bridge_proof_tx_prevouts.push(BitcoinTxOut::from(prevout));
     }
 
+    let expected_spk = ScriptBuf::new_p2tr_tweaked(ContestProofConnector::output_key(
+        n_of_n_xonly,
+        operator_xonly,
+        game_index,
+        relative::Height::from_height(proof_timelock),
+    ));
+
+    let bridge_proof_tx_input_idx = bridge_proof_tx_prevouts
+        .iter()
+        .position(|prevout| prevout.inner().script_pubkey == expected_spk)
+        .ok_or_else(|| {
+            ExecutorError::InvalidTxStructure(
+                "bridge proof tx does not spend the ContestProofConnector".to_string(),
+            )
+        })? as u32;
+
     Ok(CounterproofInput {
         game_idx: game_index.get(),
-        operator_pubkey,
-        n_of_n_pubkey,
+        operator_pubkey: operator_xonly.into(),
+        n_of_n_pubkey: n_of_n_xonly.into(),
         proof_timelock,
         bridge_proof_tx: RawBitcoinTx::from_raw_bytes(consensus::serialize(&bridge_proof_tx)),
         bridge_proof_tx_prevouts,
+        bridge_proof_tx_input_idx,
     })
 }

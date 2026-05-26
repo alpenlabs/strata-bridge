@@ -24,6 +24,9 @@ pub struct CounterproofInput {
 
     /// Prevouts of `bridge_proof_tx`, matching `tx.input` 1:1.
     pub bridge_proof_tx_prevouts: Vec<BitcoinTxOut>,
+
+    /// Index of `bridge_proof_tx` input that spends the `ContestProofConnector`.
+    pub bridge_proof_tx_input_idx: u32,
 }
 
 /// Public values committed by the counterproof.
