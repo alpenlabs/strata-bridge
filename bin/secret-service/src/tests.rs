@@ -293,6 +293,7 @@ async fn musig2() {
     let tweak = TaprootTweak::Key { tweak: None };
 
     let remote_public_key = ms2_signer.pubkey().await.expect("good response");
+    let digest_to_sign: [u8; 32] = thread_rng().gen();
     let params = Musig2Params {
         ordered_pubkeys: {
             let mut pubkeys = local_signers
@@ -305,6 +306,7 @@ async fn musig2() {
         },
         tweak,
         input: OutPoint::new(Txid::all_zeros(), 0),
+        sighash: digest_to_sign,
     };
 
     println!("remote pubkey: {remote_public_key:?}");
@@ -377,8 +379,6 @@ async fn musig2() {
         .unwrap()] = remote_pub_nonce.clone();
 
     let aggnonce = AggNonce::sum(&pubnonces);
-
-    let digest_to_sign = thread_rng().gen();
 
     // send this signer's public nonce to secret service
     let remote_partial_sig = ms2_signer

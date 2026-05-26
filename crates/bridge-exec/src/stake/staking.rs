@@ -290,12 +290,14 @@ pub(crate) async fn publish_unstaking_nonces(
 
     let musig_signer = output_handles.s2_client.musig2_signer();
 
-    let nonce_futures = graph_inpoints.zip(graph_tweaks).into_iter()
-        .map(|(inpoint, tweak)| {
+    let nonce_futures = StakeFunctor::zip3(graph_inpoints, graph_tweaks, sighashes)
+        .into_iter()
+        .map(|(inpoint, tweak, sighash)| {
             let params = Musig2Params {
                 ordered_pubkeys: ordered_pubkeys.clone(),
                 tweak,
                 input: inpoint,
+                sighash: *sighash.as_ref(),
             };
 
             musig_signer.get_pub_nonce(params).map(move |res| match res {
@@ -342,6 +344,7 @@ pub(crate) async fn publish_unstaking_partials(
                 ordered_pubkeys: ordered_pubkeys.clone(),
                 tweak,
                 input: inpoint,
+                sighash: *sighash.as_ref(),
             };
 
             musig_signer
