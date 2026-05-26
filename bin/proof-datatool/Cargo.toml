@@ -1,5 +1,5 @@
 [package]
-name = "datatool"
+name = "proof-datatool"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 workspace = true
 
 [[bin]]
-name = "datatool"
+name = "proof-datatool"
 path = "src/main.rs"
 required-features = ["sp1"]
 

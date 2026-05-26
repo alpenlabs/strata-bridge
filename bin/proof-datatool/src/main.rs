@@ -1,4 +1,4 @@
-//! `datatool` — command-line tooling for the bridge prover.
+//! `proof-datatool` — command-line tooling for the bridge proofs.
 //!
 //! A home for proof-related helpers, meant to grow with future proving work.
 
@@ -8,9 +8,9 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use strata_bridge_proof::sp1_groth16_predicate_string;
 
-/// Bridge prover tooling.
+/// Bridge proof tooling.
 #[derive(Parser)]
-#[command(name = "datatool", about = "Bridge prover tooling")]
+#[command(name = "proof-datatool", about = "Bridge proof tooling")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
