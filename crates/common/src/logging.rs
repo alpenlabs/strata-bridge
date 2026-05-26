@@ -4,7 +4,7 @@ use std::env;
 
 pub use strata_logging::{
     finalize, format_service_name, init_logging_from_config, FileLoggingConfig, LoggingInitConfig,
-    MetricsLayer, OtlpExportConfig, ResourceConfig, Rotation, StdoutConfig,
+    OtlpExportConfig, ResourceConfig, Rotation, StdoutConfig,
 };
 
 /// Environment variable names for configuring the logger.
@@ -33,7 +33,6 @@ pub fn init_from_env(service_base_name: &str) {
         log_file_prefix: None,
         json_format: None,
         default_log_prefix: service_base_name,
-        enable_metrics_layer: false,
         extra_filter_directives: DEFAULT_EXTRA_FILTER_DIRECTIVES,
     });
 }

@@ -2,7 +2,7 @@
 //!
 //! These do not affect consensus between bridge nodes and can be set to different values by
 //! different operators.
-use std::{path::PathBuf, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
@@ -78,6 +78,10 @@ pub(crate) struct Config {
 
     /// Backend that produces bridge proofs.
     pub bridge_proof: ProofBackendConfig,
+
+    /// Configuration for process-level metrics exporters.
+    #[serde(default)]
+    pub metrics: MetricsConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -261,6 +265,18 @@ pub(crate) struct MosaicConfig {
     pub peer_ids: Vec<String>,
 }
 
+/// Configuration for bridge process metrics exporters.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct MetricsConfig {
+    /// Optional OTLP endpoint URL for metrics export.
+    ///
+    /// If unset, the bridge reuses `STRATA_BRIDGE_OTLP_URL` when present.
+    pub otlp_url: Option<String>,
+
+    /// Optional Prometheus listener address, for example `0.0.0.0:9615`.
+    pub prometheus_listener_addr: Option<SocketAddr>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,6 +358,9 @@ mod tests {
             [bridge_proof]
             kind = "native"
             schnorr_signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
+
+            [metrics]
+            prometheus_listener_addr = "127.0.0.1:9615"
         "#;
 
         let config = toml::from_str::<Config>(config);

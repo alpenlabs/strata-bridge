@@ -13,7 +13,7 @@ mod cli;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    logging::init_from_env("dev-cli", "dev-cli");
+    logging::init_from_env("dev-cli");
 
     let cli = cli::Cli::parse();
     let result = match cli.command {

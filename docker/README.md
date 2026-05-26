@@ -224,6 +224,34 @@ curl http://localhost:13000/debug/pprof/heap > bridge1-heap.pprof
 open http://localhost:11000/debug/pprof/heap/flamegraph
 ```
 
+### Observability
+
+Bridge logging is initialized through `strata-logging`. `STRATA_BRIDGE_OTLP_URL` still controls
+OTLP tracing export, and `STRATA_BRIDGE_SVC_LABEL` still appends a label to the service name.
+
+Bridge metrics are initialized through `strata-metrics`. The local Docker configs expose
+Prometheus scrape endpoints on:
+
+- Bridge node 1: `localhost:19615` -> container port `9615`
+- Bridge node 2: `localhost:29615` -> container port `9615`
+- Bridge node 3: `localhost:39615` -> container port `9615`
+
+Metrics are configured in each bridge `config.toml`:
+
+```toml
+[metrics]
+prometheus_listener_addr = "0.0.0.0:9615"
+# Optional. If unset, metrics reuse STRATA_BRIDGE_OTLP_URL when present.
+otlp_url = "http://otel-collector:4317"
+```
+
+Metric labels must stay low-cardinality. The node info metric uses static process labels:
+`service`, `mode`, `network`, `version`, `metrics_exporter`, `p2p_scoring_preset`, `btc_zmq`,
+and `fdb_tls`. Other acceptable labels are event kind/source, state-machine kind/state, duty kind,
+dependency, result, and error kind. Do not put `deposit_idx`, `graph_idx`, txids, pubkeys, peer ids,
+outpoints, or message ids in metric labels; keep that per-deposit or per-withdrawal detail in
+spans, logs, and lifecycle records.
+
 ### Bridging in
 
 To send a deposit request against the Docker stack, run:
