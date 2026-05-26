@@ -87,10 +87,10 @@ uv run python entry.py
 
 ## Running tests
 ```bash
-# Run all tests
+# Run all tests (skips groups marked SKIP_GROUPS_BY_DEFAULT — see note below)
 ./run_test.sh
 
-# Run a specific test by path
+# Run a specific test by path (always runs, even for skipped groups)
 ./run_test.sh -t tests/liveness/fn_network_test.py
 
 # Run all tests in a group (subdirectory)
@@ -98,7 +98,65 @@ uv run python entry.py
 
 # Run multiple groups
 ./run_test.sh -g contested_payout uncontested_payout
+
+# Force-run an otherwise-skipped group by selecting it explicitly:
+./run_test.sh -g proofs
 ```
+
+> A few groups are deliberately skipped by the no-arg run because they're
+> too expensive to drag into a default regression sweep. Today that's just
+> `proofs/` (the SP1 end-to-end bridge-proof test). They still run when you
+> pick them by path (`-t …`) or by group (`-g proofs`). The list lives in
+> `SKIP_GROUPS_BY_DEFAULT` in [`entry.py`](entry.py).
+
+## Running in SP1 proving mode
+
+In SP1 proving mode the tests prove on SP1 and run against an externally-managed
+regtest `bitcoind` (the `network-extbtc` environment).
+
+1. Start a fresh regtest `bitcoind` with ZMQ enabled:
+
+   ```bash
+   TMPBTC=$(mktemp -d)
+   bitcoind -regtest -server=1 -txindex=1 -listen=0 -datadir="$TMPBTC" \
+     -rpcbind=127.0.0.1 -rpcallowip=127.0.0.1 -rpcport=18443 \
+     -rpcuser=user -rpcpassword=password -fallbackfee=0.00001 -acceptnonstdtxn=0 \
+     -zmqpubhashblock=tcp://127.0.0.1:28332 -zmqpubhashtx=tcp://127.0.0.1:28333 \
+     -zmqpubrawblock=tcp://127.0.0.1:28334 -zmqpubrawtx=tcp://127.0.0.1:28335 \
+     -zmqpubsequence=tcp://127.0.0.1:28336
+   ```
+
+2. Run an SP1-proving test against the external node:
+
+   ```bash
+   ./run_test.sh -t tests/contested_payout/fn_contest_without_counterproof.py
+   ```
+
+   `run_test.sh` mines the external L1 to the genesis height, generates `asm-params.json`
+   from it, and bakes it into the guest ELF (no manual params step) so proofs verify
+   against the actual chain.
+
+   With `BRIDGE_PROOF_SP1_ASM=1` (default in the sample), `run_test.sh` also builds the
+   ASM and Moho SP1 guest ELFs (cloning the asm repo at its pinned rev into `.asm-src/`)
+   and runs the asm-runner's SP1 backend, so the ASM/Moho proofs are real SP1 Groth16
+   proofs the bridge verifies via `Sp1Groth16` predicates. Set `BRIDGE_PROOF_SP1_ASM=0`
+   to keep the ASM/Moho layer as native Schnorr attestations. Real Groth16 proving
+   (and the extra ELF builds) only happens under `SP1_PROVER` ≠ `mock`.
+
+### SP1 env vars
+
+Defaults come from [`sp1-env.bash.sample`](sp1-env.bash.sample). Override any of
+them inline (e.g. `SP1_PROVER=cpu ./run_test.sh ...`) or by editing your local
+`sp1-env.bash`.
+
+| Variable | Default | Effect when overridden |
+| --- | --- | --- |
+| `BRIDGE_PROOF_SP1` | `1` | `0` disables SP1 proving entirely (native proofs, no guest ELF build). |
+| `SP1_PROVER` | `network` | `mock` = fast stub proofs (no real proving); `cpu`/`cuda` = local real proving; `network` = remote proving via Succinct (requires `NETWORK_*`). |
+| `SP1_PROOF_STRATEGY` | `reserved` | Succinct Network proof-request strategy (e.g. `reserved`, `hosted`, `auction`). Only used when `SP1_PROVER=network`. |
+| `NETWORK_RPC_URL` | `https://rpc.production.succinct.xyz` | Point at a different Succinct prover network endpoint. |
+| `NETWORK_PRIVATE_KEY` | _(unset)_ | **Required** for `SP1_PROVER=network`. Your Succinct prover account key; the network rejects requests without it. |
+| `BRIDGE_PROOF_SP1_ASM` | `1` | `0` keeps the ASM/Moho layer as native Schnorr attestations (`Bip340Schnorr`) and skips the asm/moho guest ELF builds; `1` builds them and the bridge verifies real `Sp1Groth16` predicates. |
 
 ## Running with code coverage
 

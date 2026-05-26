@@ -1,0 +1,21 @@
+[package]
+name = "proof-datatool"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "proof-datatool"
+path = "src/main.rs"
+required-features = ["sp1"]
+
+[features]
+default = []
+sp1 = ["strata-bridge-proof/sp1"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+strata-bridge-proof.workspace = true

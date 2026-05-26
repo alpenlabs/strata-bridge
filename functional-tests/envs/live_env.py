@@ -1,6 +1,6 @@
 import flexitest
 
-from utils.utils import MinerThread, generate_blocks
+from utils.bitcoin import MinerThread, generate_blocks
 
 
 class StrataLiveEnv(flexitest.LiveEnv):
@@ -15,9 +15,22 @@ class StrataLiveEnv(flexitest.LiveEnv):
             self._miner.stop()
             self._miner = None
 
-    def start_miner(self, bitcoin_rpc, block_interval, addr):
+    def start_miner(
+        self,
+        bitcoin_rpc,
+        block_interval,
+        addr,
+        mine_on_demand: bool = False,
+        trailing_blocks: int = 0,
+    ):
         self.stop_miner()
-        self._miner = generate_blocks(bitcoin_rpc, block_interval, addr)
+        self._miner = generate_blocks(
+            bitcoin_rpc,
+            block_interval,
+            addr,
+            mine_on_demand=mine_on_demand,
+            trailing_blocks=trailing_blocks,
+        )
 
     def shutdown(self):
         self.stop_miner()

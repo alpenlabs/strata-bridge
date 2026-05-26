@@ -40,7 +40,7 @@ class BitcoinConfig:
 
 @dataclass
 class ParamsConfig:
-    """Rollup parameters configuration."""
+    """ASM parameters configuration."""
 
     params_file: str | None
     network: str
@@ -48,11 +48,28 @@ class ParamsConfig:
 
 @dataclass
 class NativeBackend:
-    """Native (in-process) proof backend configuration."""
+    """Native (in-process) proof backend configuration.
+
+    Produces BIP-340 Schnorr-signed ASM-STF / Moho attestations (no real proving).
+    """
 
     asm_schnorr_signing_key: str
     moho_schnorr_signing_key: str
     kind: str = "native"
+
+
+@dataclass
+class Sp1Backend:
+    """SP1 proof backend configuration.
+
+    Produces real SP1 Groth16 ASM-STF / Moho proofs from the given guest ELFs. Requires
+    the asm-runner to be built with the `sp1` cargo feature. Mirrors the Rust
+    `BackendConfig::Sp1` variant (serde tag `kind = "sp1"`).
+    """
+
+    asm_elf_path: str
+    moho_elf_path: str
+    kind: str = "sp1"
 
 
 @dataclass
@@ -67,7 +84,7 @@ class OrchestratorConfig:
     tick_interval: Duration
     max_concurrent_proofs: int
     proof_db_path: str
-    backend: NativeBackend
+    backend: NativeBackend | Sp1Backend
 
 
 @dataclass

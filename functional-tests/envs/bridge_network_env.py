@@ -23,9 +23,10 @@ class BridgeNetworkEnv(BaseEnv):
         btc_config: BitcoinEnvConfig | None = None,
         asm_config: AsmEnvConfig | None = None,
         enable_asm_proof: bool = True,
+        num_operators: int = BRIDGE_NETWORK_SIZE,
     ):
         super().__init__(
-            BRIDGE_NETWORK_SIZE,
+            num_operators,
             bridge_protocol_params,
             bridge_config_params,
             btc_config,

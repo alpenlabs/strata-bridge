@@ -46,7 +46,7 @@ class AsmRpcFactory(flexitest.Factory):
 
         Args:
             bitcoind_props: Properties from the Bitcoin service (includes zmq ports, rpc details)
-            params_file_path: Path to the params.json file for rollup parameters
+            params_file_path: Path to the params.json file for ASM parameters
             ctx: Environment context from flexitest
             orchestrator_config: Optional proof orchestrator config. When set, the asm-runner
                 also opens its `MohoStateDb` and `ExportEntriesDb`, which are required for
@@ -120,9 +120,9 @@ def resolve_asm_runner_bin() -> str:
     return "strata-asm-runner"
 
 
-def zmq_connection_string(port: int) -> str:
+def zmq_connection_string(port: int, host: str = "127.0.0.1") -> str:
     """Generate ZMQ connection string for a given port."""
-    return f"tcp://127.0.0.1:{port}"
+    return f"tcp://{host}:{port}"
 
 
 def generate_asm_rpc_config(
@@ -142,6 +142,12 @@ def generate_asm_rpc_config(
         orchestrator_config: Optional proof orchestrator config; emitted as the
             `[orchestrator]` table when provided.
     """
+    # Read connection details from props; defaults preserve the spawn-path behavior.
+    rpc_host = bitcoind_props.get("rpc_host", "127.0.0.1")
+    rpc_user = bitcoind_props.get("rpc_user", "user")
+    rpc_password = bitcoind_props.get("rpc_password", "password")
+    zmq_host = bitcoind_props.get("zmq_host", "127.0.0.1")
+
     config = AsmRpcConfig(
         rpc=RpcConfig(
             host="127.0.0.1",
@@ -154,10 +160,12 @@ def generate_asm_rpc_config(
             delay=Duration(secs=0, nanos=150_000_000),
         ),
         bitcoin=BitcoinConfig(
-            rpc_url=f"http://127.0.0.1:{bitcoind_props['rpc_port']}",
-            rpc_user="user",
-            rpc_password="password",
-            rawblock_connection_string=zmq_connection_string(bitcoind_props["zmq_rawblock"]),
+            rpc_url=f"http://{rpc_host}:{bitcoind_props['rpc_port']}",
+            rpc_user=rpc_user,
+            rpc_password=rpc_password,
+            rawblock_connection_string=zmq_connection_string(
+                bitcoind_props["zmq_rawblock"], zmq_host
+            ),
             retry_count=3,
             retry_interval=Duration(secs=1, nanos=0),
         ),

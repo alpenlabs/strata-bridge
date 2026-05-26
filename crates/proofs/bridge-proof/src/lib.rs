@@ -1,12 +1,6 @@
 //! Bridge proof program: SSZ I/O types, [`zkaleido::ZkVmProgram`] impl, and
 //! native/SP1 host construction.
 
-// `zkaleido_native_adapter` is used by `host.rs` (default backend) and by tests; reference it
-// under `feature = "sp1"` and under the zkvm guest target so the workspace's
-// `unused_crate_dependencies` lint is satisfied in those configurations.
-#[cfg(any(feature = "sp1", target_os = "zkvm"))]
-use zkaleido_native_adapter as _;
-
 pub mod statements;
 pub mod types;
 
@@ -23,7 +17,10 @@ cfg_if::cfg_if! {
         pub mod program;
 
         pub use genesis::{ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV, load_genesis_from_env, load_genesis_from_paths};
-        pub use host::{BridgeProofHost, build_bridge_proof_host};
+        pub use host::{BridgeProofHost, ProofBackend, ProofBackendConfig};
         pub use program::BridgeProofProgram;
+
+        #[cfg(feature = "sp1")]
+        pub use host::{sp1_groth16_predicate_key, sp1_groth16_predicate_string};
     }
 }

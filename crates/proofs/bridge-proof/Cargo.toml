@@ -7,9 +7,12 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+borsh = { workspace = true, optional = true }
 cfg-if.workspace = true
 moho-recursive-proof.workspace = true
 moho-types.workspace = true
+sp1-sdk = { workspace = true, optional = true }
+sp1-verifier = { workspace = true, optional = true }
 ssz.workspace = true
 ssz_derive.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
@@ -18,18 +21,30 @@ strata-codec.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 strata-predicate.workspace = true
 zkaleido = { workspace = true, features = ["ssz"] }
-zkaleido-native-adapter.workspace = true
+zkaleido-sp1-groth16-verifier = { workspace = true, optional = true, features = [
+  "borsh",
+] }
 zkaleido-sp1-host = { workspace = true, optional = true }
 
-# Used only by the host-only `genesis` module; excluded from zkvm guest builds so they don't
-# need to resolve or trip `unused_crate_dependencies`.
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
+anyhow.workspace = true
+hex.workspace = true
+k256.workspace = true
 moho-runtime-interface.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proof-impl.workspace = true
 strata-asm-spec.workspace = true
+tracing.workspace = true
+zkaleido-native-adapter.workspace = true
 
 [features]
 default = []
-sp1 = ["dep:zkaleido-sp1-host"]
+sp1 = [
+  "dep:zkaleido-sp1-host",
+  "dep:borsh",
+  "dep:sp1-sdk",
+  "dep:sp1-verifier",
+  "dep:zkaleido-sp1-groth16-verifier",
+]

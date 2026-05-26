@@ -148,6 +148,7 @@ class DevCli:
         num_ol_slots: int,
         num_withdrawals=1,
         assignee_node_idx: int = 0,
+        genesis_l1_height: int = 101,
     ) -> str:
         """Query the current checkpoint tip and send a mock checkpoint advancing by num_ol_slots.
 
@@ -159,6 +160,7 @@ class DevCli:
             checkpoint_tip=tip,
             num_ol_slots=num_ol_slots,
             num_withdrawals=num_withdrawals,
+            genesis_l1_height=genesis_l1_height,
             assignee_node_idx=assignee_node_idx,
         )
 

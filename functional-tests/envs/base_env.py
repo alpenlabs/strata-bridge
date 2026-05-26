@@ -1,26 +1,27 @@
+import os
 from pathlib import Path
 
 import flexitest
 
 from constants import (
+    ASM_PARAMS_DIR,
     NATIVE_TEST_ASM_SIGNING_KEY,
-    NATIVE_TEST_ASM_VERIFYING_KEY,
     NATIVE_TEST_MOHO_SIGNING_KEY,
-    NATIVE_TEST_MOHO_VERIFYING_KEY,
 )
 from factory.asm_rpc.config_cfg import (
     Duration,
     NativeBackend,
     OrchestratorConfig,
+    Sp1Backend,
 )
-from factory.bridge_operator.asm_cfg import build_asm_params
+from factory.bridge_operator.asm_cfg import copy_asm_params, write_asm_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
-from factory.common.asm_params import write_asm_params_json
+from factory.common.asm_params import AsmParams
 from factory.fdb import generate_fdb_root_directory
+from utils.bitcoin import generate_blocks, prepare_wallet_and_chain
 from utils.mosaic import get_peer_ids
 from utils.utils import (
-    generate_blocks,
     generate_p2p_ports,
     read_operator_key,
     wait_until_bitcoind_ready,
@@ -50,10 +51,9 @@ class BaseEnv(flexitest.EnvConfig):
         self.finalization_blocks = self.btc_config.finalization_blocks
         self._asm_config = asm_config
         self._asm_rpc_service = None
-        self._bridge_genesis_height = None
-        self._rollup_params_path = None
-        self._asm_vk_path = None
-        self._moho_vk_path = None
+        self._prebuilt_params_dir = os.environ.get("BRIDGE_PROOF_ASM_PARAMS_DIR")
+        self._asm_params_path: str | None = None
+        self._asm_params: AsmParams | None = None
         self._bridge_protocol_params = bridge_protocol_params
         self._bridge_config_params = bridge_config_params
         self._enable_asm_proof = enable_asm_proof
@@ -72,24 +72,40 @@ class BaseEnv(flexitest.EnvConfig):
         self.mosaic_peer_ids = get_peer_ids(num_operators)
 
     def setup_bitcoin(self, ectx: flexitest.EnvContext):
-        """Setup Bitcoin node with wallet and initial funding."""
+        """Setup Bitcoin node with wallet and initial funding.
+
+        Connects to an already-running external bitcoind when `btc_config.external` is
+        set, otherwise spawns a fresh internal regtest node.
+        """
         btc_fac = ectx.get_factory("bitcoin")
-        bitcoind = btc_fac.create_regtest_bitcoin()
+        if self.btc_config.external:
+            bitcoind = btc_fac.connect_external_bitcoin()
+        else:
+            bitcoind = btc_fac.create_regtest_bitcoin()
         brpc = bitcoind.create_rpc()
         wait_until_bitcoind_ready(brpc, timeout=10)
 
-        # Create new wallet
-        brpc.proxy.createwallet(bitcoind.get_prop("walletname"))
-        wallet_addr = brpc.proxy.getnewaddress()
+        walletname = bitcoind.get_prop("walletname")
+        if self.btc_config.external:
+            # External node may already have the wallet + blocks; reuse and top up.
+            wallet_addr = prepare_wallet_and_chain(brpc, walletname, self.initial_blocks)
+        else:
+            # Create new wallet
+            brpc.proxy.createwallet(walletname)
+            wallet_addr = brpc.proxy.getnewaddress()
 
-        # Mine initial blocks to have usable funds
-        brpc.proxy.generatetoaddress(self.initial_blocks, wallet_addr)
+            # Mine initial blocks to have usable funds
+            brpc.proxy.generatetoaddress(self.initial_blocks, wallet_addr)
 
         # Start automatic block generation
         miner = None
         if self.btc_config.auto_mine:
             miner = generate_blocks(
-                brpc, self.btc_config.block_generation_interval_secs, wallet_addr
+                brpc,
+                self.btc_config.block_generation_interval_secs,
+                wallet_addr,
+                mine_on_demand=self.btc_config.mine_on_demand,
+                trailing_blocks=self.btc_config.mine_on_demand_trailing_blocks,
             )
 
         return bitcoind, brpc, wallet_addr, miner
@@ -123,43 +139,58 @@ class BaseEnv(flexitest.EnvConfig):
 
         envdd_path = Path(ectx.envdd_path)
         proof_db_path = str((envdd_path / "asm_rpc" / "proof_db").resolve())
+
+        # When ASM/Moho guest ELF paths are provided via env, use the real proving
+        # backend; otherwise sign native Schnorr attestations.
+        asm_elf = os.environ.get("BRIDGE_PROOF_ASM_ELF_PATH")
+        moho_elf = os.environ.get("BRIDGE_PROOF_MOHO_ELF_PATH")
+        backend: NativeBackend | Sp1Backend
+        if asm_elf and moho_elf:
+            backend = Sp1Backend(asm_elf_path=asm_elf, moho_elf_path=moho_elf)
+        else:
+            backend = NativeBackend(
+                asm_schnorr_signing_key=NATIVE_TEST_ASM_SIGNING_KEY,
+                moho_schnorr_signing_key=NATIVE_TEST_MOHO_SIGNING_KEY,
+            )
+
         return OrchestratorConfig(
             tick_interval=Duration(secs=1, nanos=0),
             max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
-            backend=NativeBackend(
-                asm_schnorr_signing_key=NATIVE_TEST_ASM_SIGNING_KEY,
-                moho_schnorr_signing_key=NATIVE_TEST_MOHO_SIGNING_KEY,
-            ),
+            backend=backend,
         )
 
-    def _ensure_rollup_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
-        """Build bridge/ASM params once per environment."""
-        # All attrs are written together below; one sentinel is enough.
-        if self._rollup_params_path is not None:
+    @property
+    def _is_pre_funded(self) -> bool:
+        """True when run_test.sh pre-funded operators before snapshotting ASM
+        genesis. Requires `btc_config.external` since the env var is exported
+        script-wide and internal-regtest envs in the same session must not
+        inherit the skip."""
+        return bool(self._prebuilt_params_dir) and self.btc_config.external
+
+    def ensure_asm_params(self, ectx: flexitest.EnvContext, bitcoind_rpc) -> None:
+        """Build ASM params once per environment."""
+        if self._asm_params is not None:
             return
 
-        genesis_height = int(self.initial_blocks)
-        self._bridge_genesis_height = genesis_height
+        generated_dir = Path(ectx.envdd_path) / ASM_PARAMS_DIR
 
-        asm_params = build_asm_params(
-            bitcoind_rpc, self.operator_key_infos, genesis_height, self._asm_config
-        )
-        envdd_path = Path(ectx.envdd_path)
-        generated_dir = envdd_path / "generated"
-        generated_dir.mkdir(parents=True, exist_ok=True)
-        asm_params_path = generated_dir / "asm-params.json"
-        self._rollup_params_path = write_asm_params_json(asm_params_path, asm_params)
-
-        # The asm-runner's native asm/moho hosts sign with NATIVE_TEST_{ASM,MOHO}_SIGNING_KEY;
-        # the bridge proof's genesis must carry the matching BIP-340 x-only pubkeys.
-        asm_vk_path = generated_dir / "asm-vk.json"
-        asm_vk_path.write_text(f'"Bip340Schnorr:{NATIVE_TEST_ASM_VERIFYING_KEY}"\n')
-        self._asm_vk_path = asm_vk_path.as_posix()
-
-        moho_vk_path = generated_dir / "moho-vk.json"
-        moho_vk_path.write_text(f'"Bip340Schnorr:{NATIVE_TEST_MOHO_VERIFYING_KEY}"\n')
-        self._moho_vk_path = moho_vk_path.as_posix()
+        # When run_test.sh pre-generated params (and baked them into the guest ELF),
+        # reuse those exact files so the asm-runner anchors to the same genesis the ELF
+        # was built against; otherwise derive fresh params from the live L1. The VK files
+        # are written into generated_dir either way and read by the operator factory.
+        if self._prebuilt_params_dir:
+            params_file_path, _, _ = copy_asm_params(self._prebuilt_params_dir, generated_dir)
+        else:
+            params_file_path, _, _ = write_asm_params(
+                bitcoind_rpc,
+                self.operator_key_infos,
+                int(self.initial_blocks),
+                self._asm_config,
+                generated_dir,
+            )
+        self._asm_params_path = params_file_path
+        self._asm_params = AsmParams.load(params_file_path)
 
     def create_operator(
         self,
@@ -178,10 +209,7 @@ class BaseEnv(flexitest.EnvConfig):
         operator_key = self.operator_key_infos[operator_idx]
 
         # Build bridge/ASM params once using live bitcoind data.
-        self._ensure_rollup_params(ectx, bitcoind_rpc)
-
-        if self._bridge_genesis_height is None:
-            raise RuntimeError("Bridge genesis height must be initialized before operators")
+        self.ensure_asm_params(ectx, bitcoind_rpc)
 
         if self.fdb_root_directory_prefix is None:
             raise RuntimeError("FDB root directory prefix must be initialized before operators")
@@ -196,11 +224,10 @@ class BaseEnv(flexitest.EnvConfig):
 
         if self._asm_rpc_service is None:
             asm_fac = ectx.get_factory("asm_rpc")
-            params_file_path = self._rollup_params_path
             orchestrator_config = self._build_orchestrator_config(ectx)
             self._asm_rpc_service = asm_fac.create_asm_rpc_service(
                 bitcoind_props,
-                params_file_path,
+                self.asm_params_path,
                 orchestrator_config=orchestrator_config,
             )
         asm_props = self._asm_rpc_service.props
@@ -215,7 +242,7 @@ class BaseEnv(flexitest.EnvConfig):
             asm_props,
             self.operator_key_infos,
             self.p2p_ports,
-            genesis_height=self._bridge_genesis_height,
+            genesis_height=self.asm_params.anchor.block.height,
             bridge_protocol_params=self._bridge_protocol_params,
             bridge_config_params=self._bridge_config_params,
             mosaic_rpc=mosaic_rpc,
@@ -228,9 +255,26 @@ class BaseEnv(flexitest.EnvConfig):
         """Fund an operator's wallet.
         Only the general wallet needs to be funded.
         The node will take care of funding the reserved wallet from the general wallet.
+        Skipped under pre-funded mode.
         """
+        if self._is_pre_funded:
+            return
         general_wallet_address = bridge_operator_props["general_wallet_address"]
         brpc.proxy.sendtoaddress(general_wallet_address, self.funding_amount)
 
         # Generate blocks for finalization
         brpc.proxy.generatetoaddress(self.finalization_blocks, wallet_addr)
+
+    @property
+    def asm_params(self) -> AsmParams:
+        """Parsed ASM params, available after `ensure_asm_params` has run."""
+        if self._asm_params is None:
+            raise RuntimeError("asm params not initialized; call ensure_asm_params first")
+        return self._asm_params
+
+    @property
+    def asm_params_path(self) -> str:
+        """On-disk path of `asm-params.json`"""
+        if self._asm_params_path is None:
+            raise RuntimeError("asm params not initialized; call ensure_asm_params first")
+        return self._asm_params_path

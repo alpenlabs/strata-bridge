@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
 use strata_bridge_db::fdb::cfg::Config as FdbConfig;
 use strata_bridge_p2p_service::GossipsubScoringPreset;
+pub(crate) use strata_bridge_proof::ProofBackendConfig;
 
 /// Configuration values that dictate the behavior of the bridge node.
 ///
@@ -16,7 +17,7 @@ use strata_bridge_p2p_service::GossipsubScoringPreset;
 /// what values are set by individual bridge node operators will not necessarily cause the bridge to
 /// halt. It is still preferable to have some of these values be the same for optimum functioning of
 /// the bridge.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Config {
     /// Number of threads to use for the runtime.
     pub num_threads: Option<u8>,
@@ -74,6 +75,9 @@ pub(crate) struct Config {
 
     /// Configuration for the mosaic client.
     pub mosaic: MosaicConfig,
+
+    /// Backend that produces bridge proofs.
+    pub bridge_proof: ProofBackendConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -334,6 +338,10 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000001",
                 "0000000000000000000000000000000000000000000000000000000000000002",
             ]
+
+            [bridge_proof]
+            kind = "native"
+            schnorr_signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
         "#;
 
         let config = toml::from_str::<Config>(config);
@@ -345,10 +353,11 @@ mod tests {
 
         let config = config.unwrap();
         let serialized = toml::to_string(&config).unwrap();
-        let deserialized = toml::from_str::<Config>(&serialized).unwrap();
+        let reparsed = toml::from_str::<Config>(&serialized).unwrap();
+        let reserialized = toml::to_string(&reparsed).unwrap();
         assert_eq!(
-            deserialized, config,
-            "must be able to serialize and deserialize config to toml"
+            reserialized, serialized,
+            "serde round-trip must preserve every field"
         );
     }
 }

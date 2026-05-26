@@ -21,7 +21,7 @@ use strata_bridge_orchestrator::{
 };
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
-use strata_bridge_proof::build_bridge_proof_host;
+use strata_bridge_proof::ProofBackend;
 use strata_bridge_sm::{
     self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg, stake::config::StakeSMCfg,
 };
@@ -114,6 +114,7 @@ where
 
     let exec_cfg = build_exec_config(params, config, &sm_config);
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
+    let ProofBackend { bridge_proof_host } = ProofBackend::new(&config.bridge_proof).await?;
     let output_handles = OutputHandles {
         wallet,
         msg_handler: RwLock::new(message_handler),
@@ -124,7 +125,7 @@ where
         tx_driver,
         mosaic_client,
         operator_table: operator_table.clone(),
-        bridge_proof_host: build_bridge_proof_host(),
+        bridge_proof_host,
         counterproof_host: build_bridge_counterproof_host(),
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());

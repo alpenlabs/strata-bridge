@@ -29,10 +29,9 @@ class AsmEnv(BaseEnv):
         ectx.make_service_dir(bridge_operator_name)
 
         # Create asm
-        self._ensure_rollup_params(ectx, brpc)
+        self.ensure_asm_params(ectx, brpc)
         asm_fac = ectx.get_factory("asm_rpc")
-        params_file_path = self._rollup_params_path
-        asm_service = asm_fac.create_asm_rpc_service(bitcoind.props, params_file_path)
+        asm_service = asm_fac.create_asm_rpc_service(bitcoind.props, self.asm_params_path)
 
         # register services
         svcs["asm_rpc"] = asm_service

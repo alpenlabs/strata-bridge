@@ -29,6 +29,7 @@ members = [
   "bin/strata-bridge",
   "bin/dev-cli",
   "bin/secret-service",
+  "bin/proof-datatool",
 
   # test utilities
   "crates/test-utils",
@@ -75,7 +76,7 @@ strata-bridge-orchestrator = { path = "crates/orchestrator" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
 strata-bridge-p2p-types = { path = "crates/p2p-types" }
 strata-bridge-primitives = { path = "crates/primitives" }
-strata-bridge-proof = { path = "crates/proofs/bridge-proof" }
+strata-bridge-proof = { path = "crates/proofs/bridge-proof", default-features = false }
 strata-bridge-proof-common = { path = "crates/proofs/common" }
 strata-bridge-rpc = { path = "crates/rpc" }
 strata-bridge-sm = { path = "crates/bridge-sm" }

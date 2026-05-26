@@ -8066,6 +8066,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "proof-datatool"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "strata-bridge-proof",
+]
+
+[[package]]
 name = "proptest"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11415,11 +11424,18 @@ dependencies = [
 name = "strata-bridge-proof"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "borsh",
  "cfg-if 1.0.4",
+ "hex",
+ "k256",
  "moho-recursive-proof",
  "moho-runtime-interface",
  "moho-types",
+ "serde",
  "serde_json",
+ "sp1-sdk",
+ "sp1-verifier",
  "ssz",
  "ssz_derive",
  "strata-asm-params",
@@ -11430,8 +11446,10 @@ dependencies = [
  "strata-codec",
  "strata-merkle",
  "strata-predicate",
+ "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
  "zkaleido-native-adapter",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
  "zkaleido-sp1-host",
 ]
 
@@ -11792,7 +11810,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
- "zkaleido-sp1-groth16-verifier",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
 ]
 
 [[package]]
@@ -13875,6 +13893,21 @@ dependencies = [
  "substrate-bn",
  "thiserror 1.0.69",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.1)",
+]
+
+[[package]]
+name = "zkaleido-sp1-groth16-verifier"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2#c2683cf676490decc045d9a91d6c8b5740138f1c"
+dependencies = [
+ "blake3",
+ "borsh",
+ "hex",
+ "serde",
+ "sha2 0.10.9",
+ "substrate-bn",
+ "thiserror 1.0.69",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
 ]
 
 [[package]]

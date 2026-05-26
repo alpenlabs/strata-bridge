@@ -100,6 +100,14 @@ class BridgeConfigParams:
     cooperative_payout_timeout: int = 144
     max_fee_rate: int = 10
     nag_interval_secs: int = 10
+    retry_interval_secs: int = 10
+
+
+@dataclass
+class BridgeProofConfig:
+    kind: str
+    schnorr_signing_key: str | None = None
+    elf_path: str | None = None
 
 
 @dataclass
@@ -121,3 +129,4 @@ class BridgeOperatorConfig:
     btc_zmq: BtcZmqConfig
     operator_wallet: OperatorWalletConfig
     mosaic: MosaicConfig
+    bridge_proof: BridgeProofConfig

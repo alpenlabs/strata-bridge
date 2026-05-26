@@ -1,14 +1,17 @@
-from dataclasses import asdict
+import os
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import toml
 
+from constants import NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY, NATIVE_TEST_BRIDGE_PROOF_VERIFYING_KEY
 from utils.utils import OperatorKeyInfo
 
 from .config_cfg import (
     AsmRpcConfig,
     BridgeConfigParams,
     BridgeOperatorConfig,
+    BridgeProofConfig,
     BtcClientConfig,
     BtcZmqConfig,
     DbConfig,
@@ -25,8 +28,8 @@ from .params_cfg import BridgeOperatorParams, BridgeProtocolParams, CovenantKeys
 DEFAULT_INITIAL_HEARBEAT_DELAY_SECS = 10
 
 
-def zmq_connection_string(port: int) -> str:
-    return f"tcp://127.0.0.1:{port}"
+def zmq_connection_string(port: int, host: str = "127.0.0.1") -> str:
+    return f"tcp://{host}:{port}"
 
 
 def generate_config_toml(
@@ -47,11 +50,17 @@ def generate_config_toml(
     mtls_dir = Path(tls_dir)
     total_peers = len(other_p2p_addrs) + 1  # +1 for self
 
+    # Read connection details from props; defaults preserve the spawn-path behavior.
+    rpc_host = bitcoind_props.get("rpc_host", "127.0.0.1")
+    rpc_user = bitcoind_props.get("rpc_user", "user")
+    rpc_pass = bitcoind_props.get("rpc_password", "password")
+    zmq_host = bitcoind_props.get("zmq_host", "127.0.0.1")
+
     config = BridgeOperatorConfig(
         num_threads=None,
         thread_stack_size=None,
         nag_interval=Duration(secs=bridge_config_params.nag_interval_secs, nanos=0),
-        retry_interval=Duration(secs=1, nanos=0),
+        retry_interval=Duration(secs=bridge_config_params.retry_interval_secs, nanos=0),
         min_withdrawal_fulfillment_window=bridge_config_params.min_withdrawal_fulfillment_window,
         shutdown_timeout=Duration(secs=30, nanos=0),
         cooperative_payout_timeout=bridge_config_params.cooperative_payout_timeout,
@@ -65,9 +74,9 @@ def generate_config_toml(
             service_ca=str(mtls_dir / "s2.ca.pem"),
         ),
         btc_client=BtcClientConfig(
-            url=f"http://127.0.0.1:{bitcoind_props.get('rpc_port')}",
-            user="user",
-            pass_="password",
+            url=f"http://{rpc_host}:{bitcoind_props.get('rpc_port')}",
+            user=rpc_user,
+            pass_=rpc_pass,
             retry_count=3,
             retry_interval=1000,
         ),
@@ -109,11 +118,17 @@ def generate_config_toml(
             retry_multiplier=2,
         ),
         btc_zmq=BtcZmqConfig(
-            hashblock_connection_string=zmq_connection_string(bitcoind_props["zmq_hashblock"]),
-            hashtx_connection_string=zmq_connection_string(bitcoind_props["zmq_hashtx"]),
-            rawblock_connection_string=zmq_connection_string(bitcoind_props["zmq_rawblock"]),
-            rawtx_connection_string=zmq_connection_string(bitcoind_props["zmq_rawtx"]),
-            sequence_connection_string=zmq_connection_string(bitcoind_props["zmq_sequence"]),
+            hashblock_connection_string=zmq_connection_string(
+                bitcoind_props["zmq_hashblock"], zmq_host
+            ),
+            hashtx_connection_string=zmq_connection_string(bitcoind_props["zmq_hashtx"], zmq_host),
+            rawblock_connection_string=zmq_connection_string(
+                bitcoind_props["zmq_rawblock"], zmq_host
+            ),
+            rawtx_connection_string=zmq_connection_string(bitcoind_props["zmq_rawtx"], zmq_host),
+            sequence_connection_string=zmq_connection_string(
+                bitcoind_props["zmq_sequence"], zmq_host
+            ),
         ),
         operator_wallet=OperatorWalletConfig(claim_funding_pool_size=32),
         mosaic=MosaicConfig(
@@ -123,13 +138,33 @@ def generate_config_toml(
             max_retries=1000,
             poll_interval=Duration(secs=2, nanos=0),
         ),
+        bridge_proof=_build_bridge_proof_config(),
     )
 
     with open(output_path, "w") as f:
-        config_dict = asdict(config)
+        config_dict = _strip_nones(asdict(config))
         # Fix the 'pass_' field name back to 'pass' for TOML
         config_dict["btc_client"]["pass"] = config_dict["btc_client"].pop("pass_")
         toml.dump(config_dict, f)
+
+
+def _build_bridge_proof_config() -> BridgeProofConfig:
+    sp1_elf = os.environ.get("BRIDGE_PROOF_SP1_ELF")
+    if sp1_elf:
+        return BridgeProofConfig(kind="sp1", elf_path=sp1_elf)
+    return BridgeProofConfig(
+        kind="native",
+        schnorr_signing_key=NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY,
+    )
+
+
+def resolve_bridge_proof_predicate() -> str:
+    """Predicate string matching the active bridge-proof backend."""
+    sp1_elf = os.environ.get("BRIDGE_PROOF_SP1_ELF")
+    if sp1_elf:
+        predicate_path = Path(sp1_elf).with_suffix(".predicate")
+        return predicate_path.read_text().strip()
+    return f"Bip340Schnorr:{NATIVE_TEST_BRIDGE_PROOF_VERIFYING_KEY}"
 
 
 def generate_params_toml(
@@ -156,12 +191,25 @@ def generate_params_toml(
         for key in operator_key_infos
     ]
 
+    # Resolve the predicate from the active backend unless the test pinned one explicitly.
+    protocol = bridge_protocol_params
+    if protocol.bridge_proof_predicate is None:
+        protocol = replace(protocol, bridge_proof_predicate=resolve_bridge_proof_predicate())
+
     params = BridgeOperatorParams(
         network="regtest",
         genesis_height=genesis_height,
         keys=Keys(admin=operator_key_infos[0].MUSIG2_KEY, covenant=covenant),
-        protocol=bridge_protocol_params,
+        protocol=protocol,
     )
 
     with open(output_path, "w") as f:
         toml.dump(asdict(params), f)
+
+
+def _strip_nones(value):
+    if isinstance(value, dict):
+        return {k: _strip_nones(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_strip_nones(x) for x in value]
+    return value

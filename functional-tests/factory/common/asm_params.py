@@ -77,16 +77,62 @@ class BridgeSubprotocol:
 
 @dataclass
 class AsmParams:
+    """Typed mirror of ``asm-params.json``. Round-trips via ``to_dict`` /
+    ``from_dict``; the on-disk JSON keeps its Rust-enum-style ``subprotocols`` list
+    so the asm-runner deserializer is unchanged."""
+
     magic: str
     anchor: L1Anchor
-    subprotocols: list[dict[str, Any]]
+    admin: AdminSubprotocol
+    checkpoint: CheckpointSubprotocol
+    bridge: BridgeSubprotocol
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "magic": self.magic,
             "anchor": asdict(self.anchor),
-            "subprotocols": self.subprotocols,
+            "subprotocols": [
+                {"Admin": asdict(self.admin)},
+                {"Checkpoint": asdict(self.checkpoint)},
+                {"Bridge": asdict(self.bridge)},
+            ],
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AsmParams:
+        anchor_d = data["anchor"]
+        anchor = L1Anchor(
+            block=Block(**anchor_d["block"]),
+            next_target=anchor_d["next_target"],
+            epoch_start_timestamp=anchor_d["epoch_start_timestamp"],
+            network=anchor_d["network"],
+        )
+
+        # ``subprotocols`` is a list of single-key dicts (Rust enum discriminant
+        # encoding); flatten to {"Admin": {...}, "Checkpoint": {...}, "Bridge": {...}}.
+        subs = {tag: body for entry in data["subprotocols"] for tag, body in entry.items()}
+
+        admin_d = subs["Admin"]
+        admin = AdminSubprotocol(
+            strata_administrator=ThresholdConfig(**admin_d["strata_administrator"]),
+            strata_sequencer_manager=ThresholdConfig(**admin_d["strata_sequencer_manager"]),
+            alpen_administrator=ThresholdConfig(**admin_d["alpen_administrator"]),
+            confirmation_depths=ConfirmationDepths(**admin_d["confirmation_depths"]),
+            max_seqno_gap=admin_d["max_seqno_gap"],
+        )
+        checkpoint = CheckpointSubprotocol(**subs["Checkpoint"])
+        bridge = BridgeSubprotocol(**subs["Bridge"])
+        return cls(
+            magic=data["magic"],
+            anchor=anchor,
+            admin=admin,
+            checkpoint=checkpoint,
+            bridge=bridge,
+        )
+
+    @classmethod
+    def load(cls, path: str | Path) -> AsmParams:
+        return cls.from_dict(json.loads(Path(path).read_text()))
 
 
 def parse_bits_to_target(bits: int | str) -> int:
@@ -122,63 +168,6 @@ def build_l1_anchor(
     )
 
 
-def build_subprotocols(
-    musig2_keys: list[str],
-    genesis_height: int,
-    denomination: int = 1_000_000_000,
-    assignment_duration: int = 100_000,
-    operator_fee: int = 100_000_000,
-    recovery_delay: int = 1_008,
-) -> list[dict[str, Any]]:
-    compressed_keys = [f"02{key}" for key in musig2_keys]
-
-    admin = {
-        "Admin": asdict(
-            AdminSubprotocol(
-                strata_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
-                strata_sequencer_manager=ThresholdConfig(keys=compressed_keys, threshold=1),
-                alpen_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
-                confirmation_depths=ConfirmationDepths(
-                    strata_admin_multisig_update=144,
-                    strata_seq_manager_multisig_update=144,
-                    alpen_admin_multisig_update=144,
-                    operator_update=144,
-                    sequencer_update=144,
-                    ol_stf_vk_update=144,
-                    asm_stf_vk_update=144,
-                    ee_stf_vk_update=144,
-                ),
-                max_seqno_gap=10,
-            )
-        )
-    }
-
-    checkpoint = {
-        "Checkpoint": asdict(
-            CheckpointSubprotocol(
-                sequencer_predicate="AlwaysAccept",
-                checkpoint_predicate="AlwaysAccept",
-                genesis_l1_height=genesis_height,
-                genesis_ol_blkid="0" * 64,
-            )
-        )
-    }
-
-    bridge = {
-        "Bridge": asdict(
-            BridgeSubprotocol(
-                operators=compressed_keys,
-                denomination=denomination,
-                assignment_duration=assignment_duration,
-                operator_fee=operator_fee,
-                recovery_delay=recovery_delay,
-            )
-        )
-    }
-
-    return [admin, checkpoint, bridge]
-
-
 def build_asm_params(
     musig2_keys: list[str],
     genesis_height: int,
@@ -189,10 +178,31 @@ def build_asm_params(
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
 ) -> AsmParams:
-    anchor = build_l1_anchor(genesis_height, get_block_header)
-    subprotocols = build_subprotocols(
-        musig2_keys,
-        genesis_height,
+    compressed_keys = [f"02{key}" for key in musig2_keys]
+    admin = AdminSubprotocol(
+        strata_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
+        strata_sequencer_manager=ThresholdConfig(keys=compressed_keys, threshold=1),
+        alpen_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
+        confirmation_depths=ConfirmationDepths(
+            strata_admin_multisig_update=144,
+            strata_seq_manager_multisig_update=144,
+            alpen_admin_multisig_update=144,
+            operator_update=144,
+            sequencer_update=144,
+            ol_stf_vk_update=144,
+            asm_stf_vk_update=144,
+            ee_stf_vk_update=144,
+        ),
+        max_seqno_gap=10,
+    )
+    checkpoint = CheckpointSubprotocol(
+        sequencer_predicate="AlwaysAccept",
+        checkpoint_predicate="AlwaysAccept",
+        genesis_l1_height=genesis_height,
+        genesis_ol_blkid="0" * 64,
+    )
+    bridge = BridgeSubprotocol(
+        operators=compressed_keys,
         denomination=denomination,
         assignment_duration=assignment_duration,
         operator_fee=operator_fee,
@@ -200,8 +210,10 @@ def build_asm_params(
     )
     return AsmParams(
         magic=magic,
-        anchor=anchor,
-        subprotocols=subprotocols,
+        anchor=build_l1_anchor(genesis_height, get_block_header),
+        admin=admin,
+        checkpoint=checkpoint,
+        bridge=bridge,
     )
 
 

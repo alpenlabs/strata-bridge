@@ -39,14 +39,14 @@ verify the program **compiles** without provisioning real inputs.
 > **Warning.** `SKIP_PARAMS` builds embeds a stale Moho VK — **not deployable**.
 
 ```bash
-SKIP_PARAMS=1 cargo build -p strata-bridge-sp1-guest-builder --release
+SKIP_PARAMS=1 cargo build -p strata-bridge-sp1-guest-builder --release --features build-elf
 ```
 
 ## Build flow
 
-The build script is **active only in `--release`** (gated on `cfg(not(debug_assertions))`).
-`dev`-profile builds are a no-op — `cargo build`, `cargo check`, and `cargo clippy` on
-the host workspace run without invoking the SP1 toolchain or requiring the input JSONs.
+The guest ELF is built only when you pass **`--release --features build-elf`**.
+Everything else (`cargo build`, `cargo check`, `cargo clippy`, plain `--release`)
+is a no-op for this crate and does not pull in the SP1 toolchain.
 
 In release the script:
 
@@ -54,10 +54,10 @@ In release the script:
    `BridgeProofGenesis` on the host and SSZ-encodes it to
    `guest-bridge-proof/build/genesis.bin`. The guest embeds this via
    `include_bytes!` and decodes it with `BridgeProofGenesis::from_ssz_bytes`.
-2. Calls `sp1_build::build_program_with_args` to compile the SP1 guest ELF.
-3. Copies the freshly compiled ELF from sp1-build's output directory to a stable
-   cache path `guest-bridge-proof/build/guest-sp1-bridge-proof.elf`, which is
-   what [`bridge_proof_elf_path()`](src/lib.rs) returns.
+2. Calls `sp1_build::build_program_with_args` with `output_directory` and
+   `elf_name` set so the compiled ELF lands directly at
+   `<crate>/elfs/bridge-proof.elf`, which is what
+   [`BRIDGE_PROOF_ELF_PATH`](src/lib.rs) points at.
 
 All `serde_json` parsing and `secp256k1` work runs here on the host. The guest's
 only obligation is SSZ decoding.
@@ -65,23 +65,30 @@ only obligation is SSZ decoding.
 ### Skipping in release
 
 `SP1_SKIP_PROGRAM_BUILD=true` and `cargo clippy --release` are detected and short-circuit
-the entire pipeline — no genesis derivation, no ELF compile, no ELF migration. Any
-cached ELF from a prior real build is left in place.
+the entire pipeline — no genesis derivation, no ELF compile. Any cached ELF from
+a prior real build is left in `elfs/`.
 
 ## Features
 
+- `build-elf` — opt-in: actually compile the SP1 guest ELF in release builds.
+  Required to bring in the SP1 host stack (`sp1-build`, `ssz`,
+  `strata-bridge-proof/sp1`) as build-dependencies. Without it, `build.rs` is a
+  no-op even in `--release` and plain workspace builds (`cargo build
+  --workspace`) do not pull the SP1 toolchain.
 - `docker-build` — compile the guest inside Docker (via `BuildArgs { docker: true, .. }`)
-  instead of the local SP1 toolchain. Useful for reproducible builds.
+  instead of the local SP1 toolchain. Useful for reproducible builds. Implies
+  `build-elf`.
 
 ## Consumer API
 
 ```rust
-use strata_bridge_sp1_guest_builder::bridge_proof_elf_path;
+use strata_bridge_sp1_guest_builder::BRIDGE_PROOF_ELF_PATH;
 
-let elf_bytes = std::fs::read(bridge_proof_elf_path())
+let elf_bytes = std::fs::read(BRIDGE_PROOF_ELF_PATH)
     .expect("guest ELF not built — run with `--release`");
 ```
 
-Returns the absolute path to the cached ELF. The path is stable across builds; the file
-itself only exists after a successful release build (and may be stale relative to
-current source).
+`BRIDGE_PROOF_ELF_PATH` is a `&'static str` baked at compile time of this crate
+(`<crate>/elfs/bridge-proof.elf`). The path is stable across builds; the file
+itself only exists after a successful release build (and may be stale relative
+to current source).
