@@ -8,13 +8,11 @@ use std::{
 
 use bitcoin::{
     bip32::Xpriv,
-    hashes::Hash as _,
     key::{Parity, TapTweak},
     TapNodeHash, XOnlyPublicKey,
 };
 use cache_advisor::CacheAdvisor;
 use hkdf::Hkdf;
-use make_buf::make_buf;
 use musig2::{
     errors::SigningError,
     secp::{MaybePoint, Point},
@@ -141,11 +139,20 @@ impl Ms2Signer {
         key_agg_ctx: &KeyAggContext,
     ) -> Result<SecNonce, OurPubKeyIsNotInParams> {
         SECNONCE_CACHE.lock().await.get(params, |params| {
+            // HKDF `info` = domain-separation tag || sighash.
+            //
+            // - The sighash is the load-bearing binding: distinct messages must produce distinct
+            //   SecNonces, otherwise reusing the same nonce across different messages leaks the
+            //   operator's secret key.
+            // - The domain tag guarantees that, if `self.ikm` is ever reused as input keying
+            //   material for a different HKDF purpose, the resulting derivations are
+            //   cryptographically independent
+            const DOMAIN_TAG: &[u8] = b"strata-bridge-musig2-secnonce";
+            let mut info = Vec::with_capacity(DOMAIN_TAG.len() + params.sighash.len());
+            info.extend_from_slice(DOMAIN_TAG);
+            info.extend_from_slice(&params.sighash);
+
             let nonce_seed = {
-                let info = make_buf! {
-                    (&params.input.txid.as_raw_hash().to_byte_array(), 32),
-                    (&params.input.vout.to_le_bytes(), 4)
-                };
                 let hk = Hkdf::<Sha256>::new(None, &*self.ikm);
                 let mut output = [0u8; 32];
                 hk.expand(&info, &mut output)
@@ -246,5 +253,99 @@ impl SchnorrSigner<Server> for Ms2Signer {
 
     async fn pubkey(&self) -> <Server as Origin>::Container<XOnlyPublicKey> {
         self.kp.x_only_public_key().0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{bip32::Xpriv, hashes::Hash, Network, OutPoint, Txid};
+    use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer};
+    use strata_bridge_primitives::scripts::taproot::TaprootTweak;
+
+    use super::*;
+
+    fn test_signer() -> Ms2Signer {
+        let seed = [0x42u8; 32];
+        let xpriv = Xpriv::new_master(Network::Signet, &seed).expect("valid xpriv");
+        Ms2Signer::new(&xpriv)
+    }
+
+    fn params_with(signer: &Ms2Signer, sighash: [u8; 32], tweak: TaprootTweak) -> Musig2Params {
+        Musig2Params {
+            ordered_pubkeys: vec![signer.kp.x_only_public_key().0],
+            tweak,
+            input: OutPoint::new(Txid::all_zeros(), 0),
+            sighash,
+        }
+    }
+
+    /// Regression test for the MuSig2 nonce-reuse vulnerability: distinct sighashes
+    /// must produce distinct pubnonces, even when the rest of the Musig2Params is
+    /// identical. The original bug derived the secret nonce from `(txid, vout)`
+    /// only, so two contest-tx tapscript leaves on the same input shared a nonce.
+    #[tokio::test]
+    async fn distinct_sighash_yields_distinct_pubnonce() {
+        let signer = test_signer();
+        let tweak = TaprootTweak::Key { tweak: None };
+        let n1 = signer
+            .get_pub_nonce(params_with(&signer, [0x11; 32], tweak))
+            .await
+            .expect("our pubkey is in params");
+        let n2 = signer
+            .get_pub_nonce(params_with(&signer, [0x22; 32], tweak))
+            .await
+            .expect("our pubkey is in params");
+        assert_ne!(
+            n1.serialize(),
+            n2.serialize(),
+            "different sighashes must produce different pubnonces"
+        );
+    }
+
+    /// Determinism: identical params return the same pubnonce. Exercises the
+    /// cache hit path on the second call.
+    #[tokio::test]
+    async fn identical_params_yield_identical_pubnonce() {
+        let signer = test_signer();
+        let tweak = TaprootTweak::Key { tweak: None };
+        let n1 = signer
+            .get_pub_nonce(params_with(&signer, [0x33; 32], tweak))
+            .await
+            .expect("our pubkey is in params");
+        let n2 = signer
+            .get_pub_nonce(params_with(&signer, [0x33; 32], tweak))
+            .await
+            .expect("our pubkey is in params");
+        assert_eq!(
+            n1.serialize(),
+            n2.serialize(),
+            "identical params must produce identical pubnonces"
+        );
+    }
+
+    /// Distinct tweaks must produce distinct pubnonces. The tweak shifts the
+    /// aggregated key (key-path tweak) or skips the tweak entirely (script path),
+    /// which is bound into the SecNonce via `with_aggregated_pubkey`.
+    #[tokio::test]
+    async fn distinct_tweak_yields_distinct_pubnonce() {
+        let signer = test_signer();
+        let sighash = [0x44; 32];
+        let n1 = signer
+            .get_pub_nonce(params_with(
+                &signer,
+                sighash,
+                TaprootTweak::Key { tweak: None },
+            ))
+            .await
+            .expect("our pubkey is in params");
+        let n2 = signer
+            .get_pub_nonce(params_with(&signer, sighash, TaprootTweak::Script))
+            .await
+            .expect("our pubkey is in params");
+        assert_ne!(
+            n1.serialize(),
+            n2.serialize(),
+            "different tweaks must produce different pubnonces"
+        );
     }
 }
