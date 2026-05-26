@@ -3,7 +3,7 @@
 use std::num::NonZero;
 
 use bitcoin::{
-    Script, ScriptBuf, Transaction, TxOut,
+    Amount, Network, Script, ScriptBuf, Transaction, TxOut,
     hashes::Hash,
     opcodes, relative,
     script::Instruction,
@@ -112,12 +112,15 @@ fn verify_operator_signature(
         .expect("sighash should compute");
     let msg = Message::from_digest_slice(&sighash.to_byte_array()).expect("sighash is 32 bytes");
 
-    let output_key = ContestProofConnector::output_key(
+    let output_key = ContestProofConnector::new(
+        Network::Bitcoin,
         n_of_n_pubkey.to_xonly_public_key(),
         operator_pubkey.to_xonly_public_key(),
         game_idx,
         proof_timelock,
-    );
+        Amount::ZERO,
+    )
+    .output_key();
 
     assert_eq!(
         prevouts[txin_idx].script_pubkey,
