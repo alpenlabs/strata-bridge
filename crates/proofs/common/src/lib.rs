@@ -1,6 +1,8 @@
 //! Shared proving primitives reused by every per-program proof crate
 //! (e.g. `strata-bridge-proof`).
 
+pub mod host;
+
 use thiserror::Error;
 use tokio::task::JoinError;
 use zkaleido::{ProofReceipt, ZkVmError, ZkVmExecutor, ZkVmHost, ZkVmInputBuilder, ZkVmProgram};

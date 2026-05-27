@@ -11386,19 +11386,15 @@ dependencies = [
  "bitcoin",
  "borsh",
  "cfg-if 1.0.4",
- "hex",
- "k256",
  "secp256k1 0.29.1",
- "serde",
  "ssz",
  "ssz_derive",
  "strata-bridge-connectors",
+ "strata-bridge-proof-common",
  "strata-btc-types",
  "strata-predicate",
- "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
  "zkaleido-native-adapter",
- "zkaleido-sp1-host",
 ]
 
 [[package]]
@@ -11588,11 +11584,9 @@ dependencies = [
  "borsh",
  "cfg-if 1.0.4",
  "hex",
- "k256",
  "moho-recursive-proof",
  "moho-runtime-interface",
  "moho-types",
- "serde",
  "serde_json",
  "sp1-sdk",
  "sp1-verifier",
@@ -11603,23 +11597,29 @@ dependencies = [
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-txs",
  "strata-asm-spec",
+ "strata-bridge-proof-common",
  "strata-codec",
  "strata-merkle",
  "strata-predicate",
- "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
  "zkaleido-native-adapter",
  "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
- "zkaleido-sp1-host",
 ]
 
 [[package]]
 name = "strata-bridge-proof-common"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "hex",
+ "k256",
+ "serde",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
+ "zkaleido-native-adapter",
+ "zkaleido-sp1-host",
 ]
 
 [[package]]

@@ -1,4 +1,4 @@
-//! TOML-driven config schema for the bridge-counterproof host.
+//! TOML-driven config schema for proof hosts.
 
 use std::fmt;
 #[cfg(feature = "sp1")]
@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use k256::schnorr::SigningKey;
 use serde::{Deserialize, Serialize};
 
-/// Backend selection for a bridge-counterproof host.
+/// Backend selection for a proof host.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProofBackendConfig {

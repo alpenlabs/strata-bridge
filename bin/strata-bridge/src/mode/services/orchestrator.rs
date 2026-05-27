@@ -12,7 +12,6 @@ use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_asm_events::client::AsmEventFeed;
 use strata_bridge_common::params::Params;
-use strata_bridge_counterproof::ProofBackend as CounterproofBackend;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{config::ExecutionConfig, output_handles::OutputHandles};
 use strata_bridge_orchestrator::{
@@ -21,7 +20,6 @@ use strata_bridge_orchestrator::{
 };
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
-use strata_bridge_proof::ProofBackend;
 use strata_bridge_sm::{
     self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg, stake::config::StakeSMCfg,
 };
@@ -114,9 +112,8 @@ where
 
     let exec_cfg = build_exec_config(params, config, &sm_config);
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
-    let ProofBackend { bridge_proof_host } = ProofBackend::new(&config.bridge_proof).await?;
-    let CounterproofBackend { counterproof_host } =
-        CounterproofBackend::new(&config.counterproof).await?;
+    let bridge_proof_host = strata_bridge_proof::build_host(&config.bridge_proof).await?;
+    let counterproof_host = strata_bridge_counterproof::build_host(&config.counterproof).await?;
     let output_handles = OutputHandles {
         wallet,
         msg_handler: RwLock::new(message_handler),
