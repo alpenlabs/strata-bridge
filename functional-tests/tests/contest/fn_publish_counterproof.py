@@ -4,7 +4,7 @@ from constants import CONTEST_WATCHTOWER_0_VOUT
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
-from factory.bridge_operator.params_cfg import BridgeProtocolParams, ProofPredicate
+from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
@@ -14,36 +14,33 @@ from utils.deposit import (
 )
 from utils.dev_cli import DevCli
 from utils.utils import (
+    find_utxo_spender_txid,
     read_operator_key,
     wait_for_tx_confirmation,
-    wait_until,
 )
-from utils.withdrawal import wait_until_active_valid_claim, wait_until_bridge_proof_posted
 
 
 @flexitest.register
 class CounterproofPublishedOnBridgeProofVerificationFailureTest(StrataTestBase):
     """
-    Test that every watchtower publishes a counterproof when the bridge proof is invalid.
+    Test that every watchtower publishes a counterproof when a dishonest operator
+    posts a faulty bridge proof.
 
-    NEVER_ACCEPT forces every watchtower to reject the bridge proof regardless of its
-    content, so the counterproof step is what's under test.
+    The dev-cli publish-bridge-proof handler embeds an empty ProofReceipt, which the
+    watchtower rejects.
 
     1. Complete a deposit.
-    2. Post a mock checkpoint so ASM produces an assignment; the assigned operator
-       fulfills and posts a real claim.
-    3. A different operator dev-cli-contests the claim.
-    4. Assigned operator generates a bridge proof.
-    5. Every watchtower auto-publishes a counterproof because the predicate is
-       NEVER_ACCEPT. Verified by asserting every watchtower's counterproof output
-       on the contest tx is spent.
+    2. Post a faulty claim via dev-cli from operator-0 (no assignment, no fulfillment).
+    3. Wait for an honest watchtower to auto-contest.
+    4. Post a faulty bridge proof via dev-cli from operator-0.
+    5. Every watchtower auto-publishes a counterproof because verification of the
+       empty proof fails. Verified by asserting every watchtower's counterproof
+       output on the contest tx is spent.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
         self.bridge_protocol_params = BridgeProtocolParams(
             contest_timelock=5,
-            proof_timelock=100,
-            bridge_proof_predicate=ProofPredicate.NEVER_ACCEPT,
         )
         ctx.set_env(
             BridgeNetworkEnv(
@@ -60,9 +57,6 @@ class CounterproofPublishedOnBridgeProofVerificationFailureTest(StrataTestBase):
 
         bitcoind_service = ctx.get_service("bitcoin")
         bitcoin_rpc = bitcoind_service.create_rpc()
-
-        asm_service = ctx.get_service("asm_rpc")
-        asm_rpc = asm_service.create_rpc()
 
         num_operators = len(bridge_nodes)
         operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
@@ -84,58 +78,50 @@ class CounterproofPublishedOnBridgeProofVerificationFailureTest(StrataTestBase):
         assert deposit_info is not None, "Deposit did not complete"
         self.logger.info("Deposit completed")
 
-        # 2. Trigger assignment via mock checkpoint; orchestrator fulfills + claims.
-        recent_block_hash = bitcoin_rpc.proxy.getblockhash(bitcoin_rpc.proxy.getblockcount())
-        ckp_l1_txn = dev_cli.send_mock_checkpoint_from_tip(
-            asm_rpc,
-            recent_block_hash,
-            num_ol_slots=1,
-        )
-        ckp_block_hash = wait_for_tx_confirmation(bitcoin_rpc, ckp_l1_txn)
-        self.logger.info(f"Checkpoint tx {ckp_l1_txn} included in block {ckp_block_hash}")
+        # 2. Post a faulty claim via dev-cli from operator-0 (no assignment).
+        dishonest_idx = 0
+        dishonest_node = bridge_nodes[dishonest_idx]
+        dishonest_rpc_url = f"http://127.0.0.1:{dishonest_node.props['rpc_port']}"
+        dishonest_seed = read_operator_key(dishonest_idx).SEED
 
-        wait_until(
-            lambda: len(asm_rpc.strata_asm_getAssignments(ckp_block_hash)) > 0,
-            timeout=300,
-            error_msg="ASM did not produce assignment",
+        claim_txid = dev_cli.send_claim(
+            deposit_idx=0,
+            operator_idx=dishonest_idx,
+            bridge_node_url=dishonest_rpc_url,
+            seed=dishonest_seed,
         )
+        self.logger.info(f"Broadcasted faulty claim tx from op-{dishonest_idx}: {claim_txid}")
 
-        active_claim = wait_until_active_valid_claim(bridge_rpc)
-        self.logger.info(
-            "Active claim %s for deposit %s assigned to operator %s",
-            active_claim.claim_txid,
-            active_claim.deposit_idx,
-            active_claim.assigned_operator,
-        )
-        claim_block_hash = wait_for_tx_confirmation(
-            bitcoin_rpc,
-            active_claim.claim_txid,
-            timeout=300,
-        )
-        self.logger.info(
-            f"Claim tx {active_claim.claim_txid} confirmed in block {claim_block_hash}"
-        )
+        claim_block_hash = wait_for_tx_confirmation(bitcoin_rpc, claim_txid, timeout=300)
+        self.logger.info(f"Faulty claim tx {claim_txid} confirmed in block {claim_block_hash}")
 
-        # 3. Contest from a different operator (a watchtower).
-        contester_idx = (active_claim.assigned_operator + 1) % num_operators
-        contester_node = bridge_nodes[contester_idx]
-        contester_rpc_url = f"http://127.0.0.1:{contester_node.props['rpc_port']}"
-        contester_seed = read_operator_key(contester_idx).SEED
-
-        self.logger.info(f"Contesting with operator {contester_idx} via {contester_rpc_url}")
-        contest_txid = dev_cli.send_contest(
-            deposit_idx=active_claim.deposit_idx,
-            operator_idx=active_claim.assigned_operator,
-            bridge_node_url=contester_rpc_url,
-            contester_node_idx=contester_idx,
-            seed=contester_seed,
-        )
+        # 3. Wait for a watchtower to contest the claim (claim:vout=0 spent).
+        wait_until_utxo_spent(bitcoin_rpc, claim_txid, vout=0, timeout=300)
+        contest_txid = find_utxo_spender_txid(bitcoin_rpc, claim_txid, 0)
         contest_block_hash = wait_for_tx_confirmation(bitcoin_rpc, contest_txid, timeout=300)
-        self.logger.info(f"Contest tx {contest_txid} confirmed in block {contest_block_hash}")
+        self.logger.info(
+            f"Watchtower contested op-{dishonest_idx} claim: contest tx {contest_txid} "
+            f"confirmed in block {contest_block_hash}"
+        )
 
-        # 4. Assigned operator posts a real bridge proof defending the contest.
-        wait_until_bridge_proof_posted(bridge_rpc, active_claim.deposit_idx)
-        self.logger.info("Bridge proof posted")
+        # 4. Post a faulty bridge proof via dev-cli from operator-0.
+        bridge_proof_txid = dev_cli.send_bridge_proof(
+            deposit_idx=0,
+            operator_idx=dishonest_idx,
+            bridge_node_url=dishonest_rpc_url,
+            seed=dishonest_seed,
+        )
+        self.logger.info(
+            f"Broadcasted faulty bridge proof tx from op-{dishonest_idx}: {bridge_proof_txid}"
+        )
+
+        bridge_proof_block_hash = wait_for_tx_confirmation(
+            bitcoin_rpc, bridge_proof_txid, timeout=300
+        )
+        self.logger.info(
+            f"Faulty bridge proof tx {bridge_proof_txid} confirmed in block "
+            f"{bridge_proof_block_hash}"
+        )
 
         # 5. Every watchtower must publish its counterproof. The contest tx has one
         # counterproof output per watchtower starting at WATCHTOWER_0_VOUT.
