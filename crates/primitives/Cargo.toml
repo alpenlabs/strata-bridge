@@ -24,8 +24,8 @@ hex.workspace = true
 libp2p-identity.workspace = true
 miniscript.workspace = true
 musig2 = { workspace = true, features = ["serde"] }
-proptest.workspace = true
-proptest-derive.workspace = true
+proptest = { workspace = true, optional = true }
+proptest-derive = { workspace = true, optional = true }
 rkyv.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
@@ -37,3 +37,4 @@ serde_json.workspace = true
 
 [features]
 async = ["dep:tokio", "dep:futures"]
+proptest = ["dep:proptest", "dep:proptest-derive"]

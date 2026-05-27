@@ -22,6 +22,7 @@ default = ["fdb"]
 fdb = ["foundationdb", "serde"]
 
 [dev-dependencies]
+strata-bridge-primitives = { workspace = true, features = ["proptest"] }
 strata-bridge-test-utils.workspace = true
 strata-bridge-tx-graph.workspace = true
 

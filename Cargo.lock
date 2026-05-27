@@ -90,6 +90,7 @@ dependencies = [
 name = "algebra"
 version = "0.1.0"
 dependencies = [
+ "cfg-if 1.0.4",
  "futures",
  "proptest",
  "tokio",
