@@ -8,8 +8,8 @@ import toml
 from factory.bridge_operator.params_cfg import (
     BridgeOperatorParams,
     BridgeProtocolParams,
-    CovenantKeys,
     Keys,
+    ScheduledOperator,
 )
 from rpc.asm_types import CheckpointTip
 from utils.utils import OperatorKeyInfo
@@ -37,13 +37,15 @@ class DevCli:
     def _create_params_file(self) -> str:
         p = self.bridge_protocol_params or BridgeProtocolParams()
 
-        covenant = [
-            CovenantKeys(
-                musig2=key.MUSIG2_KEY,
-                p2p=key.P2P_KEY,
+        operators = [
+            ScheduledOperator(
+                index=index,
+                signing_key=key.MUSIG2_KEY,
+                p2p_key=key.P2P_KEY,
                 payout_descriptor=key.GENERAL_WALLET_DESCRIPTOR,
+                activation_height=DEFAULT_GENESIS_HEIGHT,
             )
-            for key in self.operator_key_infos
+            for index, key in enumerate(self.operator_key_infos)
         ]
 
         params = BridgeOperatorParams(
@@ -51,14 +53,14 @@ class DevCli:
             genesis_height=DEFAULT_GENESIS_HEIGHT,
             keys=Keys(
                 admin=self.operator_key_infos[0].MUSIG2_KEY,
-                covenant=covenant,
+                operators=operators,
             ),
             protocol=p,
         )
 
         params_path = os.path.join(self.temp_dir, "params.toml")
         with open(params_path, "w") as f:
-            toml.dump(asdict(params), f)
+            toml.dump(_strip_nones(asdict(params)), f)
 
         return params_path
 
@@ -303,3 +305,11 @@ class DevCli:
         # HACK: (@Rajil1213) parse raw stdout to extract txid
         txid = res.splitlines()[-1].split("=")[-1].strip()
         return txid
+
+
+def _strip_nones(value):
+    if isinstance(value, dict):
+        return {k: _strip_nones(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_strip_nones(x) for x in value]
+    return value
