@@ -8,7 +8,7 @@ use btc_tracker::event::TxStatus;
 use musig2::secp256k1::schnorr::Signature;
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
-    BitcoinTxOut, CounterproofInput, CounterproofProgram, RawBitcoinTx,
+    BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofProgram, RawBitcoinTx,
 };
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 use strata_bridge_proof_common::prove;
@@ -106,9 +106,15 @@ async fn generate_counterproof(
 
     info!(%deposit_idx, %operator_idx, "generating counterproof for graph");
     let prove_start = std::time::Instant::now();
-    let receipt =
-        prove::<CounterproofProgram, _>(proof_input, output_handles.counterproof_host.clone())
-            .await?;
+    let receipt = match output_handles.counterproof_host.clone() {
+        BridgeCounterproofHost::Native(host) => {
+            prove::<CounterproofProgram, _>(proof_input, host).await?
+        }
+        #[cfg(feature = "sp1")]
+        BridgeCounterproofHost::Sp1(host) => {
+            prove::<CounterproofProgram, _>(proof_input, *host).await?
+        }
+    };
     info!(
         %deposit_idx,
         %operator_idx,

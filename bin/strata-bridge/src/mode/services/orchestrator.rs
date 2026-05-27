@@ -12,7 +12,7 @@ use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_asm_events::client::AsmEventFeed;
 use strata_bridge_common::params::Params;
-use strata_bridge_counterproof::build_bridge_counterproof_host;
+use strata_bridge_counterproof::ProofBackend as CounterproofBackend;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{config::ExecutionConfig, output_handles::OutputHandles};
 use strata_bridge_orchestrator::{
@@ -115,6 +115,8 @@ where
     let exec_cfg = build_exec_config(params, config, &sm_config);
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
     let ProofBackend { bridge_proof_host } = ProofBackend::new(&config.bridge_proof).await?;
+    let CounterproofBackend { counterproof_host } =
+        CounterproofBackend::new(&config.counterproof).await?;
     let output_handles = OutputHandles {
         wallet,
         msg_handler: RwLock::new(message_handler),
@@ -126,7 +128,7 @@ where
         mosaic_client,
         operator_table: operator_table.clone(),
         bridge_proof_host,
-        counterproof_host: build_bridge_counterproof_host(),
+        counterproof_host,
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());
 

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
 use strata_bridge_db::fdb::cfg::Config as FdbConfig;
 use strata_bridge_p2p_service::GossipsubScoringPreset;
+pub(crate) use strata_bridge_counterproof::ProofBackendConfig as CounterproofBackendConfig;
 pub(crate) use strata_bridge_proof::ProofBackendConfig;
 
 /// Configuration values that dictate the behavior of the bridge node.
@@ -78,6 +79,9 @@ pub(crate) struct Config {
 
     /// Backend that produces bridge proofs.
     pub bridge_proof: ProofBackendConfig,
+
+    /// Backend that produces bridge counterproofs.
+    pub counterproof: CounterproofBackendConfig,
 
     /// Configuration for process-level metrics exporters.
     #[serde(default)]
@@ -358,6 +362,10 @@ mod tests {
             [bridge_proof]
             kind = "native"
             schnorr_signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
+
+            [counterproof]
+            kind = "native"
+            schnorr_signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
 
             [metrics]
             prometheus_listener_addr = "127.0.0.1:9615"
