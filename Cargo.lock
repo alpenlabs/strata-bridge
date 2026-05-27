@@ -11382,14 +11382,20 @@ dependencies = [
 name = "strata-bridge-counterproof"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bitcoin",
  "borsh",
+ "cfg-if 1.0.4",
+ "hex",
+ "k256",
  "secp256k1 0.29.1",
+ "serde",
  "ssz",
  "ssz_derive",
  "strata-bridge-connectors",
  "strata-btc-types",
  "strata-predicate",
+ "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
  "zkaleido-native-adapter",
  "zkaleido-sp1-host",

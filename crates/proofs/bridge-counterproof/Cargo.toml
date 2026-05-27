@@ -7,11 +7,11 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+cfg-if.workspace = true
 strata-bridge-connectors.workspace = true
 strata-btc-types.workspace = true
 strata-predicate.workspace = true
 zkaleido = { workspace = true, features = ["ssz"] }
-zkaleido-native-adapter.workspace = true
 zkaleido-sp1-host = { workspace = true, optional = true }
 
 bitcoin.workspace = true
@@ -19,6 +19,14 @@ borsh.workspace = true
 secp256k1.workspace = true
 ssz.workspace = true
 ssz_derive.workspace = true
+
+[target.'cfg(not(target_os = "zkvm"))'.dependencies]
+anyhow.workspace = true
+hex.workspace = true
+k256.workspace = true
+serde.workspace = true
+tracing.workspace = true
+zkaleido-native-adapter.workspace = true
 
 [features]
 default = []
