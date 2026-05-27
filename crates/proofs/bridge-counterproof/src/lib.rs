@@ -16,7 +16,7 @@ cfg_if::cfg_if! {
         pub mod program;
 
         pub use genesis::{load_genesis_from_env, load_genesis_from_predicate};
-        pub use host::{BridgeCounterproofHost, ProofBackend, ProofBackendConfig};
+        pub use host::{BridgeCounterproofHost, ProofBackendConfig, build_host};
         pub use program::CounterproofProgram;
     }
 }

@@ -7,6 +7,17 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
+hex.workspace = true
+k256.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 zkaleido.workspace = true
+zkaleido-native-adapter.workspace = true
+zkaleido-sp1-host = { workspace = true, optional = true }
+
+[features]
+default = []
+sp1 = ["dep:zkaleido-sp1-host"]
