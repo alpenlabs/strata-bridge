@@ -31,7 +31,7 @@ jobs:
         uses: ./.github/actions/extract-rust-version
 
   sp1-guest-build:
-    name: Build SP1 bridge-proof guest program with bundled stub params
+    name: Build SP1 bridge-proof and counterproof guests with bundled stub params
     runs-on: ubuntu-latest
     needs: extract-rust-version
     timeout-minutes: 60
@@ -76,7 +76,7 @@ jobs:
           cargo install sp1-core-executor-runner-binary --version 6.2.0 --root "$RUNNER_TEMP/sp1-core-runner" --force
           echo "SP1_CORE_RUNNER_OVERRIDE_BINARY=$RUNNER_TEMP/sp1-core-runner/bin/sp1-core-executor-runner-binary" >> "$GITHUB_ENV"
 
-      - name: Build SP1 guest with bundled stub params
+      - name: Build SP1 bridge-proof and counterproof guests with bundled stub params
         run: SKIP_PARAMS=1 cargo build --locked -p strata-bridge-sp1-guest-builder --release --features build-elf
 
   guest-build-success:
