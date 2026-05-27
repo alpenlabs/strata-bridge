@@ -136,7 +136,7 @@ Bridge params are derived from the secret-service seeds. The three bridge params
 - `docker/vol/strata-bridge-2/params.toml`
 - `docker/vol/strata-bridge-3/params.toml`
 
-Use `dev-cli derive-keys` to generate the key material (musig2, p2p, payout descriptor, wallet
+Use `dev-cli derive-keys` to generate the key material (covenant, p2p, payout descriptor, wallet
 addresses) for each seed without having to run the secret-service/bridge nodes:
 
 ```sh
