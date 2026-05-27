@@ -255,7 +255,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             .keys
             .operators
             .iter()
-            .map(|operator| PublicKey::from(operator.signing_public_key()))
+            .map(|operator| PublicKey::from(operator.covenant_public_key()))
             .collect())
     }
 
@@ -518,7 +518,7 @@ pub(crate) fn convert_operator_pk_to_peer_id(
         .keys
         .operators
         .iter()
-        .find(|operator| operator.signing_key() == operator_pk.inner.x_only_public_key().0)
+        .find(|operator| operator.covenant_key() == operator_pk.inner.x_only_public_key().0)
         .map(|operator| {
             LibP2pEdPublicKey::try_from_bytes(operator.p2p_key().as_ref())
                 .map(|p2p_key| {

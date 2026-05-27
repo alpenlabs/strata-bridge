@@ -77,8 +77,8 @@ pub struct ScheduledOperator {
     /// Stable operator index used in state machines and peer resolution.
     index: OperatorIdx,
 
-    /// Key used for MuSig2 signing in the bridge covenant.
-    signing_key: XOnlyPublicKey,
+    /// Key used for the bridge covenant.
+    covenant_key: XOnlyPublicKey,
 
     /// Key used for authenticated p2p communication.
     p2p_key: P2POperatorPubKey,
@@ -97,7 +97,7 @@ impl ScheduledOperator {
     /// Creates a scheduled operator after validating its local invariants.
     pub fn new(
         index: OperatorIdx,
-        signing_key: XOnlyPublicKey,
+        covenant_key: XOnlyPublicKey,
         p2p_key: P2POperatorPubKey,
         payout_descriptor: Descriptor,
         activation_height: BitcoinBlockHeight,
@@ -123,7 +123,7 @@ impl ScheduledOperator {
 
         Ok(Self {
             index,
-            signing_key,
+            covenant_key,
             p2p_key,
             payout_descriptor,
             activation_height,
@@ -136,9 +136,9 @@ impl ScheduledOperator {
         self.index
     }
 
-    /// Returns the operator signing key.
-    pub const fn signing_key(&self) -> XOnlyPublicKey {
-        self.signing_key
+    /// Returns the operator covenant key.
+    pub const fn covenant_key(&self) -> XOnlyPublicKey {
+        self.covenant_key
     }
 
     /// Returns the p2p public key.
@@ -169,9 +169,9 @@ impl ScheduledOperator {
                 .is_none_or(|deactivation_height| height < deactivation_height)
     }
 
-    /// Returns the even-Y secp256k1 public key corresponding to the x-only signing key.
-    pub fn signing_public_key(&self) -> secp256k1::PublicKey {
-        self.signing_key.public_key(secp256k1::Parity::Even)
+    /// Returns the even-Y secp256k1 public key corresponding to the x-only covenant key.
+    pub fn covenant_public_key(&self) -> secp256k1::PublicKey {
+        self.covenant_key.public_key(secp256k1::Parity::Even)
     }
 }
 
@@ -214,10 +214,10 @@ pub enum OperatorSetScheduleError {
         /// The duplicated operator index.
         index: OperatorIdx,
     },
-    /// A signing key appears more than once.
-    #[error("duplicate signing key for operator index {index}")]
-    DuplicateSigningKey {
-        /// The index of the operator that reused a signing key.
+    /// A covenant key appears more than once.
+    #[error("duplicate covenant key for operator index {index}")]
+    DuplicateCovenantKey {
+        /// The index of the operator that reused a covenant key.
         index: OperatorIdx,
     },
     /// A p2p key appears more than once.
@@ -232,7 +232,7 @@ fn validate_operator_schedule(
     operators: &[ScheduledOperator],
 ) -> Result<(), OperatorSetScheduleError> {
     let mut indices = BTreeSet::new();
-    let mut signing_keys = BTreeSet::new();
+    let mut covenant_keys = BTreeSet::new();
     let mut p2p_keys = BTreeSet::new();
 
     for operator in operators {
@@ -242,8 +242,8 @@ fn validate_operator_schedule(
             });
         }
 
-        if !signing_keys.insert(operator.signing_key()) {
-            return Err(OperatorSetScheduleError::DuplicateSigningKey {
+        if !covenant_keys.insert(operator.covenant_key()) {
+            return Err(OperatorSetScheduleError::DuplicateCovenantKey {
                 index: operator.index(),
             });
         }
@@ -301,14 +301,14 @@ mod tests {
 
     #[test]
     fn duplicate_operator_keys_are_rejected() {
-        let duplicate_signing_key = OperatorSetSchedule::new(vec![
+        let duplicate_covenant_key = OperatorSetSchedule::new(vec![
             scheduled_operator(0, XONLY_KEY_1, P2P_KEY_1, 101, None),
             scheduled_operator(1, XONLY_KEY_1, P2P_KEY_2, 101, None),
         ])
-        .expect_err("duplicate signing key must fail validation");
+        .expect_err("duplicate covenant key must fail validation");
         assert!(matches!(
-            duplicate_signing_key,
-            OperatorSetScheduleError::DuplicateSigningKey { index: 1 }
+            duplicate_covenant_key,
+            OperatorSetScheduleError::DuplicateCovenantKey { index: 1 }
         ));
 
         let duplicate_p2p_key = OperatorSetSchedule::new(vec![
@@ -382,16 +382,16 @@ mod tests {
 
     fn scheduled_operator(
         index: OperatorIdx,
-        signing_key: &str,
+        covenant_key: &str,
         p2p_key: &str,
         activation_height: BitcoinBlockHeight,
         deactivation_height: Option<BitcoinBlockHeight>,
     ) -> ScheduledOperator {
         ScheduledOperator::new(
             index,
-            XOnlyPublicKey::from_str(signing_key).unwrap(),
+            XOnlyPublicKey::from_str(covenant_key).unwrap(),
             P2POperatorPubKey::from(hex::decode(p2p_key).unwrap()),
-            p2tr_descriptor(signing_key),
+            p2tr_descriptor(covenant_key),
             activation_height,
             deactivation_height,
         )

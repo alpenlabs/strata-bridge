@@ -210,7 +210,7 @@ def generate_params_toml(
     operators = [
         ScheduledOperator(
             index=index,
-            signing_key=key.MUSIG2_KEY,
+            covenant_key=key.MUSIG2_KEY,
             p2p_key=key.P2P_KEY,
             payout_descriptor=key.GENERAL_WALLET_DESCRIPTOR,
             activation_height=genesis_height,

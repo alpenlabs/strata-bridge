@@ -46,15 +46,19 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
     let timelock_script =
         build_timelock_miniscript(params.protocol.recovery_delay, recovery_pubkey);
 
-    let musig2_keys: Vec<XOnlyPublicKey> = params
+    let covenant_keys: Vec<XOnlyPublicKey> = params
         .keys
         .operators
         .iter()
-        .map(|operator| operator.signing_key())
+        .map(|operator| operator.covenant_key())
         .collect();
-    let agg_key = KeyAggContext::new(musig2_keys.into_iter().map(|k| k.public_key(Parity::Even)))
-        .expect("must be able to aggregate keys")
-        .aggregated_pubkey();
+    let agg_key = KeyAggContext::new(
+        covenant_keys
+            .into_iter()
+            .map(|k| k.public_key(Parity::Even)),
+    )
+    .expect("must be able to aggregate keys")
+    .aggregated_pubkey();
     let taproot_address = generate_taproot_address(params.network, timelock_script, agg_key);
 
     // The DRT must include `deposit_amount + deposit_fee` so the bridge's deposit

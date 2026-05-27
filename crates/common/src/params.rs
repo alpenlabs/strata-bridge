@@ -122,7 +122,7 @@ pub struct KeyParams {
 #[serde(deny_unknown_fields)]
 struct EncodedScheduledOperator {
     index: u32,
-    signing_key: String,
+    covenant_key: String,
     p2p_key: String,
     payout_descriptor: String,
     activation_height: u64,
@@ -149,7 +149,7 @@ where
             .iter()
             .map(|operator| EncodedScheduledOperator {
                 index: operator.index(),
-                signing_key: operator.signing_key().serialize().to_lower_hex_string(),
+                covenant_key: operator.covenant_key().serialize().to_lower_hex_string(),
                 p2p_key: operator.p2p_key().as_ref().to_lower_hex_string(),
                 payout_descriptor: operator.payout_descriptor().to_string(),
                 activation_height: operator.activation_height(),
@@ -178,12 +178,12 @@ where
         .into_iter()
         .enumerate()
         .map(|(i, k)| {
-            let signing_key = hex::decode(&k.signing_key).map_err(|err| {
-                D::Error::custom(format!("failed to decode signing_key at entry {i}: {err}"))
+            let covenant_key = hex::decode(&k.covenant_key).map_err(|err| {
+                D::Error::custom(format!("failed to decode covenant_key at entry {i}: {err}"))
             })?;
-            let signing_key = XOnlyPublicKey::from_slice(&signing_key).map_err(|err| {
+            let covenant_key = XOnlyPublicKey::from_slice(&covenant_key).map_err(|err| {
                 D::Error::custom(format!(
-                    "failed to create signing x-only key at entry {i}: {err}"
+                    "failed to create covenant x-only key at entry {i}: {err}"
                 ))
             })?;
 
@@ -200,7 +200,7 @@ where
 
             ScheduledOperator::new(
                 k.index,
-                signing_key,
+                covenant_key,
                 p2p_key,
                 payout_descriptor,
                 k.activation_height,
@@ -261,14 +261,14 @@ mod tests {
 
             [[keys.operators]]
             index = 0
-            signing_key = "{XONLY_KEY_1}"
+            covenant_key = "{XONLY_KEY_1}"
             p2p_key = "{P2P_KEY_1}"
             payout_descriptor = "{desc_1}"
             activation_height = 101
 
             [[keys.operators]]
             index = 1
-            signing_key = "{XONLY_KEY_2}"
+            covenant_key = "{XONLY_KEY_2}"
             p2p_key = "{P2P_KEY_2}"
             payout_descriptor = "{desc_2}"
             activation_height = 200
