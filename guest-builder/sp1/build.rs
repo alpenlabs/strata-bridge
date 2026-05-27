@@ -27,6 +27,7 @@ mod release {
     use std::{
         fs,
         path::{Path, PathBuf},
+        process::Command,
     };
 
     use sp1_build::{build_program_with_args, BuildArgs};
@@ -62,6 +63,11 @@ mod release {
         if sp1_build_will_skip() {
             return;
         }
+
+        // Point cc-rs (used by secp256k1-sys etc.) at the SP1 toolchain's llvm-ar, which knows
+        // how to package archives for the riscv32im-succinct-zkvm-elf target. Without this the
+        // host's `ar` produces archives that fail to link in the guest.
+        export_sp1_ar();
 
         // 1) Build the bridge-proof guest first; its Groth16 VK is an input to the counterproof's
         //    genesis.
@@ -154,6 +160,42 @@ mod release {
                     )
                 })
         }
+    }
+
+    /// Points cc-rs (used by secp256k1-sys and friends) at the SP1 toolchain's
+    /// `llvm-ar` by exporting `SP1_AR`, `AR`, and `AR_riscv64im_unknown_none_elf`.
+    /// The SP1 `llvm-ar` knows how to package archives for the
+    /// `riscv32im-succinct-zkvm-elf` target; the host's default `ar` produces
+    /// archives that fail to link in the guest.
+    fn export_sp1_ar() {
+        let sysroot = rustc_succinct(&["--print", "sysroot"]);
+        let host = rustc_succinct(&["-vV"])
+            .lines()
+            .find_map(|l| l.strip_prefix("host: ").map(str::to_owned))
+            .expect("rustc +succinct -vV must report a `host:` line");
+
+        let sp1_ar = format!("{sysroot}/lib/rustlib/{host}/bin/llvm-ar");
+        std::env::set_var("SP1_AR", &sp1_ar);
+        std::env::set_var("AR", &sp1_ar);
+        std::env::set_var("AR_riscv64im_unknown_none_elf", &sp1_ar);
+    }
+
+    fn rustc_succinct(args: &[&str]) -> String {
+        let output = Command::new("rustc")
+            .arg("+succinct")
+            .args(args)
+            .output()
+            .unwrap_or_else(|e| panic!("invoke `rustc +succinct {}`: {e}", args.join(" ")));
+        assert!(
+            output.status.success(),
+            "`rustc +succinct {}` failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .expect("rustc stdout is utf-8")
+            .trim()
+            .to_owned()
     }
 
     fn sp1_build_will_skip() -> bool {
