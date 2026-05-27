@@ -44,9 +44,11 @@ hex.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "server"] }
 libp2p.workspace = true
 libp2p-identity.workspace = true
+metrics.workspace = true
 rustls-pemfile.workspace = true
 secp256k1.workspace = true
 serde.workspace = true
+strata-metrics.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true

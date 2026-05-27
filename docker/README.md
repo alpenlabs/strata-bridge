@@ -224,6 +224,40 @@ curl http://localhost:13000/debug/pprof/heap > bridge1-heap.pprof
 open http://localhost:11000/debug/pprof/heap/flamegraph
 ```
 
+### Observability
+
+Bridge and secret-service logging are initialized through `strata-logging`.
+`STRATA_BRIDGE_OTLP_URL` still controls OTLP tracing export, and `STRATA_BRIDGE_SVC_LABEL` still
+appends a label to the service name.
+
+Bridge and secret-service metrics are initialized through `strata-metrics`. The local Docker
+configs expose Prometheus scrape endpoints on:
+
+- Bridge node 1: `localhost:19615` -> container port `9615`
+- Bridge node 2: `localhost:29615` -> container port `9615`
+- Bridge node 3: `localhost:39615` -> container port `9615`
+- Secret-service node 1: `localhost:19616` -> container port `9616`
+- Secret-service node 2: `localhost:29616` -> container port `9616`
+- Secret-service node 3: `localhost:39616` -> container port `9616`
+
+Metrics are configured in each bridge or secret-service `config.toml`:
+
+```toml
+[metrics]
+# Bridge configs use 9615. Secret-service configs use 9616.
+prometheus_listener_addr = "0.0.0.0:9615"
+# Optional. If unset, metrics reuse STRATA_BRIDGE_OTLP_URL when present.
+otlp_url = "http://otel-collector:4317"
+```
+
+Metric labels must stay low-cardinality. The bridge node info metric uses static process labels:
+`service`, `mode`, `network`, `version`, `metrics_exporter`, `p2p_scoring_preset`, `btc_zmq`,
+and `fdb_tls`. The secret-service node info metric uses `service`, `network`, `version`,
+`metrics_exporter`, `tls_client_auth`, and `dev_mode`. Other acceptable labels are event
+kind/source, state-machine kind/state, duty kind, dependency, result, and error kind. Do not put
+`deposit_idx`, `graph_idx`, txids, pubkeys, peer ids, outpoints, or message ids in metric labels;
+keep that per-deposit or per-withdrawal detail in spans, logs, and lifecycle records.
+
 ### Bridging in
 
 To send a deposit request against the Docker stack, run:

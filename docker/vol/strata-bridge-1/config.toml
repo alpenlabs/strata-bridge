@@ -71,3 +71,6 @@ peer_ids = [
 [bridge_proof]
 kind = "native"
 schnorr_signing_key = "0303030303030303030303030303030303030303030303030303030303030303"
+
+[metrics]
+prometheus_listener_addr = "0.0.0.0:9615"

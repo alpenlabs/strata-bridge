@@ -1,5 +1,5 @@
 //! Strata Bridge is a bridge node for the Strata protocol.
-use std::{fs, path::Path, sync::Arc};
+use std::{any::type_name, fs, path::Path, sync::Arc};
 
 use args::OperationMode;
 use clap::Parser;
@@ -7,16 +7,17 @@ use config::Config;
 use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE};
 use mode::{operator, watchtower};
 use serde::de::DeserializeOwned;
-use strata_bridge_common::{logging, logging::LoggerConfig, params::Params};
+use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::{FdbClient, MustDrop};
 use strata_tasks::TaskManager;
 use tokio::runtime;
-use tracing::{debug, info, trace};
+use tracing::{debug, error, info, trace};
 
 mod args;
 mod config;
 mod constants;
 mod mode;
+mod observability;
 
 /// The default glibc malloc was observed to be responsible for bad memory fragmentation during
 /// deposits which led to out-of-memory issues. [`Jemalloc`] is a general purpose malloc(3)
@@ -40,13 +41,12 @@ static GLOBAL: Jemalloc = Jemalloc;
 pub static malloc_conf: &[u8] = b"prof:true,prof_active:true,lg_prof_sample:19\0";
 
 fn main() {
-    logging::init(LoggerConfig::with_base_name("strata-bridge"));
-
     let cli = args::Cli::parse();
-    info!(mode = %cli.mode, "starting bridge node");
+    let mode_label = cli.mode.to_string();
 
-    let config = parse_toml::<Config>(cli.config);
-    let params = parse_toml::<Params>(cli.params);
+    let config = parse_toml::<Config>(&cli.config);
+    let params = parse_toml::<Params>(&cli.params);
+    let network_label = params.network.to_string();
     let shutdown_timeout = config.shutdown_timeout;
 
     let runtime = runtime::Builder::new_multi_thread()
@@ -59,6 +59,10 @@ fn main() {
         .enable_all()
         .build()
         .expect("must be able to create runtime");
+
+    observability::init(&config, &mode_label, &network_label, runtime.handle());
+
+    info!(mode = %mode_label, network = %network_label, "starting bridge node");
 
     // Initialize FDB client
     // Must happen once per process, before spawning tasks.
@@ -101,10 +105,13 @@ fn main() {
     }
 
     if let Err(e) = task_manager.monitor(Some(shutdown_timeout)) {
+        error!(err = ?e, "bridge node crashed");
+        observability::finalize();
         panic!("bridge node crashed: {e:?}");
     }
 
     info!("bridge node shutdown complete");
+    observability::finalize();
 }
 
 /// Reads and parses a TOML file from the given path into the given type `T`.
@@ -115,20 +122,16 @@ fn main() {
 /// 2. If the contents of the file cannot be deserialized into the given type `T`.
 fn parse_toml<T>(path: impl AsRef<Path>) -> T
 where
-    T: std::fmt::Debug + DeserializeOwned,
+    T: DeserializeOwned,
 {
-    fs::read_to_string(path)
-        .map(|p| {
-            trace!(?p, "read file");
+    let path = path.as_ref();
+    let contents = fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("failed to read TOML file {}: {e}", path.display()));
+    trace!(path = %path.display(), "read TOML file");
 
-            let parsed = toml::from_str::<T>(&p).unwrap_or_else(|e| {
-                panic!("failed to parse TOML file: {e:?}");
-            });
-            debug!(?parsed, "parsed TOML file");
+    let parsed = toml::from_str::<T>(&contents)
+        .unwrap_or_else(|e| panic!("failed to parse TOML file {}: {e}", path.display()));
+    debug!(path = %path.display(), target_type = type_name::<T>(), "parsed TOML file");
 
-            parsed
-        })
-        .unwrap_or_else(|_| {
-            panic!("failed to read TOML file");
-        })
+    parsed
 }

@@ -5,7 +5,7 @@ mod handlers;
 use anyhow::{Error, Result};
 use clap::Parser;
 use handlers::derive_keys;
-use strata_bridge_common::logging::{self, LoggerConfig};
+use strata_bridge_common::logging;
 
 use crate::handlers::{bridge_in, checkpoint, claim, contest, unstaking_intent};
 
@@ -13,10 +13,10 @@ mod cli;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    logging::init(LoggerConfig::new("dev-cli".to_string()));
+    logging::init_from_env("dev-cli");
 
     let cli = cli::Cli::parse();
-    match cli.command {
+    let result = match cli.command {
         cli::Commands::BridgeIn(args) => bridge_in::handle_bridge_in(args),
         cli::Commands::DeriveKeys(args) => derive_keys::handle_derive_keys(args),
         cli::Commands::CreateAndPublishMockCheckpoint(args) => {
@@ -27,5 +27,7 @@ async fn main() -> Result<(), Error> {
         cli::Commands::UnstakingIntent(args) => {
             unstaking_intent::handle_unstaking_intent(args).await
         }
-    }
+    };
+
+    result
 }

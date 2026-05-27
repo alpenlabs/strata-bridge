@@ -8,3 +8,6 @@ ca = "/app/tls/bridge.ca.pem"
 
 [transport]
 addr = "0.0.0.0:69"
+
+[metrics]
+prometheus_listener_addr = "0.0.0.0:9616"
