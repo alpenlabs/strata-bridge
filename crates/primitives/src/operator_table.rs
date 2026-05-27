@@ -286,6 +286,7 @@ impl OperatorTable {
 }
 
 /// Proptest generators for the operator table.
+#[cfg(feature = "proptest")]
 pub mod prop_test_generators {
     use proptest::{prelude::*, prop_compose};
 

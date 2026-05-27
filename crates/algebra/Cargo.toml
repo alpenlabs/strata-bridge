@@ -7,9 +7,15 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-futures.workspace = true
-proptest.workspace = true
-tokio.workspace = true
+cfg-if.workspace = true
+futures = { workspace = true, optional = true }
+proptest = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
 tracing.workspace = true
+
+[features]
+default = []
+async = ["dep:futures", "dep:tokio"]
+proptest = ["dep:proptest"]

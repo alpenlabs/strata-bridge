@@ -7,7 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-algebra.workspace = true
+algebra = { workspace = true, features = ["async"] }
 btc-tracker.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-rpc = { workspace = true, features = ["client"] }
