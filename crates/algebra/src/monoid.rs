@@ -35,6 +35,7 @@ impl<T> Monoid for Vec<T> {
 }
 
 /// Laws for the [`Monoid`] trait.
+#[cfg(feature = "proptest")]
 pub mod laws {
     use std::fmt::Debug;
 
@@ -69,7 +70,7 @@ pub mod laws {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "proptest"))]
 mod tests {
     use proptest::{prelude::any, prop_assert_eq, proptest};
 

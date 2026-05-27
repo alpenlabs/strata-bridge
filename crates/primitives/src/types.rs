@@ -7,6 +7,7 @@ use bitcoin_bosd::{Descriptor, DescriptorError, DescriptorType};
 use hex::ToHex;
 use libp2p_identity::ed25519::PublicKey as P2pPublicKey;
 use musig2::{errors::KeyAggError, KeyAggContext};
+#[cfg(feature = "proptest")]
 use proptest_derive::Arbitrary;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use secp256k1::PublicKey;
@@ -42,8 +43,8 @@ pub type DepositIdx = u32;
     Archive,
     RkyvSerialize,
     RkyvDeserialize,
-    Arbitrary,
 )]
+#[cfg_attr(feature = "proptest", derive(Arbitrary))]
 pub struct GraphIdx {
     /// The index of the deposit that a peg out graph is associated with.
     pub deposit: DepositIdx,
@@ -123,8 +124,8 @@ pub fn descriptor_to_x_only_pubkey(
     rkyv::Archive,
     rkyv::Serialize,
     rkyv::Deserialize,
-    Arbitrary,
 )]
+#[cfg_attr(feature = "proptest", derive(Arbitrary))]
 pub struct P2POperatorPubKey(#[serde(with = "hex::serde")] Vec<u8>);
 
 impl fmt::Display for P2POperatorPubKey {
@@ -220,6 +221,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "proptest")]
     mod proptests {
         use proptest::prelude::*;
         use rkyv::{from_bytes, rancor::Error, to_bytes};

@@ -7,7 +7,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-algebra.workspace = true
+algebra = { workspace = true, features = ["async"] }
 btc-tracker.workspace = true
 operator-wallet.workspace = true
 secret-service-client.workspace = true
