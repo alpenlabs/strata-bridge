@@ -125,8 +125,6 @@ struct EncodedScheduledOperator {
     covenant_key: String,
     p2p_key: String,
     payout_descriptor: String,
-    // Runtime handling for activation/deactivation is tracked in the operator-set parent:
-    // https://alpenlabs.atlassian.net/browse/STR-3455
     activation_height: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     deactivation_height: Option<u64>,
