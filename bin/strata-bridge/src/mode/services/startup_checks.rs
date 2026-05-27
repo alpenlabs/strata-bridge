@@ -246,15 +246,19 @@ mod tests {
             pubkeys = ["{XONLY_KEY_1}", "{XONLY_KEY_2}"]
             threshold = 2
 
-            [[keys.covenant]]
-            musig2 = "{XONLY_KEY_1}"
-            p2p = "{P2P_KEY_1}"
+            [[keys.operators]]
+            index = 0
+            covenant_key = "{XONLY_KEY_1}"
+            p2p_key = "{P2P_KEY_1}"
             payout_descriptor = "{desc_1}"
+            activation_height = 101
 
-            [[keys.covenant]]
-            musig2 = "{XONLY_KEY_2}"
-            p2p = "{P2P_KEY_2}"
+            [[keys.operators]]
+            index = 1
+            covenant_key = "{XONLY_KEY_2}"
+            p2p_key = "{P2P_KEY_2}"
             payout_descriptor = "{desc_2}"
+            activation_height = 101
 
             [protocol]
             bury_depth = 6
