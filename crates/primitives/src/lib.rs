@@ -11,6 +11,7 @@ pub mod constants;
 pub mod errors;
 pub mod key_agg;
 pub mod mosaic;
+pub mod operator_set_schedule;
 pub mod operator_table;
 pub mod proof;
 pub mod scripts;
