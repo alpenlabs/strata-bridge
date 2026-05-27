@@ -132,9 +132,9 @@ fn compute_claim_funding_utxo_value(params: &Params, own_musig2_key: XOnlyPublic
     // watchtowers (see `GraphContext::watchtower_pubkeys`), so the funding amount must too.
     let watchtower_keys: Vec<_> = params
         .keys
-        .covenant
+        .operators
         .iter()
-        .map(|c| c.musig2)
+        .map(|operator| operator.signing_key())
         .filter(|k| *k != own_musig2_key)
         .collect();
     // cast safety: covenant.len() is bounded by the number of operators, much smaller than u32::MAX

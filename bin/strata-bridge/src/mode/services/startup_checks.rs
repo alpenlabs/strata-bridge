@@ -148,8 +148,14 @@ fn verify_asm_params(params: &Params, config: &Config, asm: &AsmParams) -> Resul
 
     // The operator lists must match in content and order: assignments route by operator
     // index, so a reordering is as consensus-breaking as a different key set.
-    let bridge_operators: Vec<XOnlyPublicKey> =
-        params.keys.covenant.iter().map(|k| k.musig2).collect();
+    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-3621>
+    // Check against membership at current covenant activation window.
+    let bridge_operators: Vec<XOnlyPublicKey> = params
+        .keys
+        .operators
+        .iter()
+        .map(|k| k.signing_key())
+        .collect();
     let asm_operators: Vec<XOnlyPublicKey> =
         bridge.operators.iter().map(|op| (*op).into()).collect();
     ensure_eq("operators", bridge_operators, asm_operators)
@@ -284,9 +290,9 @@ mod tests {
         bridge.assignment_duration = ASSIGNMENT_DURATION;
         bridge.operators = params
             .keys
-            .covenant
+            .operators
             .iter()
-            .map(|k| k.musig2.into())
+            .map(|k| k.signing_key().into())
             .collect();
         asm
     }
