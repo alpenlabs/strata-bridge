@@ -11667,7 +11667,9 @@ version = "0.1.0"
 dependencies = [
  "sp1-build",
  "ssz",
+ "strata-bridge-counterproof",
  "strata-bridge-proof",
+ "strata-predicate",
 ]
 
 [[package]]

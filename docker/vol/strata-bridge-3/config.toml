@@ -72,5 +72,9 @@ peer_ids = [
 kind = "native"
 schnorr_signing_key = "0303030303030303030303030303030303030303030303030303030303030303"
 
+[counterproof]
+kind = "native"
+schnorr_signing_key = "0404040404040404040404040404040404040404040404040404040404040404"
+
 [metrics]
 prometheus_listener_addr = "0.0.0.0:9615"

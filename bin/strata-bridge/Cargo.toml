@@ -64,7 +64,11 @@ zkaleido.workspace = true
 
 [features]
 default = []
-sp1 = ["strata-bridge-proof/sp1", "strata-bridge-exec/sp1"]
+sp1 = [
+  "strata-bridge-proof/sp1",
+  "strata-bridge-counterproof/sp1",
+  "strata-bridge-exec/sp1",
+]
 # not compatible with windows/msvc
 memory_profiling = [
   "tikv-jemallocator/profiling",
