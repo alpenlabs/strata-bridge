@@ -4,14 +4,17 @@ from pathlib import Path
 
 import toml
 
-from constants import NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY, NATIVE_TEST_BRIDGE_PROOF_VERIFYING_KEY
+from constants import (
+    NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY,
+    NATIVE_TEST_BRIDGE_PROOF_VERIFYING_KEY,
+    NATIVE_TEST_COUNTERPROOF_SIGNING_KEY,
+)
 from utils.utils import OperatorKeyInfo
 
 from .config_cfg import (
     AsmRpcConfig,
     BridgeConfigParams,
     BridgeOperatorConfig,
-    BridgeProofConfig,
     BtcClientConfig,
     BtcZmqConfig,
     DbConfig,
@@ -20,6 +23,7 @@ from .config_cfg import (
     MosaicConfig,
     OperatorWalletConfig,
     P2pConfig,
+    ProofBackendConfig,
     RpcConfig,
     SecretServiceClientConfig,
 )
@@ -139,6 +143,7 @@ def generate_config_toml(
             poll_interval=Duration(secs=2, nanos=0),
         ),
         bridge_proof=_build_bridge_proof_config(),
+        counterproof=_build_counterproof_config(),
     )
 
     with open(output_path, "w") as f:
@@ -148,13 +153,23 @@ def generate_config_toml(
         toml.dump(config_dict, f)
 
 
-def _build_bridge_proof_config() -> BridgeProofConfig:
+def _build_bridge_proof_config() -> ProofBackendConfig:
     sp1_elf = os.environ.get("BRIDGE_PROOF_SP1_ELF")
     if sp1_elf:
-        return BridgeProofConfig(kind="sp1", elf_path=sp1_elf)
-    return BridgeProofConfig(
+        return ProofBackendConfig(kind="sp1", elf_path=sp1_elf)
+    return ProofBackendConfig(
         kind="native",
         schnorr_signing_key=NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY,
+    )
+
+
+def _build_counterproof_config() -> ProofBackendConfig:
+    sp1_elf = os.environ.get("BRIDGE_COUNTERPROOF_SP1_ELF")
+    if sp1_elf:
+        return ProofBackendConfig(kind="sp1", elf_path=sp1_elf)
+    return ProofBackendConfig(
+        kind="native",
+        schnorr_signing_key=NATIVE_TEST_COUNTERPROOF_SIGNING_KEY,
     )
 
 

@@ -104,7 +104,7 @@ class BridgeConfigParams:
 
 
 @dataclass
-class BridgeProofConfig:
+class ProofBackendConfig:
     kind: str
     schnorr_signing_key: str | None = None
     elf_path: str | None = None
@@ -129,4 +129,5 @@ class BridgeOperatorConfig:
     btc_zmq: BtcZmqConfig
     operator_wallet: OperatorWalletConfig
     mosaic: MosaicConfig
-    bridge_proof: BridgeProofConfig
+    bridge_proof: ProofBackendConfig
+    counterproof: ProofBackendConfig
