@@ -1,4 +1,5 @@
 pub(crate) mod bridge_in;
+pub(crate) mod bridge_proof;
 pub(crate) mod checkpoint;
 pub(crate) mod claim;
 pub(crate) mod contest;
