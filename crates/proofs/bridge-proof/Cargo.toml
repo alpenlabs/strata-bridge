@@ -17,6 +17,7 @@ ssz.workspace = true
 ssz_derive.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-bridge-v1-txs.workspace = true
+strata-bridge-proof-common.workspace = true
 strata-codec.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 strata-predicate.workspace = true
@@ -24,27 +25,26 @@ zkaleido = { workspace = true, features = ["ssz"] }
 zkaleido-sp1-groth16-verifier = { workspace = true, optional = true, features = [
   "borsh",
 ] }
-zkaleido-sp1-host = { workspace = true, optional = true }
 
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
 anyhow.workspace = true
-hex.workspace = true
-k256.workspace = true
+hex = { workspace = true, optional = true }
 moho-runtime-interface.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proof-impl.workspace = true
 strata-asm-spec.workspace = true
-tracing.workspace = true
+
+[dev-dependencies]
 zkaleido-native-adapter.workspace = true
 
 [features]
 default = []
 sp1 = [
-  "dep:zkaleido-sp1-host",
   "dep:borsh",
+  "dep:hex",
   "dep:sp1-sdk",
   "dep:sp1-verifier",
   "dep:zkaleido-sp1-groth16-verifier",
+  "strata-bridge-proof-common/sp1",
 ]
