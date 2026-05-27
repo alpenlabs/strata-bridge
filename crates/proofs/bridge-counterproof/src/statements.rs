@@ -15,15 +15,14 @@ use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_btc_types::BitcoinXOnlyPublicKey;
 use zkaleido::{ProofReceipt, ZkVmEnv, ZkVmEnvSsz};
 
-use crate::{
-    genesis::{BridgeCounterproofGenesis, load_genesis},
-    types::{CounterproofInput, CounterproofOutput},
-};
+#[cfg(not(target_os = "zkvm"))]
+use crate::genesis::load_genesis_from_env;
+use crate::types::{BridgeCounterproofGenesis, CounterproofInput, CounterproofOutput};
 
 /// Native entry point: loads genesis and runs the counterproof.
 #[cfg(not(target_os = "zkvm"))]
 pub fn process_counterproof(zkvm: &impl ZkVmEnv) {
-    let genesis = load_genesis();
+    let genesis = load_genesis_from_env();
     process_counterproof_inner(zkvm, &genesis);
 }
 
