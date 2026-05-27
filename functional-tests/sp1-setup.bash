@@ -62,5 +62,7 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
     fi
     BRIDGE_FEATURES="--features sp1"
     export BRIDGE_PROOF_SP1_ELF="$(realpath guest-builder/sp1/elfs/bridge-proof.elf)"
-    echo "SP1 ELF: $BRIDGE_PROOF_SP1_ELF (SP1_PROVER=$SP1_PROVER)"
+    export BRIDGE_COUNTERPROOF_SP1_ELF="$(realpath guest-builder/sp1/elfs/counterproof.elf)"
+    echo "SP1 ELF (bridge-proof):  $BRIDGE_PROOF_SP1_ELF (SP1_PROVER=$SP1_PROVER)"
+    echo "SP1 ELF (counterproof): $BRIDGE_COUNTERPROOF_SP1_ELF"
 fi
