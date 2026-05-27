@@ -21,6 +21,10 @@ cfg_if::cfg_if! {
         pub use program::BridgeProofProgram;
 
         #[cfg(feature = "sp1")]
-        pub use host::{sp1_groth16_predicate_key, sp1_groth16_predicate_string};
+        pub use host::{
+            sp1_groth16_predicate_key,
+            sp1_groth16_predicate_string,
+            sp1_groth16_predicate_string_from_key,
+        };
     }
 }

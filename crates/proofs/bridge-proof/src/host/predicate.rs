@@ -32,10 +32,18 @@ pub fn sp1_groth16_predicate_key(elf: &[u8]) -> Result<PredicateKey> {
 /// [`sp1_groth16_predicate_key`] rendered as `Sp1Groth16:<hex>`, the form the params TOML
 /// parser expects.
 pub fn sp1_groth16_predicate_string(elf: &[u8]) -> Result<String> {
-    let key = sp1_groth16_predicate_key(elf)?;
-    Ok(format!(
+    Ok(sp1_groth16_predicate_string_from_key(
+        &sp1_groth16_predicate_key(elf)?,
+    ))
+}
+
+/// Renders an already-derived [`PredicateKey`] in the `Sp1Groth16:<hex>` form. Useful when
+/// the caller has done the expensive ELF setup once and wants both the key and its
+/// string form without rerunning `prover.setup()`.
+pub fn sp1_groth16_predicate_string_from_key(key: &PredicateKey) -> String {
+    format!(
         "{}:{}",
         PredicateTypeId::Sp1Groth16,
         hex::encode(key.condition())
-    ))
+    )
 }
