@@ -17,7 +17,6 @@ ssz.workspace = true
 ssz_derive.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-bridge-v1-txs.workspace = true
-strata-bridge-proof-common.workspace = true
 strata-codec.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 strata-predicate.workspace = true
@@ -34,6 +33,7 @@ serde_json.workspace = true
 strata-asm-params.workspace = true
 strata-asm-proof-impl.workspace = true
 strata-asm-spec.workspace = true
+strata-bridge-proof-common.workspace = true
 
 [dev-dependencies]
 zkaleido-native-adapter.workspace = true
