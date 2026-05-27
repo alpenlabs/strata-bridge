@@ -14,7 +14,7 @@ class ProofPredicate:
 @dataclass
 class ScheduledOperator:
     index: int
-    signing_key: str
+    covenant_key: str
     p2p_key: str
     payout_descriptor: str
     activation_height: int

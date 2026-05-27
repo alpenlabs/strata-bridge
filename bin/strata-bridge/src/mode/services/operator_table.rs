@@ -17,16 +17,16 @@ pub(in crate::mode) async fn init_operator_table(
         .await
         .context("could not fetch btc key from s2")?;
     info!(%my_btc_key, "fetched musig2 key from secret service");
-    let p2p_and_musig_keys = params.keys.operators.iter().map(|operator| {
+    let p2p_and_covenant_keys = params.keys.operators.iter().map(|operator| {
         (
             operator.index(),
             operator.p2p_key().clone(),
-            operator.signing_public_key(),
+            operator.covenant_public_key(),
         )
     });
 
     OperatorTable::new(
-        p2p_and_musig_keys.collect(),
+        p2p_and_covenant_keys.collect(),
         OperatorTable::select_btc_x_only(my_btc_key),
     )
     .context("could not build OperatorTable")

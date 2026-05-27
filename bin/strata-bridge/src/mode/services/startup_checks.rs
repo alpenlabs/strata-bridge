@@ -154,7 +154,7 @@ fn verify_asm_params(params: &Params, config: &Config, asm: &AsmParams) -> Resul
         .keys
         .operators
         .iter()
-        .map(|k| k.signing_key())
+        .map(|k| k.covenant_key())
         .collect();
     let asm_operators: Vec<XOnlyPublicKey> =
         bridge.operators.iter().map(|op| (*op).into()).collect();
@@ -296,7 +296,7 @@ mod tests {
             .keys
             .operators
             .iter()
-            .map(|k| k.signing_key().into())
+            .map(|k| k.covenant_key().into())
             .collect();
         asm
     }
