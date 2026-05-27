@@ -29,6 +29,9 @@ pub(crate) enum Commands {
     /// Post a claim transaction.
     Claim(ClaimArgs),
 
+    /// Post an empty bridge proof receipt transaction.
+    BridgeProof(BridgeProofArgs),
+
     /// Post an unstaking intent transaction.
     UnstakingIntent(UnstakingIntentArgs),
 }
@@ -136,6 +139,28 @@ pub(crate) struct ClaimArgs {
     pub(crate) bridge_node_url: String,
 
     #[arg(long, help = "hex-encoded seed of the claiming operator")]
+    pub(crate) seed: String,
+
+    #[arg(long, help = "the path to the params file")]
+    pub(crate) params: PathBuf,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(about = "Post an empty bridge proof receipt transaction", version)]
+pub(crate) struct BridgeProofArgs {
+    #[arg(long, help = "deposit index of the graph")]
+    pub(crate) deposit_idx: u32,
+
+    #[arg(long, help = "operator index of the graph")]
+    pub(crate) operator_idx: u32,
+
+    #[arg(long, help = "url of the bridge node RPC")]
+    pub(crate) bridge_node_url: String,
+
+    #[arg(long, help = "hex-encoded seed of the graph-owning operator")]
     pub(crate) seed: String,
 
     #[arg(long, help = "the path to the params file")]
