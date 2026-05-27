@@ -1,14 +1,10 @@
 //! Provides operator table initialization.
 
 use anyhow::Context;
-use secp256k1::Parity;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_common::params::Params;
-use strata_bridge_primitives::{
-    operator_table::OperatorTable,
-    types::{OperatorIdx, P2POperatorPubKey},
-};
+use strata_bridge_primitives::operator_table::OperatorTable;
 use tracing::info;
 
 pub(in crate::mode) async fn init_operator_table(
@@ -21,11 +17,11 @@ pub(in crate::mode) async fn init_operator_table(
         .await
         .context("could not fetch btc key from s2")?;
     info!(%my_btc_key, "fetched musig2 key from secret service");
-    let p2p_and_musig_keys = params.keys.covenant.iter().enumerate().map(|(i, cov)| {
+    let p2p_and_musig_keys = params.keys.operators.iter().map(|operator| {
         (
-            i as OperatorIdx,
-            P2POperatorPubKey::from(cov.p2p.clone()),
-            cov.musig2.public_key(Parity::Even),
+            operator.index(),
+            operator.p2p_key().clone(),
+            operator.signing_public_key(),
         )
     });
 

@@ -46,7 +46,12 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
     let timelock_script =
         build_timelock_miniscript(params.protocol.recovery_delay, recovery_pubkey);
 
-    let musig2_keys: Vec<XOnlyPublicKey> = params.keys.covenant.iter().map(|c| c.musig2).collect();
+    let musig2_keys: Vec<XOnlyPublicKey> = params
+        .keys
+        .operators
+        .iter()
+        .map(|operator| operator.signing_key())
+        .collect();
     let agg_key = KeyAggContext::new(musig2_keys.into_iter().map(|k| k.public_key(Parity::Even)))
         .expect("must be able to aggregate keys")
         .aggregated_pubkey();
