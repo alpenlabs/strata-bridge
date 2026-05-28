@@ -11597,6 +11597,7 @@ dependencies = [
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-txs",
  "strata-asm-spec",
+ "strata-bridge-proof-common",
  "strata-codec",
  "strata-merkle",
  "strata-predicate",
@@ -11611,6 +11612,12 @@ dependencies = [
 name = "strata-bridge-proof-common"
 version = "0.1.0"
 dependencies = [
+ "moho-recursive-proof",
+ "moho-types",
+ "ssz",
+ "strata-asm-proto-bridge-v1",
+ "strata-merkle",
+ "strata-predicate",
  "thiserror 2.0.18",
  "tokio",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",

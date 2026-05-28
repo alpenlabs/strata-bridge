@@ -1,12 +1,9 @@
 //! Bridge proof statements.
 
-use moho_recursive_proof::MohoRecursiveOutput;
-use moho_types::{ExportContainer, MohoState, RecursiveMohoProof};
-use ssz::Encode;
 use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
 use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_bridge_proof_common::{verify_claim_unlock_inclusion, verify_moho_proof};
 use strata_codec::decode_buf_exact;
-use strata_merkle::MerkleProofB32;
 use zkaleido::{ZkVmEnv, ZkVmEnvSsz};
 
 #[cfg(not(target_os = "zkvm"))]
@@ -45,7 +42,12 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
         decode_buf_exact(&claim_unlock).expect("claim_unlock must decode into OperatorClaimUnlock");
 
     // 2: Verify the recursive Moho proof.
-    verify_moho_proof(&moho_state, &moho_proof, genesis);
+    verify_moho_proof(
+        &moho_state,
+        &moho_proof,
+        genesis.genesis_moho_state.reference(),
+        genesis.moho_vk.clone(),
+    );
 
     // Extract the bridge-v1 export container from the Moho state.
     let bridge_container = moho_state
@@ -70,50 +72,15 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
     });
 }
 
-fn verify_moho_proof(
-    moho_state: &MohoState,
-    moho_proof: &RecursiveMohoProof,
-    genesis: &BridgeProofGenesis,
-) {
-    let attestation = moho_proof.attestation();
-
-    assert_eq!(
-        attestation.proven().commitment(),
-        &moho_state.compute_commitment(),
-        "moho proof proven commitment does not match the supplied moho_state",
-    );
-
-    let claim =
-        MohoRecursiveOutput::new(attestation.clone(), genesis.moho_vk.clone()).as_ssz_bytes();
-    genesis
-        .moho_vk
-        .verify_claim_witness(&claim, moho_proof.proof())
-        .expect("moho proof verification failed");
-}
-
-/// Checks that `claim_unlock` is present in the bridge-v1 export-entries MMR via a Merkle inclusion
-/// proof.
-fn verify_claim_unlock_inclusion(
-    claim_unlock: &OperatorClaimUnlock,
-    bridge_container: &ExportContainer,
-    proof: &MerkleProofB32,
-) {
-    let leaf_hash = claim_unlock.compute_hash();
-    assert!(
-        bridge_container.entries_mmr().verify(proof, &leaf_hash),
-        "claim_unlock must be included in the bridge-v1 MMR",
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use moho_types::{
-        ExportState, InnerStateCommitment, RecursiveMohoAttestation, StateRefAttestation,
-        StateReference,
+        ExportContainer, ExportState, InnerStateCommitment, MohoState, RecursiveMohoAttestation,
+        RecursiveMohoProof, StateRefAttestation, StateReference,
     };
-    use ssz::Decode;
+    use ssz::{Decode, Encode};
     use strata_codec::encode_to_vec;
-    use strata_merkle::{Mmr, Mmr64B32, MmrState, Sha256Hasher};
+    use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
     use strata_predicate::PredicateKey;
     use zkaleido_native_adapter::NativeMachine;
 
