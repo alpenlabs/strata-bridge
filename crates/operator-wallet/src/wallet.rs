@@ -157,6 +157,28 @@ impl<G: GeneralWallet> OperatorWallet<G> {
 
     // ── General-wallet pass-throughs with lease bookkeeping ────────────────
 
+    /// Selects the first general-wallet UTXO that satisfies `predicate`, excluding CPFP
+    /// anchors and currently-leased outpoints, leases it so concurrent duties don't
+    /// re-select the same outpoint, and returns it. Returns `None` if nothing matches.
+    ///
+    /// Unlike [`Self::fund_v3_transaction`], this hands back a single chosen UTXO for callers
+    /// that build a bespoke transaction around it — e.g. the unstaking-burn executor, whose tx
+    /// has a fixed non-wallet first input that the generic outputs-only funding path can't
+    /// express.
+    pub fn select_and_lease_general_utxo(
+        &mut self,
+        predicate: impl Fn(&UtxoInfo) -> bool,
+    ) -> Option<UtxoInfo> {
+        let exclude: BTreeSet<OutPoint> = self.exclude_anchors_and_leases().into_iter().collect();
+        let selected = self
+            .general
+            .list_utxos()
+            .into_iter()
+            .find(|u| !exclude.contains(&u.outpoint) && predicate(u))?;
+        self.lease(&[selected.outpoint]);
+        Some(selected)
+    }
+
     /// Funds an unsigned v3 transaction from the general wallet.
     ///
     /// Selects inputs from spendable general-wallet UTXOs (excluding anchors and currently-

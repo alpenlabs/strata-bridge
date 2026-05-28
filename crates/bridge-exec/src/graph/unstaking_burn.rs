@@ -8,15 +8,16 @@ use bitcoin::{
 };
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
-use operator_wallet::OperatorWallet;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnTx;
 use tracing::{debug, info, warn};
 
 use crate::{
-    chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
-    output_handles::OutputHandles,
+    chain::publish_signed_transaction,
+    config::ExecutionConfig,
+    errors::ExecutorError,
+    output_handles::{NativeWallet, OutputHandles},
 };
 
 /// Index of the payout connector input in the unfunded burn template.
@@ -106,7 +107,7 @@ pub(super) async fn publish_unstaking_burn(
                 .wallet
                 .write()
                 .await
-                .release_outpoints(&[funding.outpoint]);
+                .release(&[funding.outpoint]);
             return Err(e);
         }
     };
@@ -131,7 +132,7 @@ pub(super) async fn publish_unstaking_burn(
             .wallet
             .write()
             .await
-            .release_outpoints(&[funding.outpoint]);
+            .release(&[funding.outpoint]);
     }
 
     publish_result
@@ -194,7 +195,7 @@ async fn burn_fee_rate(output_handles: &OutputHandles) -> Result<FeeRate, Execut
 ///   - general_wallet_output_value
 /// ```
 async fn select_funding(
-    wallet: &mut OperatorWallet,
+    wallet: &mut NativeWallet,
     graph_idx: GraphIdx,
     unstaking_burn_tx: &UnstakingBurnTx,
     unstaking_preimage: [u8; 32],
@@ -207,7 +208,7 @@ async fn select_funding(
         warn!(%graph_idx, ?e, "could not sync wallet before funding unstaking burn");
     }
 
-    let wallet_output_script = wallet.general_script_buf().clone();
+    let wallet_output_script = wallet.general_script_pubkey();
     let min_output_value = wallet_output_script.minimal_non_dust();
     let fee = estimate_unstaking_burn_fee(
         unstaking_burn_tx,
@@ -235,7 +236,7 @@ async fn select_funding(
 
     let funding = wallet.select_and_lease_general_utxo(|utxo| {
         let output_value = match payout_connector_value
-            .checked_add(utxo.txout.value)
+            .checked_add(utxo.amount)
             .and_then(|input_value| input_value.checked_sub(plan.fee))
         {
             Some(output_value) => output_value,
@@ -243,7 +244,7 @@ async fn select_funding(
                 debug!(
                     %graph_idx,
                     outpoint = %utxo.outpoint,
-                    utxo_value = %utxo.txout.value,
+                    utxo_value = %utxo.amount,
                     fee = %plan.fee,
                     "wallet UTXO cannot cover unstaking burn fee"
                 );
@@ -255,7 +256,7 @@ async fn select_funding(
             debug!(
                 %graph_idx,
                 outpoint = %utxo.outpoint,
-                utxo_value = %utxo.txout.value,
+                utxo_value = %utxo.amount,
                 %output_value,
                 %min_output_value,
                 fee = %plan.fee,
@@ -284,7 +285,7 @@ async fn select_funding(
     };
 
     let wallet_output_value = payout_connector_value
-        .checked_add(funding.txout.value)
+        .checked_add(funding.amount)
         .and_then(|input_value| input_value.checked_sub(plan.fee))
         .ok_or_else(|| {
             ExecutorError::WalletErr(format!(
@@ -296,7 +297,7 @@ async fn select_funding(
     info!(
         %graph_idx,
         funding_outpoint = %funding.outpoint,
-        funding_value = %funding.txout.value,
+        funding_value = %funding.amount,
         %wallet_output_value,
         fee = %plan.fee,
         fee_rate = %plan.fee_rate,
@@ -307,7 +308,7 @@ async fn select_funding(
     Ok((
         WalletFunding {
             outpoint: funding.outpoint,
-            prevout: funding.txout,
+            prevout: funding.into(),
         },
         plan,
     ))
@@ -516,7 +517,7 @@ mod tests {
         secp256k1::{Keypair, SECP256K1, SecretKey},
     };
     use corepc_node::{Conf, Node};
-    use operator_wallet::{OperatorWalletConfig, sync::Backend};
+    use operator_wallet::{NativeGeneralWallet, OperatorWalletConfig, sync::Backend};
     use strata_bridge_connectors::prelude::ClaimPayoutConnector;
     use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnData;
 
@@ -553,21 +554,22 @@ mod tests {
         keypair.x_only_public_key().0
     }
 
-    fn wallet(bitcoind: &Node) -> OperatorWallet {
-        OperatorWallet::new(
+    fn wallet(bitcoind: &Node) -> NativeWallet {
+        let general = NativeGeneralWallet::new(
             xonly_pubkey(1),
+            Network::Regtest,
+            Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
+        );
+        NativeWallet::new(
+            general,
             xonly_pubkey(2),
-            OperatorWalletConfig::new(
-                Amount::from_sat(20_000),
-                Amount::from_sat(1_000),
-                Network::Regtest,
-            ),
+            OperatorWalletConfig::new(Amount::from_sat(20_000), Network::Regtest),
             Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
             BTreeSet::new(),
         )
     }
 
-    fn fund_general_wallet(bitcoind: &Node, wallet: &OperatorWallet, amount: Amount) {
+    fn fund_general_wallet(bitcoind: &Node, wallet: &NativeWallet, amount: Amount) {
         let mining_address = bitcoind
             .client
             .new_address()
@@ -577,8 +579,9 @@ mod tests {
             .generate_to_address(101, &mining_address)
             .expect("coinbase outputs should mature");
 
-        let general_address = Address::from_script(wallet.general_script_buf(), Network::Regtest)
-            .expect("general wallet script should be addressable");
+        let general_address =
+            Address::from_script(&wallet.general_script_pubkey(), Network::Regtest)
+                .expect("general wallet script should be addressable");
         bitcoind
             .client
             .send_to_address(&general_address, amount)
@@ -666,7 +669,7 @@ mod tests {
         let unstaking_preimage = [8; 32];
         let unstaking_burn_tx = unstaking_burn_tx(unstaking_preimage);
         let fee_rate = FeeRate::from_sat_per_vb(2).expect("fee rate should be valid");
-        let min_output_value = wallet.general_script_buf().minimal_non_dust();
+        let min_output_value = wallet.general_script_pubkey().minimal_non_dust();
 
         let (funding, plan) = select_funding(
             &mut wallet,
@@ -693,9 +696,7 @@ mod tests {
             "funding plan should retain the payout connector input value"
         );
         assert!(
-            wallet
-                .leased_outpoints()
-                .any(|outpoint| outpoint == funding.outpoint),
+            wallet.leased_outpoints().contains(&funding.outpoint),
             "selected funding outpoint should be leased"
         );
     }
