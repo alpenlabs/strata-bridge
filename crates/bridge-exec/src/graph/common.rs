@@ -166,13 +166,21 @@ async fn ensure_claim_funding_outpoint(
             Some(outpoint) => outpoint,
             None => {
                 warn!("could not acquire claim funding utxo. attempting refill...");
-                // How many we need to top the pool back up to the configured target. The
-                // existing pool count is read by `reserve_utxo_with_value`'s peer
-                // `reserved_utxos_with_value` — we use the current size to compute the
-                // batch ourselves so the wallet stays denomination-agnostic.
-                let current_pool_size = wallet
-                    .reserved_utxos_with_value(cfg.claim_funding_utxo_value)
-                    .len();
+                // How many we need to top the pool back up to the configured target. We
+                // compute the batch ourselves (the wallet stays denomination-agnostic),
+                // counting only *unleased* pool members: `reserved_utxos_with_value`
+                // returns every matching UTXO including leased ones, but a leased UTXO is
+                // already committed to another graph and can't satisfy this reservation.
+                // Counting them would understate the deficit and could yield a zero-size
+                // batch, after which the post-refill `reserve_utxo_with_value` below would
+                // panic with nothing to hand out.
+                let current_pool_size = {
+                    let pool = wallet.reserved_utxos_with_value(cfg.claim_funding_utxo_value);
+                    let leased = wallet.leased_outpoints();
+                    pool.iter()
+                        .filter(|u| !leased.contains(&u.outpoint))
+                        .count()
+                };
                 let batch_size = cfg.funding_uxto_pool_size.saturating_sub(current_pool_size);
                 let funded = wallet
                     .create_reserved_utxos(fee::FEE_RATE, cfg.claim_funding_utxo_value, batch_size)

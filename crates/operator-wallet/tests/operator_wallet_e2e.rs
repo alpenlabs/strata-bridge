@@ -1,4 +1,7 @@
-#![allow(unused_crate_dependencies)]
+#![expect(
+    unused_crate_dependencies,
+    reason = "this integration-test binary doesn't reference every dev-dependency declared in Cargo.toml; some are pulled in only by the lib's unit tests or other test targets"
+)]
 //! Crate-level integration tests for `operator-wallet` against a real `bitcoind` regtest
 //! node (via `corepc-node`).
 //!
