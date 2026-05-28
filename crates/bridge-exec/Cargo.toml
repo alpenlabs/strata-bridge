@@ -32,6 +32,7 @@ strata-crypto.workspace = true
 strata-l1-txfmt.workspace = true
 strata-mosaic-client-api.workspace = true
 zkaleido.workspace = true
+zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
 
 bdk_wallet.workspace = true
 bitcoin.workspace = true
@@ -54,4 +55,8 @@ corepc-node.workspace = true
 
 [features]
 default = []
-sp1 = ["strata-bridge-proof/sp1", "strata-bridge-counterproof/sp1"]
+sp1 = [
+  "strata-bridge-proof/sp1",
+  "strata-bridge-counterproof/sp1",
+  "dep:zkaleido-sp1-groth16-verifier",
+]
