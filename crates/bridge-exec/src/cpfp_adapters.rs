@@ -19,7 +19,7 @@ use btc_tracker::{
     },
     submitpackage::{self, SubmitPackageError, SubmitPackageSummary},
 };
-use operator_wallet::{AnchorInfo, GeneralWallet, OperatorWallet};
+use operator_wallet::{AnchorInfo, AnyOperatorWallet};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_tx_graph::fee;
@@ -44,8 +44,8 @@ use tracing::warn;
 /// (we submit `[parent, child]` as a v3 1P1C package), so BDK has no knowledge of the
 /// payout outpoint. `add_foreign_utxo` accepts it with a caller-provided `witness_utxo`.
 #[derive(Debug)]
-pub struct OperatorWalletCpfpAdapter<G: GeneralWallet + std::fmt::Debug + 'static> {
-    wallet: Arc<RwLock<OperatorWallet<G>>>,
+pub struct OperatorWalletCpfpAdapter {
+    wallet: Arc<RwLock<AnyOperatorWallet>>,
     /// Operator's general-wallet pubkey. Used as the foreign-UTXO `tap_internal_key` when
     /// CPFPing a [`CpfpStrategy::ParentTxCombined`] parent — every payout output across
     /// cooperative_payout / uncontested_payout / contested_payout / unstaking goes to the
@@ -53,12 +53,12 @@ pub struct OperatorWalletCpfpAdapter<G: GeneralWallet + std::fmt::Debug + 'stati
     operator_general_pubkey: XOnlyPublicKey,
 }
 
-impl<G: GeneralWallet + std::fmt::Debug + 'static> OperatorWalletCpfpAdapter<G> {
+impl OperatorWalletCpfpAdapter {
     /// Constructs a new adapter wrapping the shared wallet handle. `operator_general_pubkey`
     /// is the operator's general-wallet x-only pubkey (typically fetched once at
     /// orchestrator startup via `s2_client.general_wallet_signer().pubkey()`).
     pub const fn new(
-        wallet: Arc<RwLock<OperatorWallet<G>>>,
+        wallet: Arc<RwLock<AnyOperatorWallet>>,
         operator_general_pubkey: XOnlyPublicKey,
     ) -> Self {
         Self {
@@ -68,7 +68,7 @@ impl<G: GeneralWallet + std::fmt::Debug + 'static> OperatorWalletCpfpAdapter<G> 
     }
 }
 
-impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWalletCpfpAdapter<G> {
+impl CpfpWallet for OperatorWalletCpfpAdapter {
     fn build_cpfp_child(
         &self,
         parent: &Transaction,

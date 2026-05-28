@@ -8,6 +8,7 @@ use bitcoin::{
 };
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
+use operator_wallet::AnyOperatorWallet;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnTx;
@@ -17,7 +18,7 @@ use crate::{
     chain::{CpfpKind, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
-    output_handles::{NativeWallet, OutputHandles},
+    output_handles::OutputHandles,
 };
 
 /// Index of the payout connector input in the unfunded burn template.
@@ -201,7 +202,7 @@ async fn burn_fee_rate(output_handles: &OutputHandles) -> Result<FeeRate, Execut
 ///   - general_wallet_output_value
 /// ```
 async fn select_funding(
-    wallet: &mut NativeWallet,
+    wallet: &mut AnyOperatorWallet,
     graph_idx: GraphIdx,
     unstaking_burn_tx: &UnstakingBurnTx,
     unstaking_preimage: [u8; 32],
@@ -528,6 +529,7 @@ mod tests {
     use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnData;
 
     use super::*;
+    use crate::output_handles::NativeWallet;
 
     const TEST_GRAPH_IDX: GraphIdx = GraphIdx {
         deposit: 0,
@@ -560,7 +562,7 @@ mod tests {
         keypair.x_only_public_key().0
     }
 
-    fn wallet(bitcoind: &Node) -> NativeWallet {
+    fn wallet(bitcoind: &Node) -> AnyOperatorWallet {
         let general = NativeGeneralWallet::new(
             xonly_pubkey(1),
             Network::Regtest,
@@ -573,9 +575,10 @@ mod tests {
             Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
             BTreeSet::new(),
         )
+        .into()
     }
 
-    fn fund_general_wallet(bitcoind: &Node, wallet: &NativeWallet, amount: Amount) {
+    fn fund_general_wallet(bitcoind: &Node, wallet: &AnyOperatorWallet, amount: Amount) {
         let mining_address = bitcoind
             .client
             .new_address()

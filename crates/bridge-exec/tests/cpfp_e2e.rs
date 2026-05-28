@@ -40,7 +40,9 @@ use bitcoin::{
 };
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::cpfp::{self, BumpReason, CpfpContext, CpfpHandle, CpfpStrategy, InputSigner};
-use operator_wallet::{NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend};
+use operator_wallet::{
+    AnyOperatorWallet, NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend,
+};
 use serial_test::serial;
 use strata_bridge_exec::cpfp_adapters::{BitcoindCpfpPackageSubmitter, OperatorWalletCpfpAdapter};
 use tokio::sync::RwLock;
@@ -109,7 +111,7 @@ async fn build_operator_wallet(
     pubkey: XOnlyPublicKey,
     funding_utxos: usize,
     funding_per_utxo: Amount,
-) -> Arc<RwLock<OperatorWallet<NativeGeneralWallet>>> {
+) -> Arc<RwLock<AnyOperatorWallet>> {
     let backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
     let backend_clone = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
     let general_wallet = NativeGeneralWallet::new(pubkey, Network::Regtest, backend);
@@ -141,14 +143,14 @@ async fn build_operator_wallet(
         .expect("mine confirmation");
 
     wallet.sync().await.expect("wallet sync after funding");
-    Arc::new(RwLock::new(wallet))
+    Arc::new(RwLock::new(wallet.into()))
 }
 
 /// Builds a fully-signed v3 parent transaction with a 330-sat keyed-Taproot anchor output
 /// keyed to `operator_pubkey`. Spends a wallet-selected UTXO; signed in-process with
 /// `operator_keypair`.
 async fn build_v3_parent(
-    wallet: &Arc<RwLock<OperatorWallet<NativeGeneralWallet>>>,
+    wallet: &Arc<RwLock<AnyOperatorWallet>>,
     operator_keypair: Keypair,
     operator_pubkey: XOnlyPublicKey,
     parent_fee_rate: FeeRate,
@@ -390,7 +392,7 @@ async fn cpfp_e2e_against_bitcoind() {
 /// mirrors the shape of cooperative_payout / uncontested_payout / unstaking txs that use
 /// [`CpfpStrategy::ParentTxCombined`] in production.
 async fn build_v3_payout_parent(
-    wallet: &Arc<RwLock<OperatorWallet<NativeGeneralWallet>>>,
+    wallet: &Arc<RwLock<AnyOperatorWallet>>,
     operator_keypair: Keypair,
     operator_pubkey: XOnlyPublicKey,
     parent_fee_rate: FeeRate,
@@ -559,7 +561,7 @@ async fn cpfp_e2e_parent_tx_combined_against_bitcoind() {
 /// calling watchtower's slash share). The third one is the CPFP hook the production helper
 /// would discover via `CpfpKind::InferGeneralPayout`.
 async fn build_v3_mixed_parent(
-    wallet: &Arc<RwLock<OperatorWallet<NativeGeneralWallet>>>,
+    wallet: &Arc<RwLock<AnyOperatorWallet>>,
     operator_keypair: Keypair,
     operator_pubkey: XOnlyPublicKey,
     other_pubkey: XOnlyPublicKey,

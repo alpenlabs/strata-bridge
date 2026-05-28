@@ -11,6 +11,7 @@ use btc_tracker::{
 };
 use jsonrpsee::http_client::HttpClient;
 use libp2p_identity::ed25519::Keypair;
+use operator_wallet::AnyOperatorWallet;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_asm_events::client::AsmEventFeed;
@@ -22,7 +23,7 @@ use strata_bridge_exec::{
         BitcoindCpfpFeeSource, BitcoindCpfpPackageSubmitter, OperatorWalletCpfpAdapter,
         build_anchor_input_signer, build_wallet_input_signer,
     },
-    output_handles::{NativeWallet, OutputHandles},
+    output_handles::OutputHandles,
 };
 use strata_bridge_orchestrator::{
     duty_dispatcher::DutyDispatcher, events_mux::EventsMux, persister::Persister,
@@ -58,7 +59,7 @@ pub(crate) async fn init_orchestrator<M>(
     gossip_handle: GossipHandle,
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,
-    wallet: Arc<RwLock<NativeWallet>>,
+    wallet: Arc<RwLock<AnyOperatorWallet>>,
     claim_funding_utxo_value: bitcoin::Amount,
     btc_rpc_client: BitcoinClient,
     asm_rpc_client: HttpClient,

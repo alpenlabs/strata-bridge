@@ -272,6 +272,37 @@ pub(crate) struct OperatorWalletConfig {
     /// The size of the claim funding pool, i.e., the number of UTXOs to generate for funding claim
     /// transactions when they run out.
     pub claim_funding_pool_size: usize,
+
+    /// When present, the operator's general wallet is custodied in Fireblocks instead of a local
+    /// BDK wallet. When absent (the default), the native backend is used. The reserved wallet is
+    /// always native regardless.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fireblocks: Option<FireblocksWalletConfig>,
+}
+
+/// Connection + identity configuration for a Fireblocks-backed general wallet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct FireblocksWalletConfig {
+    /// API host root, **without** the `/v1` path segment, e.g. `https://api.fireblocks.io`.
+    pub base_url: String,
+
+    /// Fireblocks API key (sent as the `X-API-Key` header).
+    pub api_key: String,
+
+    /// Vault account id holding the BTC asset.
+    pub vault_account_id: String,
+
+    /// Asset id for the network — `BTC` on mainnet, `BTC_TEST` on test networks.
+    pub asset_id: String,
+
+    /// The vault account's BTC deposit address (P2WPKH). Where the general wallet receives
+    /// funding and earnings.
+    pub deposit_address: String,
+
+    /// Path to the Fireblocks API secret — an RSA private key in PEM form, used to sign the
+    /// per-request JWTs. Kept out of the config body (like the secret-service TLS material) so
+    /// the key never lives in the config file itself.
+    pub api_secret_path: PathBuf,
 }
 
 /// Configuration for the mosaic client.
