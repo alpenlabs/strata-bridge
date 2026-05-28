@@ -127,9 +127,13 @@ regtest `bitcoind` (the `network-extbtc` environment).
    ```
 
 2. Run an SP1-proving test against the external node:
+   
+   ```bash
+   ./run_test.sh -t tests/proofs/fn_bridge_proof.py
+   ```
 
    ```bash
-   ./run_test.sh -t tests/contested_payout/fn_contest_without_counterproof.py
+   ./run_test.sh -t tests/proofs/fn_counterproof.py
    ```
 
    `run_test.sh` mines the external L1 to the genesis height, generates `asm-params.json`
