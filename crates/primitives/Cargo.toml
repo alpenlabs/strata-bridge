@@ -13,7 +13,7 @@ strata-identifiers.workspace = true
 strata-predicate.workspace = true
 zkaleido.workspace = true
 
-algebra.workspace = true
+algebra = { path = "../algebra", default-features = false }
 anyhow.workspace = true
 arbitrary.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
@@ -36,5 +36,6 @@ tokio = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [features]
-async = ["dep:tokio", "dep:futures"]
-proptest = ["dep:proptest", "dep:proptest-derive"]
+default = ["async", "proptest"]
+async = ["dep:tokio", "dep:futures", "algebra/async"]
+proptest = ["dep:proptest", "dep:proptest-derive", "algebra/proptest"]

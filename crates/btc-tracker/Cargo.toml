@@ -7,8 +7,8 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-algebra = { workspace = true, features = ["async"] }
-strata-bridge-primitives = { workspace = true, features = ["async"] }
+algebra.workspace = true
+strata-bridge-primitives.workspace = true
 
 async-trait.workspace = true
 bitcoin.workspace = true

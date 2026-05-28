@@ -16,6 +16,6 @@ tokio = { workspace = true, optional = true }
 tracing.workspace = true
 
 [features]
-default = []
+default = ["async", "proptest"]
 async = ["dep:futures", "dep:tokio"]
 proptest = ["dep:proptest"]
