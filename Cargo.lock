@@ -8149,7 +8149,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "strata-bridge-proof",
+ "strata-bridge-proof-common",
 ]
 
 [[package]]
@@ -11582,15 +11582,11 @@ name = "strata-bridge-proof"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "borsh",
  "cfg-if 1.0.4",
- "hex",
  "moho-recursive-proof",
  "moho-runtime-interface",
  "moho-types",
  "serde_json",
- "sp1-sdk",
- "sp1-verifier",
  "ssz",
  "ssz_derive",
  "strata-asm-params",
@@ -11604,7 +11600,6 @@ dependencies = [
  "strata-predicate",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
  "zkaleido-native-adapter",
- "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
 ]
 
 [[package]]
@@ -11612,14 +11607,19 @@ name = "strata-bridge-proof-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "borsh",
  "hex",
  "k256",
  "serde",
+ "sp1-sdk",
+ "sp1-verifier",
+ "strata-predicate",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
  "zkaleido-native-adapter",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1-beta.2)",
  "zkaleido-sp1-host",
 ]
 
@@ -11670,6 +11670,7 @@ dependencies = [
  "ssz",
  "strata-bridge-counterproof",
  "strata-bridge-proof",
+ "strata-bridge-proof-common",
  "strata-predicate",
 ]
 
