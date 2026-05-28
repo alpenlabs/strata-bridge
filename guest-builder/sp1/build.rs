@@ -34,8 +34,10 @@ mod release {
     use ssz::Encode;
     use strata_bridge_counterproof::load_genesis_from_predicate;
     use strata_bridge_proof::{
-        load_genesis_from_paths, sp1_groth16_predicate_key, sp1_groth16_predicate_string_from_key,
-        ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
+        load_genesis_from_paths, ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
+    };
+    use strata_bridge_proof_common::host::{
+        sp1_groth16_predicate_key, sp1_groth16_predicate_string_from_key, sp1_program_vkey_hash,
     };
     use strata_predicate::PredicateKey;
 
@@ -46,9 +48,11 @@ mod release {
     const BRIDGE_PROOF_GUEST_DIR: &str = "guest-bridge-proof";
     const BRIDGE_PROOF_ELF_NAME: &str = "bridge-proof.elf";
     const BRIDGE_PROOF_PREDICATE_NAME: &str = "bridge-proof.predicate";
+    const BRIDGE_PROOF_VKEY_NAME: &str = "bridge-proof-vkey.bin";
     const COUNTERPROOF_GUEST_DIR: &str = "guest-counterproof";
     const COUNTERPROOF_ELF_NAME: &str = "counterproof.elf";
     const COUNTERPROOF_PREDICATE_NAME: &str = "counterproof.predicate";
+    const COUNTERPROOF_VKEY_NAME: &str = "counterproof-vkey.bin";
     const ELFS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/elfs");
 
     pub fn run() {
@@ -73,12 +77,20 @@ mod release {
         //    genesis.
         write_bridge_proof_genesis();
         build_guest(BRIDGE_PROOF_GUEST_DIR, BRIDGE_PROOF_ELF_NAME);
-        let bridge_proof_vk = emit_predicate(BRIDGE_PROOF_ELF_NAME, BRIDGE_PROOF_PREDICATE_NAME);
+        let bridge_proof_vk = emit_predicate(
+            BRIDGE_PROOF_ELF_NAME,
+            BRIDGE_PROOF_PREDICATE_NAME,
+            BRIDGE_PROOF_VKEY_NAME,
+        );
 
         // 2) Bake that VK into the counterproof guest's embedded genesis, then build.
         write_counterproof_genesis(bridge_proof_vk);
         build_guest(COUNTERPROOF_GUEST_DIR, COUNTERPROOF_ELF_NAME);
-        let _ = emit_predicate(COUNTERPROOF_ELF_NAME, COUNTERPROOF_PREDICATE_NAME);
+        let _ = emit_predicate(
+            COUNTERPROOF_ELF_NAME,
+            COUNTERPROOF_PREDICATE_NAME,
+            COUNTERPROOF_VKEY_NAME,
+        );
     }
 
     fn write_bridge_proof_genesis() {
@@ -132,19 +144,27 @@ mod release {
         build_program_with_args(guest_dir, build_args);
     }
 
-    /// Derives the `Sp1Groth16:<hex>` predicate from the freshly built ELF, writes its
-    /// string form next to the ELF, and returns the parsed key so the caller can reuse it
-    /// (avoids re-running the expensive `prover.setup`).
-    fn emit_predicate(elf_name: &str, predicate_name: &str) -> PredicateKey {
+    /// Derives the `Sp1Groth16:<hex>` predicate from the freshly built ELF, writes the
+    /// raw 32-byte verifying-key digest and the predicate's string form next to the ELF,
+    /// and returns the parsed key for the caller to thread into downstream genesis.
+    fn emit_predicate(elf_name: &str, predicate_name: &str, vkey_name: &str) -> PredicateKey {
         let elf_path = Path::new(ELFS_DIR).join(elf_name);
         let elf = fs::read(&elf_path)
             .unwrap_or_else(|e| panic!("read built ELF {}: {e}", elf_path.display()));
-        let predicate_key = sp1_groth16_predicate_key(&elf)
+
+        let vkey_hash = sp1_program_vkey_hash(&elf)
+            .unwrap_or_else(|e| panic!("derive sp1 program vkey hash: {e}"));
+        let vkey_out_file = Path::new(ELFS_DIR).join(vkey_name);
+        fs::write(&vkey_out_file, vkey_hash)
+            .unwrap_or_else(|e| panic!("write {}: {e}", vkey_out_file.display()));
+
+        let predicate_key = sp1_groth16_predicate_key(vkey_hash)
             .unwrap_or_else(|e| panic!("derive sp1 groth16 predicate key: {e}"));
         let predicate_str = sp1_groth16_predicate_string_from_key(&predicate_key);
         let predicate_out_file = Path::new(ELFS_DIR).join(predicate_name);
         fs::write(&predicate_out_file, predicate_str)
             .unwrap_or_else(|e| panic!("write {}: {e}", predicate_out_file.display()));
+
         predicate_key
     }
 

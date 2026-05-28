@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use strata_bridge_proof::sp1_groth16_predicate_string;
+use strata_bridge_proof_common::host::sp1_groth16_predicate_string;
 
 /// Bridge proof tooling.
 #[derive(Parser)]
