@@ -98,6 +98,10 @@ pub struct ProtocolParams {
     /// Predicate key used to verify bridge proof.
     #[serde(default = "PredicateKey::always_accept")]
     pub bridge_proof_predicate: PredicateKey,
+
+    /// Predicate key used to verify bridge counterproof.
+    #[serde(default = "PredicateKey::always_accept")]
+    pub counterproof_predicate: PredicateKey,
 }
 
 /// The keys used by the operators.

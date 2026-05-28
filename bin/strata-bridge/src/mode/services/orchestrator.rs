@@ -217,6 +217,7 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
             .map(|cov| cov.payout_descriptor.clone())
             .collect(),
         bridge_proof_predicate: params.protocol.bridge_proof_predicate.clone(),
+        counterproof_predicate: params.protocol.counterproof_predicate.clone(),
     };
 
     // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2924>
