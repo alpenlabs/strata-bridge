@@ -13,9 +13,9 @@ required-features = ["sp1"]
 
 [features]
 default = []
-sp1 = ["strata-bridge-proof/sp1"]
+sp1 = ["strata-bridge-proof-common/sp1"]
 
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-strata-bridge-proof.workspace = true
+strata-bridge-proof-common.workspace = true
