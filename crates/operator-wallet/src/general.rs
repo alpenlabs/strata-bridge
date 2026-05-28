@@ -7,6 +7,8 @@
 //! filtering, cross-wallet transaction construction — lives on the composer
 //! [`crate::OperatorWallet<G>`] that wraps a `GeneralWallet`.
 
+#[cfg(feature = "fireblocks")]
+pub mod fireblocks;
 pub mod native;
 
 use std::error::Error as StdError;
