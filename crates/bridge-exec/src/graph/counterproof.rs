@@ -15,7 +15,8 @@ use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
 use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES};
 use tracing::{info, warn};
-use zkaleido::ProofReceipt;
+#[cfg(feature = "sp1")]
+use zkaleido_sp1_groth16_verifier::Sp1Groth16Proof;
 
 use crate::{
     chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
@@ -38,10 +39,7 @@ pub(super) async fn generate_and_publish_counterproof(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "generating and publishing counterproof for graph");
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-1981>
-    // garble the receipt's proof into the wire-input representation.
-    // Using mock counterproof data until that conversion is wired in.
-    let _receipt = generate_counterproof(
+    let counterproof_data = generate_counterproof(
         cfg,
         output_handles,
         deposit_idx,
@@ -50,7 +48,6 @@ pub(super) async fn generate_and_publish_counterproof(
         bridge_proof_tx,
     )
     .await?;
-    let counterproof_data = G16ProofRaw([0u8; N_WITHDRAWAL_INPUT_WIRES]);
 
     // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
     info!(%deposit_idx, %operator_idx, "completing adaptor signatures via mosaic for graph");
@@ -85,7 +82,12 @@ pub(super) async fn generate_and_publish_counterproof(
     .await
 }
 
-/// Fetches the prover inputs and generates the counterproof receipt.
+/// Prepares the prover inputs and generates the counterproof, returning the
+/// [`G16ProofRaw`].
+///
+/// Under the SP1 host, the receipt's SP1-wrapped Groth16 proof is unwrapped
+/// and gnark-compressed into a [`G16ProofRaw`]. Under the native host a zero-filled [`G16ProofRaw`]
+/// is returned as a stand-in.
 async fn generate_counterproof(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
@@ -93,7 +95,7 @@ async fn generate_counterproof(
     operator_idx: OperatorIdx,
     game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
-) -> Result<ProofReceipt, ExecutorError> {
+) -> Result<G16ProofRaw, ExecutorError> {
     let proof_input = fetch_counterproof_input(
         cfg,
         output_handles,
@@ -106,13 +108,17 @@ async fn generate_counterproof(
 
     info!(%deposit_idx, %operator_idx, "generating counterproof for graph");
     let prove_start = std::time::Instant::now();
-    let receipt = match output_handles.counterproof_host.clone() {
+    let counterproof_data = match output_handles.counterproof_host.clone() {
         BridgeCounterproofHost::Native(host) => {
-            prove::<CounterproofProgram, _>(proof_input, host).await?
+            let _receipt = prove::<CounterproofProgram, _>(proof_input, host).await?;
+            G16ProofRaw([0u8; N_WITHDRAWAL_INPUT_WIRES])
         }
         #[cfg(feature = "sp1")]
         BridgeCounterproofHost::Sp1(host) => {
-            prove::<CounterproofProgram, _>(proof_input, *host).await?
+            let receipt = prove::<CounterproofProgram, _>(proof_input, *host).await?;
+            let parsed = Sp1Groth16Proof::parse(receipt.proof().as_bytes())
+                .expect("SP1 host must produce a parseable Groth16 proof");
+            G16ProofRaw(parsed.proof.to_gnark_compressed_bytes())
         }
     };
     info!(
@@ -122,7 +128,7 @@ async fn generate_counterproof(
         "counterproof generated for graph",
     );
 
-    Ok(receipt)
+    Ok(counterproof_data)
 }
 
 /// Fetches the inputs needed for counterproof generation and assembles them
