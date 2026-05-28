@@ -85,6 +85,14 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         self.general.script_pubkey()
     }
 
+    /// Returns the BOSD descriptor where bridge payouts to this operator should be directed.
+    /// Delegates to the backend so the destination matches the custodian that can spend it
+    /// (native general-key P2TR vs. Fireblocks vault P2WPKH). See
+    /// [`GeneralWallet::payout_descriptor`](crate::GeneralWallet::payout_descriptor).
+    pub fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
+        self.general.payout_descriptor()
+    }
+
     /// Returns the reserved wallet's receive script.
     pub fn reserved_script_pubkey(&self) -> ScriptBuf {
         self.reserved_script_pubkey.clone()

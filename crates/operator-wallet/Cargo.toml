@@ -9,6 +9,7 @@ workspace = true
 [dependencies]
 bdk_bitcoind_rpc.workspace = true
 bdk_wallet.workspace = true
+bitcoin-bosd.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

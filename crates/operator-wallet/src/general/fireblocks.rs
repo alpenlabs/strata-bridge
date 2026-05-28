@@ -127,9 +127,12 @@ pub struct FireblocksGeneralWallet {
     /// RS256 signing key derived from the operator's Fireblocks API secret. Used to mint the
     /// per-request JWT.
     signing_key: jsonwebtoken::EncodingKey,
-    /// Receive script derived from `config.deposit_address`. Returned by `script_pubkey` and
+    /// Receive script derived from the vault deposit address. Returned by `script_pubkey` and
     /// used for change outputs.
     script_pubkey: ScriptBuf,
+    /// BOSD payout descriptor (P2WPKH) for the vault address, prebuilt at construction so the
+    /// trait accessor is infallible.
+    payout_descriptor: bitcoin_bosd::Descriptor,
     /// Snapshot of the vault's spendable UTXOs from the most recent `sync`.
     cached_utxos: Vec<super::UtxoInfo>,
 }
@@ -164,11 +167,25 @@ impl FireblocksGeneralWallet {
             .map_err(|e| FireblocksError::DepositAddress(e.to_string()))?;
         let script_pubkey = address.script_pubkey();
 
+        // The backend assumes a P2WPKH vault (Fireblocks BTC is ECDSA secp256k1). Validate
+        // up-front and build the payout descriptor from the witness-program hash so the trait
+        // accessor stays infallible and we don't couple to bosd's `bitcoin` version.
+        if !script_pubkey.is_p2wpkh() {
+            return Err(FireblocksError::DepositAddress(format!(
+                "deposit address must be P2WPKH (got {address})"
+            )));
+        }
+        let mut wpkh = [0u8; 20];
+        // P2WPKH scriptPubKey is `OP_0 PUSH20 <hash160>`; the 20-byte hash starts at byte 2.
+        wpkh.copy_from_slice(&script_pubkey.as_bytes()[2..22]);
+        let payout_descriptor = bitcoin_bosd::Descriptor::new_p2wpkh(&wpkh);
+
         Ok(Self {
             config,
             http: reqwest::Client::new(),
             signing_key,
             script_pubkey,
+            payout_descriptor,
             cached_utxos: Vec::new(),
         })
     }
@@ -405,25 +422,60 @@ impl FireblocksGeneralWallet {
     }
 
     /// Selects P2WPKH funding inputs for a CPFP child so the `[parent, child]` package reaches
-    /// `target_pkg_fee_rate`. The child spends the anchor (value `anchor_value`) plus the
-    /// selected inputs and pays a single change output; its fee is the package shortfall after
-    /// the parent's own fee. Returns the inputs and the child's output (change) value.
+    /// `target_pkg_fee_rate`. The child spends the combined input (value `combined_value`)
+    /// plus the selected inputs and pays a single change output; its fee is the package
+    /// shortfall after the parent's own fee.
+    ///
+    /// `combined_is_p2wpkh` distinguishes the two combined-input shapes for the fee estimate:
+    /// the operator's own P2WPKH payout (every input is P2WPKH) vs. a foreign keyed-Taproot
+    /// anchor (one P2TR input + the P2WPKH funding inputs).
+    ///
+    /// Returns the funding inputs (possibly empty when the combined input alone covers the
+    /// fee) and the child's output (change) value.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "cohesive CPFP fee-selection inputs; bundling into a struct would only add indirection"
+    )]
     fn select_cpfp_funding(
         &self,
         exclude: &HashSet<OutPoint>,
-        anchor_value: Amount,
+        combined_value: Amount,
+        combined_is_p2wpkh: bool,
         parent_vsize: u64,
         parent_fee: Amount,
         target_pkg_fee_rate: FeeRate,
         change_spk: &Script,
     ) -> Result<(Vec<FundingInput>, Amount), FireblocksError> {
+        let dust = change_spk.minimal_non_dust();
+        let change_len = change_spk.len();
+
+        // Child output (change) for `n_funding` P2WPKH funding inputs contributing
+        // `funding_total`; `None` if it can't clear dust or the arithmetic overflows.
+        let try_fit = |n_funding: usize, funding_total: Amount| -> Option<Amount> {
+            let n_p2wpkh = n_funding + usize::from(combined_is_p2wpkh);
+            let child_vsize = tx::cpfp_child_vsize(n_p2wpkh, !combined_is_p2wpkh, change_len);
+            let package_fee =
+                target_pkg_fee_rate.fee_vb(parent_vsize.saturating_add(child_vsize))?;
+            // The child only needs to make up the package shortfall after the parent's fee.
+            let child_fee = package_fee.checked_sub(parent_fee).unwrap_or(Amount::ZERO);
+            combined_value
+                .checked_add(funding_total)
+                .and_then(|t| t.checked_sub(child_fee))
+                .filter(|out| *out >= dust)
+        };
+
+        // The combined input alone may already cover the package fee — common when CPFP-ing a
+        // payout whose value dwarfs the bump fee.
+        if let Some(child_output) = try_fit(0, Amount::ZERO) {
+            return Ok((Vec::new(), child_output));
+        }
+
         let mut eligible: Vec<&UtxoInfo> = self
             .cached_utxos
             .iter()
             .filter(|u| u.script_pubkey == self.script_pubkey && !exclude.contains(&u.outpoint))
             .collect();
         eligible.sort_by_key(|u| std::cmp::Reverse(u.amount));
-        let dust = change_spk.minimal_non_dust();
 
         let mut selected: Vec<FundingInput> = Vec::new();
         let mut funding_total = Amount::ZERO;
@@ -438,21 +490,8 @@ impl FireblocksGeneralWallet {
             funding_total = funding_total
                 .checked_add(u.amount)
                 .ok_or_else(|| FireblocksError::TxBuild("input total overflows".into()))?;
-
-            let child_vsize = tx::cpfp_child_vsize(selected.len(), change_spk.len());
-            let package_vsize = parent_vsize.saturating_add(child_vsize);
-            let package_fee = target_pkg_fee_rate
-                .fee_vb(package_vsize)
-                .ok_or_else(|| FireblocksError::TxBuild("package fee overflow".into()))?;
-            // The child only needs to make up the package shortfall after the parent's fee.
-            let child_fee = package_fee.checked_sub(parent_fee).unwrap_or(Amount::ZERO);
-            if let Some(child_output) = anchor_value
-                .checked_add(funding_total)
-                .and_then(|t| t.checked_sub(child_fee))
-            {
-                if child_output >= dust {
-                    return Ok((selected, child_output));
-                }
+            if let Some(child_output) = try_fit(selected.len(), funding_total) {
+                return Ok((selected, child_output));
             }
         }
         Err(FireblocksError::TxBuild(
@@ -488,6 +527,12 @@ impl GeneralWallet for FireblocksGeneralWallet {
 
     fn script_pubkey(&self) -> ScriptBuf {
         self.script_pubkey.clone()
+    }
+
+    fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
+        // Earnings land in the Fireblocks vault (P2WPKH), where the operator can spend them
+        // via Fireblocks ECDSA signing — the same address used for funding.
+        self.payout_descriptor.clone()
     }
 
     fn list_utxos(&self) -> Vec<UtxoInfo> {
@@ -556,18 +601,27 @@ impl GeneralWallet for FireblocksGeneralWallet {
         let change_spk = self.script_pubkey.clone();
         // cast: tx vsize is bounded by the 4 MWU consensus limit, far inside u64.
         let parent_vsize = parent.vsize() as u64;
-        let exclude_set: HashSet<OutPoint> = exclude.iter().copied().collect();
+
+        // If the combined output pays our own vault script, it's the operator's P2WPKH payout
+        // (the `ParentTxCombined` case) which Fireblocks signs itself. Otherwise it's a foreign
+        // keyed-Taproot anchor (`AnchorBearing`) left unsigned for secret-service.
+        let combined_is_ours = anchor_prevout.script_pubkey == self.script_pubkey;
+
+        let mut exclude_set: HashSet<OutPoint> = exclude.iter().copied().collect();
+        // Never re-select the combined input as a funding input.
+        exclude_set.insert(anchor_outpoint);
 
         let (funding, child_output_value) = self.select_cpfp_funding(
             &exclude_set,
             anchor_prevout.value,
+            combined_is_ours,
             parent_vsize,
             parent_fee,
             target_pkg_fee_rate,
             &change_spk,
         )?;
 
-        // Input 0 is the foreign anchor; inputs 1.. are the Fireblocks funding inputs.
+        // Input 0 is the combined input; inputs 1.. are the Fireblocks funding inputs.
         let mut txins = Vec::with_capacity(funding.len() + 1);
         let mut prevouts = Vec::with_capacity(funding.len() + 1);
         txins.push(tx::txin(anchor_outpoint));
@@ -585,12 +639,19 @@ impl GeneralWallet for FireblocksGeneralWallet {
         let mut psbt = Psbt::from_unsigned_tx(unsigned)
             .map_err(|e| FireblocksError::TxBuild(format!("psbt from unsigned tx: {e}")))?;
 
-        // Fireblocks signs the funding inputs; the anchor input (0) is left unsigned with
-        // witness_utxo + tap_internal_key for the operator's secret-service to key-path-sign.
-        let fb_indices: Vec<usize> = (1..=funding.len()).collect();
-        self.sign_fb_inputs(&mut psbt, &fb_indices, &prevouts)
-            .await?;
-        psbt.inputs[0].tap_internal_key = Some(anchor.internal_key);
+        if combined_is_ours {
+            // The payout output is ours: every input (payout + funding) is an FB-signed P2WPKH.
+            let fb_indices: Vec<usize> = (0..=funding.len()).collect();
+            self.sign_fb_inputs(&mut psbt, &fb_indices, &prevouts)
+                .await?;
+        } else {
+            // Fireblocks signs the funding inputs; the anchor input (0) is left unsigned with
+            // witness_utxo + tap_internal_key for the operator's secret-service to key-path-sign.
+            let fb_indices: Vec<usize> = (1..=funding.len()).collect();
+            self.sign_fb_inputs(&mut psbt, &fb_indices, &prevouts)
+                .await?;
+            psbt.inputs[0].tap_internal_key = Some(anchor.internal_key);
+        }
         Ok(FundedPsbt { psbt })
     }
 }

@@ -122,12 +122,20 @@ pub(super) fn fee_for(
         .ok_or_else(|| FireblocksError::TxBuild("fee computation overflowed".into()))
 }
 
-/// Predicted vsize of a CPFP child: one P2TR key-spend anchor input + `n_funding` P2WPKH
-/// funding inputs + a single change output.
-pub(super) fn cpfp_child_vsize(n_funding: usize, change_spk_len: usize) -> u64 {
-    let inputs = std::iter::once(InputWeightPrediction::P2TR_KEY_DEFAULT_SIGHASH).chain(
-        std::iter::repeat_n(InputWeightPrediction::P2WPKH_MAX, n_funding),
-    );
+/// Predicted vsize of a CPFP child with `n_p2wpkh` P2WPKH inputs, optionally preceded by a
+/// P2TR key-spend anchor input (the foreign keyed anchor for an `AnchorBearing` parent),
+/// plus a single change output. When `has_p2tr_anchor` is false every input is P2WPKH (the
+/// `ParentTxCombined` case where the combined input is the operator's own vault output).
+pub(super) fn cpfp_child_vsize(
+    n_p2wpkh: usize,
+    has_p2tr_anchor: bool,
+    change_spk_len: usize,
+) -> u64 {
+    let anchor = has_p2tr_anchor.then_some(InputWeightPrediction::P2TR_KEY_DEFAULT_SIGHASH);
+    let inputs = anchor.into_iter().chain(std::iter::repeat_n(
+        InputWeightPrediction::P2WPKH_MAX,
+        n_p2wpkh,
+    ));
     predict_weight(inputs, [change_spk_len]).to_vbytes_ceil()
 }
 

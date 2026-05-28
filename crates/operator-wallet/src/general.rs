@@ -60,6 +60,20 @@ pub trait GeneralWallet: Send + Sync {
     /// may rotate for backends that mint fresh deposit addresses per call.
     fn script_pubkey(&self) -> ScriptBuf;
 
+    /// Returns the BOSD descriptor where bridge payouts to this operator should be directed.
+    ///
+    /// Backend-specific, because the operator must be able to *spend* what it receives:
+    /// - the native backend keys it to the operator's general x-only key as a P2TR output (spent
+    ///   later via the CPFP `ParentTxCombined` path with an untweaked key-path sig);
+    /// - a Fireblocks backend points it at the vault's P2WPKH address.
+    ///
+    /// This is the assignee's own choice in the cooperative-payout flow — peers honour
+    /// whatever descriptor is broadcast (`CooperativePayoutTx` builds the output via
+    /// `Descriptor::to_script`), so it need not match other operators' backends. Note this is
+    /// distinct from [`Self::script_pubkey`]: for the native backend the payout target is the
+    /// untweaked-key P2TR, whereas `script_pubkey` is the BIP86-tweaked funding address.
+    fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor;
+
     /// Returns every UTXO this wallet currently controls (confirmed and unconfirmed). The
     /// caller is responsible for filtering anchors, leases, and other domain-specific
     /// exclusions before requesting funding.
