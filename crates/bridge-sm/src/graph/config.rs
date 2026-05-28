@@ -27,4 +27,7 @@ pub struct GraphSMCfg {
 
     /// Predicate key used to verify bridge proof.
     pub bridge_proof_predicate: PredicateKey,
+
+    /// Predicate key used to verify bridge counterproof.
+    pub counterproof_predicate: PredicateKey,
 }

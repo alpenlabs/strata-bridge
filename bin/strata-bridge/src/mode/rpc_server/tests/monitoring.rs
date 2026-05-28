@@ -102,6 +102,7 @@ fn test_graph_cfg() -> GraphSMCfg {
         admin_pubkey: generate_xonly_pubkey(),
         payout_descs: (0..3).map(|_| random_p2tr_desc()).collect(),
         bridge_proof_predicate: PredicateKey::always_accept(),
+        counterproof_predicate: PredicateKey::always_accept(),
     }
 }
 

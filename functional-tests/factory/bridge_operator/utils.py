@@ -8,6 +8,7 @@ from constants import (
     NATIVE_TEST_BRIDGE_PROOF_SIGNING_KEY,
     NATIVE_TEST_BRIDGE_PROOF_VERIFYING_KEY,
     NATIVE_TEST_COUNTERPROOF_SIGNING_KEY,
+    NATIVE_TEST_COUNTERPROOF_VERIFYING_KEY,
 )
 from utils.utils import OperatorKeyInfo
 
@@ -182,6 +183,15 @@ def resolve_bridge_proof_predicate() -> str:
     return f"Bip340Schnorr:{NATIVE_TEST_BRIDGE_PROOF_VERIFYING_KEY}"
 
 
+def resolve_counterproof_predicate() -> str:
+    """Predicate string matching the active counterproof backend."""
+    sp1_elf = os.environ.get("BRIDGE_COUNTERPROOF_SP1_ELF")
+    if sp1_elf:
+        predicate_path = Path(sp1_elf).with_suffix(".predicate")
+        return predicate_path.read_text().strip()
+    return f"Bip340Schnorr:{NATIVE_TEST_COUNTERPROOF_VERIFYING_KEY}"
+
+
 def generate_params_toml(
     output_path: str,
     operator_key_infos: list[OperatorKeyInfo],
@@ -210,6 +220,8 @@ def generate_params_toml(
     protocol = bridge_protocol_params
     if protocol.bridge_proof_predicate is None:
         protocol = replace(protocol, bridge_proof_predicate=resolve_bridge_proof_predicate())
+    if protocol.counterproof_predicate is None:
+        protocol = replace(protocol, counterproof_predicate=resolve_counterproof_predicate())
 
     params = BridgeOperatorParams(
         network="regtest",

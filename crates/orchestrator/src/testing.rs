@@ -93,6 +93,7 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
         operator_fee: TEST_OPERATOR_FEE,
         payout_descs,
         bridge_proof_predicate: PredicateKey::always_accept(),
+        counterproof_predicate: PredicateKey::always_accept(),
     })
 }
 

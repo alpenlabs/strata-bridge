@@ -38,6 +38,7 @@ class BridgeProtocolParams:
     nack_timelock: int = 30
     contested_payout_timelock: int = 60
     bridge_proof_predicate: str | None = None
+    counterproof_predicate: str | None = None
 
 
 @dataclass
