@@ -7,7 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-strata-bridge-primitives = { workspace = true, features = ["proptest"] }
+strata-bridge-primitives.workspace = true
 
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true

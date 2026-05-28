@@ -7,7 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-strata-bridge-primitives = { workspace = true, features = ["async"] }
+strata-bridge-primitives.workspace = true
 
 mosaic-common.workspace = true
 
