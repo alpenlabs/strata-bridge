@@ -27,18 +27,28 @@
 
 mod auth;
 mod dto;
+mod sign;
+mod tx;
 
-use std::{fmt, str::FromStr};
+use std::{collections::HashSet, fmt, str::FromStr, time::Duration};
 
 use bdk_wallet::bitcoin::{
-    address::NetworkUnchecked, Address, Amount, Denomination, FeeRate, Network, OutPoint,
-    ScriptBuf, Transaction, TxOut, Txid,
+    address::NetworkUnchecked, Address, Amount, Denomination, FeeRate, Network, OutPoint, Psbt,
+    Script, ScriptBuf, Transaction, TxIn, TxOut, Txid,
 };
 use reqwest::Method;
 use serde::de::DeserializeOwned;
 use thiserror::Error;
+use tx::FundingInput;
 
 use super::{AnchorInfo, FundedPsbt, GeneralWallet, UtxoInfo};
+
+/// How often to poll a RAW-signing transaction for completion.
+const SIGN_POLL_INTERVAL: Duration = Duration::from_secs(2);
+/// Maximum number of poll attempts before giving up on a RAW-signing transaction (~2 min at
+/// the 2s interval). Fireblocks signing latency depends on the workspace's Transaction
+/// Authorization Policy; an auto-approve rule keeps this well within budget.
+const SIGN_MAX_POLL_ATTEMPTS: u32 = 60;
 
 /// Connection + identity configuration for a Fireblocks BTC vault account.
 #[derive(Clone)]
@@ -246,6 +256,217 @@ impl FireblocksGeneralWallet {
             script_pubkey,
         })
     }
+
+    /// Signs `sighashes` via a Fireblocks `RAW` transaction: submits the messages, then polls
+    /// the transaction until the signatures are available (or it fails / times out). Returns
+    /// the signed messages in request order.
+    async fn raw_sign(
+        &self,
+        sighashes: &[[u8; 32]],
+    ) -> Result<Vec<dto::SignedMessage>, FireblocksError> {
+        let messages = sighashes
+            .iter()
+            .map(|h| dto::UnsignedRawMessage {
+                content: hex::encode(h),
+            })
+            .collect();
+        let request = dto::RawSignRequest {
+            operation: "RAW",
+            asset_id: self.config.asset_id.clone(),
+            source: dto::TransferPeer {
+                peer_type: "VAULT_ACCOUNT",
+                id: self.config.vault_account_id.clone(),
+            },
+            extra_parameters: dto::ExtraParameters {
+                raw_message_data: dto::RawMessageData {
+                    messages,
+                    algorithm: "MPC_ECDSA_SECP256K1",
+                },
+            },
+        };
+        let body = serde_json::to_string(&request)
+            .map_err(|e| FireblocksError::TxBuild(format!("serialize raw-sign request: {e}")))?;
+        let created: dto::CreateTransactionResponse = self
+            .signed_request(Method::POST, "/transactions", Some(&body))
+            .await?;
+
+        let subpath = format!("/transactions/{}", created.id);
+        for _ in 0..SIGN_MAX_POLL_ATTEMPTS {
+            let details: dto::TransactionDetails =
+                self.signed_request(Method::GET, &subpath, None).await?;
+            if is_failure_status(&details.status) {
+                return Err(FireblocksError::Api(format!(
+                    "raw-sign transaction {} reached failure status {}",
+                    created.id, details.status
+                )));
+            }
+            if details.signed_messages.len() >= sighashes.len() {
+                return Ok(details.signed_messages);
+            }
+            tokio::time::sleep(SIGN_POLL_INTERVAL).await;
+        }
+        Err(FireblocksError::SigningTimeout(created.id))
+    }
+
+    /// Populates `witness_utxo` on every PSBT input, RAW-signs the inputs at
+    /// `fb_input_indices`, and writes their P2WPKH witnesses. Inputs not listed (e.g. a CPFP
+    /// anchor) are left for downstream signing per the [`GeneralWallet`] contract.
+    ///
+    /// `prevouts[i]` must be the output spent by `psbt.unsigned_tx.input[i]`.
+    async fn sign_fb_inputs(
+        &self,
+        psbt: &mut Psbt,
+        fb_input_indices: &[usize],
+        prevouts: &[TxOut],
+    ) -> Result<(), FireblocksError> {
+        for (i, prevout) in prevouts.iter().enumerate() {
+            psbt.inputs[i].witness_utxo = Some(prevout.clone());
+        }
+        if fb_input_indices.is_empty() {
+            return Ok(());
+        }
+        let sighashes = fb_input_indices
+            .iter()
+            .map(|&i| tx::p2wpkh_sighash(psbt, i, prevouts))
+            .collect::<Result<Vec<_>, _>>()?;
+        let signed = self.raw_sign(&sighashes).await?;
+        if signed.len() < fb_input_indices.len() {
+            return Err(FireblocksError::Api(format!(
+                "expected {} signatures, got {}",
+                fb_input_indices.len(),
+                signed.len()
+            )));
+        }
+        for (n, &i) in fb_input_indices.iter().enumerate() {
+            let msg = &signed[n];
+            let witness = sign::assemble_p2wpkh_witness(&msg.signature.full_sig, &msg.public_key)?;
+            psbt.inputs[i].final_script_witness = Some(witness);
+        }
+        Ok(())
+    }
+
+    /// Builds [`FundingInput`]s for an explicit input set, looking each outpoint up in the
+    /// cached UTXO set, and computes the change amount (dropping change below dust into fee).
+    fn funding_from_explicit(
+        &self,
+        explicit_inputs: &[OutPoint],
+        recipient_outputs: &[TxOut],
+        change_spk: &Script,
+        fee_rate: FeeRate,
+    ) -> Result<(Vec<FundingInput>, Option<Amount>), FireblocksError> {
+        let mut funding = Vec::with_capacity(explicit_inputs.len());
+        let mut total_in = Amount::ZERO;
+        for op in explicit_inputs {
+            let u = self
+                .cached_utxos
+                .iter()
+                .find(|u| u.outpoint == *op)
+                .ok_or_else(|| {
+                    FireblocksError::TxBuild(format!("explicit input {op} not in wallet UTXO set"))
+                })?;
+            funding.push(FundingInput {
+                outpoint: *op,
+                prevout: TxOut {
+                    value: u.amount,
+                    script_pubkey: u.script_pubkey.clone(),
+                },
+            });
+            total_in = total_in
+                .checked_add(u.amount)
+                .ok_or_else(|| FireblocksError::TxBuild("input total overflows".into()))?;
+        }
+
+        let recipient_total = recipient_outputs
+            .iter()
+            .try_fold(Amount::ZERO, |acc, o| acc.checked_add(o.value))
+            .ok_or_else(|| FireblocksError::TxBuild("recipient output total overflows".into()))?;
+        let recipient_lens: Vec<usize> = recipient_outputs
+            .iter()
+            .map(|o| o.script_pubkey.len())
+            .collect();
+        let fee_with_change = tx::fee_for(
+            funding.len(),
+            &recipient_lens,
+            Some(change_spk.len()),
+            fee_rate,
+        )?;
+        let fee_no_change = tx::fee_for(funding.len(), &recipient_lens, None, fee_rate)?;
+
+        if total_in < recipient_total + fee_no_change {
+            return Err(FireblocksError::TxBuild(format!(
+                "explicit inputs total {total_in} cannot cover {recipient_total} + fee"
+            )));
+        }
+        let change = total_in
+            .checked_sub(recipient_total)
+            .and_then(|r| r.checked_sub(fee_with_change))
+            .filter(|rem| *rem >= change_spk.minimal_non_dust());
+        Ok((funding, change))
+    }
+
+    /// Selects P2WPKH funding inputs for a CPFP child so the `[parent, child]` package reaches
+    /// `target_pkg_fee_rate`. The child spends the anchor (value `anchor_value`) plus the
+    /// selected inputs and pays a single change output; its fee is the package shortfall after
+    /// the parent's own fee. Returns the inputs and the child's output (change) value.
+    fn select_cpfp_funding(
+        &self,
+        exclude: &HashSet<OutPoint>,
+        anchor_value: Amount,
+        parent_vsize: u64,
+        parent_fee: Amount,
+        target_pkg_fee_rate: FeeRate,
+        change_spk: &Script,
+    ) -> Result<(Vec<FundingInput>, Amount), FireblocksError> {
+        let mut eligible: Vec<&UtxoInfo> = self
+            .cached_utxos
+            .iter()
+            .filter(|u| u.script_pubkey == self.script_pubkey && !exclude.contains(&u.outpoint))
+            .collect();
+        eligible.sort_by_key(|u| std::cmp::Reverse(u.amount));
+        let dust = change_spk.minimal_non_dust();
+
+        let mut selected: Vec<FundingInput> = Vec::new();
+        let mut funding_total = Amount::ZERO;
+        for u in eligible {
+            selected.push(FundingInput {
+                outpoint: u.outpoint,
+                prevout: TxOut {
+                    value: u.amount,
+                    script_pubkey: u.script_pubkey.clone(),
+                },
+            });
+            funding_total = funding_total
+                .checked_add(u.amount)
+                .ok_or_else(|| FireblocksError::TxBuild("input total overflows".into()))?;
+
+            let child_vsize = tx::cpfp_child_vsize(selected.len(), change_spk.len());
+            let package_vsize = parent_vsize.saturating_add(child_vsize);
+            let package_fee = target_pkg_fee_rate
+                .fee_vb(package_vsize)
+                .ok_or_else(|| FireblocksError::TxBuild("package fee overflow".into()))?;
+            // The child only needs to make up the package shortfall after the parent's fee.
+            let child_fee = package_fee.checked_sub(parent_fee).unwrap_or(Amount::ZERO);
+            if let Some(child_output) = anchor_value
+                .checked_add(funding_total)
+                .and_then(|t| t.checked_sub(child_fee))
+            {
+                if child_output >= dust {
+                    return Ok((selected, child_output));
+                }
+            }
+        }
+        Err(FireblocksError::TxBuild(
+            "insufficient funds to build CPFP child at target package fee rate".into(),
+        ))
+    }
+}
+
+/// Whether a Fireblocks transaction status is terminal-failure (so polling should stop).
+fn is_failure_status(status: &str) -> bool {
+    matches!(
+        status,
+        "FAILED" | "REJECTED" | "BLOCKED" | "CANCELLED" | "CANCELLING" | "TIMEOUT"
+    )
 }
 
 impl GeneralWallet for FireblocksGeneralWallet {
@@ -275,30 +496,101 @@ impl GeneralWallet for FireblocksGeneralWallet {
 
     async fn fund_v3_transaction(
         &mut self,
-        _outputs: Vec<TxOut>,
-        _explicit_inputs: Option<&[OutPoint]>,
-        _fee_rate: FeeRate,
-        _exclude: &[OutPoint],
+        outputs: Vec<TxOut>,
+        explicit_inputs: Option<&[OutPoint]>,
+        fee_rate: FeeRate,
+        exclude: &[OutPoint],
     ) -> Result<FundedPsbt, Self::Error> {
-        // TODO(STR-3434 Fireblocks): build unsigned v3 tx, RAW-sign via Fireblocks, assemble
-        // P2WPKH witnesses. Tracked by tasks #16/#17.
-        Err(FireblocksError::TxBuild(
-            "fund_v3_transaction not yet implemented".to_string(),
-        ))
+        let change_spk = self.script_pubkey.clone();
+        let (funding, change) = match explicit_inputs {
+            Some(inputs) => self.funding_from_explicit(inputs, &outputs, &change_spk, fee_rate)?,
+            None => {
+                let exclude_set: HashSet<OutPoint> = exclude.iter().copied().collect();
+                tx::select_funding(
+                    &self.cached_utxos,
+                    &exclude_set,
+                    &self.script_pubkey,
+                    &outputs,
+                    &change_spk,
+                    fee_rate,
+                )?
+            }
+        };
+
+        let txins: Vec<TxIn> = funding.iter().map(|f| tx::txin(f.outpoint)).collect();
+        let prevouts: Vec<TxOut> = funding.iter().map(|f| f.prevout.clone()).collect();
+        let change_output = change.map(|value| TxOut {
+            value,
+            script_pubkey: change_spk,
+        });
+        let unsigned = tx::build_unsigned_v3(&txins, outputs, change_output);
+        let mut psbt = Psbt::from_unsigned_tx(unsigned)
+            .map_err(|e| FireblocksError::TxBuild(format!("psbt from unsigned tx: {e}")))?;
+
+        // Every input is a Fireblocks-controlled funding input.
+        let fb_indices: Vec<usize> = (0..funding.len()).collect();
+        self.sign_fb_inputs(&mut psbt, &fb_indices, &prevouts)
+            .await?;
+        Ok(FundedPsbt { psbt })
     }
 
     async fn build_cpfp_child(
         &mut self,
-        _parent: &Transaction,
-        _parent_fee: Amount,
-        _anchor: AnchorInfo,
-        _target_pkg_fee_rate: FeeRate,
-        _exclude: &[OutPoint],
+        parent: &Transaction,
+        parent_fee: Amount,
+        anchor: AnchorInfo,
+        target_pkg_fee_rate: FeeRate,
+        exclude: &[OutPoint],
     ) -> Result<FundedPsbt, Self::Error> {
-        // TODO(STR-3434 Fireblocks): build CPFP child (anchor input left unsigned for s2,
-        // funding input RAW-signed by Fireblocks). Tracked by tasks #16/#17.
-        Err(FireblocksError::TxBuild(
-            "build_cpfp_child not yet implemented".to_string(),
-        ))
+        let anchor_prevout = parent
+            .output
+            .get(anchor.vout as usize)
+            .ok_or_else(|| {
+                FireblocksError::TxBuild(format!("anchor vout {} out of range", anchor.vout))
+            })?
+            .clone();
+        let anchor_outpoint = OutPoint {
+            txid: parent.compute_txid(),
+            vout: anchor.vout,
+        };
+        let change_spk = self.script_pubkey.clone();
+        // cast: tx vsize is bounded by the 4 MWU consensus limit, far inside u64.
+        let parent_vsize = parent.vsize() as u64;
+        let exclude_set: HashSet<OutPoint> = exclude.iter().copied().collect();
+
+        let (funding, child_output_value) = self.select_cpfp_funding(
+            &exclude_set,
+            anchor_prevout.value,
+            parent_vsize,
+            parent_fee,
+            target_pkg_fee_rate,
+            &change_spk,
+        )?;
+
+        // Input 0 is the foreign anchor; inputs 1.. are the Fireblocks funding inputs.
+        let mut txins = Vec::with_capacity(funding.len() + 1);
+        let mut prevouts = Vec::with_capacity(funding.len() + 1);
+        txins.push(tx::txin(anchor_outpoint));
+        prevouts.push(anchor_prevout);
+        for f in &funding {
+            txins.push(tx::txin(f.outpoint));
+            prevouts.push(f.prevout.clone());
+        }
+
+        let child_output = TxOut {
+            value: child_output_value,
+            script_pubkey: change_spk,
+        };
+        let unsigned = tx::build_unsigned_v3(&txins, vec![child_output], None);
+        let mut psbt = Psbt::from_unsigned_tx(unsigned)
+            .map_err(|e| FireblocksError::TxBuild(format!("psbt from unsigned tx: {e}")))?;
+
+        // Fireblocks signs the funding inputs; the anchor input (0) is left unsigned with
+        // witness_utxo + tap_internal_key for the operator's secret-service to key-path-sign.
+        let fb_indices: Vec<usize> = (1..=funding.len()).collect();
+        self.sign_fb_inputs(&mut psbt, &fb_indices, &prevouts)
+            .await?;
+        psbt.inputs[0].tap_internal_key = Some(anchor.internal_key);
+        Ok(FundedPsbt { psbt })
     }
 }

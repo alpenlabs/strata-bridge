@@ -3,7 +3,7 @@
 //! Field names use `rename_all = "camelCase"` to match the wire format. Only the fields the
 //! backend actually consumes are modelled; unknown fields are ignored on deserialization.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// One unspent input reference (`UnspentInput` in the Fireblocks schema).
 #[derive(Debug, Clone, Deserialize)]
@@ -31,6 +31,94 @@ pub(super) struct UnspentInputsResponse {
 
 /// Response body of `GET /v1/vault/accounts/{id}/{asset}/unspent_inputs`.
 pub(super) type GetUnspentInputsResponse = Vec<UnspentInputsResponse>;
+
+// ── RAW signing: request ─────────────────────────────────────────────────────
+
+/// Body of `POST /v1/transactions` for a `RAW` signing operation.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawSignRequest {
+    /// Always `"RAW"`.
+    pub operation: &'static str,
+    /// Asset id (`BTC` / `BTC_TEST`) — selects the signing key family.
+    pub asset_id: String,
+    /// Vault account the signing key lives in.
+    pub source: TransferPeer,
+    /// Carries the raw messages to sign.
+    pub extra_parameters: ExtraParameters,
+}
+
+/// A transfer peer reference (here, the signing vault account).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct TransferPeer {
+    /// Always `"VAULT_ACCOUNT"` for this backend.
+    #[serde(rename = "type")]
+    pub peer_type: &'static str,
+    /// Vault account id.
+    pub id: String,
+}
+
+/// `extraParameters` wrapper carrying the raw message data.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ExtraParameters {
+    pub raw_message_data: RawMessageData,
+}
+
+/// The set of messages (sighashes) to sign and the algorithm to use.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RawMessageData {
+    pub messages: Vec<UnsignedRawMessage>,
+    /// `MPC_ECDSA_SECP256K1` for Bitcoin.
+    pub algorithm: &'static str,
+}
+
+/// One message to sign: a hex-encoded 32-byte sighash that Fireblocks signs **as-is**.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct UnsignedRawMessage {
+    pub content: String,
+}
+
+// ── RAW signing: response ────────────────────────────────────────────────────
+
+/// Response of `POST /v1/transactions` — the created transaction's id (its initial `status`
+/// is ignored; we poll the transaction detail endpoint for the signed result).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CreateTransactionResponse {
+    pub id: String,
+}
+
+/// A `GET /v1/transactions/{id}` detail response (subset).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct TransactionDetails {
+    pub status: String,
+    /// Per-message signatures, populated once the transaction reaches a signed state. Order
+    /// matches the request's `messages`.
+    #[serde(default)]
+    pub signed_messages: Vec<SignedMessage>,
+}
+
+/// One signed message: the echoed content, the signing public key, and the signature.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SignedMessage {
+    /// Compressed public key (hex) the message was signed with.
+    pub public_key: String,
+    pub signature: SignatureData,
+}
+
+/// The ECDSA signature returned for a signed message.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SignatureData {
+    /// `r || s`, 64 bytes hex.
+    pub full_sig: String,
+}
 
 #[cfg(test)]
 mod tests {
