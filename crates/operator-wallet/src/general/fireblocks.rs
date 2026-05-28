@@ -54,6 +54,10 @@ const SIGN_POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// the 2s interval). Fireblocks signing latency depends on the workspace's Transaction
 /// Authorization Policy; an auto-approve rule keeps this well within budget.
 const SIGN_MAX_POLL_ATTEMPTS: u32 = 60;
+/// Consecutive transient poll errors tolerated before abandoning a submitted RAW-signing
+/// transaction. The transaction already exists server-side, so a blip must not drop it on the
+/// first failure; only a sustained outage gives up (with the tx id, for operator reconciliation).
+const MAX_CONSECUTIVE_POLL_ERRORS: u32 = 5;
 
 /// Connection + identity configuration for a Fireblocks BTC vault account.
 #[derive(Clone)]
@@ -308,6 +312,16 @@ impl FireblocksGeneralWallet {
                 },
             },
         };
+        // Sighashes within a single tx are unique by BIP-143 (each commits to its own
+        // outpoint). Guard the invariant so a `content` collision can't silently map two
+        // inputs onto one signature.
+        let unique: HashSet<&String> = expected.iter().collect();
+        if unique.len() != expected.len() {
+            return Err(FireblocksError::TxBuild(
+                "duplicate sighash among inputs to sign".into(),
+            ));
+        }
+
         let body = serde_json::to_string(&request)
             .map_err(|e| FireblocksError::TxBuild(format!("serialize raw-sign request: {e}")))?;
         let created: dto::CreateTransactionResponse = self
@@ -315,26 +329,50 @@ impl FireblocksGeneralWallet {
             .await?;
 
         let subpath = format!("/transactions/{}", created.id);
+        let mut consecutive_errors = 0u32;
         for _ in 0..SIGN_MAX_POLL_ATTEMPTS {
-            let details: dto::TransactionDetails =
-                self.signed_request(Method::GET, &subpath, None).await?;
-            if is_failure_status(&details.status) {
-                return Err(FireblocksError::Api(format!(
-                    "raw-sign transaction {} reached failure status {}",
-                    created.id, details.status
-                )));
-            }
-            // Index the returned signatures by their echoed `content` so callers bind each
-            // signature to the input that requested it, rather than trusting positional order.
-            let by_content: HashMap<String, dto::SignedMessage> = details
-                .signed_messages
-                .into_iter()
-                .map(|m| (m.content.to_lowercase(), m))
-                .collect();
-            // Only done once *every* requested sighash has a matching signature — guards
-            // against partial / incremental population mid-signing.
-            if expected.iter().all(|c| by_content.contains_key(c)) {
-                return Ok(by_content);
+            match self
+                .signed_request::<dto::TransactionDetails>(Method::GET, &subpath, None)
+                .await
+            {
+                Ok(details) => {
+                    consecutive_errors = 0;
+                    if is_failure_status(&details.status) {
+                        return Err(FireblocksError::Api(format!(
+                            "raw-sign transaction {} reached failure status {}",
+                            created.id, details.status
+                        )));
+                    }
+                    // Index the returned signatures by their echoed `content` so callers bind
+                    // each signature to the input that requested it, not by positional order.
+                    let by_content: HashMap<String, dto::SignedMessage> = details
+                        .signed_messages
+                        .into_iter()
+                        .map(|m| (m.content.to_lowercase(), m))
+                        .collect();
+                    // Only done once *every* requested sighash has a matching signature —
+                    // guards against partial / incremental population mid-signing.
+                    if expected.iter().all(|c| by_content.contains_key(c)) {
+                        return Ok(by_content);
+                    }
+                }
+                Err(e) => {
+                    // The RAW transaction is already submitted server-side; a transient poll
+                    // failure must not abandon it. Tolerate a few consecutive blips, then give
+                    // up with the tx id so the operator can reconcile.
+                    consecutive_errors += 1;
+                    if consecutive_errors > MAX_CONSECUTIVE_POLL_ERRORS {
+                        return Err(FireblocksError::Api(format!(
+                            "polling raw-sign transaction {} failed after {consecutive_errors} consecutive errors: {e}",
+                            created.id
+                        )));
+                    }
+                    tracing::warn!(
+                        tx_id = %created.id,
+                        error = %e,
+                        "transient error polling raw-sign transaction; retrying"
+                    );
+                }
             }
             tokio::time::sleep(SIGN_POLL_INTERVAL).await;
         }
@@ -427,7 +465,10 @@ impl FireblocksGeneralWallet {
         )?;
         let fee_no_change = tx::fee_for(funding.len(), &recipient_lens, None, fee_rate)?;
 
-        if total_in < recipient_total + fee_no_change {
+        let need_no_change = recipient_total
+            .checked_add(fee_no_change)
+            .ok_or_else(|| FireblocksError::TxBuild("recipient total + fee overflows".into()))?;
+        if total_in < need_no_change {
             return Err(FireblocksError::TxBuild(format!(
                 "explicit inputs total {total_in} cannot cover {recipient_total} + fee"
             )));

@@ -96,7 +96,10 @@ pub(super) fn select_funding(
             }
         }
         // Enough to cover outputs + fee with no change (remainder absorbed into fee)?
-        if total_in >= recipient_total + fee_no_change {
+        if recipient_total
+            .checked_add(fee_no_change)
+            .is_some_and(|need| total_in >= need)
+        {
             return Ok((selected, None));
         }
     }
