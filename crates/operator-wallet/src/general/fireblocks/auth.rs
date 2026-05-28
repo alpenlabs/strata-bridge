@@ -32,8 +32,7 @@ use super::FireblocksError;
 /// JWT token lifetime. Fireblocks rejects tokens whose `exp - iat` exceeds ~30s.
 const TOKEN_TTL_SECS: u64 = 30;
 
-/// Monotonic component of the nonce, bumped once per minted token so two tokens minted within
-/// the same second (or at the same instant on a coarse clock) still differ.
+/// Per-process counter that disambiguates tokens minted at the same clock reading.
 static NONCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// The Fireblocks JWT claim set. Field names match the wire format exactly.
@@ -83,7 +82,7 @@ pub(super) fn build_jwt(
 fn build_claims(uri: &str, body: &[u8], api_key: &str, now_secs: u64) -> Claims {
     Claims {
         uri: uri.to_string(),
-        nonce: next_nonce(now_secs),
+        nonce: next_nonce(),
         iat: now_secs,
         exp: now_secs + TOKEN_TTL_SECS,
         sub: api_key.to_string(),
@@ -91,14 +90,19 @@ fn build_claims(uri: &str, body: &[u8], api_key: &str, now_secs: u64) -> Claims 
     }
 }
 
-/// Produces a per-request nonce. Combines the current unix-second with a process-monotonic
-/// counter so concurrent or rapid requests never collide on the same value.
-fn next_nonce(now_secs: u64) -> u64 {
+/// Produces a per-request nonce: the nanosecond wall clock plus a process-monotonic counter.
+///
+/// The nanosecond base makes nonces unique across process restarts (a fresh process reads a
+/// later clock), while the counter disambiguates requests that read the same nanosecond. A
+/// counter-only scheme would reset to 0 on restart and could replay a nonce within
+/// Fireblocks' validity window, getting the request rejected.
+fn next_nonce() -> u64 {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
     let counter = NONCE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    // Shift the second into the high bits and OR in the counter's low bits. The counter wraps
-    // far beyond any realistic per-second request volume, so collisions are impossible in
-    // practice within a token's 30s validity window.
-    (now_secs << 20) ^ counter
+    nanos.wrapping_add(counter)
 }
 
 #[cfg(test)]
@@ -138,16 +142,11 @@ mod tests {
     }
 
     #[test]
-    fn nonces_are_unique_within_the_same_second() {
-        // The risky case is many requests minted in the same unix-second: the monotonic
-        // counter must disambiguate them.
-        let now = 1_700_000_000;
+    fn nonces_are_unique_across_rapid_calls() {
+        // Rapid calls may read the same nanosecond; the counter must disambiguate them.
         let mut seen = std::collections::HashSet::new();
         for _ in 0..10_000 {
-            assert!(
-                seen.insert(next_nonce(now)),
-                "nonce collision within one second"
-            );
+            assert!(seen.insert(next_nonce()), "nonce collision");
         }
     }
 }

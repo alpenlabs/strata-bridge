@@ -107,6 +107,9 @@ pub(super) struct TransactionDetails {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SignedMessage {
+    /// The signed message echoed back — the hex sighash we submitted. Used to match each
+    /// signature to the input that requested it (rather than trusting positional order).
+    pub content: String,
     /// Compressed public key (hex) the message was signed with.
     pub public_key: String,
     pub signature: SignatureData,

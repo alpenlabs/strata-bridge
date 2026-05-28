@@ -30,7 +30,12 @@ mod dto;
 mod sign;
 mod tx;
 
-use std::{collections::HashSet, fmt, str::FromStr, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    str::FromStr,
+    time::Duration,
+};
 
 use bdk_wallet::bitcoin::{
     address::NetworkUnchecked, Address, Amount, Denomination, FeeRate, Network, OutPoint, Psbt,
@@ -280,11 +285,13 @@ impl FireblocksGeneralWallet {
     async fn raw_sign(
         &self,
         sighashes: &[[u8; 32]],
-    ) -> Result<Vec<dto::SignedMessage>, FireblocksError> {
-        let messages = sighashes
+    ) -> Result<HashMap<String, dto::SignedMessage>, FireblocksError> {
+        // Lowercase-hex of each sighash; also the `content` we expect echoed back per message.
+        let expected: Vec<String> = sighashes.iter().map(hex::encode).collect();
+        let messages = expected
             .iter()
-            .map(|h| dto::UnsignedRawMessage {
-                content: hex::encode(h),
+            .map(|content| dto::UnsignedRawMessage {
+                content: content.clone(),
             })
             .collect();
         let request = dto::RawSignRequest {
@@ -317,8 +324,17 @@ impl FireblocksGeneralWallet {
                     created.id, details.status
                 )));
             }
-            if details.signed_messages.len() >= sighashes.len() {
-                return Ok(details.signed_messages);
+            // Index the returned signatures by their echoed `content` so callers bind each
+            // signature to the input that requested it, rather than trusting positional order.
+            let by_content: HashMap<String, dto::SignedMessage> = details
+                .signed_messages
+                .into_iter()
+                .map(|m| (m.content.to_lowercase(), m))
+                .collect();
+            // Only done once *every* requested sighash has a matching signature — guards
+            // against partial / incremental population mid-signing.
+            if expected.iter().all(|c| by_content.contains_key(c)) {
+                return Ok(by_content);
             }
             tokio::time::sleep(SIGN_POLL_INTERVAL).await;
         }
@@ -347,16 +363,18 @@ impl FireblocksGeneralWallet {
             .map(|&i| tx::p2wpkh_sighash(psbt, i, prevouts))
             .collect::<Result<Vec<_>, _>>()?;
         let signed = self.raw_sign(&sighashes).await?;
-        if signed.len() < fb_input_indices.len() {
-            return Err(FireblocksError::Api(format!(
-                "expected {} signatures, got {}",
-                fb_input_indices.len(),
-                signed.len()
-            )));
-        }
-        for (n, &i) in fb_input_indices.iter().enumerate() {
-            let msg = &signed[n];
-            let witness = sign::assemble_p2wpkh_witness(&msg.signature.full_sig, &msg.public_key)?;
+        for (sighash, &i) in sighashes.iter().zip(fb_input_indices) {
+            // Look the signature up by the sighash we asked Fireblocks to sign (not by order).
+            let content = hex::encode(sighash);
+            let msg = signed.get(&content).ok_or_else(|| {
+                FireblocksError::Api(format!("no signature returned for input {i}"))
+            })?;
+            // `assemble_p2wpkh_witness` also verifies the signing pubkey controls this prevout.
+            let witness = sign::assemble_p2wpkh_witness(
+                &msg.signature.full_sig,
+                &msg.public_key,
+                &prevouts[i].script_pubkey,
+            )?;
             psbt.inputs[i].final_script_witness = Some(witness);
         }
         Ok(())
@@ -518,10 +536,24 @@ impl GeneralWallet for FireblocksGeneralWallet {
         );
         let resp: dto::GetUnspentInputsResponse =
             self.signed_request(Method::GET, &subpath, None).await?;
-        self.cached_utxos = resp
+        let all = resp
             .iter()
             .map(|u| self.unspent_to_utxo_info(u))
             .collect::<Result<Vec<_>, _>>()?;
+        // Enforce the single-address assumption at the source: only retain UTXOs at the
+        // configured deposit address, so `list_utxos` and explicit-input callers never see a
+        // UTXO this backend can't sign with the vault's primary key.
+        let total = all.len();
+        self.cached_utxos = all
+            .into_iter()
+            .filter(|u| u.script_pubkey == self.script_pubkey)
+            .collect();
+        if self.cached_utxos.len() != total {
+            tracing::warn!(
+                dropped = total - self.cached_utxos.len(),
+                "ignoring vault UTXOs not at the configured deposit address (single-address assumption)"
+            );
+        }
         Ok(())
     }
 
