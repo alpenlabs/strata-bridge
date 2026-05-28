@@ -125,6 +125,8 @@ struct EncodedScheduledOperator {
     covenant_key: String,
     p2p_key: String,
     payout_descriptor: String,
+    // Runtime handling for activation/deactivation is tracked in the operator-set parent:
+    // https://alpenlabs.atlassian.net/browse/STR-3455
     activation_height: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     deactivation_height: Option<u64>,
@@ -334,6 +336,58 @@ mod tests {
             "deactivation height must be exclusive"
         );
         assert_eq!(params.protocol.bury_depth, 6, "bury depth must round-trip");
+    }
+
+    #[test]
+    fn non_dense_operator_indices_are_rejected_by_params() {
+        let deposit_amount = Amount::from_int_btc(1).to_sat();
+        let desc_1 = p2tr_descriptor(XONLY_KEY_1);
+        let desc_2 = p2tr_descriptor(XONLY_KEY_2);
+
+        let params = format!(
+            r#"
+            network = "signet"
+            genesis_height = 101
+
+            [keys]
+            admin = "{XONLY_KEY_1}"
+
+            [[keys.operators]]
+            index = 0
+            covenant_key = "{XONLY_KEY_1}"
+            p2p_key = "{P2P_KEY_1}"
+            payout_descriptor = "{desc_1}"
+            activation_height = 101
+
+            [[keys.operators]]
+            index = 2
+            covenant_key = "{XONLY_KEY_2}"
+            p2p_key = "{P2P_KEY_2}"
+            payout_descriptor = "{desc_2}"
+            activation_height = 101
+
+            [protocol]
+            bury_depth = 6
+            magic_bytes = "ALPN"
+            deposit_amount = {deposit_amount}
+            stake_amount = 100_000_000
+            operator_fee = 1_000_000
+            recovery_delay = 1_008
+            contest_timelock = 144
+            proof_timelock = 144
+            ack_timelock = 144
+            nack_timelock = 144
+            contested_payout_timelock = 1_008
+            "#
+        );
+
+        let err = toml::from_str::<Params>(&params)
+            .expect_err("non-dense operator indices must be rejected");
+
+        assert!(
+            err.to_string().contains("non-dense operator index"),
+            "unexpected error: {err}"
+        );
     }
 
     /// Construct a P2TR BOSD descriptor string from an x-only public key hex string.

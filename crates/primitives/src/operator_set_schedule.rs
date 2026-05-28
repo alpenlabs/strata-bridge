@@ -10,8 +10,7 @@ use crate::types::{BitcoinBlockHeight, OperatorIdx, P2POperatorPubKey};
 
 /// A scheduled operator table used to derive active operator sets by block height.
 ///
-/// Operator indices and keys are globally unique within the schedule. Reusing an index for a later
-/// activation window is rejected so that historical state-machine snapshots remain unambiguous.
+/// Operator indices are exactly the dense range `0..n`, and covenant/p2p keys are unique.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperatorSetSchedule {
     operators: Vec<ScheduledOperator>,
@@ -22,6 +21,7 @@ impl OperatorSetSchedule {
     pub fn new(mut operators: Vec<ScheduledOperator>) -> Result<Self, OperatorSetScheduleError> {
         validate_operator_schedule(&operators)?;
         operators.sort_by_key(ScheduledOperator::index);
+        validate_dense_operator_indices(&operators)?;
         Ok(Self { operators })
     }
 
@@ -214,6 +214,14 @@ pub enum OperatorSetScheduleError {
         /// The duplicated operator index.
         index: OperatorIdx,
     },
+    /// Operator indices are not the dense range `0..n`.
+    #[error("non-dense operator index: expected {expected}, found {actual}")]
+    NonDenseOperatorIndex {
+        /// The next expected operator index.
+        expected: OperatorIdx,
+        /// The actual configured operator index.
+        actual: OperatorIdx,
+    },
     /// A covenant key appears more than once.
     #[error("duplicate covenant key for operator index {index}")]
     DuplicateCovenantKey {
@@ -258,6 +266,22 @@ fn validate_operator_schedule(
     Ok(())
 }
 
+fn validate_dense_operator_indices(
+    operators: &[ScheduledOperator],
+) -> Result<(), OperatorSetScheduleError> {
+    for (expected, operator) in operators.iter().enumerate() {
+        let expected =
+            OperatorIdx::try_from(expected).expect("operator count must fit in OperatorIdx");
+        let actual = operator.index();
+
+        if actual != expected {
+            return Err(OperatorSetScheduleError::NonDenseOperatorIndex { expected, actual });
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -296,6 +320,23 @@ mod tests {
         assert!(matches!(
             err,
             OperatorSetScheduleError::DuplicateOperatorIndex { index: 0 }
+        ));
+    }
+
+    #[test]
+    fn non_dense_operator_indices_are_rejected() {
+        let err = OperatorSetSchedule::new(vec![
+            scheduled_operator(0, XONLY_KEY_1, P2P_KEY_1, 101, None),
+            scheduled_operator(2, XONLY_KEY_2, P2P_KEY_2, 200, None),
+        ])
+        .expect_err("non-dense indices must fail validation");
+
+        assert!(matches!(
+            err,
+            OperatorSetScheduleError::NonDenseOperatorIndex {
+                expected: 1,
+                actual: 2,
+            }
         ));
     }
 
