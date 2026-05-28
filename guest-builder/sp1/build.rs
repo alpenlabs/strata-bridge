@@ -69,8 +69,10 @@ mod release {
         }
 
         // Point cc-rs (used by secp256k1-sys etc.) at the SP1 toolchain's llvm-ar, which knows
-        // how to package archives for the riscv32im-succinct-zkvm-elf target. Without this the
-        // host's `ar` produces archives that fail to link in the guest.
+        // how to package archives for the riscv32im-succinct-zkvm-elf target. Only needed on
+        // macOS — BSD `ar` produces archives that fail to link in the guest; GNU `ar` on Linux
+        // is compatible.
+        #[cfg(target_os = "macos")]
         export_sp1_ar();
 
         // 1) Build the bridge-proof guest first; its Groth16 VK is an input to the counterproof's
@@ -138,6 +140,12 @@ mod release {
             docker: true,
             #[cfg(feature = "docker-build")]
             workspace_directory: Some("../../".to_owned()),
+            // Pin the docker image explicitly. sp1-build's default is
+            // `concat!("v", CARGO_PKG_VERSION)` of itself, which we'd silently follow on a
+            // version bump. `SP1_DOCKER_IMAGE` env var still wins if set, e.g. for a custom
+            // image that pre-installs git.
+            #[cfg(feature = "docker-build")]
+            tag: "v6.2.0".to_owned(),
             ..BuildArgs::default()
         };
 
@@ -185,8 +193,10 @@ mod release {
     /// Points cc-rs (used by secp256k1-sys and friends) at the SP1 toolchain's
     /// `llvm-ar` by exporting `SP1_AR`, `AR`, and `AR_riscv64im_unknown_none_elf`.
     /// The SP1 `llvm-ar` knows how to package archives for the
-    /// `riscv32im-succinct-zkvm-elf` target; the host's default `ar` produces
-    /// archives that fail to link in the guest.
+    /// `riscv32im-succinct-zkvm-elf` target; macOS's BSD `ar` produces archives
+    /// that fail to link in the guest. Linux's GNU `ar` is compatible, so this
+    /// is gated to macOS hosts only.
+    #[cfg(target_os = "macos")]
     fn export_sp1_ar() {
         let sysroot = rustc_succinct(&["--print", "sysroot"]);
         let host = rustc_succinct(&["-vV"])
@@ -200,6 +210,7 @@ mod release {
         std::env::set_var("AR_riscv64im_unknown_none_elf", &sp1_ar);
     }
 
+    #[cfg(target_os = "macos")]
     fn rustc_succinct(args: &[&str]) -> String {
         let output = Command::new("rustc")
             .arg("+succinct")
