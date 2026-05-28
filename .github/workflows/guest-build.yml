@@ -77,7 +77,7 @@ jobs:
           echo "SP1_CORE_RUNNER_OVERRIDE_BINARY=$RUNNER_TEMP/sp1-core-runner/bin/sp1-core-executor-runner-binary" >> "$GITHUB_ENV"
 
       - name: Build SP1 bridge-proof and counterproof guests with bundled stub params
-        run: SKIP_PARAMS=1 cargo build --locked -p strata-bridge-sp1-guest-builder --release --features build-elf
+        run: SKIP_PARAMS=1 cargo build --locked -p strata-bridge-sp1-guest-builder --release --features docker-build
 
   guest-build-success:
     name: Check that guest build passed
