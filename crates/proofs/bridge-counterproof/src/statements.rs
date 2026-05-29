@@ -221,6 +221,9 @@ mod tests {
         opcodes::all::{OP_PUSHNUM_1, OP_RETURN},
         script::{Builder, PushBytesBuf},
     };
+    use moho_types::{
+        ExportState, InnerStateCommitment, MohoState, StateRefAttestation, StateReference,
+    };
     use secp256k1::{Keypair, XOnlyPublicKey};
     use ssz::{Decode, Encode};
     use strata_bridge_connectors::{Connector, prelude::TimelockedSpendPath};
@@ -392,6 +395,23 @@ mod tests {
         counterproof_input_from(tx, prevouts, &operator_kp, &n_of_n_kp)
     }
 
+    // Builds a minimal genesis where Moho proofs are always accepted.
+    fn make_genesis(bridge_proof_vk: PredicateKey) -> BridgeCounterproofGenesis {
+        let genesis_obj = MohoState::new(
+            InnerStateCommitment::from([0u8; 32]),
+            PredicateKey::always_accept(),
+            ExportState::new(vec![]).unwrap(),
+        );
+        BridgeCounterproofGenesis {
+            bridge_proof_vk,
+            moho_vk: PredicateKey::always_accept(),
+            genesis_moho_state: StateRefAttestation::new(
+                StateReference::new([0u8; 32]),
+                genesis_obj.compute_commitment(),
+            ),
+        }
+    }
+
     /// Drives `process_counterproof_inner` through a `NativeMachine`.
     fn run_counterproof(
         input: CounterproofInput,
@@ -399,7 +419,8 @@ mod tests {
     ) -> CounterproofOutput {
         let mut machine = NativeMachine::new();
         machine.write_slice(input.as_ssz_bytes());
-        process_counterproof_inner(&machine, &BridgeCounterproofGenesis { bridge_proof_vk });
+        let genesis = make_genesis(bridge_proof_vk);
+        process_counterproof_inner(&machine, &genesis);
         CounterproofOutput::from_ssz_bytes(&machine.state.borrow().output).unwrap()
     }
 
@@ -446,9 +467,7 @@ mod tests {
     #[test]
     fn counterproof_success_invalid_bridge_proof() {
         let tx = proof_receipt_tx();
-        let genesis = BridgeCounterproofGenesis {
-            bridge_proof_vk: PredicateKey::never_accept(),
-        };
+        let genesis = make_genesis(PredicateKey::never_accept());
 
         let receipt = extract_bridge_proof(&tx, TXIN_IDX).unwrap();
         assert!(
@@ -465,9 +484,7 @@ mod tests {
     #[test]
     fn counterproof_failure_valid_bridge_proof() {
         let tx = proof_receipt_tx();
-        let genesis = BridgeCounterproofGenesis {
-            bridge_proof_vk: PredicateKey::always_accept(),
-        };
+        let genesis = make_genesis(PredicateKey::always_accept());
 
         let receipt = extract_bridge_proof(&tx, TXIN_IDX).unwrap();
         assert!(
