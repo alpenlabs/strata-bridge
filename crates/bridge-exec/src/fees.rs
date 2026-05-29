@@ -8,10 +8,7 @@
 //!   or decode failure so a downed mempool explorer never blocks tx publishing.
 //! * [`FixedFeeSource`] — returns a constant rate (tests, manual overrides).
 //!
-//! All sources clamp the returned rate to at least 1 sat/vB. `bitcoind-async-client` represents
-//! fee rates as `u64` sat/vB, so any sub-1 sat/vB estimate from the upstream source would
-//! otherwise truncate to zero and lose the fee entirely. This mirrors strata's fix in
-//! [alpenlabs/alpen#1811](https://github.com/alpenlabs/alpen/pull/1811).
+//! All sources clamp the returned rate to at least 1 sat/vB (see [`clamp_to_min`]).
 //!
 //! The orchestrator builds the configured source via [`FeeSourceConfig::build`] and wraps it in
 //! a [`btc_tracker::cpfp::CachedFeeSource`], which refreshes in the background and is shared by
@@ -302,8 +299,7 @@ impl<R: FeeRateRpc> FeeSource for ConfiguredFeeSource<R> {
 pub enum FeeSourceConfig {
     /// Query Bitcoin Core's `estimatesmartfee(conf_target)` directly.
     BitcoinCore {
-        /// Block confirmation target passed to `estimatesmartfee`. `1` mirrors the bridge's
-        /// historical behaviour.
+        /// Block confirmation target passed to `estimatesmartfee`.
         conf_target: u16,
     },
     /// Query a mempool.space-compatible explorer's `/api/v1/fees/recommended` endpoint, with
@@ -359,32 +355,47 @@ impl FeeSourceConfig {
 }
 
 impl Default for FeeSourceConfig {
-    /// Defaults to Bitcoin Core with `conf_target = 1`, matching the bridge's historical
-    /// behaviour before this abstraction landed.
+    /// Defaults to Bitcoin Core with `conf_target = 1`.
     fn default() -> Self {
         Self::BitcoinCore { conf_target: 1 }
     }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// minimum fee rates
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Floor every source's reported rate at this many sat/vB. `bitcoind-async-client` represents
+/// fee rates as `u64` sat/vB, so a sub-1 sat/vB estimate would otherwise truncate to 0 and lose
+/// the fee entirely (notably on public signet).
+const MIN_FEE_RATE_SAT_PER_VB: u64 = 1;
+
+/// Minimum rate at which the bridge broadcasts a *wallet-funded* transaction (withdrawal
+/// fulfillment, stake funding). The configured source already clamps to
+/// [`MIN_FEE_RATE_SAT_PER_VB`]; this is the higher bridge-policy floor that keeps these v3 (TRUC)
+/// transactions relayable even when the source reports a lower rate.
+///
+/// Deliberately a standalone constant, not a reuse of `strata_bridge_tx_graph::fee::FEE_RATE`:
+/// that constant is the rate presigned transactions are *built at*, not a minimum, and is slated
+/// for removal once CPFP fully supersedes the static-fee scheme.
+pub const MIN_WALLET_TX_FEE_RATE: FeeRate = FeeRate::from_sat_per_vb_unchecked(2);
+
+// ────────────────────────────────────────────────────────────────────────────
 // helpers
 // ────────────────────────────────────────────────────────────────────────────
 
-/// Clamps a raw sat/vB rate to a minimum of 1 sat/vB.
-///
-/// `bitcoind-async-client` represents fee rates as `u64` sat/vB; on networks (notably the
-/// public signet) where the upstream source returns a sub-1 sat/vB rate, the value truncates
-/// to 0 and we'd lose the fee entirely. Mirror strata's clamp (alpenlabs/alpen#1811) until
-/// sub-1 sat/vB representation lands upstream.
+/// Clamps a raw sat/vB rate to a minimum of [`MIN_FEE_RATE_SAT_PER_VB`].
 ///
 /// On the upper end, `FeeRate::from_sat_per_vb` overflows its internal sat/kwu representation
 /// at sat/vB > u64::MAX/250 ≈ 7.4×10^16, far beyond anything `estimatesmartfee` could ever
-/// return. Falls back to 1 sat/vB on that overflow rather than panicking — defensive against
+/// return. Falls back to the minimum on that overflow rather than panicking — defensive against
 /// stubbed callers, not a real production path.
 fn clamp_to_min(raw_sat_per_vb: u64) -> FeeRate {
-    let clamped = raw_sat_per_vb.max(1);
-    FeeRate::from_sat_per_vb(clamped)
-        .unwrap_or_else(|| FeeRate::from_sat_per_vb(1).expect("1 sat/vB is always a valid FeeRate"))
+    let clamped = raw_sat_per_vb.max(MIN_FEE_RATE_SAT_PER_VB);
+    FeeRate::from_sat_per_vb(clamped).unwrap_or_else(|| {
+        FeeRate::from_sat_per_vb(MIN_FEE_RATE_SAT_PER_VB)
+            .expect("MIN_FEE_RATE_SAT_PER_VB is always a valid FeeRate")
+    })
 }
 
 #[cfg(test)]

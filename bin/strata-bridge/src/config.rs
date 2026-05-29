@@ -77,8 +77,8 @@ pub(crate) struct Config {
     pub cpfp_bump_check_interval: Duration,
 
     /// Source of fee-rate estimates for bridge transactions. Defaults to Bitcoin Core with
-    /// `conf_target = 1` (matching the bridge's historical behaviour); operators on networks
-    /// where `estimatesmartfee` is unreliable should configure the mempool-explorer variant.
+    /// `conf_target = 1`; operators on networks where `estimatesmartfee` is unreliable should
+    /// configure the mempool-explorer variant.
     #[serde(default)]
     pub fee_source: FeeSourceConfig,
 

@@ -24,11 +24,8 @@ use strata_bridge_primitives::{
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
-use strata_bridge_tx_graph::{
-    fee,
-    transactions::prelude::{
-        CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
-    },
+use strata_bridge_tx_graph::transactions::prelude::{
+    CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
 };
 use tracing::{error, info, warn};
 
@@ -36,6 +33,7 @@ use crate::{
     chain::{self, CpfpKind, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
+    fees::MIN_WALLET_TX_FEE_RATE,
     output_handles::OutputHandles,
 };
 
@@ -417,10 +415,10 @@ async fn fulfill_withdrawal(
         .expect("deposit amount must be greater than operator fee");
 
     // Read the current cached fee rate (refreshed in the background by the shared fee source),
-    // then floor it at `fee::FEE_RATE` so the withdrawal-fulfillment v3 transaction always meets
-    // the bridge's hardcoded minimum. The underlying source clamps to >=1 sat/vB; this
-    // `max(fee::FEE_RATE)` is the bridge-protocol floor, distinct from the truncation guard.
-    let fee_rate = cfg.fee_source.current().max(fee::FEE_RATE);
+    // then floor it at `MIN_WALLET_TX_FEE_RATE` so the withdrawal-fulfillment v3 transaction stays
+    // relayable. The underlying source already clamps to the ≥1 sat/vB truncation guard; this is
+    // the higher bridge-policy minimum.
+    let fee_rate = cfg.fee_source.current().max(MIN_WALLET_TX_FEE_RATE);
     info!(%fee_rate, "fee rate for withdrawal fulfillment");
 
     // The following approach trades off maximal liveness for maximal safety:

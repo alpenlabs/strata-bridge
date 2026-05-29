@@ -27,6 +27,7 @@ use crate::{
     chain::{self, CpfpKind, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
+    fees::MIN_WALLET_TX_FEE_RATE,
     output_handles::OutputHandles,
     stake::utils::get_preimage,
 };
@@ -172,10 +173,10 @@ async fn read_or_create_stake_funding(
 
 fn estimate_funding_fee_rate(cfg: &ExecutionConfig) -> Result<FeeRate, ExecutorError> {
     // Floor the current cached fee rate (refreshed in the background by the shared fee source) at
-    // `fee::FEE_RATE` so this v3 (TRUC) funding transaction always meets the bridge's hardcoded
-    // minimum. The underlying source clamps to >=1 sat/vB; this floor is the bridge-protocol
-    // minimum, distinct from the truncation guard.
-    let fee_rate = cfg.fee_source.current().max(fee::FEE_RATE);
+    // `MIN_WALLET_TX_FEE_RATE` so this v3 (TRUC) funding transaction stays relayable. The
+    // underlying source already clamps to the ≥1 sat/vB truncation guard; this is the higher
+    // bridge-policy minimum.
+    let fee_rate = cfg.fee_source.current().max(MIN_WALLET_TX_FEE_RATE);
     info!(%fee_rate, "fee rate for stake funding");
 
     if fee_rate > cfg.maximum_fee_rate {
