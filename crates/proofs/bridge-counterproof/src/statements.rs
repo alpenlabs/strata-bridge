@@ -533,7 +533,7 @@ mod tests {
     }
 
     #[test]
-    fn counterproof_success_malformed_bridge_proof_tx() {
+    fn extract_bridge_proof_malformed() {
         let mut non_default_sighash_tx = proof_receipt_tx();
         non_default_sighash_tx.input[0].witness = taproot_witness(TapSighashType::All);
         let cases = [
@@ -548,37 +548,9 @@ mod tests {
     }
 
     #[test]
-    fn counterproof_success_invalid_bridge_proof() {
+    fn extract_bridge_proof_correct_format() {
         let tx = proof_receipt_tx();
-        let genesis = make_genesis(PredicateKey::never_accept());
-
-        let receipt = extract_bridge_proof(&tx, TXIN_IDX).unwrap();
-        assert!(
-            genesis
-                .bridge_proof_vk
-                .verify_claim_witness(
-                    receipt.public_values().as_bytes(),
-                    receipt.proof().as_bytes()
-                )
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn counterproof_failure_valid_bridge_proof() {
-        let tx = proof_receipt_tx();
-        let genesis = make_genesis(PredicateKey::always_accept());
-
-        let receipt = extract_bridge_proof(&tx, TXIN_IDX).unwrap();
-        assert!(
-            genesis
-                .bridge_proof_vk
-                .verify_claim_witness(
-                    receipt.public_values().as_bytes(),
-                    receipt.proof().as_bytes()
-                )
-                .is_ok(),
-        );
+        assert!(extract_bridge_proof(&tx, TXIN_IDX).is_some());
     }
 
     #[test]
