@@ -11612,6 +11612,7 @@ dependencies = [
  "hex",
  "k256",
  "serde",
+ "serde_json",
  "sp1-sdk",
  "sp1-verifier",
  "strata-predicate",
