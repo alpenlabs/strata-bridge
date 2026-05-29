@@ -34,18 +34,15 @@ pub fn sp1_groth16_predicate_key(vkey_hash: [u8; 32]) -> Result<PredicateKey> {
 /// form the params TOML parser expects.
 pub fn sp1_groth16_predicate_string(elf: &[u8]) -> Result<String> {
     let vkey_hash = sp1_program_vkey_hash(elf)?;
-    Ok(sp1_groth16_predicate_string_from_key(
-        &sp1_groth16_predicate_key(vkey_hash)?,
-    ))
+    sp1_groth16_predicate_string_from_key(&sp1_groth16_predicate_key(vkey_hash)?)
 }
 
-/// Renders an already-derived [`PredicateKey`] in the `Sp1Groth16:<hex>` form. Useful when
-/// the caller has done the expensive ELF setup once and wants both the key and its
-/// string form without rerunning `prover.setup()`.
-pub fn sp1_groth16_predicate_string_from_key(key: &PredicateKey) -> String {
-    format!(
-        "{}:{}",
-        PredicateTypeId::Sp1Groth16,
-        hex::encode(key.condition())
-    )
+/// Renders a [`PredicateKey`] via its human-readable `Serialize` impl, yielding the
+/// `Sp1Groth16:<hex>` form.
+pub fn sp1_groth16_predicate_string_from_key(key: &PredicateKey) -> Result<String> {
+    let value = serde_json::to_value(key).context("serialize PredicateKey")?;
+    value
+        .as_str()
+        .map(str::to_owned)
+        .context("PredicateKey did not serialize as a JSON string")
 }

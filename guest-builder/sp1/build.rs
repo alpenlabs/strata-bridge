@@ -160,7 +160,8 @@ mod release {
 
         let predicate_key = sp1_groth16_predicate_key(vkey_hash)
             .unwrap_or_else(|e| panic!("derive sp1 groth16 predicate key: {e}"));
-        let predicate_str = sp1_groth16_predicate_string_from_key(&predicate_key);
+        let predicate_str = sp1_groth16_predicate_string_from_key(&predicate_key)
+            .unwrap_or_else(|e| panic!("render sp1 groth16 predicate string: {e}"));
         let predicate_out_file = Path::new(ELFS_DIR).join(predicate_name);
         fs::write(&predicate_out_file, predicate_str)
             .unwrap_or_else(|e| panic!("write {}: {e}", predicate_out_file.display()));
