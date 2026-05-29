@@ -160,6 +160,14 @@ class FulfillmentIdempotencyTest(StrataTestBase):
         )
         self.logger.info("Verified fulfillment tx is unconfirmed before restart")
 
+        # Stop the assignee operator BEFORE touching the mempool. A running operator's tx-driver
+        # rebroadcasts the pending fulfillment tx the moment bitcoind restarts, which would race
+        # the "mempool is empty" assertion below. Snapshot its log offset first so the
+        # post-restart resubmission is still captured.
+        restart_log_offsets = snapshot_log_offsets([assignee_logfile])
+        self.logger.info(f"Stopping assigned operator-{assignee_idx} before clearing mempool")
+        bridge_nodes[assignee_idx].stop()
+
         # Clear mempool by deleting mempool.dat
         self.logger.info("Clearing mempool by deleting mempool.dat...")
         logfile_path = bitcoind_service.stdout
@@ -197,12 +205,8 @@ class FulfillmentIdempotencyTest(StrataTestBase):
         assert utxo_status is not None, "Deposit UTXO should still be unspent"
         self.logger.info("Confirmed deposit UTXO is still unspent")
 
-        # --- Restart operator and capture resubmitted fulfillment ---
-        # Capture log offset before restart to catch all post-restart logs
-        restart_log_offsets = snapshot_log_offsets([assignee_logfile])
-
+        # --- Restart the (already-stopped) operator and capture resubmitted fulfillment ---
         self.logger.info(f"Restarting assigned operator-{assignee_idx}")
-        bridge_nodes[assignee_idx].stop()
         bridge_nodes[assignee_idx].start()
         wait_until_bridge_ready(bridge_rpcs[assignee_idx])
         self.logger.info(f"Operator-{assignee_idx} restarted and ready")
