@@ -341,9 +341,9 @@ pub(crate) struct MetricsConfig {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_config_serde_toml() {
-        let config = r#"
+    /// Everything except the `[operator_wallet]` table, so individual tests can append
+    /// different operator-wallet configurations (native vs Fireblocks).
+    const BASE_TOML: &str = r#"
             num_threads = 4
             thread_stack_size = 8_388_608 # 8 * 1024 * 1024
             is_faulty = false
@@ -402,9 +402,6 @@ mod tests {
             rawtx_connection_string = "tcp://127.0.0.1:28335"
             sequence_connection_string = "tcp://127.0.0.1:28336"
 
-            [operator_wallet]
-            claim_funding_pool_size = 32
-
             [mosaic]
             rpc_url = "http://localhost:7500"
             retry_delay = { secs = 2, nanos = 0 }
@@ -427,14 +424,11 @@ mod tests {
             prometheus_listener_addr = "127.0.0.1:9615"
         "#;
 
-        let config = toml::from_str::<Config>(config);
-        assert!(
-            config.is_ok(),
-            "must be able to deserialize config from toml but got: {}",
-            config.unwrap_err()
-        );
-
-        let config = config.unwrap();
+    /// Parses `toml_str` and asserts a serde round-trip preserves every field, returning the
+    /// parsed config.
+    fn assert_roundtrips(toml_str: &str) -> Config {
+        let config = toml::from_str::<Config>(toml_str)
+            .unwrap_or_else(|e| panic!("must deserialize config from toml: {e}"));
         let serialized = toml::to_string(&config).unwrap();
         let reparsed = toml::from_str::<Config>(&serialized).unwrap();
         let reserialized = toml::to_string(&reparsed).unwrap();
@@ -442,5 +436,40 @@ mod tests {
             reserialized, serialized,
             "serde round-trip must preserve every field"
         );
+        config
+    }
+
+    #[test]
+    fn test_config_serde_toml() {
+        let toml_str = format!("{BASE_TOML}\n[operator_wallet]\nclaim_funding_pool_size = 32\n");
+        let config = assert_roundtrips(&toml_str);
+        assert!(
+            config.operator_wallet.fireblocks.is_none(),
+            "no fireblocks table => native backend"
+        );
+    }
+
+    #[test]
+    fn test_config_serde_toml_with_fireblocks() {
+        let toml_str = format!(
+            "{BASE_TOML}\n\
+             [operator_wallet]\n\
+             claim_funding_pool_size = 32\n\n\
+             [operator_wallet.fireblocks]\n\
+             base_url = \"https://api.fireblocks.io\"\n\
+             api_key = \"api-key-id\"\n\
+             vault_account_id = \"0\"\n\
+             asset_id = \"BTC\"\n\
+             deposit_address = \"bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq\"\n\
+             api_secret_path = \"fireblocks_secret.pem\"\n"
+        );
+        let config = assert_roundtrips(&toml_str);
+        let fb = config
+            .operator_wallet
+            .fireblocks
+            .expect("fireblocks table => Fireblocks backend");
+        assert_eq!(fb.asset_id, "BTC");
+        assert_eq!(fb.vault_account_id, "0");
+        assert_eq!(fb.api_secret_path, PathBuf::from("fireblocks_secret.pem"));
     }
 }

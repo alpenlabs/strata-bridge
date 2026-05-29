@@ -58,6 +58,11 @@ const SIGN_MAX_POLL_ATTEMPTS: u32 = 60;
 /// transaction. The transaction already exists server-side, so a blip must not drop it on the
 /// first failure; only a sustained outage gives up (with the tx id, for operator reconciliation).
 const MAX_CONSECUTIVE_POLL_ERRORS: u32 = 5;
+/// Per-request HTTP timeout. Without it a hung Fireblocks endpoint would stall a request
+/// indefinitely — a hang is not an `Err`, so it would never count against
+/// [`MAX_CONSECUTIVE_POLL_ERRORS`] and could wedge the signing loop (and the wallet write-lock)
+/// past the intended ceiling. Kept comfortably above normal latency but bounded.
+const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Connection + identity configuration for a Fireblocks BTC vault account.
 #[derive(Clone)]
@@ -189,9 +194,14 @@ impl FireblocksGeneralWallet {
         wpkh.copy_from_slice(&script_pubkey.as_bytes()[2..22]);
         let payout_descriptor = bitcoin_bosd::Descriptor::new_p2wpkh(&wpkh);
 
+        let http = reqwest::Client::builder()
+            .timeout(HTTP_REQUEST_TIMEOUT)
+            .build()
+            .map_err(|e| FireblocksError::Http(format!("building HTTP client: {e}")))?;
+
         Ok(Self {
             config,
-            http: reqwest::Client::new(),
+            http,
             signing_key,
             script_pubkey,
             payout_descriptor,
@@ -515,8 +525,13 @@ impl FireblocksGeneralWallet {
             let child_vsize = tx::cpfp_child_vsize(n_p2wpkh, !combined_is_p2wpkh, change_len);
             let package_fee =
                 target_pkg_fee_rate.fee_vb(parent_vsize.saturating_add(child_vsize))?;
-            // The child only needs to make up the package shortfall after the parent's fee.
-            let child_fee = package_fee.checked_sub(parent_fee).unwrap_or(Amount::ZERO);
+            // The child makes up the package shortfall after the parent's fee, but must pay at
+            // least 1 sat/vB on its own vbytes: a sub-1-sat/vB v3 child is nonstandard under
+            // BIP-431/TRUC and `submitpackage` would reject the whole package. If the parent
+            // already overpays the target, floor the child to its own size. Mirrors the native
+            // backend (`native.rs` build_cpfp_child).
+            let shortfall = package_fee.checked_sub(parent_fee).unwrap_or(Amount::ZERO);
+            let child_fee = shortfall.max(Amount::from_sat(child_vsize));
             combined_value
                 .checked_add(funding_total)
                 .and_then(|t| t.checked_sub(child_fee))

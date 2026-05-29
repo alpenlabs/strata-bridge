@@ -97,6 +97,9 @@ fn build_claims(uri: &str, body: &[u8], api_key: &str, now_secs: u64) -> Claims 
 /// counter-only scheme would reset to 0 on restart and could replay a nonce within
 /// Fireblocks' validity window, getting the request rejected.
 fn next_nonce() -> u64 {
+    // Truncating u128 nanos to u64 is intentional and harmless: it only needs to be unique
+    // within Fireblocks' short validity window, and the counter disambiguates ties. u64 nanos
+    // don't wrap until ~year 2554.
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)

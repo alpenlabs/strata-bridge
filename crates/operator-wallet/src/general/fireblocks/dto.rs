@@ -97,8 +97,9 @@ pub(super) struct CreateTransactionResponse {
 #[serde(rename_all = "camelCase")]
 pub(super) struct TransactionDetails {
     pub status: String,
-    /// Per-message signatures, populated once the transaction reaches a signed state. Order
-    /// matches the request's `messages`.
+    /// Per-message signatures, populated once the transaction reaches a signed state. Matched
+    /// back to inputs by each message's echoed `content`, not by position — do not rely on
+    /// ordering here.
     #[serde(default)]
     pub signed_messages: Vec<SignedMessage>,
 }
