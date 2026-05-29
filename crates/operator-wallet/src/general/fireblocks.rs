@@ -598,7 +598,9 @@ impl GeneralWallet for FireblocksGeneralWallet {
             .collect::<Result<Vec<_>, _>>()?;
         // Enforce the single-address assumption at the source: only retain UTXOs at the
         // configured deposit address, so `list_utxos` and explicit-input callers never see a
-        // UTXO this backend can't sign with the vault's primary key.
+        // UTXO this backend can't sign with the vault's primary key. (A consequence: the
+        // composer's CPFP-anchor exclusion — which targets 330-sat keyed-Taproot outputs — is a
+        // no-op for this backend, since every retained UTXO is P2WPKH at the deposit address.)
         let total = all.len();
         self.cached_utxos = all
             .into_iter()
