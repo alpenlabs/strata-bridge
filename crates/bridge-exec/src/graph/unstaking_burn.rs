@@ -441,7 +441,9 @@ struct FeeEstimate {
 ///
 /// The estimate is derived from the actual transaction template: one payout connector input, one
 /// general-wallet input, and one output back to the general wallet. The connector witness is
-/// populated by `finalize_partial`; the wallet witness is modeled with a 64-byte Schnorr signature.
+/// populated by `finalize_partial`; the wallet witness is modeled to match the backend's receive
+/// script — a 73-byte DER signature + 33-byte pubkey for a P2WPKH (Fireblocks) input, or a 64-byte
+/// Schnorr signature for a P2TR (native) input.
 fn estimate_unstaking_burn_fee(
     unstaking_burn_tx: &UnstakingBurnTx,
     unstaking_preimage: [u8; 32],

@@ -39,12 +39,11 @@ use std::{
 
 use bdk_wallet::bitcoin::{
     address::NetworkUnchecked, Address, Amount, Denomination, FeeRate, Network, OutPoint, Psbt,
-    Script, ScriptBuf, Transaction, TxIn, TxOut, Txid, Witness,
+    ScriptBuf, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use reqwest::Method;
 use serde::de::DeserializeOwned;
 use thiserror::Error;
-use tx::FundingInput;
 
 use super::{AnchorInfo, FundedPsbt, GeneralWallet, UtxoInfo};
 
@@ -108,6 +107,9 @@ pub enum FireblocksError {
     /// The configured deposit address could not be parsed or did not match the network.
     #[error("invalid deposit address: {0}")]
     DepositAddress(String),
+    /// The configured `asset_id` is inconsistent with the configured Bitcoin network.
+    #[error("asset_id/network mismatch: {0}")]
+    AssetMismatch(String),
     /// JWT construction failed.
     #[error("jwt: {0}")]
     Jwt(String),
@@ -169,9 +171,33 @@ impl FireblocksGeneralWallet {
     /// Parses and network-checks the deposit address up-front so `script_pubkey` can be
     /// infallible. Does not perform any network I/O — call
     /// [`sync`](super::GeneralWallet::sync) to populate the UTXO cache.
-    pub fn new(config: FireblocksConfig, api_secret_pem: &[u8]) -> Result<Self, FireblocksError> {
+    pub fn new(
+        mut config: FireblocksConfig,
+        api_secret_pem: &[u8],
+    ) -> Result<Self, FireblocksError> {
         let signing_key = jsonwebtoken::EncodingKey::from_rsa_pem(api_secret_pem)
             .map_err(|e| FireblocksError::SigningKey(e.to_string()))?;
+
+        // Normalise away any trailing slash so `url_and_uri` produces `{base_url}/v1/...` rather
+        // than `{base_url}//v1/...`: the request path must match the JWT `uri` claim (`/v1/...`)
+        // exactly, and a stray slash from config would make Fireblocks reject every request.
+        config.base_url = config.base_url.trim_end_matches('/').to_string();
+
+        // Fireblocks uses a single mainnet BTC asset (`BTC`) and a single test asset (`BTC_TEST`)
+        // covering all non-mainnet networks. Require the exact asset id for the network so a
+        // startup misconfig (wrong network, or a typo like `BTC_TES`/`ETH`) is caught here rather
+        // than letting every signing request target the wrong asset server-side.
+        let expected_asset = if config.network == Network::Bitcoin {
+            "BTC"
+        } else {
+            "BTC_TEST"
+        };
+        if config.asset_id != expected_asset {
+            return Err(FireblocksError::AssetMismatch(format!(
+                "asset_id {:?} does not match network {:?} (expected {expected_asset:?})",
+                config.asset_id, config.network
+            )));
+        }
 
         let address = config
             .deposit_address
@@ -295,7 +321,8 @@ impl FireblocksGeneralWallet {
 
     /// Signs `sighashes` via a Fireblocks `RAW` transaction: submits the messages, then polls
     /// the transaction until the signatures are available (or it fails / times out). Returns
-    /// the signed messages in request order.
+    /// the signed messages keyed by the lowercase-hex sighash (`content`) that was requested, so
+    /// callers look each signature up by sighash rather than relying on response order.
     async fn raw_sign(
         &self,
         sighashes: &[[u8; 32]],
@@ -417,160 +444,17 @@ impl FireblocksGeneralWallet {
             let msg = signed.get(&content).ok_or_else(|| {
                 FireblocksError::Api(format!("no signature returned for input {i}"))
             })?;
-            // `assemble_p2wpkh_witness` also verifies the signing pubkey controls this prevout.
+            // `assemble_p2wpkh_witness` also verifies the signing pubkey controls this prevout and
+            // that the signature verifies against `sighash`.
             let witness = sign::assemble_p2wpkh_witness(
                 &msg.signature.full_sig,
                 &msg.public_key,
                 &prevouts[i].script_pubkey,
+                sighash,
             )?;
             psbt.inputs[i].final_script_witness = Some(witness);
         }
         Ok(())
-    }
-
-    /// Builds [`FundingInput`]s for an explicit input set, looking each outpoint up in the
-    /// cached UTXO set, and computes the change amount (dropping change below dust into fee).
-    fn funding_from_explicit(
-        &self,
-        explicit_inputs: &[OutPoint],
-        recipient_outputs: &[TxOut],
-        change_spk: &Script,
-        fee_rate: FeeRate,
-    ) -> Result<(Vec<FundingInput>, Option<Amount>), FireblocksError> {
-        let mut funding = Vec::with_capacity(explicit_inputs.len());
-        let mut total_in = Amount::ZERO;
-        for op in explicit_inputs {
-            let u = self
-                .cached_utxos
-                .iter()
-                .find(|u| u.outpoint == *op)
-                .ok_or_else(|| {
-                    FireblocksError::TxBuild(format!("explicit input {op} not in wallet UTXO set"))
-                })?;
-            funding.push(FundingInput {
-                outpoint: *op,
-                prevout: TxOut {
-                    value: u.amount,
-                    script_pubkey: u.script_pubkey.clone(),
-                },
-            });
-            total_in = total_in
-                .checked_add(u.amount)
-                .ok_or_else(|| FireblocksError::TxBuild("input total overflows".into()))?;
-        }
-
-        let recipient_total = recipient_outputs
-            .iter()
-            .try_fold(Amount::ZERO, |acc, o| acc.checked_add(o.value))
-            .ok_or_else(|| FireblocksError::TxBuild("recipient output total overflows".into()))?;
-        let recipient_lens: Vec<usize> = recipient_outputs
-            .iter()
-            .map(|o| o.script_pubkey.len())
-            .collect();
-        let fee_with_change = tx::fee_for(
-            funding.len(),
-            &recipient_lens,
-            Some(change_spk.len()),
-            fee_rate,
-        )?;
-        let fee_no_change = tx::fee_for(funding.len(), &recipient_lens, None, fee_rate)?;
-
-        let need_no_change = recipient_total
-            .checked_add(fee_no_change)
-            .ok_or_else(|| FireblocksError::TxBuild("recipient total + fee overflows".into()))?;
-        if total_in < need_no_change {
-            return Err(FireblocksError::TxBuild(format!(
-                "explicit inputs total {total_in} cannot cover {recipient_total} + fee"
-            )));
-        }
-        let change = total_in
-            .checked_sub(recipient_total)
-            .and_then(|r| r.checked_sub(fee_with_change))
-            .filter(|rem| *rem >= change_spk.minimal_non_dust());
-        Ok((funding, change))
-    }
-
-    /// Selects P2WPKH funding inputs for a CPFP child so the `[parent, child]` package reaches
-    /// `target_pkg_fee_rate`. The child spends the combined input (value `combined_value`)
-    /// plus the selected inputs and pays a single change output; its fee is the package
-    /// shortfall after the parent's own fee.
-    ///
-    /// `combined_is_p2wpkh` distinguishes the two combined-input shapes for the fee estimate:
-    /// the operator's own P2WPKH payout (every input is P2WPKH) vs. a foreign keyed-Taproot
-    /// anchor (one P2TR input + the P2WPKH funding inputs).
-    ///
-    /// Returns the funding inputs (possibly empty when the combined input alone covers the
-    /// fee) and the child's output (change) value.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "cohesive CPFP fee-selection inputs; bundling into a struct would only add indirection"
-    )]
-    fn select_cpfp_funding(
-        &self,
-        exclude: &HashSet<OutPoint>,
-        combined_value: Amount,
-        combined_is_p2wpkh: bool,
-        parent_vsize: u64,
-        parent_fee: Amount,
-        target_pkg_fee_rate: FeeRate,
-        change_spk: &Script,
-    ) -> Result<(Vec<FundingInput>, Amount), FireblocksError> {
-        let dust = change_spk.minimal_non_dust();
-        let change_len = change_spk.len();
-
-        // Child output (change) for `n_funding` P2WPKH funding inputs contributing
-        // `funding_total`; `None` if it can't clear dust or the arithmetic overflows.
-        let try_fit = |n_funding: usize, funding_total: Amount| -> Option<Amount> {
-            let n_p2wpkh = n_funding + usize::from(combined_is_p2wpkh);
-            let child_vsize = tx::cpfp_child_vsize(n_p2wpkh, !combined_is_p2wpkh, change_len);
-            let package_fee =
-                target_pkg_fee_rate.fee_vb(parent_vsize.saturating_add(child_vsize))?;
-            // The child makes up the package shortfall after the parent's fee, but must pay at
-            // least 1 sat/vB on its own vbytes: a sub-1-sat/vB v3 child is nonstandard under
-            // BIP-431/TRUC and `submitpackage` would reject the whole package. If the parent
-            // already overpays the target, floor the child to its own size. Mirrors the native
-            // backend (`native.rs` build_cpfp_child).
-            let shortfall = package_fee.checked_sub(parent_fee).unwrap_or(Amount::ZERO);
-            let child_fee = shortfall.max(Amount::from_sat(child_vsize));
-            combined_value
-                .checked_add(funding_total)
-                .and_then(|t| t.checked_sub(child_fee))
-                .filter(|out| *out >= dust)
-        };
-
-        // The combined input alone may already cover the package fee — common when CPFP-ing a
-        // payout whose value dwarfs the bump fee.
-        if let Some(child_output) = try_fit(0, Amount::ZERO) {
-            return Ok((Vec::new(), child_output));
-        }
-
-        let mut eligible: Vec<&UtxoInfo> = self
-            .cached_utxos
-            .iter()
-            .filter(|u| u.script_pubkey == self.script_pubkey && !exclude.contains(&u.outpoint))
-            .collect();
-        eligible.sort_by_key(|u| std::cmp::Reverse(u.amount));
-
-        let mut selected: Vec<FundingInput> = Vec::new();
-        let mut funding_total = Amount::ZERO;
-        for u in eligible {
-            selected.push(FundingInput {
-                outpoint: u.outpoint,
-                prevout: TxOut {
-                    value: u.amount,
-                    script_pubkey: u.script_pubkey.clone(),
-                },
-            });
-            funding_total = funding_total
-                .checked_add(u.amount)
-                .ok_or_else(|| FireblocksError::TxBuild("input total overflows".into()))?;
-            if let Some(child_output) = try_fit(selected.len(), funding_total) {
-                return Ok((selected, child_output));
-            }
-        }
-        Err(FireblocksError::TxBuild(
-            "insufficient funds to build CPFP child at target package fee rate".into(),
-        ))
     }
 }
 
@@ -638,7 +522,13 @@ impl GeneralWallet for FireblocksGeneralWallet {
     ) -> Result<FundedPsbt, Self::Error> {
         let change_spk = self.script_pubkey.clone();
         let (funding, change) = match explicit_inputs {
-            Some(inputs) => self.funding_from_explicit(inputs, &outputs, &change_spk, fee_rate)?,
+            Some(inputs) => tx::funding_from_explicit(
+                &self.cached_utxos,
+                inputs,
+                &outputs,
+                &change_spk,
+                fee_rate,
+            )?,
             None => {
                 let exclude_set: HashSet<OutPoint> = exclude.iter().copied().collect();
                 tx::select_funding(
@@ -701,8 +591,10 @@ impl GeneralWallet for FireblocksGeneralWallet {
         // Never re-select the combined input as a funding input.
         exclude_set.insert(anchor_outpoint);
 
-        let (funding, child_output_value) = self.select_cpfp_funding(
+        let (funding, child_output_value) = tx::select_cpfp_funding(
+            &self.cached_utxos,
             &exclude_set,
+            &self.script_pubkey,
             anchor_prevout.value,
             combined_is_ours,
             parent_vsize,
@@ -771,9 +663,43 @@ impl GeneralWallet for FireblocksGeneralWallet {
                 &msg.signature.full_sig,
                 &msg.public_key,
                 &prevouts[i].script_pubkey,
+                sighash,
             )?;
             witnesses.push(Some(witness));
         }
         Ok(witnesses)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failure_statuses_are_terminal() {
+        for s in [
+            "FAILED",
+            "REJECTED",
+            "BLOCKED",
+            "CANCELLED",
+            "CANCELLING",
+            "TIMEOUT",
+        ] {
+            assert!(is_failure_status(s), "{s} should be terminal-failure");
+        }
+    }
+
+    #[test]
+    fn non_failure_statuses_keep_polling() {
+        for s in [
+            "SUBMITTED",
+            "PENDING_SIGNATURE",
+            "BROADCASTING",
+            "COMPLETED",
+            "CONFIRMING",
+            "",
+        ] {
+            assert!(!is_failure_status(s), "{s} should not be terminal-failure");
+        }
     }
 }

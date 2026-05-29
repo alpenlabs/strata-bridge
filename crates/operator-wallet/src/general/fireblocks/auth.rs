@@ -13,7 +13,7 @@
 //! - `nonce` — a value unique per request (replay protection).
 //! - `iat`   — issued-at, unix seconds.
 //! - `exp`   — expiry, unix seconds. Fireblocks rejects tokens valid for more than ~30s, so we use
-//!   `iat + 30`.
+//!   `iat + TOKEN_TTL_SECS` (a few seconds under that ceiling to absorb clock skew).
 //! - `sub`   — the API key.
 //! - `bodyHash` — lowercase hex of `SHA256(raw request body)`. For bodyless requests (GET), this is
 //!   the SHA256 of the empty string.
@@ -29,8 +29,9 @@ use sha2::{Digest, Sha256};
 
 use super::FireblocksError;
 
-/// JWT token lifetime. Fireblocks rejects tokens whose `exp - iat` exceeds ~30s.
-const TOKEN_TTL_SECS: u64 = 30;
+/// JWT token lifetime. Fireblocks rejects tokens whose `exp - iat` exceeds ~30s, so we stay a
+/// few seconds under that ceiling to absorb clock skew and request-flight time.
+const TOKEN_TTL_SECS: u64 = 25;
 
 /// Per-process counter that disambiguates tokens minted at the same clock reading.
 static NONCE_COUNTER: AtomicU64 = AtomicU64::new(0);

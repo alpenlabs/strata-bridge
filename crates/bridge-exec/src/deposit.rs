@@ -516,10 +516,18 @@ async fn fulfill_withdrawal(
     let sign_result: Result<Transaction, ExecutorError> = async {
         let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
 
+        // Collect one prevout per input, preserving index alignment for `Prevouts::All` (a
+        // `filter_map` that dropped an input would silently misalign every subsequent sighash).
+        // Every WFT input is wallet-funded, so `witness_utxo` is always populated.
         let prevouts: Vec<_> = wft_psbt
             .inputs
             .iter()
-            .filter_map(|input| input.witness_utxo.clone())
+            .map(|input| {
+                input
+                    .witness_utxo
+                    .clone()
+                    .expect("WFT PSBT input is wallet-funded and always carries witness_utxo")
+            })
             .collect();
         let prevouts = Prevouts::All(&prevouts);
 

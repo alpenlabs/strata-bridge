@@ -2,7 +2,7 @@
 //!
 //! These do not affect consensus between bridge nodes and can be set to different values by
 //! different operators.
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{fmt, net::SocketAddr, path::PathBuf, time::Duration};
 
 /// Default cadence for the background fee-rate refresh task — see
 /// [`Config::fee_refresh_interval`].
@@ -267,7 +267,12 @@ pub(crate) struct RpcConfig {
 }
 
 /// Configuration for the operator wallet.
+///
+/// `deny_unknown_fields` so a mistyped key — e.g. `[operator_wallet.firebloks]` — is a hard
+/// error rather than silently deserializing `fireblocks` as `None` and downgrading a
+/// Fireblocks-custodied operator to the native backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct OperatorWalletConfig {
     /// The size of the claim funding pool, i.e., the number of UTXOs to generate for funding claim
     /// transactions when they run out.
@@ -281,7 +286,14 @@ pub(crate) struct OperatorWalletConfig {
 }
 
 /// Connection + identity configuration for a Fireblocks-backed general wallet.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Debug` is hand-written to redact `api_key`: the whole [`Config`] is logged at startup
+/// (`mode/operator.rs`), so a derived `Debug` would leak the API key into the logs.
+///
+/// `deny_unknown_fields` so a mistyped credential key surfaces as a config error instead of
+/// being silently dropped.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct FireblocksWalletConfig {
     /// API host root, **without** the `/v1` path segment, e.g. `https://api.fireblocks.io`.
     pub base_url: String,
@@ -303,6 +315,20 @@ pub(crate) struct FireblocksWalletConfig {
     /// per-request JWTs. Kept out of the config body (like the secret-service TLS material) so
     /// the key never lives in the config file itself.
     pub api_secret_path: PathBuf,
+}
+
+impl fmt::Debug for FireblocksWalletConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Redact the API key; everything else is non-secret operational config.
+        f.debug_struct("FireblocksWalletConfig")
+            .field("base_url", &self.base_url)
+            .field("api_key", &"<redacted>")
+            .field("vault_account_id", &self.vault_account_id)
+            .field("asset_id", &self.asset_id)
+            .field("deposit_address", &self.deposit_address)
+            .field("api_secret_path", &self.api_secret_path)
+            .finish()
+    }
 }
 
 /// Configuration for the mosaic client.
