@@ -19,5 +19,6 @@ pub use genesis::{BridgeCounterproofGenesis, load_genesis};
 pub use host::{BridgeCounterproofHost, build_bridge_counterproof_host};
 pub use program::CounterproofProgram;
 pub use types::{
-    BitcoinTxOut, BitcoinXOnlyPublicKey, CounterproofInput, CounterproofOutput, RawBitcoinTx,
+    BitcoinTxOut, BitcoinXOnlyPublicKey, CounterproofInput, CounterproofMode, CounterproofOutput,
+    HeavierChainProof, RawBitcoinTx,
 };

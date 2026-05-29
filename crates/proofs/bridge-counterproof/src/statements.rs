@@ -48,6 +48,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
         bridge_proof_tx,
         bridge_proof_tx_prevouts,
         bridge_proof_tx_input_idx,
+        mode: _,
     } = zkvm.read_ssz();
     let tx: Transaction = (&bridge_proof_tx)
         .try_into()
@@ -228,7 +229,7 @@ mod tests {
     use zkaleido_native_adapter::NativeMachine;
 
     use super::*;
-    use crate::types::{BitcoinTxOut, RawBitcoinTx};
+    use crate::{BitcoinTxOut, CounterproofMode, RawBitcoinTx};
 
     const GAME_IDX: u32 = 7;
     const PROOF_TIMELOCK: u16 = 100;
@@ -382,6 +383,7 @@ mod tests {
             bridge_proof_tx: RawBitcoinTx::from(tx),
             bridge_proof_tx_prevouts: prevouts.into_iter().map(BitcoinTxOut::from).collect(),
             bridge_proof_tx_input_idx: TXIN_IDX,
+            mode: CounterproofMode::InvalidBridgeProof,
         }
     }
 
