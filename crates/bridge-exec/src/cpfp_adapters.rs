@@ -1,9 +1,10 @@
 //! Bridge-side implementations of the [`btc_tracker::cpfp`] traits.
 //!
-//! `btc-tracker` defines [`CpfpWallet`], [`CpfpFeeSource`], and [`CpfpPackageSubmitter`] as
-//! abstract interfaces so the crate stays at the bottom of the dependency graph. The concrete
-//! adapters that wire those traits to the bridge's actual wallet, fee source, and Bitcoin Core
-//! client live here.
+//! `btc-tracker` defines [`CpfpWallet`], `FeeSource`, and [`CpfpPackageSubmitter`] as abstract
+//! interfaces so the crate stays at the bottom of the dependency graph. The concrete adapters
+//! that wire those traits to the bridge's actual wallet and Bitcoin Core client live here; the
+//! fee source itself is built in `bridge-exec::fees` and wrapped in
+//! `btc_tracker::cpfp::CachedFeeSource`.
 
 use std::sync::Arc;
 
@@ -11,11 +12,10 @@ use bitcoin::{
     Address, Amount, FeeRate, Network, OutPoint, Transaction, XOnlyPublicKey,
     secp256k1::{Message, SECP256K1, schnorr::Signature},
 };
-use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
+use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::{
     cpfp::{
-        CpfpFeeSource, CpfpPackageSubmitter, CpfpStrategy, CpfpWallet, InputSignFut, InputSigner,
-        WalletFundedPsbt,
+        CpfpPackageSubmitter, CpfpStrategy, CpfpWallet, InputSignFut, InputSigner, WalletFundedPsbt,
     },
     submitpackage::{self, SubmitPackageError, SubmitPackageSummary},
 };
@@ -117,42 +117,6 @@ impl CpfpWallet for OperatorWalletCpfpAdapter {
                 psbt: funded.psbt,
                 spent,
             })
-        }
-    }
-}
-
-/// [`CpfpFeeSource`] backed by `bitcoind`'s `estimatesmartfee`.
-///
-/// Clamps the returned rate to ≥ 1 sat/vB; `bitcoind-async-client` represents fee rates as
-/// `u64` sat/vB and truncates sub-1 rates to 0, which would otherwise lose the fee entirely
-/// on networks where the upstream source can report below 1 sat/vB.
-#[derive(Debug)]
-pub struct BitcoindCpfpFeeSource {
-    client: Arc<BitcoinClient>,
-    conf_target: u16,
-}
-
-impl BitcoindCpfpFeeSource {
-    /// Constructs a fee source that polls `client.estimate_smart_fee(conf_target)` each call.
-    pub const fn new(client: Arc<BitcoinClient>, conf_target: u16) -> Self {
-        Self {
-            client,
-            conf_target,
-        }
-    }
-}
-
-impl CpfpFeeSource for BitcoindCpfpFeeSource {
-    fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
-        let client = self.client.clone();
-        let conf_target = self.conf_target;
-        async move {
-            let raw = client
-                .estimate_smart_fee(conf_target)
-                .await
-                .map_err(|e| format!("estimate_smart_fee: {e:?}"))?;
-            FeeRate::from_sat_per_vb(raw.max(1))
-                .ok_or_else(|| format!("clamped rate {} sat/vB overflows FeeRate", raw.max(1)))
         }
     }
 }

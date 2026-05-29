@@ -194,13 +194,15 @@ pub trait CpfpWallet: Send + Sync + fmt::Debug {
     ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send;
 }
 
-/// Source of fee-rate estimates used to drive the package target. Same surface as
-/// `bridge-exec::fees::FeeSource` but redefined here to keep the dependency graph acyclic.
+/// Source of fee-rate estimates used to drive the package target.
 ///
-/// In production the live source (`bridge-exec::fees::FeeSource`) is wrapped in a
-/// [`CachedFeeSource`] so the bump loop reads from a hot atomic instead of hitting the
-/// network per call. The tracker refreshes in the background on `refresh_interval`.
-pub trait CpfpFeeSource: Send + Sync + fmt::Debug {
+/// Lives here (the lowest crate that needs it) rather than in `bridge-exec` to keep the
+/// dependency graph acyclic — `bridge-exec` depends on `btc-tracker`, and its concrete sources
+/// (`bridge-exec::fees::{BitcoindFeeSource, MempoolExplorerFeeSource, FixedFeeSource}`) implement
+/// this trait. In production the configured source is wrapped in a [`CachedFeeSource`] so the
+/// bump loop and the executors both read from a hot atomic instead of hitting the network per
+/// call; the tracker refreshes in the background on `refresh_interval`.
+pub trait FeeSource: Send + Sync + fmt::Debug {
     /// Returns the current sat/vB target for the next block.
     fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send;
 }
@@ -232,10 +234,10 @@ pub type InputSignFut =
 /// the corresponding outputs were constructed (keyed-Taproot, no script tree).
 pub type InputSigner = Arc<dyn Fn(Message) -> InputSignFut + Send + Sync>;
 
-/// A [`CpfpFeeSource`] that caches the most recent estimate in a shared atomic, refreshed in
+/// A [`FeeSource`] that caches the most recent estimate in a shared atomic, refreshed in
 /// the background by a tokio task at a configurable interval.
 ///
-/// Wraps any underlying [`CpfpFeeSource`] (typically the live `bridge-exec::fees::FeeSource`
+/// Wraps any underlying [`FeeSource`] (typically the configured `bridge-exec::fees` source
 /// going to Bitcoin Core or mempool.space). Reads from the cache are constant-time —
 /// `estimate()` returns the latest cached value without I/O, so the bump loop in
 /// [`TxDriver`](crate::tx_driver::TxDriver) can poll it on a fast timer without rate-limiting
@@ -292,7 +294,7 @@ impl CachedFeeSource {
     /// the cached atomic.
     pub async fn spawn<U>(underlying: Arc<U>, refresh_interval: Duration) -> Result<Self, String>
     where
-        U: CpfpFeeSource + 'static,
+        U: FeeSource + 'static,
     {
         let spawn_anchor = std::time::Instant::now();
         let initial = underlying.estimate().await?;
@@ -356,7 +358,7 @@ impl CachedFeeSource {
     }
 }
 
-impl CpfpFeeSource for CachedFeeSource {
+impl FeeSource for CachedFeeSource {
     /// Returns the cached value. Never returns `Err` — refresh failures are logged at the
     /// background task and the prior value is retained.
     fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
@@ -404,7 +406,7 @@ impl CpfpWallet for CpfpDisabled {
 }
 
 #[expect(clippy::manual_async_fn, reason = "see CpfpWallet impl above")]
-impl CpfpFeeSource for CpfpDisabled {
+impl FeeSource for CpfpDisabled {
     fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
         async { unreachable!("CpfpDisabled::estimate should never be called") }
     }
@@ -431,7 +433,7 @@ impl CpfpPackageSubmitter for CpfpDisabled {
 pub struct CpfpContext<W, F, P>
 where
     W: CpfpWallet + 'static,
-    F: CpfpFeeSource + 'static,
+    F: FeeSource + 'static,
     P: CpfpPackageSubmitter + 'static,
 {
     /// Wallet that constructs the child PSBT. The PSBT comes back **unsigned**: bridge
@@ -462,7 +464,7 @@ where
 impl<W, F, P> Clone for CpfpContext<W, F, P>
 where
     W: CpfpWallet + 'static,
-    F: CpfpFeeSource + 'static,
+    F: FeeSource + 'static,
     P: CpfpPackageSubmitter + 'static,
 {
     fn clone(&self) -> Self {
@@ -480,7 +482,7 @@ where
 impl<W, F, P> Debug for CpfpContext<W, F, P>
 where
     W: CpfpWallet + 'static,
-    F: CpfpFeeSource + 'static,
+    F: FeeSource + 'static,
     P: CpfpPackageSubmitter + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -552,7 +554,7 @@ pub async fn perform_bump<W, F, P>(
 ) -> Result<bool, CpfpError>
 where
     W: CpfpWallet + 'static,
-    F: CpfpFeeSource + 'static,
+    F: FeeSource + 'static,
     P: CpfpPackageSubmitter + 'static,
 {
     let parent_txid = parent.compute_txid();
@@ -804,7 +806,7 @@ mod tests {
             }
         }
     }
-    impl CpfpFeeSource for FakeFeeSource {
+    impl FeeSource for FakeFeeSource {
         fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
             let r = self.rate.lock().unwrap().clone();
             async move { r }
@@ -1043,7 +1045,7 @@ mod tests {
         max_fee_rate: FeeRate,
     ) -> CpfpContext<W, F, P>
     where
-        F: CpfpFeeSource + 'static,
+        F: FeeSource + 'static,
         W: CpfpWallet + 'static,
         P: CpfpPackageSubmitter + 'static,
     {
@@ -1580,7 +1582,7 @@ mod tests {
         struct FlippableFeeSource {
             inner: Mutex<Result<FeeRate, String>>,
         }
-        impl CpfpFeeSource for FlippableFeeSource {
+        impl FeeSource for FlippableFeeSource {
             fn estimate(
                 &self,
             ) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
@@ -1615,7 +1617,7 @@ mod tests {
         struct FlippableFeeSource {
             inner: Mutex<Result<FeeRate, String>>,
         }
-        impl CpfpFeeSource for FlippableFeeSource {
+        impl FeeSource for FlippableFeeSource {
             fn estimate(
                 &self,
             ) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {

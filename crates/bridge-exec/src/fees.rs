@@ -1,6 +1,6 @@
 //! Fee-rate sources for bridge transactions.
 //!
-//! Provides a [`FeeSource`] trait with three implementations:
+//! Provides three implementations of [`btc_tracker::cpfp::FeeSource`]:
 //!
 //! * [`BitcoindFeeSource`] — queries `estimatesmartfee` on the local Bitcoin Core RPC.
 //! * [`MempoolExplorerFeeSource`] — queries a mempool.space-compatible explorer's
@@ -13,10 +13,10 @@
 //! otherwise truncate to zero and lose the fee entirely. This mirrors strata's fix in
 //! [alpenlabs/alpen#1811](https://github.com/alpenlabs/alpen/pull/1811).
 //!
-//! Callers fetch via [`FeeSource::estimate`] once per tx-build. Periodic re-fetching for live
-//! fee tracking (e.g., to drive RBF bumps) is the responsibility of the caller, not the source;
-//! that loop will live in the tx-driver layer once CPFP wiring lands
-//! ([STR-3439](https://alpenlabs.atlassian.net/browse/STR-3439)).
+//! The orchestrator builds the configured source via [`FeeSourceConfig::build`] and wraps it in
+//! a [`btc_tracker::cpfp::CachedFeeSource`], which refreshes in the background and is shared by
+//! both the executors (per-tx-build fee estimates) and the tx-driver's CPFP/RBF bump loop — so
+//! neither hits the network per call.
 
 use std::{
     sync::{Arc, LazyLock},
@@ -26,6 +26,7 @@ use std::{
 use async_trait::async_trait;
 use bitcoin::FeeRate;
 use bitcoind_async_client::{ClientResult, traits::Reader};
+use btc_tracker::cpfp::FeeSource;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
@@ -70,20 +71,6 @@ pub enum FeeSourceError {
     InvalidConfig(String),
 }
 
-/// A source of fee-rate estimates for bridge transactions.
-///
-/// Implementations are stateless with respect to fee tracking — each call hits the underlying
-/// source. Callers responsible for cadence; see module docs.
-///
-/// Uses `async_trait` rather than AFIT so the trait is object-safe and can be stored as
-/// `Arc<dyn FeeSource>` on [`crate::config::ExecutionConfig`]. Allocation cost per call is one
-/// boxed future, negligible against the network round-trip the call performs.
-#[async_trait]
-pub trait FeeSource: Send + Sync + std::fmt::Debug {
-    /// Returns the current fee-rate estimate, clamped to at least 1 sat/vB.
-    async fn estimate(&self) -> Result<FeeRate, FeeSourceError>;
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 // Bitcoin Core
 // ────────────────────────────────────────────────────────────────────────────
@@ -109,14 +96,13 @@ impl<R: FeeRateRpc> BitcoindFeeSource<R> {
     }
 }
 
-#[async_trait]
 impl<R: FeeRateRpc> FeeSource for BitcoindFeeSource<R> {
-    async fn estimate(&self) -> Result<FeeRate, FeeSourceError> {
+    async fn estimate(&self) -> Result<FeeRate, String> {
         let raw = self
             .client
             .estimate_smart_fee(self.conf_target)
             .await
-            .map_err(FeeSourceError::Bitcoind)?;
+            .map_err(|e| FeeSourceError::Bitcoind(e).to_string())?;
         Ok(clamp_to_min(raw))
     }
 }
@@ -241,9 +227,8 @@ impl<R: FeeRateRpc> MempoolExplorerFeeSource<R> {
     }
 }
 
-#[async_trait]
 impl<R: FeeRateRpc> FeeSource for MempoolExplorerFeeSource<R> {
-    async fn estimate(&self) -> Result<FeeRate, FeeSourceError> {
+    async fn estimate(&self) -> Result<FeeRate, String> {
         match self.fetch_recommended().await {
             Ok(fees) => Ok(clamp_to_min(fees.select(self.policy))),
             Err(e) => {
@@ -272,9 +257,8 @@ impl FixedFeeSource {
     }
 }
 
-#[async_trait]
 impl FeeSource for FixedFeeSource {
-    async fn estimate(&self) -> Result<FeeRate, FeeSourceError> {
+    async fn estimate(&self) -> Result<FeeRate, String> {
         Ok(self.0)
     }
 }
@@ -283,10 +267,36 @@ impl FeeSource for FixedFeeSource {
 // Config + builder
 // ────────────────────────────────────────────────────────────────────────────
 
+/// The concrete [`FeeSource`] selected by a [`FeeSourceConfig`].
+///
+/// A single enum (rather than `Box<dyn FeeSource>`) keeps the AFIT [`FeeSource`] trait usable
+/// without a boxed-future shim: the orchestrator wraps this in a
+/// [`btc_tracker::cpfp::CachedFeeSource`] and shares that one cache with both the executors and
+/// the CPFP bump loop.
+#[derive(Debug)]
+pub enum ConfiguredFeeSource<R> {
+    /// Bitcoin Core `estimatesmartfee`.
+    Bitcoind(BitcoindFeeSource<R>),
+    /// mempool.space-compatible explorer with a Bitcoin Core fallback.
+    Mempool(MempoolExplorerFeeSource<R>),
+    /// Constant rate (tests / manual overrides).
+    Fixed(FixedFeeSource),
+}
+
+impl<R: FeeRateRpc> FeeSource for ConfiguredFeeSource<R> {
+    async fn estimate(&self) -> Result<FeeRate, String> {
+        match self {
+            Self::Bitcoind(s) => s.estimate().await,
+            Self::Mempool(s) => s.estimate().await,
+            Self::Fixed(s) => s.estimate().await,
+        }
+    }
+}
+
 /// Serializable operator-side configuration that selects a [`FeeSource`] policy.
 ///
-/// Built into a concrete `Arc<dyn FeeSource>` at startup via [`FeeSourceConfig::build`], taking
-/// the operator's Bitcoin Core RPC client as the fallback source for the mempool variant.
+/// Built into a concrete [`ConfiguredFeeSource`] at startup via [`FeeSourceConfig::build`],
+/// taking the operator's Bitcoin Core RPC client as the fallback source for the mempool variant.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FeeSourceConfig {
@@ -318,21 +328,21 @@ impl FeeSourceConfig {
     ///
     /// `bitcoind` is used as the primary source for [`FeeSourceConfig::BitcoinCore`], and as the
     /// fallback for [`FeeSourceConfig::MempoolExplorer`].
-    pub fn build<R>(self, bitcoind: Arc<R>) -> Result<Arc<dyn FeeSource>, FeeSourceError>
+    pub fn build<R>(self, bitcoind: Arc<R>) -> Result<ConfiguredFeeSource<R>, FeeSourceError>
     where
         R: FeeRateRpc + 'static,
     {
         match self {
-            Self::BitcoinCore { conf_target } => {
-                Ok(Arc::new(BitcoindFeeSource::new(bitcoind, conf_target)))
-            }
+            Self::BitcoinCore { conf_target } => Ok(ConfiguredFeeSource::Bitcoind(
+                BitcoindFeeSource::new(bitcoind, conf_target),
+            )),
             Self::MempoolExplorer {
                 base_url,
                 policy,
                 fallback_conf_target,
             } => {
                 let fallback = BitcoindFeeSource::new(bitcoind, fallback_conf_target);
-                Ok(Arc::new(MempoolExplorerFeeSource::new(
+                Ok(ConfiguredFeeSource::Mempool(MempoolExplorerFeeSource::new(
                     base_url, policy, fallback,
                 )?))
             }
@@ -342,7 +352,7 @@ impl FeeSourceConfig {
                         "fixed fee rate {fee_rate} sat/vB exceeds FeeRate's u64 sat/kwu range"
                     ))
                 })?;
-                Ok(Arc::new(source))
+                Ok(ConfiguredFeeSource::Fixed(source))
             }
         }
     }
@@ -449,7 +459,7 @@ mod tests {
     async fn bitcoind_propagates_rpc_error() {
         let source = BitcoindFeeSource::new(Arc::new(MockFeeRateRpc::failing()), 1);
         let err = source.estimate().await.unwrap_err();
-        assert!(matches!(err, FeeSourceError::Bitcoind(_)));
+        assert!(err.contains("bitcoind"), "unexpected error: {err}");
     }
 
     #[tokio::test]
@@ -555,7 +565,7 @@ mod tests {
         .unwrap();
         // Mempool error is absorbed; surfaced error is from the bitcoind fallback.
         let err = source.estimate().await.unwrap_err();
-        assert!(matches!(err, FeeSourceError::Bitcoind(_)));
+        assert!(err.contains("bitcoind"), "unexpected error: {err}");
     }
 
     #[tokio::test]

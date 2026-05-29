@@ -416,18 +416,12 @@ async fn fulfill_withdrawal(
         .checked_sub(cfg.operator_fee)
         .expect("deposit amount must be greater than operator fee");
 
-    // Get fee rate from the configured fee source, then floor it at `fee::FEE_RATE` so the
-    // withdrawal-fulfillment v3 transaction always meets the bridge's hardcoded minimum.
-    // The fee source already clamps to >=1 sat/vB internally; the additional `max(fee::FEE_RATE)`
-    // here is the bridge-protocol floor, distinct from the truncation guard.
-    let estimated = cfg
-        .fee_source
-        .estimate()
-        .await
-        .map_err(|e| ExecutorError::WalletErr(format!("failed to estimate fee: {e}")))?;
-    info!(%estimated, "estimated fee rate for withdrawal fulfillment");
-
-    let fee_rate = estimated.max(fee::FEE_RATE);
+    // Read the current cached fee rate (refreshed in the background by the shared fee source),
+    // then floor it at `fee::FEE_RATE` so the withdrawal-fulfillment v3 transaction always meets
+    // the bridge's hardcoded minimum. The underlying source clamps to >=1 sat/vB; this
+    // `max(fee::FEE_RATE)` is the bridge-protocol floor, distinct from the truncation guard.
+    let fee_rate = cfg.fee_source.current().max(fee::FEE_RATE);
+    info!(%fee_rate, "fee rate for withdrawal fulfillment");
 
     // The following approach trades off maximal liveness for maximal safety:
     // It is not safe to broadcast at a lower fee rate when the network fee rate is high as there is

@@ -136,7 +136,7 @@ async fn read_or_create_stake_funding(
     }
 
     info!(%operator_idx, "no persisted stake funding reservation; creating a new funding tx");
-    let fee_rate = estimate_funding_fee_rate(cfg).await?;
+    let fee_rate = estimate_funding_fee_rate(cfg)?;
 
     info!(%fee_rate, %funding_amount, "creating stake funding transaction");
     // Stake funding is one reserved-wallet UTXO of `funding_amount`. The reserved-utxo API
@@ -170,19 +170,13 @@ async fn read_or_create_stake_funding(
     Ok(reservation)
 }
 
-async fn estimate_funding_fee_rate(cfg: &ExecutionConfig) -> Result<FeeRate, ExecutorError> {
-    info!("fetching fee rate from configured fee source");
-    let estimated = cfg
-        .fee_source
-        .estimate()
-        .await
-        .map_err(|e| ExecutorError::WalletErr(format!("failed to estimate fee: {e}")))?;
-    info!(%estimated, "fetched fee rate from fee source");
-
-    // Floor at `fee::FEE_RATE` so this v3 (TRUC) funding transaction always meets the bridge's
-    // hardcoded minimum. The fee source already clamps to >=1 sat/vB internally; this floor is
-    // the bridge-protocol minimum, distinct from the truncation guard.
-    let fee_rate = estimated.max(fee::FEE_RATE);
+fn estimate_funding_fee_rate(cfg: &ExecutionConfig) -> Result<FeeRate, ExecutorError> {
+    // Floor the current cached fee rate (refreshed in the background by the shared fee source) at
+    // `fee::FEE_RATE` so this v3 (TRUC) funding transaction always meets the bridge's hardcoded
+    // minimum. The underlying source clamps to >=1 sat/vB; this floor is the bridge-protocol
+    // minimum, distinct from the truncation guard.
+    let fee_rate = cfg.fee_source.current().max(fee::FEE_RATE);
+    info!(%fee_rate, "fee rate for stake funding");
 
     if fee_rate > cfg.maximum_fee_rate {
         return Err(ExecutorError::FeeRateTooHigh {
