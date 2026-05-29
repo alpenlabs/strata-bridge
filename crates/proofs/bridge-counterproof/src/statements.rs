@@ -726,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn process_counterproof_inner_commits_on_invalid_proof() {
+    fn counterproof_valid_if_bridge_proof_invalid() {
         let input = canonical_counterproof_input();
         let output = run_counterproof(input.clone(), PredicateKey::never_accept());
 
@@ -735,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn process_counterproof_inner_commits_on_non_canonical_shape() {
+    fn counterproof_valid_if_bridge_proof_tx_malformed() {
         // Off-shape tx with a valid signature. `always_accept` would panic if the
         // embedded-proof check ran; reaching commit proves the short-circuit fired.
         let operator_kp = deterministic_keypair(1);
@@ -764,7 +764,7 @@ mod tests {
     #[should_panic(
         expected = "invalid counterproof: length of prevouts not equal number of transaction inputs"
     )]
-    fn process_counterproof_inner_rejects_prevouts_input_mismatch() {
+    fn counterproof_invalid_if_prevouts_invalid_length() {
         let mut input = canonical_counterproof_input();
         input
             .bridge_proof_tx_prevouts
@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "invalid counterproof: invalid encoding of bridge proof transaction")]
-    fn process_counterproof_inner_rejects_non_decodable_tx() {
+    fn counterproof_invalid_if_bridge_proof_tx_invalid_encoding() {
         let mut input = canonical_counterproof_input();
         input.bridge_proof_tx = RawBitcoinTx::from_raw_bytes(vec![0xffu8; 4]);
         run_counterproof(input, PredicateKey::never_accept());
@@ -782,7 +782,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "invalid counterproof: game index cannot be zero")]
-    fn process_counterproof_inner_rejects_zero_game_idx() {
+    fn counterproof_invalid_if_game_index_zero() {
         let mut input = canonical_counterproof_input();
         input.game_idx = 0;
         run_counterproof(input, PredicateKey::never_accept());
