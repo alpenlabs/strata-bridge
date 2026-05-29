@@ -366,10 +366,30 @@ async fn build_and_sign_tx(
 
     let prevouts = funded_burn.prevouts().to_vec();
     let mut signed_tx = funded_burn.finalize_partial(unstaking_preimage);
-    let wallet_signature = sign_wallet_input(output_handles, &signed_tx, &prevouts).await?;
-    signed_tx.input[WALLET_INPUT_INDEX]
-        .witness
-        .push(wallet_signature.to_vec());
+
+    // Sign the general-wallet funding input. A create-and-sign backend (Fireblocks) signs its
+    // P2WPKH input and returns the witness; the native descriptor-only backend returns `None`,
+    // and we sign the Taproot key-path via secret-service. (Sighashes don't depend on other
+    // inputs' witnesses, so computing over `signed_tx` after the connector is finalized is fine.)
+    let backend_witness = output_handles
+        .wallet
+        .read()
+        .await
+        .sign_owned_inputs(&signed_tx, &[WALLET_INPUT_INDEX], &prevouts)
+        .await
+        .map_err(|e| ExecutorError::WalletErr(format!("backend signing failed: {e}")))?
+        .into_iter()
+        .next()
+        .flatten();
+    match backend_witness {
+        Some(witness) => signed_tx.input[WALLET_INPUT_INDEX].witness = witness,
+        None => {
+            let wallet_signature = sign_wallet_input(output_handles, &signed_tx, &prevouts).await?;
+            signed_tx.input[WALLET_INPUT_INDEX]
+                .witness
+                .push(wallet_signature.to_vec());
+        }
+    }
 
     let final_vsize = signed_tx.vsize() as u64;
     let final_fee = plan
@@ -443,12 +463,24 @@ fn estimate_unstaking_burn_fee(
         },
     );
 
-    // The connector witness is exact after `finalize_partial`; the general wallet witness is a
-    // fixed-size Schnorr signature, so a 64-byte dummy witness gives an exact vsize.
+    // The connector witness is exact after `finalize_partial`. The general-wallet input's
+    // witness shape depends on the backend: the native general wallet is P2TR (64-byte
+    // key-path Schnorr signature), Fireblocks is P2WPKH (DER signature + compressed pubkey).
+    // Model whichever the wallet uses (its receive `payout_script`) so the vsize estimate
+    // matches the signed transaction.
     let mut estimated_tx = unstaking_burn_tx.finalize_partial(unstaking_preimage);
-    estimated_tx.input[WALLET_INPUT_INDEX]
-        .witness
-        .push([0u8; 64]);
+    if payout_script.is_p2wpkh() {
+        estimated_tx.input[WALLET_INPUT_INDEX]
+            .witness
+            .push([0u8; 73]); // max DER signature + sighash-type byte
+        estimated_tx.input[WALLET_INPUT_INDEX]
+            .witness
+            .push([0u8; 33]); // compressed public key
+    } else {
+        estimated_tx.input[WALLET_INPUT_INDEX]
+            .witness
+            .push([0u8; 64]); // P2TR key-path Schnorr signature
+    }
 
     let vsize = estimated_tx.vsize() as u64;
     let fee = fee_rate

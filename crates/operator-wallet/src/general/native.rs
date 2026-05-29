@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use bdk_wallet::{
     bitcoin::{
         psbt::Input as PsbtInput, Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, Transaction,
-        TxOut, XOnlyPublicKey,
+        TxOut, Witness, XOnlyPublicKey,
     },
     descriptor,
     error::CreateTxError,
@@ -149,6 +149,17 @@ impl GeneralWallet for NativeGeneralWallet {
             target_pkg_fee_rate,
             exclude,
         )
+    }
+
+    async fn sign_owned_inputs(
+        &self,
+        _tx: &Transaction,
+        input_indices: &[usize],
+        _prevouts: &[TxOut],
+    ) -> Result<Vec<Option<Witness>>, Self::Error> {
+        // Descriptor-only: this backend holds no key material, so it signs nothing — the caller
+        // signs these inputs downstream via secret-service.
+        Ok(vec![None; input_indices.len()])
     }
 }
 

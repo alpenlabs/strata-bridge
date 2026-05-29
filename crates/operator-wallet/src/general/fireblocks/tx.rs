@@ -11,8 +11,8 @@ use std::collections::HashSet;
 use bdk_wallet::bitcoin::{
     hashes::Hash,
     transaction::{predict_weight, InputWeightPrediction, Version},
-    Amount, EcdsaSighashType, FeeRate, OutPoint, Psbt, Script, ScriptBuf, Sequence, Transaction,
-    TxIn, TxOut, Witness,
+    Amount, EcdsaSighashType, FeeRate, OutPoint, Script, ScriptBuf, Sequence, Transaction, TxIn,
+    TxOut, Witness,
 };
 
 use super::FireblocksError;
@@ -173,17 +173,17 @@ pub(super) const fn txin(outpoint: OutPoint) -> TxIn {
     }
 }
 
-/// Computes the BIP-143 sighash (SIGHASH_ALL) for the P2WPKH input at `input_index` of
-/// `psbt`'s unsigned transaction. `prevouts[i]` must be the output spent by input `i`.
+/// Computes the BIP-143 sighash (SIGHASH_ALL) for the P2WPKH input at `input_index` of `tx`.
+/// `prevouts[i]` must be the output spent by `tx.input[i]`.
 pub(super) fn p2wpkh_sighash(
-    psbt: &Psbt,
+    tx: &Transaction,
     input_index: usize,
     prevouts: &[TxOut],
 ) -> Result<[u8; 32], FireblocksError> {
     let prevout = prevouts
         .get(input_index)
         .ok_or_else(|| FireblocksError::TxBuild(format!("no prevout for input {input_index}")))?;
-    let mut cache = bdk_wallet::bitcoin::sighash::SighashCache::new(&psbt.unsigned_tx);
+    let mut cache = bdk_wallet::bitcoin::sighash::SighashCache::new(tx);
     let sighash = cache
         .p2wpkh_signature_hash(
             input_index,

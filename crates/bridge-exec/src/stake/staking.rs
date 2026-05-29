@@ -4,13 +4,11 @@
 //! the stake transaction.
 
 use bitcoin::{
-    Address, Amount, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
+    Amount, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
     hashes::{Hash, sha256},
-    key::TapTweak,
     secp256k1::{Message, XOnlyPublicKey},
     sighash::{Prevouts, SighashCache},
 };
-use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
@@ -79,18 +77,11 @@ pub(crate) async fn publish_stake_data(
     info!(%unstaking_image, "fetched unstaking intent preimage and computed the unstaking image");
 
     info!("constructing the unstaking output descriptor");
-    let general_wallet_key = output_handles
-        .s2_client
-        .general_wallet_signer()
-        .pubkey()
-        .await?;
-    // Safety: the general wallet uses the operator's pubkey directly as the taproot output key
-    // (no additional tweak), so the pubkey returned by secret-service is already tweaked.
-    let address = Address::p2tr_tweaked(general_wallet_key.dangerous_assume_tweaked(), cfg.network);
-    info!(%address, "constructed the unstaking output address");
-
-    let output_desc = Descriptor::try_from(address)
-        .expect("must be able to create descriptor from a valid address");
+    // Backend-aware receive destination: where this operator gets its unstaking funds (native
+    // general-key P2TR vs Fireblocks vault P2WPKH), so the funds land somewhere it can spend.
+    // For the native backend this is byte-identical to the previous P2TR-over-general-key
+    // descriptor.
+    let output_desc = output_handles.wallet.read().await.payout_descriptor();
 
     let unstaking_input = UnstakingInput {
         stake_funds,
@@ -270,34 +261,52 @@ async fn sign_reservation(
     output_handles: &OutputHandles,
     reservation: &StakeFundingReservation,
 ) -> Result<Transaction, ExecutorError> {
-    let prevouts = Prevouts::All(&reservation.prevouts);
-
     const DEFAULT_SIGHASH_TYPE: TapSighashType = TapSighashType::Default;
 
+    let input_count = reservation.unsigned_tx.input.len();
+    let all_indices: Vec<usize> = (0..input_count).collect();
+
+    // The stake-funding tx is funded entirely from the general wallet, but the reservation is
+    // persisted as an unsigned tx + prevouts (the funded PSBT's witnesses, if any, aren't
+    // stored), so sign on demand here. A create-and-sign backend (Fireblocks) signs its P2WPKH
+    // inputs and returns their witnesses; the native descriptor-only backend returns all `None`
+    // and those inputs are signed via secret-service below.
+    let backend_witnesses = output_handles
+        .wallet
+        .read()
+        .await
+        .sign_owned_inputs(
+            &reservation.unsigned_tx,
+            &all_indices,
+            &reservation.prevouts,
+        )
+        .await
+        .map_err(|e| ExecutorError::WalletErr(format!("backend signing failed: {e}")))?;
+
+    let prevouts = Prevouts::All(&reservation.prevouts);
     let mut sighash_cache = SighashCache::new(&reservation.unsigned_tx);
-    let sighashes = (0..reservation.unsigned_tx.input.len()).map(|input_index| {
-        create_key_spend_hash(
+    let s2_signer = output_handles.s2_client.general_wallet_signer();
+
+    let mut signed_tx = reservation.unsigned_tx.clone();
+    for (input_index, backend_witness) in backend_witnesses.iter().enumerate() {
+        if let Some(witness) = backend_witness {
+            signed_tx.input[input_index].witness = witness.clone();
+            continue;
+        }
+        let sighash = create_key_spend_hash(
             &mut sighash_cache,
             prevouts.clone(),
             DEFAULT_SIGHASH_TYPE,
             input_index,
         )
-        .expect("must be able to create key spend hash")
-    });
-
-    let s2_signer = output_handles.s2_client.general_wallet_signer();
-    let mut signatures = Vec::with_capacity(reservation.unsigned_tx.input.len());
-    for sighash in sighashes {
+        .map_err(|e| ExecutorError::WalletErr(format!("key spend hash: {e}")))?;
         let signature = s2_signer
             .sign(sighash.as_ref(), None)
             .await
             .map_err(ExecutorError::SecretServiceErr)?;
-        signatures.push(signature);
-    }
-
-    let mut signed_tx = reservation.unsigned_tx.clone();
-    for (input, signature) in signed_tx.input.iter_mut().zip(signatures) {
-        input.witness.push(signature.serialize());
+        signed_tx.input[input_index]
+            .witness
+            .push(signature.serialize());
     }
 
     Ok(signed_tx)

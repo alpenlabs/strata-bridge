@@ -39,7 +39,7 @@ use std::{
 
 use bdk_wallet::bitcoin::{
     address::NetworkUnchecked, Address, Amount, Denomination, FeeRate, Network, OutPoint, Psbt,
-    Script, ScriptBuf, Transaction, TxIn, TxOut, Txid,
+    Script, ScriptBuf, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use reqwest::Method;
 use serde::de::DeserializeOwned;
@@ -408,7 +408,7 @@ impl FireblocksGeneralWallet {
         }
         let sighashes = fb_input_indices
             .iter()
-            .map(|&i| tx::p2wpkh_sighash(psbt, i, prevouts))
+            .map(|&i| tx::p2wpkh_sighash(&psbt.unsigned_tx, i, prevouts))
             .collect::<Result<Vec<_>, _>>()?;
         let signed = self.raw_sign(&sighashes).await?;
         for (sighash, &i) in sighashes.iter().zip(fb_input_indices) {
@@ -743,5 +743,37 @@ impl GeneralWallet for FireblocksGeneralWallet {
             psbt.inputs[0].tap_internal_key = Some(anchor.internal_key);
         }
         Ok(FundedPsbt { psbt })
+    }
+
+    async fn sign_owned_inputs(
+        &self,
+        tx: &Transaction,
+        input_indices: &[usize],
+        prevouts: &[TxOut],
+    ) -> Result<Vec<Option<Witness>>, Self::Error> {
+        if input_indices.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sighashes = input_indices
+            .iter()
+            .map(|&i| tx::p2wpkh_sighash(tx, i, prevouts))
+            .collect::<Result<Vec<_>, _>>()?;
+        let signed = self.raw_sign(&sighashes).await?;
+        let mut witnesses = Vec::with_capacity(input_indices.len());
+        for (sighash, &i) in sighashes.iter().zip(input_indices) {
+            // Match by the sighash we asked Fireblocks to sign, then verify the returned pubkey
+            // controls this prevout (assemble_p2wpkh_witness checks hash160 == witness program).
+            let content = hex::encode(sighash);
+            let msg = signed.get(&content).ok_or_else(|| {
+                FireblocksError::Api(format!("no signature returned for input {i}"))
+            })?;
+            let witness = sign::assemble_p2wpkh_witness(
+                &msg.signature.full_sig,
+                &msg.public_key,
+                &prevouts[i].script_pubkey,
+            )?;
+            witnesses.push(Some(witness));
+        }
+        Ok(witnesses)
     }
 }

@@ -14,7 +14,9 @@ pub mod native;
 use std::error::Error as StdError;
 
 use bdk_wallet::{
-    bitcoin::{Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
+    bitcoin::{
+        Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Witness, XOnlyPublicKey,
+    },
     chain::ChainPosition,
 };
 
@@ -123,6 +125,24 @@ pub trait GeneralWallet: Send + Sync {
         target_pkg_fee_rate: FeeRate,
         exclude: &[OutPoint],
     ) -> impl std::future::Future<Output = Result<FundedPsbt, Self::Error>> + Send;
+
+    /// Signs the wallet-owned inputs of `tx` at `input_indices`, returning a witness per index
+    /// for the inputs this backend holds key material for, or `None` for inputs the caller must
+    /// sign downstream (descriptor-only backends like the native wallet hold no keys and return
+    /// all `None`).
+    ///
+    /// `prevouts[i]` must be the output spent by `tx.input[i]` (indexed globally over all
+    /// inputs); signing backends read the relevant prevout's value + script to build the
+    /// sighash. This serves callers that build a transaction by hand — one with a non-wallet
+    /// input the funding helpers can't express (e.g. the unstaking-burn payout connector or the
+    /// persisted-then-resigned stake-funding reservation) — rather than via
+    /// [`Self::fund_v3_transaction`], which signs as it funds.
+    fn sign_owned_inputs(
+        &self,
+        tx: &Transaction,
+        input_indices: &[usize],
+        prevouts: &[TxOut],
+    ) -> impl std::future::Future<Output = Result<Vec<Option<Witness>>, Self::Error>> + Send;
 }
 
 /// A funded PSBT returned by [`GeneralWallet`] funding operations.

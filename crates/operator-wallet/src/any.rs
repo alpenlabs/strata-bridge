@@ -8,7 +8,7 @@
 
 use std::collections::BTreeSet;
 
-use bdk_wallet::bitcoin::{Amount, FeeRate, OutPoint, ScriptBuf, Transaction};
+use bdk_wallet::bitcoin::{Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, Witness};
 
 #[cfg(feature = "fireblocks")]
 use crate::general::fireblocks::FireblocksGeneralWallet;
@@ -142,6 +142,16 @@ impl AnyOperatorWallet {
         replacing: Option<&[OutPoint]>,
     ) -> Result<FundedPsbt, Error> {
         delegate!(self, w => w.build_cpfp_child(parent, parent_fee, anchor, target_pkg_fee_rate, replacing).await)
+    }
+
+    /// See [`OperatorWallet::sign_owned_inputs`].
+    pub async fn sign_owned_inputs(
+        &self,
+        tx: &Transaction,
+        input_indices: &[usize],
+        prevouts: &[TxOut],
+    ) -> Result<Vec<Option<Witness>>, Error> {
+        delegate!(self, w => w.sign_owned_inputs(tx, input_indices, prevouts).await)
     }
 
     /// See [`OperatorWallet::create_reserved_utxos`].

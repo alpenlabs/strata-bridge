@@ -524,7 +524,14 @@ async fn fulfill_withdrawal(
         let prevouts = Prevouts::All(&prevouts);
 
         let mut signed_tx = wft_psbt.unsigned_tx.clone();
-        for (input_index, _) in wft_psbt.inputs.iter().enumerate() {
+        for (input_index, input) in wft_psbt.inputs.iter().enumerate() {
+            // A create-and-sign backend (Fireblocks) already populated this input's witness;
+            // use it verbatim. Otherwise it's a native descriptor-only input we sign via
+            // secret-service. (`GeneralWallet` signing contract — skip what the backend signed.)
+            if let Some(witness) = &input.final_script_witness {
+                signed_tx.input[input_index].witness = witness.clone();
+                continue;
+            }
             let msg = create_message_hash(
                 &mut sighash_cache,
                 prevouts.clone(),
