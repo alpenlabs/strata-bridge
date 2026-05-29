@@ -77,7 +77,18 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     );
 
     // 3: Parse the embedded proof receipt and assert it fails verification.
-    parse_and_verify_bridge_proof(&tx, bridge_proof_tx_input_idx, genesis);
+    if let Some(bridge_proof_receipt) = extract_bridge_proof(&tx, bridge_proof_tx_input_idx) {
+        assert!(
+            genesis
+                .bridge_proof_vk
+                .verify_claim_witness(
+                    bridge_proof_receipt.public_values().as_bytes(),
+                    bridge_proof_receipt.proof().as_bytes(),
+                )
+                .is_err(),
+            "invalid counterproof: bridge proof is valid",
+        );
+    };
 
     // 4: Commit public values.
     zkvm.commit_ssz(&CounterproofOutput {
@@ -127,54 +138,56 @@ fn verify_operator_signature(
         .expect("operator signature should verify");
 }
 
-/// Pulls the `ProofReceipt` out of `tx.output[0]`'s OP_RETURN and panics if
-/// it actually verifies against `genesis.bridge_proof_vk` — a valid bridge
-/// proof is the one thing we can't refute.
+/// Extracts the bridge proof from the given `bridge_proof_tx`.
 ///
-/// If the tx doesn't look like a bridge-proof tx we skip the Groth16
-/// check entirely: the operator's signature has already been authenticated,
-/// and signing an off-shape tx is misbehavior on its own.
-fn parse_and_verify_bridge_proof(
-    tx: &Transaction,
-    txin_idx: u32,
-    genesis: &BridgeCounterproofGenesis,
-) {
-    let wit_elem = tx.input[txin_idx as usize]
+/// # Warning
+///
+/// This function must be called after [`verify_operator_signature()`],
+/// to ensure that the bridge proof transaction has a valid operator signature.
+///
+/// # Counterproof success scenarios
+///
+/// This function returns `None` if the bridge proof transaction has the wrong
+/// format. In this case, the counterproof is immediately valid.
+///
+/// If this function returns `Some`, then the counterproof validation continues.
+///
+/// # Counterproof failure scenarios
+///
+/// This function panics if the bridge proof transaction doesn't have a signature
+/// at the given input. This is impossible after calling [`verify_operator_signature()`].
+fn extract_bridge_proof(bridge_proof_tx: &Transaction, txin_idx: u32) -> Option<ProofReceipt> {
+    let wit_elem = bridge_proof_tx.input[txin_idx as usize]
         .witness
         .iter()
         .next()
-        .expect("contest-proof input witness checked in verify_operator_signature");
-    let tap_sig =
-        taproot::Signature::from_slice(wit_elem).expect("valid taproot key-spend signature");
+        .expect("operator signature has already been verified");
+    let tap_sig = taproot::Signature::from_slice(wit_elem)
+        .expect("operator signature has already been verified");
 
+    // Return `None` if the bridge proof transaction has the wrong format.
     if tap_sig.sighash_type != TapSighashType::Default {
-        return;
+        return None;
     }
-    let Some(first_out) = tx.output.first() else {
-        return;
+    let Some(first_out) = bridge_proof_tx.output.first() else {
+        return None;
     };
     let Some(data) = extract_op_return_payload(&first_out.script_pubkey) else {
-        return;
-    };
-    let Ok(receipt) = borsh::from_slice::<ProofReceipt>(data) else {
-        return;
+        return None;
     };
 
-    assert!(
-        genesis
-            .bridge_proof_vk
-            .verify_claim_witness(
-                receipt.public_values().as_bytes(),
-                receipt.proof().as_bytes(),
-            )
-            .is_err(),
-        "embedded bridge proof verified; cannot refute it",
-    );
+    // Return the decoded bridge proof.
+    borsh::from_slice::<ProofReceipt>(data).ok()
 }
 
 /// Extracts the pushed payload of an `OP_RETURN <PushBytes>` script.
-fn extract_op_return_payload(spk: &Script) -> Option<&[u8]> {
-    let mut it = spk.instructions();
+///
+/// # Counterproof success scenarios
+///
+/// This function returns `None` if the script has the wrong format.
+/// In this case, the counterproof is immediately valid.
+fn extract_op_return_payload(script_pubkey: &Script) -> Option<&[u8]> {
+    let mut it = script_pubkey.instructions();
     let first = it.next()?.ok()?;
     let second = it.next()?.ok()?;
     if !matches!(first, Instruction::Op(op) if op == opcodes::all::OP_RETURN) {
@@ -404,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn non_refutable_inputs_skip_bridge_proof_verification() {
+    fn counterproof_success_malformed_bridge_proof_tx() {
         let mut non_default_sighash_tx = proof_receipt_tx();
         non_default_sighash_tx.input[0].witness = taproot_witness(TapSighashType::All);
         let cases = [
@@ -413,34 +426,47 @@ mod tests {
             tx_with_outputs(vec![txout(ScriptBuf::new())]),
             tx_with_outputs(vec![txout(op_return_script(vec![1u8, 2, 3]))]),
         ];
-        let genesis = BridgeCounterproofGenesis {
-            bridge_proof_vk: PredicateKey::always_accept(),
-        };
-
         for tx in cases {
-            parse_and_verify_bridge_proof(&tx, TXIN_IDX, &genesis);
+            assert!(extract_bridge_proof(&tx, TXIN_IDX).is_none());
         }
     }
 
     #[test]
-    fn invalid_embedded_bridge_proof_returns() {
+    fn counterproof_success_invalid_bridge_proof() {
         let tx = proof_receipt_tx();
         let genesis = BridgeCounterproofGenesis {
             bridge_proof_vk: PredicateKey::never_accept(),
         };
 
-        parse_and_verify_bridge_proof(&tx, TXIN_IDX, &genesis);
+        let receipt = extract_bridge_proof(&tx, TXIN_IDX).unwrap();
+        assert!(
+            genesis
+                .bridge_proof_vk
+                .verify_claim_witness(
+                    receipt.public_values().as_bytes(),
+                    receipt.proof().as_bytes()
+                )
+                .is_err()
+        );
     }
 
     #[test]
-    #[should_panic(expected = "embedded bridge proof verified; cannot refute it")]
-    fn valid_embedded_bridge_proof_panics() {
+    fn counterproof_failure_valid_bridge_proof() {
         let tx = proof_receipt_tx();
         let genesis = BridgeCounterproofGenesis {
             bridge_proof_vk: PredicateKey::always_accept(),
         };
 
-        parse_and_verify_bridge_proof(&tx, TXIN_IDX, &genesis);
+        let receipt = extract_bridge_proof(&tx, TXIN_IDX).unwrap();
+        assert!(
+            genesis
+                .bridge_proof_vk
+                .verify_claim_witness(
+                    receipt.public_values().as_bytes(),
+                    receipt.proof().as_bytes()
+                )
+                .is_ok(),
+        );
     }
 
     #[test]
