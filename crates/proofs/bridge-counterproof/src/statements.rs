@@ -3,9 +3,7 @@
 use std::num::NonZero;
 
 use bitcoin::{
-    Amount, Network, Script, Transaction, TxOut,
-    hashes::Hash,
-    opcodes, relative,
+    Amount, Network, Script, Transaction, TxOut, opcodes, relative,
     script::Instruction,
     sighash::{Prevouts, SighashCache, TapSighashType},
     taproot,
@@ -97,8 +95,19 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     });
 }
 
-/// Checks that the operator really signed this bridge-proof tx by deriving
-/// the `ContestProofConnector` output key and verifying against it.
+/// Asserts that the contest-proof txin has a valid operator signature.
+///
+/// The contest-proof txin is indexed by `txin_idx`.
+///
+/// # Counterproof success scenarios
+///
+/// If this function returns, then the counterproof validation continues.
+///
+/// # Counterproof failure scenarios
+///
+/// This function panics if the contest-proof txin has malformed witness data
+/// or if the operator signature fails to verify. In this case, the counterproof
+/// is immediately invalid.
 fn verify_operator_signature(
     tx: &Transaction,
     prevouts: &[TxOut],
@@ -113,15 +122,15 @@ fn verify_operator_signature(
         .witness
         .iter()
         .next()
-        .expect("contest-proof input should carry a key-path witness");
+        .expect("invalid counterproof: contest-proof txin has no witness");
     let tap_sig = taproot::Signature::from_slice(wit_elem)
-        .expect("witness should be a taproot key-spend signature");
+        .expect("invalid counterproof: contest-proof txin has no signature");
 
     let mut cache = SighashCache::new(tx);
-    let sighash = cache
+    let msg = cache
         .taproot_key_spend_signature_hash(txin_idx, &Prevouts::All(prevouts), tap_sig.sighash_type)
-        .expect("sighash should compute");
-    let msg = Message::from_digest_slice(&sighash.to_byte_array()).expect("sighash is 32 bytes");
+        .map(Message::from)
+        .expect("sighash computation should never fail");
 
     let output_key = ContestProofConnector::new(
         Network::Bitcoin,
@@ -135,7 +144,7 @@ fn verify_operator_signature(
 
     SECP256K1
         .verify_schnorr(&tap_sig.signature, &msg, &output_key.to_x_only_public_key())
-        .expect("operator signature should verify");
+        .expect("invalid counterproof: contest-proof txin signature verification failed");
 }
 
 /// Extracts the bridge proof from the given `bridge_proof_tx`.
@@ -485,7 +494,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "operator signature should verify")]
+    #[should_panic(
+        expected = "invalid counterproof: contest-proof txin signature verification failed"
+    )]
     fn verify_operator_signature_rejects_wrong_operator_pubkey() {
         let (tx, prevouts, _operator_kp, n_of_n_kp) = signed_contest_fixture();
         let other = deterministic_keypair(9);
@@ -502,7 +513,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "operator signature should verify")]
+    #[should_panic(
+        expected = "invalid counterproof: contest-proof txin signature verification failed"
+    )]
     fn verify_operator_signature_rejects_wrong_game_idx() {
         let (tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
 
@@ -518,7 +531,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "operator signature should verify")]
+    #[should_panic(
+        expected = "invalid counterproof: contest-proof txin signature verification failed"
+    )]
     fn verify_operator_signature_rejects_wrong_n_of_n_pubkey() {
         let (tx, prevouts, operator_kp, _n_of_n_kp) = signed_contest_fixture();
         let other = deterministic_keypair(9);
@@ -535,7 +550,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "operator signature should verify")]
+    #[should_panic(
+        expected = "invalid counterproof: contest-proof txin signature verification failed"
+    )]
     fn verify_operator_signature_rejects_wrong_proof_timelock() {
         let (tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
 
@@ -551,7 +568,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "operator signature should verify")]
+    #[should_panic(
+        expected = "invalid counterproof: contest-proof txin signature verification failed"
+    )]
     fn verify_operator_signature_rejects_tampered_tx() {
         let (mut tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
         // Mutate a sighash-covered field after signing; the schnorr verification
@@ -570,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "contest-proof input should carry a key-path witness")]
+    #[should_panic(expected = "invalid counterproof: contest-proof txin has no witness")]
     fn verify_operator_signature_rejects_empty_witness() {
         let (mut tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
         tx.input[0].witness = Witness::new();
@@ -587,7 +606,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "witness should be a taproot key-spend signature")]
+    #[should_panic(expected = "invalid counterproof: contest-proof txin has no signature")]
     fn verify_operator_signature_rejects_malformed_witness() {
         let (mut tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
         tx.input[0].witness = Witness::from_slice(&[vec![0u8; 32]]);
