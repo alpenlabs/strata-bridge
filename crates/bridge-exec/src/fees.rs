@@ -8,7 +8,7 @@
 //!   or decode failure so a downed mempool explorer never blocks tx publishing.
 //! * [`FixedFeeSource`] — returns a constant rate (tests, manual overrides).
 //!
-//! All sources clamp the returned rate to at least 1 sat/vB (see [`clamp_to_min`]).
+//! All sources clamp the returned rate to at least 1 sat/vB.
 //!
 //! The orchestrator builds the configured source via [`FeeSourceConfig::build`] and wraps it in
 //! a [`btc_tracker::cpfp::CachedFeeSource`], which refreshes in the background and is shared by
@@ -371,9 +371,9 @@ impl Default for FeeSourceConfig {
 const MIN_FEE_RATE_SAT_PER_VB: u64 = 1;
 
 /// Minimum rate at which the bridge broadcasts a *wallet-funded* transaction (withdrawal
-/// fulfillment, stake funding). The configured source already clamps to
-/// [`MIN_FEE_RATE_SAT_PER_VB`]; this is the higher bridge-policy floor that keeps these v3 (TRUC)
-/// transactions relayable even when the source reports a lower rate.
+/// fulfillment, stake funding). The configured source already clamps to a 1 sat/vB truncation
+/// guard; this is the higher bridge-policy floor that keeps these v3 (TRUC) transactions
+/// relayable even when the source reports a lower rate.
 ///
 /// Deliberately a standalone constant, not a reuse of `strata_bridge_tx_graph::fee::FEE_RATE`:
 /// that constant is the rate presigned transactions are *built at*, not a minimum, and is slated
