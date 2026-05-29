@@ -1,4 +1,4 @@
-//! Fireblocks-backed [`GeneralWallet`](super::GeneralWallet) implementation.
+//! Fireblocks-backed [`GeneralWallet`] implementation.
 //!
 //! Custodies the operator's general-purpose (fee-paying / earnings) wallet in a Fireblocks
 //! BTC vault account instead of a local BDK wallet. All bridge protocol keys (anchors,
@@ -16,7 +16,7 @@
 //!
 //! Fireblocks BTC is ECDSA secp256k1, so vault addresses are **P2WPKH**; funding witnesses are
 //! `[DER-sig + SIGHASH_ALL byte, compressed pubkey]`. The anchor input stays Taproot and is
-//! left unsigned for secret-service (per the [`GeneralWallet`](super::GeneralWallet) signing
+//! left unsigned for secret-service (per the [`GeneralWallet`] signing
 //! contract).
 //!
 //! ## Auth

@@ -88,7 +88,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     /// Returns the BOSD descriptor where bridge payouts to this operator should be directed.
     /// Delegates to the backend so the destination matches the custodian that can spend it
     /// (native general-key P2TR vs. Fireblocks vault P2WPKH). See
-    /// [`GeneralWallet::payout_descriptor`](crate::GeneralWallet::payout_descriptor).
+    /// [`GeneralWallet::payout_descriptor`].
     pub fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
         self.general.payout_descriptor()
     }
