@@ -51,7 +51,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     } = zkvm.read_ssz();
     let tx: Transaction = (&bridge_proof_tx)
         .try_into()
-        .expect("bridge_proof_tx must consensus-decode into a Transaction");
+        .expect("invalid counterproof: invalid encoding of bridge proof transaction");
     let prevouts: Vec<TxOut> = bridge_proof_tx_prevouts
         .into_iter()
         .map(TxOut::from)
@@ -59,11 +59,12 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     assert_eq!(
         tx.input.len(),
         prevouts.len(),
-        "prevouts must match inputs 1:1",
+        "invalid counterproof: length of prevouts not equal number of transaction inputs",
     );
 
     // 2: Verify the operator signed the bridge-proof tx.
-    let game_idx_nz = NonZero::new(game_idx).expect("game_idx must be non-zero");
+    let game_idx_nz =
+        NonZero::new(game_idx).expect("invalid counterproof: game index cannot be zero");
     verify_operator_signature(
         &tx,
         &prevouts,
@@ -658,7 +659,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "prevouts must match inputs 1:1")]
+    #[should_panic(
+        expected = "invalid counterproof: length of prevouts not equal number of transaction inputs"
+    )]
     fn process_counterproof_inner_rejects_prevouts_input_mismatch() {
         let mut input = canonical_counterproof_input();
         input
@@ -668,7 +671,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "bridge_proof_tx must consensus-decode into a Transaction")]
+    #[should_panic(expected = "invalid counterproof: invalid encoding of bridge proof transaction")]
     fn process_counterproof_inner_rejects_non_decodable_tx() {
         let mut input = canonical_counterproof_input();
         input.bridge_proof_tx = RawBitcoinTx::from_raw_bytes(vec![0xffu8; 4]);
@@ -676,7 +679,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "game_idx must be non-zero")]
+    #[should_panic(expected = "invalid counterproof: game index cannot be zero")]
     fn process_counterproof_inner_rejects_zero_game_idx() {
         let mut input = canonical_counterproof_input();
         input.game_idx = 0;
