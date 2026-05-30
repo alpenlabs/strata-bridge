@@ -11393,6 +11393,8 @@ dependencies = [
  "strata-bridge-connectors",
  "strata-bridge-proof",
  "strata-bridge-proof-common",
+ "strata-bridge-test-utils",
+ "strata-bridge-tx-graph",
  "strata-btc-types",
  "strata-codec",
  "strata-merkle",

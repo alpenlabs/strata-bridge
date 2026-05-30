@@ -143,3 +143,10 @@ impl AsRef<Transaction> for BridgeProofTx {
         &self.tx
     }
 }
+
+#[cfg(feature = "test_utils")]
+impl AsMut<Transaction> for BridgeProofTx {
+    fn as_mut(&mut self) -> &mut Transaction {
+        &mut self.tx
+    }
+}
