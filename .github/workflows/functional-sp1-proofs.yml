@@ -11,7 +11,7 @@ on:
         default: "info"
         type: string
   push:
-    branches: [mdteach/proof-ci-perf]   # TEMP: remove before merge
+    branches: [mdteach/proof-ci-perf] # TEMP: remove before merge
 
 env:
   CARGO_TERM_COLOR: always
@@ -41,13 +41,13 @@ jobs:
 
   run:
     name: Run ${{ matrix.test }} with real SP1 proving
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-m
     needs: extract-rust-version
-    timeout-minutes: 120
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        test: [fn_bridge_proof]   # TEMP: counterproof omitted while iterating
+        test: [fn_bridge_proof] # TEMP: counterproof omitted while iterating
     env:
       OPENSSL_VERSION: "3.5.0"
       OPENSSL_CACHE_VERSION: "v2"
