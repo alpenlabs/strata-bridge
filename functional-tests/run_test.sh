@@ -42,9 +42,11 @@ if [ $CI_COVERAGE ]; then
     BIN_PATH=$COV_TARGET_DIR/debug
 elif [ "$CARGO_DEBUG" = 0 ]; then
     CARGO_ARGS="--release"
+    mkdir -p target/release
     BIN_PATH=$(realpath target/release/)
 else
     CARGO_ARGS=""
+    mkdir -p target/debug
     BIN_PATH=$(realpath target/debug/)
 fi
 
