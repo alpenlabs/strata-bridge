@@ -41,6 +41,7 @@ def build_asm_params(
         assignment_duration=cfg.assignment_duration,
         operator_fee=cfg.operator_fee,
         recovery_delay=cfg.recovery_delay,
+        safe_harbour_address=cfg.safe_harbour_address,
     )
 
 
