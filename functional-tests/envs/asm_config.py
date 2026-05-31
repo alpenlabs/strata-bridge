@@ -12,3 +12,5 @@ class AsmEnvConfig:
     assignment_duration: int = 10_000
     operator_fee: int = 10_000_000
     recovery_delay: int = 1_008
+    # Hex-encoded bitcoin-bosd Descriptor; "00" = empty OP_RETURN, deactivated at init.
+    safe_harbour_address: str = "00"

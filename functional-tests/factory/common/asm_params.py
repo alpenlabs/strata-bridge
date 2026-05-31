@@ -73,6 +73,7 @@ class BridgeSubprotocol:
     assignment_duration: int
     operator_fee: int
     recovery_delay: int
+    safe_harbour_address: str
 
 
 @dataclass
@@ -177,6 +178,7 @@ def build_asm_params(
     assignment_duration: int = 10_000,
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
+    safe_harbour_address: str = "00",
 ) -> AsmParams:
     compressed_keys = [f"02{key}" for key in musig2_keys]
     admin = AdminSubprotocol(
@@ -207,6 +209,7 @@ def build_asm_params(
         assignment_duration=assignment_duration,
         operator_fee=operator_fee,
         recovery_delay=recovery_delay,
+        safe_harbour_address=safe_harbour_address,
     )
     return AsmParams(
         magic=magic,
