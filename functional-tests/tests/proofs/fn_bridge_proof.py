@@ -70,7 +70,7 @@ class SP1BridgeProofTest(StrataTestBase):
 
     def main(self, ctx: flexitest.RunContext):
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(
-            ctx, num_operators=self.num_operators, stake_timeout=7200
+            ctx, num_operators=self.num_operators, stake_timeout=14400
         )
         bridge_rpc = bridge_rpcs[0]
 
