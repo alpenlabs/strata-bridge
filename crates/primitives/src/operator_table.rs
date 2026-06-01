@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     build_context::TxBuildContext,
-    types::{OperatorIdx, P2POperatorPubKey, PublickeyTable},
+    operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
+    types::{BitcoinBlockHeight, OperatorIdx, P2POperatorPubKey, PublickeyTable},
 };
 
 type OperatorTableEntry = (OperatorIdx, P2POperatorPubKey, secp256k1::PublicKey);
@@ -69,6 +70,39 @@ impl OperatorTable {
             p2p_key,
             btc_key,
         })
+    }
+
+    /// Creates an operator table from scheduled operators using `pov_idx` as this node's index.
+    ///
+    /// Returns `None` when `pov_idx` is not included in the provided operators or if the operators
+    /// do not satisfy [`OperatorTable`] uniqueness invariants.
+    pub fn from_scheduled_operators<'a>(
+        operators: impl IntoIterator<Item = &'a ScheduledOperator>,
+        pov_idx: OperatorIdx,
+    ) -> Option<Self> {
+        let entries = operators
+            .into_iter()
+            .map(|operator| {
+                (
+                    operator.index(),
+                    operator.p2p_key().clone(),
+                    operator.covenant_public_key(),
+                )
+            })
+            .collect();
+
+        Self::new(entries, Self::select_idx(pov_idx))
+    }
+
+    /// Creates this node's active operator table from `schedule` at `height`.
+    ///
+    /// Returns `None` when the point-of-view operator is not active at `height`.
+    pub fn from_schedule_at(
+        schedule: &OperatorSetSchedule,
+        height: BitcoinBlockHeight,
+        pov_idx: OperatorIdx,
+    ) -> Option<Self> {
+        Self::from_scheduled_operators(schedule.active_at(height), pov_idx)
     }
 
     /// Returns the operator public key for the given index.
@@ -282,6 +316,252 @@ impl OperatorTable {
     /// Returns true if the operator index exists in the table.
     pub fn contains_idx(&self, idx: &OperatorIdx) -> bool {
         self.idx_key.contains_key(idx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use bitcoin_bosd::Descriptor;
+    use libp2p_identity::ed25519::{Keypair as P2pKeypair, SecretKey as P2pSecretKey};
+    use secp256k1::{SecretKey, SECP256K1};
+
+    use super::*;
+    use crate::secp::EvenSecretKey;
+
+    #[test]
+    fn from_schedule_at_respects_rotation_boundary() {
+        let schedule = rotating_schedule(3, 100);
+
+        let before_rotation =
+            OperatorTable::from_schedule_at(&schedule, 99, 0).expect("pov operator must be active");
+        assert_eq!(
+            before_rotation.operator_idxs(),
+            idxs([0, 1]),
+            "height before rotation should include the still-active outgoing operator"
+        );
+
+        let after_rotation = OperatorTable::from_schedule_at(&schedule, 100, 0)
+            .expect("pov operator must be active");
+        assert_eq!(
+            after_rotation.operator_idxs(),
+            idxs([0, 2]),
+            "rotation height should exclude the deactivated operator and include the incoming operator"
+        );
+    }
+
+    #[cfg(feature = "proptest")]
+    mod proptests {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(64))]
+
+            #[test]
+            fn from_scheduled_operators_matches_scheduled_entries(
+                operator_ranges in prop::collection::vec(active_range_strategy(), 1..=16),
+                pov_selector in any::<usize>(),
+            ) {
+                let operators = scheduled_operators(&operator_ranges);
+                let operator_count = operators.len();
+                let pov_idx = operator_idx(pov_selector % operator_count);
+                let table = OperatorTable::from_scheduled_operators(operators.iter(), pov_idx)
+                    .expect("generated operator table must include pov operator");
+
+                prop_assert_eq!(
+                    table.pov_idx(),
+                    pov_idx,
+                    "table should record the generated point-of-view operator"
+                );
+                prop_assert_eq!(
+                    table.operator_idxs(),
+                    idxs((0..operator_count).map(operator_idx)),
+                    "table should contain exactly the generated scheduled operator indices"
+                );
+
+                for operator in &operators {
+                    prop_assert_eq!(
+                        table.idx_to_p2p_key(&operator.index()),
+                        Some(operator.p2p_key()),
+                        "table should resolve each generated scheduled operator's p2p key by index"
+                    );
+                    prop_assert_eq!(
+                        table.idx_to_btc_key(&operator.index()),
+                        Some(operator.covenant_public_key()),
+                        "table should resolve each generated scheduled operator's covenant public key by index"
+                    );
+                }
+
+                let missing_pov_idx = operator_idx(operator_count);
+                prop_assert!(
+                    OperatorTable::from_scheduled_operators(operators.iter(), missing_pov_idx).is_none(),
+                    "operator table construction should fail when the generated pov operator is absent"
+                );
+            }
+
+            #[test]
+            fn from_schedule_at_matches_active_schedule(
+                operator_ranges in prop::collection::vec(active_range_strategy(), 1..=16),
+                height in 0u64..=2_000_000,
+                pov_selector in any::<usize>(),
+            ) {
+                let schedule = schedule_from_ranges(&operator_ranges);
+                let operator_count = operator_ranges.len();
+                let pov_idx = operator_idx(pov_selector % operator_count);
+                let expected_active_idxs = idxs(schedule.active_at(height).map(ScheduledOperator::index));
+                let table = OperatorTable::from_schedule_at(&schedule, height, pov_idx);
+
+                if expected_active_idxs.contains(&pov_idx) {
+                    prop_assert!(
+                        table.is_some(),
+                        "operator table construction should succeed when the pov operator is active at height"
+                    );
+                    let table = table.expect("table presence checked above");
+
+                    prop_assert_eq!(
+                        table.pov_idx(),
+                        pov_idx,
+                        "active schedule table should record the requested point-of-view operator"
+                    );
+                    prop_assert_eq!(
+                        table.operator_idxs(),
+                        expected_active_idxs,
+                        "active schedule table should contain exactly the operators active at height"
+                    );
+
+                    for operator in schedule.active_at(height) {
+                        prop_assert_eq!(
+                            table.idx_to_p2p_key(&operator.index()),
+                            Some(operator.p2p_key()),
+                            "active schedule table should resolve each active operator's p2p key by index"
+                        );
+                        prop_assert_eq!(
+                            table.idx_to_btc_key(&operator.index()),
+                            Some(operator.covenant_public_key()),
+                            "active schedule table should resolve each active operator's covenant public key by index"
+                        );
+                    }
+                } else {
+                    prop_assert!(
+                        table.is_none(),
+                        "operator table construction should fail when the pov operator is inactive at height"
+                    );
+                }
+            }
+        }
+
+        fn active_range_strategy() -> impl Strategy<Value = ActiveRange> {
+            (
+                0u64..=1_000_000,
+                prop_oneof![Just(None), (1u64..=1_000_000).prop_map(Some)],
+            )
+                .prop_map(|(activation_height, active_span)| {
+                    (
+                        activation_height,
+                        active_span.map(|active_span| activation_height + active_span),
+                    )
+                })
+        }
+
+        fn schedule_from_ranges(ranges: &[ActiveRange]) -> OperatorSetSchedule {
+            OperatorSetSchedule::new(scheduled_operators(ranges))
+                .expect("generated schedule ranges must be valid")
+        }
+
+        fn scheduled_operators(ranges: &[ActiveRange]) -> Vec<ScheduledOperator> {
+            ranges
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(idx, (activation_height, deactivation_height))| {
+                    scheduled_operator(
+                        operator_idx(idx),
+                        btc_seed(idx),
+                        p2p_seed(idx),
+                        activation_height,
+                        deactivation_height,
+                    )
+                })
+                .collect()
+        }
+
+        type ActiveRange = (BitcoinBlockHeight, Option<BitcoinBlockHeight>);
+    }
+
+    fn rotating_schedule(count: usize, rotation_height: BitcoinBlockHeight) -> OperatorSetSchedule {
+        OperatorSetSchedule::new(
+            (0..count)
+                .map(|idx| {
+                    let (activation_height, deactivation_height) = if idx == 0 {
+                        (0, None)
+                    } else if idx % 2 == 1 {
+                        (0, Some(rotation_height))
+                    } else {
+                        (rotation_height, None)
+                    };
+
+                    scheduled_operator(
+                        operator_idx(idx),
+                        btc_seed(idx),
+                        p2p_seed(idx),
+                        activation_height,
+                        deactivation_height,
+                    )
+                })
+                .collect(),
+        )
+        .expect("generated rotating schedule must be valid")
+    }
+
+    fn scheduled_operator(
+        index: OperatorIdx,
+        btc_seed: u8,
+        p2p_seed: u8,
+        activation_height: BitcoinBlockHeight,
+        deactivation_height: Option<BitcoinBlockHeight>,
+    ) -> ScheduledOperator {
+        let secret_key =
+            SecretKey::from_slice(&[btc_seed; 32]).expect("btc seed must be a secret key");
+        let public_key = EvenSecretKey::from(secret_key).public_key(SECP256K1);
+        let covenant_key = public_key.x_only_public_key().0;
+        let pk_bytes = covenant_key.serialize();
+        let payout_descriptor = Descriptor::new_p2tr(&pk_bytes).expect("valid p2tr descriptor");
+
+        ScheduledOperator::new(
+            index,
+            covenant_key,
+            p2p_key(p2p_seed),
+            payout_descriptor,
+            activation_height,
+            deactivation_height,
+        )
+        .expect("scheduled operator must be valid")
+    }
+
+    fn p2p_key(seed: u8) -> P2POperatorPubKey {
+        let mut secret_bytes = [seed; 32];
+        let secret = P2pSecretKey::try_from_bytes(&mut secret_bytes).expect("valid p2p secret key");
+
+        P2pKeypair::from(secret).public().into()
+    }
+
+    fn operator_idx(idx: usize) -> OperatorIdx {
+        OperatorIdx::try_from(idx).expect("test operator index must fit in OperatorIdx")
+    }
+
+    fn btc_seed(idx: usize) -> u8 {
+        u8::try_from(idx + 1).expect("test btc seed must fit in u8")
+    }
+
+    fn p2p_seed(idx: usize) -> u8 {
+        u8::try_from(idx + 101).expect("test p2p seed must fit in u8")
+    }
+
+    fn idxs(indices: impl IntoIterator<Item = OperatorIdx>) -> BTreeSet<OperatorIdx> {
+        indices.into_iter().collect()
     }
 }
 

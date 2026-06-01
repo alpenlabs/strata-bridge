@@ -1,5 +1,6 @@
 //! Error types for the orchestrator crate.
 
+use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_sm::{signals::Signal, state_machine::SMOutput};
 use thiserror::Error;
 
@@ -35,6 +36,13 @@ pub enum ProcessError {
 /// Fatal error from the pipeline main loop.
 #[derive(Debug, Error)]
 pub enum PipelineError {
+    /// The operator schedule cannot be converted into this node's full operator table.
+    #[error("operator schedule does not include point-of-view operator {pov_idx}")]
+    OperatorScheduleMissingPov {
+        /// This node's configured operator index.
+        pov_idx: OperatorIdx,
+    },
+
     /// A fatal error occurred while processing an event through a state machine.
     #[error("process error: {0}")]
     Process(#[from] ProcessError),

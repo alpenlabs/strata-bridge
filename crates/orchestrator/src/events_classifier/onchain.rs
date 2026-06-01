@@ -14,6 +14,7 @@ use bitcoin::{OutPoint, Transaction};
 use btc_tracker::event::BlockEvent;
 use strata_asm_proto_bridge_v1_txs::deposit_request::DRT_OUTPUT_INDEX;
 use strata_bridge_primitives::{
+    operator_set_schedule::OperatorSetSchedule,
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
 };
@@ -56,7 +57,8 @@ use crate::{
 /// existed before the block was processed.
 pub(crate) fn process_block(
     applicator: &mut Applicator<'_>,
-    initial_operator_table: &OperatorTable,
+    operator_schedule: &OperatorSetSchedule,
+    pov_idx: OperatorIdx,
     block_event: &BlockEvent,
 ) -> Result<(), PipelineError> {
     let deposit_cfg = applicator.registry().cfg().deposit.clone();
@@ -66,6 +68,7 @@ pub(crate) fn process_block(
         .block
         .bip34_block_height()
         .expect("must have a valid block height");
+    let active_operator_table = OperatorTable::from_schedule_at(operator_schedule, height, pov_idx);
 
     // Snapshot pre-existing SM IDs: newly created SMs already know the current block height,
     // so only pre-existing ones need a NewBlock cursor event.
@@ -79,8 +82,13 @@ pub(crate) fn process_block(
         // batches via the Applicator, a stake transition that removes an operator from the active
         // set in an earlier transaction will be reflected here for a DRT appearing later in the
         // same block.
-        let initial_duties =
-            try_register_deposit(&deposit_cfg, initial_operator_table, applicator, tx, height)?;
+        let initial_duties = try_register_deposit(
+            &deposit_cfg,
+            active_operator_table.as_ref(),
+            applicator,
+            tx,
+            height,
+        )?;
 
         // Classify this tx against every active SM via TxClassifier
         // PERF: (Rajil1213) this needs benchmarking to make sure that classifying every tx
@@ -126,7 +134,7 @@ pub(crate) fn process_block(
 /// node's operator is not in the active set) or if the transaction fails DRT validation.
 fn try_register_deposit(
     deposit_cfg: &Arc<DepositSMCfg>,
-    full_operator_table: &OperatorTable,
+    active_operator_table: Option<&OperatorTable>,
     applicator: &mut Applicator<'_>,
     tx: &Transaction,
     height: BitcoinBlockHeight,
@@ -138,18 +146,31 @@ fn try_register_deposit(
         return Ok(Vec::new());
     }
 
+    let Some(active_operator_table) = active_operator_table else {
+        // FIXME: <https://alpenlabs.atlassian.net/browse/STR-3670>
+        // update the deposit index ledger even if the pov operator is not active
+        // so that when the new operator joins, they can continue processing from the last deposit
+        // index.
+        warn!(
+            %height,
+            "skipping DRT check: point-of-view operator is not active at this block height"
+        );
+        return Ok(Vec::new());
+    };
+
     // Activation rule: before any DSM / GSM may become active, one stake state machine must exist
-    // for every configured operator and all of them must have reached `Confirmed` or higher.
+    // for every currently scheduled operator and all of them must have reached `Confirmed` or
+    // higher.
     if !applicator
         .registry()
-        .all_operators_have_staked(full_operator_table)
+        .all_operators_have_staked(active_operator_table)
     {
         return Ok(Vec::new());
     }
 
     let snapshot = match applicator
         .registry()
-        .active_operator_snapshot(full_operator_table)
+        .active_operator_snapshot(active_operator_table)
     {
         Ok(snap) => snap,
         Err(err) => {
@@ -442,8 +463,14 @@ mod tests {
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
         let mut applicator = Applicator::new(&mut registry);
-        let duties =
-            try_register_deposit(&cfg, &operator_table, &mut applicator, &tx, TEST_HEIGHT).unwrap();
+        let duties = try_register_deposit(
+            &cfg,
+            Some(&operator_table),
+            &mut applicator,
+            &tx,
+            TEST_HEIGHT,
+        )
+        .unwrap();
         let (_, tracker) = applicator.finish();
 
         assert!(
@@ -479,7 +506,7 @@ mod tests {
         let mut applicator = Applicator::new(&mut registry);
         let duties = try_register_deposit(
             &cfg,
-            &operator_table,
+            Some(&operator_table),
             &mut applicator,
             &random_tx,
             TEST_HEIGHT,
@@ -508,8 +535,14 @@ mod tests {
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
         let mut applicator = Applicator::new(&mut registry);
-        let duties =
-            try_register_deposit(&cfg, &operator_table, &mut applicator, &tx, TEST_HEIGHT).unwrap();
+        let duties = try_register_deposit(
+            &cfg,
+            Some(&operator_table),
+            &mut applicator,
+            &tx,
+            TEST_HEIGHT,
+        )
+        .unwrap();
         let _ = applicator.finish();
 
         assert_eq!(

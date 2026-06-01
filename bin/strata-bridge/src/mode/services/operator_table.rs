@@ -1,4 +1,4 @@
-//! Provides operator table initialization.
+//! Provides full operator table initialization.
 
 use anyhow::Context;
 use secret_service_client::SecretServiceClient;
@@ -7,6 +7,7 @@ use strata_bridge_common::params::Params;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use tracing::info;
 
+/// Initializes the full operator table from params and identifies this node by its S2 covenant key.
 pub(in crate::mode) async fn init_operator_table(
     params: &Params,
     s2_client: &SecretServiceClient,
