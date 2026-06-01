@@ -168,7 +168,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
             // If the heavier chain is an extension of the operator chain,
             // i.e. the watchtower just waited a few blocks after the operator
             // posted the bridge proof, then this equality is triggered.
-            if heavier_claim_unlock != bridge_proof_claim_unlock {
+            if heavier_claim_unlock == bridge_proof_claim_unlock {
                 panic!("invalid heavier chain: claim unlock must be different from bridge proof")
             }
         }
