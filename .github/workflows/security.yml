@@ -57,7 +57,7 @@ jobs:
       # Cargo.lock in the repo. Complements cargo audit (RustSec DB) with CVE/GHSA coverage.
       # Add justified exceptions to .trivyignore via PR.
       - name: Scan Cargo.lock with Trivy (hard gate)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -77,7 +77,7 @@ jobs:
         id: trivy_sarif_cargo
         if: always()
         continue-on-error: true
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -95,7 +95,7 @@ jobs:
       - name: Upload SARIF to GitHub Security tab
         if: steps.trivy_sarif_cargo.outcome == 'success'
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v3
+        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v3
         with:
           sarif_file: trivy-cargo.sarif
           category: cargo-fs
