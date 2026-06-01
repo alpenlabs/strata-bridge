@@ -1,6 +1,8 @@
 # warning: run from repo root, NOT inside this dir
 FROM --platform=linux/amd64 bridge-base:latest AS builder
 
+ARG ASM_FEATURES=""
+
 # Copy the workspace Cargo.toml so the grep-extracted tag is the canonical source of truth.
 COPY Cargo.toml /tmp/Cargo.toml
 
@@ -10,7 +12,7 @@ RUN --mount=type=cache,target=/root/.cargo/git \
     if [ -z "$ASM_REV" ]; then \
         echo "ERROR: failed to extract asm rev from Cargo.toml" >&2; exit 1; \
     fi && \
-    cargo install --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root /app strata-asm-runner
+    cargo install --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root /app strata-asm-runner ${ASM_FEATURES}
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 

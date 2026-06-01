@@ -1,6 +1,8 @@
 # warning: run from repo root, NOT inside this dir
 FROM --platform=linux/amd64 bridge-base:latest AS builder
 
+ARG BRIDGE_FEATURES=""
+
 # It's already in the builder but this is so docker knows when to rebuild this image
 COPY bin/strata-bridge bin/strata-bridge
 
@@ -8,7 +10,7 @@ COPY bin/strata-bridge bin/strata-bridge
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo b -r -p strata-bridge
+    cargo b -r -p strata-bridge ${BRIDGE_FEATURES}
 
 RUN --mount=type=cache,target=/app/target cp /app/target/release/strata-bridge /app/strata-bridge
 
