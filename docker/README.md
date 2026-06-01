@@ -36,6 +36,20 @@ docker build -f docker/base.Dockerfile . -t bridge-base:latest
 docker build -f docker/rt.Dockerfile . -t bridge-rt:latest
 ```
 
+## SP1 mode (optional)
+
+The bridge and asm-runner images each accept an optional cargo-feature build-arg
+(empty by default — `just docker` and plain `docker build` are unchanged):
+
+```sh
+docker build --build-arg BRIDGE_FEATURES="--features sp1" \
+  -f docker/strata-bridge/Dockerfile . -t strata-bridge:latest
+docker build --build-arg ASM_FEATURES="--features sp1" \
+  -f docker/asm-runner/Dockerfile . -t strata-asm-runner:latest
+```
+
+SP1 guest ELFs are still supplied at runtime via the existing config / volume flow.
+
 ## Running locally
 
 The local Docker stack includes:
