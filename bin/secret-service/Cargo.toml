@@ -22,7 +22,7 @@ libp2p-identity = { workspace = true, features = ["ed25519"] }
 metrics.workspace = true
 musig2.workspace = true
 rand.workspace = true
-rcgen = "0.13.2"
+rcgen = "0.14.8"
 rustls-pemfile = "2.2.0"
 serde.workspace = true
 sha2.workspace = true
@@ -36,7 +36,7 @@ memory_pprof = { path = "../../crates/memory_pprof", optional = true }
 tikv-jemallocator = "0.6"
 
 [dev-dependencies]
-rcgen = "0.13.2"
+rcgen = "0.14.8"
 secret-service-client.workspace = true
 
 [features]
