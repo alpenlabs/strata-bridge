@@ -307,13 +307,16 @@ mod tests {
         script::{Builder, PushBytesBuf},
     };
     use moho_types::{
-        ExportState, InnerStateCommitment, MohoState, StateRefAttestation, StateReference,
+        ExportContainer, ExportState, InnerStateCommitment, MohoState, RecursiveMohoAttestation,
+        RecursiveMohoProof, StateRefAttestation, StateReference,
     };
     use secp256k1::{Keypair, XOnlyPublicKey};
     use ssz::{Decode, Encode};
     use strata_bridge_connectors::Connector;
     use strata_bridge_test_utils::bitcoin::generate_keypair;
     use strata_bridge_tx_graph::transactions::prelude::{BridgeProofData, BridgeProofTx};
+    use strata_codec::encode_to_vec;
+    use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
     use strata_predicate::PredicateKey;
     use zkaleido::{Proof, PublicValues};
     use zkaleido_native_adapter::NativeMachine;
@@ -343,13 +346,23 @@ mod tests {
     });
     static PREVOUTS: LazyLock<[TxOut; 1]> = LazyLock::new(|| [CONTEST_PROOF_CONNECTOR.tx_out()]);
     static BRIDGE_PROOF_TX_UNSIGNED: LazyLock<BridgeProofTx> = LazyLock::new(|| {
-        let receipt = ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]));
+        let bridge_proof_claim_unlock = OperatorClaimUnlock::new(10, 0);
+        let bridge_proof_output = BridgeProofOutput {
+            total_pow: [9u8; 32],
+            claim_unlock: encode_to_vec(&bridge_proof_claim_unlock).unwrap(),
+            mmr_idx: 1,
+        };
+        let receipt = ProofReceipt::new(
+            Proof::new(vec![]),
+            PublicValues::new(bridge_proof_output.as_ssz_bytes()),
+        );
         let proof_bytes = borsh::to_vec(&receipt).unwrap();
         let data = BridgeProofData {
             contest_txid: Txid::all_zeros(),
             proof_bytes,
             game_index: GAME_IDX,
         };
+
         BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR)
     });
     static BRIDGE_PROOF_TX: LazyLock<Transaction> = LazyLock::new(|| {
@@ -381,6 +394,27 @@ mod tests {
     fn op_return_script(data: Vec<u8>) -> ScriptBuf {
         let payload = PushBytesBuf::try_from(data).unwrap();
         ScriptBuf::new_op_return(payload)
+    }
+
+    fn build_inclusion(
+        claims: &[OperatorClaimUnlock],
+        target_idx: usize,
+    ) -> (ExportContainer, MerkleProofB32) {
+        let mut container = ExportContainer::new(BRIDGE_V1_SUBPROTOCOL_ID);
+        let mut mmr = Mmr64B32::new_empty();
+        let mut inclusion_proof = None;
+
+        for (i, claim) in claims.iter().enumerate() {
+            let leaf = claim.compute_hash();
+            container.add_entry(leaf).unwrap();
+            let raw =
+                Mmr::<Sha256Hasher>::add_leaf_updating_proof_list(&mut mmr, leaf, &mut []).unwrap();
+            if i == target_idx {
+                inclusion_proof = Some(MerkleProofB32::from_generic(&raw));
+            }
+        }
+
+        (container, inclusion_proof.unwrap())
     }
 
     /// Drives `process_counterproof_inner` through a `NativeMachine`.
@@ -689,6 +723,79 @@ mod tests {
         fn counterproof_valid_if_bridge_proof_invalid() {
             let input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
             let output = run_counterproof(input, PredicateKey::never_accept());
+
+            assert_eq!(output.game_idx, GAME_IDX.get());
+            assert_eq!(output.operator_pubkey, OPERATOR_PUBKEY.clone().into());
+        }
+    }
+
+    static INPUT_FOR_HEAVIER_CHAIN: LazyLock<CounterproofInput> = LazyLock::new(|| {
+        let heavier_claim_unlock = OperatorClaimUnlock::new(20, 1);
+        let decoy_bridge_proof_claim_unlock = OperatorClaimUnlock::new(10, 0);
+        let claims = [
+            decoy_bridge_proof_claim_unlock,
+            heavier_claim_unlock.clone(),
+        ];
+        let (heavier_bridge_container, heavier_inclusion_proof) = build_inclusion(&claims, 1);
+        let heavier_moho_state = MohoState::new(
+            InnerStateCommitment::from([1u8; 32]),
+            PredicateKey::always_accept(),
+            ExportState::new(vec![heavier_bridge_container]).unwrap(),
+        );
+        let heavier_moho_proof = RecursiveMohoProof::new(
+            RecursiveMohoAttestation::new(
+                StateRefAttestation::new(
+                    StateReference::new([0u8; 32]),
+                    MohoState::new(
+                        InnerStateCommitment::from([0u8; 32]),
+                        PredicateKey::always_accept(),
+                        ExportState::new(vec![]).unwrap(),
+                    )
+                    .compute_commitment(),
+                ),
+                StateRefAttestation::new(
+                    StateReference::new([1u8; 32]),
+                    heavier_moho_state.compute_commitment(),
+                ),
+            ),
+            vec![],
+        );
+        let heavier_chain_proof = HeavierChainProof {
+            moho_state: heavier_moho_state,
+            moho_proof: heavier_moho_proof,
+            claim_unlock: encode_to_vec(&heavier_claim_unlock).unwrap(),
+            claim_unlock_inclusion_proof: heavier_inclusion_proof,
+        };
+
+        CounterproofInput {
+            game_idx: GAME_IDX.get(),
+            operator_pubkey: OPERATOR_PUBKEY.clone().into(),
+            n_of_n_pubkey: N_OF_N_PUBKEY.clone().into(),
+            proof_timelock: PROOF_TIMELOCK.value(),
+            bridge_proof_tx: BRIDGE_PROOF_TX.clone().into(),
+            bridge_proof_tx_prevouts: PREVOUTS.iter().cloned().map(BitcoinTxOut::from).collect(),
+            bridge_proof_tx_input_idx: TXIN_IDX,
+            mode: CounterproofMode::HeavierChain(heavier_chain_proof),
+        }
+    });
+
+    /// Unit tests for [`CounterproofMode::HeavierChain`].
+    mod heavier_chain {
+        use super::*;
+
+        #[test]
+        fn counterproof_valid_if_bridge_proof_tx_malformed() {
+            let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
+            input.bridge_proof_tx = RawBitcoinTx::from(BRIDGE_PROOF_TX_MALFORMED.clone());
+
+            let output = run_counterproof(input, PredicateKey::always_accept());
+            assert_eq!(output.game_idx, GAME_IDX.get());
+        }
+
+        #[test]
+        fn counterproof_valid_if_heavier_chain_is_valid() {
+            let input = INPUT_FOR_HEAVIER_CHAIN.clone();
+            let output = run_counterproof(input, PredicateKey::always_accept());
 
             assert_eq!(output.game_idx, GAME_IDX.get());
             assert_eq!(output.operator_pubkey, OPERATOR_PUBKEY.clone().into());
