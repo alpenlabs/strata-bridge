@@ -82,6 +82,14 @@ pub struct FireblocksConfig {
     /// [`FireblocksGeneralWallet::script_pubkey`](super::GeneralWallet::script_pubkey) stays
     /// synchronous and infallible.
     pub deposit_address: String,
+    /// BIP44 address index (`bip44AddressIndex`) telling Fireblocks which derived key under the
+    /// vault to RAW-sign with. Must correspond to the configured `deposit_address`. `0` is the
+    /// vault's default address. The witness-assembly pubkey check catches mismatches at sign
+    /// time, but every signed input would error out — operators on a non-default address must
+    /// set this.
+    pub bip44_address_index: u32,
+    /// BIP44 change index (`bip44change`). `0` for receive addresses, `1` for internal/change.
+    pub bip44_change: u32,
 }
 
 impl fmt::Debug for FireblocksConfig {
@@ -94,6 +102,8 @@ impl fmt::Debug for FireblocksConfig {
             .field("asset_id", &self.asset_id)
             .field("network", &self.network)
             .field("deposit_address", &self.deposit_address)
+            .field("bip44_address_index", &self.bip44_address_index)
+            .field("bip44_change", &self.bip44_change)
             .finish()
     }
 }
@@ -333,6 +343,8 @@ impl FireblocksGeneralWallet {
             .iter()
             .map(|content| dto::UnsignedRawMessage {
                 content: content.clone(),
+                bip44_address_index: self.config.bip44_address_index,
+                bip44_change: self.config.bip44_change,
             })
             .collect();
         let request = dto::RawSignRequest {

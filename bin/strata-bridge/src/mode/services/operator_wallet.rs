@@ -111,6 +111,8 @@ pub(in crate::mode) async fn init_operator_wallet(
                 asset_id: fb.asset_id.clone(),
                 network: params.network,
                 deposit_address: fb.deposit_address.clone(),
+                bip44_address_index: fb.bip44_address_index,
+                bip44_change: fb.bip44_change,
             };
             let general_wallet = FireblocksGeneralWallet::new(fb_config, &api_secret)
                 .map_err(|e| anyhow!("failed to initialize Fireblocks general wallet: {e}"))?;

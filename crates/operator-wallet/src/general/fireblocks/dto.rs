@@ -75,11 +75,23 @@ pub(super) struct RawMessageData {
     pub algorithm: &'static str,
 }
 
-/// One message to sign: a hex-encoded 32-byte sighash that Fireblocks signs **as-is**.
+/// One message to sign: a hex-encoded 32-byte sighash that Fireblocks signs **as-is**, plus the
+/// BIP44 derivation indices telling Fireblocks which derived key under the vault to sign with.
+///
+/// Without `bip44AddressIndex`/`bip44change` Fireblocks signs with the vault's default key, which
+/// only matches the configured `deposit_address` for the default vault address — operators using
+/// a non-default address would get back a pubkey that doesn't control the prevout and
+/// `assemble_p2wpkh_witness` would (correctly) reject it. Sending the indices explicitly lets
+/// the backend spend any vault address.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct UnsignedRawMessage {
     pub content: String,
+    pub bip44_address_index: u32,
+    /// Fireblocks names this field with a lowercase `c` (`bip44change`); the explicit rename
+    /// overrides the struct-level `camelCase` so we don't end up sending `bip44Change`.
+    #[serde(rename = "bip44change")]
+    pub bip44_change: u32,
 }
 
 // ── RAW signing: response ────────────────────────────────────────────────────
@@ -154,5 +166,25 @@ mod tests {
         assert_eq!(u.address, "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq");
         assert_eq!(u.amount, "0.12345678");
         assert_eq!(u.confirmations, 6);
+    }
+
+    #[test]
+    fn unsigned_raw_message_serializes_with_fireblocks_field_names() {
+        // Pin the exact wire names: Fireblocks expects `bip44AddressIndex` (camelCase) and
+        // `bip44change` (all lowercase) — `rename_all = "camelCase"` would otherwise emit
+        // `bip44Change`, which Fireblocks would silently ignore and fall back to the default key.
+        let msg = UnsignedRawMessage {
+            content: "deadbeef".to_string(),
+            bip44_address_index: 5,
+            bip44_change: 1,
+        };
+        let v: serde_json::Value = serde_json::to_value(&msg).expect("serializes");
+        assert_eq!(v["content"], "deadbeef");
+        assert_eq!(v["bip44AddressIndex"], 5);
+        assert_eq!(v["bip44change"], 1);
+        assert!(
+            v.get("bip44Change").is_none(),
+            "must not emit `bip44Change` (camelCase) — Fireblocks would ignore it"
+        );
     }
 }

@@ -315,6 +315,16 @@ pub(crate) struct FireblocksWalletConfig {
     /// per-request JWTs. Kept out of the config body (like the secret-service TLS material) so
     /// the key never lives in the config file itself.
     pub api_secret_path: PathBuf,
+
+    /// BIP44 address index (`bip44AddressIndex`) telling Fireblocks which derived key under the
+    /// vault to RAW-sign with. Must correspond to `deposit_address`. Defaults to `0` (the
+    /// vault's default address).
+    #[serde(default)]
+    pub bip44_address_index: u32,
+
+    /// BIP44 change index (`bip44change`). `0` for receive, `1` for internal. Defaults to `0`.
+    #[serde(default)]
+    pub bip44_change: u32,
 }
 
 impl fmt::Debug for FireblocksWalletConfig {
@@ -327,6 +337,8 @@ impl fmt::Debug for FireblocksWalletConfig {
             .field("asset_id", &self.asset_id)
             .field("deposit_address", &self.deposit_address)
             .field("api_secret_path", &self.api_secret_path)
+            .field("bip44_address_index", &self.bip44_address_index)
+            .field("bip44_change", &self.bip44_change)
             .finish()
     }
 }
