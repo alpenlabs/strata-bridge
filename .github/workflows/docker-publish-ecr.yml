@@ -322,6 +322,7 @@ jobs:
             --platform "${DOCKER_PLATFORM}" \
             --file "build-src/${{ matrix.dockerfile }}" \
             --tag "${{ matrix.local_tag }}" \
+            ${{ matrix.build_args }} \
             build-src
 
       # Hard gate — no image is pushed if CRITICAL or HIGH unfixed vulnerabilities are found.

@@ -77,6 +77,7 @@ def app_matrix() -> list[dict]:
             "local_tag": "strata-bridge:latest",
             "trivy_scanners": "vuln,secret,misconfig",
             "trivy_timeout": "15m",
+            "build_args": "--build-arg BRIDGE_FEATURES=--features=sp1",
         })
 
     if _flag("BUILD_ASM_RUNNER"):
@@ -89,6 +90,7 @@ def app_matrix() -> list[dict]:
             "local_tag": "strata-asm-runner:latest",
             "trivy_scanners": "vuln,secret,misconfig",
             "trivy_timeout": "15m",
+            "build_args": "--build-arg ASM_FEATURES=--features=sp1",
         })
 
     if _flag("BUILD_SECRET_SERVICE"):
@@ -101,6 +103,7 @@ def app_matrix() -> list[dict]:
             "local_tag": "secret-service:latest",
             "trivy_scanners": "vuln,secret,misconfig",
             "trivy_timeout": "15m",
+            "build_args": "",
         })
 
     return items
