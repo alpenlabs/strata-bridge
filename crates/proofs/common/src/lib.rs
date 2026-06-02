@@ -92,7 +92,7 @@ pub fn generate_moho_state<const N: usize>(
     let empty_proof_bytes = vec![];
     let moho_proof = RecursiveMohoProof::new(
         RecursiveMohoAttestation::new(
-            MOHO_GENESIS_ATTESTATION.clone(),
+            *MOHO_GENESIS_ATTESTATION,
             StateRefAttestation::new(
                 StateReference::new([1u8; 32]),
                 moho_state.compute_commitment(),

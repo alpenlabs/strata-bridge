@@ -268,12 +268,8 @@ fn extract_bridge_proof(bridge_proof_tx: &Transaction, txin_idx: u32) -> Option<
     if tap_sig.sighash_type != TapSighashType::Default {
         return None;
     }
-    let Some(first_out) = bridge_proof_tx.output.first() else {
-        return None;
-    };
-    let Some(data) = extract_op_return_payload(&first_out.script_pubkey) else {
-        return None;
-    };
+    let first_out = bridge_proof_tx.output.first()?;
+    let data = extract_op_return_payload(&first_out.script_pubkey)?;
 
     // Return the decoded bridge proof.
     borsh::from_slice::<ProofReceipt>(data).ok()
@@ -435,7 +431,7 @@ mod tests {
         let genesis = BridgeCounterproofGenesis {
             bridge_proof_vk: args.bridge_proof_vk,
             moho_vk: args.moho_vk,
-            genesis_moho_state: MOHO_GENESIS_ATTESTATION.clone(),
+            genesis_moho_state: *MOHO_GENESIS_ATTESTATION,
         };
 
         process_counterproof_inner(&machine, &genesis);
@@ -506,9 +502,9 @@ mod tests {
             &BRIDGE_PROOF_TX,
             PREVOUTS.as_ref(),
             TXIN_IDX,
-            &OPERATOR_PUBKEY.clone().into(),
+            &(*OPERATOR_PUBKEY).into(),
             GAME_IDX,
-            &N_OF_N_PUBKEY.clone().into(),
+            &(*N_OF_N_PUBKEY).into(),
             PROOF_TIMELOCK,
         );
     }
@@ -531,7 +527,7 @@ mod tests {
             TXIN_IDX,
             &not_operator_pubkey.into(),
             GAME_IDX,
-            &N_OF_N_PUBKEY.clone().into(),
+            &(*N_OF_N_PUBKEY).into(),
             PROOF_TIMELOCK,
         );
     }
@@ -547,9 +543,9 @@ mod tests {
             &BRIDGE_PROOF_TX,
             PREVOUTS.as_ref(),
             TXIN_IDX,
-            &OPERATOR_PUBKEY.clone().into(),
+            &(*OPERATOR_PUBKEY).into(),
             not_game_index,
-            &N_OF_N_PUBKEY.clone().into(),
+            &(*N_OF_N_PUBKEY).into(),
             PROOF_TIMELOCK,
         );
     }
@@ -570,7 +566,7 @@ mod tests {
             &BRIDGE_PROOF_TX,
             PREVOUTS.as_ref(),
             TXIN_IDX,
-            &OPERATOR_PUBKEY.clone().into(),
+            &(*OPERATOR_PUBKEY).into(),
             GAME_IDX,
             &not_n_of_n_pubkey.into(),
             PROOF_TIMELOCK,
@@ -588,9 +584,9 @@ mod tests {
             &BRIDGE_PROOF_TX,
             PREVOUTS.as_ref(),
             TXIN_IDX,
-            &OPERATOR_PUBKEY.clone().into(),
+            &(*OPERATOR_PUBKEY).into(),
             GAME_IDX,
-            &N_OF_N_PUBKEY.clone().into(),
+            &(*N_OF_N_PUBKEY).into(),
             not_proof_timelock,
         );
     }
@@ -609,9 +605,9 @@ mod tests {
             &tx,
             PREVOUTS.as_ref(),
             TXIN_IDX,
-            &OPERATOR_PUBKEY.clone().into(),
+            &(*OPERATOR_PUBKEY).into(),
             GAME_IDX,
-            &N_OF_N_PUBKEY.clone().into(),
+            &(*N_OF_N_PUBKEY).into(),
             PROOF_TIMELOCK,
         );
     }
@@ -626,9 +622,9 @@ mod tests {
             &tx,
             PREVOUTS.as_ref(),
             TXIN_IDX,
-            &OPERATOR_PUBKEY.clone().into(),
+            &(*OPERATOR_PUBKEY).into(),
             GAME_IDX,
-            &N_OF_N_PUBKEY.clone().into(),
+            &(*N_OF_N_PUBKEY).into(),
             PROOF_TIMELOCK,
         );
     }
@@ -643,9 +639,9 @@ mod tests {
             &tx,
             PREVOUTS.as_ref(),
             TXIN_IDX,
-            &OPERATOR_PUBKEY.clone().into(),
+            &(*OPERATOR_PUBKEY).into(),
             GAME_IDX,
-            &N_OF_N_PUBKEY.clone().into(),
+            &(*N_OF_N_PUBKEY).into(),
             PROOF_TIMELOCK,
         );
     }
@@ -653,8 +649,8 @@ mod tests {
     static INPUT_FOR_INVALID_BRIDGE_PROOF: LazyLock<CounterproofInput> =
         LazyLock::new(|| CounterproofInput {
             game_idx: GAME_IDX.get(),
-            operator_pubkey: OPERATOR_PUBKEY.clone().into(),
-            n_of_n_pubkey: N_OF_N_PUBKEY.clone().into(),
+            operator_pubkey: (*OPERATOR_PUBKEY).into(),
+            n_of_n_pubkey: (*N_OF_N_PUBKEY).into(),
             proof_timelock: PROOF_TIMELOCK.value(),
             bridge_proof_tx: BRIDGE_PROOF_TX.clone().into(),
             bridge_proof_tx_prevouts: PREVOUTS.iter().cloned().map(BitcoinTxOut::from).collect(),
@@ -753,7 +749,7 @@ mod tests {
                 moho_vk: PredicateKey::always_accept(),
             });
             assert_eq!(output.game_idx, GAME_IDX.get());
-            assert_eq!(output.operator_pubkey, OPERATOR_PUBKEY.clone().into());
+            assert_eq!(output.operator_pubkey, (*OPERATOR_PUBKEY).into());
         }
     }
 
@@ -763,8 +759,8 @@ mod tests {
 
         CounterproofInput {
             game_idx: GAME_IDX.get(),
-            operator_pubkey: OPERATOR_PUBKEY.clone().into(),
-            n_of_n_pubkey: N_OF_N_PUBKEY.clone().into(),
+            operator_pubkey: (*OPERATOR_PUBKEY).into(),
+            n_of_n_pubkey: (*N_OF_N_PUBKEY).into(),
             proof_timelock: PROOF_TIMELOCK.value(),
             bridge_proof_tx: BRIDGE_PROOF_TX.clone().into(),
             bridge_proof_tx_prevouts: PREVOUTS.iter().cloned().map(BitcoinTxOut::from).collect(),
@@ -882,7 +878,7 @@ mod tests {
                 moho_vk: PredicateKey::always_accept(),
             });
             assert_eq!(output.game_idx, GAME_IDX.get());
-            assert_eq!(output.operator_pubkey, OPERATOR_PUBKEY.clone().into());
+            assert_eq!(output.operator_pubkey, (*OPERATOR_PUBKEY).into());
         }
 
         #[test]
@@ -962,7 +958,7 @@ mod tests {
                 moho_vk: PredicateKey::always_accept(),
             });
             assert_eq!(output.game_idx, GAME_IDX.get());
-            assert_eq!(output.operator_pubkey, OPERATOR_PUBKEY.clone().into());
+            assert_eq!(output.operator_pubkey, (*OPERATOR_PUBKEY).into());
         }
     }
 }

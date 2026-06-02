@@ -7,13 +7,13 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-moho-types.workspace = true
 moho-recursive-proof.workspace = true
+moho-types.workspace = true
+ssz.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-asm-proto-bridge-v1-txs.workspace = true
 strata-merkle.workspace = true
 strata-predicate.workspace = true
-ssz.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 zkaleido.workspace = true

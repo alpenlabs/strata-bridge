@@ -28,7 +28,7 @@ ssz.workspace = true
 ssz_derive.workspace = true
 
 [dev-dependencies]
-strata-bridge-tx-graph = {workspace = true, features=["test_utils"]}
+strata-bridge-tx-graph = { workspace = true, features = ["test_utils"] }
 strata-bridge-test-utils.workspace = true
 
 [features]

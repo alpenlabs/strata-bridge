@@ -44,6 +44,10 @@ impl HeavierChainProof {
 /// Possible ways to generate a counterproof.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "300 extra bytes that are immediately destructured in the counterproof statement are a low cost for the zkVM"
+)]
 pub enum CounterproofMode {
     /// The counterproof is valid if the bridge proof is valid.
     InvalidBridgeProof,
