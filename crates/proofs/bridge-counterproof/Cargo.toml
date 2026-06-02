@@ -10,6 +10,7 @@ workspace = true
 cfg-if.workspace = true
 moho-types.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
+strata-asm-proto-bridge-v1-txs.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-proof.workspace = true
 strata-bridge-proof-common.workspace = true
