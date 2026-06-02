@@ -1965,6 +1965,7 @@ version = "6.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2dea6f1d7c79d27c9890c39786b68061c5a82b4c21669aafc98ae95337d792f"
 dependencies = [
+ "blake3",
  "cfg-if",
  "critical-section",
  "embedded-alloc",
