@@ -3,9 +3,7 @@
 use std::num::NonZero;
 
 use bitcoin::{
-    Amount, Network, Script, Transaction, TxOut,
-    hashes::Hash,
-    opcodes, relative,
+    Amount, Network, Script, Transaction, TxOut, opcodes, relative,
     script::Instruction,
     sighash::{Prevouts, SighashCache, TapSighashType},
     taproot,
@@ -32,15 +30,8 @@ pub fn process_counterproof(zkvm: &impl ZkVmEnv, genesis: BridgeCounterproofGene
     process_counterproof_inner(zkvm, &genesis);
 }
 
-/// Reads the SSZ input, verifies it against `genesis`, and commits the output.
-///
-/// Steps:
-/// 1. Decode `CounterproofInput`.
-/// 2. Verify the operator's schnorr signature on `bridge_proof_tx`.
-/// 3. Check the embedded bridge proof fails verification.
-/// 4. Commit `CounterproofOutput`.
+/// Reads the SSZ input, verifies the counterproof, and commits the output.
 fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofGenesis) {
-    // 1: Decode CounterproofInput.
     let CounterproofInput {
         game_idx,
         operator_pubkey,
@@ -52,7 +43,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     } = zkvm.read_ssz();
     let tx: Transaction = (&bridge_proof_tx)
         .try_into()
-        .expect("bridge_proof_tx must consensus-decode into a Transaction");
+        .expect("invalid counterproof: invalid encoding of bridge proof transaction");
     let prevouts: Vec<TxOut> = bridge_proof_tx_prevouts
         .into_iter()
         .map(TxOut::from)
@@ -60,11 +51,11 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     assert_eq!(
         tx.input.len(),
         prevouts.len(),
-        "prevouts must match inputs 1:1",
+        "invalid counterproof: length of prevouts not equal number of transaction inputs",
     );
 
-    // 2: Verify the operator signed the bridge-proof tx.
-    let game_idx_nz = NonZero::new(game_idx).expect("game_idx must be non-zero");
+    let game_idx_nz =
+        NonZero::new(game_idx).expect("invalid counterproof: game index cannot be zero");
     verify_operator_signature(
         &tx,
         &prevouts,
@@ -75,18 +66,38 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
         relative::Height::from_height(proof_timelock),
     );
 
-    // 3: Parse the embedded proof receipt and assert it fails verification.
-    parse_and_verify_bridge_proof(&tx, bridge_proof_tx_input_idx, genesis);
+    if let Some(bridge_proof_receipt) = extract_bridge_proof(&tx, bridge_proof_tx_input_idx) {
+        assert!(
+            genesis
+                .bridge_proof_vk
+                .verify_claim_witness(
+                    bridge_proof_receipt.public_values().as_bytes(),
+                    bridge_proof_receipt.proof().as_bytes(),
+                )
+                .is_err(),
+            "invalid counterproof: bridge proof is valid",
+        );
+    }
 
-    // 4: Commit public values.
     zkvm.commit_ssz(&CounterproofOutput {
         game_idx,
         operator_pubkey,
     });
 }
 
-/// Checks that the operator really signed this bridge-proof tx by deriving
-/// the `ContestProofConnector` output key and verifying against it.
+/// Asserts that the contest-proof txin has a valid operator signature.
+///
+/// The contest-proof txin is indexed by `txin_idx`.
+///
+/// # Counterproof success scenarios
+///
+/// If this function returns, then the counterproof validation continues.
+///
+/// # Counterproof failure scenarios
+///
+/// This function panics if the contest-proof txin has malformed witness data
+/// or if the operator signature fails to verify. In this case, the counterproof
+/// is immediately invalid.
 fn verify_operator_signature(
     tx: &Transaction,
     prevouts: &[TxOut],
@@ -101,15 +112,15 @@ fn verify_operator_signature(
         .witness
         .iter()
         .next()
-        .expect("contest-proof input should carry a key-path witness");
+        .expect("invalid counterproof: contest-proof txin has no witness");
     let tap_sig = taproot::Signature::from_slice(wit_elem)
-        .expect("witness should be a taproot key-spend signature");
+        .expect("invalid counterproof: contest-proof txin has no signature");
 
     let mut cache = SighashCache::new(tx);
-    let sighash = cache
+    let msg = cache
         .taproot_key_spend_signature_hash(txin_idx, &Prevouts::All(prevouts), tap_sig.sighash_type)
-        .expect("sighash should compute");
-    let msg = Message::from_digest_slice(&sighash.to_byte_array()).expect("sighash is 32 bytes");
+        .map(Message::from)
+        .expect("sighash computation should never fail");
 
     let output_key = ContestProofConnector::new(
         Network::Bitcoin,
@@ -123,57 +134,55 @@ fn verify_operator_signature(
 
     SECP256K1
         .verify_schnorr(&tap_sig.signature, &msg, &output_key.to_x_only_public_key())
-        .expect("operator signature should verify");
+        .expect("invalid counterproof: contest-proof txin signature verification failed");
 }
 
-/// Pulls the `ProofReceipt` out of `tx.output[0]`'s OP_RETURN and panics if
-/// it actually verifies against `genesis.bridge_proof_vk` — a valid bridge
-/// proof is the one thing we can't refute.
+/// Extracts the bridge proof from the given `bridge_proof_tx`.
 ///
-/// If the tx doesn't look like a bridge-proof tx we skip the Groth16
-/// check entirely: the operator's signature has already been authenticated,
-/// and signing an off-shape tx is misbehavior on its own.
-fn parse_and_verify_bridge_proof(
-    tx: &Transaction,
-    txin_idx: u32,
-    genesis: &BridgeCounterproofGenesis,
-) {
-    let wit_elem = tx.input[txin_idx as usize]
+/// # Warning
+///
+/// This function must be called after [`verify_operator_signature()`],
+/// to ensure that the bridge proof transaction has a valid operator signature.
+///
+/// # Counterproof success scenarios
+///
+/// This function returns `None` if the bridge proof transaction has the wrong
+/// format. In this case, the counterproof is immediately valid.
+///
+/// If this function returns `Some`, then the counterproof validation continues.
+///
+/// # Counterproof failure scenarios
+///
+/// This function panics if the bridge proof transaction doesn't have a signature
+/// at the given input. This is impossible after calling [`verify_operator_signature()`].
+fn extract_bridge_proof(bridge_proof_tx: &Transaction, txin_idx: u32) -> Option<ProofReceipt> {
+    let wit_elem = bridge_proof_tx.input[txin_idx as usize]
         .witness
         .iter()
         .next()
-        .expect("contest-proof input witness checked in verify_operator_signature");
-    let tap_sig =
-        taproot::Signature::from_slice(wit_elem).expect("valid taproot key-spend signature");
+        .expect("operator signature has already been verified");
+    let tap_sig = taproot::Signature::from_slice(wit_elem)
+        .expect("operator signature has already been verified");
 
+    // Return `None` if the bridge proof transaction has the wrong format.
     if tap_sig.sighash_type != TapSighashType::Default {
-        return;
+        return None;
     }
-    let Some(first_out) = tx.output.first() else {
-        return;
-    };
-    let Some(data) = extract_op_return_payload(&first_out.script_pubkey) else {
-        return;
-    };
-    let Ok(receipt) = borsh::from_slice::<ProofReceipt>(data) else {
-        return;
-    };
+    let first_out = bridge_proof_tx.output.first()?;
+    let data = extract_op_return_payload(&first_out.script_pubkey)?;
 
-    assert!(
-        genesis
-            .bridge_proof_vk
-            .verify_claim_witness(
-                receipt.public_values().as_bytes(),
-                receipt.proof().as_bytes(),
-            )
-            .is_err(),
-        "embedded bridge proof verified; cannot refute it",
-    );
+    // Return the decoded bridge proof.
+    borsh::from_slice::<ProofReceipt>(data).ok()
 }
 
 /// Extracts the pushed payload of an `OP_RETURN <PushBytes>` script.
-fn extract_op_return_payload(spk: &Script) -> Option<&[u8]> {
-    let mut it = spk.instructions();
+///
+/// # Counterproof success scenarios
+///
+/// This function returns `None` if the script has the wrong format.
+/// In this case, the counterproof is immediately valid.
+fn extract_op_return_payload(script_pubkey: &Script) -> Option<&[u8]> {
+    let mut it = script_pubkey.instructions();
     let first = it.next()?.ok()?;
     let second = it.next()?.ok()?;
     if !matches!(first, Instruction::Op(op) if op == opcodes::all::OP_RETURN) {
@@ -403,43 +412,35 @@ mod tests {
     }
 
     #[test]
-    fn non_refutable_inputs_skip_bridge_proof_verification() {
+    fn extract_bridge_proof_malformed() {
         let mut non_default_sighash_tx = proof_receipt_tx();
-        non_default_sighash_tx.input[0].witness = taproot_witness(TapSighashType::All);
+        let mut signature = vec![1u8; 64];
+        signature.push(TapSighashType::All as u8);
+        non_default_sighash_tx.input[0].witness = Witness::from_slice(&[signature]);
+
+        let mut no_output = proof_receipt_tx();
+        no_output.output = vec![];
+
+        let mut output_script_empty = proof_receipt_tx();
+        output_script_empty.output[0].script_pubkey = ScriptBuf::new();
+
+        let mut output_script_too_many_elements = proof_receipt_tx();
+        output_script_too_many_elements.output[0].script_pubkey = op_return_script(vec![1u8, 2, 3]);
+
         let cases = [
             non_default_sighash_tx,
-            tx_with_outputs(vec![]),
-            tx_with_outputs(vec![txout(ScriptBuf::new())]),
-            tx_with_outputs(vec![txout(op_return_script(vec![1u8, 2, 3]))]),
+            no_output,
+            output_script_empty,
+            output_script_too_many_elements,
         ];
-        let genesis = BridgeCounterproofGenesis {
-            bridge_proof_vk: PredicateKey::always_accept(),
-        };
-
         for tx in cases {
-            parse_and_verify_bridge_proof(&tx, TXIN_IDX, &genesis);
+            assert!(extract_bridge_proof(&tx, TXIN_IDX).is_none());
         }
     }
 
     #[test]
-    fn invalid_embedded_bridge_proof_returns() {
-        let tx = proof_receipt_tx();
-        let genesis = BridgeCounterproofGenesis {
-            bridge_proof_vk: PredicateKey::never_accept(),
-        };
-
-        parse_and_verify_bridge_proof(&tx, TXIN_IDX, &genesis);
-    }
-
-    #[test]
-    #[should_panic(expected = "embedded bridge proof verified; cannot refute it")]
-    fn valid_embedded_bridge_proof_panics() {
-        let tx = proof_receipt_tx();
-        let genesis = BridgeCounterproofGenesis {
-            bridge_proof_vk: PredicateKey::always_accept(),
-        };
-
-        parse_and_verify_bridge_proof(&tx, TXIN_IDX, &genesis);
+    fn extract_bridge_proof_correct_format() {
+        assert!(extract_bridge_proof(&proof_receipt_tx(), TXIN_IDX).is_some());
     }
 
     #[test]
@@ -458,7 +459,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "operator signature should verify")]
+    #[should_panic(
+        expected = "invalid counterproof: contest-proof txin signature verification failed"
+    )]
     fn verify_operator_signature_rejects_wrong_operator_pubkey() {
         let (tx, prevouts, _operator_kp, n_of_n_kp) = signed_contest_fixture();
         let other = deterministic_keypair(9);
@@ -475,7 +478,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "operator signature should verify")]
+    #[should_panic(
+        expected = "invalid counterproof: contest-proof txin signature verification failed"
+    )]
     fn verify_operator_signature_rejects_wrong_game_idx() {
         let (tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
 
@@ -491,7 +496,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "operator signature should verify")]
+    #[should_panic(
+        expected = "invalid counterproof: contest-proof txin signature verification failed"
+    )]
     fn verify_operator_signature_rejects_wrong_n_of_n_pubkey() {
         let (tx, prevouts, operator_kp, _n_of_n_kp) = signed_contest_fixture();
         let other = deterministic_keypair(9);
@@ -508,7 +515,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "operator signature should verify")]
+    #[should_panic(
+        expected = "invalid counterproof: contest-proof txin signature verification failed"
+    )]
     fn verify_operator_signature_rejects_wrong_proof_timelock() {
         let (tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
 
@@ -524,7 +533,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "operator signature should verify")]
+    #[should_panic(
+        expected = "invalid counterproof: contest-proof txin signature verification failed"
+    )]
     fn verify_operator_signature_rejects_tampered_tx() {
         let (mut tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
         // Mutate a sighash-covered field after signing; the schnorr verification
@@ -543,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "contest-proof input should carry a key-path witness")]
+    #[should_panic(expected = "invalid counterproof: contest-proof txin has no witness")]
     fn verify_operator_signature_rejects_empty_witness() {
         let (mut tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
         tx.input[0].witness = Witness::new();
@@ -560,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "witness should be a taproot key-spend signature")]
+    #[should_panic(expected = "invalid counterproof: contest-proof txin has no signature")]
     fn verify_operator_signature_rejects_malformed_witness() {
         let (mut tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
         tx.input[0].witness = Witness::from_slice(&[vec![0u8; 32]]);
@@ -583,6 +594,13 @@ mod tests {
 
         assert_eq!(output.game_idx, input.game_idx);
         assert_eq!(output.operator_pubkey, input.operator_pubkey);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid counterproof: bridge proof is valid")]
+    fn process_counterproof_inner_rejects_valid_proof() {
+        let input = canonical_counterproof_input();
+        run_counterproof(input, PredicateKey::always_accept());
     }
 
     #[test]
@@ -612,7 +630,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "prevouts must match inputs 1:1")]
+    #[should_panic(
+        expected = "invalid counterproof: length of prevouts not equal number of transaction inputs"
+    )]
     fn process_counterproof_inner_rejects_prevouts_input_mismatch() {
         let mut input = canonical_counterproof_input();
         input
@@ -622,7 +642,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "bridge_proof_tx must consensus-decode into a Transaction")]
+    #[should_panic(expected = "invalid counterproof: invalid encoding of bridge proof transaction")]
     fn process_counterproof_inner_rejects_non_decodable_tx() {
         let mut input = canonical_counterproof_input();
         input.bridge_proof_tx = RawBitcoinTx::from_raw_bytes(vec![0xffu8; 4]);
@@ -630,7 +650,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "game_idx must be non-zero")]
+    #[should_panic(expected = "invalid counterproof: game index cannot be zero")]
     fn process_counterproof_inner_rejects_zero_game_idx() {
         let mut input = canonical_counterproof_input();
         input.game_idx = 0;
