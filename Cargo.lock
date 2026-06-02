@@ -11625,6 +11625,7 @@ dependencies = [
  "moho-types",
  "ssz",
  "strata-asm-proto-bridge-v1",
+ "strata-asm-proto-bridge-v1-txs",
  "strata-merkle",
  "strata-predicate",
  "thiserror 2.0.18",

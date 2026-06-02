@@ -1,11 +1,17 @@
 //! Shared proving primitives reused by every per-program proof crate
 //! (e.g. `strata-bridge-proof`).
 
+use std::sync::LazyLock;
+
 use moho_recursive_proof::MohoRecursiveOutput;
-use moho_types::{ExportContainer, MohoState, RecursiveMohoProof, StateReference};
+use moho_types::{
+    ExportContainer, ExportState, InnerStateCommitment, MohoState, RecursiveMohoAttestation,
+    RecursiveMohoProof, StateRefAttestation, StateReference,
+};
 use ssz::Encode;
 use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
-use strata_merkle::MerkleProofB32;
+use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
 use strata_predicate::PredicateKey;
 use thiserror::Error;
 use tokio::task::JoinError;
@@ -34,6 +40,65 @@ where
 {
     let receipt_with_meta = tokio::task::spawn_blocking(move || P::prove(&input, &host)).await??;
     Ok(receipt_with_meta.receipt().clone())
+}
+
+/// Attestation to the genesis Moho state for testing.
+pub static MOHO_GENESIS_ATTESTATION: LazyLock<StateRefAttestation> = LazyLock::new(|| {
+    let genesis_state = MohoState::new(
+        InnerStateCommitment::from([0; 32]),
+        PredicateKey::always_accept(),
+        ExportState::new(vec![]).unwrap(),
+    );
+    StateRefAttestation::new(
+        StateReference::new([0; 32]),
+        genesis_state.compute_commitment(),
+    )
+});
+
+/// Generates a Moho state that includes the given `claim_unlocks`.
+///
+/// The function returns three things:
+/// 1. The resulting Moho state.
+/// 2. A recursive Moho proof from genesis.
+/// 3. For each claim unlock, a proof that it is included in the Moho state.
+///
+/// # See also
+///
+/// [`MOHO_GENESIS_ATTESTATION`].
+pub fn generate_moho_state<const N: usize>(
+    claim_unlocks: [OperatorClaimUnlock; N],
+) -> (MohoState, RecursiveMohoProof, [MerkleProofB32; N]) {
+    let mut container = ExportContainer::new(BRIDGE_V1_SUBPROTOCOL_ID);
+    let mut mmr = Mmr64B32::new_empty();
+    let mut inclusion_proofs = std::array::from_fn(|_| MerkleProofB32::new_zero());
+
+    for (i, claim) in claim_unlocks.iter().enumerate() {
+        let leaf = claim.compute_hash();
+        container.add_entry(leaf).unwrap();
+        let raw =
+            Mmr::<Sha256Hasher>::add_leaf_updating_proof_list(&mut mmr, leaf, &mut []).unwrap();
+        inclusion_proofs[i] = MerkleProofB32::from_generic(&raw);
+    }
+
+    let moho_state = MohoState::new(
+        InnerStateCommitment::from([1u8; 32]),
+        PredicateKey::always_accept(),
+        ExportState::new(vec![container]).unwrap(),
+    );
+    // Empty proof bytes are fine because moho_vk is set to PredicateKey::always_accept()
+    let empty_proof_bytes = vec![];
+    let moho_proof = RecursiveMohoProof::new(
+        RecursiveMohoAttestation::new(
+            MOHO_GENESIS_ATTESTATION.clone(),
+            StateRefAttestation::new(
+                StateReference::new([1u8; 32]),
+                moho_state.compute_commitment(),
+            ),
+        ),
+        empty_proof_bytes,
+    );
+
+    (moho_state, moho_proof, inclusion_proofs)
 }
 
 /// Asserts that `claim_unlock` is present in the bridge-v1 export-entries
