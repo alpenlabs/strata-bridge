@@ -109,13 +109,13 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 decode_buf_exact::<OperatorClaimUnlock>(&heavier_claim_unlock)
                     .expect("invalid heavier chain: invalid claim unlock encoding");
 
-            let BridgeProofOutput {
-                total_pow: _total_pow,
-                claim_unlock: bridge_proof_claim_unlock,
-                mmr_idx,
-            } = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
-                .expect("if public values of bridge proof are invalid, then the bridge proof is invalid (use CounterproofMode::InvalidBridgeProof)");
-            let bridge_proof_claim_unlock = decode_buf_exact::<OperatorClaimUnlock>(&bridge_proof_claim_unlock)
+            let (_total_pow, bridge_proof_claim_unlock, mmr_idx) = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
+                .ok()
+                .and_then(|output| {
+                    decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock)
+                        .ok()
+                        .map(|claim_unlock| (output.total_pow, claim_unlock, output.mmr_idx))
+                })
                 .expect("if public values of bridge proof are invalid, then the bridge proof is invalid (use CounterproofMode::InvalidBridgeProof)");
 
             // Fail if `heavier_moho_proof` is invalid.
