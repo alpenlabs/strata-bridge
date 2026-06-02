@@ -345,12 +345,13 @@ mod tests {
         )
     });
     static PREVOUTS: LazyLock<[TxOut; 1]> = LazyLock::new(|| [CONTEST_PROOF_CONNECTOR.tx_out()]);
+    static BRIDGE_PROOF_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
+        LazyLock::new(|| OperatorClaimUnlock::new(0, 0));
     static BRIDGE_PROOF_TX_UNSIGNED: LazyLock<BridgeProofTx> = LazyLock::new(|| {
-        let bridge_proof_claim_unlock = OperatorClaimUnlock::new(10, 0);
         let bridge_proof_output = BridgeProofOutput {
-            total_pow: [9u8; 32],
-            claim_unlock: encode_to_vec(&bridge_proof_claim_unlock).unwrap(),
-            mmr_idx: 1,
+            total_pow: [0u8; 32],
+            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(&BRIDGE_PROOF_CLAIM_UNLOCK).unwrap(),
+            mmr_idx: 0,
         };
         let receipt = ProofReceipt::new(
             Proof::new(vec![]),
@@ -377,9 +378,27 @@ mod tests {
 
         tx.finalize_partial(signing_info.sign(&tweaked_operator_key))
     });
-    static BRIDGE_PROOF_TX_MALFORMED: LazyLock<Transaction> = LazyLock::new(|| {
+    static BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_FORMAT: LazyLock<Transaction> = LazyLock::new(|| {
         let mut tx = BRIDGE_PROOF_TX_UNSIGNED.clone();
         tx.as_mut().output[0].script_pubkey = ScriptBuf::new();
+        let signing_info = tx.signing_info_partial();
+        let tweaked_operator_key = OPERATOR_KEYPAIR
+            .add_xonly_tweak(
+                SECP256K1,
+                &ContestProofConnector::operator_key_tweak(GAME_IDX),
+            )
+            .expect("game-idx tweak is valid");
+
+        tx.finalize_partial(signing_info.sign(&tweaked_operator_key))
+    });
+    static BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_PROOF: LazyLock<Transaction> = LazyLock::new(|| {
+        let receipt = ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]));
+        let data = BridgeProofData {
+            contest_txid: Txid::all_zeros(),
+            proof_bytes: borsh::to_vec(&receipt).unwrap(),
+            game_index: GAME_IDX,
+        };
+        let tx = BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR);
         let signing_info = tx.signing_info_partial();
         let tweaked_operator_key = OPERATOR_KEYPAIR
             .add_xonly_tweak(
@@ -396,47 +415,22 @@ mod tests {
         ScriptBuf::new_op_return(payload)
     }
 
-    fn build_inclusion(
-        claims: &[OperatorClaimUnlock],
-        target_idx: usize,
-    ) -> (ExportContainer, MerkleProofB32) {
-        let mut container = ExportContainer::new(BRIDGE_V1_SUBPROTOCOL_ID);
-        let mut mmr = Mmr64B32::new_empty();
-        let mut inclusion_proof = None;
-
-        for (i, claim) in claims.iter().enumerate() {
-            let leaf = claim.compute_hash();
-            container.add_entry(leaf).unwrap();
-            let raw =
-                Mmr::<Sha256Hasher>::add_leaf_updating_proof_list(&mut mmr, leaf, &mut []).unwrap();
-            if i == target_idx {
-                inclusion_proof = Some(MerkleProofB32::from_generic(&raw));
-            }
-        }
-
-        (container, inclusion_proof.unwrap())
+    #[derive(Debug, Clone)]
+    struct RuntimeArgs {
+        pub input: CounterproofInput,
+        pub bridge_proof_vk: PredicateKey,
+        pub moho_vk: PredicateKey,
     }
 
     /// Drives `process_counterproof_inner` through a `NativeMachine`.
-    fn run_counterproof(
-        input: CounterproofInput,
-        bridge_proof_vk: PredicateKey,
-    ) -> CounterproofOutput {
+    fn run_counterproof(args: RuntimeArgs) -> CounterproofOutput {
         let mut machine = NativeMachine::new();
-        machine.write_slice(input.as_ssz_bytes());
+        machine.write_slice(args.input.as_ssz_bytes());
 
-        let moho_genesis = MohoState::new(
-            InnerStateCommitment::from([0u8; 32]),
-            PredicateKey::always_accept(),
-            ExportState::new(vec![]).unwrap(),
-        );
         let genesis = BridgeCounterproofGenesis {
-            bridge_proof_vk,
-            moho_vk: PredicateKey::always_accept(),
-            genesis_moho_state: StateRefAttestation::new(
-                StateReference::new([0u8; 32]),
-                moho_genesis.compute_commitment(),
-            ),
+            bridge_proof_vk: args.bridge_proof_vk,
+            moho_vk: args.moho_vk,
+            genesis_moho_state: MOHO_GENESIS_ATTESTATION.clone(),
         };
 
         process_counterproof_inner(&machine, &genesis);
@@ -675,7 +669,12 @@ mod tests {
         fn counterproof_invalid_if_bridge_proof_tx_invalid_encoding() {
             let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
             input.bridge_proof_tx = RawBitcoinTx::from_raw_bytes(vec![0xffu8; 4]);
-            run_counterproof(input, PredicateKey::never_accept());
+
+            run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::never_accept(),
+                moho_vk: PredicateKey::always_accept(),
+            });
         }
 
         #[test]
@@ -687,7 +686,12 @@ mod tests {
             input
                 .bridge_proof_tx_prevouts
                 .push(BitcoinTxOut::from(TxOut::NULL));
-            run_counterproof(input, PredicateKey::never_accept());
+
+            run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::never_accept(),
+                moho_vk: PredicateKey::always_accept(),
+            });
         }
 
         #[test]
@@ -695,7 +699,12 @@ mod tests {
         fn counterproof_invalid_if_game_index_zero() {
             let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
             input.game_idx = 0;
-            run_counterproof(input, PredicateKey::never_accept());
+
+            run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::never_accept(),
+                moho_vk: PredicateKey::always_accept(),
+            });
         }
     }
 
@@ -706,9 +715,14 @@ mod tests {
         #[test]
         fn counterproof_valid_if_bridge_proof_tx_malformed() {
             let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
-            input.bridge_proof_tx = RawBitcoinTx::from(BRIDGE_PROOF_TX_MALFORMED.clone());
+            input.bridge_proof_tx =
+                RawBitcoinTx::from(BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_FORMAT.clone());
 
-            let output = run_counterproof(input, PredicateKey::always_accept());
+            let output = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::always_accept(),
+            });
             assert_eq!(output.game_idx, GAME_IDX.get());
         }
 
@@ -716,14 +730,23 @@ mod tests {
         #[should_panic(expected = "invalid counterproof: bridge proof is valid")]
         fn counterproof_invalid_if_bridge_proof_valid() {
             let input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
-            let _ = run_counterproof(input, PredicateKey::always_accept());
+
+            let _ = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::always_accept(),
+            });
         }
 
         #[test]
         fn counterproof_valid_if_bridge_proof_invalid() {
             let input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
-            let output = run_counterproof(input, PredicateKey::never_accept());
 
+            let output = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::never_accept(),
+                moho_vk: PredicateKey::always_accept(),
+            });
             assert_eq!(output.game_idx, GAME_IDX.get());
             assert_eq!(output.operator_pubkey, OPERATOR_PUBKEY.clone().into());
         }
