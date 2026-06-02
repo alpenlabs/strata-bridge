@@ -199,190 +199,118 @@ fn extract_op_return_payload(script_pubkey: &Script) -> Option<&[u8]> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use bitcoin::{
-        Amount, Network, ScriptBuf, TxIn, Witness, absolute,
-        blockdata::transaction::Version,
+        Amount, Network, ScriptBuf, Txid, Witness, absolute,
+        hashes::Hash,
         opcodes::all::{OP_PUSHNUM_1, OP_RETURN},
         script::{Builder, PushBytesBuf},
     };
     use secp256k1::{Keypair, XOnlyPublicKey};
     use ssz::{Decode, Encode};
-    use strata_bridge_connectors::{Connector, prelude::TimelockedSpendPath};
+    use strata_bridge_connectors::Connector;
+    use strata_bridge_proof::{BridgeProofOutput, OperatorClaimUnlock};
+    use strata_bridge_test_utils::bitcoin::generate_keypair;
+    use strata_bridge_tx_graph::transactions::prelude::{BridgeProofData, BridgeProofTx};
+    use strata_codec::encode_to_vec;
     use strata_predicate::PredicateKey;
     use zkaleido::{Proof, PublicValues};
     use zkaleido_native_adapter::NativeMachine;
 
     use super::*;
-    use crate::types::{BitcoinTxOut, RawBitcoinTx};
+    use crate::{BitcoinTxOut, RawBitcoinTx};
 
-    const GAME_IDX: u32 = 7;
-    const PROOF_TIMELOCK: u16 = 100;
+    const GAME_IDX: NonZero<u32> = NonZero::new(7).unwrap();
+    const PROOF_TIMELOCK: relative::Height = relative::Height::from_height(100);
     const TXIN_IDX: u32 = 0;
 
-    fn taproot_witness(sighash_type: TapSighashType) -> Witness {
-        let mut signature = vec![1u8; 64];
-        if sighash_type != TapSighashType::Default {
-            signature.push(sighash_type as u8);
-        }
-        Witness::from_slice(&[signature])
-    }
+    static OPERATOR_KEYPAIR: LazyLock<Keypair> = LazyLock::new(generate_keypair);
+    static OPERATOR_PUBKEY: LazyLock<XOnlyPublicKey> =
+        LazyLock::new(|| OPERATOR_KEYPAIR.x_only_public_key().0);
+    static N_OF_N_PUBKEY: LazyLock<XOnlyPublicKey> =
+        LazyLock::new(|| generate_keypair().x_only_public_key().0);
 
-    fn txout(script_pubkey: ScriptBuf) -> TxOut {
-        TxOut {
-            value: Amount::from_sat(0),
-            script_pubkey,
-        }
-    }
+    static CONTEST_PROOF_CONNECTOR: LazyLock<ContestProofConnector> = LazyLock::new(|| {
+        ContestProofConnector::new(
+            Network::Regtest,
+            *N_OF_N_PUBKEY,
+            *OPERATOR_PUBKEY,
+            GAME_IDX,
+            PROOF_TIMELOCK,
+            Amount::ZERO,
+        )
+    });
+    static PREVOUTS: LazyLock<[TxOut; 1]> = LazyLock::new(|| [CONTEST_PROOF_CONNECTOR.tx_out()]);
+    static BRIDGE_PROOF_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
+        LazyLock::new(|| OperatorClaimUnlock::new(0, 0));
+    const BRIDGE_PROOF_POW: [u8; 32] = [1; 32];
+    static BRIDGE_PROOF_TX_UNSIGNED: LazyLock<BridgeProofTx> = LazyLock::new(|| {
+        let bridge_proof_output = BridgeProofOutput {
+            total_pow: BRIDGE_PROOF_POW,
+            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(&BRIDGE_PROOF_CLAIM_UNLOCK).unwrap(),
+            mmr_idx: 0,
+        };
+        let receipt = ProofReceipt::new(
+            Proof::new(vec![]),
+            PublicValues::new(bridge_proof_output.as_ssz_bytes()),
+        );
+        let proof_bytes = borsh::to_vec(&receipt).unwrap();
+        let data = BridgeProofData {
+            contest_txid: Txid::all_zeros(),
+            proof_bytes,
+            game_index: GAME_IDX,
+        };
 
-    fn tx_with_outputs(output: Vec<TxOut>) -> Transaction {
-        Transaction {
-            version: Version::TWO,
-            lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn {
-                witness: taproot_witness(TapSighashType::Default),
-                ..Default::default()
-            }],
-            output,
-        }
-    }
+        BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR)
+    });
+    static BRIDGE_PROOF_TX_SIGNED: LazyLock<Transaction> = LazyLock::new(|| {
+        let tx = BRIDGE_PROOF_TX_UNSIGNED.clone();
+        let signing_info = tx.signing_info_partial();
+        let tweaked_operator_key = OPERATOR_KEYPAIR
+            .add_xonly_tweak(
+                SECP256K1,
+                &ContestProofConnector::operator_key_tweak(GAME_IDX),
+            )
+            .expect("game-idx tweak is valid");
+
+        tx.finalize_partial(signing_info.sign(&tweaked_operator_key))
+    });
+    static BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_FORMAT: LazyLock<Transaction> = LazyLock::new(|| {
+        let mut tx = BRIDGE_PROOF_TX_UNSIGNED.clone();
+        tx.as_mut().output[0].script_pubkey = ScriptBuf::new();
+        let signing_info = tx.signing_info_partial();
+        let tweaked_operator_key = OPERATOR_KEYPAIR
+            .add_xonly_tweak(
+                SECP256K1,
+                &ContestProofConnector::operator_key_tweak(GAME_IDX),
+            )
+            .expect("game-idx tweak is valid");
+
+        tx.finalize_partial(signing_info.sign(&tweaked_operator_key))
+    });
 
     fn op_return_script(data: Vec<u8>) -> ScriptBuf {
         let payload = PushBytesBuf::try_from(data).unwrap();
         ScriptBuf::new_op_return(payload)
     }
 
-    fn proof_receipt_tx() -> Transaction {
-        let receipt = ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]));
-        tx_with_outputs(vec![txout(op_return_script(
-            borsh::to_vec(&receipt).unwrap(),
-        ))])
-    }
-
-    fn deterministic_keypair(seed: u8) -> Keypair {
-        Keypair::from_seckey_slice(SECP256K1, &[seed; 32]).expect("seed produces valid secret key")
-    }
-
-    fn xonly(kp: &Keypair) -> XOnlyPublicKey {
-        kp.x_only_public_key().0
-    }
-
-    fn contest_connector(
-        operator: XOnlyPublicKey,
-        n_of_n: XOnlyPublicKey,
-        game_idx: NonZero<u32>,
-        proof_timelock: relative::Height,
-    ) -> ContestProofConnector {
-        ContestProofConnector::new(
-            Network::Regtest,
-            n_of_n,
-            operator,
-            game_idx,
-            proof_timelock,
-            Amount::ZERO,
-        )
-    }
-
-    /// Builds an unsigned 1-input / 1-output contest-proof tx whose `prevouts[0]`
-    /// is `connector`'s P2TR. The first output is an OP_RETURN holding an
-    /// empty `ProofReceipt`.
-    fn unsigned_contest_tx(connector: &ContestProofConnector) -> (Transaction, Vec<TxOut>) {
-        let prevouts = vec![txout(connector.script_pubkey())];
-
-        let receipt = ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]));
-        let tx = Transaction {
-            version: Version::TWO,
-            lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn {
-                witness: Witness::new(),
-                ..Default::default()
-            }],
-            output: vec![txout(op_return_script(borsh::to_vec(&receipt).unwrap()))],
-        };
-        (tx, prevouts)
-    }
-
-    /// Signs `tx.input[0]` under `connector`'s output-key secret and writes
-    /// the resulting key-path witness into the tx.
-    fn sign_input_zero(
-        tx: &mut Transaction,
-        prevouts: &[TxOut],
-        operator_kp: &Keypair,
-        connector: &ContestProofConnector,
-        game_idx: NonZero<u32>,
-    ) {
-        // `connector.get_signing_info` produces a sighash + merkle-root tweak;
-        // `SigningInfo::sign` then applies the tap-tweak and schnorr-signs.
-        // We still have to pre-apply the per-game scalar to get the internal key.
-        let internal_kp = operator_kp
-            .add_xonly_tweak(
-                SECP256K1,
-                &ContestProofConnector::operator_key_tweak(game_idx),
-            )
-            .expect("game-idx tweak is valid");
-
-        let signing_info = connector.get_signing_info(
-            &mut SighashCache::new(&*tx),
-            Prevouts::All(prevouts),
-            TimelockedSpendPath::Normal,
-            0,
-        );
-        let signature = signing_info.sign(&internal_kp);
-
-        tx.input[0].witness = Witness::p2tr_key_spend(&taproot::Signature {
-            signature,
-            sighash_type: TapSighashType::Default,
-        });
-    }
-
-    /// Builds a fully-signed canonical contest-proof tx + prevouts.
-    fn signed_contest_fixture() -> (Transaction, Vec<TxOut>, Keypair, Keypair) {
-        let operator_kp = deterministic_keypair(1);
-        let n_of_n_kp = deterministic_keypair(2);
-        let game_idx = NonZero::new(GAME_IDX).unwrap();
-        let proof_timelock = relative::Height::from_height(PROOF_TIMELOCK);
-        let connector = contest_connector(
-            xonly(&operator_kp),
-            xonly(&n_of_n_kp),
-            game_idx,
-            proof_timelock,
-        );
-
-        let (mut tx, prevouts) = unsigned_contest_tx(&connector);
-        sign_input_zero(&mut tx, &prevouts, &operator_kp, &connector, game_idx);
-        (tx, prevouts, operator_kp, n_of_n_kp)
-    }
-
-    /// Wraps the unsigned components of a `CounterproofInput` in SSZ-wire form.
-    fn counterproof_input_from(
-        tx: Transaction,
-        prevouts: Vec<TxOut>,
-        operator_kp: &Keypair,
-        n_of_n_kp: &Keypair,
-    ) -> CounterproofInput {
-        CounterproofInput {
-            game_idx: GAME_IDX,
-            operator_pubkey: xonly(operator_kp).into(),
-            n_of_n_pubkey: xonly(n_of_n_kp).into(),
-            proof_timelock: PROOF_TIMELOCK,
-            bridge_proof_tx: RawBitcoinTx::from(tx),
-            bridge_proof_tx_prevouts: prevouts.into_iter().map(BitcoinTxOut::from).collect(),
-            bridge_proof_tx_input_idx: TXIN_IDX,
-        }
-    }
-
-    fn canonical_counterproof_input() -> CounterproofInput {
-        let (tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
-        counterproof_input_from(tx, prevouts, &operator_kp, &n_of_n_kp)
+    #[derive(Debug, Clone)]
+    struct RuntimeArgs {
+        pub input: CounterproofInput,
+        pub bridge_proof_vk: PredicateKey,
     }
 
     /// Drives `process_counterproof_inner` through a `NativeMachine`.
-    fn run_counterproof(
-        input: CounterproofInput,
-        bridge_proof_vk: PredicateKey,
-    ) -> CounterproofOutput {
+    fn run_counterproof(args: RuntimeArgs) -> CounterproofOutput {
         let mut machine = NativeMachine::new();
-        machine.write_slice(input.as_ssz_bytes());
-        process_counterproof_inner(&machine, &BridgeCounterproofGenesis { bridge_proof_vk });
+        machine.write_slice(args.input.as_ssz_bytes());
+
+        let genesis = BridgeCounterproofGenesis {
+            bridge_proof_vk: args.bridge_proof_vk,
+        };
+
+        process_counterproof_inner(&machine, &genesis);
         CounterproofOutput::from_ssz_bytes(&machine.state.borrow().output).unwrap()
     }
 
@@ -413,18 +341,18 @@ mod tests {
 
     #[test]
     fn extract_bridge_proof_malformed() {
-        let mut non_default_sighash_tx = proof_receipt_tx();
+        let mut non_default_sighash_tx = BRIDGE_PROOF_TX_SIGNED.clone();
         let mut signature = vec![1u8; 64];
         signature.push(TapSighashType::All as u8);
         non_default_sighash_tx.input[0].witness = Witness::from_slice(&[signature]);
 
-        let mut no_output = proof_receipt_tx();
+        let mut no_output = BRIDGE_PROOF_TX_SIGNED.clone();
         no_output.output = vec![];
 
-        let mut output_script_empty = proof_receipt_tx();
+        let mut output_script_empty = BRIDGE_PROOF_TX_SIGNED.clone();
         output_script_empty.output[0].script_pubkey = ScriptBuf::new();
 
-        let mut output_script_too_many_elements = proof_receipt_tx();
+        let mut output_script_too_many_elements = BRIDGE_PROOF_TX_SIGNED.clone();
         output_script_too_many_elements.output[0].script_pubkey = op_return_script(vec![1u8, 2, 3]);
 
         let cases = [
@@ -440,21 +368,19 @@ mod tests {
 
     #[test]
     fn extract_bridge_proof_correct_format() {
-        assert!(extract_bridge_proof(&proof_receipt_tx(), TXIN_IDX).is_some());
+        assert!(extract_bridge_proof(&BRIDGE_PROOF_TX_SIGNED, TXIN_IDX).is_some());
     }
 
     #[test]
     fn verify_operator_signature_accepts_canonical_signed_tx() {
-        let (tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
-
         verify_operator_signature(
-            &tx,
-            &prevouts,
+            &BRIDGE_PROOF_TX_SIGNED,
+            PREVOUTS.as_ref(),
             TXIN_IDX,
-            &xonly(&operator_kp).into(),
-            NonZero::new(GAME_IDX).unwrap(),
-            &xonly(&n_of_n_kp).into(),
-            relative::Height::from_height(PROOF_TIMELOCK),
+            &(*OPERATOR_PUBKEY).into(),
+            GAME_IDX,
+            &(*N_OF_N_PUBKEY).into(),
+            PROOF_TIMELOCK,
         );
     }
 
@@ -463,17 +389,21 @@ mod tests {
         expected = "invalid counterproof: contest-proof txin signature verification failed"
     )]
     fn verify_operator_signature_rejects_wrong_operator_pubkey() {
-        let (tx, prevouts, _operator_kp, n_of_n_kp) = signed_contest_fixture();
-        let other = deterministic_keypair(9);
+        let not_operator_pubkey = loop {
+            let pubkey = generate_keypair().x_only_public_key().0;
+            if pubkey != *OPERATOR_PUBKEY {
+                break pubkey;
+            }
+        };
 
         verify_operator_signature(
-            &tx,
-            &prevouts,
+            &BRIDGE_PROOF_TX_SIGNED,
+            PREVOUTS.as_ref(),
             TXIN_IDX,
-            &xonly(&other).into(),
-            NonZero::new(GAME_IDX).unwrap(),
-            &xonly(&n_of_n_kp).into(),
-            relative::Height::from_height(PROOF_TIMELOCK),
+            &not_operator_pubkey.into(),
+            GAME_IDX,
+            &(*N_OF_N_PUBKEY).into(),
+            PROOF_TIMELOCK,
         );
     }
 
@@ -482,16 +412,16 @@ mod tests {
         expected = "invalid counterproof: contest-proof txin signature verification failed"
     )]
     fn verify_operator_signature_rejects_wrong_game_idx() {
-        let (tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
+        let not_game_index = GAME_IDX.saturating_add(1);
 
         verify_operator_signature(
-            &tx,
-            &prevouts,
+            &BRIDGE_PROOF_TX_SIGNED,
+            PREVOUTS.as_ref(),
             TXIN_IDX,
-            &xonly(&operator_kp).into(),
-            NonZero::new(GAME_IDX + 1).unwrap(),
-            &xonly(&n_of_n_kp).into(),
-            relative::Height::from_height(PROOF_TIMELOCK),
+            &(*OPERATOR_PUBKEY).into(),
+            not_game_index,
+            &(*N_OF_N_PUBKEY).into(),
+            PROOF_TIMELOCK,
         );
     }
 
@@ -500,17 +430,21 @@ mod tests {
         expected = "invalid counterproof: contest-proof txin signature verification failed"
     )]
     fn verify_operator_signature_rejects_wrong_n_of_n_pubkey() {
-        let (tx, prevouts, operator_kp, _n_of_n_kp) = signed_contest_fixture();
-        let other = deterministic_keypair(9);
+        let not_n_of_n_pubkey = loop {
+            let pubkey = generate_keypair().x_only_public_key().0;
+            if pubkey != *N_OF_N_PUBKEY {
+                break pubkey;
+            }
+        };
 
         verify_operator_signature(
-            &tx,
-            &prevouts,
+            &BRIDGE_PROOF_TX_SIGNED,
+            PREVOUTS.as_ref(),
             TXIN_IDX,
-            &xonly(&operator_kp).into(),
-            NonZero::new(GAME_IDX).unwrap(),
-            &xonly(&other).into(),
-            relative::Height::from_height(PROOF_TIMELOCK),
+            &(*OPERATOR_PUBKEY).into(),
+            GAME_IDX,
+            &not_n_of_n_pubkey.into(),
+            PROOF_TIMELOCK,
         );
     }
 
@@ -519,16 +453,16 @@ mod tests {
         expected = "invalid counterproof: contest-proof txin signature verification failed"
     )]
     fn verify_operator_signature_rejects_wrong_proof_timelock() {
-        let (tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
+        let not_proof_timelock = relative::Height::from(PROOF_TIMELOCK.value() + 1);
 
         verify_operator_signature(
-            &tx,
-            &prevouts,
+            &BRIDGE_PROOF_TX_SIGNED,
+            PREVOUTS.as_ref(),
             TXIN_IDX,
-            &xonly(&operator_kp).into(),
-            NonZero::new(GAME_IDX).unwrap(),
-            &xonly(&n_of_n_kp).into(),
-            relative::Height::from_height(PROOF_TIMELOCK + 1),
+            &(*OPERATOR_PUBKEY).into(),
+            GAME_IDX,
+            &(*N_OF_N_PUBKEY).into(),
+            not_proof_timelock,
         );
     }
 
@@ -537,123 +471,153 @@ mod tests {
         expected = "invalid counterproof: contest-proof txin signature verification failed"
     )]
     fn verify_operator_signature_rejects_tampered_tx() {
-        let (mut tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
+        let mut tx = BRIDGE_PROOF_TX_SIGNED.clone();
         // Mutate a sighash-covered field after signing; the schnorr verification
         // sees a sighash the operator never signed.
         tx.lock_time = absolute::LockTime::from_consensus(1);
 
         verify_operator_signature(
             &tx,
-            &prevouts,
+            PREVOUTS.as_ref(),
             TXIN_IDX,
-            &xonly(&operator_kp).into(),
-            NonZero::new(GAME_IDX).unwrap(),
-            &xonly(&n_of_n_kp).into(),
-            relative::Height::from_height(PROOF_TIMELOCK),
+            &(*OPERATOR_PUBKEY).into(),
+            GAME_IDX,
+            &(*N_OF_N_PUBKEY).into(),
+            PROOF_TIMELOCK,
         );
     }
 
     #[test]
     #[should_panic(expected = "invalid counterproof: contest-proof txin has no witness")]
     fn verify_operator_signature_rejects_empty_witness() {
-        let (mut tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
+        let mut tx = BRIDGE_PROOF_TX_SIGNED.clone();
         tx.input[0].witness = Witness::new();
 
         verify_operator_signature(
             &tx,
-            &prevouts,
+            PREVOUTS.as_ref(),
             TXIN_IDX,
-            &xonly(&operator_kp).into(),
-            NonZero::new(GAME_IDX).unwrap(),
-            &xonly(&n_of_n_kp).into(),
-            relative::Height::from_height(PROOF_TIMELOCK),
+            &(*OPERATOR_PUBKEY).into(),
+            GAME_IDX,
+            &(*N_OF_N_PUBKEY).into(),
+            PROOF_TIMELOCK,
         );
     }
 
     #[test]
     #[should_panic(expected = "invalid counterproof: contest-proof txin has no signature")]
     fn verify_operator_signature_rejects_malformed_witness() {
-        let (mut tx, prevouts, operator_kp, n_of_n_kp) = signed_contest_fixture();
+        let mut tx = BRIDGE_PROOF_TX_SIGNED.clone();
         tx.input[0].witness = Witness::from_slice(&[vec![0u8; 32]]);
 
         verify_operator_signature(
             &tx,
-            &prevouts,
+            PREVOUTS.as_ref(),
             TXIN_IDX,
-            &xonly(&operator_kp).into(),
-            NonZero::new(GAME_IDX).unwrap(),
-            &xonly(&n_of_n_kp).into(),
-            relative::Height::from_height(PROOF_TIMELOCK),
+            &(*OPERATOR_PUBKEY).into(),
+            GAME_IDX,
+            &(*N_OF_N_PUBKEY).into(),
+            PROOF_TIMELOCK,
         );
     }
 
-    #[test]
-    fn process_counterproof_inner_commits_on_invalid_proof() {
-        let input = canonical_counterproof_input();
-        let output = run_counterproof(input.clone(), PredicateKey::never_accept());
+    static INPUT_FOR_INVALID_BRIDGE_PROOF: LazyLock<CounterproofInput> =
+        LazyLock::new(|| CounterproofInput {
+            game_idx: GAME_IDX.get(),
+            operator_pubkey: (*OPERATOR_PUBKEY).into(),
+            n_of_n_pubkey: (*N_OF_N_PUBKEY).into(),
+            proof_timelock: PROOF_TIMELOCK.value(),
+            bridge_proof_tx: BRIDGE_PROOF_TX_SIGNED.clone().into(),
+            bridge_proof_tx_prevouts: PREVOUTS.iter().cloned().map(BitcoinTxOut::from).collect(),
+            bridge_proof_tx_input_idx: TXIN_IDX,
+        });
 
-        assert_eq!(output.game_idx, input.game_idx);
-        assert_eq!(output.operator_pubkey, input.operator_pubkey);
+    /// Unit tests for input sanitization that happens
+    /// before the logic of the given `CounterproofMode` is executed.
+    mod input_sanitization {
+        use super::*;
+
+        #[test]
+        #[should_panic(
+            expected = "invalid counterproof: invalid encoding of bridge proof transaction"
+        )]
+        fn counterproof_invalid_if_bridge_proof_tx_invalid_encoding() {
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.bridge_proof_tx = RawBitcoinTx::from_raw_bytes(vec![0xffu8; 4]);
+
+            run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::never_accept(),
+            });
+        }
+
+        #[test]
+        #[should_panic(
+            expected = "invalid counterproof: length of prevouts not equal number of transaction inputs"
+        )]
+        fn counterproof_invalid_if_prevouts_invalid_length() {
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input
+                .bridge_proof_tx_prevouts
+                .push(BitcoinTxOut::from(TxOut::NULL));
+
+            run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::never_accept(),
+            });
+        }
+
+        #[test]
+        #[should_panic(expected = "invalid counterproof: game index cannot be zero")]
+        fn counterproof_invalid_if_game_index_zero() {
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.game_idx = 0;
+
+            run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::never_accept(),
+            });
+        }
     }
 
-    #[test]
-    #[should_panic(expected = "invalid counterproof: bridge proof is valid")]
-    fn process_counterproof_inner_rejects_valid_proof() {
-        let input = canonical_counterproof_input();
-        run_counterproof(input, PredicateKey::always_accept());
-    }
+    /// Unit tests for `CounterproofMode::InvalidBridgeProof`.
+    mod invalid_bridge_proof {
+        use super::*;
 
-    #[test]
-    fn process_counterproof_inner_commits_on_non_canonical_shape() {
-        // Off-shape tx with a valid signature. `always_accept` would panic if the
-        // embedded-proof check ran; reaching commit proves the short-circuit fired.
-        let operator_kp = deterministic_keypair(1);
-        let n_of_n_kp = deterministic_keypair(2);
-        let game_idx = NonZero::new(GAME_IDX).unwrap();
-        let connector = contest_connector(
-            xonly(&operator_kp),
-            xonly(&n_of_n_kp),
-            game_idx,
-            relative::Height::from_height(PROOF_TIMELOCK),
-        );
+        #[test]
+        fn counterproof_valid_if_bridge_proof_tx_malformed() {
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.bridge_proof_tx =
+                RawBitcoinTx::from(BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_FORMAT.clone());
 
-        let (mut tx, prevouts) = unsigned_contest_tx(&connector);
-        tx.output = vec![txout(ScriptBuf::new())];
-        sign_input_zero(&mut tx, &prevouts, &operator_kp, &connector, game_idx);
+            let output = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+            });
+            assert_eq!(output.game_idx, GAME_IDX.get());
+        }
 
-        let output = run_counterproof(
-            counterproof_input_from(tx, prevouts, &operator_kp, &n_of_n_kp),
-            PredicateKey::always_accept(),
-        );
+        #[test]
+        #[should_panic(expected = "invalid counterproof: bridge proof is valid")]
+        fn counterproof_invalid_if_bridge_proof_valid() {
+            let input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
 
-        assert_eq!(output.game_idx, GAME_IDX);
-    }
+            let _ = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+            });
+        }
 
-    #[test]
-    #[should_panic(
-        expected = "invalid counterproof: length of prevouts not equal number of transaction inputs"
-    )]
-    fn process_counterproof_inner_rejects_prevouts_input_mismatch() {
-        let mut input = canonical_counterproof_input();
-        input
-            .bridge_proof_tx_prevouts
-            .push(BitcoinTxOut::from(txout(ScriptBuf::new())));
-        run_counterproof(input, PredicateKey::never_accept());
-    }
+        #[test]
+        fn counterproof_valid_if_bridge_proof_invalid() {
+            let input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
 
-    #[test]
-    #[should_panic(expected = "invalid counterproof: invalid encoding of bridge proof transaction")]
-    fn process_counterproof_inner_rejects_non_decodable_tx() {
-        let mut input = canonical_counterproof_input();
-        input.bridge_proof_tx = RawBitcoinTx::from_raw_bytes(vec![0xffu8; 4]);
-        run_counterproof(input, PredicateKey::never_accept());
-    }
-
-    #[test]
-    #[should_panic(expected = "invalid counterproof: game index cannot be zero")]
-    fn process_counterproof_inner_rejects_zero_game_idx() {
-        let mut input = canonical_counterproof_input();
-        input.game_idx = 0;
-        run_counterproof(input, PredicateKey::never_accept());
+            let output = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::never_accept(),
+            });
+            assert_eq!(output.game_idx, GAME_IDX.get());
+            assert_eq!(output.operator_pubkey, (*OPERATOR_PUBKEY).into());
+        }
     }
 }
