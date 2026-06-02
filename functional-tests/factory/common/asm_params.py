@@ -13,8 +13,9 @@ from constants import ASM_MAGIC_BYTES
 DIFFICULTY_ADJUSTMENT_INTERVAL = 2016
 
 # Default P2TR bosd descriptor used as the initial safe harbour address. Matches the
-# upstream asm functional-tests value for bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf.
-# Encoded as type tag 0x04 (P2A/P2TR) followed by the 32-byte x-only pubkey.
+# upstream asm functional-tests value for the P2TR address
+# bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf, encoded as type tag
+# 0x04 (P2A/P2TR) followed by the 32-byte x-only pubkey.
 DEFAULT_SAFE_HARBOUR_ADDRESS = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
 
 # A callable that returns the verbose ``getblockheader`` response (a dict with at least
