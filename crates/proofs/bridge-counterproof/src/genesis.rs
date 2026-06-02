@@ -1,17 +1,29 @@
-//! Host-only loaders for [`crate::BridgeCounterproofGenesis`].
+//! Trust anchors for the bridge counterproof. Host-only.
 
+use moho_types::StateRefAttestation;
+use strata_bridge_proof::load_genesis_from_env as load_bridge_proof_genesis_from_env;
 use strata_predicate::PredicateKey;
 
-use crate::types::BridgeCounterproofGenesis;
+/// Trust anchors for verifying the bridge proof and Moho proofs.
+#[derive(Debug, Clone)]
+pub struct BridgeCounterproofGenesis {
+    /// Verifying key for the bridge proof.
+    pub bridge_proof_vk: PredicateKey,
 
-/// Builds the bridge-counterproof genesis from a known bridge-proof vkey.
-pub const fn load_genesis_from_predicate(
-    bridge_proof_vk: PredicateKey,
-) -> BridgeCounterproofGenesis {
-    BridgeCounterproofGenesis { bridge_proof_vk }
+    /// Verifying key for the Moho proof.
+    pub moho_vk: PredicateKey,
+
+    /// Attestation to the Moho genesis state.
+    pub genesis_moho_state: StateRefAttestation,
 }
 
-/// Builds the bridge-counterproof genesis from process environment.
-pub fn load_genesis_from_env() -> BridgeCounterproofGenesis {
-    load_genesis_from_predicate(PredicateKey::never_accept())
+/// Builds the bridge-counterproof genesis.
+pub fn load_genesis() -> BridgeCounterproofGenesis {
+    let bridge_proof_genesis = load_bridge_proof_genesis_from_env();
+
+    BridgeCounterproofGenesis {
+        bridge_proof_vk: PredicateKey::never_accept(),
+        moho_vk: bridge_proof_genesis.moho_vk,
+        genesis_moho_state: bridge_proof_genesis.genesis_moho_state,
+    }
 }
