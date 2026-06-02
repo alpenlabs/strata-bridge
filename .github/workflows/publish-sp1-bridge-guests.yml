@@ -1,0 +1,135 @@
+name: Publish SP1 Bridge Guests
+
+on:
+  workflow_dispatch:
+    inputs:
+      asm_tag:
+        description: Tag in alpenlabs/asm whose release ships asm-vk.json and moho-vk.json (e.g. v0.1-alpha.11).
+        required: true
+        type: string
+      asm_params_url:
+        description: HTTPS URL to fetch asm-params.json from (use raw.githubusercontent.com or a release-asset URL, not a github.com /blob/ view URL).
+        required: true
+        type: string
+      ref:
+        description: strata-bridge git ref to build. Defaults to the branch selected in the UI.
+        required: false
+        type: string
+  push:
+    branches:
+      - mdteach/ci-vk-pipeline
+    paths:
+      - .github/workflows/publish-sp1-bridge-guests.yml
+
+env:
+  CARGO_TERM_COLOR: always
+  SP1_VERSION: v6.2.0
+  EFFECTIVE_ASM_TAG: ${{ inputs.asm_tag || 'v0.1-alpha.11' }}
+  EFFECTIVE_ASM_PARAMS_URL: ${{ inputs.asm_params_url || 'https://raw.githubusercontent.com/alpenlabs/strata-bridge/refs/heads/main/guest-builder/sp1/stub/asm-params.json' }}
+
+concurrency:
+  # `env.*` is not available in concurrency expressions, so the fallback is inlined here.
+  group: publish-sp1-bridge-guests-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag || 'v0.1-alpha.11' }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  extract-rust-version:
+    name: Extract toolchain version
+    runs-on: ubuntu-latest
+    outputs:
+      nightly-version: ${{ steps.extract-version.outputs.nightly-version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Extract Rust version
+        id: extract-version
+        uses: ./.github/actions/extract-rust-version
+
+  publish-sp1-bridge-guests:
+    name: Build and publish SP1 bridge-proof and counterproof ELFs
+    runs-on: ubuntu-latest
+    needs: extract-rust-version
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Validate manual inputs
+        env:
+          INPUT_ASM_TAG: ${{ env.EFFECTIVE_ASM_TAG }}
+          INPUT_ASM_PARAMS_URL: ${{ env.EFFECTIVE_ASM_PARAMS_URL }}
+          INPUT_REF: ${{ inputs.ref }}
+        run: python3 .github/scripts/guest_publish.py validate
+
+      - name: Install Rust toolchain
+        env:
+          RUST_NIGHTLY: ${{ needs.extract-rust-version.outputs.nightly-version }}
+        run: |
+          rustup toolchain install "$RUST_NIGHTLY" --profile minimal
+          rustup default "$RUST_NIGHTLY"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Install SP1 toolchain
+        run: |
+          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
+          ~/.sp1/bin/sp1up --version "$SP1_VERSION"
+          echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
+
+      - name: Verify SP1 toolchain
+        run: cargo prove --version
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+
+      - name: Pre-build SP1 core runner binary
+        run: |
+          cargo install sp1-core-executor-runner-binary --version 6.2.0 --root "$RUNNER_TEMP/sp1-core-runner" --force
+          echo "SP1_CORE_RUNNER_OVERRIDE_BINARY=$RUNNER_TEMP/sp1-core-runner/bin/sp1-core-executor-runner-binary" >> "$GITHUB_ENV"
+
+      - name: Fetch asm-vk, moho-vk, asm-params
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASM_TAG: ${{ env.EFFECTIVE_ASM_TAG }}
+          ASM_PARAMS_URL: ${{ env.EFFECTIVE_ASM_PARAMS_URL }}
+          OUTPUT_DIR: ${{ runner.temp }}/bridge-genesis
+        run: python3 .github/scripts/guest_publish.py fetch
+
+      - name: Build SP1 bridge-proof and counterproof guests
+        env:
+          BRIDGE_PROOF_ASM_PARAMS_PATH: ${{ runner.temp }}/bridge-genesis/asm-params.json
+          BRIDGE_PROOF_ASM_VK_PATH: ${{ runner.temp }}/bridge-genesis/asm-vk.json
+          BRIDGE_PROOF_MOHO_VK_PATH: ${{ runner.temp }}/bridge-genesis/moho-vk.json
+        run: |
+          set -euo pipefail
+          unset SKIP_PARAMS
+          cargo build --locked -p strata-bridge-sp1-guest-builder --release --features build-elf
+
+      - name: Verify artifacts and emit traceability summary
+        env:
+          ELF_DIR: guest-builder/sp1/elfs
+          ASM_TAG: ${{ env.EFFECTIVE_ASM_TAG }}
+          ASM_PARAMS_URL: ${{ env.EFFECTIVE_ASM_PARAMS_URL }}
+        run: python3 .github/scripts/guest_publish.py summarize
+
+      - name: Upload elfs/ as workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sp1-bridge-guests-${{ env.EFFECTIVE_ASM_TAG }}-${{ github.run_id }}
+          path: guest-builder/sp1/elfs/
+          if-no-files-found: error
+          retention-days: 90
