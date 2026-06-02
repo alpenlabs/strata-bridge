@@ -15,21 +15,13 @@ on:
         description: strata-bridge git ref to build. Defaults to the branch selected in the UI.
         required: false
         type: string
-  push:
-    branches:
-      - mdteach/ci-vk-pipeline
-    paths:
-      - .github/workflows/publish-sp1-bridge-guests.yml
 
 env:
   CARGO_TERM_COLOR: always
   SP1_VERSION: v6.2.0
-  EFFECTIVE_ASM_TAG: ${{ inputs.asm_tag || 'v0.1-alpha.11' }}
-  EFFECTIVE_ASM_PARAMS_URL: ${{ inputs.asm_params_url || 'https://raw.githubusercontent.com/alpenlabs/strata-bridge/refs/heads/main/guest-builder/sp1/stub/asm-params.json' }}
 
 concurrency:
-  # `env.*` is not available in concurrency expressions, so the fallback is inlined here.
-  group: publish-sp1-bridge-guests-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag || 'v0.1-alpha.11' }}
+  group: publish-sp1-bridge-guests-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}
   cancel-in-progress: false
 
 permissions: {}
@@ -67,8 +59,8 @@ jobs:
 
       - name: Validate manual inputs
         env:
-          INPUT_ASM_TAG: ${{ env.EFFECTIVE_ASM_TAG }}
-          INPUT_ASM_PARAMS_URL: ${{ env.EFFECTIVE_ASM_PARAMS_URL }}
+          INPUT_ASM_TAG: ${{ inputs.asm_tag }}
+          INPUT_ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
           INPUT_REF: ${{ inputs.ref }}
         run: python3 .github/scripts/guest_publish.py validate
 
@@ -104,8 +96,8 @@ jobs:
       - name: Fetch asm-vk, moho-vk, asm-params
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ASM_TAG: ${{ env.EFFECTIVE_ASM_TAG }}
-          ASM_PARAMS_URL: ${{ env.EFFECTIVE_ASM_PARAMS_URL }}
+          ASM_TAG: ${{ inputs.asm_tag }}
+          ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
           OUTPUT_DIR: ${{ runner.temp }}/bridge-genesis
         run: python3 .github/scripts/guest_publish.py fetch
 
@@ -123,14 +115,14 @@ jobs:
         env:
           ELF_DIR: guest-builder/sp1/elfs
           INPUTS_DIR: ${{ runner.temp }}/bridge-genesis
-          ASM_TAG: ${{ env.EFFECTIVE_ASM_TAG }}
-          ASM_PARAMS_URL: ${{ env.EFFECTIVE_ASM_PARAMS_URL }}
+          ASM_TAG: ${{ inputs.asm_tag }}
+          ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
         run: python3 .github/scripts/guest_publish.py summarize
 
       - name: Upload elfs/ as workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sp1-bridge-guests-${{ env.EFFECTIVE_ASM_TAG }}-${{ github.run_id }}
+          name: sp1-bridge-guests-${{ inputs.asm_tag }}-${{ github.run_id }}
           path: guest-builder/sp1/elfs/
           if-no-files-found: error
           retention-days: 90
