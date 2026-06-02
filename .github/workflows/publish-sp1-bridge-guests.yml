@@ -57,6 +57,10 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
 
+      - name: Resolve checked-out commit
+        id: resolve-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Validate manual inputs
         env:
           INPUT_ASM_TAG: ${{ inputs.asm_tag }}
@@ -117,6 +121,8 @@ jobs:
           INPUTS_DIR: ${{ runner.temp }}/bridge-genesis
           ASM_TAG: ${{ inputs.asm_tag }}
           ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
+          BRIDGE_REF: ${{ inputs.ref || github.ref }}
+          BRIDGE_SHA: ${{ steps.resolve-sha.outputs.sha }}
         run: python3 .github/scripts/guest_publish.py summarize
 
       - name: Upload elfs/ as workflow artifact
