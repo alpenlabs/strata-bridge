@@ -53,7 +53,7 @@ jobs:
 
   publish-sp1-bridge-guests:
     name: Build and publish SP1 bridge-proof and counterproof ELFs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-m
     needs: extract-rust-version
     timeout-minutes: 90
     permissions:
@@ -117,11 +117,12 @@ jobs:
         run: |
           set -euo pipefail
           unset SKIP_PARAMS
-          cargo build --locked -p strata-bridge-sp1-guest-builder --release --features build-elf
+          cargo build --locked -p strata-bridge-sp1-guest-builder --release --features docker-build
 
       - name: Verify artifacts and emit traceability summary
         env:
           ELF_DIR: guest-builder/sp1/elfs
+          INPUTS_DIR: ${{ runner.temp }}/bridge-genesis
           ASM_TAG: ${{ env.EFFECTIVE_ASM_TAG }}
           ASM_PARAMS_URL: ${{ env.EFFECTIVE_ASM_PARAMS_URL }}
         run: python3 .github/scripts/guest_publish.py summarize
