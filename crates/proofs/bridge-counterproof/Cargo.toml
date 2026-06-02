@@ -24,6 +24,10 @@ anyhow.workspace = true
 strata-bridge-proof-common.workspace = true
 
 [dev-dependencies]
+strata-bridge-proof.workspace = true
+strata-bridge-test-utils.workspace = true
+strata-bridge-tx-graph = { workspace = true, features = ["test_utils"] }
+strata-codec.workspace = true
 zkaleido-native-adapter.workspace = true
 
 [features]
