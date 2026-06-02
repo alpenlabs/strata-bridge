@@ -8,8 +8,14 @@ workspace = true
 
 [dependencies]
 cfg-if.workspace = true
+moho-types.workspace = true
+strata-asm-proto-bridge-v1.workspace = true
 strata-bridge-connectors.workspace = true
+strata-bridge-proof.workspace = true
+strata-bridge-proof-common.workspace = true
 strata-btc-types.workspace = true
+strata-codec.workspace = true
+strata-merkle.workspace = true
 strata-predicate.workspace = true
 zkaleido = { workspace = true, features = ["ssz"] }
 
@@ -21,7 +27,6 @@ ssz_derive.workspace = true
 
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
 anyhow.workspace = true
-strata-bridge-proof-common.workspace = true
 
 [dev-dependencies]
 strata-bridge-proof.workspace = true
