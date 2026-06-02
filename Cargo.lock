@@ -11370,6 +11370,7 @@ dependencies = [
  "ssz",
  "ssz_derive",
  "strata-asm-proto-bridge-v1",
+ "strata-asm-proto-bridge-v1-txs",
  "strata-bridge-connectors",
  "strata-bridge-proof",
  "strata-bridge-proof-common",
