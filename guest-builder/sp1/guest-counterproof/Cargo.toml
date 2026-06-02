@@ -6,9 +6,9 @@ version = "0.1.0"
 [workspace]
 
 [dependencies]
-ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
+ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.16.0" }
 strata-bridge-counterproof = { path = "../../../crates/proofs/bridge-counterproof" }
-zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2" }
+zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.3" }
 
 [patch.crates-io]
 secp256k1 = { git = "https://github.com/sp1-patches/rust-secp256k1", tag = "patch-0.29.1-sp1-6.2.0" }
