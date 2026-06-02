@@ -109,7 +109,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 decode_buf_exact::<OperatorClaimUnlock>(&heavier_claim_unlock)
                     .expect("invalid heavier chain: invalid claim unlock encoding");
 
-            let (_total_pow, bridge_proof_claim_unlock, mmr_idx) = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
+            let (total_pow, bridge_proof_claim_unlock, mmr_idx) = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
                 .ok()
                 .and_then(|output| {
                     decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock)
@@ -132,6 +132,11 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 .iter()
                 .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
                 .expect("moho_state must contain a bridge-v1 export container");
+
+            // Fail if the heavier chain doesn't have more proof of work than the operator chain.
+            if heavier_bridge_container.extra_data() <= &total_pow {
+                panic!("invalid heavier chain: not enough proof of work");
+            }
 
             // Immediately succeed if `mmr_idx` is out of bounds
             // for `heavier_moho_state`.
@@ -345,9 +350,11 @@ mod tests {
         LazyLock::new(|| OperatorClaimUnlock::new(0, 0));
     static HEAVIER_CHAIN_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
         LazyLock::new(|| OperatorClaimUnlock::new(0, 1));
+    const BRIDGE_PROOF_POW: [u8; 32] = [1; 32];
+    const HEAVIER_CHAIN_POW: [u8; 32] = [2; 32];
     static BRIDGE_PROOF_TX_UNSIGNED: LazyLock<BridgeProofTx> = LazyLock::new(|| {
         let bridge_proof_output = BridgeProofOutput {
-            total_pow: [0u8; 32],
+            total_pow: BRIDGE_PROOF_POW,
             claim_unlock: encode_to_vec::<OperatorClaimUnlock>(&BRIDGE_PROOF_CLAIM_UNLOCK).unwrap(),
             mmr_idx: 0,
         };
@@ -752,14 +759,7 @@ mod tests {
 
     static INPUT_FOR_HEAVIER_CHAIN: LazyLock<CounterproofInput> = LazyLock::new(|| {
         let (heavier_moho_state, heavier_moho_proof, [heavier_inclusion_proof]) =
-            generate_moho_state([HEAVIER_CHAIN_CLAIM_UNLOCK.clone()]);
-        let heavier_chain_proof = HeavierChainProof {
-            moho_state: heavier_moho_state,
-            moho_proof: heavier_moho_proof,
-            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(&HEAVIER_CHAIN_CLAIM_UNLOCK)
-                .unwrap(),
-            claim_unlock_inclusion_proof: heavier_inclusion_proof,
-        };
+            generate_moho_state([HEAVIER_CHAIN_CLAIM_UNLOCK.clone()], HEAVIER_CHAIN_POW);
 
         CounterproofInput {
             game_idx: GAME_IDX.get(),
@@ -769,7 +769,12 @@ mod tests {
             bridge_proof_tx: BRIDGE_PROOF_TX.clone().into(),
             bridge_proof_tx_prevouts: PREVOUTS.iter().cloned().map(BitcoinTxOut::from).collect(),
             bridge_proof_tx_input_idx: TXIN_IDX,
-            mode: CounterproofMode::HeavierChain(heavier_chain_proof),
+            mode: CounterproofMode::HeavierChain(HeavierChainProof::new(
+                heavier_moho_state,
+                heavier_moho_proof,
+                HEAVIER_CHAIN_CLAIM_UNLOCK.clone(),
+                heavier_inclusion_proof,
+            )),
         }
     });
 
@@ -838,19 +843,38 @@ mod tests {
         }
 
         #[test]
+        #[should_panic(expected = "invalid heavier chain: not enough proof of work")]
+        fn counterproof_invalid_if_not_enough_pow() {
+            let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
+            let not_enough_pow = BRIDGE_PROOF_POW;
+            let (heavier_moho_state, heavier_moho_proof, [heavier_inclusion_proof]) =
+                generate_moho_state([HEAVIER_CHAIN_CLAIM_UNLOCK.clone()], not_enough_pow);
+            input.mode = CounterproofMode::HeavierChain(HeavierChainProof::new(
+                heavier_moho_state,
+                heavier_moho_proof,
+                HEAVIER_CHAIN_CLAIM_UNLOCK.clone(),
+                heavier_inclusion_proof,
+            ));
+
+            let _ = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::always_accept(),
+            });
+        }
+
+        #[test]
         fn counterproof_valid_if_mmr_out_of_bounds() {
             let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
-            let (heavier_moho_state, heavier_moho_proof, []) = generate_moho_state([]);
-            let heavier_chain_proof = HeavierChainProof {
-                moho_state: heavier_moho_state,
-                moho_proof: heavier_moho_proof,
-                // dummy claim unlock: don't care
-                claim_unlock: encode_to_vec::<OperatorClaimUnlock>(&HEAVIER_CHAIN_CLAIM_UNLOCK)
-                    .unwrap(),
+            let (heavier_moho_state, heavier_moho_proof, []) =
+                generate_moho_state([], HEAVIER_CHAIN_POW);
+            input.mode = CounterproofMode::HeavierChain(HeavierChainProof::new(
+                heavier_moho_state,
+                heavier_moho_proof,
+                HEAVIER_CHAIN_CLAIM_UNLOCK.clone(),
                 // dummy inclusion proof: don't care
-                claim_unlock_inclusion_proof: MerkleProofB32::new_zero(),
-            };
-            input.mode = CounterproofMode::HeavierChain(heavier_chain_proof);
+                MerkleProofB32::new_zero(),
+            ));
 
             let output = run_counterproof(RuntimeArgs {
                 input,
@@ -885,20 +909,19 @@ mod tests {
             // NOTE: (@uncomputable) Because the bridge proof Moho state has 1 element,
             // the heavier chain Moho state needs at least 2 elements.
             // Otherwise, the mmr bounds check is triggered, which is tested elsewhere.
-            let (heavier_moho_state, heavier_moho_proof, _inclusion_proofs) =
-                generate_moho_state([
+            let (heavier_moho_state, heavier_moho_proof, _inclusion_proofs) = generate_moho_state(
+                [
                     BRIDGE_PROOF_CLAIM_UNLOCK.clone(),
                     HEAVIER_CHAIN_CLAIM_UNLOCK.clone(),
-                ]);
-            let heavier_chain_proof = HeavierChainProof {
-                moho_state: heavier_moho_state,
-                moho_proof: heavier_moho_proof,
-                claim_unlock: encode_to_vec::<OperatorClaimUnlock>(&HEAVIER_CHAIN_CLAIM_UNLOCK)
-                    .unwrap(),
-                // inclusion proof is invalid for Moho state with 0 or 2+ elements
-                claim_unlock_inclusion_proof: MerkleProofB32::new_zero(),
-            };
-            input.mode = CounterproofMode::HeavierChain(heavier_chain_proof);
+                ],
+                HEAVIER_CHAIN_POW,
+            );
+            input.mode = CounterproofMode::HeavierChain(HeavierChainProof::new(
+                heavier_moho_state,
+                heavier_moho_proof,
+                HEAVIER_CHAIN_CLAIM_UNLOCK.clone(),
+                MerkleProofB32::new_zero(),
+            ));
 
             let _ = run_counterproof(RuntimeArgs {
                 input,
@@ -914,15 +937,13 @@ mod tests {
         fn counterproof_invalid_if_claim_unlock_same() {
             let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
             let (heavier_moho_state, heavier_moho_proof, [bridge_inclusion_proof]) =
-                generate_moho_state([BRIDGE_PROOF_CLAIM_UNLOCK.clone()]);
-            let heavier_chain_proof = HeavierChainProof {
-                moho_state: heavier_moho_state,
-                moho_proof: heavier_moho_proof,
-                claim_unlock: encode_to_vec::<OperatorClaimUnlock>(&BRIDGE_PROOF_CLAIM_UNLOCK)
-                    .unwrap(),
-                claim_unlock_inclusion_proof: bridge_inclusion_proof,
-            };
-            input.mode = CounterproofMode::HeavierChain(heavier_chain_proof);
+                generate_moho_state([BRIDGE_PROOF_CLAIM_UNLOCK.clone()], HEAVIER_CHAIN_POW);
+            input.mode = CounterproofMode::HeavierChain(HeavierChainProof::new(
+                heavier_moho_state,
+                heavier_moho_proof,
+                BRIDGE_PROOF_CLAIM_UNLOCK.clone(),
+                bridge_inclusion_proof,
+            ));
 
             let _ = run_counterproof(RuntimeArgs {
                 input,

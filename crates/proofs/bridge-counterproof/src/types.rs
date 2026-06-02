@@ -4,6 +4,7 @@ pub use moho_types::{MohoState, RecursiveMohoProof};
 use ssz_derive::{Decode, Encode};
 pub use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
 pub use strata_btc_types::{BitcoinTxOut, BitcoinXOnlyPublicKey, RawBitcoinTx};
+use strata_codec::encode_to_vec;
 pub use strata_merkle::MerkleProofB32;
 
 /// Proof of a heavier chain.
@@ -20,6 +21,24 @@ pub struct HeavierChainProof {
 
     /// Inclusion proof for `claim_unlock` in `moho_state`.
     pub claim_unlock_inclusion_proof: MerkleProofB32,
+}
+
+impl HeavierChainProof {
+    /// Creates a new heavier chain proof.
+    pub fn new(
+        moho_state: MohoState,
+        moho_proof: RecursiveMohoProof,
+        claim_unlock: OperatorClaimUnlock,
+        inclusion_proof: MerkleProofB32,
+    ) -> Self {
+        Self {
+            moho_state,
+            moho_proof,
+            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(&claim_unlock)
+                .expect("encode to vector should never fail"),
+            claim_unlock_inclusion_proof: inclusion_proof,
+        }
+    }
 }
 
 /// Possible ways to generate a counterproof.

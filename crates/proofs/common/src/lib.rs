@@ -55,7 +55,8 @@ pub static MOHO_GENESIS_ATTESTATION: LazyLock<StateRefAttestation> = LazyLock::n
     )
 });
 
-/// Generates a Moho state that includes the given `claim_unlocks`.
+/// Generates a Moho state that includes the given `claim_unlocks`
+/// and that has the given `pow`.
 ///
 /// The function returns three things:
 /// 1. The resulting Moho state.
@@ -67,8 +68,10 @@ pub static MOHO_GENESIS_ATTESTATION: LazyLock<StateRefAttestation> = LazyLock::n
 /// [`MOHO_GENESIS_ATTESTATION`].
 pub fn generate_moho_state<const N: usize>(
     claim_unlocks: [OperatorClaimUnlock; N],
+    pow: [u8; 32],
 ) -> (MohoState, RecursiveMohoProof, [MerkleProofB32; N]) {
     let mut container = ExportContainer::new(BRIDGE_V1_SUBPROTOCOL_ID);
+    container.extra_data = pow.into();
     let mut mmr = Mmr64B32::new_empty();
     let mut inclusion_proofs = std::array::from_fn(|_| MerkleProofB32::new_zero());
 
