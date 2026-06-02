@@ -124,6 +124,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 &heavier_moho_proof,
                 genesis.genesis_moho_state.reference(),
                 genesis.moho_vk.clone(),
+                "invalid heavier chain: invalid moho proof",
             );
 
             let heavier_bridge_container = heavier_moho_state
@@ -166,6 +167,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 &heavier_claim_unlock,
                 heavier_bridge_container,
                 &heavier_inclusion_proof,
+                "invalid heavier chain: invalid inclusion proof for heavier claim unlock",
             );
 
             // Fail if `heavier_claim_unlock` is equal to `bridge_proof_claim_unlock`.

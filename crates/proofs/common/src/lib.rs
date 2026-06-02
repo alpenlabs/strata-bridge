@@ -114,13 +114,14 @@ pub fn verify_claim_unlock_inclusion(
     claim_unlock: &OperatorClaimUnlock,
     bridge_container: &ExportContainer,
     inclusion_proof: &MerkleProofB32,
+    error_message: &str,
 ) {
     let leaf_hash = claim_unlock.compute_hash();
     assert!(
         bridge_container
             .entries_mmr()
             .verify(inclusion_proof, &leaf_hash),
-        "claim_unlock must be included in the bridge-v1 MMR",
+        "{error_message}",
     );
 }
 
@@ -135,22 +136,24 @@ pub fn verify_moho_proof(
     moho_proof: &RecursiveMohoProof,
     moho_genesis: &StateReference,
     moho_vk: PredicateKey,
+    error_message: &str,
 ) {
     let attestation = moho_proof.attestation();
 
     assert_eq!(
         attestation.genesis().reference(),
         moho_genesis,
-        "moho proof genesis reference does not match bridge's anchor block",
+        "{error_message}: moho proof doesn't reference given genesis",
     );
     assert_eq!(
         attestation.proven().commitment(),
         &moho_state.compute_commitment(),
-        "moho proof proven commitment does not match the supplied moho_state",
+        "{error_message}: moho proof doesn't reference given moho state"
     );
 
     let claim = MohoRecursiveOutput::new(attestation.clone(), moho_vk.clone()).as_ssz_bytes();
-    moho_vk
-        .verify_claim_witness(&claim, moho_proof.proof())
-        .expect("moho proof verification failed");
+
+    if let Err(verification_error) = moho_vk.verify_claim_witness(&claim, moho_proof.proof()) {
+        panic!("{error_message}: {verification_error}")
+    }
 }

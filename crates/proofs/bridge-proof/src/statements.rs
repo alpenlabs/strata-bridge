@@ -47,6 +47,7 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
         &moho_proof,
         genesis.genesis_moho_state.reference(),
         genesis.moho_vk.clone(),
+        "invalid bridge proof: invalid moho proof",
     );
 
     // Extract the bridge-v1 export container from the Moho state.
@@ -62,6 +63,7 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
         &claim_unlock_typed,
         bridge_container,
         &claim_unlock_inclusion_proof,
+        "invalid bridge proof: invalid inclusion proof for claim unlock",
     );
 
     // 4: Commit public values.
@@ -137,7 +139,7 @@ mod tests {
     fn test_claim_unlock_inclusion_success() {
         let claim = OperatorClaimUnlock::new(0, 0);
         let (container, proof) = build_inclusion(std::slice::from_ref(&claim), 0);
-        verify_claim_unlock_inclusion(&claim, &container, &proof);
+        verify_claim_unlock_inclusion(&claim, &container, &proof, "");
     }
 
     #[test]
@@ -146,7 +148,7 @@ mod tests {
         let claim = OperatorClaimUnlock::new(0, 0);
         let other = OperatorClaimUnlock::new(1, 1);
         let (container, proof) = build_inclusion(std::slice::from_ref(&claim), 0);
-        verify_claim_unlock_inclusion(&other, &container, &proof);
+        verify_claim_unlock_inclusion(&other, &container, &proof, "");
     }
 
     #[test]
