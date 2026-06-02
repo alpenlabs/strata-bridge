@@ -7441,7 +7441,7 @@ version = "0.1.0"
 dependencies = [
  "bdk_bitcoind_rpc",
  "bdk_wallet",
- "bitcoin-bosd 0.10.0",
+ "bitcoin-bosd 0.11.0",
  "corepc-node",
  "hex",
  "jsonwebtoken",
