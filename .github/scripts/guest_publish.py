@@ -36,7 +36,11 @@ def fail(message: str) -> None:
 
 # ---- validate --------------------------------------------------------------
 
-ASM_TAG_RE = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
+# No `/` — git tags and `gh release download` accept it, but
+# actions/upload-artifact rejects names containing `/`, and the artifact name
+# embeds asm_tag directly. Reject here so the failure is fast, not after the
+# ~90-minute guest build.
+ASM_TAG_RE = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
 REF_RE = re.compile(r"^[A-Za-z0-9._/@:-]+$")
 WHITESPACE_RE = re.compile(r"\s")
 # github.com /blob/ URLs serve HTML, not raw JSON — reject early so the
@@ -59,7 +63,7 @@ def cmd_validate() -> None:
     if WHITESPACE_RE.search(asm_tag):
         fail("asm_tag must not contain whitespace")
     if not ASM_TAG_RE.fullmatch(asm_tag):
-        fail("asm_tag contains unsupported characters (allowed: [A-Za-z0-9._/-])")
+        fail("asm_tag contains unsupported characters (allowed: [A-Za-z0-9._-])")
 
     if WHITESPACE_RE.search(asm_params_url):
         fail("asm_params_url must not contain whitespace")
@@ -169,13 +173,16 @@ def sha256_hex(path: Path) -> str:
 
 
 def cmd_summarize() -> None:
-    """Env: ELF_DIR, INPUTS_DIR, ASM_TAG, ASM_PARAMS_URL, GITHUB_REF, GITHUB_SHA, GITHUB_STEP_SUMMARY."""
+    """Env: ELF_DIR, INPUTS_DIR, ASM_TAG, ASM_PARAMS_URL, BRIDGE_REF, BRIDGE_SHA, GITHUB_STEP_SUMMARY."""
     elf_dir = Path(os.environ["ELF_DIR"])
     inputs_dir = Path(os.environ["INPUTS_DIR"])
     asm_tag = os.environ["ASM_TAG"]
     asm_params_url = os.environ["ASM_PARAMS_URL"]
-    github_ref = os.environ.get("GITHUB_REF", "")
-    github_sha = os.environ.get("GITHUB_SHA", "")
+    # Caller resolves these from `inputs.ref || github.ref` + `git rev-parse HEAD`
+    # post-checkout. We can't fall back to GITHUB_REF/GITHUB_SHA because those
+    # always describe the dispatch event, not the (possibly overridden) build ref.
+    bridge_ref = os.environ["BRIDGE_REF"]
+    bridge_sha = os.environ["BRIDGE_SHA"]
     summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
 
     for name in EXPECTED_ARTIFACTS:
@@ -200,7 +207,7 @@ def cmd_summarize() -> None:
         "schema": 1,
         "asm_tag": asm_tag,
         "asm_params_url": asm_params_url,
-        "strata_bridge": {"ref": github_ref, "sha": github_sha},
+        "strata_bridge": {"ref": bridge_ref, "sha": bridge_sha},
         "predicates": {
             "bridge_proof": bridge_predicate,
             "counterproof": counter_predicate,
@@ -216,7 +223,7 @@ def cmd_summarize() -> None:
         "",
         f"- asm tag (alpenlabs/asm): `{asm_tag}`",
         f"- asm-params source: `{asm_params_url}`",
-        f"- strata-bridge ref: `{github_ref}` @ `{github_sha}`",
+        f"- strata-bridge ref: `{bridge_ref}` @ `{bridge_sha}`",
         "",
         "Artifact also contains `manifest.json` plus the verbatim input JSONs"
         f" ({', '.join(f'`{n}`' for n in BUNDLED_INPUTS)}) so the bundle is"
