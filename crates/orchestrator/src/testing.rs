@@ -4,7 +4,7 @@
 //! [`strata_bridge_test_utils::bridge_fixtures`]. This module adds orchestrator-specific SM config
 //! construction and registry helpers on top.
 
-use std::{num::NonZero, sync::Arc};
+use std::{collections::BTreeSet, num::NonZero, sync::Arc};
 
 use bitcoin::{
     Amount, Network, OutPoint, Transaction, TxIn, TxOut, Txid, absolute,
@@ -13,13 +13,16 @@ use bitcoin::{
     secp256k1::XOnlyPublicKey,
     transaction,
 };
+use btc_tracker::event::{BlockEvent, BlockStatus};
+use libp2p_identity::ed25519::{Keypair as P2pKeypair, SecretKey as P2pSecretKey};
 use strata_asm_proto_bridge_v1_txs::{
     BRIDGE_V1_SUBPROTOCOL_ID, constants::BridgeTxType,
     deposit_request::create_deposit_request_locking_script,
 };
 use strata_bridge_primitives::{
+    operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
     operator_table::OperatorTable,
-    types::{DepositIdx, GraphIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
 };
 use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, machine::DepositSM},
@@ -37,7 +40,9 @@ pub(crate) use strata_bridge_test_utils::bridge_fixtures::{
     test_operator_table,
 };
 use strata_bridge_test_utils::{
-    bitcoin::generate_xonly_pubkey, bridge_fixtures::TEST_RECOVERY_DELAY, prelude::generate_txid,
+    bitcoin::{generate_block_with_height, generate_xonly_pubkey},
+    bridge_fixtures::TEST_RECOVERY_DELAY,
+    prelude::generate_txid,
 };
 use strata_bridge_tx_graph::{
     game_graph::ProtocolParams as GameProtocolParams,
@@ -241,6 +246,49 @@ pub(crate) fn insert_confirmed_stake(
         .expect("test helper must not insert duplicate confirmed stake state machine");
 }
 
+/// Inserts a [`StakeSM`] in [`StakeState::PreimageRevealed`] for `operator_idx` into the registry.
+pub(crate) fn insert_preimage_revealed_stake(
+    registry: &mut SMRegistry,
+    operator_idx: OperatorIdx,
+    operator_table: OperatorTable,
+) {
+    let sm = make_confirmed_stake_sm(operator_idx, operator_table, generate_txid());
+    let context = sm.context;
+    let StakeState::Confirmed {
+        stake_data,
+        summary,
+        signatures,
+        ..
+    } = sm.state
+    else {
+        unreachable!("test helper constructs Confirmed state");
+    };
+
+    registry
+        .insert_stake(
+            operator_idx,
+            StakeSM {
+                context,
+                state: StakeState::PreimageRevealed {
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
+                    stake_data,
+                    summary,
+                    preimage: [0x42; 32],
+                    unstaking_intent_block_height: INITIAL_BLOCK_HEIGHT,
+                    signatures,
+                },
+            },
+        )
+        .expect("test helper must not insert duplicate preimage-revealed stake state machine");
+}
+
+/// Pre-populates `registry` with one confirmed stake per operator in `operator_table`.
+pub(crate) fn confirm_all_stakes(registry: &mut SMRegistry, operator_table: &OperatorTable) {
+    for op_idx in operator_table.operator_idxs() {
+        insert_confirmed_stake(registry, op_idx, operator_table.clone(), generate_txid());
+    }
+}
+
 /// Creates a pre-populated registry with `n_deposits` deposits, each with `N_TEST_OPERATORS` graph
 /// SMs. Stake state machines are intentionally **not** included — tests that exercise stake-gated
 /// logic should compose them via [`insert_stakes_for_all_operators`] or
@@ -251,6 +299,190 @@ pub(crate) fn test_populated_registry(n_deposits: usize) -> SMRegistry {
         insert_deposit_with_graphs(&mut registry, i as DepositIdx);
     }
     registry
+}
+
+// ===== Operator set schedule fixtures =====
+
+/// Scheduled operator-set change fixture with a stable POV operator, one outgoing operator, and
+/// one incoming operator.
+pub(crate) struct OperatorSetChangeFixture {
+    full_operator_table: OperatorTable,
+    operator_schedule: OperatorSetSchedule,
+    before_activation_height: BitcoinBlockHeight,
+    activation_height: BitcoinBlockHeight,
+    initially_active_operator_idxs: BTreeSet<OperatorIdx>,
+    rotated_active_operator_idxs: BTreeSet<OperatorIdx>,
+}
+
+impl OperatorSetChangeFixture {
+    /// Builds the default scheduled-operator-change fixture.
+    pub(crate) fn new() -> Self {
+        Self::with_activation_height(INITIAL_BLOCK_HEIGHT + 1)
+    }
+
+    /// Builds the fixture with a specific activation height.
+    pub(crate) fn with_activation_height(activation_height: BitcoinBlockHeight) -> Self {
+        assert!(
+            activation_height > 0,
+            "activation height must allow a before-activation scenario"
+        );
+
+        let full_operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let mut non_pov_operator_idxs = full_operator_table
+            .operator_idxs()
+            .into_iter()
+            .filter(|idx| *idx != TEST_POV_IDX);
+        let deactivating_operator = non_pov_operator_idxs
+            .next()
+            .expect("fixture must include a deactivating non-POV operator");
+        let activating_operator = non_pov_operator_idxs
+            .next()
+            .expect("fixture must include an activating non-POV operator");
+
+        let before_activation_height = activation_height - 1;
+        let initially_active_operator_idxs =
+            [TEST_POV_IDX, deactivating_operator].into_iter().collect();
+        let rotated_active_operator_idxs =
+            [TEST_POV_IDX, activating_operator].into_iter().collect();
+        let operator_schedule = OperatorSetSchedule::new(vec![
+            scheduled_operator(&full_operator_table, TEST_POV_IDX, 0, None),
+            scheduled_operator(
+                &full_operator_table,
+                deactivating_operator,
+                0,
+                Some(activation_height),
+            ),
+            scheduled_operator(
+                &full_operator_table,
+                activating_operator,
+                activation_height,
+                None,
+            ),
+        ])
+        .expect("test operator schedule must be valid");
+
+        Self {
+            full_operator_table,
+            operator_schedule,
+            before_activation_height,
+            activation_height,
+            initially_active_operator_idxs,
+            rotated_active_operator_idxs,
+        }
+    }
+
+    /// Returns the full configured operator table backing this schedule.
+    pub(crate) const fn full_operator_table(&self) -> &OperatorTable {
+        &self.full_operator_table
+    }
+
+    /// Returns the configured operator schedule.
+    pub(crate) const fn operator_schedule(&self) -> &OperatorSetSchedule {
+        &self.operator_schedule
+    }
+
+    /// Returns the scenario immediately before activation.
+    pub(crate) fn before_activation(&self) -> ScheduledOperatorSetCase<'_> {
+        ScheduledOperatorSetCase {
+            fixture: self,
+            height: self.before_activation_height,
+            expected_operator_idxs: self.initially_active_operator_idxs.clone(),
+        }
+    }
+
+    /// Returns the scenario at the activation boundary.
+    pub(crate) fn at_activation(&self) -> ScheduledOperatorSetCase<'_> {
+        ScheduledOperatorSetCase {
+            fixture: self,
+            height: self.activation_height,
+            expected_operator_idxs: self.rotated_active_operator_idxs.clone(),
+        }
+    }
+}
+
+impl Default for OperatorSetChangeFixture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A concrete height scenario for [`OperatorSetChangeFixture`].
+pub(crate) struct ScheduledOperatorSetCase<'a> {
+    fixture: &'a OperatorSetChangeFixture,
+    height: BitcoinBlockHeight,
+    expected_operator_idxs: BTreeSet<OperatorIdx>,
+}
+
+impl ScheduledOperatorSetCase<'_> {
+    /// Returns this scenario's Bitcoin block height.
+    pub(crate) const fn height(&self) -> BitcoinBlockHeight {
+        self.height
+    }
+
+    /// Returns the expected active operator indices for this scenario.
+    pub(crate) const fn expected_operator_idxs(&self) -> &BTreeSet<OperatorIdx> {
+        &self.expected_operator_idxs
+    }
+
+    /// Returns the active operator table for this scenario, checking fixture consistency.
+    pub(crate) fn active_operator_table(&self) -> OperatorTable {
+        let active_operator_table = OperatorTable::from_schedule_at(
+            self.fixture.operator_schedule(),
+            self.height,
+            TEST_POV_IDX,
+        )
+        .expect("POV should be active in this schedule");
+        assert_eq!(
+            active_operator_table.operator_idxs(),
+            self.expected_operator_idxs,
+            "fixture scenario should match the schedule-derived active operator set"
+        );
+
+        active_operator_table
+    }
+}
+
+fn scheduled_operator(
+    full_operator_table: &OperatorTable,
+    operator_idx: OperatorIdx,
+    activation_height: BitcoinBlockHeight,
+    deactivation_height: Option<BitcoinBlockHeight>,
+) -> ScheduledOperator {
+    let covenant_key = full_operator_table
+        .idx_to_btc_key(&operator_idx)
+        .expect("test operator must exist")
+        .x_only_public_key()
+        .0;
+
+    ScheduledOperator::new(
+        operator_idx,
+        covenant_key,
+        valid_p2p_key(operator_idx),
+        random_p2tr_desc(),
+        activation_height,
+        deactivation_height,
+    )
+    .expect("test scheduled operator must be valid")
+}
+
+fn valid_p2p_key(operator_idx: OperatorIdx) -> P2POperatorPubKey {
+    let byte = u8::try_from(operator_idx + 17).expect("operator index too large for test p2p key");
+    let mut secret_bytes = [byte; 32];
+    let secret = P2pSecretKey::try_from_bytes(&mut secret_bytes)
+        .expect("test p2p key seed must form a valid ed25519 secret key");
+
+    P2pKeypair::from(secret).public().into()
+}
+
+/// Creates a buried [`BlockEvent`] containing `tx` at `height`.
+pub(crate) fn block_event_with_tx(height: BitcoinBlockHeight, tx: Transaction) -> BlockEvent {
+    let mut block = generate_block_with_height(height);
+    block.txdata.push(tx);
+
+    BlockEvent {
+        block,
+        status: BlockStatus::Buried,
+    }
 }
 
 // ===== DRT fixture =====

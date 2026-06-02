@@ -336,8 +336,10 @@ mod tests {
     use crate::{
         sm_registry::SMRegistry,
         testing::{
-            DrtBuilder, N_TEST_OPERATORS, TEST_POV_IDX, insert_confirmed_stake,
-            test_deposit_sm_cfg, test_operator_table, test_populated_registry,
+            DrtBuilder, N_TEST_OPERATORS, OperatorSetChangeFixture, ScheduledOperatorSetCase,
+            TEST_POV_IDX, block_event_with_tx, confirm_all_stakes, insert_confirmed_stake,
+            insert_preimage_revealed_stake, test_deposit_sm_cfg, test_operator_table,
+            test_populated_registry,
         },
     };
 
@@ -446,11 +448,65 @@ mod tests {
 
     // ===== try_register_deposit tests =====
 
-    /// Pre-populates `registry` with one Confirmed stake per operator so that the
-    /// stake-readiness gate in [`try_register_deposit`] passes.
-    fn confirm_all_stakes(registry: &mut SMRegistry, operator_table: &OperatorTable) {
-        for op_idx in operator_table.operator_idxs() {
-            insert_confirmed_stake(registry, op_idx, operator_table.clone(), generate_txid());
+    fn process_scheduled_drt_case(
+        fixture: &OperatorSetChangeFixture,
+        case: &ScheduledOperatorSetCase<'_>,
+    ) -> SMRegistry {
+        let cfg = test_deposit_sm_cfg();
+        let active_operator_table = case.active_operator_table();
+        let tx = DrtBuilder::aligned(&active_operator_table, &cfg).build();
+        let block_event = block_event_with_tx(case.height(), tx);
+
+        let mut registry = test_populated_registry(0);
+        confirm_all_stakes(&mut registry, fixture.full_operator_table());
+
+        let mut applicator = Applicator::new(&mut registry);
+        process_block(
+            &mut applicator,
+            fixture.operator_schedule(),
+            TEST_POV_IDX,
+            &block_event,
+        )
+        .expect("scheduled DRT processing should succeed");
+        let _ = applicator.finish();
+
+        registry
+    }
+
+    fn assert_registered_deposit_uses_active_set(
+        case: &ScheduledOperatorSetCase<'_>,
+        registry: &SMRegistry,
+        excluded_operator_msg: &str,
+    ) {
+        assert_eq!(
+            registry.num_deposits(),
+            1,
+            "scheduled DRT should register exactly one deposit"
+        );
+
+        let deposit_operator_idxs = registry
+            .get_deposit(&0)
+            .expect("deposit should be registered")
+            .context()
+            .operator_table()
+            .operator_idxs();
+        assert_eq!(
+            &deposit_operator_idxs,
+            case.expected_operator_idxs(),
+            "registered deposit should snapshot the scenario active operator set"
+        );
+
+        let graph_ids = registry.get_graph_ids();
+        assert_eq!(
+            graph_ids.len(),
+            case.expected_operator_idxs().len(),
+            "scheduled DRT should create one graph per scenario active operator"
+        );
+        for graph_idx in graph_ids {
+            assert!(
+                case.expected_operator_idxs().contains(&graph_idx.operator),
+                "{excluded_operator_msg}"
+            );
         }
     }
 
@@ -559,6 +615,122 @@ mod tests {
             duties.len(),
             1,
             "exactly one GenerateGraphData duty is emitted, for the POV operator only"
+        );
+    }
+
+    #[test]
+    fn process_block_excludes_future_operator_from_new_deposit() {
+        let fixture = OperatorSetChangeFixture::new();
+        let case = fixture.before_activation();
+        let registry = process_scheduled_drt_case(&fixture, &case);
+
+        assert_registered_deposit_uses_active_set(
+            &case,
+            &registry,
+            "future operator should not get a graph for pre-activation deposit",
+        );
+    }
+
+    #[test]
+    fn process_block_excludes_deactivated_operator_from_new_deposit() {
+        let fixture = OperatorSetChangeFixture::new();
+        let case = fixture.at_activation();
+        let registry = process_scheduled_drt_case(&fixture, &case);
+
+        assert_registered_deposit_uses_active_set(
+            &case,
+            &registry,
+            "deactivated operator should not get a graph for post-activation deposit",
+        );
+    }
+
+    #[test]
+    fn try_register_deposit_uses_confirmed_subset_after_current_set_has_staked() {
+        let current_operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_populated_registry(0);
+
+        let op_idxs: Vec<_> = current_operator_table.operator_idxs().into_iter().collect();
+        let non_pov_confirmed = *op_idxs
+            .iter()
+            .find(|idx| **idx != TEST_POV_IDX)
+            .expect("fixture must include a non-POV operator");
+        let unavailable_operator = *op_idxs
+            .iter()
+            .find(|idx| **idx != TEST_POV_IDX && **idx != non_pov_confirmed)
+            .expect("fixture must include an unavailable operator");
+
+        insert_confirmed_stake(
+            &mut registry,
+            TEST_POV_IDX,
+            current_operator_table.clone(),
+            generate_txid(),
+        );
+        insert_confirmed_stake(
+            &mut registry,
+            non_pov_confirmed,
+            current_operator_table.clone(),
+            generate_txid(),
+        );
+        insert_preimage_revealed_stake(
+            &mut registry,
+            unavailable_operator,
+            current_operator_table.clone(),
+        );
+
+        assert!(
+            registry.all_operators_have_staked(&current_operator_table),
+            "current scheduled operator set should satisfy the bridge activation guard"
+        );
+
+        let expected_operator_table = registry
+            .active_operator_snapshot(&current_operator_table)
+            .expect("POV and one peer are confirmed")
+            .operator_table;
+        let expected_operator_idxs = expected_operator_table.operator_idxs();
+        let tx = DrtBuilder::aligned(&expected_operator_table, &cfg).build();
+
+        let mut applicator = Applicator::new(&mut registry);
+        let duties = try_register_deposit(
+            &cfg,
+            Some(&current_operator_table),
+            &mut applicator,
+            &tx,
+            TEST_HEIGHT,
+        )
+        .expect("confirmed subset DRT registration should succeed");
+        let _ = applicator.finish();
+
+        let deposit_operator_idxs = registry
+            .get_deposit(&0)
+            .expect("deposit should be registered")
+            .context()
+            .operator_table()
+            .operator_idxs();
+
+        assert_eq!(
+            deposit_operator_idxs, expected_operator_idxs,
+            "deposit should snapshot only active operators with confirmed stakes"
+        );
+        assert_eq!(
+            registry.get_graph_ids().len(),
+            expected_operator_idxs.len(),
+            "deposit should create one graph per confirmed active operator"
+        );
+        for graph_idx in registry.get_graph_ids() {
+            assert!(
+                expected_operator_idxs.contains(&graph_idx.operator),
+                "graph operators should be limited to confirmed active operators"
+            );
+        }
+        assert!(
+            !expected_operator_idxs.contains(&unavailable_operator),
+            "staked but unavailable active operator must not participate in the new deposit"
+        );
+        assert_eq!(
+            duties.len(),
+            1,
+            "only the confirmed POV operator should receive constructor duties"
         );
     }
 }
