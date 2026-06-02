@@ -1,11 +1,8 @@
 //! Bridge proof statements.
 
-use moho_types::MohoState;
 use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
 use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_bridge_proof_common::{
-    verify_claim_unlock_inclusion, verify_moho_proof,
-};
+use strata_bridge_proof_common::{verify_claim_unlock_inclusion, verify_moho_proof};
 use strata_codec::decode_buf_exact;
 use zkaleido::{ZkVmEnv, ZkVmEnvSsz};
 
@@ -41,8 +38,8 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
         claim_unlock,
         claim_unlock_inclusion_proof,
     } = zkvm.read_ssz();
-    let claim_unlock_typed: OperatorClaimUnlock =
-        decode_buf_exact(&claim_unlock).expect("claim_unlock must decode into OperatorClaimUnlock");
+    let claim_unlock_typed: OperatorClaimUnlock = decode_buf_exact(&claim_unlock)
+        .expect("invalid bridge proof: invalid encoding of claim unlock");
 
     // 2: Verify the recursive Moho proof.
     verify_moho_proof(
@@ -50,7 +47,7 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
         &moho_proof,
         genesis.genesis_moho_state.reference(),
         genesis.moho_vk.clone(),
-        "moho proof verification failed",
+        "invalid bridge proof: invalid moho proof",
     );
 
     // Extract the bridge-v1 export container from the Moho state.
@@ -59,14 +56,14 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
         .containers()
         .iter()
         .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
-        .expect("moho_state must contain a bridge-v1 export container");
+        .expect("invalid bridge proof: moho state doesn't contain bridge-v1 export container");
 
     // 3: Verify the operator claim is included in the bridge-v1 MMR.
     verify_claim_unlock_inclusion(
         &claim_unlock_typed,
         bridge_container,
         &claim_unlock_inclusion_proof,
-        "claim_unlock must be included in the bridge-v1 MMR",
+        "invalid bridge proof: invalid inclusion proof for claim unlock",
     );
 
     // 4: Commit public values.
@@ -79,7 +76,7 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
 
 #[cfg(test)]
 mod tests {
-    use moho_types::ExportContainer;
+    use moho_types::{ExportContainer, MohoState};
     use ssz::{Decode, Encode};
     use strata_bridge_proof_common::{MOHO_GENESIS_ATTESTATION, generate_moho_state};
     use strata_codec::encode_to_vec;
@@ -129,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "claim_unlock must be included in the bridge-v1 MMR")]
+    #[should_panic(expected = "invalid bridge proof: invalid inclusion proof for claim unlock")]
     fn test_claim_unlock_inclusion_wrong_claim() {
         let claim = OperatorClaimUnlock::new(0, 0);
         let other = OperatorClaimUnlock::new(1, 1);
@@ -138,7 +135,7 @@ mod tests {
             &other,
             bridge_container(&moho_state),
             &proof,
-            "claim_unlock must be included in the bridge-v1 MMR",
+            "invalid bridge proof: invalid inclusion proof for claim unlock",
         );
     }
 
