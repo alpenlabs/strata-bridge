@@ -10,7 +10,6 @@ use strata_asm_proto_checkpoint_types::{
     CheckpointTip, L2BlockRange, OLLog, SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
 };
 use strata_bridge_primitives::constants::BRIDGE_DENOMINATION;
-use strata_codec::encode_to_vec;
 use strata_crypto::hash;
 use strata_identifiers::{Buf32, OLBlockCommitment, OLBlockId};
 use strata_test_utils_arb::ArbitraryGenerator;
@@ -93,10 +92,7 @@ impl MockCheckpointBuilder {
                 )
                 .unwrap();
 
-                OLLog::new(
-                    BRIDGE_GATEWAY_ACCT_SERIAL,
-                    encode_to_vec(&log_data).unwrap(),
-                )
+                OLLog::from_log(BRIDGE_GATEWAY_ACCT_SERIAL, &log_data).unwrap()
             })
             .collect();
 
