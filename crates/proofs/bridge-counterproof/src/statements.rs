@@ -9,15 +9,21 @@ use bitcoin::{
     taproot,
 };
 use secp256k1::{Message, SECP256K1};
+use ssz::Decode;
+use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
 use strata_bridge_connectors::prelude::ContestProofConnector;
+use strata_bridge_proof::BridgeProofOutput;
+use strata_bridge_proof_common::{verify_claim_unlock_inclusion, verify_moho_proof};
 use strata_btc_types::BitcoinXOnlyPublicKey;
+use strata_codec::decode_buf_exact;
 use zkaleido::{ProofReceipt, ZkVmEnv, ZkVmEnvSsz};
 
 #[cfg(not(target_os = "zkvm"))]
 use crate::genesis::load_genesis;
 use crate::{
+    CounterproofMode, HeavierChainProof,
     genesis::BridgeCounterproofGenesis,
-    types::{CounterproofInput, CounterproofOutput},
+    types::{CounterproofInput, CounterproofOutput, OperatorClaimUnlock},
 };
 
 /// Native entry point: loads genesis and runs the counterproof.
@@ -43,7 +49,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
         bridge_proof_tx,
         bridge_proof_tx_prevouts,
         bridge_proof_tx_input_idx,
-        mode: _,
+        mode,
     } = zkvm.read_ssz();
     let tx: Transaction = (&bridge_proof_tx)
         .try_into()
@@ -69,18 +75,111 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
         &n_of_n_pubkey,
         relative::Height::from_height(proof_timelock),
     );
+    let bridge_proof_receipt = extract_bridge_proof(&tx, bridge_proof_tx_input_idx);
 
-    if let Some(bridge_proof_receipt) = extract_bridge_proof(&tx, bridge_proof_tx_input_idx) {
-        assert!(
-            genesis
-                .bridge_proof_vk
-                .verify_claim_witness(
-                    bridge_proof_receipt.public_values().as_bytes(),
-                    bridge_proof_receipt.proof().as_bytes(),
-                )
-                .is_err(),
-            "invalid counterproof: bridge proof is valid",
-        );
+    match mode {
+        CounterproofMode::InvalidBridgeProof => 'invalid_bridge_proof: {
+            let Some(bridge_proof_receipt) = bridge_proof_receipt.as_ref() else {
+                break 'invalid_bridge_proof;
+            };
+
+            assert!(
+                genesis
+                    .bridge_proof_vk
+                    .verify_claim_witness(
+                        bridge_proof_receipt.public_values().as_bytes(),
+                        bridge_proof_receipt.proof().as_bytes(),
+                    )
+                    .is_err(),
+                "invalid counterproof: bridge proof is valid",
+            );
+        }
+        CounterproofMode::HeavierChain(heavier_chain_proof) => 'heavier_chain: {
+            let Some(bridge_proof_receipt) = bridge_proof_receipt.as_ref() else {
+                break 'heavier_chain;
+            };
+
+            let HeavierChainProof {
+                moho_state: heavier_moho_state,
+                moho_proof: heavier_moho_proof,
+                claim_unlock: heavier_claim_unlock,
+                claim_unlock_inclusion_proof: heavier_inclusion_proof,
+            } = heavier_chain_proof;
+
+            let heavier_claim_unlock =
+                decode_buf_exact::<OperatorClaimUnlock>(&heavier_claim_unlock)
+                    .expect("invalid heavier chain: invalid claim unlock encoding");
+
+            let (total_pow, bridge_proof_claim_unlock, mmr_idx) = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
+                .ok()
+                .and_then(|output| {
+                    decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock)
+                        .ok()
+                        .map(|claim_unlock| (output.total_pow, claim_unlock, output.mmr_idx))
+                })
+                .expect("if public values of bridge proof are invalid, then the bridge proof is invalid (use CounterproofMode::InvalidBridgeProof)");
+
+            // Fail if `heavier_moho_proof` is invalid.
+            verify_moho_proof(
+                &heavier_moho_state,
+                &heavier_moho_proof,
+                genesis.genesis_moho_state.reference(),
+                genesis.moho_vk.clone(),
+                "invalid heavier chain: invalid moho proof",
+            );
+
+            let heavier_bridge_container = heavier_moho_state
+                .export_state()
+                .containers()
+                .iter()
+                .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+                .expect("moho_state must contain a bridge-v1 export container");
+
+            // Fail if the heavier chain doesn't have more proof of work than the operator chain.
+            if heavier_bridge_container.extra_data() <= &total_pow {
+                panic!("invalid heavier chain: not enough proof of work");
+            }
+
+            // Immediately succeed if `mmr_idx` is out of bounds
+            // for `heavier_moho_state`.
+            //
+            // This means that the heavier chain has fewer claim unlocks
+            // than the operator chain, which means that there are fake
+            // claim unlocks on the operator chain.
+            //
+            // In this case, `heavier_claim_unlock` is unrestricted,
+            // because membership in the heavier chain is not checked.
+            // For example, if the heavier chain has no claim unlocks,
+            // then we can use a dummy value.
+            if heavier_bridge_container.entries_mmr().num_entries() <= mmr_idx {
+                break 'heavier_chain;
+            }
+
+            // Fail if `heavier_claim_unlock` is not at index `mmr_idx`.
+            if heavier_inclusion_proof.index != mmr_idx {
+                panic!("invalid heavier chain: claim unlock index must match bridge proof")
+            }
+
+            // Fail if `heavier_claim_unlock` is not included in `heavier_moho_state`.
+            //
+            // This has to be done after `mmr_idx` is checked for bounds.
+            // If `mmr_idx` is out of bounds, then ANY `heavier_inclusion_proof` is accepted.
+            verify_claim_unlock_inclusion(
+                &heavier_claim_unlock,
+                heavier_bridge_container,
+                &heavier_inclusion_proof,
+                "invalid heavier chain: invalid inclusion proof for heavier claim unlock",
+            );
+
+            // Fail if `heavier_claim_unlock` is equal to `bridge_proof_claim_unlock`.
+            //
+            // If the heavier chain is an extension of the operator chain,
+            // i.e. the watchtower just waited a few blocks after the operator
+            // posted the bridge proof, then this equality is triggered.
+            if heavier_claim_unlock == bridge_proof_claim_unlock {
+                panic!("invalid heavier chain: claim unlock must be different from bridge proof")
+            }
+        }
     }
 
     zkvm.commit_ssz(&CounterproofOutput {
