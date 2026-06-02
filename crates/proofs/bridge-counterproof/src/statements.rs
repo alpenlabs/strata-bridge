@@ -14,13 +14,16 @@ use strata_btc_types::BitcoinXOnlyPublicKey;
 use zkaleido::{ProofReceipt, ZkVmEnv, ZkVmEnvSsz};
 
 #[cfg(not(target_os = "zkvm"))]
-use crate::genesis::load_genesis_from_env;
-use crate::types::{BridgeCounterproofGenesis, CounterproofInput, CounterproofOutput};
+use crate::genesis::load_genesis;
+use crate::{
+    genesis::BridgeCounterproofGenesis,
+    types::{CounterproofInput, CounterproofOutput},
+};
 
 /// Native entry point: loads genesis and runs the counterproof.
 #[cfg(not(target_os = "zkvm"))]
 pub fn process_counterproof(zkvm: &impl ZkVmEnv) {
-    let genesis = load_genesis_from_env();
+    let genesis = load_genesis();
     process_counterproof_inner(zkvm, &genesis);
 }
 
@@ -40,6 +43,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
         bridge_proof_tx,
         bridge_proof_tx_prevouts,
         bridge_proof_tx_input_idx,
+        mode: _,
     } = zkvm.read_ssz();
     let tx: Transaction = (&bridge_proof_tx)
         .try_into()
@@ -211,6 +215,7 @@ mod tests {
     use ssz::{Decode, Encode};
     use strata_bridge_connectors::Connector;
     use strata_bridge_proof::{BridgeProofOutput, OperatorClaimUnlock};
+    use strata_bridge_proof_common::MOHO_GENESIS_ATTESTATION;
     use strata_bridge_test_utils::bitcoin::generate_keypair;
     use strata_bridge_tx_graph::transactions::prelude::{BridgeProofData, BridgeProofTx};
     use strata_codec::encode_to_vec;
@@ -219,7 +224,7 @@ mod tests {
     use zkaleido_native_adapter::NativeMachine;
 
     use super::*;
-    use crate::{BitcoinTxOut, RawBitcoinTx};
+    use crate::{BitcoinTxOut, CounterproofMode, RawBitcoinTx};
 
     const GAME_IDX: NonZero<u32> = NonZero::new(7).unwrap();
     const PROOF_TIMELOCK: relative::Height = relative::Height::from_height(100);
@@ -299,6 +304,7 @@ mod tests {
     struct RuntimeArgs {
         pub input: CounterproofInput,
         pub bridge_proof_vk: PredicateKey,
+        pub moho_vk: PredicateKey,
     }
 
     /// Drives `process_counterproof_inner` through a `NativeMachine`.
@@ -308,6 +314,8 @@ mod tests {
 
         let genesis = BridgeCounterproofGenesis {
             bridge_proof_vk: args.bridge_proof_vk,
+            moho_vk: args.moho_vk,
+            genesis_moho_state: *MOHO_GENESIS_ATTESTATION,
         };
 
         process_counterproof_inner(&machine, &genesis);
@@ -530,6 +538,7 @@ mod tests {
             bridge_proof_tx: BRIDGE_PROOF_TX_SIGNED.clone().into(),
             bridge_proof_tx_prevouts: PREVOUTS.iter().cloned().map(BitcoinTxOut::from).collect(),
             bridge_proof_tx_input_idx: TXIN_IDX,
+            mode: CounterproofMode::InvalidBridgeProof,
         });
 
     /// Unit tests for input sanitization that happens
@@ -548,6 +557,7 @@ mod tests {
             run_counterproof(RuntimeArgs {
                 input,
                 bridge_proof_vk: PredicateKey::never_accept(),
+                moho_vk: PredicateKey::never_accept(),
             });
         }
 
@@ -564,6 +574,7 @@ mod tests {
             run_counterproof(RuntimeArgs {
                 input,
                 bridge_proof_vk: PredicateKey::never_accept(),
+                moho_vk: PredicateKey::never_accept(),
             });
         }
 
@@ -576,6 +587,7 @@ mod tests {
             run_counterproof(RuntimeArgs {
                 input,
                 bridge_proof_vk: PredicateKey::never_accept(),
+                moho_vk: PredicateKey::never_accept(),
             });
         }
     }
@@ -593,6 +605,7 @@ mod tests {
             let output = run_counterproof(RuntimeArgs {
                 input,
                 bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::never_accept(),
             });
             assert_eq!(output.game_idx, GAME_IDX.get());
         }
@@ -605,6 +618,7 @@ mod tests {
             let _ = run_counterproof(RuntimeArgs {
                 input,
                 bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::never_accept(),
             });
         }
 
@@ -615,6 +629,7 @@ mod tests {
             let output = run_counterproof(RuntimeArgs {
                 input,
                 bridge_proof_vk: PredicateKey::never_accept(),
+                moho_vk: PredicateKey::never_accept(),
             });
             assert_eq!(output.game_idx, GAME_IDX.get());
             assert_eq!(output.operator_pubkey, (*OPERATOR_PUBKEY).into());

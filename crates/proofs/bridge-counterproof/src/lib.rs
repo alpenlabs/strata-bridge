@@ -5,8 +5,8 @@ pub mod statements;
 pub mod types;
 
 pub use types::{
-    BitcoinTxOut, BitcoinXOnlyPublicKey, BridgeCounterproofGenesis, CounterproofInput,
-    CounterproofOutput, RawBitcoinTx,
+    BitcoinTxOut, BitcoinXOnlyPublicKey, CounterproofInput, CounterproofMode, CounterproofOutput,
+    HeavierChainProof, RawBitcoinTx,
 };
 
 cfg_if::cfg_if! {
@@ -15,7 +15,7 @@ cfg_if::cfg_if! {
         pub mod host;
         pub mod program;
 
-        pub use genesis::{load_genesis_from_env, load_genesis_from_predicate};
+        pub use genesis::{BridgeCounterproofGenesis, load_genesis};
         pub use host::{BridgeCounterproofHost, ProofBackendConfig, build_host};
         pub use program::CounterproofProgram;
     }
