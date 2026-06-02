@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -154,6 +155,9 @@ EXPECTED_ARTIFACTS = (
     "counterproof-vkey.bin",
 )
 
+# Copied verbatim into the artifact so the bundle is self-describing after GHA retention evicts the run page.
+BUNDLED_INPUTS = ("asm-params.json", "asm-vk.json", "moho-vk.json")
+
 
 def sha256_hex(path: Path) -> str:
     """Return the SHA-256 of `path` as a lowercase hex digest."""
@@ -165,8 +169,9 @@ def sha256_hex(path: Path) -> str:
 
 
 def cmd_summarize() -> None:
-    """Env: ELF_DIR, ASM_TAG, ASM_PARAMS_URL, GITHUB_REF, GITHUB_SHA, GITHUB_STEP_SUMMARY."""
+    """Env: ELF_DIR, INPUTS_DIR, ASM_TAG, ASM_PARAMS_URL, GITHUB_REF, GITHUB_SHA, GITHUB_STEP_SUMMARY."""
     elf_dir = Path(os.environ["ELF_DIR"])
+    inputs_dir = Path(os.environ["INPUTS_DIR"])
     asm_tag = os.environ["ASM_TAG"]
     asm_params_url = os.environ["ASM_PARAMS_URL"]
     github_ref = os.environ.get("GITHUB_REF", "")
@@ -180,7 +185,31 @@ def cmd_summarize() -> None:
 
     bridge_predicate = (elf_dir / "bridge-proof.predicate").read_text().strip()
     counter_predicate = (elf_dir / "counterproof.predicate").read_text().strip()
-    digests = [(name, sha256_hex(elf_dir / name)) for name in EXPECTED_ARTIFACTS]
+    digests = dict((name, sha256_hex(elf_dir / name)) for name in EXPECTED_ARTIFACTS)
+
+    # Copy the exact input bytes alongside the ELFs so the bundle is
+    # self-describing — a consumer can rebuild from these to verify.
+    for name in BUNDLED_INPUTS:
+        src = inputs_dir / name
+        if not src.is_file():
+            fail(f"expected input missing: {src}")
+        shutil.copyfile(src, elf_dir / name)
+    input_digests = {name: sha256_hex(elf_dir / name) for name in BUNDLED_INPUTS}
+
+    manifest = {
+        "schema": 1,
+        "asm_tag": asm_tag,
+        "asm_params_url": asm_params_url,
+        "strata_bridge": {"ref": github_ref, "sha": github_sha},
+        "predicates": {
+            "bridge_proof": bridge_predicate,
+            "counterproof": counter_predicate,
+        },
+        "sha256": {**digests, **input_digests},
+    }
+    (elf_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
 
     lines: list[str] = [
         "## SP1 bridge guest publish",
@@ -188,6 +217,10 @@ def cmd_summarize() -> None:
         f"- asm tag (alpenlabs/asm): `{asm_tag}`",
         f"- asm-params source: `{asm_params_url}`",
         f"- strata-bridge ref: `{github_ref}` @ `{github_sha}`",
+        "",
+        "Artifact also contains `manifest.json` plus the verbatim input JSONs"
+        f" ({', '.join(f'`{n}`' for n in BUNDLED_INPUTS)}) so the bundle is"
+        " self-describing once the run page expires.",
         "",
         "### Predicates",
         "",
@@ -197,7 +230,8 @@ def cmd_summarize() -> None:
         "### SHA-256",
         "",
         "```",
-        *(f"{digest}  {name}" for name, digest in digests),
+        *(f"{digest}  {name}" for name, digest in digests.items()),
+        *(f"{digest}  {name}" for name, digest in input_digests.items()),
         "```",
         "",
     ]
