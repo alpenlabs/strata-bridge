@@ -42,6 +42,12 @@ verify the program **compiles** without provisioning real inputs.
 SKIP_PARAMS=1 cargo build -p strata-bridge-sp1-guest-builder --release --features build-elf
 ```
 
+Or via the `.justfile` recipe:
+
+```bash
+just build-stub-elf
+```
+
 ## Build flow
 
 The guest ELF is built only when you pass **`--release --features build-elf`**.
