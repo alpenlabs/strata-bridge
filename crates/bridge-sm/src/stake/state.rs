@@ -57,6 +57,8 @@ pub enum StakeState {
         stake_data: MinimumStakeData,
         /// Collection of all TXIDs in the stake graph.
         summary: StakeGraphSummary,
+        /// Aggregated nonces retained to respond to nag for unstaking partial signatures.
+        agg_nonces: Box<StakeFunctor<AggNonce>>,
         /// 1 signature per musig transaction input.
         signatures: Box<StakeFunctor<Signature>>,
     },

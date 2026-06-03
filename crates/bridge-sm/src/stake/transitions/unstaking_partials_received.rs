@@ -148,6 +148,7 @@ impl StakeSM {
                         last_block_height: *last_block_height,
                         stake_data: stake_data.clone(),
                         summary: *summary,
+                        agg_nonces: agg_nonces.clone(),
                         signatures,
                     };
                 }

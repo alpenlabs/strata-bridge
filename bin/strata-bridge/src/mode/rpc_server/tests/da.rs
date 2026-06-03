@@ -14,6 +14,7 @@ use strata_bridge_sm::stake::{
 };
 use strata_bridge_test_utils::{
     bridge_fixtures::{TEST_MAGIC_BYTES, TEST_POV_IDX, random_p2tr_desc, test_operator_table},
+    musig2::generate_agg_nonce,
     prelude::generate_txid,
 };
 use strata_bridge_tx_graph::{
@@ -65,6 +66,7 @@ fn test_stake_signatures() -> StakeFunctor<schnorr::Signature> {
         ],
     }
 }
+
 #[test]
 fn stake_data_response_returns_stake_data_after_generation() {
     let stake_ctx = test_stake_ctx();
@@ -101,10 +103,15 @@ fn stake_data_response_returns_none_before_stake_data_arrives() {
 fn stake_aggregate_signatures_response_returns_packed_signatures() {
     let signatures = test_stake_signatures();
     let expected_signatures = signatures.pack().to_vec();
+    let agg_nonces = StakeFunctor {
+        unstaking_intent: [generate_agg_nonce()],
+        unstaking: [generate_agg_nonce(), generate_agg_nonce()],
+    };
     let state = StakeState::UnstakingSigned {
         last_block_height: 100,
         stake_data: test_minimum_stake_data(),
         summary: test_stake_summary(),
+        agg_nonces: agg_nonces.boxed(),
         signatures: Box::new(signatures),
     };
 
