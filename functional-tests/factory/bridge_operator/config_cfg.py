@@ -86,12 +86,18 @@ class OperatorWalletConfig:
 
 
 @dataclass
+class MosaicPeerIdConfig:
+    operator_idx: int
+    peer_id: str
+
+
+@dataclass
 class MosaicConfig:
     rpc_url: str
     retry_delay: Duration
     max_retries: int
     poll_interval: Duration
-    peer_ids: list[str]
+    peer_ids: list[MosaicPeerIdConfig]
 
 
 @dataclass
