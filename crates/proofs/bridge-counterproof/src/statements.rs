@@ -22,8 +22,7 @@ use zkaleido::{ProofReceipt, ZkVmEnv, ZkVmEnvSsz};
 #[cfg(not(target_os = "zkvm"))]
 use crate::genesis::load_genesis;
 use crate::{
-    CounterproofMode, HeavierChainProof,
-    genesis::BridgeCounterproofGenesis,
+    BridgeCounterproofGenesis, CounterproofMode, HeavierChainProof,
     types::{CounterproofInput, CounterproofOutput},
 };
 

@@ -1,11 +1,25 @@
 //! Wire types for the bridge counterproof program.
 
-pub use moho_types::{MohoState, RecursiveMohoProof};
+pub use moho_types::{MohoState, RecursiveMohoProof, StateRefAttestation};
 use ssz_derive::{Decode, Encode};
 pub use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
 pub use strata_btc_types::{BitcoinTxOut, BitcoinXOnlyPublicKey, RawBitcoinTx};
 use strata_codec::encode_to_vec;
 pub use strata_merkle::MerkleProofB32;
+use strata_predicate::PredicateKey;
+
+/// Trust anchors for verifying bridge proofs and Moho proofs.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct BridgeCounterproofGenesis {
+    /// Verifying key for the bridge proof.
+    pub bridge_proof_vk: PredicateKey,
+
+    /// Verifying key for the Moho proof.
+    pub moho_vk: PredicateKey,
+
+    /// Attestation to the Moho genesis state.
+    pub genesis_moho_state: StateRefAttestation,
+}
 
 /// Proof of a heavier chain.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
