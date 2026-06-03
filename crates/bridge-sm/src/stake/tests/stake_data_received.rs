@@ -22,6 +22,7 @@ fn invalid_states() -> [StakeState; 5] {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             summary: *TEST_GRAPH_SUMMARY,
+            agg_nonces: TEST_AGG_NONCES.clone().boxed(),
             signatures: Box::new(*TEST_FINAL_SIGS),
         },
         StakeState::Confirmed {

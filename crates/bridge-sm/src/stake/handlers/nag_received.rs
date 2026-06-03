@@ -126,6 +126,15 @@ impl StakeSM {
                 stake_data,
                 agg_nonces.clone(),
             )]),
+            StakeState::UnstakingSigned {
+                stake_data,
+                agg_nonces,
+                ..
+            } => Ok(vec![self.build_publish_unstaking_partials_duty(
+                cfg,
+                stake_data,
+                agg_nonces.clone(),
+            )]),
             _ => {
                 tracing::debug!(
                     "Rejecting inapplicable nag UnstakingPartials in state {}",
@@ -133,7 +142,7 @@ impl StakeSM {
                 );
                 Err(self.reject_nag(
                     event,
-                    "Inapplicable UnstakingPartials nag; expected state(s): UnstakingNoncesCollected",
+                    "Inapplicable UnstakingPartials nag; expected state(s): UnstakingNoncesCollected | UnstakingSigned",
                 ))
             }
         }

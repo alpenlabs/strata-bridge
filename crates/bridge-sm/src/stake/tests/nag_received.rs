@@ -87,6 +87,7 @@ fn accept_nag_received_stake_data() {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             summary: *TEST_GRAPH_SUMMARY,
+            agg_nonces: TEST_AGG_NONCES.clone().boxed(),
             signatures: (*TEST_FINAL_SIGS).into(),
         },
     ];
@@ -167,6 +168,7 @@ fn accept_nag_received_unstaking_nonces() {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             summary: *TEST_GRAPH_SUMMARY,
+            agg_nonces: TEST_AGG_NONCES.clone().boxed(),
             signatures: (*TEST_FINAL_SIGS).into(),
         },
     ];
@@ -229,14 +231,23 @@ fn reject_nag_received_unstaking_nonces() {
 
 #[test]
 fn accept_nag_received_unstaking_partials() {
-    let accepting_states = [StakeState::UnstakingNoncesCollected {
-        last_block_height: STAKE_HEIGHT,
-        stake_data: TEST_STAKE_DATA.clone(),
-        summary: *TEST_GRAPH_SUMMARY,
-        pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-        agg_nonces: TEST_AGG_NONCES.clone().boxed(),
-        partial_signatures: Default::default(),
-    }];
+    let accepting_states = [
+        StakeState::UnstakingNoncesCollected {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
+            pub_nonces: TEST_PUB_NONCES_MAP.clone(),
+            agg_nonces: TEST_AGG_NONCES.clone().boxed(),
+            partial_signatures: Default::default(),
+        },
+        StakeState::UnstakingSigned {
+            last_block_height: STAKE_HEIGHT,
+            stake_data: TEST_STAKE_DATA.clone(),
+            summary: *TEST_GRAPH_SUMMARY,
+            agg_nonces: TEST_AGG_NONCES.clone().boxed(),
+            signatures: (*TEST_FINAL_SIGS).into(),
+        },
+    ];
 
     for from_state in accepting_states {
         test_pov_owned_handler_output(StakeHandlerOutput {
@@ -262,12 +273,6 @@ fn reject_nag_received_unstaking_partials() {
             stake_data: TEST_STAKE_DATA.clone(),
             summary: *TEST_GRAPH_SUMMARY,
             pub_nonces: Default::default(),
-        },
-        StakeState::UnstakingSigned {
-            last_block_height: STAKE_HEIGHT,
-            stake_data: TEST_STAKE_DATA.clone(),
-            summary: *TEST_GRAPH_SUMMARY,
-            signatures: (*TEST_FINAL_SIGS).into(),
         },
         StakeState::Confirmed {
             last_block_height: STAKE_HEIGHT,
@@ -301,7 +306,7 @@ fn reject_nag_received_unstaking_partials() {
                 matches!(
                     e,
                     SSMError::Rejected { reason, .. }
-                        if reason.contains("expected state(s): UnstakingNoncesCollected")
+                        if reason.contains("expected state(s): UnstakingNoncesCollected | UnstakingSigned")
                 )
             },
         });

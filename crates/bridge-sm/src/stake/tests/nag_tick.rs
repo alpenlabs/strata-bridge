@@ -101,6 +101,7 @@ fn dont_nag_when_nothing_is_missing() {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
             summary: *TEST_GRAPH_SUMMARY,
+            agg_nonces: TEST_AGG_NONCES.clone().boxed(),
             signatures: (*TEST_FINAL_SIGS).into(),
         },
         StakeState::Confirmed {
