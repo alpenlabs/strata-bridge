@@ -32,9 +32,10 @@ mod release {
 
     use sp1_build::{build_program_with_args, BuildArgs};
     use ssz::Encode;
-    use strata_bridge_counterproof::load_genesis_from_predicate;
+    use strata_bridge_counterproof::load_genesis_from_bridge_genesis;
     use strata_bridge_proof::{
-        load_genesis_from_paths, ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
+        load_genesis_from_paths, BridgeProofGenesis, ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV,
+        MOHO_VK_PATH_ENV,
     };
     use strata_bridge_proof_common::host::{
         sp1_groth16_predicate_key, sp1_groth16_predicate_string_from_key, sp1_program_vkey_hash,
@@ -75,7 +76,7 @@ mod release {
 
         // 1) Build the bridge-proof guest first; its Groth16 VK is an input to the counterproof's
         //    genesis.
-        write_bridge_proof_genesis();
+        let bridge_proof_genesis = write_bridge_proof_genesis();
         build_guest(BRIDGE_PROOF_GUEST_DIR, BRIDGE_PROOF_ELF_NAME);
         let bridge_proof_vk = emit_predicate(
             BRIDGE_PROOF_ELF_NAME,
@@ -84,7 +85,7 @@ mod release {
         );
 
         // 2) Bake that VK into the counterproof guest's embedded genesis, then build.
-        write_counterproof_genesis(bridge_proof_vk);
+        write_counterproof_genesis(bridge_proof_vk, bridge_proof_genesis);
         build_guest(COUNTERPROOF_GUEST_DIR, COUNTERPROOF_ELF_NAME);
         let _ = emit_predicate(
             COUNTERPROOF_ELF_NAME,
@@ -93,7 +94,7 @@ mod release {
         );
     }
 
-    fn write_bridge_proof_genesis() {
+    fn write_bridge_proof_genesis() -> BridgeProofGenesis {
         let build_out_dir = Path::new(BRIDGE_PROOF_GUEST_DIR).join("build");
         let genesis_out_file = build_out_dir.join("genesis.bin");
 
@@ -115,16 +116,20 @@ mod release {
         println!("cargo:warning=bridge-proof ELF baking in genesis: {genesis:?}");
         fs::write(&genesis_out_file, genesis.as_ssz_bytes())
             .unwrap_or_else(|e| panic!("write {}: {e}", genesis_out_file.display()));
+        genesis
     }
 
-    fn write_counterproof_genesis(bridge_proof_vk: PredicateKey) {
+    fn write_counterproof_genesis(
+        bridge_proof_vk: PredicateKey,
+        bridge_proof_genesis: BridgeProofGenesis,
+    ) {
         let build_out_dir = Path::new(COUNTERPROOF_GUEST_DIR).join("build");
         let genesis_out_file = build_out_dir.join("genesis.bin");
 
         fs::create_dir_all(&build_out_dir)
             .unwrap_or_else(|e| panic!("create {}: {e}", build_out_dir.display()));
 
-        let genesis = load_genesis_from_predicate(bridge_proof_vk);
+        let genesis = load_genesis_from_bridge_genesis(bridge_proof_vk, bridge_proof_genesis);
         println!("cargo:warning=counterproof ELF baking in genesis: {genesis:?}");
         fs::write(&genesis_out_file, genesis.as_ssz_bytes())
             .unwrap_or_else(|e| panic!("write {}: {e}", genesis_out_file.display()));
