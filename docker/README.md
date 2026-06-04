@@ -149,8 +149,7 @@ done
 Use that output to populate `docker/vol/strata-bridge-{1,2,3}/params.toml`.
 
 The ASM runner's operator set lives in `docker/vol/asm-runner/asm-params-sample.json` and must
-be kept consistent with the bridge `params.toml` by hand — the runner no longer reads
-`params.toml` at startup.
+be kept consistent with the bridge `params.toml` by hand.
 
 ### ASM Runner
 

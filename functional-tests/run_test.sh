@@ -88,6 +88,7 @@ if [ "$BRIDGE_PROOF_SP1_ASM" = "1" ]; then
 fi
 echo "installing strata-asm-runner (rev $ASM_REV) $ASM_RUNNER_FEATURES"
 RUSTFLAGS="" cargo install \
+    --locked \
     --git https://github.com/alpenlabs/asm \
     --rev "$ASM_REV" \
     $ASM_RUNNER_FEATURES \
