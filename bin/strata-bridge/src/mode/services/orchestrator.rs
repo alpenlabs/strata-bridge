@@ -172,7 +172,6 @@ where
         s2_client: s2_client.clone(),
         tx_driver,
         mosaic_client,
-        operator_table: operator_table.clone(),
         bridge_proof_host,
         counterproof_host,
     };

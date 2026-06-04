@@ -255,6 +255,7 @@ mod tests {
                     deposit_outpoint: test_graph_sm_ctx().deposit_outpoint(),
                     stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
                     unstaking_image: test_graph_sm_ctx().unstaking_image(),
+                    operator_table: test_graph_sm_ctx().operator_table().clone(),
                 }],
             },
         );
@@ -274,6 +275,7 @@ mod tests {
                     deposit_outpoint: test_graph_sm_ctx().deposit_outpoint(),
                     stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
                     unstaking_image: test_graph_sm_ctx().unstaking_image(),
+                    operator_table: test_graph_sm_ctx().operator_table().clone(),
                 }],
             },
         );
@@ -297,6 +299,7 @@ mod tests {
                     deposit_outpoint: test_graph_sm_ctx().deposit_outpoint(),
                     stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
                     unstaking_image: test_graph_sm_ctx().unstaking_image(),
+                    operator_table: test_graph_sm_ctx().operator_table().clone(),
                 }],
             },
         );

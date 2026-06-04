@@ -11518,6 +11518,7 @@ dependencies = [
  "strata-bridge-proof",
  "strata-bridge-proof-common",
  "strata-bridge-sm",
+ "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
  "strata-codec",
  "strata-crypto",

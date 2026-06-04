@@ -2,7 +2,7 @@
 
 use std::num::NonZero;
 
-use bitcoin::{Amount, Network, ScriptBuf, Transaction, consensus, relative};
+use bitcoin::{Amount, Network, ScriptBuf, Transaction, XOnlyPublicKey, consensus, relative};
 use bitcoind_async_client::{error::ClientError, traits::Reader};
 use btc_tracker::event::TxStatus;
 use metrics::counter;
@@ -12,7 +12,10 @@ use strata_bridge_counterproof::{
     BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
     RawBitcoinTx,
 };
-use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    operator_table::OperatorTable,
+    types::{DepositIdx, OperatorIdx},
+};
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
 use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Role};
@@ -38,6 +41,7 @@ pub(super) async fn generate_and_publish_counterproof(
     game_index: NonZero<u32>,
     n_of_n_signature: Signature,
     bridge_proof_tx: Transaction,
+    operator_table: &OperatorTable,
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "generating and publishing counterproof for graph");
 
@@ -84,6 +88,7 @@ pub(super) async fn generate_and_publish_counterproof(
             operator_idx,
             game_index,
             bridge_proof_tx,
+            operator_table
         )
         .await?;
 
@@ -134,6 +139,7 @@ async fn generate_counterproof(
     operator_idx: OperatorIdx,
     game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
+    operator_table: &OperatorTable,
 ) -> Result<G16ProofRaw, ExecutorError> {
     counter!("strata_bridge_counterproof_generation_attempts").increment(1);
 
@@ -144,6 +150,7 @@ async fn generate_counterproof(
         operator_idx,
         game_index,
         bridge_proof_tx,
+        operator_table,
     )
     .await?;
 
@@ -182,21 +189,11 @@ async fn fetch_counterproof_input(
     operator_idx: OperatorIdx,
     game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
+    operator_table: &OperatorTable,
 ) -> Result<CounterproofInput, ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "fetching counterproof inputs for graph");
 
-    let operator_xonly = output_handles
-        .operator_table
-        .idx_to_btc_key(&operator_idx)
-        .expect("operator_idx must be present in the operator table")
-        .x_only_public_key()
-        .0;
-
-    let n_of_n_xonly = output_handles
-        .operator_table
-        .aggregated_btc_key()
-        .x_only_public_key()
-        .0;
+    let (operator_xonly, n_of_n_xonly) = counterproof_operator_keys(operator_table, operator_idx);
 
     let proof_timelock = cfg.graph_sm_cfg.game_graph_params.proof_timelock.value();
 
@@ -258,4 +255,45 @@ async fn fetch_counterproof_input(
         bridge_proof_tx_input_idx,
         mode: CounterproofMode::InvalidBridgeProof,
     })
+}
+
+fn counterproof_operator_keys(
+    operator_table: &OperatorTable,
+    operator_idx: OperatorIdx,
+) -> (XOnlyPublicKey, XOnlyPublicKey) {
+    let operator_xonly = operator_table
+        .idx_to_btc_key(&operator_idx)
+        .expect("operator_idx must be present in the operator table")
+        .x_only_public_key()
+        .0;
+
+    let n_of_n_xonly = operator_table.aggregated_btc_key().x_only_public_key().0;
+
+    (operator_xonly, n_of_n_xonly)
+}
+
+#[cfg(test)]
+mod tests {
+    use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
+
+    use super::counterproof_operator_keys;
+
+    #[test]
+    fn counterproof_keys_use_supplied_operator_table_snapshot() {
+        let historical_table = test_operator_table(3, 0);
+        let later_table = test_operator_table(4, 0);
+
+        let (historical_operator_key, historical_aggregate_key) =
+            counterproof_operator_keys(&historical_table, 1);
+        let (later_operator_key, later_aggregate_key) = counterproof_operator_keys(&later_table, 1);
+
+        assert_eq!(
+            historical_operator_key, later_operator_key,
+            "same operator index should resolve to the same operator key"
+        );
+        assert_ne!(
+            historical_aggregate_key, later_aggregate_key,
+            "aggregate key must come from the supplied table snapshot"
+        );
+    }
 }

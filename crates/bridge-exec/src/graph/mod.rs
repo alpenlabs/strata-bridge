@@ -47,6 +47,7 @@ pub async fn execute_graph_duty(
             deposit_outpoint,
             stake_outpoint,
             unstaking_image,
+            operator_table,
         } => {
             common::generate_graph_data(
                 &cfg,
@@ -55,6 +56,7 @@ pub async fn execute_graph_duty(
                 *deposit_outpoint,
                 *stake_outpoint,
                 *unstaking_image,
+                operator_table,
             )
             .await
         }
@@ -178,6 +180,7 @@ pub async fn execute_graph_duty(
             counterproof_tx,
             n_of_n_signature,
             bridge_proof_tx,
+            operator_table,
             ..
         } => {
             generate_and_publish_counterproof(
@@ -189,6 +192,7 @@ pub async fn execute_graph_duty(
                 *game_index,
                 *n_of_n_signature,
                 bridge_proof_tx.clone(),
+                operator_table,
             )
             .await
         }
