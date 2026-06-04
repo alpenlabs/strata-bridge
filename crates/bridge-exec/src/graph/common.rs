@@ -45,6 +45,7 @@ pub(super) async fn generate_graph_data(
     deposit_outpoint: OutPoint,
     stake_outpoint: OutPoint,
     unstaking_image: sha256::Hash,
+    operator_table: &OperatorTable,
 ) -> Result<(), ExecutorError> {
     info!(
         ?graph_idx,
@@ -61,7 +62,7 @@ pub(super) async fn generate_graph_data(
 
     let (adaptor_pubkeys, fault_pubkeys) = fetch_graph_keys(
         output_handles.mosaic_client.as_ref(),
-        &output_handles.operator_table,
+        operator_table,
         graph_idx,
         game_index,
     )
@@ -78,7 +79,7 @@ pub(super) async fn generate_graph_data(
         deposit_outpoint,
         stake_outpoint,
         unstaking_image,
-        operator_table: output_handles.operator_table.clone(),
+        operator_table: operator_table.clone(),
     };
     let deposit_params = DepositParams {
         game_index: game_index.into(),
@@ -102,7 +103,7 @@ pub(super) async fn generate_graph_data(
 
     init_evaluator_with_peers(
         output_handles.mosaic_client.as_ref(),
-        &output_handles.operator_table,
+        operator_table,
         graph_idx,
         game_index,
         &game_graph,
@@ -654,4 +655,23 @@ pub(super) async fn publish_claim(
         TxStatus::is_buried,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
+
+    use super::watchtower_idxs;
+
+    #[test]
+    fn watchtower_order_uses_supplied_operator_table_snapshot() {
+        let historical_table = test_operator_table(3, 0);
+        let later_table = test_operator_table(4, 0);
+
+        let historical_watchtowers: Vec<_> = watchtower_idxs(&historical_table, 0).collect();
+        let later_watchtowers: Vec<_> = watchtower_idxs(&later_table, 0).collect();
+
+        assert_eq!(historical_watchtowers, vec![1, 2]);
+        assert_eq!(later_watchtowers, vec![1, 2, 3]);
+    }
 }

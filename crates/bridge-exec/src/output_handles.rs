@@ -10,7 +10,6 @@ use secret_service_client::SecretServiceClient;
 use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_p2p_service::MessageHandler;
-use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_proof::BridgeProofHost;
 use strata_mosaic_client_api::MosaicClientApi;
 use tokio::sync::RwLock;
@@ -61,10 +60,6 @@ pub struct OutputHandles {
     /// every call hits a network RPC.
     pub mosaic_client: Arc<dyn MosaicClientApi>,
 
-    /// Bridge-wide operator table, used by executors that need to enumerate peers (e.g., to fetch
-    /// per-watchtower keys from mosaic).
-    pub operator_table: OperatorTable,
-
     /// Host used to generate bridge proofs.
     pub bridge_proof_host: BridgeProofHost,
 
@@ -83,7 +78,6 @@ impl fmt::Debug for OutputHandles {
             .field("s2_client", &self.s2_client)
             .field("tx_driver", &self.tx_driver)
             .field("mosaic_client", &"<dyn MosaicClientApi>")
-            .field("operator_table", &self.operator_table)
             .field("bridge_proof_host", &"<BridgeProofHost>")
             .field("counterproof_host", &"<BridgeCounterproofHost>")
             .finish()
