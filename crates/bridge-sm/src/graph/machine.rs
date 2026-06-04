@@ -133,6 +133,7 @@ impl GraphSM {
             deposit_outpoint: sm.context().deposit_outpoint(),
             stake_outpoint: sm.context().stake_outpoint(),
             unstaking_image: sm.context().unstaking_image(),
+            operator_table: sm.context().operator_table().clone(),
         });
 
         (sm, duty)
