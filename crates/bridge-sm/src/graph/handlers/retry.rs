@@ -262,6 +262,7 @@ impl GraphSM {
             n_of_n_signature,
             proof: proof.clone(),
             bridge_proof_tx: bridge_proof_tx.clone(),
+            operator_table: self.context().operator_table().clone(),
         })
     }
 }

@@ -51,6 +51,8 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+strata-bridge-test-utils.workspace = true
+
 bdk_bitcoind_rpc.workspace = true
 corepc-node.workspace = true
 
