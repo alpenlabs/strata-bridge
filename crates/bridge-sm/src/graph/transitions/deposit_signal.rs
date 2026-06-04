@@ -40,6 +40,10 @@ impl GraphSM {
     ) -> GSMResult<GSMOutput> {
         // Extract context values before the match to avoid borrow conflicts
         let graph_ctx = self.context().clone();
+        let event = DepositToGraph::CooperativePayoutFailed {
+            assignee,
+            graph_idx,
+        };
 
         match self.state_mut() {
             GraphState::Fulfilled {
@@ -63,15 +67,21 @@ impl GraphSM {
 
                 Ok(GSMOutput::with_duties(duties))
             }
-            _ => Err(GSMError::invalid_event(
-                self.state().clone(),
-                DepositToGraph::CooperativePayoutFailed {
-                    assignee,
-                    graph_idx,
-                }
-                .into(),
-                None,
+            state @ (GraphState::Claimed { .. }
+            | GraphState::Contested { .. }
+            | GraphState::BridgeProofPosted { .. }
+            | GraphState::BridgeProofTimedout { .. }
+            | GraphState::CounterProofPosted { .. }
+            | GraphState::AllNackd { .. }
+            | GraphState::Acked { .. }
+            | GraphState::Withdrawn { .. }
+            | GraphState::Slashed { .. }
+            | GraphState::Aborted { .. }) => Err(GSMError::rejected(
+                state.clone(),
+                event.into(),
+                "stale cooperative payout failure after graph left Fulfilled",
             )),
+            state => Err(GSMError::invalid_event(state.clone(), event.into(), None)),
         }
     }
 }
