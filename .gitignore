@@ -325,3 +325,4 @@ certs
 
 # Run artifacts
 docker/vol/asm-runner/proof_db/
+docker/vol/asm-runner/asm-params.json

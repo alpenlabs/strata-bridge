@@ -12,20 +12,14 @@ RUN --mount=type=cache,target=/root/.cargo/git \
     if [ -z "$ASM_REV" ]; then \
         echo "ERROR: failed to extract asm rev from Cargo.toml" >&2; exit 1; \
     fi && \
-    cargo install --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root /app strata-asm-runner ${ASM_FEATURES}
+    cargo install --locked --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root /app strata-asm-runner ${ASM_FEATURES}
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 
 WORKDIR /app
 
-RUN apt-get update && \
-    apt-get install -y python3 && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
 # Copy the built binary from the builder stage
 COPY --from=builder /app/bin/strata-asm-runner /usr/local/bin/strata-asm-runner
-COPY docker/asm-runner/gen_asm_params.py /usr/local/bin/gen_asm_params.py
 COPY docker/asm-runner/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["sh", "/usr/local/bin/entrypoint.sh"]

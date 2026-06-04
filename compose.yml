@@ -14,17 +14,18 @@ x-base-asm-runner: &base-asm-runner
     dockerfile: ./docker/asm-runner/Dockerfile
   environment:
     - RUST_LOG=info
-    - PARAMS_FILE=/tmp/asm-params.json
-  # The entrypoint updates asm-params in place. Since asm-params-sample.json is
-  # git-tracked, we copy it to /tmp so that container runs don't dirty the working tree.
-  entrypoint: ["sh", "-c", "cp /app/asm-params-sample.json $$PARAMS_FILE && exec sh /usr/local/bin/entrypoint.sh"]
+    # asm-params.json is written by the asm-params-init service into the
+    # shared /app volume below — we just read it.
+    - PARAMS_FILE=/app/asm-params.json
   ports:
     - 9010:9010
   volumes:
     - ./docker/vol/asm-runner:/app
-    - ./docker/vol/strata-bridge-3/params.toml:/bridge/params.toml:ro
   depends_on:
-    - bitcoind
+    bitcoind:
+      condition: service_started
+    asm-params-init:
+      condition: service_completed_successfully
   networks:
     - bridge
 
@@ -80,6 +81,29 @@ services:
 
   asm-runner:
     <<: *base-asm-runner
+
+  # One-shot helper: grabs live L1 anchor data from bitcoind, fills in
+  # asm-params-sample.json, and drops asm-params.json into the asm-runner
+  # volume. asm-runner just reads the file — it doesn't do this itself.
+  asm-params-init:
+    image: python:3.12-slim
+    restart: "no"
+    depends_on:
+      bitcoind:
+        condition: service_healthy
+    volumes:
+      - ./docker/asm-runner/fill_asm_params.py:/usr/local/bin/fill_asm_params.py:ro
+      - ./docker/vol/asm-runner:/app
+    command:
+      - python3
+      - /usr/local/bin/fill_asm_params.py
+      - --rpc-url=http://bitcoind:18443
+      - --rpc-user=user
+      - --rpc-password=password
+      - --params=/app/asm-params-sample.json
+      - --output=/app/asm-params.json
+    networks:
+      - bridge
 
   secret-service-1:
     <<: *base-secret-service
@@ -173,6 +197,18 @@ services:
       - GENERAL_WALLET_2=$GENERAL_WALLET_2
       - GENERAL_WALLET_3=$GENERAL_WALLET_3
       - AUTOMINE=5 # every 5 seconds, set to 0 to disable auto generating blocks, keep in alignment with `block_time` in sidesystem params
+    # Wait until the chain reaches ASM genesis height (anchor.block.height in
+    # asm-params-sample.json) so asm-params-init can actually find that block.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'test "$$(bitcoin-cli -regtest -rpcuser=user -rpcpassword=password getblockcount)" -ge 101',
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 5s
     networks:
       - bridge
 
