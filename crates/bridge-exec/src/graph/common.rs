@@ -47,6 +47,7 @@ pub(super) async fn generate_graph_data(
     deposit_outpoint: OutPoint,
     stake_outpoint: OutPoint,
     unstaking_image: sha256::Hash,
+    operator_table: &OperatorTable,
 ) -> Result<(), ExecutorError> {
     info!(
         ?graph_idx,
@@ -60,7 +61,7 @@ pub(super) async fn generate_graph_data(
 
     let (adaptor_pubkeys, fault_pubkeys) = fetch_graph_keys(
         output_handles.mosaic_client.as_ref(),
-        &output_handles.operator_table,
+        operator_table,
         graph_idx,
     )
     .await?;
@@ -76,7 +77,7 @@ pub(super) async fn generate_graph_data(
         deposit_outpoint,
         stake_outpoint,
         unstaking_image,
-        operator_table: output_handles.operator_table.clone(),
+        operator_table: operator_table.clone(),
     };
     let deposit_params = DepositParams {
         game_index: NonZero::new(graph_idx.deposit + 1)
@@ -101,7 +102,7 @@ pub(super) async fn generate_graph_data(
 
     init_evaluator_with_peers(
         output_handles.mosaic_client.as_ref(),
-        &output_handles.operator_table,
+        operator_table,
         graph_idx,
         &game_graph,
     )
@@ -623,4 +624,40 @@ pub(super) async fn publish_claim(
         TxStatus::is_buried,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+    use strata_bridge_primitives::{operator_table::OperatorTable, types::P2POperatorPubKey};
+
+    use super::watchtower_idxs;
+
+    fn operator_table(indices: &[u32], pov_idx: u32) -> OperatorTable {
+        let secp = Secp256k1::new();
+        let entries = indices
+            .iter()
+            .map(|idx| {
+                let secret =
+                    SecretKey::from_slice(&[*idx as u8 + 1; 32]).expect("test key is valid");
+                let btc_key = PublicKey::from_secret_key(&secp, &secret);
+                (*idx, P2POperatorPubKey::from(vec![*idx as u8; 32]), btc_key)
+            })
+            .collect();
+
+        OperatorTable::new(entries, OperatorTable::select_idx(pov_idx))
+            .expect("test operator table is valid")
+    }
+
+    #[test]
+    fn watchtower_order_uses_supplied_operator_table_snapshot() {
+        let historical_table = operator_table(&[0, 1, 3], 0);
+        let later_table = operator_table(&[0, 2, 4], 0);
+
+        let historical_watchtowers: Vec<_> = watchtower_idxs(&historical_table, 0).collect();
+        let later_watchtowers: Vec<_> = watchtower_idxs(&later_table, 0).collect();
+
+        assert_eq!(historical_watchtowers, vec![1, 3]);
+        assert_eq!(later_watchtowers, vec![2, 4]);
+    }
 }

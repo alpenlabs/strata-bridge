@@ -465,6 +465,7 @@ mod tests {
             n_of_n_signature,
             proof: proof.clone(),
             bridge_proof_tx: bridge_proof_tx.clone(),
+            operator_table: sm.context().operator_table().clone(),
         }
     }
 

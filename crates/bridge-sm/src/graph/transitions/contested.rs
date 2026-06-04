@@ -173,6 +173,7 @@ impl GraphSM {
                         n_of_n_signature,
                         proof: bridge_proof.clone(),
                         bridge_proof_tx: event.tx.clone(),
+                        operator_table: self.context().operator_table().clone(),
                     });
                 }
 
@@ -252,6 +253,7 @@ impl GraphSM {
                         n_of_n_signature,
                         proof: bridge_proof.clone(),
                         bridge_proof_tx: event.tx.clone(),
+                        operator_table: self.context().operator_table().clone(),
                     });
                 }
 
