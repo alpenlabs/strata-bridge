@@ -20,6 +20,7 @@ mod tests {
             },
         },
         signals::DepositToGraph,
+        state_machine::StateMachine,
         testing::{fixtures::TEST_DEPOSIT_IDX, test_transition},
     };
 
@@ -31,6 +32,22 @@ mod tests {
                 operator: TEST_POV_IDX,
             },
         })
+    }
+
+    fn is_after_fulfilled_state(state: &GraphState) -> bool {
+        matches!(
+            state,
+            GraphState::Claimed { .. }
+                | GraphState::Contested { .. }
+                | GraphState::BridgeProofPosted { .. }
+                | GraphState::BridgeProofTimedout { .. }
+                | GraphState::CounterProofPosted { .. }
+                | GraphState::AllNackd { .. }
+                | GraphState::Acked { .. }
+                | GraphState::Withdrawn { .. }
+                | GraphState::Slashed { .. }
+                | GraphState::Aborted { .. }
+        )
     }
 
     #[test]
@@ -98,10 +115,40 @@ mod tests {
     }
 
     #[test]
+    fn test_stale_coop_payout_failed_after_fulfilled_is_rejected() {
+        let cfg = test_graph_sm_cfg();
+
+        for initial_state in all_state_variants()
+            .into_iter()
+            .filter(is_after_fulfilled_state)
+        {
+            let state_name = initial_state.to_string();
+            let mut sm = crate::graph::tests::create_sm(initial_state.clone());
+
+            let result = sm.process_event(cfg.clone(), coop_payout_failed_event());
+
+            assert!(
+                matches!(
+                    &result,
+                    Err(GSMError::Rejected { reason, .. })
+                        if reason.contains("stale cooperative payout failure")
+                ),
+                "expected stale cooperative payout failure to be rejected in {state_name}, got {result:?}"
+            );
+            assert_eq!(
+                sm.state(),
+                &initial_state,
+                "rejected stale cooperative payout failure must not mutate {state_name}"
+            );
+        }
+    }
+
+    #[test]
     fn test_coop_payout_failed_from_non_fulfilled_states() {
         let non_fulfilled_states: Vec<GraphState> = all_state_variants()
             .into_iter()
             .filter(|s| !matches!(s, GraphState::Fulfilled { .. }))
+            .filter(|s| !is_after_fulfilled_state(s))
             .collect();
 
         for state in non_fulfilled_states {
