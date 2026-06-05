@@ -131,6 +131,14 @@ pub trait BridgeDb {
         outpoint: OutPoint,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
+    /// Returns the existing claim-funding [`OutPoint`] for `graph_idx`, or stores and returns
+    /// `outpoint` when no assignment exists.
+    fn get_or_set_claim_funding_outpoint(
+        &self,
+        graph_idx: GraphIdx,
+        outpoint: OutPoint,
+    ) -> impl Future<Output = Result<OutPoint, Self::Error>> + Send;
+
     /// Gets, if present, the [`StakeFundingReservation`] persisted for the given operator.
     fn get_stake_funding_reservation(
         &self,

@@ -224,6 +224,42 @@ impl FdbClient {
         Ok(Some(value))
     }
 
+    /// Basic generic get-or-set operation.
+    pub async fn basic_get_or_set<RS: KVRowSpec>(
+        &self,
+        key: RS::Key,
+        value: RS::Value,
+    ) -> Result<RS::Value, OneOf<(FdbBindingError, LayerError)>> {
+        let packed = key
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)
+            .map_err(OneOf::new)?;
+        let serialized = value
+            .serialize()
+            .map_err(LayerError::failed_to_serialize_value)
+            .map_err(OneOf::new)?;
+
+        let raw = self
+            .transact((packed, serialized), |trx, data| {
+                Box::pin(async move {
+                    let existing = trx.get(data.0.as_ref(), false).await?;
+                    if existing.is_none() {
+                        trx.set(data.0.as_ref(), data.1.as_ref());
+                    }
+                    Ok(existing.map(|s| s.to_vec()))
+                })
+            })
+            .await?;
+
+        let Some(bytes) = raw else {
+            return Ok(value);
+        };
+        let value = RS::Value::deserialize(&bytes)
+            .map_err(LayerError::failed_to_deserialize_value)
+            .map_err(OneOf::new)?;
+        Ok(value)
+    }
+
     /// Basic generic range-scan that returns all key-value pairs in a subspace.
     pub async fn basic_get_all<RS: KVRowSpec>(
         &self,

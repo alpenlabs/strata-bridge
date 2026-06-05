@@ -188,6 +188,23 @@ impl BridgeDb for FdbClient {
         .await
     }
 
+    async fn get_or_set_claim_funding_outpoint(
+        &self,
+        graph_idx: GraphIdx,
+        outpoint: OutPoint,
+    ) -> Result<OutPoint, Self::Error> {
+        let value = self
+            .basic_get_or_set::<ClaimFundingRowSpec>(
+                ClaimFundingKey {
+                    deposit_idx: graph_idx.deposit,
+                    operator_idx: graph_idx.operator,
+                },
+                ClaimFundingValue(outpoint),
+            )
+            .await?;
+        Ok(value.0)
+    }
+
     async fn get_withdrawal_funding_outpoints(
         &self,
         deposit_idx: DepositIdx,
@@ -934,6 +951,47 @@ mod tests {
                     .unwrap();
 
                 prop_assert_eq!(Some(outpoint), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: claim funding outpoint get-or-set preserves the first graph assignment.
+        #[test]
+        fn claim_funding_outpoint_get_or_set_is_idempotent(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            first_outpoint in arb_outpoint(),
+            second_outpoint in arb_outpoint(),
+        ) {
+            prop_assume!(first_outpoint != second_outpoint);
+
+            let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .delete_claim_funding_outpoint(graph_idx)
+                    .await
+                    .unwrap();
+
+                let first = client
+                    .get_or_set_claim_funding_outpoint(graph_idx, first_outpoint)
+                    .await
+                    .unwrap();
+                let second = client
+                    .get_or_set_claim_funding_outpoint(graph_idx, second_outpoint)
+                    .await
+                    .unwrap();
+                let retrieved = client
+                    .get_claim_funding_outpoint(graph_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(first_outpoint, first);
+                prop_assert_eq!(first_outpoint, second);
+                prop_assert_eq!(Some(first_outpoint), retrieved);
 
                 Ok(())
             })?;
