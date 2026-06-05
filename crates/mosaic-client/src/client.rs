@@ -400,7 +400,6 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         &self,
         operator_idx: OperatorIdx,
         deposit_idx: DepositIdx,
-        counterproof: G16ProofRaw,
         completed_signatures: CompletedSignatures,
         sighash: Sighash,
         tweak: Option<Tweak>,
@@ -408,11 +407,9 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
         let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
         let rpc_deposit_id = deposit_id.into();
-        let withdrawal_inputs: WithdrawalInputs = counterproof.0;
 
         let rpc = self.rpc.clone();
         let withdrawal_config = EvaluatorWithdrawalConfig {
-            withdrawal_inputs: withdrawal_inputs.into(),
             completed_signatures: completed_signatures.into(),
         };
 

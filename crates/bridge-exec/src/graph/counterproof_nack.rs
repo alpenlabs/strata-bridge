@@ -7,9 +7,7 @@ use strata_bridge_primitives::{
     types::{DepositIdx, OperatorIdx},
 };
 use strata_bridge_tx_graph::{fee, transactions::prelude::CounterproofNackTx};
-use strata_mosaic_client_api::types::{
-    CompletedSignatures, G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Sighash, Tweak,
-};
+use strata_mosaic_client_api::types::{CompletedSignatures, Sighash, Tweak};
 use tracing::{info, warn};
 
 use crate::{
@@ -76,7 +74,6 @@ async fn sign_and_broadcast_nack(
         .evaluate_and_sign(
             counterprover_idx,
             deposit_idx,
-            G16ProofRaw([0u8; N_WITHDRAWAL_INPUT_WIRES]),
             completed_signatures,
             sighash,
             tweak,
