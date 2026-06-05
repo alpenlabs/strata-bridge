@@ -208,12 +208,23 @@ async fn ensure_claim_funding_outpoint(
     };
 
     info!(?graph_idx, %funding_outpoint, "saving funding outpoint to disk");
-    output_handles
+    let assigned_outpoint = output_handles
         .db
-        .set_claim_funding_outpoint(graph_idx, funding_outpoint)
+        .get_or_set_claim_funding_outpoint(graph_idx, funding_outpoint)
         .await?;
 
-    Ok(funding_outpoint)
+    if assigned_outpoint != funding_outpoint {
+        info!(
+            ?graph_idx,
+            %funding_outpoint,
+            %assigned_outpoint,
+            "using existing funding outpoint saved by another duty"
+        );
+        let mut wallet = output_handles.wallet.write().await;
+        wallet.release(&[funding_outpoint]);
+    }
+
+    Ok(assigned_outpoint)
 }
 
 /// Fetches the owner's adaptor pubkey and the per-watchtower fault pubkeys from mosaic.
