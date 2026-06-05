@@ -171,6 +171,14 @@ pub trait BridgeDb {
         outpoints: Vec<OutPoint>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
+    /// Returns the existing withdrawal-funding [`OutPoint`]s for `deposit_idx`, or stores and
+    /// returns `outpoints` when no assignment exists.
+    fn get_or_set_withdrawal_funding_outpoints(
+        &self,
+        deposit_idx: DepositIdx,
+        outpoints: Vec<OutPoint>,
+    ) -> impl Future<Output = Result<Vec<OutPoint>, Self::Error>> + Send;
+
     /// Returns all reserved general-wallet outpoints across the claim, stake, and withdrawal rows.
     ///
     /// For stake reservations this is the set of inputs to the funding transaction, not the

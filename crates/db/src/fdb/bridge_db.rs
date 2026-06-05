@@ -227,6 +227,20 @@ impl BridgeDb for FdbClient {
         .await
     }
 
+    async fn get_or_set_withdrawal_funding_outpoints(
+        &self,
+        deposit_idx: DepositIdx,
+        outpoints: Vec<OutPoint>,
+    ) -> Result<Vec<OutPoint>, Self::Error> {
+        let value = self
+            .basic_get_or_set::<WithdrawalFundingRowSpec>(
+                WithdrawalFundingKey { deposit_idx },
+                WithdrawalFundingValue(outpoints),
+            )
+            .await?;
+        Ok(value.0)
+    }
+
     async fn get_all_funds(&self) -> Result<Vec<OutPoint>, Self::Error> {
         let claim_pairs = self
             .basic_get_all::<ClaimFundingRowSpec>(|dirs| &dirs.claim_funds)
@@ -1017,6 +1031,48 @@ mod tests {
                     .unwrap();
 
                 prop_assert_eq!(Some(outpoints), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: withdrawal funding outpoints get-or-set preserves the first deposit assignment.
+        #[test]
+        fn withdrawal_funding_outpoints_get_or_set_is_idempotent(
+            deposit_idx in any::<DepositIdx>(),
+            first_outpoints in arb_outpoints(),
+            second_outpoints in arb_outpoints(),
+        ) {
+            prop_assume!(first_outpoints != second_outpoints);
+            let graph_idx = GraphIdx {
+                deposit: deposit_idx,
+                operator: 0,
+            };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .delete_withdrawal_funding_outpoints(graph_idx)
+                    .await
+                    .unwrap();
+
+                let first = client
+                    .get_or_set_withdrawal_funding_outpoints(deposit_idx, first_outpoints.clone())
+                    .await
+                    .unwrap();
+                let second = client
+                    .get_or_set_withdrawal_funding_outpoints(deposit_idx, second_outpoints)
+                    .await
+                    .unwrap();
+                let retrieved = client
+                    .get_withdrawal_funding_outpoints(deposit_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(&first_outpoints, &first);
+                prop_assert_eq!(&first_outpoints, &second);
+                prop_assert_eq!(Some(first_outpoints), retrieved);
 
                 Ok(())
             })?;
