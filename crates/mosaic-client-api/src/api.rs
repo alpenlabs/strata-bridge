@@ -141,7 +141,6 @@ pub trait MosaicClientApi: Send + Sync + 'static {
         &self,
         operator_idx: OperatorIdx,
         deposit_idx: DepositIdx,
-        counterproof: G16ProofRaw,
         completed_signatures: CompletedSignatures,
         sighash: Sighash,
         tweak: Option<Tweak>,
