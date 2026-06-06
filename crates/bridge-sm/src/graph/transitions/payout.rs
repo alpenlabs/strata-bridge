@@ -109,6 +109,36 @@ impl GraphSM {
                 self.state().clone(),
                 payout_event.into(),
             )),
+            // A watchtower liveness fault can leave a counterproof unacked
+            // past the ACK timelock, allowing the operator to spend the
+            // contested payout connector before the GSM has observed an ACK
+            // or NACK. Treat the on-chain contested payout as authoritative
+            // and finalize as `Withdrawn`; any other txid is still rejected.
+            // Without this branch the event falls through to `InvalidEvent`,
+            // which the orchestrator escalates to a fatal
+            // `InvariantViolation` and crashes the node.
+            GraphState::CounterProofPosted { graph_summary, .. } => {
+                if payout_event.payout_txid != graph_summary.contested_payout {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        payout_event.into(),
+                        "Invalid contested payout transaction",
+                    ));
+                }
+
+                warn!(
+                    graph_idx = ?self.context().graph_idx(),
+                    payout_txid = %payout_event.payout_txid,
+                    "Contested payout posted while counterproof still outstanding"
+                );
+
+                self.state = GraphState::Withdrawn {
+                    claim_txid: graph_summary.claim,
+                    payout_txid: payout_event.payout_txid,
+                };
+
+                Ok(GSMOutput::new())
+            }
             _ => Err(GSMError::invalid_event(
                 self.state().clone(),
                 payout_event.into(),
