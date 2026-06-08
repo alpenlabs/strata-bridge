@@ -90,12 +90,12 @@ fn create_permissive_peer_score_params(topic_name: &str) -> PeerScoreParams {
 /// are still allowed to participate in gossip and publishing.
 const fn create_permissive_peer_score_thresholds() -> PeerScoreThresholds {
     PeerScoreThresholds {
-        // Allow peers with scores down to -1000 to participate in gossip
-        gossip_threshold: -1000.0,
-        // Allow peers with scores down to -1000 to receive published messages
-        publish_threshold: -1000.0,
+        // Allow peers with scores down to [`f64::MIN`] to participate in gossip
+        gossip_threshold: f64::MIN,
+        // Allow peers with scores down to `[`f64::MIN`] to receive published messages
+        publish_threshold: f64::MIN,
         // Only graylist peers with extremely negative scores
-        graylist_threshold: -10000.0,
+        graylist_threshold: f64::MIN,
         // Disable opportunistic grafting threshold
         accept_px_threshold: 0.0,
         opportunistic_graft_threshold: 0.0,
@@ -161,8 +161,8 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
         gossipsub_mesh_n_low: config.gossipsub_mesh_n_low,
         gossipsub_mesh_n_high: config.gossipsub_mesh_n_high,
         gossipsub_heartbeat_initial_delay: config.gossipsub_heartbeat_initial_delay,
-        gossipsub_publish_queue_duration: None,
-        gossipsub_forward_queue_duration: None,
+        gossipsub_publish_queue_duration: config.gossipsub_publish_queue_duration,
+        gossipsub_forward_queue_duration: config.gossipsub_forward_queue_duration,
         gossip_event_buffer_size: None,
         commands_event_buffer_size: None,
         command_buffer_size: None,
