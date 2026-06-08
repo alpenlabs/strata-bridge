@@ -277,6 +277,32 @@ mod tests {
         );
     }
 
+    // Verifies DepositIdx <-> GameIndex round-trips and that u32::MAX overflows.
+    #[test]
+    fn game_index_try_from_deposit_idx() {
+        // Boundary: deposit 0 -> game 1.
+        let zero = GameIndex::try_from(0u32).expect("0 maps to game 1");
+        assert_eq!(zero.get(), 1);
+        assert_eq!(DepositIdx::from(zero), 0);
+
+        // Mid-range round-trip.
+        let mid = GameIndex::try_from(42u32).expect("42 maps to game 43");
+        assert_eq!(mid.get(), 43);
+        assert_eq!(DepositIdx::from(mid), 42);
+
+        // Largest valid deposit index: u32::MAX - 1 -> game u32::MAX.
+        let max_valid =
+            GameIndex::try_from(u32::MAX - 1).expect("u32::MAX - 1 maps to game u32::MAX");
+        assert_eq!(max_valid.get(), u32::MAX);
+        assert_eq!(DepositIdx::from(max_valid), u32::MAX - 1);
+
+        // Overflow: u32::MAX has no representable game index.
+        assert_eq!(
+            GameIndex::try_from(u32::MAX),
+            Err(DepositIdxOverflow(u32::MAX))
+        );
+    }
+
     #[cfg(feature = "proptest")]
     mod proptests {
         use proptest::prelude::*;
