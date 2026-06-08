@@ -16,7 +16,7 @@ use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors::SigningInfo;
-use strata_bridge_db::traits::BridgeDb;
+use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
 use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, PayoutDescriptor};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
@@ -456,11 +456,10 @@ async fn fulfill_withdrawal(
     let wft = WithdrawalFulfillmentTx::new(wft_data, recipient_desc);
     let unfunded_tx = wft.into_unsigned_tx();
 
-    // Fund the transaction via wallet (adds inputs and change)
-    // IMPORTANT: The persisted outpoint lookup must happen inside the wallet lock
-    // to prevent concurrent executions from each observing None and selecting
-    // different UTXOs for the same deposit_idx.
-    let (wft_psbt, newly_leased_outpoints) = {
+    // Fund the transaction via wallet (adds inputs and change). The DB funding assignment
+    // happens inside the wallet lock and before signing so duplicate duties cannot assign
+    // different UTXOs to the same deposit.
+    let wft_psbt = {
         let mut wallet = output_handles.wallet.write().await;
 
         info!(%deposit_idx, "syncing wallet before funding withdrawal fulfillment tx");
@@ -468,7 +467,6 @@ async fn fulfill_withdrawal(
             warn!(%deposit_idx, ?e, "could not sync wallet, continuing anyway");
         }
 
-        // Read persisted outpoints inside the lock to prevent race conditions
         let persisted_funding_outpoints = output_handles
             .db
             .get_withdrawal_funding_outpoints(deposit_idx)
@@ -480,23 +478,62 @@ async fn fulfill_withdrawal(
                 wallet
                     .fund_v3_transaction_with_inputs(unfunded_tx, outpoints, fee_rate)
                     .await
+                    .map(|funded| funded.psbt)
             }
             None => {
                 info!(%deposit_idx, "selecting new funding outpoints");
-                wallet.fund_v3_transaction(unfunded_tx, fee_rate).await
+                let funded = wallet
+                    .fund_v3_transaction(unfunded_tx.clone(), fee_rate)
+                    .await;
+                match funded {
+                    Ok(funded) => {
+                        let candidate_outpoints = funded.spent();
+                        let assignment = output_handles
+                            .db
+                            .get_or_set_withdrawal_funding_outpoints(
+                                deposit_idx,
+                                candidate_outpoints.clone(),
+                            )
+                            .await;
+
+                        match assignment {
+                            Ok(FundingAssignment::Created(outpoints)) => {
+                                info!(%deposit_idx, ?outpoints, "persisted withdrawal funding outpoints");
+                                Ok(funded.psbt)
+                            }
+                            Ok(FundingAssignment::Existing(outpoints)) => {
+                                info!(
+                                    %deposit_idx,
+                                    "using existing withdrawal funding outpoints saved by another duty"
+                                );
+                                let stale_candidate_outpoints: Vec<_> = candidate_outpoints
+                                    .iter()
+                                    .copied()
+                                    .filter(|outpoint| !outpoints.contains(outpoint))
+                                    .collect();
+                                wallet.release(&stale_candidate_outpoints);
+                                wallet
+                                    .fund_v3_transaction_with_inputs(
+                                        unfunded_tx,
+                                        &outpoints,
+                                        fee_rate,
+                                    )
+                                    .await
+                                    .map(|funded| funded.psbt)
+                            }
+                            Err(err) => {
+                                wallet.release(&candidate_outpoints);
+                                return Err(err.into());
+                            }
+                        }
+                    }
+                    Err(err) => Err(err),
+                }
             }
         };
 
         match funding_result {
-            Ok(funded) => {
-                // Track which outpoints were newly leased (only in None path)
-                let newly_leased = if persisted_funding_outpoints.is_none() {
-                    Some(funded.spent())
-                } else {
-                    None
-                };
-                (funded.psbt, newly_leased)
-            }
+            Ok(psbt) => psbt,
             Err(err) => {
                 error!(%deposit_idx, %err, "could not fund withdrawal");
                 return Ok(());
@@ -546,35 +583,9 @@ async fn fulfill_withdrawal(
         Ok(tx) => tx,
         Err(e) => {
             error!(%deposit_idx, ?e, "failed to sign withdrawal fulfillment transaction");
-            // Release newly leased outpoints so they can be reused on retry.
-            // Nothing was persisted, so retry will select fresh UTXOs.
-            if let Some(ref outpoints) = newly_leased_outpoints {
-                output_handles.wallet.write().await.release(outpoints);
-            }
             return Err(e);
         }
     };
-
-    // Persist outpoints after successful signing, before broadcast.
-    // This ensures idempotent behavior on retry after crash/restart.
-    if let Err(e) = output_handles
-        .db
-        .set_withdrawal_funding_outpoints(
-            deposit_idx,
-            signed_tx
-                .input
-                .iter()
-                .map(|input| input.previous_output)
-                .collect(),
-        )
-        .await
-    {
-        error!(%deposit_idx, ?e, "failed to persist withdrawal funding outpoints");
-        if let Some(ref outpoints) = newly_leased_outpoints {
-            output_handles.wallet.write().await.release(outpoints);
-        }
-        return Err(e.into());
-    }
 
     info!(%deposit_idx, %txid, "submitting withdrawal fulfillment transaction");
     publish_signed_transaction(
