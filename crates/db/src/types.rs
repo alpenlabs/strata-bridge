@@ -21,6 +21,31 @@ pub struct StakeFundingReservation {
     pub stake_output_vout: u32,
 }
 
+/// Result of claiming a first-writer-wins funding assignment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FundingAssignment<T> {
+    /// The caller created the assignment with the supplied value.
+    Created(T),
+    /// The assignment already existed and this value is the durable assignment.
+    Existing(T),
+}
+
+impl<T> FundingAssignment<T> {
+    /// Returns the assigned value, regardless of whether it was created or already existed.
+    pub fn into_inner(self) -> T {
+        match self {
+            Self::Created(value) | Self::Existing(value) => value,
+        }
+    }
+
+    /// Returns a reference to the assigned value.
+    pub const fn as_ref(&self) -> &T {
+        match self {
+            Self::Created(value) | Self::Existing(value) => value,
+        }
+    }
+}
+
 /// A batch of state machine writes to persist atomically.
 ///
 /// This can be used to persist causally-linked state machine updates in a single transaction,
