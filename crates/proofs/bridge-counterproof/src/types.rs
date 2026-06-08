@@ -38,6 +38,9 @@ pub struct CounterproofInput {
 }
 
 /// Public values committed by the counterproof.
+///
+/// NOTE: Field order is load-bearing — it must stay in sync with the public-params
+/// digest computed by the garbled circuit on the verifier side.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct CounterproofOutput {
     /// Echoed operator master x-only pubkey.
