@@ -1,8 +1,8 @@
 use std::error::Error;
 
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::types::{GameIndex, OperatorIdx};
 
-use crate::types::{DepositIdx, Role};
+use crate::types::Role;
 
 /// Errors arising from mosaic operations.
 #[derive(Debug, thiserror::Error)]
@@ -14,14 +14,14 @@ pub enum MosaicError {
     #[error("mosaic setup missing: {0}|{1}")]
     SetupMissing(OperatorIdx, Role),
     /// The deposit was aborted before completion.
-    #[error("deposit {0} aborted")]
-    DepositAborted(DepositIdx),
+    #[error("game {0} aborted")]
+    DepositAborted(GameIndex),
     /// The deposit was not seen within timeout.
     #[error("deposit missing: {0}|{1}|{2}")]
-    DepositMissing(OperatorIdx, Role, DepositIdx),
+    DepositMissing(OperatorIdx, Role, GameIndex),
     /// The deposit has already been withdrawn.
-    #[error("deposit {0} already withdrawn")]
-    DepositWithdrawn(DepositIdx),
+    #[error("game {0} already withdrawn")]
+    DepositWithdrawn(GameIndex),
     /// The deposit is in an unexpected state.
     #[error("unexpected deposit state: {0}")]
     UnexpectedDepositState(String),
@@ -34,8 +34,8 @@ pub enum MosaicError {
         actual: String,
     },
     /// The fault secret is missing when it should have been available.
-    #[error("fault secret unexpectedly missing for deposit {0}")]
-    UnexpectedMissingFinalSecret(DepositIdx),
+    #[error("fault secret unexpectedly missing for game {0}")]
+    UnexpectedMissingFinalSecret(GameIndex),
     /// An RPC communication error with the mosaic service.
     #[error("mosaic RPC error")]
     RpcError(#[source] Box<dyn Error + Send + Sync + 'static>),

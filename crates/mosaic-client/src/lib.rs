@@ -37,7 +37,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use algebra::retry::{Strategy, retry_with};
 use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::{RpcTablesetId, RpcTablesetStatus};
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::types::{GameIndex, OperatorIdx};
 use strata_mosaic_client_api::{MosaicError, MosaicEvent, types::*};
 use tokio::sync::{Mutex, RwLock, mpsc};
 use tracing::{debug, error, info};
@@ -51,7 +51,7 @@ pub(crate) mod util;
 
 pub use resolver::*;
 
-type WatchDepositKey = (RpcTablesetId, OperatorIdx, DepositIdx);
+type WatchDepositKey = (RpcTablesetId, OperatorIdx, GameIndex);
 
 const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(2);
 const DEFAULT_MAX_RETRIES: usize = 5;

@@ -13,6 +13,7 @@ mod utils;
 use std::sync::Arc;
 
 use strata_bridge_p2p_types::{NagRequest, NagRequestPayload};
+use strata_bridge_primitives::types::GameIndex;
 use strata_bridge_sm::graph::duties::GraphDuty;
 use tracing::info;
 
@@ -64,9 +65,12 @@ pub async fn execute_graph_duty(
             adaptor_pubkey,
             fault_pubkey,
         } => {
+            let game_index = GameIndex::try_from(graph_idx.deposit)
+                .expect("deposit index does not overflow when mapped to game index");
             verify_adaptors(
                 &output_handles,
                 *graph_idx,
+                game_index,
                 *watchtower_idx,
                 sighashes,
                 *adaptor_pubkey,
@@ -197,9 +201,12 @@ pub async fn execute_graph_duty(
             completed_signatures,
             counterproof_nack_tx,
         } => {
+            let game_index = GameIndex::try_from(*deposit_idx)
+                .expect("deposit index does not overflow when mapped to game index");
             publish_counterproof_nack(
                 &output_handles,
                 *deposit_idx,
+                game_index,
                 *counterprover_idx,
                 *completed_signatures,
                 counterproof_nack_tx.clone(),
