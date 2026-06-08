@@ -34,13 +34,13 @@ class BridgeDepositTest(StrataTestBase):
     """
 
     def __init__(self, ctx: flexitest.InitContext):
-        # `nag_interval_secs=1` ensures a nag tick fires while the deposit SM is still in a
+        # `nag_interval_ms=1_000` ensures a nag tick fires while the deposit SM is still in a
         # naggable state post-restart. With the default 10s interval and fast P2P recovery,
         # the SM can race through every naggable state between ticks and the nag assertion
         # below would never observe a deposit-level nag.
         ctx.set_env(
             BridgeNetworkEnv(
-                bridge_config_params=BridgeConfigParams(nag_interval_secs=1),
+                bridge_config_params=BridgeConfigParams(nag_interval_ms=1_000),
             )
         )
 

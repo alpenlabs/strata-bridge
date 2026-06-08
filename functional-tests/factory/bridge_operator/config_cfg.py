@@ -99,7 +99,7 @@ class BridgeConfigParams:
     min_withdrawal_fulfillment_window: int = 144
     cooperative_payout_timeout: int = 144
     max_fee_rate: int = 10
-    nag_interval_secs: int = 10
+    nag_interval_ms: int = 10_000
     retry_interval_secs: int = 10
 
 
