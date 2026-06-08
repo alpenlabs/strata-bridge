@@ -11,7 +11,7 @@ use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use operator_wallet::UtxoInfo;
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
-use strata_bridge_db::traits::BridgeDb;
+use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
 use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -209,13 +209,36 @@ async fn ensure_claim_funding_outpoint(
         }
     };
 
-    info!(?graph_idx, %funding_outpoint, "saving funding outpoint to disk");
-    output_handles
+    let assignment = output_handles
         .db
-        .set_claim_funding_outpoint(graph_idx, funding_outpoint)
-        .await?;
+        .get_or_set_claim_funding_outpoint(graph_idx, funding_outpoint)
+        .await;
 
-    Ok(funding_outpoint)
+    let assigned_outpoint = match assignment {
+        Ok(FundingAssignment::Created(outpoint)) => {
+            info!(?graph_idx, %outpoint, "saved funding outpoint to disk");
+            outpoint
+        }
+        Ok(FundingAssignment::Existing(outpoint)) => {
+            info!(
+                ?graph_idx,
+                %outpoint,
+                "using existing funding outpoint saved by another duty"
+            );
+            if outpoint != funding_outpoint {
+                let mut wallet = output_handles.wallet.write().await;
+                wallet.release(&[funding_outpoint]);
+            }
+            outpoint
+        }
+        Err(err) => {
+            let mut wallet = output_handles.wallet.write().await;
+            wallet.release(&[funding_outpoint]);
+            return Err(err.into());
+        }
+    };
+
+    Ok(assigned_outpoint)
 }
 
 /// Fetches the owner's adaptor pubkey and the per-watchtower fault pubkeys from mosaic.

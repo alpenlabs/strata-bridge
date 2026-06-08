@@ -9,7 +9,7 @@ use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
 };
 
-use crate::types::{StakeFundingReservation, WriteBatch};
+use crate::types::{FundingAssignment, StakeFundingReservation, WriteBatch};
 
 /// Standard persistence interface for a bridge node.
 pub trait BridgeDb {
@@ -131,6 +131,14 @@ pub trait BridgeDb {
         outpoint: OutPoint,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
+    /// Returns the existing claim-funding [`OutPoint`] for `graph_idx`, or stores and returns
+    /// `outpoint` when no assignment exists.
+    fn get_or_set_claim_funding_outpoint(
+        &self,
+        graph_idx: GraphIdx,
+        outpoint: OutPoint,
+    ) -> impl Future<Output = Result<FundingAssignment<OutPoint>, Self::Error>> + Send;
+
     /// Gets, if present, the [`StakeFundingReservation`] persisted for the given operator.
     fn get_stake_funding_reservation(
         &self,
@@ -162,6 +170,14 @@ pub trait BridgeDb {
         deposit_idx: DepositIdx,
         outpoints: Vec<OutPoint>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Returns the existing withdrawal-funding [`OutPoint`]s for `deposit_idx`, or stores and
+    /// returns `outpoints` when no assignment exists.
+    fn get_or_set_withdrawal_funding_outpoints(
+        &self,
+        deposit_idx: DepositIdx,
+        outpoints: Vec<OutPoint>,
+    ) -> impl Future<Output = Result<FundingAssignment<Vec<OutPoint>>, Self::Error>> + Send;
 
     /// Returns all reserved general-wallet outpoints across the claim, stake, and withdrawal rows.
     ///
