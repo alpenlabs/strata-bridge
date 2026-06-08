@@ -60,6 +60,49 @@ def wait_until_active_valid_claim(
     return result["active_claim"]
 
 
+def wait_until_claim_posted(
+    bridge_rpc,
+    deposit_idx: int,
+    timeout=300,
+) -> PendingWithdrawalClaim:
+    """Wait until the operator assigned to `deposit_idx` has posted an active claim.
+
+    Targets a specific deposit, so unlike [`wait_until_active_valid_claim`] it works when
+    several withdrawals are pending at once.
+    """
+    result: dict[str, PendingWithdrawalClaim | None] = {"active_claim": None}
+
+    def check_claim_posted():
+        data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
+        logging.info(f"Pending withdrawal info for {deposit_idx}: {data}")
+
+        if data is None:
+            return False
+
+        pending_withdrawal = RpcPendingWithdrawalInfo.from_json(data)
+        if pending_withdrawal.assigned_claim is None:
+            return False
+
+        result["active_claim"] = PendingWithdrawalClaim(
+            deposit_idx=deposit_idx,
+            assigned_operator=pending_withdrawal.assigned_operator,
+            claim_txid=pending_withdrawal.assigned_claim.claim_txid,
+        )
+        return True
+
+    wait_until(
+        check_claim_posted,
+        timeout=timeout,
+        step=1,
+        error_msg=(
+            f"Timeout after {timeout} seconds waiting for deposit {deposit_idx} active claim"
+        ),
+    )
+
+    assert result["active_claim"] is not None
+    return result["active_claim"]
+
+
 def wait_until_bridge_proof_posted(
     bridge_rpc,
     deposit_idx: int,
