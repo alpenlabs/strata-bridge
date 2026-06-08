@@ -1,6 +1,6 @@
 //! Types that are used across the bridge.
 
-use std::{collections::BTreeMap, fmt, fmt::Display};
+use std::{collections::BTreeMap, fmt, fmt::Display, num::NonZero};
 
 use bitcoin::XOnlyPublicKey;
 use bitcoin_bosd::{Descriptor, DescriptorError, DescriptorType};
@@ -24,6 +24,62 @@ pub type WatchtowerIdx = u32;
 
 /// The index of a deposit.
 pub type DepositIdx = u32;
+
+/// Bridge v1 game index: [`DepositIdx`] + 1.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+pub struct GameIndex(NonZero<u32>);
+
+impl GameIndex {
+    /// Wraps a [`NonZero<u32>`] as a `GameIndex` without conversion.
+    pub const fn from_nonzero(value: NonZero<u32>) -> Self {
+        Self(value)
+    }
+
+    /// Returns the 1-indexed game number as a [`u32`].
+    pub const fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl Display for GameIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl From<NonZero<u32>> for GameIndex {
+    fn from(value: NonZero<u32>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<GameIndex> for NonZero<u32> {
+    fn from(value: GameIndex) -> Self {
+        value.0
+    }
+}
+
+/// [`DepositIdx`] cannot be mapped to a [`GameIndex`] because `idx + 1` overflows `u32`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("deposit index {0} overflows when mapped to game index")]
+pub struct DepositIdxOverflow(pub DepositIdx);
+
+impl TryFrom<DepositIdx> for GameIndex {
+    type Error = DepositIdxOverflow;
+
+    fn try_from(idx: DepositIdx) -> Result<Self, Self::Error> {
+        idx.checked_add(1)
+            .and_then(NonZero::new)
+            .map(Self)
+            .ok_or(DepositIdxOverflow(idx))
+    }
+}
+
+impl From<GameIndex> for DepositIdx {
+    fn from(value: GameIndex) -> Self {
+        value.0.get() - 1
+    }
+}
 
 /// A struct that represents the index of a peg out graph, which is a combination of a deposit index
 /// and an operator index.

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use strata_bridge_primitives::subscription::Subscription;
+use strata_bridge_primitives::{subscription::Subscription, types::GameIndex};
 
 use crate::{MosaicError, MosaicEvent, MosaicSetupError, types::*};
 
@@ -70,7 +70,7 @@ pub trait MosaicClientApi: Send + Sync + 'static {
     async fn get_adaptor_pubkey(
         &self,
         operator_idx: OperatorIdx,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
     ) -> Result<Option<PubKey>, MosaicError>;
 
     /// Initializes a deposit on an evaluator tableset and returns after deposit is accepted by
@@ -80,7 +80,7 @@ pub trait MosaicClientApi: Send + Sync + 'static {
     async fn init_evaluator_deposit(
         &self,
         operator_idx: OperatorIdx,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
         sighashes: DepositSighashes,
     ) -> Result<(), MosaicError>;
 
@@ -96,7 +96,7 @@ pub trait MosaicClientApi: Send + Sync + 'static {
     async fn init_garbler_deposit(
         &self,
         operator_idx: OperatorIdx,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
         sighashes: DepositSighashes,
         adaptor_pubkey: PubKey,
     ) -> Result<(), MosaicError>;
@@ -111,7 +111,7 @@ pub trait MosaicClientApi: Send + Sync + 'static {
         &self,
         operator_idx: OperatorIdx,
         role: Role,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
     ) -> Result<(), MosaicError>;
 
     /// Garbler side: completes adaptor signatures for a contested withdrawal.
@@ -124,7 +124,7 @@ pub trait MosaicClientApi: Send + Sync + 'static {
     async fn complete_adaptor_sigs(
         &self,
         operator_idx: OperatorIdx,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
         counterproof: G16ProofRaw,
     ) -> Result<CompletedSignatures, MosaicError>;
 
@@ -140,7 +140,7 @@ pub trait MosaicClientApi: Send + Sync + 'static {
     async fn evaluate_and_sign(
         &self,
         operator_idx: OperatorIdx,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
         completed_signatures: CompletedSignatures,
         sighash: Sighash,
         tweak: Option<Tweak>,

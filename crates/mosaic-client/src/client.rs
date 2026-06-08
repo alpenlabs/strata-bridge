@@ -4,7 +4,7 @@ use mosaic_rpc_types::{
     DepositStatus, EvaluatorDepositConfig, EvaluatorWithdrawalConfig, GarblerDepositConfig,
     RpcTablesetStatus,
 };
-use strata_bridge_primitives::subscription::Subscription;
+use strata_bridge_primitives::{subscription::Subscription, types::GameIndex};
 use strata_mosaic_client_api::{
     MosaicClientApi, MosaicError, MosaicEvent, MosaicSetupError, types::*,
 };
@@ -121,14 +121,14 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(pubkey)
     }
 
-    #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
+    #[instrument(skip_all, fields(%operator_idx, %game_index))]
     async fn get_adaptor_pubkey(
         &self,
         operator_idx: OperatorIdx,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
     ) -> Result<Option<PubKey>, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
+        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
         let rpc_deposit_id = deposit_id.into();
         let rpc = self.rpc.clone();
         let pubkey = retry_with(self.default_retry_strategy(), move || {
@@ -144,16 +144,16 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(pubkey)
     }
 
-    #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
+    #[instrument(skip_all, fields(%operator_idx, %game_index))]
     async fn init_evaluator_deposit(
         &self,
         operator_idx: OperatorIdx,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
         sighashes: DepositSighashes,
     ) -> Result<(), MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
-        let deposit_inputs: DepositInputs = deposit_idx.to_le_bytes();
+        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
+        let deposit_inputs: DepositInputs = game_index.get().to_le_bytes();
         let rpc_deposit_id = deposit_id.into();
 
         // If the deposit is already initialized (e.g. after a bridge restart), mosaic rejects a
@@ -204,7 +204,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     .map_err(MosaicError::rpc_error)
                     .and_then(|maybe_status| {
                         maybe_status.ok_or_else(|| {
-                            MosaicError::DepositMissing(operator_idx, Role::Evaluator, deposit_idx)
+                            MosaicError::DepositMissing(operator_idx, Role::Evaluator, game_index)
                         })
                     })
             }
@@ -217,28 +217,28 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         // [`MosaicEvent::AdaptorsVerified`].
         match status {
             DepositStatus::Aborted { reason } => {
-                error!(%deposit_idx, %reason, "evaluator deposit aborted on mosaic");
-                Err(MosaicError::DepositAborted(deposit_idx))
+                error!(%game_index, %reason, "evaluator deposit aborted on mosaic");
+                Err(MosaicError::DepositAborted(game_index))
             }
             DepositStatus::UncontestedWithdrawal | DepositStatus::Consumed { .. } => {
-                error!(%deposit_idx, "evaluator deposit is already withdrawn");
-                Err(MosaicError::DepositWithdrawn(deposit_idx))
+                error!(%game_index, "evaluator deposit is already withdrawn");
+                Err(MosaicError::DepositWithdrawn(game_index))
             }
             DepositStatus::Incomplete { .. } | DepositStatus::Ready => Ok(()),
         }
     }
 
-    #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
+    #[instrument(skip_all, fields(%operator_idx, %game_index))]
     async fn init_garbler_deposit(
         &self,
         operator_idx: OperatorIdx,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
         sighashes: DepositSighashes,
         adaptor_pubkey: PubKey,
     ) -> Result<(), MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Garbler, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
-        let deposit_inputs: DepositInputs = deposit_idx.to_le_bytes();
+        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
+        let deposit_inputs: DepositInputs = game_index.get().to_le_bytes();
         let rpc_deposit_id = deposit_id.into();
 
         // If the deposit is already initialized (e.g. after a bridge restart), mosaic rejects a
@@ -288,7 +288,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     .map_err(MosaicError::rpc_error)
                     .and_then(|maybe_status| {
                         maybe_status.ok_or_else(|| {
-                            MosaicError::DepositMissing(operator_idx, Role::Garbler, deposit_idx)
+                            MosaicError::DepositMissing(operator_idx, Role::Garbler, game_index)
                         })
                     })
             }
@@ -297,12 +297,12 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
 
         match status {
             DepositStatus::Aborted { reason } => {
-                error!(%deposit_idx, %reason, "deposit aborted on mosaic");
-                return Err(MosaicError::DepositAborted(deposit_idx));
+                error!(%game_index, %reason, "deposit aborted on mosaic");
+                return Err(MosaicError::DepositAborted(game_index));
             }
             DepositStatus::UncontestedWithdrawal | DepositStatus::Consumed { .. } => {
-                error!(%deposit_idx, "deposit is already withdrawn");
-                return Err(MosaicError::DepositWithdrawn(deposit_idx));
+                error!(%game_index, "deposit is already withdrawn");
+                return Err(MosaicError::DepositWithdrawn(game_index));
             }
             DepositStatus::Incomplete { details } => {
                 // The slow path: we know the deposit exists, but mosaic is not ready yet.
@@ -312,13 +312,13 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                 self.watched_deposits
                     .lock()
                     .await
-                    .insert((tableset_id, operator_idx, deposit_idx), 0);
+                    .insert((tableset_id, operator_idx, game_index), 0);
             }
             DepositStatus::Ready => {
                 // The fast path: init already observed `Ready`, so emit immediately rather than
                 // waiting for the next poll interval. Reuse the poller helper so both paths clear
                 // any stale watch entry before emitting and therefore cannot double-emit later.
-                self.emit_adaptors_verified(tableset_id, operator_idx, deposit_idx)
+                self.emit_adaptors_verified(tableset_id, operator_idx, game_index)
                     .await;
             }
         }
@@ -328,15 +328,15 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
 
     // ---- Withdrawal ----
 
-    #[instrument(skip_all, fields(%operator_idx, %role, %deposit_idx))]
+    #[instrument(skip_all, fields(%operator_idx, %role, %game_index))]
     async fn mark_deposit_withdrawn(
         &self,
         operator_idx: OperatorIdx,
         role: Role,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
     ) -> Result<(), MosaicError> {
         let tableset_id = self.get_tableset_id(role, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
+        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
 
         let rpc = self.rpc.clone();
         let rpc_deposit_id = deposit_id.into();
@@ -353,15 +353,15 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(())
     }
 
-    #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
+    #[instrument(skip_all, fields(%operator_idx, %game_index))]
     async fn complete_adaptor_sigs(
         &self,
         operator_idx: OperatorIdx,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
         counterproof: G16ProofRaw,
     ) -> Result<CompletedSignatures, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Garbler, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
+        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
         let rpc_deposit_id = deposit_id.into();
         let withdrawal_inputs: WithdrawalInputs = counterproof.0;
 
@@ -395,17 +395,17 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(completed_sigs)
     }
 
-    #[instrument(skip_all, fields(%operator_idx, %deposit_idx))]
+    #[instrument(skip_all, fields(%operator_idx, %game_index))]
     async fn evaluate_and_sign(
         &self,
         operator_idx: OperatorIdx,
-        deposit_idx: DepositIdx,
+        game_index: GameIndex,
         completed_signatures: CompletedSignatures,
         sighash: Sighash,
         tweak: Option<Tweak>,
     ) -> Result<Option<Signature>, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(deposit_idx);
+        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
         let rpc_deposit_id = deposit_id.into();
 
         let rpc = self.rpc.clone();
@@ -442,7 +442,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                 rpc.sign_with_fault_secret(tableset_id, sighash.into(), tweak.map(Into::into))
                     .await
                     .map_err(MosaicError::rpc_error)?
-                    .ok_or_else(|| MosaicError::UnexpectedMissingFinalSecret(deposit_idx))
+                    .ok_or_else(|| MosaicError::UnexpectedMissingFinalSecret(game_index))
             }
         })
         .await?;

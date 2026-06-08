@@ -4,7 +4,7 @@ use bitcoin::{TxOut, hashes::Hash};
 use btc_tracker::event::TxStatus;
 use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
-    types::{DepositIdx, OperatorIdx},
+    types::{DepositIdx, GameIndex, OperatorIdx},
 };
 use strata_bridge_tx_graph::{fee, transactions::prelude::CounterproofNackTx};
 use strata_mosaic_client_api::types::{CompletedSignatures, Sighash, Tweak};
@@ -18,11 +18,12 @@ use crate::{
 pub(super) async fn publish_counterproof_nack(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
+    game_index: GameIndex,
     counterprover_idx: OperatorIdx,
     completed_signatures: CompletedSignatures,
     mut counterproof_nack_tx: CounterproofNackTx,
 ) -> Result<(), ExecutorError> {
-    info!(%deposit_idx, %counterprover_idx, "preparing counterproof nack");
+    info!(%deposit_idx, %game_index, %counterprover_idx, "preparing counterproof nack");
 
     // Single output: forward the connector's dust value (minus the nack tx fee) back to the
     // operator's general wallet. The connector script is `minimal_non_dust` P2TR plus the
@@ -40,6 +41,7 @@ pub(super) async fn publish_counterproof_nack(
         output_handles,
         counterprover_idx,
         deposit_idx,
+        game_index,
         completed_signatures,
         counterproof_nack_tx,
     )
@@ -51,6 +53,7 @@ async fn sign_and_broadcast_nack(
     output_handles: &OutputHandles,
     counterprover_idx: OperatorIdx,
     deposit_idx: DepositIdx,
+    game_index: GameIndex,
     completed_signatures: CompletedSignatures,
     nack_tx: CounterproofNackTx,
 ) -> Result<(), ExecutorError> {
@@ -67,20 +70,20 @@ async fn sign_and_broadcast_nack(
         }
     };
 
-    info!(%deposit_idx, %counterprover_idx, "calling mosaic evaluate_and_sign");
+    info!(%deposit_idx, %game_index, %counterprover_idx, "calling mosaic evaluate_and_sign");
     let evaluate_and_sign_start = std::time::Instant::now();
     let wt_fault_signature = output_handles
         .mosaic_client
         .evaluate_and_sign(
             counterprover_idx,
-            deposit_idx,
+            game_index,
             completed_signatures,
             sighash,
             tweak,
         )
         .await
         .map_err(|e| {
-            warn!(%deposit_idx, %counterprover_idx, ?e, "evaluate_and_sign failed");
+            warn!(%deposit_idx, %game_index, %counterprover_idx, ?e, "evaluate_and_sign failed");
             ExecutorError::MosaicErr(format!("evaluate_and_sign: {e:?}"))
         })?
         .ok_or_else(|| {
@@ -90,6 +93,7 @@ async fn sign_and_broadcast_nack(
         })?;
     info!(
         %deposit_idx,
+        %game_index,
         %counterprover_idx,
         elapsed = ?evaluate_and_sign_start.elapsed(),
         "mosaic evaluate_and_sign completed",
@@ -97,7 +101,7 @@ async fn sign_and_broadcast_nack(
 
     let signed_tx = nack_tx.finalize_partial(wt_fault_signature);
 
-    info!(%deposit_idx, %counterprover_idx, "publishing counterproof nack transaction");
+    info!(%deposit_idx, %game_index, %counterprover_idx, "publishing counterproof nack transaction");
     publish_signed_transaction(
         &output_handles.tx_driver,
         &signed_tx,

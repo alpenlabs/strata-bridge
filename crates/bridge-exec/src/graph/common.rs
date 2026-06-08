@@ -1,7 +1,5 @@
 //! Executors for uncontested payout graph duties.
 
-use std::num::NonZero;
-
 use algebra::predicate;
 use bitcoin::{
     OutPoint, TapSighashType, TxOut, Txid, XOnlyPublicKey,
@@ -18,7 +16,7 @@ use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
-    types::{GraphIdx, OperatorIdx},
+    types::{GameIndex, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::graph::{context::GraphSMCtx, machine::generate_game_graph};
 use strata_bridge_tx_graph::{
@@ -55,6 +53,9 @@ pub(super) async fn generate_graph_data(
         "generating graph data"
     );
 
+    let game_index = GameIndex::try_from(graph_idx.deposit)
+        .expect("deposit index does not overflow when mapped to game index");
+
     let funding_outpoint = ensure_claim_funding_outpoint(cfg, output_handles, graph_idx).await?;
     info!(?graph_idx, %funding_outpoint, "funding outpoint acquired");
 
@@ -62,6 +63,7 @@ pub(super) async fn generate_graph_data(
         output_handles.mosaic_client.as_ref(),
         &output_handles.operator_table,
         graph_idx,
+        game_index,
     )
     .await?;
     info!(
@@ -79,8 +81,7 @@ pub(super) async fn generate_graph_data(
         operator_table: output_handles.operator_table.clone(),
     };
     let deposit_params = DepositParams {
-        game_index: NonZero::new(graph_idx.deposit + 1)
-            .expect("(deposit index + 1) is always non-zero"),
+        game_index: game_index.into(),
         claim_funds: funding_outpoint,
         deposit_outpoint,
         adaptor_pubkeys: adaptor_pubkeys
@@ -103,6 +104,7 @@ pub(super) async fn generate_graph_data(
         output_handles.mosaic_client.as_ref(),
         &output_handles.operator_table,
         graph_idx,
+        game_index,
         &game_graph,
     )
     .await?;
@@ -225,6 +227,7 @@ async fn fetch_graph_keys(
     mosaic_client: &dyn MosaicClientApi,
     operator_table: &OperatorTable,
     graph_idx: GraphIdx,
+    game_index: GameIndex,
 ) -> Result<(Vec<XOnlyPubKey>, Vec<XOnlyPubKey>), ExecutorError> {
     let owner_idx = graph_idx.operator;
 
@@ -234,9 +237,9 @@ async fn fetch_graph_keys(
     let mut adaptor_pubkeys = Vec::new();
     let mut fault_pubkeys = Vec::new();
     for watchtower in watchtower_idxs(operator_table, owner_idx) {
-        info!(?graph_idx, %watchtower, "fetching adaptor pubkey from mosaic");
+        info!(?graph_idx, %game_index, %watchtower, "fetching adaptor pubkey from mosaic");
         let adaptor = mosaic_client
-            .get_adaptor_pubkey(watchtower, graph_idx.deposit)
+            .get_adaptor_pubkey(watchtower, game_index)
             .await
             .map_err(|e| ExecutorError::MosaicErr(format!("get_adaptor_pubkey: {e:?}")))?
             .ok_or_else(|| {
@@ -246,7 +249,7 @@ async fn fetch_graph_keys(
             })?;
         adaptor_pubkeys.push(adaptor.into());
 
-        info!(?graph_idx, %watchtower, "fetching fault pubkey from mosaic");
+        info!(?graph_idx, %game_index, %watchtower, "fetching fault pubkey from mosaic");
         let fault_pubkey = mosaic_client
             .get_fault_pubkey(watchtower, Role::Evaluator)
             .await
@@ -273,12 +276,14 @@ async fn init_evaluator_with_peers(
     mosaic_client: &dyn MosaicClientApi,
     operator_table: &OperatorTable,
     graph_idx: GraphIdx,
+    game_index: GameIndex,
     game_graph: &GameGraph,
 ) -> Result<(), ExecutorError> {
     for (slot, watchtower_idx) in watchtower_idxs(operator_table, graph_idx.operator).enumerate() {
         let sighashes = game_graph.counterproofs[slot].counterproof.sighashes();
         info!(
             ?graph_idx,
+            %game_index,
             %watchtower_idx,
             n_sighashes = sighashes.len(),
             "computed counterproof sighashes"
@@ -296,12 +301,12 @@ async fn init_evaluator_with_peers(
                 ))
             })?;
 
-        info!(?graph_idx, %watchtower_idx, "calling mosaic init_evaluator_deposit");
+        info!(?graph_idx, %game_index, %watchtower_idx, "calling mosaic init_evaluator_deposit");
         mosaic_client
-            .init_evaluator_deposit(watchtower_idx, graph_idx.deposit, deposit_sighashes)
+            .init_evaluator_deposit(watchtower_idx, game_index, deposit_sighashes)
             .await
             .map_err(|e| ExecutorError::MosaicErr(format!("init_evaluator_deposit: {e:?}")))?;
-        info!(?graph_idx, %watchtower_idx, "mosaic init_evaluator_deposit ok");
+        info!(?graph_idx, %game_index, %watchtower_idx, "mosaic init_evaluator_deposit ok");
     }
 
     Ok(())
@@ -331,6 +336,7 @@ fn watchtower_idxs(
 pub(super) async fn verify_adaptors(
     output_handles: &OutputHandles,
     graph_idx: GraphIdx,
+    game_index: GameIndex,
     watchtower_idx: OperatorIdx,
     sighashes: &[Message],
     adaptor_pubkey: XOnlyPublicKey,
@@ -338,6 +344,7 @@ pub(super) async fn verify_adaptors(
 ) -> Result<(), ExecutorError> {
     info!(
         ?graph_idx,
+        %game_index,
         %watchtower_idx,
         num_sighashes = sighashes.len(),
         "verifying adaptor signatures"
@@ -378,7 +385,7 @@ pub(super) async fn verify_adaptors(
         .mosaic_client
         .init_garbler_deposit(
             graph_idx.operator,
-            graph_idx.deposit,
+            game_index,
             deposit_sighashes,
             adaptor_pubkey,
         )
@@ -387,6 +394,7 @@ pub(super) async fn verify_adaptors(
 
     info!(
         ?graph_idx,
+        %game_index,
         %watchtower_idx,
         "mosaic init_garbler_deposit ok; awaiting AdaptorsVerified event"
     );

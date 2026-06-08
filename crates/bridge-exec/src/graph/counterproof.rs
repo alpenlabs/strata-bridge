@@ -50,13 +50,13 @@ pub(super) async fn generate_and_publish_counterproof(
     .await?;
 
     // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
-    info!(%deposit_idx, %operator_idx, "completing adaptor signatures via mosaic for graph");
+    info!(%deposit_idx, %game_index, %operator_idx, "completing adaptor signatures via mosaic for graph");
     let completed_sigs = output_handles
         .mosaic_client
-        .complete_adaptor_sigs(operator_idx, deposit_idx, counterproof_data)
+        .complete_adaptor_sigs(operator_idx, game_index.into(), counterproof_data)
         .await
         .map_err(|e| {
-            warn!(?e, "failed to complete adaptor sigs for counterproof");
+            warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to complete adaptor sigs for counterproof");
             ExecutorError::MosaicErr(format!("complete_adaptor_sigs: {e:?}"))
         })?;
 
@@ -64,7 +64,7 @@ pub(super) async fn generate_and_publish_counterproof(
     // data (n_data = N_DEPOSIT + N_WITHDRAWAL wires), so we need ALL completed adaptor sigs.
     let operator_signatures = completed_sigs.to_vec();
 
-    info!(%deposit_idx, %operator_idx, "signing and publishing counterproof tx for graph");
+    info!(%deposit_idx, %game_index, %operator_idx, "signing and publishing counterproof tx for graph");
 
     // Assemble witness and finalize.
     let witness = ContestCounterproofWitness {
@@ -106,7 +106,7 @@ async fn generate_counterproof(
     )
     .await?;
 
-    info!(%deposit_idx, %operator_idx, "generating counterproof for graph");
+    info!(%deposit_idx, %game_index, %operator_idx, "generating counterproof for graph");
     let prove_start = std::time::Instant::now();
     let counterproof_data = match output_handles.counterproof_host.clone() {
         BridgeCounterproofHost::Native(host) => {
@@ -123,6 +123,7 @@ async fn generate_counterproof(
     };
     info!(
         %deposit_idx,
+        %game_index,
         %operator_idx,
         elapsed = ?prove_start.elapsed(),
         "counterproof generated for graph",
