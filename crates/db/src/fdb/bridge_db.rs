@@ -309,6 +309,24 @@ impl BridgeDb for FdbClient {
         .await
     }
 
+    async fn get_or_set_stake_funding_reservation(
+        &self,
+        operator_idx: OperatorIdx,
+        reservation: StakeFundingReservation,
+    ) -> Result<FundingAssignment<StakeFundingReservation>, Self::Error> {
+        let assignment = self
+            .basic_get_or_set_assignment::<StakeFundingReservationRowSpec>(
+                StakeFundingReservationKey { operator_idx },
+                StakeFundingReservationValue(reservation),
+            )
+            .await?;
+
+        Ok(match assignment {
+            FundingAssignment::Created(value) => FundingAssignment::Created(value.0),
+            FundingAssignment::Existing(value) => FundingAssignment::Existing(value.0),
+        })
+    }
+
     async fn delete_stake_funding_reservation(
         &self,
         operator_idx: OperatorIdx,
@@ -1142,6 +1160,51 @@ mod tests {
                     .unwrap();
 
                 prop_assert_eq!(Some(reservation), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: stake funding reservation get-or-set preserves the first operator assignment.
+        #[test]
+        fn stake_funding_reservation_get_or_set_is_idempotent(
+            operator_idx in any::<OperatorIdx>(),
+            first_num_inputs in 1usize..4,
+            first_vout in 0u32..4,
+            second_num_inputs in 1usize..4,
+            second_vout in 0u32..4,
+        ) {
+            let first_reservation = make_reservation(first_num_inputs, first_vout);
+            let second_reservation = make_reservation(second_num_inputs, second_vout);
+            prop_assume!(first_reservation != second_reservation);
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .delete_stake_funding_reservation(operator_idx)
+                    .await
+                    .unwrap();
+
+                let first = client
+                    .get_or_set_stake_funding_reservation(
+                        operator_idx,
+                        first_reservation.clone(),
+                    )
+                    .await
+                    .unwrap();
+                let second = client
+                    .get_or_set_stake_funding_reservation(operator_idx, second_reservation)
+                    .await
+                    .unwrap();
+                let retrieved = client
+                    .get_stake_funding_reservation(operator_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(FundingAssignment::Created(first_reservation.clone()), first);
+                prop_assert_eq!(FundingAssignment::Existing(first_reservation.clone()), second);
+                prop_assert_eq!(Some(first_reservation), retrieved);
 
                 Ok(())
             })?;

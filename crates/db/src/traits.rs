@@ -152,6 +152,14 @@ pub trait BridgeDb {
         reservation: StakeFundingReservation,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
+    /// Returns the existing stake-funding reservation for `operator_idx`, or stores and returns
+    /// `reservation` when no assignment exists.
+    fn get_or_set_stake_funding_reservation(
+        &self,
+        operator_idx: OperatorIdx,
+        reservation: StakeFundingReservation,
+    ) -> impl Future<Output = Result<FundingAssignment<StakeFundingReservation>, Self::Error>> + Send;
+
     /// Deletes the [`StakeFundingReservation`] for the given operator.
     fn delete_stake_funding_reservation(
         &self,
