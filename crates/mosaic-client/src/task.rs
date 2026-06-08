@@ -58,13 +58,9 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
             debug!(count = snapshot.len(), "polling watched deposits");
 
             for (tableset_id, operator_idx, game_index) in snapshot {
-                let deposit_id = self.provider.resolve_deposit_id(game_index.get());
-                let rpc_deposit_id = deposit_id.into();
-                match self
-                    .rpc
-                    .get_deposit_status(tableset_id, rpc_deposit_id)
-                    .await
-                {
+                let game_id = self.provider.resolve_game_id(game_index);
+                let rpc_game_id = game_id.into();
+                match self.rpc.get_deposit_status(tableset_id, rpc_game_id).await {
                     Ok(Some(status)) => {
                         self.handle_watched_deposit_status(
                             tableset_id,

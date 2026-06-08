@@ -1,11 +1,11 @@
 use async_trait::async_trait;
-use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
+use strata_bridge_primitives::types::{GameIndex, OperatorIdx};
 use strata_mosaic_client_api::MosaicError;
 
 /// Identify a mosaic node using their network id.
 pub type PeerId = [u8; 32];
-/// Identify a deposit on mosaic.
-pub type DepositId = [u8; 32];
+/// Identify a game on mosaic.
+pub type GameId = [u8; 32];
 /// Pubkey as bytes.
 pub type PubkeyBytes = [u8; 32];
 
@@ -24,11 +24,11 @@ pub trait MosaicIdResolver: Send + Sync + 'static {
         operator_idx: OperatorIdx,
     ) -> Result<PubkeyBytes, MosaicError>;
 
-    /// Resolve deposit index to its mosaic deposit id.
-    /// Default: copies deposit idx as be bytes.
-    fn resolve_deposit_id(&self, deposit_idx: DepositIdx) -> DepositId {
-        let mut deposit_id = [0u8; 32];
-        deposit_id[28..].copy_from_slice(&deposit_idx.to_be_bytes());
-        deposit_id
+    /// Resolve game index to its mosaic game id.
+    /// Default: copies game index as be bytes.
+    fn resolve_game_id(&self, game_idx: GameIndex) -> GameId {
+        let mut game_id = [0u8; 32];
+        game_id[28..].copy_from_slice(&game_idx.get().to_be_bytes());
+        game_id
     }
 }

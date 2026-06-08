@@ -128,13 +128,13 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         game_index: GameIndex,
     ) -> Result<Option<PubKey>, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
-        let rpc_deposit_id = deposit_id.into();
+        let game_id = self.provider.resolve_game_id(game_index);
+        let rpc_game_id = game_id.into();
         let rpc = self.rpc.clone();
         let pubkey = retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
             async move {
-                rpc.evaluator_get_adaptor_pubkey(tableset_id, rpc_deposit_id)
+                rpc.evaluator_get_adaptor_pubkey(tableset_id, rpc_game_id)
                     .await
                     .map_err(MosaicError::rpc_error)
             }
@@ -152,9 +152,9 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         sighashes: DepositSighashes,
     ) -> Result<(), MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
+        let game_id = self.provider.resolve_game_id(game_index);
         let deposit_inputs: DepositInputs = game_index.get().to_le_bytes();
-        let rpc_deposit_id = deposit_id.into();
+        let rpc_game_id = game_id.into();
 
         // If the deposit is already initialized (e.g. after a bridge restart), mosaic rejects a
         // second init with `DuplicateDeposit`. Skip the init RPC in that case but still fall
@@ -166,7 +166,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         let preexisting_status = retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
             async move {
-                rpc.get_deposit_status(tableset_id, rpc_deposit_id)
+                rpc.get_deposit_status(tableset_id, rpc_game_id)
                     .await
                     .map_err(MosaicError::rpc_error)
             }
@@ -184,7 +184,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                 let rpc = rpc.clone();
                 let deposit_config = deposit_config.clone();
                 async move {
-                    rpc.init_evaluator_deposit(tableset_id, rpc_deposit_id, deposit_config)
+                    rpc.init_evaluator_deposit(tableset_id, rpc_game_id, deposit_config)
                         .await
                         .map_err(MosaicError::rpc_error)
                 }
@@ -199,7 +199,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         let status = retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
             async move {
-                rpc.get_deposit_status(tableset_id, rpc_deposit_id)
+                rpc.get_deposit_status(tableset_id, rpc_game_id)
                     .await
                     .map_err(MosaicError::rpc_error)
                     .and_then(|maybe_status| {
@@ -237,9 +237,9 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         adaptor_pubkey: PubKey,
     ) -> Result<(), MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Garbler, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
+        let game_id = self.provider.resolve_game_id(game_index);
         let deposit_inputs: DepositInputs = game_index.get().to_le_bytes();
-        let rpc_deposit_id = deposit_id.into();
+        let rpc_game_id = game_id.into();
 
         // If the deposit is already initialized (e.g. after a bridge restart), mosaic rejects a
         // second init with `DuplicateDeposit`. Skip the init RPC in that case and fall through to
@@ -249,7 +249,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         let preexisting_status = retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
             async move {
-                rpc.get_deposit_status(tableset_id, rpc_deposit_id)
+                rpc.get_deposit_status(tableset_id, rpc_game_id)
                     .await
                     .map_err(MosaicError::rpc_error)
             }
@@ -268,7 +268,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                 let rpc = rpc.clone();
                 let deposit_config = deposit_config.clone();
                 async move {
-                    rpc.init_garbler_deposit(tableset_id, rpc_deposit_id, deposit_config)
+                    rpc.init_garbler_deposit(tableset_id, rpc_game_id, deposit_config)
                         .await
                         .map_err(MosaicError::rpc_error)
                 }
@@ -283,7 +283,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         let status = retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
             async move {
-                rpc.get_deposit_status(tableset_id, rpc_deposit_id)
+                rpc.get_deposit_status(tableset_id, rpc_game_id)
                     .await
                     .map_err(MosaicError::rpc_error)
                     .and_then(|maybe_status| {
@@ -336,14 +336,14 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         game_index: GameIndex,
     ) -> Result<(), MosaicError> {
         let tableset_id = self.get_tableset_id(role, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
+        let game_id = self.provider.resolve_game_id(game_index);
 
         let rpc = self.rpc.clone();
-        let rpc_deposit_id = deposit_id.into();
+        let rpc_game_id = game_id.into();
         retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
             async move {
-                rpc.mark_deposit_withdrawn(tableset_id, rpc_deposit_id)
+                rpc.mark_deposit_withdrawn(tableset_id, rpc_game_id)
                     .await
                     .map_err(MosaicError::rpc_error)
             }
@@ -361,8 +361,8 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         counterproof: G16ProofRaw,
     ) -> Result<CompletedSignatures, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Garbler, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
-        let rpc_deposit_id = deposit_id.into();
+        let game_id = self.provider.resolve_game_id(game_index);
+        let rpc_game_id = game_id.into();
         let withdrawal_inputs: WithdrawalInputs = counterproof.0;
 
         let rpc = self.rpc.clone();
@@ -370,14 +370,14 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         retry_with(self.default_retry_strategy(), move || {
             let rpc = rpc.clone();
             async move {
-                rpc.complete_adaptor_sigs(tableset_id, rpc_deposit_id, rpc_withdrawal_inputs)
+                rpc.complete_adaptor_sigs(tableset_id, rpc_game_id, rpc_withdrawal_inputs)
                     .await
                     .map_err(MosaicError::rpc_error)
             }
         })
         .await?;
 
-        self.poll_until_consumed(tableset_id, deposit_id, operator_idx, Role::Garbler)
+        self.poll_until_consumed(tableset_id, game_id, operator_idx, Role::Garbler)
             .await?;
 
         let rpc = self.rpc.clone();
@@ -405,8 +405,8 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         tweak: Option<Tweak>,
     ) -> Result<Option<Signature>, MosaicError> {
         let tableset_id = self.get_tableset_id(Role::Evaluator, operator_idx).await?;
-        let deposit_id = self.provider.resolve_deposit_id(game_index.get());
-        let rpc_deposit_id = deposit_id.into();
+        let game_id = self.provider.resolve_game_id(game_index);
+        let rpc_game_id = game_id.into();
 
         let rpc = self.rpc.clone();
         let withdrawal_config = EvaluatorWithdrawalConfig {
@@ -417,7 +417,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
             let rpc = rpc.clone();
             let withdrawal_config = withdrawal_config.clone();
             async move {
-                rpc.evaluate_tableset(tableset_id, rpc_deposit_id, withdrawal_config)
+                rpc.evaluate_tableset(tableset_id, rpc_game_id, withdrawal_config)
                     .await
                     .map_err(MosaicError::rpc_error)
             }
@@ -425,7 +425,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         .await?;
 
         let success = self
-            .poll_until_consumed(tableset_id, deposit_id, operator_idx, Role::Evaluator)
+            .poll_until_consumed(tableset_id, game_id, operator_idx, Role::Evaluator)
             .await?;
 
         if !success {

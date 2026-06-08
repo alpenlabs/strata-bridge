@@ -5,8 +5,8 @@
 //! deposits, and event broadcasting.
 //!
 //! The client is generic over a [`MosaicIdResolver`] which resolves
-//! bridge-native identifiers (`OperatorIdx`, `DepositIdx`) to mosaic-native
-//! ones (`PeerId`, `DepositId`). All mosaic-specific input derivation
+//! bridge-native identifiers (`OperatorIdx`, `GameIndex`) to mosaic-native
+//! ones (`PeerId`, `GameId`). All mosaic-specific input derivation
 //! (setup inputs, deposit inputs, withdrawal inputs) is handled internally.
 //!
 //! # Usage
@@ -201,13 +201,13 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
     }
 
     /// Polls `get_tableset_status` in a loop until the tableset reaches the
-    /// `Consumed` state, validating the deposit ID at each step.
+    /// `Consumed` state, validating the game ID at each step.
     ///
     /// Returns the `success` flag from the `Consumed` variant.
     async fn poll_until_consumed(
         &self,
         tableset_id: RpcTablesetId,
-        expected_deposit_id: DepositId,
+        expected_game_id: GameId,
         operator_idx: OperatorIdx,
         role: Role,
     ) -> Result<bool, MosaicError> {
@@ -242,16 +242,16 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     continue;
                 }
                 RpcTablesetStatus::Contest { deposit } => {
-                    let actual_deposit_id: DepositId = deposit.into();
-                    if expected_deposit_id != actual_deposit_id {
+                    let actual_game_id: GameId = deposit.into();
+                    if expected_game_id != actual_game_id {
                         error!(
-                            expected = %hex::encode(expected_deposit_id),
-                            actual = %hex::encode(actual_deposit_id),
-                            "unexpected deposit_id being contested"
+                            expected = %hex::encode(expected_game_id),
+                            actual = %hex::encode(actual_game_id),
+                            "unexpected game_id being contested"
                         );
                         return Err(MosaicError::UnexpectedDepositContest {
-                            expected: hex::encode(expected_deposit_id),
-                            actual: hex::encode(actual_deposit_id),
+                            expected: hex::encode(expected_game_id),
+                            actual: hex::encode(actual_game_id),
                         });
                     }
                     debug!("waiting for transition from Contest");
@@ -259,16 +259,16 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     continue;
                 }
                 RpcTablesetStatus::Consumed { deposit, success } => {
-                    let actual_deposit_id: DepositId = deposit.into();
-                    if expected_deposit_id != actual_deposit_id {
+                    let actual_game_id: GameId = deposit.into();
+                    if expected_game_id != actual_game_id {
                         error!(
-                            expected = %hex::encode(expected_deposit_id),
-                            actual = %hex::encode(actual_deposit_id),
-                            "unexpected deposit_id consumed"
+                            expected = %hex::encode(expected_game_id),
+                            actual = %hex::encode(actual_game_id),
+                            "unexpected game_id consumed"
                         );
                         return Err(MosaicError::UnexpectedDepositContest {
-                            expected: hex::encode(expected_deposit_id),
-                            actual: hex::encode(actual_deposit_id),
+                            expected: hex::encode(expected_game_id),
+                            actual: hex::encode(actual_game_id),
                         });
                     }
                     info!("setup consumed; signed adaptors should be ready");
