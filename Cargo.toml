@@ -189,7 +189,7 @@ hex = { version = "0.4.3", features = ["serde"] }
 hkdf = "0.12.4"
 indexmap = "2.13.0"
 jsonrpsee = "0.26.0"
-jsonwebtoken = "9.3.0"
+jsonwebtoken = "10"
 libp2p = { version = "0.56.0", features = [
   "noise",
   "gossipsub",
