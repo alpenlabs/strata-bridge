@@ -27,7 +27,7 @@ use crate::{
         },
     },
     traits::BridgeDb,
-    types::{StakeFundingReservation, WriteBatch},
+    types::{FundingAssignment, StakeFundingReservation, WriteBatch},
 };
 
 impl BridgeDb for FdbClient {
@@ -188,6 +188,27 @@ impl BridgeDb for FdbClient {
         .await
     }
 
+    async fn get_or_set_claim_funding_outpoint(
+        &self,
+        graph_idx: GraphIdx,
+        outpoint: OutPoint,
+    ) -> Result<FundingAssignment<OutPoint>, Self::Error> {
+        let assignment = self
+            .basic_get_or_set_assignment::<ClaimFundingRowSpec>(
+                ClaimFundingKey {
+                    deposit_idx: graph_idx.deposit,
+                    operator_idx: graph_idx.operator,
+                },
+                ClaimFundingValue(outpoint),
+            )
+            .await?;
+
+        Ok(match assignment {
+            FundingAssignment::Created(value) => FundingAssignment::Created(value.0),
+            FundingAssignment::Existing(value) => FundingAssignment::Existing(value.0),
+        })
+    }
+
     async fn get_withdrawal_funding_outpoints(
         &self,
         deposit_idx: DepositIdx,
@@ -208,6 +229,24 @@ impl BridgeDb for FdbClient {
             WithdrawalFundingValue(outpoints),
         )
         .await
+    }
+
+    async fn get_or_set_withdrawal_funding_outpoints(
+        &self,
+        deposit_idx: DepositIdx,
+        outpoints: Vec<OutPoint>,
+    ) -> Result<FundingAssignment<Vec<OutPoint>>, Self::Error> {
+        let assignment = self
+            .basic_get_or_set_assignment::<WithdrawalFundingRowSpec>(
+                WithdrawalFundingKey { deposit_idx },
+                WithdrawalFundingValue(outpoints),
+            )
+            .await?;
+
+        Ok(match assignment {
+            FundingAssignment::Created(value) => FundingAssignment::Created(value.0),
+            FundingAssignment::Existing(value) => FundingAssignment::Existing(value.0),
+        })
     }
 
     async fn get_all_funds(&self) -> Result<Vec<OutPoint>, Self::Error> {
@@ -939,6 +978,47 @@ mod tests {
             })?;
         }
 
+        /// Property: claim funding outpoint get-or-set preserves the first graph assignment.
+        #[test]
+        fn claim_funding_outpoint_get_or_set_is_idempotent(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            first_outpoint in arb_outpoint(),
+            second_outpoint in arb_outpoint(),
+        ) {
+            prop_assume!(first_outpoint != second_outpoint);
+
+            let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .delete_claim_funding_outpoint(graph_idx)
+                    .await
+                    .unwrap();
+
+                let first = client
+                    .get_or_set_claim_funding_outpoint(graph_idx, first_outpoint)
+                    .await
+                    .unwrap();
+                let second = client
+                    .get_or_set_claim_funding_outpoint(graph_idx, second_outpoint)
+                    .await
+                    .unwrap();
+                let retrieved = client
+                    .get_claim_funding_outpoint(graph_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(FundingAssignment::Created(first_outpoint), first);
+                prop_assert_eq!(FundingAssignment::Existing(first_outpoint), second);
+                prop_assert_eq!(Some(first_outpoint), retrieved);
+
+                Ok(())
+            })?;
+        }
+
         /// Property: withdrawal funding outpoints can be stored/retrieved with the same deposit key.
         #[test]
         fn withdrawal_funding_outpoints_roundtrip(
@@ -959,6 +1039,48 @@ mod tests {
                     .unwrap();
 
                 prop_assert_eq!(Some(outpoints), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: withdrawal funding outpoints get-or-set preserves the first deposit assignment.
+        #[test]
+        fn withdrawal_funding_outpoints_get_or_set_is_idempotent(
+            deposit_idx in any::<DepositIdx>(),
+            first_outpoints in arb_outpoints(),
+            second_outpoints in arb_outpoints(),
+        ) {
+            prop_assume!(first_outpoints != second_outpoints);
+            let graph_idx = GraphIdx {
+                deposit: deposit_idx,
+                operator: 0,
+            };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .delete_withdrawal_funding_outpoints(graph_idx)
+                    .await
+                    .unwrap();
+
+                let first = client
+                    .get_or_set_withdrawal_funding_outpoints(deposit_idx, first_outpoints.clone())
+                    .await
+                    .unwrap();
+                let second = client
+                    .get_or_set_withdrawal_funding_outpoints(deposit_idx, second_outpoints)
+                    .await
+                    .unwrap();
+                let retrieved = client
+                    .get_withdrawal_funding_outpoints(deposit_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(FundingAssignment::Created(first_outpoints.clone()), first);
+                prop_assert_eq!(FundingAssignment::Existing(first_outpoints.clone()), second);
+                prop_assert_eq!(Some(first_outpoints), retrieved);
 
                 Ok(())
             })?;
