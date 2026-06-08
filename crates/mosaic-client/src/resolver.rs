@@ -14,8 +14,8 @@ pub type PubkeyBytes = [u8; 32];
 
 /// Decodes a mosaic [`RpcDepositId`] into a bridge [`GameIndex`].
 //
-// TODO(STR-3754): drop this once mosaic exposes `game_index: u32` directly.
-// https://alpenlabs.atlassian.net/browse/STR-3754
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-3754>
+// drop this once mosaic exposes `game_index: u32` directly.
 pub trait RpcDepositIdExt {
     /// Inverse of [`MosaicIdResolver::resolve_game_id`]'s default encoding.
     /// Panics if the encoded `u32` is zero.

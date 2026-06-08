@@ -203,8 +203,8 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
     /// Polls `get_tableset_status` until the tableset is `Consumed`, checking the game
     /// index at each step. Returns the `success` flag from the `Consumed` variant.
     //
-    // TODO(STR-3754): the Contest/Consumed `deposit` field will become a raw `game_index: u32`.
-    // https://alpenlabs.atlassian.net/browse/STR-3754
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-3754>
+    // the Contest/Consumed `deposit` field will become a raw `game_index: u32`.
     async fn poll_until_consumed(
         &self,
         tableset_id: RpcTablesetId,
