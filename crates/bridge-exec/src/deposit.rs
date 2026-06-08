@@ -432,14 +432,15 @@ async fn fulfill_withdrawal(
         });
     }
 
-    // Check if fee rate exceeds maximum configured rate
+    // Returning an error (rather than silently `Ok(())`-ing) keeps the duty failure visible in
+    // observability, matching how `stake::staking::estimate_funding_fee_rate` surfaces the same
+    // condition. The duty dispatcher retries; if the fee market stays above the cap the operator
+    // notices via the error log instead of a silent skip.
     if fee_rate > cfg.maximum_fee_rate {
-        warn!(
-            %fee_rate,
-            maximum_fee_rate = %cfg.maximum_fee_rate,
-            "fee rate exceeds maximum, skipping fulfillment"
-        );
-        return Ok(());
+        return Err(ExecutorError::FeeRateTooHigh {
+            fee_rate,
+            max: cfg.maximum_fee_rate,
+        });
     }
 
     info!(%deposit_idx, "pre-conditions satisfied, attempting to fulfill withdrawal request");
