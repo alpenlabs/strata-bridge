@@ -28,7 +28,7 @@ serde.workspace = true
 sha2.workspace = true
 terrors.workspace = true
 tokio.workspace = true
-toml = "0.8.19"
+toml = "1.1.2"
 tracing.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
