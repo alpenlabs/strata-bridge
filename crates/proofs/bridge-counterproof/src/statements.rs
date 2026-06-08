@@ -80,8 +80,8 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
 
     // 4: Commit public values.
     zkvm.commit_ssz(&CounterproofOutput {
-        game_idx,
         operator_pubkey,
+        game_idx,
     });
 }
 
