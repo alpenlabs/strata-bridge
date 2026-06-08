@@ -1,4 +1,7 @@
+use std::num::NonZero;
+
 use async_trait::async_trait;
+use mosaic_rpc_types::RpcDepositId;
 use strata_bridge_primitives::types::{GameIndex, OperatorIdx};
 use strata_mosaic_client_api::MosaicError;
 
@@ -8,6 +11,28 @@ pub type PeerId = [u8; 32];
 pub type GameId = [u8; 32];
 /// Pubkey as bytes.
 pub type PubkeyBytes = [u8; 32];
+
+/// Decodes a mosaic [`RpcDepositId`] into a bridge [`GameIndex`].
+//
+// TODO(STR-3754): drop this once mosaic exposes `game_index: u32` directly.
+// https://alpenlabs.atlassian.net/browse/STR-3754
+pub trait RpcDepositIdExt {
+    /// Inverse of [`MosaicIdResolver::resolve_game_id`]'s default encoding.
+    /// Panics if the encoded `u32` is zero.
+    fn into_game_index(self) -> GameIndex;
+}
+
+impl RpcDepositIdExt for RpcDepositId {
+    fn into_game_index(self) -> GameIndex {
+        let bytes: [u8; 32] = self.into();
+        let raw = u32::from_be_bytes(
+            bytes[28..32]
+                .try_into()
+                .expect("slice of 4 bytes is a [u8; 4]"),
+        );
+        GameIndex::from_nonzero(NonZero::new(raw).expect("mosaic invariant: game index is nonzero"))
+    }
+}
 
 /// Resolves bridge-internal indices to mosaic-native identifiers.
 ///

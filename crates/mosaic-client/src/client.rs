@@ -377,7 +377,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         })
         .await?;
 
-        self.poll_until_consumed(tableset_id, game_id, operator_idx, Role::Garbler)
+        self.poll_until_consumed(tableset_id, game_index, operator_idx, Role::Garbler)
             .await?;
 
         let rpc = self.rpc.clone();
@@ -425,7 +425,7 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         .await?;
 
         let success = self
-            .poll_until_consumed(tableset_id, game_id, operator_idx, Role::Evaluator)
+            .poll_until_consumed(tableset_id, game_index, operator_idx, Role::Evaluator)
             .await?;
 
         if !success {
