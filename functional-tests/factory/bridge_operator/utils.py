@@ -63,10 +63,13 @@ def generate_config_toml(
     rpc_pass = bitcoind_props.get("rpc_password", "password")
     zmq_host = bitcoind_props.get("zmq_host", "127.0.0.1")
 
+    nag_interval_secs = bridge_config_params.nag_interval_ms // 1000
+    nag_interval_nanos = (bridge_config_params.nag_interval_ms % 1000) * 1_000_000
+
     config = BridgeOperatorConfig(
         num_threads=None,
         thread_stack_size=None,
-        nag_interval=Duration(secs=bridge_config_params.nag_interval_secs, nanos=0),
+        nag_interval=Duration(secs=nag_interval_secs, nanos=nag_interval_nanos),
         retry_interval=Duration(secs=bridge_config_params.retry_interval_secs, nanos=0),
         min_withdrawal_fulfillment_window=bridge_config_params.min_withdrawal_fulfillment_window,
         shutdown_timeout=Duration(secs=30, nanos=0),
