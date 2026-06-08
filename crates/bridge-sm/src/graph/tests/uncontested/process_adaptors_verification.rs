@@ -58,11 +58,12 @@ mod tests {
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
 
-        // Duplicate event from AdaptorsVerified should produce a Duplicate error
+        // Duplicate event from AdaptorsVerified should produce a Rejected error
+        // for PoV operator (since they should not be sending this event)
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: seq.state().clone(),
             event: GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-            expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
     }
 
@@ -102,7 +103,7 @@ mod tests {
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: state,
             event: GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-            expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+            expected_error: |e| matches!(e, GSMError::Rejected { .. }),
         });
     }
 }
