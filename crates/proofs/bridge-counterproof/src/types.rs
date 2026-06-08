@@ -40,9 +40,9 @@ pub struct CounterproofInput {
 /// Public values committed by the counterproof.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct CounterproofOutput {
-    /// Echoed `game_idx` from the input.
-    pub game_idx: u32,
-
     /// Echoed operator master x-only pubkey.
     pub operator_pubkey: BitcoinXOnlyPublicKey,
+
+    /// Echoed `game_idx` from the input.
+    pub game_idx: u32,
 }
