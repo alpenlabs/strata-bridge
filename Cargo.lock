@@ -11969,7 +11969,6 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "async-trait",
- "hex",
  "mosaic-rpc-api",
  "mosaic-rpc-types",
  "strata-bridge-primitives",

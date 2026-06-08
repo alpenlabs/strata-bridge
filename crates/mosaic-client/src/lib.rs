@@ -200,14 +200,15 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Strategy::fixed_delay(self.retry_delay).with_max_retries(self.max_retries)
     }
 
-    /// Polls `get_tableset_status` in a loop until the tableset reaches the
-    /// `Consumed` state, validating the game ID at each step.
-    ///
-    /// Returns the `success` flag from the `Consumed` variant.
+    /// Polls `get_tableset_status` until the tableset is `Consumed`, checking the game
+    /// index at each step. Returns the `success` flag from the `Consumed` variant.
+    //
+    // TODO(STR-3754): the Contest/Consumed `deposit` field will become a raw `game_index: u32`.
+    // https://alpenlabs.atlassian.net/browse/STR-3754
     async fn poll_until_consumed(
         &self,
         tableset_id: RpcTablesetId,
-        expected_game_id: GameId,
+        expected_game_index: GameIndex,
         operator_idx: OperatorIdx,
         role: Role,
     ) -> Result<bool, MosaicError> {
@@ -241,34 +242,39 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
                     tokio::time::sleep(self.retry_delay).await;
                     continue;
                 }
-                RpcTablesetStatus::Contest { deposit } => {
-                    let actual_game_id: GameId = deposit.into();
-                    if expected_game_id != actual_game_id {
+                RpcTablesetStatus::Contest {
+                    deposit: game_index,
+                } => {
+                    let actual_game_index = game_index.into_game_index();
+                    if expected_game_index != actual_game_index {
                         error!(
-                            expected = %hex::encode(expected_game_id),
-                            actual = %hex::encode(actual_game_id),
-                            "unexpected game_id being contested"
+                            expected = %expected_game_index,
+                            actual = %actual_game_index,
+                            "unexpected game_index being contested"
                         );
                         return Err(MosaicError::UnexpectedDepositContest {
-                            expected: hex::encode(expected_game_id),
-                            actual: hex::encode(actual_game_id),
+                            expected: expected_game_index.to_string(),
+                            actual: actual_game_index.to_string(),
                         });
                     }
                     debug!("waiting for transition from Contest");
                     tokio::time::sleep(self.retry_delay).await;
                     continue;
                 }
-                RpcTablesetStatus::Consumed { deposit, success } => {
-                    let actual_game_id: GameId = deposit.into();
-                    if expected_game_id != actual_game_id {
+                RpcTablesetStatus::Consumed {
+                    deposit: game_index,
+                    success,
+                } => {
+                    let actual_game_index = game_index.into_game_index();
+                    if expected_game_index != actual_game_index {
                         error!(
-                            expected = %hex::encode(expected_game_id),
-                            actual = %hex::encode(actual_game_id),
-                            "unexpected game_id consumed"
+                            expected = %expected_game_index,
+                            actual = %actual_game_index,
+                            "unexpected game_index consumed"
                         );
                         return Err(MosaicError::UnexpectedDepositContest {
-                            expected: hex::encode(expected_game_id),
-                            actual: hex::encode(actual_game_id),
+                            expected: expected_game_index.to_string(),
+                            actual: actual_game_index.to_string(),
                         });
                     }
                     info!("setup consumed; signed adaptors should be ready");

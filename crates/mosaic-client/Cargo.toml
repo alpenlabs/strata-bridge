@@ -15,6 +15,5 @@ mosaic-rpc-api.workspace = true
 mosaic-rpc-types.workspace = true
 
 async-trait.workspace = true
-hex.workspace = true
 tokio.workspace = true
 tracing.workspace = true
