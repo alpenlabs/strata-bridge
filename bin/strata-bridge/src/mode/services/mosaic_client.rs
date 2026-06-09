@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use futures::future;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
@@ -139,10 +139,15 @@ pub(crate) async fn run_mosaic_setup(
 
     future::try_join_all(pairs.into_iter().map(|(idx, role)| async move {
         info!(%idx, ?role, "starting mosaic setup");
-        client.ensure_mosaic_setup(idx, role).await.map_err(|e| {
-            error!(%idx, ?role, %e, "mosaic setup failed");
-            anyhow!("mosaic setup failed for operator {idx} role {role:?}: {e}")
-        })?;
+        client
+            .ensure_mosaic_setup(idx, role)
+            .await
+            .inspect_err(|source| {
+                error!(%idx, ?role, err = %source, "mosaic setup failed");
+            })
+            .context(format!(
+                "mosaic setup failed for operator {idx} role {role}"
+            ))?;
         info!(%idx, ?role, "mosaic setup complete");
         Ok::<(), anyhow::Error>(())
     }))

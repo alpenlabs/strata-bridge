@@ -55,15 +55,15 @@ impl MosaicError {
 #[derive(Debug, thiserror::Error)]
 pub enum MosaicSetupError {
     /// The setup was explicitly aborted.
-    #[error("mosaic setup aborted: {0}")]
+    #[error("mosaic setup aborted: {0}; manual intervention required")]
     Aborted(String),
 
     /// The mosaic setup is missing.
-    #[error("mosaic setup missing: {0}|{1}")]
+    #[error("mosaic setup missing for operator {0} role {1}")]
     SetupMissing(OperatorIdx, Role),
 
     /// An RPC communication error during setup.
-    #[error("mosaic RPC error")]
+    #[error("mosaic setup RPC error: {0}")]
     RpcError(#[source] Box<dyn Error + Send + Sync + 'static>),
 }
 
