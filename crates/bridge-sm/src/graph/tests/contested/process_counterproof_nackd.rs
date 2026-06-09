@@ -221,7 +221,7 @@ fn final_nack_aborts_when_payout_connector_spent() {
         from_state,
         event: GraphEvent::CounterProofNackConfirmed(nack_event(SECOND_NONPOV_IDX)),
         expected_state: GraphState::Aborted {
-            claim_txid,
+            claim_txid: Some(claim_txid),
             reason: AbortReason::PayoutConnectorSpent {
                 spending_txid: connector_spending_txid,
             },

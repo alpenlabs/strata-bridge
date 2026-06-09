@@ -159,7 +159,7 @@ fn aborts_when_stake_already_spent() {
             counterprover_idx: TEST_NONPOV_IDX,
         }),
         expected_state: GraphState::Aborted {
-            claim_txid,
+            claim_txid: Some(claim_txid),
             reason: AbortReason::StakeSpent {
                 spending_txid: stake_spending_txid,
             },

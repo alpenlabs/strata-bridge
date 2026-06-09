@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bitcoin::{Transaction, Txid, hashes::Hash};
+use bitcoin::Transaction;
 use strata_bridge_primitives::{proof::verify_bridge_proof, types::OperatorIdx};
 use strata_bridge_tx_graph::{
     game_graph::{GameConnectors, GameGraphSummary},
@@ -307,7 +307,7 @@ impl GraphSM {
                 // abort directly instead of entering a state with no exit.
                 if let Some(spending_txid) = stake_spent {
                     self.state = GraphState::Aborted {
-                        claim_txid: graph_summary.claim,
+                        claim_txid: Some(graph_summary.claim),
                         reason: AbortReason::StakeSpent { spending_txid },
                     };
                     return Ok(GSMOutput::default());
@@ -346,7 +346,7 @@ impl GraphSM {
 
                 if let Some(spending_txid) = stake_spent {
                     self.state = GraphState::Aborted {
-                        claim_txid: graph_summary.claim,
+                        claim_txid: Some(graph_summary.claim),
                         reason: AbortReason::StakeSpent { spending_txid },
                     };
                     return Ok(GSMOutput::default());
@@ -436,7 +436,7 @@ impl GraphSM {
                     // directly instead of entering a state with no exit.
                     if let Some(spending_txid) = payout_connector_spent {
                         self.state = GraphState::Aborted {
-                            claim_txid: graph_summary.claim,
+                            claim_txid: Some(graph_summary.claim),
                             reason: AbortReason::PayoutConnectorSpent { spending_txid },
                         };
                         return Ok(GSMOutput::new());
@@ -537,7 +537,7 @@ impl GraphSM {
                 // directly instead of entering a state with no exit.
                 if let Some(spending_txid) = stake_spent {
                     self.state = GraphState::Aborted {
-                        claim_txid: graph_summary.claim,
+                        claim_txid: Some(graph_summary.claim),
                         reason: AbortReason::StakeSpent { spending_txid },
                     };
                     return Ok(GSMOutput::new());
@@ -602,12 +602,10 @@ impl GraphSM {
         // slash and unstake observations.
         if self.state.expected_slash_txid() == Some(spend_txid) {
             self.state = GraphState::Slashed {
-                // use a sentinel value if no claim exists.
-                // NOTE: (@Rajil1213) in practice, this should never happen
-                // but since this information is extracted from the state whose impl is not
-                // exhaustively checked here, we need to handle the possibility of missing claim
-                // txid.
-                claim_txid: self.state.claim_txid().unwrap_or(Txid::all_zeros()),
+                claim_txid: self
+                    .state
+                    .claim_txid()
+                    .expect("slashing states must have a claim txid"),
                 slash_txid: spend_txid,
             };
             return Ok(GSMOutput::new());
@@ -622,7 +620,7 @@ impl GraphSM {
             GraphState::BridgeProofTimedout { .. } | GraphState::Acked { .. }
         ) {
             self.state = GraphState::Aborted {
-                claim_txid: self.state.claim_txid().unwrap_or(Txid::all_zeros()),
+                claim_txid: self.state.claim_txid(),
                 reason: AbortReason::StakeSpent {
                     spending_txid: spend_txid,
                 },
@@ -635,7 +633,7 @@ impl GraphSM {
         // abort.
         if let Some(payout_connector_spending_txid) = self.state.payout_connector_spent_txid() {
             self.state = GraphState::Aborted {
-                claim_txid: self.state.claim_txid().unwrap_or(Txid::all_zeros()),
+                claim_txid: self.state.claim_txid(),
                 reason: AbortReason::Both {
                     stake_spending_txid: spend_txid,
                     payout_connector_spending_txid,
