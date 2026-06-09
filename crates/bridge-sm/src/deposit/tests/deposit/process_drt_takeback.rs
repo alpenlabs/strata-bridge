@@ -4,6 +4,7 @@ mod tests {
     use std::str::FromStr;
 
     use bitcoin::OutPoint;
+    use strata_bridge_test_utils::musig2::generate_agg_nonce;
 
     use crate::{
         deposit::{
@@ -12,8 +13,16 @@ mod tests {
             state::DepositState,
             tests::*,
         },
+        signals::{DepositSignal, DepositToGraph},
         testing::{fixtures::*, transition::*},
     };
+
+    fn deposit_request_taken_back_signal(takeback_txid: bitcoin::Txid) -> DepositSignal {
+        DepositSignal::ToGraph(DepositToGraph::DepositRequestTakenBack {
+            deposit_idx: TEST_DEPOSIT_IDX,
+            takeback_txid,
+        })
+    }
 
     #[test]
     fn test_drt_takeback_from_created() {
@@ -25,13 +34,14 @@ mod tests {
         };
 
         let tx = test_takeback_tx(outpoint);
+        let takeback_txid = tx.compute_txid();
 
         test_deposit_transition(DepositTransition {
             from_state: state,
             event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
             expected_state: DepositState::Aborted,
             expected_duties: vec![],
-            expected_signals: vec![],
+            expected_signals: vec![deposit_request_taken_back_signal(takeback_txid)],
         });
     }
 
@@ -46,12 +56,60 @@ mod tests {
         };
 
         let tx = test_takeback_tx(outpoint);
+        let takeback_txid = tx.compute_txid();
 
         let mut sm = create_sm(state);
         let result = sm.process_drt_takeback(UserTakeBackEvent { tx });
 
-        assert!(result.is_ok());
+        let output = result.expect("valid DRT takeback must abort DSM");
         assert_eq!(sm.state(), &DepositState::Aborted);
+        assert_eq!(output.duties, vec![]);
+        assert_eq!(
+            output.signals,
+            vec![deposit_request_taken_back_signal(takeback_txid)]
+        );
+    }
+
+    #[test]
+    fn test_drt_takeback_from_deposit_nonces_collected() {
+        let state = DepositState::DepositNoncesCollected {
+            deposit_transaction: test_deposit_txn(),
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            claim_txids: BTreeMap::new(),
+            agg_nonce: generate_agg_nonce(),
+            pubnonces: BTreeMap::new(),
+            partial_signatures: BTreeMap::new(),
+        };
+
+        let tx = test_takeback_tx(OutPoint::default());
+        let takeback_txid = tx.compute_txid();
+
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
+            expected_state: DepositState::Aborted,
+            expected_duties: vec![],
+            expected_signals: vec![deposit_request_taken_back_signal(takeback_txid)],
+        });
+    }
+
+    #[test]
+    fn test_drt_takeback_from_deposit_partials_collected() {
+        let state = DepositState::DepositPartialsCollected {
+            deposit_transaction: test_deposit_txn().as_ref().clone(),
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        let tx = test_takeback_tx(OutPoint::default());
+        let takeback_txid = tx.compute_txid();
+
+        test_deposit_transition(DepositTransition {
+            from_state: state,
+            event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
+            expected_state: DepositState::Aborted,
+            expected_duties: vec![],
+            expected_signals: vec![deposit_request_taken_back_signal(takeback_txid)],
+        });
     }
 
     #[test]
