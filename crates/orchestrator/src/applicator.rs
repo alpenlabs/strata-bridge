@@ -183,12 +183,17 @@ mod tests {
     use bitcoin::{Amount, OutPoint, hashes::sha256};
     use strata_bridge_primitives::types::GraphIdx;
     use strata_bridge_sm::{
-        deposit::events::{DepositEvent, NewBlockEvent as DepositNewBlock},
+        deposit::{
+            events::{DepositEvent, NewBlockEvent as DepositNewBlock, UserTakeBackEvent},
+            state::DepositState,
+        },
         graph::{
             context::GraphSMCtx,
             events::{GraphEvent, NewBlockEvent as GraphNewBlock},
+            state::{AbortReason, GraphState},
         },
     };
+    use strata_bridge_test_utils::bitcoin::generate_spending_tx;
     use strata_bridge_tx_graph::transactions::prelude::DepositData;
 
     use super::*;
@@ -362,6 +367,108 @@ mod tests {
         let (_, tracker) = applicator.finish();
         let batches = tracker.into_batches();
         assert!(!batches.is_empty());
+    }
+
+    #[test]
+    fn deposit_request_takeback_signal_aborts_all_deposit_graphs() {
+        let mut registry = test_populated_registry(2);
+        let deposit_idx = 0;
+        let takeback_tx =
+            generate_spending_tx(OutPoint::default(), &[vec![0u8; 64], vec![1u8; 32]]);
+        let takeback_txid = takeback_tx.compute_txid();
+
+        let mut applicator = Applicator::new(&mut registry);
+        applicator
+            .apply_batch(vec![(
+                SMId::Deposit(deposit_idx),
+                SMEvent::Deposit(Box::new(DepositEvent::UserTakeBack(UserTakeBackEvent {
+                    tx: takeback_tx,
+                }))),
+            )])
+            .unwrap();
+
+        assert_eq!(
+            applicator
+                .registry()
+                .get_deposit(&deposit_idx)
+                .expect("deposit SM must exist")
+                .state(),
+            &DepositState::Aborted,
+            "DRT takeback must abort deposit {deposit_idx}"
+        );
+
+        for operator in 0..N_TEST_OPERATORS as u32 {
+            let graph_idx = GraphIdx {
+                deposit: deposit_idx,
+                operator,
+            };
+            let graph_state = applicator
+                .registry()
+                .get_graph(&graph_idx)
+                .expect("graph SM must exist")
+                .state();
+
+            assert!(
+                matches!(
+                    graph_state,
+                    GraphState::Aborted {
+                        claim_txid: None,
+                        reason: AbortReason::DepositRequestTakenBack { spending_txid },
+                    } if *spending_txid == takeback_txid
+                ),
+                "expected graph {graph_idx:?} to abort from DRT takeback, got {graph_state:?}"
+            );
+        }
+
+        for operator in 0..N_TEST_OPERATORS as u32 {
+            let graph_idx = GraphIdx {
+                deposit: 1,
+                operator,
+            };
+            let graph_state = applicator
+                .registry()
+                .get_graph(&graph_idx)
+                .expect("other deposit graph SM must exist")
+                .state();
+            assert!(
+                matches!(graph_state, GraphState::Created { .. }),
+                "DRT takeback for deposit {deposit_idx} must not mutate graph {graph_idx:?}"
+            );
+        }
+
+        let (_, tracker) = applicator.finish();
+        let batches = tracker.into_batches();
+        assert_eq!(
+            batches.len(),
+            1,
+            "DRT takeback cascade must be persisted as one atomic batch"
+        );
+
+        let batch = &batches[0];
+        assert!(
+            batch.contains(&SMId::Deposit(deposit_idx)),
+            "persistence batch must include aborted deposit {deposit_idx}"
+        );
+        for operator in 0..N_TEST_OPERATORS as u32 {
+            let graph_idx = GraphIdx {
+                deposit: deposit_idx,
+                operator,
+            };
+            assert!(
+                batch.contains(&SMId::Graph(graph_idx)),
+                "persistence batch must include aborted graph {graph_idx:?}"
+            );
+        }
+        for operator in 0..N_TEST_OPERATORS as u32 {
+            let graph_idx = GraphIdx {
+                deposit: 1,
+                operator,
+            };
+            assert!(
+                !batch.contains(&SMId::Graph(graph_idx)),
+                "persistence batch must not include unaffected graph {graph_idx:?}"
+            );
+        }
     }
 
     #[test]
