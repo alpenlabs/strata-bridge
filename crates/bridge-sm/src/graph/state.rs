@@ -471,8 +471,9 @@ pub enum GraphState {
     /// dependencies has been consumed by something other than the
     /// expected transaction.
     Aborted {
-        /// The txid of the claim transaction associated with this reimbursement path.
-        claim_txid: Txid,
+        /// The txid of the claim transaction associated with this reimbursement path, if one
+        /// exists.
+        claim_txid: Option<Txid>,
 
         /// Why the graph was aborted, including the txid(s) of the
         /// triggering on-chain spend(s).
@@ -639,8 +640,9 @@ impl GraphState {
             | GraphState::AllNackd { claim_txid, .. }
             | GraphState::Acked { claim_txid, .. }
             | GraphState::Slashed { claim_txid, .. }
-            | GraphState::Aborted { claim_txid, .. }
             | GraphState::Withdrawn { claim_txid, .. } => Some(*claim_txid),
+
+            GraphState::Aborted { claim_txid, .. } => *claim_txid,
 
             GraphState::Created { .. } => None,
         }

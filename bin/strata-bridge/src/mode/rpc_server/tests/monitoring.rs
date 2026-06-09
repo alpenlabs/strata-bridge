@@ -992,12 +992,22 @@ fn reimbursement_status_reports_each_graph_state() {
         (
             "Aborted",
             GraphState::Aborted {
-                claim_txid,
+                claim_txid: Some(claim_txid),
                 reason: AbortReason::PayoutConnectorSpent {
                     spending_txid: generate_txid(),
                 },
             },
             RpcReimbursementStatus::Aborted { claim_txid },
+        ),
+        (
+            "AbortedWithoutClaim",
+            GraphState::Aborted {
+                claim_txid: None,
+                reason: AbortReason::PayoutConnectorSpent {
+                    spending_txid: generate_txid(),
+                },
+            },
+            RpcReimbursementStatus::NotStarted,
         ),
     ];
 

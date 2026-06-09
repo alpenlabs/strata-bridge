@@ -224,9 +224,15 @@ pub(super) const fn reimbursement_status(state: &GraphState) -> RpcReimbursement
         GraphState::Slashed { claim_txid, .. } => RpcReimbursementStatus::Slashed {
             claim_txid: *claim_txid,
         },
-        GraphState::Aborted { claim_txid, .. } => RpcReimbursementStatus::Aborted {
+        GraphState::Aborted {
+            claim_txid: Some(claim_txid),
+            ..
+        } => RpcReimbursementStatus::Aborted {
             claim_txid: *claim_txid,
         },
+        GraphState::Aborted {
+            claim_txid: None, ..
+        } => RpcReimbursementStatus::NotStarted,
         _ => RpcReimbursementStatus::NotStarted,
     }
 }

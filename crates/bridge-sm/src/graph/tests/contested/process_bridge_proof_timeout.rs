@@ -146,7 +146,7 @@ fn aborts_when_stake_already_spent_in_contested() {
             bridge_proof_timeout_block_height: u64::MAX,
         }),
         expected_state: GraphState::Aborted {
-            claim_txid,
+            claim_txid: Some(claim_txid),
             reason: AbortReason::StakeSpent {
                 spending_txid: stake_spending_txid,
             },
@@ -174,7 +174,7 @@ fn aborts_when_stake_already_spent_in_counterproof_posted() {
             bridge_proof_timeout_block_height: u64::MAX,
         }),
         expected_state: GraphState::Aborted {
-            claim_txid,
+            claim_txid: Some(claim_txid),
             reason: AbortReason::StakeSpent {
                 spending_txid: stake_spending_txid,
             },

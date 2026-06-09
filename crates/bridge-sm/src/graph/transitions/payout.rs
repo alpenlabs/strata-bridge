@@ -1,4 +1,4 @@
-use bitcoin::{Txid, hashes::Hash};
+use bitcoin::Txid;
 use tracing::{info, warn};
 
 use crate::{
@@ -215,7 +215,7 @@ impl GraphSM {
         // abort.
         if let Some(stake_spending_txid) = self.state.stake_spent_txid() {
             self.state = GraphState::Aborted {
-                claim_txid: self.state.claim_txid().unwrap_or(Txid::all_zeros()),
+                claim_txid: self.state.claim_txid(),
                 reason: AbortReason::Both {
                     stake_spending_txid,
                     payout_connector_spending_txid: spending_txid,
@@ -242,7 +242,7 @@ impl GraphSM {
         match self.state() {
             GraphState::AllNackd { .. } => {
                 self.state = GraphState::Aborted {
-                    claim_txid: self.state.claim_txid().unwrap_or(Txid::all_zeros()),
+                    claim_txid: self.state.claim_txid(),
                     reason: AbortReason::PayoutConnectorSpent { spending_txid },
                 };
                 Ok(GSMOutput::new())

@@ -693,7 +693,7 @@ mod tests {
                 0 => GraphState::Created { last_block_height: block_height },
                 1 => GraphState::Withdrawn { claim_txid: txid, payout_txid: txid },
                 2 => GraphState::Aborted {
-                    claim_txid: txid,
+                    claim_txid: Some(txid),
                     reason: AbortReason::PayoutConnectorSpent { spending_txid: txid },
                 },
                 _ => {

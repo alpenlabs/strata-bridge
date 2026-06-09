@@ -412,7 +412,7 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
             slash_txid: graph_summary.slash,
         },
         GraphState::Aborted {
-            claim_txid: graph_summary.claim,
+            claim_txid: Some(graph_summary.claim),
             reason: AbortReason::PayoutConnectorSpent {
                 spending_txid: generate_spending_tx(
                     OutPoint {
