@@ -242,6 +242,9 @@ fn prepare_replay(variant: GraphState) -> (GraphState, Transaction) {
             AbortReason::StakeSpent { .. } => {
                 panic!("classifier should not request replay for Aborted::StakeSpent")
             }
+            AbortReason::DepositRequestTakenBack { .. } => {
+                panic!("classifier should not request replay for Aborted::DepositRequestTakenBack")
+            }
         }
     }
 
