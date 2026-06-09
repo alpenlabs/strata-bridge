@@ -17,7 +17,7 @@ use crate::{
         machine::{DSMOutput, DepositSM},
         state::DepositState,
     },
-    signals::{DepositSignal, GraphToDeposit},
+    signals::{DepositSignal, DepositToGraph, GraphToDeposit},
     state_machine::{SMOutput, StateMutation},
 };
 
@@ -51,11 +51,17 @@ impl DepositSM {
         let is_different_tx = takeback.tx.compute_txid() != self.context().deposit_outpoint().txid;
 
         if spends_deposit_request && is_different_tx {
+            let takeback_txid = takeback.tx.compute_txid();
             self.state = DepositState::Aborted;
 
             return Ok(SMOutput {
                 duties: vec![],
-                signals: vec![],
+                signals: vec![DepositSignal::ToGraph(
+                    DepositToGraph::DepositRequestTakenBack {
+                        deposit_idx: self.context().deposit_idx,
+                        takeback_txid,
+                    },
+                )],
                 state_mutation: StateMutation::Mutated,
             });
         }
