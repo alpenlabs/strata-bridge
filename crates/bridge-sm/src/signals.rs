@@ -62,6 +62,13 @@ pub enum DepositToGraph {
         /// The index of the target graph for which the cooperative payout failed.
         graph_idx: GraphIdx,
     },
+    /// Indicates that the deposit request transaction was taken back by the user.
+    DepositRequestTakenBack {
+        /// The index of the deposit whose request transaction was taken back.
+        deposit_idx: DepositIdx,
+        /// The transaction that spent the deposit request output.
+        takeback_txid: Txid,
+    },
 }
 
 /// The signals that need to be sent from the Graph State Machine to the [Deposit State

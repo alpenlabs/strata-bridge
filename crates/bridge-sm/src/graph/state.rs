@@ -35,6 +35,11 @@ pub enum AbortReason {
         /// Txid of the transaction that consumed the stake outpoint.
         spending_txid: Txid,
     },
+    /// The deposit request transaction was taken back by the user.
+    DepositRequestTakenBack {
+        /// Txid of the transaction that consumed the deposit request output.
+        spending_txid: Txid,
+    },
     /// Both the payout connector and the stake outpoint have been consumed.
     Both {
         /// Txid of the transaction that consumed the payout connector.

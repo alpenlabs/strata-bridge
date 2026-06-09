@@ -28,6 +28,16 @@ pub fn route_signal(registry: &SMRegistry, signal: Signal) -> Vec<(SMId, SMEvent
                         .map(|graph_id| (graph_id.into(), event.clone()))
                         .collect()
                 }
+                msg @ DepositToGraph::DepositRequestTakenBack { deposit_idx, .. } => {
+                    let event: SMEvent = GraphEvent::DepositMessage(msg).into();
+
+                    registry
+                        .get_graph_ids()
+                        .into_iter()
+                        .filter(|id| id.deposit == deposit_idx)
+                        .map(|graph_id| (graph_id.into(), event.clone()))
+                        .collect()
+                }
             },
         },
 
@@ -119,6 +129,61 @@ mod tests {
             }
             other => panic!("expected Graph SM ID, got {other}"),
         }
+    }
+
+    #[test]
+    fn deposit_request_taken_back_routes_to_all_graphs_for_deposit() {
+        let registry = test_populated_registry(3);
+        let deposit_idx = 1;
+        let signal = Signal::FromDeposit(DepositSignal::ToGraph(
+            DepositToGraph::DepositRequestTakenBack {
+                deposit_idx,
+                takeback_txid: generate_txid(),
+            },
+        ));
+
+        let targets = route_signal(&registry, signal);
+
+        assert_eq!(targets.len(), 3);
+        let mut graph_ids: Vec<_> = targets
+            .into_iter()
+            .map(|(id, _event)| match id {
+                SMId::Graph(graph_idx) => graph_idx,
+                other => panic!("expected Graph SM ID, got {other}"),
+            })
+            .collect();
+        graph_ids.sort();
+        assert_eq!(
+            graph_ids,
+            vec![
+                GraphIdx {
+                    deposit: deposit_idx,
+                    operator: 0,
+                },
+                GraphIdx {
+                    deposit: deposit_idx,
+                    operator: 1,
+                },
+                GraphIdx {
+                    deposit: deposit_idx,
+                    operator: 2,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn deposit_request_taken_back_no_matching_deposit() {
+        let registry = test_populated_registry(1);
+        let signal = Signal::FromDeposit(DepositSignal::ToGraph(
+            DepositToGraph::DepositRequestTakenBack {
+                deposit_idx: 99,
+                takeback_txid: generate_txid(),
+            },
+        ));
+
+        let targets = route_signal(&registry, signal);
+        assert!(targets.is_empty());
     }
 
     #[test]

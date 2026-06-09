@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use strata_bridge_primitives::types::GraphIdx;
+use bitcoin::Txid;
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
 
 use crate::{
     graph::{
@@ -8,7 +9,7 @@ use crate::{
         duties::GraphDuty,
         errors::{GSMError, GSMResult},
         machine::{GSMOutput, GraphSM, generate_game_graph},
-        state::GraphState,
+        state::{AbortReason, GraphState},
     },
     signals::DepositToGraph,
 };
@@ -25,6 +26,64 @@ impl GraphSM {
                 assignee,
                 graph_idx,
             } => self.process_coop_payout_failed(cfg, assignee, graph_idx),
+            DepositToGraph::DepositRequestTakenBack {
+                deposit_idx,
+                takeback_txid,
+            } => self.process_deposit_request_taken_back(deposit_idx, takeback_txid),
+        }
+    }
+
+    /// Processes the user's deposit request takeback signal from the Deposit SM.
+    fn process_deposit_request_taken_back(
+        &mut self,
+        deposit_idx: DepositIdx,
+        takeback_txid: Txid,
+    ) -> GSMResult<GSMOutput> {
+        let event = DepositToGraph::DepositRequestTakenBack {
+            deposit_idx,
+            takeback_txid,
+        };
+
+        if self.context().graph_idx().deposit != deposit_idx {
+            return Err(GSMError::invalid_event(
+                self.state().clone(),
+                event.into(),
+                Some("deposit request takeback routed to graph for different deposit".to_string()),
+            ));
+        }
+
+        match self.state() {
+            GraphState::Created { .. }
+            | GraphState::GraphGenerated { .. }
+            | GraphState::AdaptorsVerified { .. }
+            | GraphState::NoncesCollected { .. }
+            | GraphState::GraphSigned { .. } => {
+                self.state = GraphState::Aborted {
+                    claim_txid: self.state.claim_txid(),
+                    reason: AbortReason::DepositRequestTakenBack {
+                        spending_txid: takeback_txid,
+                    },
+                };
+                Ok(GSMOutput::new())
+            }
+            state @ GraphState::Aborted {
+                reason:
+                    AbortReason::DepositRequestTakenBack {
+                        spending_txid: prior_txid,
+                    },
+                ..
+            } if *prior_txid == takeback_txid => {
+                Err(GSMError::duplicate(state.clone(), event.into()))
+            }
+            state => Err(GSMError::invalid_event(
+                state.clone(),
+                event.into(),
+                Some(
+                    "deposit request takeback after graph left pre-assignment requires explicit \
+                     reorg recovery"
+                        .to_string(),
+                ),
+            )),
         }
     }
 
