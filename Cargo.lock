@@ -11463,6 +11463,9 @@ name = "strata-bridge-exec"
 version = "0.1.0"
 dependencies = [
  "algebra",
+ "ark-ec",
+ "ark-ff 0.6.0",
+ "ark-secp256k1",
  "bdk_bitcoind_rpc",
  "bdk_wallet",
  "bitcoin",
@@ -11474,10 +11477,13 @@ dependencies = [
  "foundationdb",
  "futures",
  "jsonrpsee",
+ "mosaic-adaptor-sigs",
  "musig2",
  "operator-wallet",
+ "rand 0.8.5",
  "secret-service-client",
  "secret-service-proto",
+ "sp1-verifier",
  "ssz",
  "strata-asm-proto-bridge-v1",
  "strata-asm-proto-bridge-v1-txs",

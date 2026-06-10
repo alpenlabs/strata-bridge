@@ -28,6 +28,15 @@ CONTEST_PAYOUT_VOUT = 1
 CONTEST_WATCHTOWER_0_VOUT = 3
 COUNTERPROOF_ACK_NACK_VOUT = 0
 
+# Counterproof witness layout, mirrored from the Rust tx-graph/connectors crates.
+# The counterproof carries no proof data directly: each proof byte is encoded as one
+# completed adaptor signature checked by the `ContestCounterproofOutput` leaf script
+# (one per mosaic input wire: N_DEPOSIT_INPUT_WIRES=4 + N_WITHDRAWAL_INPUT_WIRES=128).
+# The witness additionally holds the N-of-N signature, leaf script, and control block.
+COUNTERPROOF_N_DATA = 4 + 128
+COUNTERPROOF_WITNESS_LEN = COUNTERPROOF_N_DATA + 3
+SCHNORR_SIG_LEN = 64
+
 # Bridge protocol params
 # Bridge supports this as u16, this is the max value
 MAX_BRIDGE_TIMEOUT = (1 << 16) - 1
