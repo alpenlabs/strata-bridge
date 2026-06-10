@@ -1,15 +1,15 @@
 //! Provides orchestrator initialization.
 
-use std::{num::NonZero, sync::Arc};
+use std::{cmp, num::NonZero, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use bitcoin::{FeeRate, relative};
 use bitcoind_async_client::Client as BitcoinClient;
-use btc_tracker::tx_driver::TxDriver;
+use btc_tracker::{client::BtcNotifyHealthEvent, tx_driver::TxDriver};
 use jsonrpsee::http_client::HttpClient;
 use libp2p_identity::ed25519::Keypair;
 use secret_service_client::SecretServiceClient;
-use strata_bridge_asm_events::client::AsmEventFeed;
+use strata_bridge_asm_events::client::{AsmEventFeed, AsmFeedHealthEvent};
 use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{
@@ -38,7 +38,18 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-use crate::{config::Config, mode::services::btc_client::init_zmq_client};
+use crate::{
+    config::Config,
+    constants::DEFAULT_HEALTH_PROBE_INTERVAL,
+    health::{
+        COMPONENT_ASM_ASSIGNMENT_FEED, COMPONENT_BITCOIN_ZMQ, COMPONENT_ORCHESTRATOR,
+        COMPONENT_TX_DRIVER, HealthRegistry,
+    },
+    mode::services::{
+        btc_client::init_zmq_client,
+        health_probes::{spawn_orchestrator_stale_monitor, spawn_tx_driver_probe},
+    },
+};
 
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn init_orchestrator<M>(
@@ -56,6 +67,7 @@ pub(crate) async fn init_orchestrator<M>(
     asm_rpc_client: HttpClient,
     fdb_client: Arc<FdbClient>,
     executor: &TaskExecutor,
+    health_registry: HealthRegistry,
 ) -> anyhow::Result<()>
 where
     M: MosaicClientApi + 'static,
@@ -79,7 +91,25 @@ where
         })
         .min()
         .unwrap_or(params.genesis_height);
-    let zmq_client = init_zmq_client(config, params.protocol.bury_depth, start_height).await?;
+    let zmq_health_registry = health_registry.clone();
+    let zmq_client = init_zmq_client(
+        config,
+        params.protocol.bury_depth,
+        start_height,
+        move |event| match event {
+            BtcNotifyHealthEvent::MessageReceived => {
+                zmq_health_registry.mark_ok(COMPONENT_BITCOIN_ZMQ, "message_received")
+            }
+            BtcNotifyHealthEvent::MessageError => {
+                zmq_health_registry.mark_unhealthy(COMPONENT_BITCOIN_ZMQ, "message_error")
+            }
+            BtcNotifyHealthEvent::StreamEnded => {
+                zmq_health_registry.mark_unhealthy(COMPONENT_BITCOIN_ZMQ, "stream_ended")
+            }
+        },
+    )
+    .await?;
+    health_registry.mark_ok(COMPONENT_BITCOIN_ZMQ, "client_connected");
 
     let (ouroboros_msg_sender, ouroboros_msg_receiver) = mpsc::unbounded_channel();
     let message_handler =
@@ -87,10 +117,19 @@ where
 
     debug!("initializing asm assignments feed");
     let asm_block_feed = zmq_client.subscribe_blocks().await;
-    let asm_feed = AsmEventFeed::new(asm_rpc_client.clone(), config.asm_rpc.clone());
+    let feed_health_registry = health_registry.clone();
+    let asm_feed = AsmEventFeed::new(asm_rpc_client.clone(), config.asm_rpc.clone())
+        .with_health_observer(move |event| match event {
+            AsmFeedHealthEvent::AssignmentsFetched => {
+                feed_health_registry.mark_ok(COMPONENT_ASM_ASSIGNMENT_FEED, "assignments_fetched")
+            }
+            AsmFeedHealthEvent::AssignmentsFetchFailed => feed_health_registry
+                .mark_unhealthy(COMPONENT_ASM_ASSIGNMENT_FEED, "assignments_fetch_failed"),
+        });
     let asm_feed = asm_feed.attach_block_stream(asm_block_feed);
     let assignments_sub = asm_feed.subscribe_assignments_state().await;
     info!("asm assignments feed initialized and subscribed to assignment events");
+    health_registry.mark_ok(COMPONENT_ASM_ASSIGNMENT_FEED, "assignments_subscribed");
 
     let orchestrator_block_sub = zmq_client.subscribe_blocks().await;
 
@@ -115,6 +154,13 @@ where
 
     let exec_cfg = build_exec_config(params, config, &sm_config, claim_funding_utxo_value);
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
+    let tx_driver_health = tx_driver.health_handle();
+    health_registry.mark_ok(COMPONENT_TX_DRIVER, "driver_initialized");
+    spawn_tx_driver_probe(
+        tx_driver_health,
+        DEFAULT_HEALTH_PROBE_INTERVAL,
+        health_registry.clone(),
+    );
     let bridge_proof_host = strata_bridge_proof::build_host(&config.bridge_proof).await?;
     let counterproof_host = strata_bridge_counterproof::build_host(&config.counterproof).await?;
     let output_handles = OutputHandles {
@@ -135,6 +181,9 @@ where
     let orchestrator_pipeline = Pipeline::new(events_mux, registry, persister, duty_dispatcher);
 
     debug!("starting orchestrator pipeline");
+    health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "pipeline_spawned");
+    spawn_orchestrator_stale_monitor(orchestrator_stale_after(config), health_registry.clone());
+    let pipeline_health_registry = health_registry.clone();
     executor.spawn_critical_async_with_shutdown("orchestrator", |shutdown_guard| async move {
         let pipeline = orchestrator_pipeline;
 
@@ -151,7 +200,11 @@ where
 
             // Handle pipeline completion (this should indicate an error as this is supposed to run indefinitely)
             pipeline_complete = tokio::task::spawn(async move {
-                pipeline.run(operator_table, start_height).await
+                pipeline
+                    .run_with_observer(operator_table, start_height, move || {
+                        pipeline_health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "event_processed");
+                    })
+                    .await
             }) => {
                 match pipeline_complete {
                     Ok(Ok(())) => {
@@ -159,10 +212,12 @@ where
                         Ok(())
                     }
                     Ok(Err(e)) => {
+                        health_registry.mark_unhealthy(COMPONENT_ORCHESTRATOR, "pipeline_failed");
                         error!(error=?e, "orchestrator pipeline failed");
                         Err(e.into())
                     }
                     Err(e) => {
+                        health_registry.mark_unhealthy(COMPONENT_ORCHESTRATOR, "pipeline_panicked");
                         error!(error=?e, "orchestrator pipeline task panicked");
                         Err(e.into())
                     }
@@ -173,6 +228,11 @@ where
     info!("orchestrator pipeline started");
 
     Ok(())
+}
+
+fn orchestrator_stale_after(config: &Config) -> Duration {
+    let base_interval = cmp::max(config.nag_interval, config.retry_interval);
+    base_interval.checked_mul(2).unwrap_or(base_interval)
 }
 
 pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {

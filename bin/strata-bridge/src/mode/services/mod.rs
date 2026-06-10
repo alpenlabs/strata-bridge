@@ -2,6 +2,7 @@
 
 pub(in crate::mode) mod asm_rpc;
 pub(in crate::mode) mod btc_client;
+pub(in crate::mode) mod health_probes;
 pub(in crate::mode) mod mosaic_client;
 pub(in crate::mode) mod operator_table;
 pub(in crate::mode) mod operator_wallet;

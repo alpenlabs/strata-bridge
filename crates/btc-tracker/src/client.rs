@@ -3,7 +3,9 @@
 //! Once the client is initialized, consumers of this API will create [`Subscription`]s with
 //! [`BtcNotifyClient::subscribe_blocks`] or [`BtcNotifyClient::subscribe_transactions`]. These
 //! subscription objects can be primarily worked with via their [`futures::Stream`] trait API.
-use std::{collections::VecDeque, error::Error, marker::PhantomData, sync::Arc, time::Duration};
+use std::{
+    collections::VecDeque, error::Error, fmt, marker::PhantomData, sync::Arc, time::Duration,
+};
 
 use algebra::retry::{retry_with, Strategy};
 use bitcoin::{Block, Transaction};
@@ -37,6 +39,36 @@ struct TxSubscriptionDetails {
     outbox: mpsc::UnboundedSender<TxEvent>,
 }
 
+/// Health events emitted by the Bitcoin ZMQ notification client.
+#[derive(Debug, Clone, Copy)]
+pub enum BtcNotifyHealthEvent {
+    /// The ZMQ stream delivered a message.
+    MessageReceived,
+
+    /// The ZMQ stream delivered an error.
+    MessageError,
+
+    /// The ZMQ stream ended.
+    StreamEnded,
+}
+
+#[derive(Clone)]
+struct HealthObserver(Arc<dyn Fn(BtcNotifyHealthEvent) + Send + Sync>);
+
+impl HealthObserver {
+    fn observe(&self, event: BtcNotifyHealthEvent) {
+        (self.0)(event);
+    }
+}
+
+impl fmt::Debug for HealthObserver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("HealthObserver")
+            .field(&"<callback>")
+            .finish()
+    }
+}
+
 // Coverage is disabled because when tests pass, most Debug impls will never be invoked.
 #[coverage(off)]
 impl std::fmt::Debug for TxSubscriptionDetails {
@@ -63,6 +95,7 @@ pub struct BtcNotifyClient<State = Disconnected> {
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     state_machine: Arc<Mutex<BtcNotifySM>>,
     thread_handle: Option<Arc<JoinHandle<()>>>,
+    health_observer: Option<HealthObserver>,
 
     _state: PhantomData<State>,
 }
@@ -121,6 +154,7 @@ impl BtcNotifyClient<Disconnected> {
             state_machine,
             thread_handle: None,
             start_height: None,
+            health_observer: None,
             _state: PhantomData,
         }
     }
@@ -196,6 +230,7 @@ impl BtcNotifyClient<Disconnected> {
         let tx_subs_thread = self.tx_subs.clone();
         let state_machine_thread = self.state_machine.clone();
         let fetcher = Arc::new(fetcher);
+        let health_observer = self.health_observer.clone();
 
         let mut cursor = start_height;
         let thread_handle = Arc::new(task::spawn(async move {
@@ -208,6 +243,9 @@ impl BtcNotifyClient<Disconnected> {
                     let mut sm = state_machine_thread.lock().await;
                     let diff = match res {
                         Ok(SocketMessage::Message(msg)) => {
+                            if let Some(observer) = &health_observer {
+                                observer.observe(BtcNotifyHealthEvent::MessageReceived);
+                            }
                             let topic = msg.topic_str();
                             match msg {
                                 Message::HashBlock(_, _) => {
@@ -318,10 +356,16 @@ impl BtcNotifyClient<Disconnected> {
                             }
                         }
                         Ok(monitoring_msg) => {
+                            if let Some(observer) = &health_observer {
+                                observer.observe(BtcNotifyHealthEvent::MessageReceived);
+                            }
                             warn!(?monitoring_msg, "ignoring monitoring message");
                             Vec::new()
                         }
                         Err(e) => {
+                            if let Some(observer) = &health_observer {
+                                observer.observe(BtcNotifyHealthEvent::MessageError);
+                            }
                             error!(%e, "Error processing ZMQ message");
                             Vec::new()
                         }
@@ -343,6 +387,11 @@ impl BtcNotifyClient<Disconnected> {
                         true
                     });
                 }
+
+                if let Some(observer) = &health_observer {
+                    observer.observe(BtcNotifyHealthEvent::StreamEnded);
+                }
+                break;
             }
         }));
 
@@ -356,8 +405,20 @@ impl BtcNotifyClient<Disconnected> {
             state_machine: self.state_machine.clone(),
             thread_handle: Some(thread_handle),
             start_height: Some(start_height),
+            health_observer: self.health_observer.clone(),
             _state: PhantomData,
         })
+    }
+}
+
+impl<State> BtcNotifyClient<State> {
+    /// Installs a synchronous health observer for Bitcoin ZMQ stream health.
+    pub fn with_health_observer(
+        mut self,
+        observer: impl Fn(BtcNotifyHealthEvent) + Send + Sync + 'static,
+    ) -> Self {
+        self.health_observer = Some(HealthObserver(Arc::new(observer)));
+        self
     }
 }
 
@@ -380,6 +441,7 @@ impl BtcNotifyClient<Connected> {
             state_machine: self.state_machine.clone(),
             thread_handle: None,
             start_height: None,
+            health_observer: self.health_observer.clone(),
             _state: PhantomData,
         }
     }
