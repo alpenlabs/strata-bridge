@@ -11,3 +11,6 @@ pub(crate) const DEFAULT_THREAD_STACK_SIZE: usize = 100 * 1024 * 1024;
 /// The rationale is to use 10 minutes since on every new block that the orchestrator scans,
 /// it refreshes the state.
 pub(crate) const DEFAULT_RPC_CACHE_REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
+
+/// Default interval for bridge component health probes.
+pub(crate) const DEFAULT_HEALTH_PROBE_INTERVAL: Duration = Duration::from_secs(60);
