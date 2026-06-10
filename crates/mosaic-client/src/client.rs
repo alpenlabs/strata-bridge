@@ -9,9 +9,9 @@ use strata_mosaic_client_api::{
     MosaicClientApi, MosaicError, MosaicEvent, MosaicSetupError, types::*,
 };
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
-use crate::{MosaicClient, MosaicIdResolver, util::make_setup_config};
+use crate::{MosaicClient, MosaicIdResolver, RpcDepositIdExt, util::make_setup_config};
 
 #[async_trait::async_trait]
 impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClientApi
@@ -351,6 +351,56 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         .await?;
 
         Ok(())
+    }
+
+    #[instrument(skip_all, fields(%operator_idx, %role, %game_index))]
+    async fn is_setup_available(
+        &self,
+        operator_idx: OperatorIdx,
+        role: Role,
+        game_index: GameIndex,
+    ) -> Result<bool, MosaicError> {
+        let tableset_id = self.get_tableset_id(role, operator_idx).await?;
+
+        let rpc = self.rpc.clone();
+        let status = retry_with(self.default_retry_strategy(), move || {
+            let rpc = rpc.clone();
+            async move {
+                rpc.get_tableset_status(tableset_id)
+                    .await
+                    .map_err(MosaicError::rpc_error)
+                    .and_then(|maybe_status| {
+                        maybe_status.ok_or_else(|| MosaicError::SetupMissing(operator_idx, role))
+                    })
+            }
+        })
+        .await?;
+
+        match status {
+            RpcTablesetStatus::SetupComplete => Ok(true),
+            RpcTablesetStatus::Contest { deposit } => {
+                let actual_game_index = deposit.into_game_index();
+                warn!(
+                    expected_game_index = %game_index,
+                    actual_game_index = %actual_game_index,
+                    "mosaic setup is already in contest processing"
+                );
+                Ok(false)
+            }
+            RpcTablesetStatus::Consumed { deposit, .. } => {
+                let actual_game_index = deposit.into_game_index();
+                warn!(
+                    expected_game_index = %game_index,
+                    actual_game_index = %actual_game_index,
+                    "mosaic setup is already consumed"
+                );
+                Ok(false)
+            }
+            RpcTablesetStatus::Incomplete { details } => Err(MosaicError::UnexpectedDepositState(
+                format!("mosaic setup incomplete: {details}"),
+            )),
+            RpcTablesetStatus::Aborted { reason } => Err(MosaicError::Aborted(reason)),
+        }
     }
 
     #[instrument(skip_all, fields(%operator_idx, %game_index))]
