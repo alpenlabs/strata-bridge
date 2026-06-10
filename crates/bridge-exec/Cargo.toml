@@ -42,6 +42,7 @@ borsh.workspace = true
 foundationdb.workspace = true
 futures.workspace = true
 jsonrpsee = { workspace = true, features = ["client"] }
+metrics.workspace = true
 musig2.workspace = true
 ssz.workspace = true
 terrors.workspace = true
