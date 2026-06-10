@@ -19,6 +19,9 @@ MOHO_VK_FILE = "moho-vk.json"
 # Deposit Transaction output indices
 DT_DEPOSIT_VOUT = 1  # Deposit funds locked in N/N taproot
 
+# Stake Transaction output indices
+STAKE_VOUT = 1  # Operator stake funds locked in N/N taproot
+
 # Game-graph tx output indices, mirrored from the Rust tx-graph crate.
 # Naming follows `<SOURCE_TX>_<OUTPUT>_VOUT`.
 CLAIM_CONTEST_VOUT = 0

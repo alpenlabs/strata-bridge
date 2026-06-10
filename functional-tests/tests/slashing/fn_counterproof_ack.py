@@ -4,6 +4,7 @@ from constants import (
     CONTEST_PAYOUT_VOUT,
     CONTEST_WATCHTOWER_0_VOUT,
     COUNTERPROOF_ACK_NACK_VOUT,
+    STAKE_VOUT,
 )
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
@@ -17,13 +18,21 @@ from utils.deposit import (
     wait_until_utxo_spent,
 )
 from utils.dev_cli import DevCli
+from utils.stake import (
+    assert_slash_spends_stake,
+    confirmed_stake_txid_for_operator,
+    wait_until_operator_slashed,
+)
 from utils.utils import (
     find_utxo_spender_txid,
     read_operator_key,
     wait_for_tx_confirmation,
     wait_until,
 )
-from utils.withdrawal import wait_until_active_valid_claim, wait_until_bridge_proof_posted
+from utils.withdrawal import (
+    wait_until_active_valid_claim,
+    wait_until_bridge_proof_posted,
+)
 
 
 @flexitest.register
@@ -47,6 +56,7 @@ class CounterproofAckTest(StrataTestBase):
        spending one of the contest's per-watchtower outputs). This rules out
        false positives where another tx (e.g. `contested_payout`) spends the
        contest payout output.
+    7. Verify the assigned operator is slashed and its stake output is spent.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -54,6 +64,7 @@ class CounterproofAckTest(StrataTestBase):
             contest_timelock=5,
             proof_timelock=100,  # ensure no proof timeout fires
             nack_timelock=5,
+            contested_payout_timelock=25,
             bridge_proof_predicate=ProofPredicate.NEVER_ACCEPT,
         )
         ctx.set_env(
@@ -127,8 +138,18 @@ class CounterproofAckTest(StrataTestBase):
             f"Claim tx {active_claim.claim_txid} confirmed in block {claim_block_hash}"
         )
 
+        assigned_idx = active_claim.assigned_operator
+        assigned_stake_txid = confirmed_stake_txid_for_operator(
+            bridge_rpc,
+            bitcoin_rpc,
+            assigned_idx,
+        )
+        self.logger.info(
+            f"Recorded assigned operator {assigned_idx} stake txid: {assigned_stake_txid}"
+        )
+
         # 3. Contest from a different operator (a watchtower).
-        contester_idx = (active_claim.assigned_operator + 1) % num_operators
+        contester_idx = (assigned_idx + 1) % num_operators
         contester_node = bridge_nodes[contester_idx]
         contester_rpc_url = f"http://127.0.0.1:{contester_node.props['rpc_port']}"
         contester_seed = read_operator_key(contester_idx).SEED
@@ -151,7 +172,7 @@ class CounterproofAckTest(StrataTestBase):
         # 5. Stop the assigned operator so it cannot publish a counterproof NACK; without
         # a NACK before `nack_timelock` matures, the counterprover's auto-published ACK
         # wins the race.
-        assigned_idx = active_claim.assigned_operator
+        monitor_rpc = bridge_rpcs[contester_idx]
         bridge_nodes[assigned_idx].stop()
         self.logger.info(f"Stopped op-{assigned_idx} so no counterproof NACK is published")
 
@@ -201,6 +222,17 @@ class CounterproofAckTest(StrataTestBase):
             f"(spends counterproof:{COUNTERPROOF_ACK_NACK_VOUT}="
             f"{counterproof_input_txid}:{counterproof_input_vout} + "
             f"contest:{CONTEST_PAYOUT_VOUT}; counterproof spends contest:{cp_in_vout})"
+        )
+
+        slashed_stake = wait_until_operator_slashed(monitor_rpc, assigned_idx)
+        assert slashed_stake.slash_txid is not None
+        assert_slash_spends_stake(bitcoin_rpc, assigned_stake_txid, slashed_stake.slash_txid)
+        self.logger.info(
+            "Assigned operator %s slashed by tx %s, spending stake output %s:%s",
+            assigned_idx,
+            slashed_stake.slash_txid,
+            assigned_stake_txid,
+            STAKE_VOUT,
         )
 
         return True
