@@ -1,5 +1,6 @@
 import flexitest
 
+from constants import STAKE_VOUT
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
@@ -12,12 +13,17 @@ from utils.deposit import (
     wait_until_utxo_spent,
 )
 from utils.dev_cli import DevCli
+from utils.stake import (
+    assert_slash_spends_stake,
+    confirmed_stake_txid_for_operator,
+    wait_until_operator_slashed,
+)
 from utils.utils import (
     read_operator_key,
     wait_for_tx_confirmation,
     wait_until,
 )
-from utils.withdrawal import wait_until_active_valid_claim
+from utils.withdrawal import wait_until_active_valid_claim, wait_until_bridge_proof_timedout
 
 
 @flexitest.register
@@ -31,12 +37,14 @@ class BridgeProofTimeoutTest(StrataTestBase):
     3. Shut down the assigned operator's bridge node so it can't post the bridge proof
     4. Publish a contest against the claim
     5. Wait for the claim phase to transition to bridge_proof_timedout
+    6. Verify the assigned operator is slashed and its stake output is spent
     """
 
     def __init__(self, ctx: flexitest.InitContext):
         self.bridge_protocol_params = BridgeProtocolParams(
             contest_timelock=5,
             proof_timelock=5,
+            contested_payout_timelock=15,
         )
         ctx.set_env(
             BridgeNetworkEnv(
@@ -115,15 +123,26 @@ class BridgeProofTimeoutTest(StrataTestBase):
             f"Claim tx {active_claim.claim_txid} confirmed in block {claim_block_hash}"
         )
 
-        # Shut down the assigned operator's node so it can't publish the bridge proof
         assigned_idx = active_claim.assigned_operator
+        assigned_stake_txid = confirmed_stake_txid_for_operator(
+            bridge_rpc,
+            bitcoin_rpc,
+            assigned_idx,
+        )
+        self.logger.info(
+            f"Recorded assigned operator {assigned_idx} stake txid: {assigned_stake_txid}"
+        )
+
+        contester_idx = (assigned_idx + 1) % num_operators
+        monitor_rpc = bridge_rpcs[contester_idx]
+
+        # Shut down the assigned operator's node so it can't publish the bridge proof
         self.logger.info(
             f"Stopping assigned operator {assigned_idx} to prevent bridge proof submission"
         )
         bridge_nodes[assigned_idx].stop()
 
         # Use a different operator's node to publish a contest
-        contester_idx = (active_claim.assigned_operator + 1) % num_operators
         contester_node = bridge_nodes[contester_idx]
         contester_rpc_url = f"http://127.0.0.1:{contester_node.props['rpc_port']}"
 
@@ -149,5 +168,18 @@ class BridgeProofTimeoutTest(StrataTestBase):
         # The assigned operator is shut down, so only the proof-timeout tx can spend it.
         wait_until_utxo_spent(bitcoin_rpc, contest_txid, vout=0, timeout=600)
         self.logger.info("Contest-proof connector spent (bridge proof timed out)")
+        wait_until_bridge_proof_timedout(monitor_rpc, active_claim.deposit_idx)
+        self.logger.info("Claim phase reached bridge_proof_timedout")
+
+        slashed_stake = wait_until_operator_slashed(monitor_rpc, assigned_idx)
+        assert slashed_stake.slash_txid is not None
+        assert_slash_spends_stake(bitcoin_rpc, assigned_stake_txid, slashed_stake.slash_txid)
+        self.logger.info(
+            "Assigned operator %s slashed by tx %s, spending stake output %s:%s",
+            assigned_idx,
+            slashed_stake.slash_txid,
+            assigned_stake_txid,
+            STAKE_VOUT,
+        )
 
         return True
