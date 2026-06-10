@@ -96,6 +96,11 @@ impl AnyOperatorWallet {
         delegate!(self, w => w.reserved_utxos_with_value(value))
     }
 
+    /// See [`OperatorWallet::reserved_utxo_at`].
+    pub fn reserved_utxo_at(&self, outpoint: OutPoint) -> Option<UtxoInfo> {
+        delegate!(self, w => w.reserved_utxo_at(outpoint))
+    }
+
     /// See [`OperatorWallet::reserve_utxo_with_value`].
     pub fn reserve_utxo_with_value(
         &mut self,
