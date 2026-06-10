@@ -41,7 +41,7 @@ jobs:
 
   run:
     name: Run ${{ matrix.test }} with real SP1 proving
-    runs-on: ubuntu-latest-m
+    runs-on: 16-core-runner
     needs: extract-rust-version
     timeout-minutes: 360
     strategy:
