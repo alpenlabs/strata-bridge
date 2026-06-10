@@ -14,7 +14,7 @@ use strata_bridge_counterproof::{
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
-use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES};
+use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Role};
 use tracing::{info, warn};
 #[cfg(feature = "sp1")]
 use zkaleido_sp1_groth16_verifier::Sp1Groth16Proof;
@@ -39,6 +39,25 @@ pub(super) async fn generate_and_publish_counterproof(
     bridge_proof_tx: Transaction,
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "generating and publishing counterproof for graph");
+
+    let setup_available = output_handles
+        .mosaic_client
+        .is_setup_available(operator_idx, Role::Garbler, game_index.into())
+        .await
+        .map_err(|e| {
+            warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to check mosaic setup availability");
+            ExecutorError::MosaicErr(format!("is_setup_available: {e:?}"))
+        })?;
+
+    if !setup_available {
+        warn!(
+            %deposit_idx,
+            %game_index,
+            %operator_idx,
+            "skipping counterproof generation because mosaic setup is unavailable",
+        );
+        return Ok(());
+    }
 
     let counterproof_data = generate_counterproof(
         cfg,
