@@ -105,6 +105,8 @@ class BridgeOperatorFactory(flexitest.Factory):
 
         # write bridge operator config
         config_toml_path = str((envdd_path / bridge_operator_name / "config.toml").resolve())
+        metrics_port = self.next_port() if bridge_config_params.prometheus_metrics else None
+        metrics_listener_addr = f"127.0.0.1:{metrics_port}" if metrics_port is not None else None
         # heartbeat delay decreases with operator index
         # so that first node tries to establish connections the last_cred_path
         # NOTE: (@Rajil1213) This assumes that the nodes are started in the order of their indices
@@ -123,6 +125,7 @@ class BridgeOperatorFactory(flexitest.Factory):
             mosaic_peers,
             mosaic_rpc,
             heartbeat_delay_factor,
+            metrics_listener_addr,
         )
 
         # write bridge operator params
@@ -149,6 +152,8 @@ class BridgeOperatorFactory(flexitest.Factory):
             "reserved_wallet_address": current_operator_key.RESERVED_WALLET,
             "general_wallet_address": current_operator_key.GENERAL_WALLET,
         }
+        if metrics_port is not None:
+            props["metrics_url"] = f"http://127.0.0.1:{metrics_port}"
 
         # env vars exported to the bridge binary process
         env = {
