@@ -11474,6 +11474,7 @@ dependencies = [
  "foundationdb",
  "futures",
  "jsonrpsee",
+ "metrics",
  "musig2",
  "operator-wallet",
  "secret-service-client",

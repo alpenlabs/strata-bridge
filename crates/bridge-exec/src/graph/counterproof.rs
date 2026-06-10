@@ -5,6 +5,7 @@ use std::num::NonZero;
 use bitcoin::{Amount, Network, ScriptBuf, Transaction, consensus, relative};
 use bitcoind_async_client::{error::ClientError, traits::Reader};
 use btc_tracker::event::TxStatus;
+use metrics::counter;
 use musig2::secp256k1::schnorr::Signature;
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
@@ -96,6 +97,8 @@ async fn generate_counterproof(
     game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
 ) -> Result<G16ProofRaw, ExecutorError> {
+    counter!("strata_bridge_counterproof_generation_attempts").increment(1);
+
     let proof_input = fetch_counterproof_input(
         cfg,
         output_handles,
