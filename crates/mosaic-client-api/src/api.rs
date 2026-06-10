@@ -114,6 +114,18 @@ pub trait MosaicClientApi: Send + Sync + 'static {
         game_index: GameIndex,
     ) -> Result<(), MosaicError>;
 
+    /// Returns whether the setup for the given operator and role can still enter contested
+    /// withdrawal processing for this game.
+    ///
+    /// `false` means mosaic reports the setup is already in contest processing or consumed, so
+    /// callers must not start work that depends on completing adaptor signatures with this setup.
+    async fn is_setup_available(
+        &self,
+        operator_idx: OperatorIdx,
+        role: Role,
+        game_index: GameIndex,
+    ) -> Result<bool, MosaicError>;
+
     /// Garbler side: completes adaptor signatures for a contested withdrawal.
     ///
     /// `operator_idx`: the remote operator in this setup.
