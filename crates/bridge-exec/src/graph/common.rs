@@ -33,6 +33,7 @@ use tracing::{error, info, warn};
 use super::utils::finalize_claim_funding_tx;
 use crate::{
     chain::{self, CpfpKind, is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
+    claim_funding,
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::OutputHandles,
@@ -149,6 +150,10 @@ async fn ensure_claim_funding_outpoint(
         return Ok(funding_outpoint);
     }
 
+    // Compute once per duty-firing from the current watchtower set on `cfg`; reused across the
+    // reserve/refill/post-refill-reserve path below so all of them target the same denomination.
+    let claim_funding_utxo_value = claim_funding::utxo_value(cfg);
+
     info!(?graph_idx, "fetching funding outpoint from wallet");
     let funding_outpoint = {
         let mut wallet = output_handles.wallet.write().await;
@@ -162,7 +167,7 @@ async fn ensure_claim_funding_outpoint(
         }
 
         match wallet
-            .reserve_utxo_with_value(cfg.claim_funding_utxo_value, predicate::never::<UtxoInfo>)
+            .reserve_utxo_with_value(claim_funding_utxo_value, predicate::never::<UtxoInfo>)
             .0
         {
             Some(outpoint) => outpoint,
@@ -177,7 +182,7 @@ async fn ensure_claim_funding_outpoint(
                 // batch, after which the post-refill `reserve_utxo_with_value` below would
                 // panic with nothing to hand out.
                 let current_pool_size = {
-                    let pool = wallet.reserved_utxos_with_value(cfg.claim_funding_utxo_value);
+                    let pool = wallet.reserved_utxos_with_value(claim_funding_utxo_value);
                     let leased = wallet.leased_outpoints();
                     pool.iter()
                         .filter(|u| !leased.contains(&u.outpoint))
@@ -185,7 +190,7 @@ async fn ensure_claim_funding_outpoint(
                 };
                 let batch_size = cfg.funding_uxto_pool_size.saturating_sub(current_pool_size);
                 let funded = wallet
-                    .create_reserved_utxos(fee::FEE_RATE, cfg.claim_funding_utxo_value, batch_size)
+                    .create_reserved_utxos(fee::FEE_RATE, claim_funding_utxo_value, batch_size)
                     .await
                     .map_err(|e| ExecutorError::WalletErr(format!("refill failed: {e}")))?;
                 finalize_claim_funding_tx(
@@ -199,10 +204,7 @@ async fn ensure_claim_funding_outpoint(
                     ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
                 })?;
                 wallet
-                    .reserve_utxo_with_value(
-                        cfg.claim_funding_utxo_value,
-                        predicate::never::<UtxoInfo>,
-                    )
+                    .reserve_utxo_with_value(claim_funding_utxo_value, predicate::never::<UtxoInfo>)
                     .0
                     .expect("funding utxos must be available after refill")
             }
@@ -558,7 +560,6 @@ pub(super) async fn publish_graph_partials(
 
 /// Publishes the claim transaction to Bitcoin.
 pub(super) async fn publish_claim(
-    cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     claim_tx: &ClaimTx,
 ) -> Result<(), ExecutorError> {
@@ -569,12 +570,17 @@ pub(super) async fn publish_claim(
         "signing claim transaction"
     );
 
+    // Look up the claim-funding UTXO by outpoint, NOT by current denomination: the graph cached
+    // its funding outpoint at construction time under whatever the denomination was then, and the
+    // current denomination — recomputed from the live watchtower set — can diverge if that set
+    // has changed since (the runtime entry/exit case `bridge_exec::claim_funding` is preparing
+    // for). Filtering by `reserved_utxos_with_value(current_denom)` would silently drop the
+    // older-denomination UTXO and panic the `expect` below.
+    let claim_outpoint = claim_tx.as_ref().input[0].previous_output;
     let claim_prevout: TxOut = {
         let wallet = output_handles.wallet.read().await;
         wallet
-            .reserved_utxos_with_value(cfg.claim_funding_utxo_value)
-            .into_iter()
-            .find(|utxo| utxo.outpoint == claim_tx.as_ref().input[0].previous_output)
+            .reserved_utxo_at(claim_outpoint)
             .expect("claim funding outpoint not found in wallet")
             .into()
     };

@@ -60,7 +60,6 @@ pub(crate) async fn init_orchestrator<M>(
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,
     wallet: Arc<RwLock<AnyOperatorWallet>>,
-    claim_funding_utxo_value: bitcoin::Amount,
     btc_rpc_client: BitcoinClient,
     asm_rpc_client: HttpClient,
     fdb_client: Arc<FdbClient>,
@@ -156,21 +155,11 @@ where
             .map_err(|e| anyhow!("failed to initialize cached fee source: {e}"))?,
     );
 
-    let exec_cfg = build_exec_config(
-        params,
-        config,
-        &sm_config,
-        claim_funding_utxo_value,
-        cached_fee_source.clone(),
-    );
-
-    // CPFP wiring: bundle the wallet / shared fee-source / package-submitter / anchor-signer
-    // adapters into a `CpfpContext` the tx-driver consumes in its bump loop.
-    //
-    // Fetch the operator's pubkeys up-front: needed both for the CPFP adapter
-    // (`operator_general_pubkey` is used as the foreign-UTXO `tap_internal_key` for
-    // `ParentTxCombined` strategies) and for `OutputHandles` (anchor inference key + caveat
-    // pubkeys for the publishing helper).
+    // Fetch the operator's pubkeys up-front: needed by the CPFP adapter
+    // (`operator_general_pubkey` is the foreign-UTXO `tap_internal_key` for `ParentTxCombined`
+    // strategies), by `OutputHandles` (anchor inference key + caveat pubkeys for the publishing
+    // helper), and by `ExecutionConfig::watchtower_musig2_keys` below (musig2-pubkey-as-self
+    // filter on the covenant set).
     let operator_musig2_pubkey = s2_client
         .musig2_signer()
         .pubkey()
@@ -204,6 +193,33 @@ where
                 operator_musig2_pubkey,
             )
         })?;
+
+    // Snapshot of the watchtower musig2 keys (every covenant entry except self). Stored on
+    // `ExecutionConfig` so the executors can recompute the claim-funding UTXO denomination per
+    // duty firing via `bridge_exec::claim_funding::utxo_value`, keeping it in lockstep with the
+    // current set rather than freezing a precomputed value at startup. Snapshotted today because
+    // operator entry/exit isn't a runtime event yet — when it lands, this field becomes the
+    // single point that needs to swap to a live handle.
+    let watchtower_musig2_keys: Arc<Vec<bitcoin::XOnlyPublicKey>> = Arc::new(
+        params
+            .keys
+            .covenant
+            .iter()
+            .map(|c| c.musig2)
+            .filter(|k| *k != operator_musig2_pubkey)
+            .collect(),
+    );
+
+    let exec_cfg = build_exec_config(
+        params,
+        config,
+        &sm_config,
+        watchtower_musig2_keys,
+        cached_fee_source.clone(),
+    );
+
+    // CPFP wiring: bundle the wallet / shared fee-source / package-submitter / anchor-signer
+    // adapters into a `CpfpContext` the tx-driver consumes in its bump loop.
 
     let cpfp_wallet = Arc::new(OperatorWalletCpfpAdapter::new(
         wallet.clone(),
@@ -369,7 +385,7 @@ fn build_exec_config(
     params: &Params,
     config: &Config,
     sm_config: &SMConfig,
-    claim_funding_utxo_value: bitcoin::Amount,
+    watchtower_musig2_keys: Arc<Vec<bitcoin::XOnlyPublicKey>>,
     fee_source: Arc<CachedFeeSource>,
 ) -> ExecutionConfig {
     ExecutionConfig {
@@ -379,8 +395,8 @@ fn build_exec_config(
         maximum_fee_rate: FeeRate::from_sat_per_vb(config.max_fee_rate).unwrap(),
         operator_fee: params.protocol.operator_fee,
         stake_amount: params.protocol.stake_amount,
-        claim_funding_utxo_value,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
+        watchtower_musig2_keys,
         graph_sm_cfg: sm_config.graph.clone(),
         fee_source,
     }
