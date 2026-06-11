@@ -24,7 +24,10 @@ mod tests {
             state::GraphState,
             tests::{mock_states::*, *},
         },
-        testing::fixtures::{TEST_DEPOSIT_IDX, test_operator_table},
+        testing::fixtures::{
+            TEST_DEPOSIT_IDX, test_fulfillment_tx_for_recipient, test_op_return_recipient_desc,
+            test_operator_table,
+        },
         tx_classifier::TxClassifier,
     };
 
@@ -211,6 +214,23 @@ mod tests {
             test_recipient_desc(1),
         ));
         let result = sm.classify_tx(&cfg, &test_fulfillment_tx(), LATER_BLOCK_HEIGHT);
+        assert!(
+            matches!(result, Some(GraphEvent::FulfillmentConfirmed(_))),
+            "expected Some(FulfillmentConfirmed) but got {result:?}"
+        );
+    }
+
+    #[test]
+    fn classify_tx_recognizes_op_return_fulfillment_in_assigned() {
+        let cfg = test_graph_sm_cfg();
+        let recipient_desc = test_op_return_recipient_desc();
+        let fulfillment_tx = test_fulfillment_tx_for_recipient(recipient_desc.clone());
+        let sm = create_sm(assigned_state(
+            TEST_ASSIGNEE,
+            LATER_BLOCK_HEIGHT + 15,
+            recipient_desc,
+        ));
+        let result = sm.classify_tx(&cfg, &fulfillment_tx, LATER_BLOCK_HEIGHT);
         assert!(
             matches!(result, Some(GraphEvent::FulfillmentConfirmed(_))),
             "expected Some(FulfillmentConfirmed) but got {result:?}"
