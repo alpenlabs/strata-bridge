@@ -1,7 +1,7 @@
 //! Module to generate transactions for testing.
 
 use bitcoin::{consensus, Address, Amount, OutPoint, Transaction, TxOut};
-use bitcoind_async_client::corepc_types::v29::{ListUnspent, SignRawTransactionWithWallet};
+use bitcoind_async_client::corepc_types::v30::{ListUnspent, SignRawTransactionWithWallet};
 use corepc_node::{serde_json, Client};
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
 
