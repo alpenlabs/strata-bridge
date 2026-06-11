@@ -8,6 +8,9 @@
 
 # --- SP1 bridge proving ---
 export BRIDGE_PROOF_SP1=${BRIDGE_PROOF_SP1:-1}
+# Build the bridge node (and dev-cli/secret-service) in release; run_test.sh builds
+# debug unless CARGO_DEBUG=0.
+export CARGO_DEBUG=${CARGO_DEBUG:-0}
 export SP1_PROVER=${SP1_PROVER:-network}              # mock | cpu | cuda | network
 export SP1_PROOF_STRATEGY=${SP1_PROOF_STRATEGY:-reserved}
 export NETWORK_RPC_URL=${NETWORK_RPC_URL:-https://rpc.production.succinct.xyz}
@@ -17,6 +20,11 @@ export NETWORK_PRIVATE_KEY=${NETWORK_PRIVATE_KEY:-}   # required for SP1_PROVER=
 # asm-runner's SP1 backend so the bridge verifies Groth16 proofs (Sp1Groth16 predicates).
 # Set 0 to fall back to native Schnorr attestations (Bip340Schnorr) for the ASM/Moho layer.
 export BRIDGE_PROOF_SP1_ASM=${BRIDGE_PROOF_SP1_ASM:-1}
+
+# Mosaic garbled circuit (absolute path). When set, the functional tests point every
+# operator's mosaic config at this circuit instead of the default
+# functional-tests/artifacts/mosaic_depositidx_ckt.v5c.
+export MOSAIC_CIRCUIT_PATH=${MOSAIC_CIRCUIT_PATH:-}
 
 # --- External regtest bitcoind (network-extbtc env) ---
 export BRIDGE_EXTERNAL_BITCOIN=${BRIDGE_EXTERNAL_BITCOIN:-1}

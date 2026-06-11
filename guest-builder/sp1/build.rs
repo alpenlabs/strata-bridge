@@ -97,7 +97,9 @@ mod release {
         let build_out_dir = Path::new(BRIDGE_PROOF_GUEST_DIR).join("build");
         let genesis_out_file = build_out_dir.join("genesis.bin");
 
-        let skip = std::env::var_os(SKIP_PARAMS_ENV).is_some();
+        // TODO(temp): always use bundled stub params; revert to the env-var check below.
+        let skip = true;
+        // let skip = std::env::var_os(SKIP_PARAMS_ENV).is_some();
         let asm_params_path = resolve_input(ASM_PARAMS_PATH_ENV, STUB_ASM_PARAMS, skip);
         let asm_vk_path = resolve_input(ASM_VK_PATH_ENV, STUB_ASM_VK, skip);
         let moho_vk_path = resolve_input(MOHO_VK_PATH_ENV, STUB_MOHO_VK, skip);

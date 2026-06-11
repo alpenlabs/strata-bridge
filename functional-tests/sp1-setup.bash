@@ -65,4 +65,7 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
     export BRIDGE_COUNTERPROOF_SP1_ELF="$(realpath guest-builder/sp1/elfs/counterproof.elf)"
     echo "SP1 ELF (bridge-proof):  $BRIDGE_PROOF_SP1_ELF (SP1_PROVER=$SP1_PROVER)"
     echo "SP1 ELF (counterproof): $BRIDGE_COUNTERPROOF_SP1_ELF"
+    if [ -n "$MOSAIC_CIRCUIT_PATH" ]; then
+        echo "Mosaic circuit: $MOSAIC_CIRCUIT_PATH"
+    fi
 fi

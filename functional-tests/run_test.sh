@@ -69,16 +69,17 @@ RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-bridge $CARGO_ARGS $BRIDGE_FEATU
 RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO_ARGS
 cargo build --bin dev-cli $CARGO_ARGS
 
-MOSAIC_REV=$(extract_cargo_rev mosaic-rpc-api)
-echo "installing mosaic (rev $MOSAIC_REV)"
+# LOCAL DEV ONLY: install mosaic from the local checkout instead of the pinned rev. Do not commit.
+MOSAIC_LOCAL_PATH="/Users/abishekbashyal/Codes/mosaic"
+echo "installing mosaic (local: $MOSAIC_LOCAL_PATH)"
 mkdir -p functional-tests/_dd/.bin
 CARGO_LOCAL_BIN=$(realpath "functional-tests/_dd/.bin")
 export PATH="$CARGO_LOCAL_BIN/bin:$PATH"
 RUSTFLAGS="" cargo install \
-    --git https://github.com/alpenlabs/mosaic \
-    --rev "$MOSAIC_REV" \
+    --path "$MOSAIC_LOCAL_PATH/bin/mosaic" \
     --features=reduced-circuits \
     --root "$CARGO_LOCAL_BIN" \
+    --force \
     mosaic
 
 # Real SP1 ASM/Moho proving needs the asm-runner's `sp1` feature (the Sp1 backend).

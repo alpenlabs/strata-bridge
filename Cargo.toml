@@ -256,6 +256,12 @@ zeroize = { version = "1.8.2", features = ["derive"] }
 # See NOTE on musig2 in [workspace.dependencies] above.
 musig2 = { git = "https://github.com/alpenlabs/musig2", branch = "fix/deserialization-mismatch" }
 
+# LOCAL DEV ONLY: use the local mosaic checkout instead of the pinned rev. Do not commit.
+[patch."https://github.com/alpenlabs/mosaic"]
+mosaic-common = { path = "/Users/abishekbashyal/Codes/mosaic/crates/common" }
+mosaic-rpc-api = { path = "/Users/abishekbashyal/Codes/mosaic/crates/rpc/api" }
+mosaic-rpc-types = { path = "/Users/abishekbashyal/Codes/mosaic/crates/rpc/types" }
+
 # This is needed for custom build of SP1
 [profile.release.build-override]
 opt-level = 3

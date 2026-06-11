@@ -1,6 +1,9 @@
 import flexitest
 
-from constants import CONTEST_WATCHTOWER_0_VOUT
+from constants import (
+    CONTEST_WATCHTOWER_0_VOUT,
+    COUNTERPROOF_ACK_NACK_VOUT,
+)
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
@@ -9,7 +12,8 @@ from rpc.types import RpcDepositStatusComplete
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
-    wait_until_drt_recognized,
+    wait_until_deposit_utxo_spent,
+    wait_until_drts_recognized,
     wait_until_utxo_spent,
 )
 from utils.dev_cli import DevCli
@@ -24,18 +28,30 @@ from utils.utils import (
 class CounterproofPublishedOnBridgeProofVerificationFailureTest(StrataTestBase):
     """
     Test that every watchtower publishes a counterproof when a dishonest operator
-    posts a faulty bridge proof.
+    posts a faulty bridge proof, and that the POV operator NACKs each counterproof.
 
     The dev-cli publish-bridge-proof handler embeds an empty ProofReceipt, which the
     watchtower rejects.
 
-    1. Complete a deposit.
-    2. Post a faulty claim via dev-cli from operator-0 (no assignment, no fulfillment).
+    Two deposits are created and the *second* one (deposit index 1) is contested. In
+    native proving mode the mosaic node runs the bundled "simple" garbled circuit whose
+    output is just the LSB of the deposit-input wire, and the bridge sets that wire to the
+    game index (`deposit_idx + 1`). The POV operator can only extract the fault secret
+    (and therefore sign the NACK) when that LSB is 0 — i.e. when the game index is even.
+    Deposit index 1 → game index 2 (even) satisfies this; deposit index 0 → game index 1
+    (odd) never would.
+
+    1. Complete two deposits.
+    2. Post a faulty claim for deposit index 1 via dev-cli from operator-0
+       (no assignment, no fulfillment).
     3. Wait for an honest watchtower to auto-contest.
     4. Post a faulty bridge proof via dev-cli from operator-0.
     5. Every watchtower auto-publishes a counterproof because verification of the
        empty proof fails. Verified by asserting every watchtower's counterproof
        output on the contest tx is spent.
+    6. The POV operator NACKs each counterproof and the contested payout sweeps the
+       deposit. Verified by asserting each counterproof's ack/nack output and the
+       deposit UTXO are spent.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -68,15 +84,35 @@ class CounterproofPublishedOnBridgeProofVerificationFailureTest(StrataTestBase):
             bridge_protocol_params=self.bridge_protocol_params,
         )
 
-        # 1. Complete a deposit.
-        drt_txid = dev_cli.send_deposit_request()
-        self.logger.info(f"Broadcasted DRT: {drt_txid}")
-        deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
-        self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")
+        # 1. Complete two deposits. Contest the second (index 1 → game index 2, even) so
+        # the POV operator's native-mode mosaic evaluation can extract the fault secret
+        # and sign the NACK.
+        contested_deposit_idx = 1
 
-        deposit_info = wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
-        assert deposit_info is not None, "Deposit did not complete"
-        self.logger.info("Deposit completed")
+        drt_txids = [dev_cli.send_deposit_request() for _ in range(2)]
+        for i, drt_txid in enumerate(drt_txids):
+            self.logger.info(f"Broadcasted DRT[{i}]: {drt_txid}")
+
+        deposit_ids = wait_until_drts_recognized(bridge_rpc, drt_txids)
+        self.logger.info(f"DRTs recognized, deposit_ids: {deposit_ids}")
+
+        # Complete both deposits. Capture the contested deposit's txid — that is the
+        # UTXO we expect to be swept at the end.
+        contested_deposit_txid = None
+        for deposit_id in sorted(deposit_ids):
+            deposit_info = wait_until_deposit_status(
+                bridge_rpc, deposit_id, RpcDepositStatusComplete
+            )
+            assert deposit_info is not None, f"Deposit {deposit_id} did not complete"
+            if deposit_id == contested_deposit_idx:
+                contested_deposit_txid = deposit_info.get("status").get("deposit_txid")
+        assert contested_deposit_txid is not None, (
+            f"contested deposit {contested_deposit_idx} did not complete"
+        )
+        self.logger.info("Both deposits completed")
+        self.logger.info(
+            f"Contesting deposit {contested_deposit_idx}, txid: {contested_deposit_txid}"
+        )
 
         # 2. Post a faulty claim via dev-cli from operator-0 (no assignment).
         dishonest_idx = 0
@@ -85,7 +121,7 @@ class CounterproofPublishedOnBridgeProofVerificationFailureTest(StrataTestBase):
         dishonest_seed = read_operator_key(dishonest_idx).SEED
 
         claim_txid = dev_cli.send_claim(
-            deposit_idx=0,
+            deposit_idx=contested_deposit_idx,
             operator_idx=dishonest_idx,
             bridge_node_url=dishonest_rpc_url,
             seed=dishonest_seed,
@@ -106,7 +142,7 @@ class CounterproofPublishedOnBridgeProofVerificationFailureTest(StrataTestBase):
 
         # 4. Post a faulty bridge proof via dev-cli from operator-0.
         bridge_proof_txid = dev_cli.send_bridge_proof(
-            deposit_idx=0,
+            deposit_idx=contested_deposit_idx,
             operator_idx=dishonest_idx,
             bridge_node_url=dishonest_rpc_url,
             seed=dishonest_seed,
@@ -124,13 +160,30 @@ class CounterproofPublishedOnBridgeProofVerificationFailureTest(StrataTestBase):
         )
 
         # 5. Every watchtower must publish its counterproof. The contest tx has one
-        # counterproof output per watchtower starting at WATCHTOWER_0_VOUT.
+        # counterproof output per watchtower starting at CONTEST_WATCHTOWER_0_VOUT.
+        # The POV operator then publishes a NACK that spends each counterproof's
+        # ack/nack output.
         num_watchtowers = num_operators - 1
         for slot in range(num_watchtowers):
             watchtower_vout = CONTEST_WATCHTOWER_0_VOUT + slot
             wait_until_utxo_spent(bitcoin_rpc, contest_txid, watchtower_vout, timeout=300)
-            self.logger.info(
-                f"Counterproof posted by watchtower slot {slot} (contest:{watchtower_vout} spent)"
+            counterproof_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, watchtower_vout)
+            self.logger.info(f"Watchtower slot {slot} counterproof tx: {counterproof_txid}")
+            wait_until_utxo_spent(
+                bitcoin_rpc,
+                counterproof_txid,
+                COUNTERPROOF_ACK_NACK_VOUT,
+                timeout=300,
             )
+            self.logger.info(
+                f"Counterproof {counterproof_txid} ack/nack output spent (NACK published)"
+            )
+
+        # 6. The ack/nack vout we checked above could've been spent by either an ACK or a
+        # NACK, so seeing it spent isn't enough on its own. Waiting for the deposit to get
+        # swept is what tells us the NACK actually fired — only the contested-payout path
+        # gets there.
+        wait_until_deposit_utxo_spent(bitcoin_rpc, contested_deposit_txid, timeout=450)
+        self.logger.info("Deposit UTXO confirmed spent after counterproof NACK + contested payout")
 
         return True

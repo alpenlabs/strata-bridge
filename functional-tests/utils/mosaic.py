@@ -1,4 +1,6 @@
 import json
+import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,5 +60,13 @@ def get_peer_ids(num_operators: int) -> list[str]:
 
 
 def get_circuit_path() -> str:
+    env_path = os.environ.get("MOSAIC_CIRCUIT_PATH")
+    if env_path:
+        if not os.path.isabs(env_path):
+            raise ValueError(f"MOSAIC_CIRCUIT_PATH must be an absolute path, got: {env_path}")
+        logging.info(f"mosaic circuit path (from MOSAIC_CIRCUIT_PATH): {env_path}")
+        return env_path
+
     abs_path = (Path(__file__).parent.parent / "artifacts" / "mosaic_depositidx_ckt.v5c").resolve()
+    logging.info(f"mosaic circuit path (default): {abs_path}")
     return str(abs_path)
