@@ -2,7 +2,7 @@
 
 use algebra::predicate;
 use bitcoin::{
-    Psbt, TapSighashType,
+    Psbt, TapSighashType, Witness,
     hashes::Hash,
     sighash::{Prevouts, SighashCache},
     taproot,
@@ -36,12 +36,25 @@ pub(super) async fn finalize_claim_funding_tx(
                 .expect("PSBT input from claim-funding refill always has witness_utxo")
         })
         .collect::<Vec<_>>();
+    // A "create-and-sign" backend (Fireblocks) returns the funding inputs already signed via
+    // `final_script_witness`; capture those before moving the unsigned tx. Inputs without one are
+    // the native descriptor-only backend's and get secret-service-signed below. Honouring this is
+    // the `GeneralWallet` signing contract — skip what the backend already signed.
+    let final_witnesses: Vec<Option<Witness>> = psbt
+        .inputs
+        .iter()
+        .map(|input| input.final_script_witness.clone())
+        .collect();
     let mut tx = psbt.unsigned_tx;
 
     let mut sighasher = SighashCache::new(&mut tx);
     let sighash_type = TapSighashType::Default;
     let prevouts = Prevouts::All(&txins_as_outs);
-    for input_index in 0..txins_as_outs.len() {
+    for (input_index, final_witness) in final_witnesses.iter().enumerate() {
+        if let Some(witness) = final_witness {
+            *sighasher.witness_mut(input_index).expect("an input here") = witness.clone();
+            continue;
+        }
         let sighash = sighasher
             .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
             .expect("failed to construct sighash");

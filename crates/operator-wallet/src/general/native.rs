@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use bdk_wallet::{
     bitcoin::{
         psbt::Input as PsbtInput, Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, Transaction,
-        TxOut, XOnlyPublicKey,
+        TxOut, Witness, XOnlyPublicKey,
     },
     descriptor,
     error::CreateTxError,
@@ -36,6 +36,10 @@ const TAPROOT_KEY_PATH_SAT_WEIGHT: usize = 66;
 pub struct NativeGeneralWallet {
     /// Cached at construction; the BDK descriptor doesn't change at runtime.
     script_pubkey: ScriptBuf,
+    /// The operator's general x-only key. Retained to derive the payout descriptor
+    /// (`new_p2tr(general_pubkey)`), which is the untweaked-key P2TR — distinct from the
+    /// BIP86-tweaked `script_pubkey` the BDK funding wallet watches.
+    general_pubkey: XOnlyPublicKey,
     wallet: Wallet,
     sync_backend: Backend,
 }
@@ -53,6 +57,7 @@ impl NativeGeneralWallet {
         let script_pubkey = address.script_pubkey();
         Self {
             script_pubkey,
+            general_pubkey,
             wallet,
             sync_backend,
         }
@@ -96,6 +101,13 @@ impl GeneralWallet for NativeGeneralWallet {
         self.script_pubkey.clone()
     }
 
+    fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
+        // Untweaked-key P2TR keyed to the operator's general key — matches the historical
+        // payout descriptor and the key the CPFP `ParentTxCombined` path signs with.
+        bitcoin_bosd::Descriptor::new_p2tr(&self.general_pubkey.serialize())
+            .expect("operator general x-only pubkey is a valid P2TR payload")
+    }
+
     fn list_utxos(&self) -> Vec<UtxoInfo> {
         let tip = self.wallet.latest_checkpoint().height();
         self.wallet
@@ -137,6 +149,17 @@ impl GeneralWallet for NativeGeneralWallet {
             target_pkg_fee_rate,
             exclude,
         )
+    }
+
+    async fn sign_owned_inputs(
+        &self,
+        _tx: &Transaction,
+        input_indices: &[usize],
+        _prevouts: &[TxOut],
+    ) -> Result<Vec<Option<Witness>>, Self::Error> {
+        // Descriptor-only: this backend holds no key material, so it signs nothing — the caller
+        // signs these inputs downstream via secret-service.
+        Ok(vec![None; input_indices.len()])
     }
 }
 

@@ -15,7 +15,7 @@
 use std::collections::BTreeSet;
 
 use bdk_wallet::{
-    bitcoin::{Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
+    bitcoin::{Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, Witness, XOnlyPublicKey},
     descriptor, KeychainKind, Wallet,
 };
 use tokio::time::sleep;
@@ -83,6 +83,14 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     /// Returns the general wallet's receive script.
     pub fn general_script_pubkey(&self) -> ScriptBuf {
         self.general.script_pubkey()
+    }
+
+    /// Returns the BOSD descriptor where bridge payouts to this operator should be directed.
+    /// Delegates to the backend so the destination matches the custodian that can spend it
+    /// (native general-key P2TR vs. Fireblocks vault P2WPKH). See
+    /// [`GeneralWallet::payout_descriptor`].
+    pub fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
+        self.general.payout_descriptor()
     }
 
     /// Returns the reserved wallet's receive script.
@@ -257,6 +265,22 @@ impl<G: GeneralWallet> OperatorWallet<G> {
                 Err(Error::from_general(e))
             }
         }
+    }
+
+    /// Signs the general-wallet-owned inputs of `tx` at `input_indices`. Returns a witness per
+    /// index for inputs the backend can sign (e.g. Fireblocks), or `None` for inputs the caller
+    /// must sign downstream (the native descriptor-only backend returns all `None`). See
+    /// [`GeneralWallet::sign_owned_inputs`]. `prevouts[i]` is the output spent by `tx.input[i]`.
+    pub async fn sign_owned_inputs(
+        &self,
+        tx: &Transaction,
+        input_indices: &[usize],
+        prevouts: &[TxOut],
+    ) -> Result<Vec<Option<Witness>>, Error> {
+        self.general
+            .sign_owned_inputs(tx, input_indices, prevouts)
+            .await
+            .map_err(Error::from_general)
     }
 
     // ── Cross-wallet (general → reserved) ──────────────────────────────────

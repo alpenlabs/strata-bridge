@@ -7,12 +7,16 @@
 //! filtering, cross-wallet transaction construction — lives on the composer
 //! [`crate::OperatorWallet<G>`] that wraps a `GeneralWallet`.
 
+#[cfg(feature = "fireblocks")]
+pub mod fireblocks;
 pub mod native;
 
 use std::error::Error as StdError;
 
 use bdk_wallet::{
-    bitcoin::{Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
+    bitcoin::{
+        Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Witness, XOnlyPublicKey,
+    },
     chain::ChainPosition,
 };
 
@@ -57,6 +61,20 @@ pub trait GeneralWallet: Send + Sync {
     /// Returns the receive script for this wallet. Stable across calls for native backends;
     /// may rotate for backends that mint fresh deposit addresses per call.
     fn script_pubkey(&self) -> ScriptBuf;
+
+    /// Returns the BOSD descriptor where bridge payouts to this operator should be directed.
+    ///
+    /// Backend-specific, because the operator must be able to *spend* what it receives:
+    /// - the native backend keys it to the operator's general x-only key as a P2TR output (spent
+    ///   later via the CPFP `ParentTxCombined` path with an untweaked key-path sig);
+    /// - a Fireblocks backend points it at the vault's P2WPKH address.
+    ///
+    /// This is the assignee's own choice in the cooperative-payout flow — peers honour
+    /// whatever descriptor is broadcast (`CooperativePayoutTx` builds the output via
+    /// `Descriptor::to_script`), so it need not match other operators' backends. Note this is
+    /// distinct from [`Self::script_pubkey`]: for the native backend the payout target is the
+    /// untweaked-key P2TR, whereas `script_pubkey` is the BIP86-tweaked funding address.
+    fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor;
 
     /// Returns every UTXO this wallet currently controls (confirmed and unconfirmed). The
     /// caller is responsible for filtering anchors, leases, and other domain-specific
@@ -107,6 +125,24 @@ pub trait GeneralWallet: Send + Sync {
         target_pkg_fee_rate: FeeRate,
         exclude: &[OutPoint],
     ) -> impl std::future::Future<Output = Result<FundedPsbt, Self::Error>> + Send;
+
+    /// Signs the wallet-owned inputs of `tx` at `input_indices`, returning a witness per index
+    /// for the inputs this backend holds key material for, or `None` for inputs the caller must
+    /// sign downstream (descriptor-only backends like the native wallet hold no keys and return
+    /// all `None`).
+    ///
+    /// `prevouts[i]` must be the output spent by `tx.input[i]` (indexed globally over all
+    /// inputs); signing backends read the relevant prevout's value + script to build the
+    /// sighash. This serves callers that build a transaction by hand — one with a non-wallet
+    /// input the funding helpers can't express (e.g. the unstaking-burn payout connector or the
+    /// persisted-then-resigned stake-funding reservation) — rather than via
+    /// [`Self::fund_v3_transaction`], which signs as it funds.
+    fn sign_owned_inputs(
+        &self,
+        tx: &Transaction,
+        input_indices: &[usize],
+        prevouts: &[TxOut],
+    ) -> impl std::future::Future<Output = Result<Vec<Option<Witness>>, Self::Error>> + Send;
 }
 
 /// A funded PSBT returned by [`GeneralWallet`] funding operations.

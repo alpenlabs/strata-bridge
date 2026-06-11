@@ -516,15 +516,30 @@ async fn fulfill_withdrawal(
     let sign_result: Result<Transaction, ExecutorError> = async {
         let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
 
+        // Collect one prevout per input, preserving index alignment for `Prevouts::All` (a
+        // `filter_map` that dropped an input would silently misalign every subsequent sighash).
+        // Every WFT input is wallet-funded, so `witness_utxo` is always populated.
         let prevouts: Vec<_> = wft_psbt
             .inputs
             .iter()
-            .filter_map(|input| input.witness_utxo.clone())
+            .map(|input| {
+                input
+                    .witness_utxo
+                    .clone()
+                    .expect("WFT PSBT input is wallet-funded and always carries witness_utxo")
+            })
             .collect();
         let prevouts = Prevouts::All(&prevouts);
 
         let mut signed_tx = wft_psbt.unsigned_tx.clone();
-        for (input_index, _) in wft_psbt.inputs.iter().enumerate() {
+        for (input_index, input) in wft_psbt.inputs.iter().enumerate() {
+            // A create-and-sign backend (Fireblocks) already populated this input's witness;
+            // use it verbatim. Otherwise it's a native descriptor-only input we sign via
+            // secret-service. (`GeneralWallet` signing contract — skip what the backend signed.)
+            if let Some(witness) = &input.final_script_witness {
+                signed_tx.input[input_index].witness = witness.clone();
+                continue;
+            }
             let msg = create_message_hash(
                 &mut sighash_cache,
                 prevouts.clone(),
@@ -620,18 +635,11 @@ async fn request_payout_nonces(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, "creating descriptor to request payout nonces");
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2668>
-    // Have the s2 client provide the descriptor directly instead of only the public key.
-    // Get the general wallet public key for the payout descriptor
-    let pubkey = output_handles
-        .s2_client
-        .general_wallet_signer()
-        .pubkey()
-        .await?;
-
-    // Create a P2TR descriptor for the payout address.
-    let descriptor = Descriptor::new_p2tr(&pubkey.serialize())
-        .map_err(|e| ExecutorError::WalletErr(format!("failed to create descriptor: {e}")))?;
+    // The payout destination is backend-supplied: the operator wallet knows where it can
+    // receive *and spend* funds (native general-key P2TR vs. Fireblocks vault P2WPKH). Peers
+    // honour whatever descriptor we broadcast, building the payout output via
+    // `Descriptor::to_script`.
+    let descriptor = output_handles.wallet.read().await.payout_descriptor();
 
     // Convert to PayoutDescriptor for P2P transmission
     let payout_descriptor: PayoutDescriptor = descriptor.into();

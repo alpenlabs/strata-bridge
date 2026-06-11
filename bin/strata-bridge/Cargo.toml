@@ -9,7 +9,7 @@ workspace = true
 [dependencies]
 algebra.workspace = true
 btc-tracker.workspace = true
-operator-wallet.workspace = true
+operator-wallet = { workspace = true, features = ["fireblocks"] }
 secret-service-client.workspace = true
 secret-service-proto.workspace = true
 strata-bridge-asm-events.workspace = true

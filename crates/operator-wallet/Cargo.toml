@@ -9,9 +9,30 @@ workspace = true
 [dependencies]
 bdk_bitcoind_rpc.workspace = true
 bdk_wallet.workspace = true
+bitcoin-bosd.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+# Fireblocks backend (optional; enabled via the `fireblocks` feature).
+hex = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+
+[features]
+default = []
+# Compiles the Fireblocks `GeneralWallet` backend and its REST/JWT/serde deps.
+fireblocks = [
+  "dep:hex",
+  "dep:jsonwebtoken",
+  "dep:reqwest",
+  "dep:serde",
+  "dep:serde_json",
+  "dep:sha2",
+]
 
 [dev-dependencies]
 bdk_wallet = { workspace = true, features = ["test-utils"] }

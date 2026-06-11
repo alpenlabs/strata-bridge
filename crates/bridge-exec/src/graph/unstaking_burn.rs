@@ -8,6 +8,7 @@ use bitcoin::{
 };
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
+use operator_wallet::AnyOperatorWallet;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnTx;
@@ -17,7 +18,7 @@ use crate::{
     chain::{CpfpKind, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
-    output_handles::{NativeWallet, OutputHandles},
+    output_handles::OutputHandles,
 };
 
 /// Index of the payout connector input in the unfunded burn template.
@@ -201,7 +202,7 @@ async fn burn_fee_rate(output_handles: &OutputHandles) -> Result<FeeRate, Execut
 ///   - general_wallet_output_value
 /// ```
 async fn select_funding(
-    wallet: &mut NativeWallet,
+    wallet: &mut AnyOperatorWallet,
     graph_idx: GraphIdx,
     unstaking_burn_tx: &UnstakingBurnTx,
     unstaking_preimage: [u8; 32],
@@ -365,10 +366,30 @@ async fn build_and_sign_tx(
 
     let prevouts = funded_burn.prevouts().to_vec();
     let mut signed_tx = funded_burn.finalize_partial(unstaking_preimage);
-    let wallet_signature = sign_wallet_input(output_handles, &signed_tx, &prevouts).await?;
-    signed_tx.input[WALLET_INPUT_INDEX]
-        .witness
-        .push(wallet_signature.to_vec());
+
+    // Sign the general-wallet funding input. A create-and-sign backend (Fireblocks) signs its
+    // P2WPKH input and returns the witness; the native descriptor-only backend returns `None`,
+    // and we sign the Taproot key-path via secret-service. (Sighashes don't depend on other
+    // inputs' witnesses, so computing over `signed_tx` after the connector is finalized is fine.)
+    let backend_witness = output_handles
+        .wallet
+        .read()
+        .await
+        .sign_owned_inputs(&signed_tx, &[WALLET_INPUT_INDEX], &prevouts)
+        .await
+        .map_err(|e| ExecutorError::WalletErr(format!("backend signing failed: {e}")))?
+        .into_iter()
+        .next()
+        .flatten();
+    match backend_witness {
+        Some(witness) => signed_tx.input[WALLET_INPUT_INDEX].witness = witness,
+        None => {
+            let wallet_signature = sign_wallet_input(output_handles, &signed_tx, &prevouts).await?;
+            signed_tx.input[WALLET_INPUT_INDEX]
+                .witness
+                .push(wallet_signature.to_vec());
+        }
+    }
 
     let final_vsize = signed_tx.vsize() as u64;
     let final_fee = plan
@@ -420,7 +441,9 @@ struct FeeEstimate {
 ///
 /// The estimate is derived from the actual transaction template: one payout connector input, one
 /// general-wallet input, and one output back to the general wallet. The connector witness is
-/// populated by `finalize_partial`; the wallet witness is modeled with a 64-byte Schnorr signature.
+/// populated by `finalize_partial`; the wallet witness is modeled to match the backend's receive
+/// script — a 73-byte DER signature + 33-byte pubkey for a P2WPKH (Fireblocks) input, or a 64-byte
+/// Schnorr signature for a P2TR (native) input.
 fn estimate_unstaking_burn_fee(
     unstaking_burn_tx: &UnstakingBurnTx,
     unstaking_preimage: [u8; 32],
@@ -442,12 +465,24 @@ fn estimate_unstaking_burn_fee(
         },
     );
 
-    // The connector witness is exact after `finalize_partial`; the general wallet witness is a
-    // fixed-size Schnorr signature, so a 64-byte dummy witness gives an exact vsize.
+    // The connector witness is exact after `finalize_partial`. The general-wallet input's
+    // witness shape depends on the backend: the native general wallet is P2TR (64-byte
+    // key-path Schnorr signature), Fireblocks is P2WPKH (DER signature + compressed pubkey).
+    // Model whichever the wallet uses (its receive `payout_script`) so the vsize estimate
+    // matches the signed transaction.
     let mut estimated_tx = unstaking_burn_tx.finalize_partial(unstaking_preimage);
-    estimated_tx.input[WALLET_INPUT_INDEX]
-        .witness
-        .push([0u8; 64]);
+    if payout_script.is_p2wpkh() {
+        estimated_tx.input[WALLET_INPUT_INDEX]
+            .witness
+            .push([0u8; 73]); // max DER signature + sighash-type byte
+        estimated_tx.input[WALLET_INPUT_INDEX]
+            .witness
+            .push([0u8; 33]); // compressed public key
+    } else {
+        estimated_tx.input[WALLET_INPUT_INDEX]
+            .witness
+            .push([0u8; 64]); // P2TR key-path Schnorr signature
+    }
 
     let vsize = estimated_tx.vsize() as u64;
     let fee = fee_rate
@@ -528,6 +563,7 @@ mod tests {
     use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnData;
 
     use super::*;
+    use crate::output_handles::NativeWallet;
 
     const TEST_GRAPH_IDX: GraphIdx = GraphIdx {
         deposit: 0,
@@ -560,7 +596,7 @@ mod tests {
         keypair.x_only_public_key().0
     }
 
-    fn wallet(bitcoind: &Node) -> NativeWallet {
+    fn wallet(bitcoind: &Node) -> AnyOperatorWallet {
         let general = NativeGeneralWallet::new(
             xonly_pubkey(1),
             Network::Regtest,
@@ -573,9 +609,10 @@ mod tests {
             Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
             BTreeSet::new(),
         )
+        .into()
     }
 
-    fn fund_general_wallet(bitcoind: &Node, wallet: &NativeWallet, amount: Amount) {
+    fn fund_general_wallet(bitcoind: &Node, wallet: &AnyOperatorWallet, amount: Amount) {
         let mining_address = bitcoind
             .client
             .new_address()
