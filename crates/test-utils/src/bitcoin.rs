@@ -15,7 +15,7 @@ use bitcoin::{
     Transaction, TxIn, TxMerkleNode, TxOut, Txid, Witness,
 };
 use bitcoind_async_client::{
-    corepc_types::v29::{ListUnspent, SignRawTransactionWithWallet},
+    corepc_types::v30::{ListUnspent, SignRawTransactionWithWallet},
     Auth, Client as BitcoinClient,
 };
 use corepc_node::{serde_json::json, Client, Node};
