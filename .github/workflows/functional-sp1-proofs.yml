@@ -200,6 +200,13 @@ jobs:
           cp functional-tests/sp1-env.bash.sample functional-tests/sp1-env.bash
           ./functional-tests/run_test.sh -t "functional-tests/tests/proofs/${TEST_FILE}.py"
 
+      # Surface the raw sp1_sdk::network::prover request block (cycle limit,
+      # gas limit, explorer URL, ...) on the run's summary page, pass or fail.
+      - name: Render SP1 proof request summary
+        env:
+          TEST_FILE: ${{ matrix.test }}
+        run: python3 .github/scripts/render_sp1_proof_summary.py
+
       - name: Zip log files on failure
         if: steps.funcTestsRun.outcome == 'failure'
         # Create a zip archive (logs.zip) that includes only service.log files,
