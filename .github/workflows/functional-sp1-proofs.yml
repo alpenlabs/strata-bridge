@@ -47,7 +47,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: [fn_bridge_proof] # TEMP: counterproof omitted while iterating
+        test: [fn_bridge_proof, fn_counterproof]
+        include:
+          - test: fn_bridge_proof
+            sp1-log-services: operator-0
+          - test: fn_counterproof
+            sp1-log-services: operator-1
     env:
       OPENSSL_VERSION: "3.5.0"
       OPENSSL_CACHE_VERSION: "v2"
@@ -205,6 +210,7 @@ jobs:
       - name: Render SP1 proof request summary
         env:
           TEST_FILE: ${{ matrix.test }}
+          SP1_LOG_SERVICES: ${{ matrix.sp1-log-services }}
         run: python3 .github/scripts/render_sp1_proof_summary.py
 
       - name: Zip log files on failure
