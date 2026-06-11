@@ -1,3 +1,4 @@
 self-hosted-runner:
   labels:
     - ubuntu-latest-m
+    - 16-core-runner
