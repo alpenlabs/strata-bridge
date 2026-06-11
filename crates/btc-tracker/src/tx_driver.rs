@@ -191,7 +191,7 @@ impl TxDriver {
                             continue;
                         }
 
-                        match rpc_client.send_raw_transaction(&rawtx_rpc_client).await {
+                        match rpc_client.send_raw_transaction(&rawtx_rpc_client, None).await {
                             Ok(txid) => {
                                 info!(%txid, "broadcasted transaction successfully");
                                 // only add subscriptions and jobs if the transaction was
@@ -224,7 +224,7 @@ impl TxDriver {
                         match event.status {
                             TxStatus::Unknown => {
                                 // Transaction has been evicted, resubmit and see what happens
-                                match rpc_client.send_raw_transaction(&event.rawtx).await {
+                                match rpc_client.send_raw_transaction(&event.rawtx, None).await {
                                     Ok(txid) => {
                                         /* NOOP, we good fam */
                                         info!(%txid, "resubmitted transaction successfully");

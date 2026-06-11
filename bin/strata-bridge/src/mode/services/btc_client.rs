@@ -23,7 +23,7 @@ pub(in crate::mode) fn init_btc_rpc_client(config: &Config) -> anyhow::Result<Bi
     BitcoinClient::new(
         config.btc_client.url.to_string(),
         auth,
-        config.btc_client.retry_count,
+        config.btc_client.retry_count.map(u16::from),
         config.btc_client.retry_interval,
         None,
     )
