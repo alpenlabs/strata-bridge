@@ -23,7 +23,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     config::OperatorWalletConfig,
-    general::{local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
+    general::{local_output_to_utxo_info, AnchorInfo, FundedPsbt, GeneralWallet, UtxoInfo},
     sync::Backend,
     Error,
 };
@@ -216,7 +216,12 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         Ok(funded)
     }
 
-    /// Builds a CPFP child for `parent` spending the anchor at `anchor_vout`.
+    /// Builds a CPFP child for `parent` spending the foreign-key output described by
+    /// `anchor` plus inputs from this wallet to cover the child's share of the package fee.
+    ///
+    /// `parent_fee` is the caller-known fee already paid by `parent`; the backend uses it
+    /// together with parent vbytes and `target_pkg_fee_rate` to compute the implied child
+    /// fee.
     ///
     /// `replacing`, when `Some`, identifies the funding outpoints of a prior child being
     /// replaced via RBF. Those outpoints are released from the lease set before
@@ -224,7 +229,8 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     pub async fn build_cpfp_child(
         &mut self,
         parent: &Transaction,
-        anchor_vout: u32,
+        parent_fee: Amount,
+        anchor: AnchorInfo,
         target_pkg_fee_rate: FeeRate,
         replacing: Option<&[OutPoint]>,
     ) -> Result<FundedPsbt, Error> {
@@ -234,7 +240,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         let exclude = self.exclude_anchors_and_leases();
         match self
             .general
-            .build_cpfp_child(parent, anchor_vout, target_pkg_fee_rate, &exclude)
+            .build_cpfp_child(parent, parent_fee, anchor, target_pkg_fee_rate, &exclude)
             .await
         {
             Ok(funded) => {

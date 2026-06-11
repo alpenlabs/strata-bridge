@@ -11,8 +11,14 @@
 
 mod chain;
 pub mod config;
+pub mod cpfp_adapters;
 pub mod deposit;
 pub mod errors;
 pub mod graph;
 pub mod output_handles;
 pub mod stake;
+
+#[cfg(test)]
+use bdk_bitcoind_rpc as _;
+#[cfg(test)]
+use serial_test as _;
