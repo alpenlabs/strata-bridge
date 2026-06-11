@@ -200,6 +200,46 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Strategy::fixed_delay(self.retry_delay).with_max_retries(self.max_retries)
     }
 
+    async fn read_tableset_status(
+        &self,
+        tableset_id: RpcTablesetId,
+        operator_idx: OperatorIdx,
+        role: Role,
+    ) -> Result<RpcTablesetStatus, MosaicError> {
+        let rpc = self.rpc.clone();
+        retry_with(self.default_retry_strategy(), move || {
+            let rpc = rpc.clone();
+            async move {
+                rpc.get_tableset_status(tableset_id)
+                    .await
+                    .map_err(MosaicError::rpc_error)
+                    .and_then(|maybe_status| {
+                        maybe_status.ok_or_else(|| MosaicError::SetupMissing(operator_idx, role))
+                    })
+            }
+        })
+        .await
+    }
+
+    async fn read_completed_adaptor_sigs(
+        &self,
+        tableset_id: RpcTablesetId,
+    ) -> Result<CompletedSignatures, MosaicError> {
+        let rpc = self.rpc.clone();
+        let completed_sigs = retry_with(self.default_retry_strategy(), move || {
+            let rpc = rpc.clone();
+            async move {
+                rpc.get_completed_adaptor_sigs(tableset_id)
+                    .await
+                    .map_err(MosaicError::rpc_error)
+            }
+        })
+        .await?
+        .into();
+
+        Ok(completed_sigs)
+    }
+
     /// Polls `get_tableset_status` until the tableset is `Consumed`, checking the game
     /// index at each step. Returns the `success` flag from the `Consumed` variant.
     //
@@ -213,20 +253,9 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         role: Role,
     ) -> Result<bool, MosaicError> {
         loop {
-            let rpc = self.rpc.clone();
-            let status = retry_with(self.default_retry_strategy(), move || {
-                let rpc = rpc.clone();
-                async move {
-                    rpc.get_tableset_status(tableset_id)
-                        .await
-                        .map_err(MosaicError::rpc_error)
-                        .and_then(|maybe_status| {
-                            maybe_status
-                                .ok_or_else(|| MosaicError::SetupMissing(operator_idx, role))
-                        })
-                }
-            })
-            .await?;
+            let status = self
+                .read_tableset_status(tableset_id, operator_idx, role)
+                .await?;
 
             match status {
                 RpcTablesetStatus::Incomplete { details } => {

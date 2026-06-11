@@ -114,6 +114,20 @@ pub trait MosaicClientApi: Send + Sync + 'static {
         game_index: GameIndex,
     ) -> Result<(), MosaicError>;
 
+    /// Returns whether the setup for the given operator and role can be used for contested
+    /// withdrawal processing for this game.
+    ///
+    /// `true` means the setup is either fresh enough to enter contested withdrawal processing or
+    /// was already consumed for this same game and its consumed result can be reused. `false`
+    /// means mosaic reports the setup is in contest processing, or consumed by another game, so
+    /// callers must not start fresh counterproof generation with this setup.
+    async fn is_setup_available(
+        &self,
+        operator_idx: OperatorIdx,
+        role: Role,
+        game_index: GameIndex,
+    ) -> Result<bool, MosaicError>;
+
     /// Garbler side: completes adaptor signatures for a contested withdrawal.
     ///
     /// `operator_idx`: the remote operator in this setup.
@@ -127,6 +141,24 @@ pub trait MosaicClientApi: Send + Sync + 'static {
         game_index: GameIndex,
         counterproof: G16ProofRaw,
     ) -> Result<CompletedSignatures, MosaicError>;
+
+    /// Returns completed adaptor signatures from a garbler tableset that was already consumed
+    /// for this game.
+    ///
+    /// `operator_idx`: the remote operator in this setup.
+    ///
+    /// Returns `Some` only when mosaic reports the garbler tableset as `Consumed` for the same
+    /// `game_index`. This lets callers retry counterproof publication after a crash that happened
+    /// after signature completion but before the counterproof transaction was broadcast, without
+    /// recomputing the counterproof.
+    ///
+    /// Returns `None` when the setup is not yet consumed, or when it was consumed by a different
+    /// game.
+    async fn get_completed_adaptor_sigs(
+        &self,
+        operator_idx: OperatorIdx,
+        game_index: GameIndex,
+    ) -> Result<Option<CompletedSignatures>, MosaicError>;
 
     /// Evaluator side: evaluates the tableset to extract the fault secret
     /// and signs the given digest.

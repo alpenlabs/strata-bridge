@@ -5,6 +5,7 @@ use std::num::NonZero;
 use bitcoin::{Amount, Network, ScriptBuf, Transaction, consensus, relative};
 use bitcoind_async_client::{error::ClientError, traits::Reader};
 use btc_tracker::event::TxStatus;
+use metrics::counter;
 use musig2::secp256k1::schnorr::Signature;
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
@@ -13,7 +14,7 @@ use strata_bridge_counterproof::{
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
-use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES};
+use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Role};
 use tracing::{info, warn};
 #[cfg(feature = "sp1")]
 use zkaleido_sp1_groth16_verifier::Sp1Groth16Proof;
@@ -23,9 +24,9 @@ use crate::{
     output_handles::OutputHandles,
 };
 
-/// Generates the counterproof, completes adaptor signatures via mosaic,
-/// assembles the witness with the pre-computed N-of-N signature, and publishes
-/// the counterproof transaction to Bitcoin.
+/// Generates the counterproof or reuses already-completed adaptor signatures, assembles the
+/// witness with the pre-computed N-of-N signature, and publishes the counterproof transaction to
+/// Bitcoin.
 #[expect(clippy::too_many_arguments)]
 pub(super) async fn generate_and_publish_counterproof(
     cfg: &ExecutionConfig,
@@ -39,26 +40,63 @@ pub(super) async fn generate_and_publish_counterproof(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "generating and publishing counterproof for graph");
 
-    let counterproof_data = generate_counterproof(
-        cfg,
-        output_handles,
-        deposit_idx,
-        operator_idx,
-        game_index,
-        bridge_proof_tx,
-    )
-    .await?;
-
-    // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
-    info!(%deposit_idx, %game_index, %operator_idx, "completing adaptor signatures via mosaic for graph");
-    let completed_sigs = output_handles
+    let completed_sigs = if let Some(completed_sigs) = output_handles
         .mosaic_client
-        .complete_adaptor_sigs(operator_idx, game_index.into(), counterproof_data)
+        .get_completed_adaptor_sigs(operator_idx, game_index.into())
         .await
         .map_err(|e| {
-            warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to complete adaptor sigs for counterproof");
-            ExecutorError::MosaicErr(format!("complete_adaptor_sigs: {e:?}"))
-        })?;
+            warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to get completed adaptor sigs for counterproof");
+            ExecutorError::MosaicErr(format!("get_completed_adaptor_sigs: {e:?}"))
+        })?
+    {
+        info!(
+            %deposit_idx,
+            %game_index,
+            %operator_idx,
+            "reusing completed adaptor signatures for counterproof",
+        );
+        completed_sigs
+    } else {
+        let setup_available = output_handles
+            .mosaic_client
+            .is_setup_available(operator_idx, Role::Garbler, game_index.into())
+            .await
+            .map_err(|e| {
+                warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to check mosaic setup availability");
+                ExecutorError::MosaicErr(format!("is_setup_available: {e:?}"))
+            })?;
+
+        if !setup_available {
+            warn!(
+                %deposit_idx,
+                %game_index,
+                %operator_idx,
+                "skipping counterproof generation because mosaic setup is unavailable",
+            );
+            return Ok(());
+        }
+
+        let counterproof_data = generate_counterproof(
+            cfg,
+            output_handles,
+            deposit_idx,
+            operator_idx,
+            game_index,
+            bridge_proof_tx,
+        )
+        .await?;
+
+        // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
+        info!(%deposit_idx, %game_index, %operator_idx, "completing adaptor signatures via mosaic for graph");
+        output_handles
+            .mosaic_client
+            .complete_adaptor_sigs(operator_idx, game_index.into(), counterproof_data)
+            .await
+            .map_err(|e| {
+                warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to complete adaptor sigs for counterproof");
+                ExecutorError::MosaicErr(format!("complete_adaptor_sigs: {e:?}"))
+            })?
+    };
 
     // The counterproof leaf script expects one operator signature per byte of counterproof
     // data (n_data = N_DEPOSIT + N_WITHDRAWAL wires), so we need ALL completed adaptor sigs.
@@ -96,6 +134,8 @@ async fn generate_counterproof(
     game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
 ) -> Result<G16ProofRaw, ExecutorError> {
+    counter!("strata_bridge_counterproof_generation_attempts").increment(1);
+
     let proof_input = fetch_counterproof_input(
         cfg,
         output_handles,

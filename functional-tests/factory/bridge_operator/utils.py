@@ -21,6 +21,7 @@ from .config_cfg import (
     DbConfig,
     Duration,
     FdbRetryConfig,
+    MetricsConfig,
     MosaicConfig,
     OperatorWalletConfig,
     P2pConfig,
@@ -51,6 +52,7 @@ def generate_config_toml(
     mosaic_peers: list[str],
     mosaic_rpc: str,
     heartbeat_delay_factor: int = 1,  # no delay by default
+    metrics_listener_addr: str | None = None,
 ):
     mtls_dir = Path(tls_dir)
     total_peers = len(other_p2p_addrs) + 1  # +1 for self
@@ -145,6 +147,11 @@ def generate_config_toml(
         ),
         bridge_proof=_build_bridge_proof_config(),
         counterproof=_build_counterproof_config(),
+        metrics=(
+            MetricsConfig(prometheus_listener_addr=metrics_listener_addr)
+            if metrics_listener_addr
+            else None
+        ),
     )
 
     with open(output_path, "w") as f:

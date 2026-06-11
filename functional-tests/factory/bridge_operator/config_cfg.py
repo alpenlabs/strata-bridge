@@ -95,12 +95,19 @@ class MosaicConfig:
 
 
 @dataclass
+class MetricsConfig:
+    otlp_url: str | None = None
+    prometheus_listener_addr: str | None = None
+
+
+@dataclass
 class BridgeConfigParams:
     min_withdrawal_fulfillment_window: int = 144
     cooperative_payout_timeout: int = 144
     max_fee_rate: int = 10
     nag_interval_secs: int = 10
     retry_interval_secs: int = 10
+    prometheus_metrics: bool = False
 
 
 @dataclass
@@ -131,3 +138,4 @@ class BridgeOperatorConfig:
     mosaic: MosaicConfig
     bridge_proof: ProofBackendConfig
     counterproof: ProofBackendConfig
+    metrics: MetricsConfig | None

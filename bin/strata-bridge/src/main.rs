@@ -60,7 +60,11 @@ fn main() {
         .build()
         .expect("must be able to create runtime");
 
-    observability::init(&config, &mode_label, &network_label, runtime.handle());
+    let runtime_handle = runtime.handle().clone();
+    {
+        let _runtime_guard = runtime_handle.enter();
+        observability::init(&config, &mode_label, &network_label, &runtime_handle);
+    }
 
     info!(mode = %mode_label, network = %network_label, "starting bridge node");
 
@@ -77,7 +81,7 @@ fn main() {
     let fdb_client = Arc::new(fdb_client);
     debug!("FoundationDB client initialized");
 
-    let task_manager = TaskManager::new(runtime.handle().clone());
+    let task_manager = TaskManager::new(runtime_handle);
     task_manager.start_signal_listeners();
 
     let executor = task_manager.create_executor();
