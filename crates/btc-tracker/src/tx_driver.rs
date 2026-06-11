@@ -6,10 +6,11 @@ use algebra::{
     monoid::{self, Monoid},
     semigroup::Semigroup,
 };
-use bitcoin::{Transaction, Txid};
+use bitcoin::{Amount, Transaction, Txid};
 use bitcoind_async_client::{
     error::ClientError,
     traits::{Broadcaster, Reader},
+    types::BroadcastOptions,
     Client as BitcoinClient,
 };
 use futures::{channel::oneshot, stream::SelectAll, FutureExt, StreamExt};
@@ -108,6 +109,20 @@ impl From<TxDriveJob> for TxJobHeap {
     }
 }
 
+fn broadcast_options(tx: &Transaction) -> Option<BroadcastOptions> {
+    let max_burn_amount = tx
+        .output
+        .iter()
+        .filter(|output| output.value > Amount::ZERO && output.script_pubkey.is_op_return())
+        .map(|output| output.value)
+        .max()?;
+
+    Some(BroadcastOptions {
+        max_burn_amount: Some(max_burn_amount),
+        ..Default::default()
+    })
+}
+
 /// System for driving a signed transaction to confirmation.
 #[derive(Debug)]
 pub struct TxDriver {
@@ -177,7 +192,8 @@ impl TxDriver {
                             continue;
                         }
 
-                        match rpc_client.send_raw_transaction(&rawtx_rpc_client, None).await {
+                        let options = broadcast_options(&rawtx_rpc_client);
+                        match rpc_client.send_raw_transaction(&rawtx_rpc_client, options).await {
                             Ok(txid) => {
                                 info!(%txid, "broadcasted transaction successfully");
                                 // only add subscriptions and jobs if the transaction was
@@ -210,7 +226,8 @@ impl TxDriver {
                         match event.status {
                             TxStatus::Unknown => {
                                 // Transaction has been evicted, resubmit and see what happens
-                                match rpc_client.send_raw_transaction(&event.rawtx, None).await {
+                                let options = broadcast_options(&event.rawtx);
+                                match rpc_client.send_raw_transaction(&event.rawtx, options).await {
                                     Ok(txid) => {
                                         /* NOOP, we good fam */
                                         info!(%txid, "resubmitted transaction successfully");
@@ -297,11 +314,52 @@ impl Drop for TxDriver {
 }
 
 #[cfg(test)]
+mod tests {
+    use bitcoin::{absolute, transaction, Amount, ScriptBuf, Transaction, TxOut};
+
+    use super::broadcast_options;
+
+    fn tx_with_outputs(output: Vec<TxOut>) -> Transaction {
+        Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output,
+        }
+    }
+
+    #[test]
+    fn broadcast_options_use_largest_op_return_burn() {
+        let tx = tx_with_outputs(vec![
+            TxOut {
+                value: Amount::from_sat(1_000),
+                script_pubkey: ScriptBuf::new_op_return([1u8; 32]),
+            },
+            TxOut {
+                value: Amount::from_sat(2_000),
+                script_pubkey: ScriptBuf::new_op_return([2u8; 32]),
+            },
+            TxOut {
+                value: Amount::from_sat(3_000),
+                script_pubkey: ScriptBuf::new(),
+            },
+        ]);
+
+        let options = broadcast_options(&tx).expect("OP_RETURN burn must require options");
+
+        assert_eq!(options.max_burn_amount, Some(Amount::from_sat(2_000)));
+    }
+}
+
+#[cfg(test)]
 mod e2e_tests {
     use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 
     use algebra::predicate;
-    use bitcoin::{Amount, Block};
+    use bitcoin::{
+        absolute, transaction, Amount, Block, OutPoint, ScriptBuf, Sequence, Transaction, TxIn,
+        TxOut, Witness,
+    };
     use bitcoind_async_client::Client as BitcoinClient;
     use corepc_node::{client::client_sync::Auth, vtype::FundRawTransaction, CookieValues, Output};
     use futures::join;
@@ -522,9 +580,85 @@ mod e2e_tests {
 
         info!("driving to mempool");
         driver
-            .drive(signed.clone(), predicate::eq(TxStatus::Mempool))
+            .drive(signed, predicate::eq(TxStatus::Mempool))
             .await?;
         info!("transaction appeared in mempool");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn tx_drive_op_return_burn() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init_from_env("tx_drive_op_return_burn");
+
+        let (driver, bitcoind) = setup().await?;
+
+        let new_address = bitcoind.client.new_address()?;
+        let blocks = bitcoind
+            .client
+            .generate_to_address(101, &new_address)?
+            .into_model()?;
+        debug!("waiting for test funds to mature");
+        wait_for_height(&bitcoind, 101).await?;
+        debug!("test funds matured");
+
+        let spendable_block = bitcoind.client.get_block(
+            *blocks
+                .0
+                .first()
+                .expect("generate_to_address must return mined block hashes"),
+        )?;
+        let coinbase_tx = spendable_block
+            .coinbase()
+            .expect("mined block must contain a coinbase transaction");
+
+        let burn_amount = Amount::from_sat(1_000);
+        let fee = Amount::from_sat(10_000);
+        let change_amount = coinbase_tx.output[0].value - burn_amount - fee;
+        let change_address = bitcoind.client.new_address()?;
+        let unsigned = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint::new(coinbase_tx.compute_txid(), 0),
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::default(),
+            }],
+            output: vec![
+                TxOut {
+                    value: burn_amount,
+                    script_pubkey: ScriptBuf::new_op_return([1u8; 32]),
+                },
+                TxOut {
+                    value: change_amount,
+                    script_pubkey: change_address.script_pubkey(),
+                },
+            ],
+        };
+
+        let signed = bitcoind
+            .client
+            .sign_raw_transaction_with_wallet(&unsigned)?
+            .into_model()?
+            .tx;
+
+        let err = bitcoind
+            .client
+            .send_raw_transaction(&signed)
+            .expect_err("default maxburnamount must reject OP_RETURN burns");
+        let err = err.to_string();
+        assert!(
+            err.contains("maxburnamount") || err.contains("max-burn-amount"),
+            "unexpected sendrawtransaction error: {err}"
+        );
+
+        info!("driving OP_RETURN burn to mempool");
+        driver
+            .drive(signed.clone(), predicate::eq(TxStatus::Mempool))
+            .await?;
+        info!("OP_RETURN burn transaction appeared in mempool");
 
         Ok(())
     }
