@@ -143,7 +143,7 @@ pub(super) async fn publish_unstaking_burn(
 /// The executor asks Bitcoin Core for a one-block estimate and floors missing or low estimates at
 /// the network broadcast minimum so the constructed transaction remains relayable.
 async fn burn_fee_rate(output_handles: &OutputHandles) -> Result<FeeRate, ExecutorError> {
-    let fee_rate = output_handles
+    let smart_fee = output_handles
         .bitcoind_rpc_client
         .estimate_smart_fee(1)
         .await
@@ -155,7 +155,8 @@ async fn burn_fee_rate(output_handles: &OutputHandles) -> Result<FeeRate, Execut
             ExecutorError::WalletErr(format!("failed to estimate fee: {e}"))
         })?;
 
-    let fee_rate = FeeRate::from_sat_per_vb(fee_rate)
+    let fee_rate = smart_fee
+        .fee_rate
         .unwrap_or(FeeRate::BROADCAST_MIN)
         .max(FeeRate::BROADCAST_MIN);
 
