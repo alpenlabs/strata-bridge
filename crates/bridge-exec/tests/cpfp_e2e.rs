@@ -63,7 +63,7 @@ const PARENT_FEE_RATE_SAT_PER_VB: u64 = 5;
 #[derive(Debug)]
 struct FixedFeeSource(FeeRate);
 
-impl cpfp::CpfpFeeSource for FixedFeeSource {
+impl cpfp::FeeSource for FixedFeeSource {
     fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
         let rate = self.0;
         async move { Ok(rate) }

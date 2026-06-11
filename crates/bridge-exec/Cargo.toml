@@ -34,6 +34,7 @@ strata-mosaic-client-api.workspace = true
 zkaleido.workspace = true
 zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
 
+async-trait.workspace = true
 bdk_wallet.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd = { workspace = true, features = ["address"] }
@@ -43,16 +44,23 @@ foundationdb.workspace = true
 futures.workspace = true
 jsonrpsee = { workspace = true, features = ["client"] }
 musig2.workspace = true
+reqwest.workspace = true
+serde = { workspace = true, features = ["derive"] }
 ssz.workspace = true
 terrors.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 bdk_bitcoind_rpc.workspace = true
 corepc-node.workspace = true
+serde_json.workspace = true
 serial_test.workspace = true
+tokio = { workspace = true, features = ["test-util", "macros"] }
+toml.workspace = true
+wiremock.workspace = true
 
 [features]
 default = []

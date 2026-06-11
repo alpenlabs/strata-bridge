@@ -32,8 +32,8 @@ use tracing::{debug, error, info, warn};
 use crate::{
     client::{BtcNotifyClient, Connected},
     cpfp::{
-        self, BumpReason, CpfpContext, CpfpDisabled, CpfpFeeSource, CpfpHandle,
-        CpfpPackageSubmitter, CpfpStrategy, CpfpWallet,
+        self, BumpReason, CpfpContext, CpfpDisabled, CpfpHandle, CpfpPackageSubmitter,
+        CpfpStrategy, CpfpWallet, FeeSource,
     },
     event::{TxEvent, TxStatus},
 };
@@ -171,7 +171,7 @@ async fn bump_all_entries<W, F, P>(
     reason: cpfp::BumpReason,
 ) where
     W: CpfpWallet + 'static,
-    F: CpfpFeeSource + 'static,
+    F: FeeSource + 'static,
     P: CpfpPackageSubmitter + 'static,
 {
     let txids: Vec<Txid> = entries.lock().await.keys().copied().collect();
@@ -229,7 +229,7 @@ async fn register_cpfp_entry_and_bump<W, F, P>(
 ) -> Result<bool, cpfp::CpfpError>
 where
     W: CpfpWallet + 'static,
-    F: CpfpFeeSource + 'static,
+    F: FeeSource + 'static,
     P: CpfpPackageSubmitter + 'static,
 {
     let txid = parent.compute_txid();
@@ -300,7 +300,7 @@ impl TxDriver {
     ) -> Self
     where
         W: CpfpWallet + 'static,
-        F: CpfpFeeSource + 'static,
+        F: FeeSource + 'static,
         P: CpfpPackageSubmitter + 'static,
     {
         let new_jobs = unbounded_channel::<TxDriveJob>();

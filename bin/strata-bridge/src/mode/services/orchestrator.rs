@@ -20,8 +20,8 @@ use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{
     config::ExecutionConfig,
     cpfp_adapters::{
-        BitcoindCpfpFeeSource, BitcoindCpfpPackageSubmitter, OperatorWalletCpfpAdapter,
-        build_anchor_input_signer, build_wallet_input_signer,
+        BitcoindCpfpPackageSubmitter, OperatorWalletCpfpAdapter, build_anchor_input_signer,
+        build_wallet_input_signer,
     },
     output_handles::OutputHandles,
 };
@@ -122,12 +122,6 @@ where
         retry_tick,
     };
 
-    let exec_cfg = build_exec_config(params, config, &sm_config, claim_funding_utxo_value);
-
-    // CPFP wiring: build the cached fee-source over a bitcoind-backed estimator, then bundle
-    // the wallet / fee-source / package-submitter / anchor-signer adapters into a
-    // `CpfpContext`. The tx-driver consumes this in its bump loop.
-    //
     // Validate both Duration knobs up-front — `tokio::time::interval` panics if `period` is
     // zero, and the panic would surface deep inside `CachedFeeSource::spawn` /
     // `TxDriver::with_cpfp` as a cryptic task crash. Fail at orchestrator startup with a
@@ -144,13 +138,35 @@ where
             config.cpfp_bump_check_interval
         ));
     }
+
     let btc_rpc_arc = Arc::new(btc_rpc_client.clone());
-    let bitcoind_fee_source = Arc::new(BitcoindCpfpFeeSource::new(btc_rpc_arc.clone(), 1));
+
+    // Build the configured fee source and wrap it once in a background-refreshed cache. That one
+    // cache is shared by the executors (per-tx-build estimates via `CachedFeeSource::current`) and
+    // the CPFP bump loop below, so neither hits the network on its hot path. Built up-front so a
+    // misconfigured fee source fails fast at boot rather than on the first duty firing.
+    let live_fee_source = config
+        .fee_source
+        .clone()
+        .build(btc_rpc_arc.clone())
+        .map_err(|e| anyhow!("failed to construct fee source from config: {e}"))?;
     let cached_fee_source = Arc::new(
-        CachedFeeSource::spawn(bitcoind_fee_source, config.fee_refresh_interval)
+        CachedFeeSource::spawn(Arc::new(live_fee_source), config.fee_refresh_interval)
             .await
             .map_err(|e| anyhow!("failed to initialize cached fee source: {e}"))?,
     );
+
+    let exec_cfg = build_exec_config(
+        params,
+        config,
+        &sm_config,
+        claim_funding_utxo_value,
+        cached_fee_source.clone(),
+    );
+
+    // CPFP wiring: bundle the wallet / shared fee-source / package-submitter / anchor-signer
+    // adapters into a `CpfpContext` the tx-driver consumes in its bump loop.
+    //
     // Fetch the operator's pubkeys up-front: needed both for the CPFP adapter
     // (`operator_general_pubkey` is used as the foreign-UTXO `tap_internal_key` for
     // `ParentTxCombined` strategies) and for `OutputHandles` (anchor inference key + caveat
@@ -354,6 +370,7 @@ fn build_exec_config(
     config: &Config,
     sm_config: &SMConfig,
     claim_funding_utxo_value: bitcoin::Amount,
+    fee_source: Arc<CachedFeeSource>,
 ) -> ExecutionConfig {
     ExecutionConfig {
         network: params.network,
@@ -365,5 +382,6 @@ fn build_exec_config(
         claim_funding_utxo_value,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
         graph_sm_cfg: sm_config.graph.clone(),
+        fee_source,
     }
 }

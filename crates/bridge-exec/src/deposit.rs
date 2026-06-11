@@ -6,7 +6,7 @@ use std::{
 };
 
 use bitcoin::{
-    Amount, FeeRate, OutPoint, TapSighashType, Transaction, Txid,
+    Amount, OutPoint, TapSighashType, Transaction, Txid,
     secp256k1::{Message, PublicKey, XOnlyPublicKey, schnorr},
     sighash::{Prevouts, SighashCache},
 };
@@ -24,11 +24,8 @@ use strata_bridge_primitives::{
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
-use strata_bridge_tx_graph::{
-    fee,
-    transactions::prelude::{
-        CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
-    },
+use strata_bridge_tx_graph::transactions::prelude::{
+    CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
 };
 use tracing::{error, info, warn};
 
@@ -36,6 +33,7 @@ use crate::{
     chain::{self, CpfpKind, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
+    fees::MIN_WALLET_TX_FEE_RATE,
     output_handles::OutputHandles,
 };
 
@@ -416,19 +414,12 @@ async fn fulfill_withdrawal(
         .checked_sub(cfg.operator_fee)
         .expect("deposit amount must be greater than operator fee");
 
-    // Get fee rate estimate from bitcoind, bounded from below by `fee::FEE_RATE` so the
-    // withdrawal-fulfillment v3 transaction always meets the bridge's hardcoded minimum even
-    // on networks where `estimatesmartfee` returns a value below `minrelaytxfee`.
-    let fee_rate = output_handles
-        .bitcoind_rpc_client
-        .estimate_smart_fee(1)
-        .await
-        .map_err(|e| ExecutorError::WalletErr(format!("failed to estimate fee: {e}")))?;
-    info!(%fee_rate, "estimated fee rate for withdrawal fulfillment");
-
-    let fee_rate = FeeRate::from_sat_per_vb(fee_rate)
-        .unwrap_or(fee::FEE_RATE)
-        .max(fee::FEE_RATE);
+    // Read the current cached fee rate (refreshed in the background by the shared fee source),
+    // then floor it at `MIN_WALLET_TX_FEE_RATE` so the withdrawal-fulfillment v3 transaction stays
+    // relayable. The underlying source already clamps to the ≥1 sat/vB truncation guard; this is
+    // the higher bridge-policy minimum.
+    let fee_rate = cfg.fee_source.current().max(MIN_WALLET_TX_FEE_RATE);
+    info!(%fee_rate, "fee rate for withdrawal fulfillment");
 
     // The following approach trades off maximal liveness for maximal safety:
     // It is not safe to broadcast at a lower fee rate when the network fee rate is high as there is
@@ -441,14 +432,15 @@ async fn fulfill_withdrawal(
         });
     }
 
-    // Check if fee rate exceeds maximum configured rate
+    // Returning an error (rather than silently `Ok(())`-ing) keeps the duty failure visible in
+    // observability, matching how `stake::staking::estimate_funding_fee_rate` surfaces the same
+    // condition. The duty dispatcher retries; if the fee market stays above the cap the operator
+    // notices via the error log instead of a silent skip.
     if fee_rate > cfg.maximum_fee_rate {
-        warn!(
-            %fee_rate,
-            maximum_fee_rate = %cfg.maximum_fee_rate,
-            "fee rate exceeds maximum, skipping fulfillment"
-        );
-        return Ok(());
+        return Err(ExecutorError::FeeRateTooHigh {
+            fee_rate,
+            max: cfg.maximum_fee_rate,
+        });
     }
 
     info!(%deposit_idx, "pre-conditions satisfied, attempting to fulfill withdrawal request");

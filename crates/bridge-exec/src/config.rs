@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use bitcoin::{Amount, FeeRate, Network};
+use btc_tracker::cpfp::CachedFeeSource;
 use strata_bridge_sm::graph::config::GraphSMCfg;
 use strata_l1_txfmt::MagicBytes;
 
@@ -42,4 +43,9 @@ pub struct ExecutionConfig {
     /// The graph state-machine configuration, shared with the GSM to keep protocol parameters
     /// and static keys consistent across graph construction paths.
     pub graph_sm_cfg: Arc<GraphSMCfg>,
+
+    /// Background-refreshed fee-rate cache shared with the tx-driver's CPFP bump loop. Executors
+    /// read the current cached rate via [`CachedFeeSource::current`] per tx-build (no network I/O
+    /// on the hot path); the cache is refreshed by a background task at the configured interval.
+    pub fee_source: Arc<CachedFeeSource>,
 }
