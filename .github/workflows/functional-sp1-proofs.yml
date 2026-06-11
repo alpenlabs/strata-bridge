@@ -10,8 +10,6 @@ on:
         required: false
         default: "info"
         type: string
-  push:
-    branches: [mdteach/proof-ci-perf] # TEMP: remove before merge
 
 env:
   CARGO_TERM_COLOR: always
