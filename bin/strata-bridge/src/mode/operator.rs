@@ -43,13 +43,13 @@ pub(crate) async fn bootstrap(
     let s2_client = init_secret_service_client(&config.secret_service_client).await;
     info!("initialized secret service client");
 
-    debug!("initializing operator table");
-    let operator_table = init_operator_table(&params, &s2_client).await?;
-    let pov_idx = operator_table.pov_idx();
-    let pov_btc_key = operator_table.pov_btc_key();
-    let pov_p2p_key = operator_table.pov_p2p_key();
-    let agg_key = operator_table.aggregated_btc_key();
-    info!(%pov_idx, %pov_p2p_key, %pov_btc_key, %agg_key, "operator table initialized");
+    debug!("initializing full operator table");
+    let full_operator_table = init_operator_table(&params, &s2_client).await?;
+    let pov_idx = full_operator_table.pov_idx();
+    let pov_btc_key = full_operator_table.pov_btc_key();
+    let pov_p2p_key = full_operator_table.pov_p2p_key();
+    let agg_key = full_operator_table.aggregated_btc_key();
+    info!(%pov_idx, %pov_p2p_key, %pov_btc_key, %agg_key, "full operator table initialized");
 
     debug!("initializing operator wallet");
     let initialized_wallet = init_operator_wallet(&config, &params, &s2_client, &db).await?;
@@ -89,13 +89,13 @@ pub(crate) async fn bootstrap(
     debug!("initializing mosaic client");
     let mosaic_client = Arc::new(init_mosaic_client(
         &config.mosaic,
-        &operator_table,
-        operator_table.pov_idx(),
+        &full_operator_table,
+        full_operator_table.pov_idx(),
     ));
     info!("mosaic client initialized");
 
     debug!("running mosaic setup for all operator pairs");
-    run_mosaic_setup(mosaic_client.as_ref(), &operator_table).await?;
+    run_mosaic_setup(mosaic_client.as_ref(), &full_operator_table).await?;
     info!("mosaic setup complete for all operator pairs");
 
     debug!("starting orchestrator pipeline");
@@ -103,7 +103,7 @@ pub(crate) async fn bootstrap(
     init_orchestrator(
         &params,
         &config,
-        operator_table,
+        full_operator_table,
         &s2_client,
         mosaic_client,
         gossip_handle,

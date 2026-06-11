@@ -22,7 +22,7 @@ def main() -> int:
     setup_root_logger()
 
     out_dir = os.environ["BRIDGE_PROOF_ASM_PARAMS_DIR"]
-    # Must match the consuming test's operator count so the covenant key set baked
+    # Must match the consuming test's operator count so the operator key set baked
     # into asm-params lines up with the operator nodes the test actually launches.
     num_operators = int(os.environ["BRIDGE_PROOF_NUM_OPERATORS"])
 

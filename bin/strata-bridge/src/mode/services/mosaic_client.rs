@@ -1,6 +1,9 @@
 //! Mosaic client initialization and setup for the bridge operator.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    sync::Arc,
+};
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
@@ -17,33 +20,44 @@ use crate::config::MosaicConfig;
 
 /// Resolves bridge operator indices to mosaic-native identifiers.
 ///
-/// Peer IDs come from the bridge config; operator pubkeys come from the operator table.
+/// Peer IDs come from the bridge config; operator pubkeys come from the full operator table.
 pub(crate) struct BridgeMosaicIdResolver {
     /// `(mosaic_peer_id, xonly_pubkey_bytes)` indexed by `OperatorIdx`.
     operators: HashMap<OperatorIdx, (PeerId, [u8; 32])>,
 }
 
 impl BridgeMosaicIdResolver {
-    /// Build a resolver from the mosaic config (peer IDs) and operator table (pubkeys).
+    /// Build a resolver from the mosaic config (peer IDs) and full operator table (pubkeys).
     ///
     /// # Panics
     ///
-    /// Panics if `config.peer_ids.len() != operator_table.cardinality()` or if any peer ID is not
-    /// valid 32-byte hex.
-    fn new(config: &MosaicConfig, operator_table: &OperatorTable) -> Self {
+    /// Panics if the configured peer ID operator indices do not exactly match the full operator
+    /// table, or if any peer ID is not valid 32-byte hex.
+    fn new(config: &MosaicConfig, full_operator_table: &OperatorTable) -> Self {
+        let operator_idxs = full_operator_table.operator_idxs();
+        let mut configured_peer_ids = BTreeMap::new();
+        for peer_id in &config.peer_ids {
+            assert!(
+                configured_peer_ids
+                    .insert(peer_id.operator_idx, peer_id.peer_id.as_str())
+                    .is_none(),
+                "mosaic config peer_ids must not contain duplicate operator index {}",
+                peer_id.operator_idx
+            );
+        }
+        let configured_operator_idxs: BTreeSet<OperatorIdx> =
+            configured_peer_ids.keys().copied().collect();
         assert_eq!(
-            config.peer_ids.len(),
-            operator_table.cardinality(),
-            "mosaic config peer_ids length ({}) must match operator count ({})",
-            config.peer_ids.len(),
-            operator_table.cardinality(),
+            configured_operator_idxs, operator_idxs,
+            "mosaic config peer_ids operator indices must match the full operator table"
         );
 
-        let operators = operator_table
-            .operator_idxs()
+        let operators = operator_idxs
             .into_iter()
             .map(|idx| {
-                let peer_id_hex = &config.peer_ids[idx as usize];
+                let peer_id_hex = configured_peer_ids
+                    .get(&idx)
+                    .unwrap_or_else(|| panic!("missing mosaic peer_id for operator index {idx}"));
                 let peer_id_bytes: [u8; 32] = hex::decode(peer_id_hex)
                     .unwrap_or_else(|e| {
                         panic!("invalid hex for mosaic peer_id at index {idx}: {e}")
@@ -56,7 +70,7 @@ impl BridgeMosaicIdResolver {
                         )
                     });
 
-                let btc_key = operator_table
+                let btc_key = full_operator_table
                     .idx_to_btc_key(&idx)
                     .unwrap_or_else(|| panic!("operator index {idx} not found in operator table"));
                 let xonly_bytes = btc_key.x_only_public_key().0.serialize();
@@ -89,10 +103,10 @@ impl MosaicIdResolver for BridgeMosaicIdResolver {
     }
 }
 
-/// Build a [`MosaicClient`] from the mosaic config and operator table.
+/// Build a [`MosaicClient`] from the mosaic config and full operator table.
 pub(crate) fn init_mosaic_client(
     config: &MosaicConfig,
-    operator_table: &OperatorTable,
+    full_operator_table: &OperatorTable,
     pov_idx: OperatorIdx,
 ) -> MosaicClient<HttpClient, BridgeMosaicIdResolver> {
     let http_client = HttpClientBuilder::default()
@@ -104,7 +118,7 @@ pub(crate) fn init_mosaic_client(
             )
         });
 
-    let resolver = BridgeMosaicIdResolver::new(config, operator_table);
+    let resolver = BridgeMosaicIdResolver::new(config, full_operator_table);
 
     MosaicClient::builder(Arc::new(http_client), resolver, pov_idx)
         .retry_delay(config.retry_delay)
@@ -119,16 +133,10 @@ pub(crate) fn init_mosaic_client(
 /// futures are dropped.
 pub(crate) async fn run_mosaic_setup(
     client: &MosaicClient<HttpClient, BridgeMosaicIdResolver>,
-    operator_table: &OperatorTable,
+    full_operator_table: &OperatorTable,
 ) -> anyhow::Result<()> {
-    let pov_idx = operator_table.pov_idx();
-
-    let pairs: Vec<(OperatorIdx, Role)> = operator_table
-        .operator_idxs()
-        .into_iter()
-        .filter(|idx| *idx != pov_idx)
-        .flat_map(|idx| [(idx, Role::Garbler), (idx, Role::Evaluator)])
-        .collect();
+    let pov_idx = full_operator_table.pov_idx();
+    let pairs = mosaic_setup_pairs(full_operator_table);
 
     let total = pairs.len();
     info!(
@@ -155,6 +163,23 @@ pub(crate) async fn run_mosaic_setup(
 
     info!("mosaic setup completed successfully for all {total} pairs");
     Ok(())
+}
+
+fn mosaic_setup_pairs(full_operator_table: &OperatorTable) -> Vec<(OperatorIdx, Role)> {
+    remote_operator_idxs(full_operator_table)
+        .into_iter()
+        .flat_map(|idx| [(idx, Role::Garbler), (idx, Role::Evaluator)])
+        .collect()
+}
+
+fn remote_operator_idxs(full_operator_table: &OperatorTable) -> Vec<OperatorIdx> {
+    let pov_idx = full_operator_table.pov_idx();
+
+    full_operator_table
+        .operator_idxs()
+        .into_iter()
+        .filter(|idx| *idx != pov_idx)
+        .collect()
 }
 
 /// Spawn the mosaic watched-deposits poller as a critical task.
@@ -185,4 +210,144 @@ pub(crate) fn spawn_mosaic_poller(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
+    use strata_mosaic_client::MosaicIdResolver;
+
+    use super::*;
+    use crate::config::MosaicPeerIdConfig;
+
+    fn peer_id_hex(byte: u8) -> String {
+        hex::encode([byte; 32])
+    }
+
+    fn peer_id(byte: u8) -> PeerId {
+        [byte; 32]
+    }
+
+    fn peer_ids_by_operator(
+        entries: impl IntoIterator<Item = (OperatorIdx, u8)>,
+    ) -> Vec<MosaicPeerIdConfig> {
+        entries
+            .into_iter()
+            .map(|(operator_idx, byte)| MosaicPeerIdConfig {
+                operator_idx,
+                peer_id: peer_id_hex(byte),
+            })
+            .collect()
+    }
+
+    fn test_mosaic_config(peer_ids: Vec<MosaicPeerIdConfig>) -> MosaicConfig {
+        MosaicConfig {
+            rpc_url: "http://127.0.0.1:0".to_string(),
+            retry_delay: Duration::from_millis(1),
+            max_retries: 0,
+            poll_interval: Duration::from_millis(1),
+            peer_ids,
+        }
+    }
+
+    #[tokio::test]
+    async fn resolver_resolves_peer_ids_and_pubkeys_by_operator_index() {
+        let full_operator_table = test_operator_table(3, 1);
+        let config = test_mosaic_config(peer_ids_by_operator([(2, 19), (0, 7), (1, 11)]));
+
+        let resolver = BridgeMosaicIdResolver::new(&config, &full_operator_table);
+
+        let actual_peer_id = resolver
+            .resolve_peer_id(0)
+            .await
+            .expect("operator 0 should resolve to its configured mosaic peer id");
+        assert_eq!(
+            actual_peer_id,
+            peer_id(7),
+            "resolver should select the mosaic peer id configured for operator index 0"
+        );
+
+        let actual_peer_id = resolver
+            .resolve_peer_id(2)
+            .await
+            .expect("operator 2 should resolve to a configured mosaic peer id");
+        assert_eq!(
+            actual_peer_id,
+            peer_id(19),
+            "resolver should select the mosaic peer id configured for operator index 2"
+        );
+
+        let pubkey = resolver
+            .resolve_operator_pubkey(2)
+            .await
+            .expect("operator 2 should resolve to its covenant public key");
+        let expected_pubkey = full_operator_table
+            .idx_to_btc_key(&2)
+            .expect("operator 2 should have a covenant public key")
+            .x_only_public_key()
+            .0
+            .serialize();
+        assert_eq!(
+            pubkey, expected_pubkey,
+            "resolver should select the covenant public key for the requested operator index"
+        );
+
+        let actual_peer_id = resolver
+            .resolve_peer_id(1)
+            .await
+            .expect("POV operator should still resolve to its configured mosaic peer id");
+        assert_eq!(
+            actual_peer_id,
+            peer_id(11),
+            "resolver should preserve full-table peer ID semantics for the POV operator"
+        );
+
+        let err = resolver
+            .resolve_peer_id(3)
+            .await
+            .expect_err("unknown operator index should fail peer-id resolution");
+        assert!(
+            matches!(err, MosaicError::UnknownOperator(3)),
+            "resolver should report unknown operators as MosaicError::UnknownOperator"
+        );
+    }
+
+    #[test]
+    fn resolver_rejects_peer_ids_with_mismatched_operator_indices() {
+        let full_operator_table = test_operator_table(3, 1);
+        let config = test_mosaic_config(peer_ids_by_operator([(0, 7), (1, 11), (3, 23)]));
+
+        let previous_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let panic =
+            std::panic::catch_unwind(|| BridgeMosaicIdResolver::new(&config, &full_operator_table));
+        std::panic::set_hook(previous_hook);
+
+        assert!(
+            panic.is_err(),
+            "resolver should reject peer ID maps whose operator indices do not match the full operator table"
+        );
+    }
+
+    #[test]
+    fn setup_pairs_cover_every_non_pov_operator_in_full_table() {
+        let full_operator_table = test_operator_table(4, 1);
+
+        let pairs = mosaic_setup_pairs(&full_operator_table);
+
+        assert_eq!(
+            pairs,
+            vec![
+                (0, Role::Garbler),
+                (0, Role::Evaluator),
+                (2, Role::Garbler),
+                (2, Role::Evaluator),
+                (3, Role::Garbler),
+                (3, Role::Evaluator),
+            ],
+            "mosaic setup should include both roles for every non-POV operator in the full table"
+        );
+    }
 }

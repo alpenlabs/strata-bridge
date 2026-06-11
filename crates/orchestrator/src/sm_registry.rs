@@ -311,10 +311,9 @@ impl SMRegistry {
     /// registry and each has reached [`StakeState::has_staked`] (i.e. `Confirmed`,
     /// `PreimageRevealed`, or `Unstaked`).
     ///
-    /// This is the activation gate for new deposits: no DSM/GSM instances may be created until
-    /// every configured operator has at least completed staking. A missing SSM for any configured
-    /// operator keeps the gate closed — this prevents the predicate from being vacuously true on
-    /// an empty / partially bootstrapped registry.
+    /// This is the bridge activation gate for the currently scheduled operator set. Once it
+    /// passes, new deposit admission uses [`Self::active_operator_snapshot`] to narrow actual
+    /// participants to operators whose stake is still confirmed.
     pub fn all_operators_have_staked(&self, operator_table: &OperatorTable) -> bool {
         operator_table.operator_idxs().iter().all(|op_idx| {
             self.stakes
@@ -331,20 +330,20 @@ impl SMRegistry {
             .is_some_and(|sm| sm.state().is_stake_available())
     }
 
-    /// Builds an [`ActiveOperatorSnapshot`] from the operators in `full_table` whose stake state
+    /// Builds an [`ActiveOperatorSnapshot`] from the operators in `operator_table` whose stake
     /// machine is currently in [`StakeState::Confirmed`].
     ///
     /// Returns an error if the point-of-view operator is not active, since this node cannot
     /// originate new deposits while its own operator is winding down or absent.
     pub fn active_operator_snapshot(
         &self,
-        full_table: &OperatorTable,
+        operator_table: &OperatorTable,
     ) -> Result<ActiveOperatorSnapshot, SnapshotError> {
         let mut entries = Vec::new();
         let mut stake_inputs = BTreeMap::new();
         let mut unstaking_images = BTreeMap::new();
 
-        for op_idx in full_table.operator_idxs() {
+        for op_idx in operator_table.operator_idxs() {
             let ssm = self
                 .stakes
                 .get(&op_idx)
@@ -359,10 +358,10 @@ impl SMRegistry {
                 continue;
             };
 
-            let p2p_key = full_table
+            let p2p_key = operator_table
                 .idx_to_p2p_key(&op_idx)
                 .expect("operator from operator_idxs() must resolve");
-            let btc_key = full_table
+            let btc_key = operator_table
                 .idx_to_btc_key(&op_idx)
                 .expect("operator from operator_idxs() must resolve");
             entries.push((op_idx, p2p_key.clone(), btc_key));
@@ -371,7 +370,7 @@ impl SMRegistry {
             unstaking_images.insert(op_idx, stake_data.unstaking_image);
         }
 
-        let pov_idx = full_table.pov_idx();
+        let pov_idx = operator_table.pov_idx();
         let operator_table = OperatorTable::new(entries, move |(idx, _, _)| *idx == pov_idx)
             .ok_or(SnapshotError::PovNotActive(pov_idx))?;
 

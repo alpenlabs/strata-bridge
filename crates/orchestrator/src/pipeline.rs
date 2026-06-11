@@ -3,7 +3,11 @@
 
 use std::collections::BTreeSet;
 
-use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
+use strata_bridge_primitives::{
+    operator_set_schedule::OperatorSetSchedule,
+    operator_table::OperatorTable,
+    types::{BitcoinBlockHeight, OperatorIdx},
+};
 use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 use tracing::{info, trace};
 
@@ -52,20 +56,24 @@ impl Pipeline {
     ///
     /// On shutdown, sends the signal through the oneshot channel and returns.
     ///
-    /// The `initial_operator_table` needs to be constructed from a params file or similar source of
-    /// truth for now. Eventually, this will be queried from the Operator State Machine in the
-    /// registry.
+    /// The `operator_schedule` is the source of truth for all known operators. The pipeline derives
+    /// this node's full operator table from it before bootstrapping stake machines.
     ///
-    /// Before entering the main event loop, this method bootstraps one [`StakeSM`] per operator in
-    /// the `initial_operator_table`. Any stake SMs already recovered from the database are
-    /// preserved; only missing ones are created. The `start_height` is used as the initial block
-    /// height for newly created stake SMs (typically the chain tip or the persisted cursor).
+    /// Before entering the main event loop, this method bootstraps one [`StakeSM`] per scheduled
+    /// operator. Any stake SMs already recovered from the database are preserved; only missing ones
+    /// are created. The `start_height` is used as the initial block height for newly created stake
+    /// SMs (typically the chain tip or the persisted cursor).
     pub async fn run(
         mut self,
-        initial_operator_table: OperatorTable,
+        operator_schedule: OperatorSetSchedule,
+        pov_idx: OperatorIdx,
         start_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
-        self.bootstrap_stake_sms(&initial_operator_table, start_height)
+        let full_operator_table =
+            OperatorTable::from_scheduled_operators(operator_schedule.iter(), pov_idx)
+                .ok_or(PipelineError::OperatorScheduleMissingPov { pov_idx })?;
+
+        self.bootstrap_stake_sms(&full_operator_table, start_height)
             .await?;
 
         loop {
@@ -89,7 +97,12 @@ impl Pipeline {
 
             match &event {
                 UnifiedEvent::Block(block_event) => {
-                    onchain::process_block(&mut applicator, &initial_operator_table, block_event)?;
+                    onchain::process_block(
+                        &mut applicator,
+                        &operator_schedule,
+                        pov_idx,
+                        block_event,
+                    )?;
                 }
 
                 _ => {
