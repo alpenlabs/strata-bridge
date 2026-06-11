@@ -176,13 +176,13 @@ bitcoin-bosd = { git = "https://github.com/alpenlabs/bitcoin-bosd", tag = "v0.11
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
 bitcoincore-rpc = "0.19.0"
 bitcoind-async-client = { version = "0.14.0", default-features = false, features = [
-  "29_0",
+  "30_2",
 ] }
 borsh = { version = "1.6.1", features = ["derive"] }
 cfg-if = "1.0"
 chrono = "0.4.44"
 clap = { version = "4.6.1", features = ["cargo", "derive", "env"] }
-corepc-node = { version = "0.12.0", features = ["29_0"] }
+corepc-node = { version = "0.12.0", features = ["30_2"] }
 ed25519-dalek = { version = "2.2.0", features = ["zeroize"] }
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
   "blocking-https-rustls",

@@ -7,7 +7,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     transaction, Address, Amount, BlockHash, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
-use bitcoind_async_client::corepc_types::v29::SignRawTransactionWithWallet;
+use bitcoind_async_client::corepc_types::v30::SignRawTransactionWithWallet;
 use corepc_node::{
     serde_json::{self, json},
     Client, Conf, Node,
