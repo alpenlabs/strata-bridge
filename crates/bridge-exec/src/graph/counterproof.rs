@@ -8,7 +8,8 @@ use btc_tracker::event::TxStatus;
 use musig2::secp256k1::schnorr::Signature;
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
-    BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofProgram, RawBitcoinTx,
+    BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
+    RawBitcoinTx,
 };
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 use strata_bridge_proof_common::prove;
@@ -209,5 +210,6 @@ async fn fetch_counterproof_input(
         bridge_proof_tx: RawBitcoinTx::from_raw_bytes(consensus::serialize(&bridge_proof_tx)),
         bridge_proof_tx_prevouts,
         bridge_proof_tx_input_idx,
+        mode: CounterproofMode::InvalidBridgeProof,
     })
 }
