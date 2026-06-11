@@ -24,9 +24,9 @@ use crate::{
     output_handles::OutputHandles,
 };
 
-/// Generates the counterproof, completes adaptor signatures via mosaic,
-/// assembles the witness with the pre-computed N-of-N signature, and publishes
-/// the counterproof transaction to Bitcoin.
+/// Generates the counterproof or reuses already-completed adaptor signatures, assembles the
+/// witness with the pre-computed N-of-N signature, and publishes the counterproof transaction to
+/// Bitcoin.
 #[expect(clippy::too_many_arguments)]
 pub(super) async fn generate_and_publish_counterproof(
     cfg: &ExecutionConfig,
@@ -40,45 +40,63 @@ pub(super) async fn generate_and_publish_counterproof(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "generating and publishing counterproof for graph");
 
-    let setup_available = output_handles
+    let completed_sigs = if let Some(completed_sigs) = output_handles
         .mosaic_client
-        .is_setup_available(operator_idx, Role::Garbler, game_index.into())
+        .get_completed_adaptor_sigs(operator_idx, game_index.into())
         .await
         .map_err(|e| {
-            warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to check mosaic setup availability");
-            ExecutorError::MosaicErr(format!("is_setup_available: {e:?}"))
-        })?;
-
-    if !setup_available {
-        warn!(
+            warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to get completed adaptor sigs for counterproof");
+            ExecutorError::MosaicErr(format!("get_completed_adaptor_sigs: {e:?}"))
+        })?
+    {
+        info!(
             %deposit_idx,
             %game_index,
             %operator_idx,
-            "skipping counterproof generation because mosaic setup is unavailable",
+            "reusing completed adaptor signatures for counterproof",
         );
-        return Ok(());
-    }
+        completed_sigs
+    } else {
+        let setup_available = output_handles
+            .mosaic_client
+            .is_setup_available(operator_idx, Role::Garbler, game_index.into())
+            .await
+            .map_err(|e| {
+                warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to check mosaic setup availability");
+                ExecutorError::MosaicErr(format!("is_setup_available: {e:?}"))
+            })?;
 
-    let counterproof_data = generate_counterproof(
-        cfg,
-        output_handles,
-        deposit_idx,
-        operator_idx,
-        game_index,
-        bridge_proof_tx,
-    )
-    .await?;
+        if !setup_available {
+            warn!(
+                %deposit_idx,
+                %game_index,
+                %operator_idx,
+                "skipping counterproof generation because mosaic setup is unavailable",
+            );
+            return Ok(());
+        }
 
-    // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
-    info!(%deposit_idx, %game_index, %operator_idx, "completing adaptor signatures via mosaic for graph");
-    let completed_sigs = output_handles
-        .mosaic_client
-        .complete_adaptor_sigs(operator_idx, game_index.into(), counterproof_data)
-        .await
-        .map_err(|e| {
-            warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to complete adaptor sigs for counterproof");
-            ExecutorError::MosaicErr(format!("complete_adaptor_sigs: {e:?}"))
-        })?;
+        let counterproof_data = generate_counterproof(
+            cfg,
+            output_handles,
+            deposit_idx,
+            operator_idx,
+            game_index,
+            bridge_proof_tx,
+        )
+        .await?;
+
+        // Complete adaptor signatures via mosaic (we are the garbler/watchtower).
+        info!(%deposit_idx, %game_index, %operator_idx, "completing adaptor signatures via mosaic for graph");
+        output_handles
+            .mosaic_client
+            .complete_adaptor_sigs(operator_idx, game_index.into(), counterproof_data)
+            .await
+            .map_err(|e| {
+                warn!(%deposit_idx, %game_index, %operator_idx, ?e, "failed to complete adaptor sigs for counterproof");
+                ExecutorError::MosaicErr(format!("complete_adaptor_sigs: {e:?}"))
+            })?
+    };
 
     // The counterproof leaf script expects one operator signature per byte of counterproof
     // data (n_data = N_DEPOSIT + N_WITHDRAWAL wires), so we need ALL completed adaptor sigs.

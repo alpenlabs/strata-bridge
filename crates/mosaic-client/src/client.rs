@@ -362,19 +362,9 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
     ) -> Result<bool, MosaicError> {
         let tableset_id = self.get_tableset_id(role, operator_idx).await?;
 
-        let rpc = self.rpc.clone();
-        let status = retry_with(self.default_retry_strategy(), move || {
-            let rpc = rpc.clone();
-            async move {
-                rpc.get_tableset_status(tableset_id)
-                    .await
-                    .map_err(MosaicError::rpc_error)
-                    .and_then(|maybe_status| {
-                        maybe_status.ok_or_else(|| MosaicError::SetupMissing(operator_idx, role))
-                    })
-            }
-        })
-        .await?;
+        let status = self
+            .read_tableset_status(tableset_id, operator_idx, role)
+            .await?;
 
         match status {
             RpcTablesetStatus::SetupComplete => Ok(true),
@@ -389,12 +379,20 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
             }
             RpcTablesetStatus::Consumed { deposit, .. } => {
                 let actual_game_index = deposit.into_game_index();
-                warn!(
-                    expected_game_index = %game_index,
-                    actual_game_index = %actual_game_index,
-                    "mosaic setup is already consumed"
-                );
-                Ok(false)
+                if actual_game_index == game_index {
+                    info!(
+                        %game_index,
+                        "mosaic setup is already consumed for this game; completed signatures can be reused"
+                    );
+                    Ok(true)
+                } else {
+                    warn!(
+                        expected_game_index = %game_index,
+                        actual_game_index = %actual_game_index,
+                        "mosaic setup is already consumed by another game"
+                    );
+                    Ok(false)
+                }
             }
             RpcTablesetStatus::Incomplete { details } => Err(MosaicError::UnexpectedDepositState(
                 format!("mosaic setup incomplete: {details}"),
@@ -415,34 +413,106 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         let rpc_game_id = game_id.into();
         let withdrawal_inputs: WithdrawalInputs = counterproof.0;
 
-        let rpc = self.rpc.clone();
-        let rpc_withdrawal_inputs = withdrawal_inputs.into();
-        retry_with(self.default_retry_strategy(), move || {
-            let rpc = rpc.clone();
-            async move {
-                rpc.complete_adaptor_sigs(tableset_id, rpc_game_id, rpc_withdrawal_inputs)
-                    .await
-                    .map_err(MosaicError::rpc_error)
+        let status = self
+            .read_tableset_status(tableset_id, operator_idx, Role::Garbler)
+            .await?;
+
+        match status {
+            RpcTablesetStatus::SetupComplete => {
+                let rpc = self.rpc.clone();
+                let rpc_withdrawal_inputs = withdrawal_inputs.into();
+                retry_with(self.default_retry_strategy(), move || {
+                    let rpc = rpc.clone();
+                    async move {
+                        rpc.complete_adaptor_sigs(tableset_id, rpc_game_id, rpc_withdrawal_inputs)
+                            .await
+                            .map_err(MosaicError::rpc_error)
+                    }
+                })
+                .await?;
             }
-        })
-        .await?;
+            RpcTablesetStatus::Contest { deposit } => {
+                let actual_game_index = deposit.into_game_index();
+                if actual_game_index != game_index {
+                    return Err(MosaicError::UnexpectedDepositContest {
+                        expected: game_index.to_string(),
+                        actual: actual_game_index.to_string(),
+                    });
+                }
+
+                info!(
+                    %game_index,
+                    %operator_idx,
+                    "mosaic is already completing adaptor signatures for this game"
+                );
+            }
+            RpcTablesetStatus::Consumed { deposit, .. } => {
+                let actual_game_index = deposit.into_game_index();
+                if actual_game_index != game_index {
+                    return Err(MosaicError::UnexpectedDepositContest {
+                        expected: game_index.to_string(),
+                        actual: actual_game_index.to_string(),
+                    });
+                }
+
+                info!(
+                    %game_index,
+                    %operator_idx,
+                    "reusing completed adaptor signatures from consumed mosaic setup"
+                );
+                return self.read_completed_adaptor_sigs(tableset_id).await;
+            }
+            RpcTablesetStatus::Incomplete { details } => {
+                return Err(MosaicError::UnexpectedDepositState(format!(
+                    "mosaic setup incomplete: {details}"
+                )));
+            }
+            RpcTablesetStatus::Aborted { reason } => return Err(MosaicError::Aborted(reason)),
+        }
 
         self.poll_until_consumed(tableset_id, game_index, operator_idx, Role::Garbler)
             .await?;
 
-        let rpc = self.rpc.clone();
-        let completed_sigs = retry_with(self.default_retry_strategy(), move || {
-            let rpc = rpc.clone();
-            async move {
-                rpc.get_completed_adaptor_sigs(tableset_id)
-                    .await
-                    .map_err(MosaicError::rpc_error)
-            }
-        })
-        .await?
-        .into();
+        self.read_completed_adaptor_sigs(tableset_id).await
+    }
 
-        Ok(completed_sigs)
+    #[instrument(skip_all, fields(%operator_idx, %game_index))]
+    async fn get_completed_adaptor_sigs(
+        &self,
+        operator_idx: OperatorIdx,
+        game_index: GameIndex,
+    ) -> Result<Option<CompletedSignatures>, MosaicError> {
+        let tableset_id = self.get_tableset_id(Role::Garbler, operator_idx).await?;
+        let status = self
+            .read_tableset_status(tableset_id, operator_idx, Role::Garbler)
+            .await?;
+
+        match status {
+            RpcTablesetStatus::Consumed { deposit, .. } => {
+                let actual_game_index = deposit.into_game_index();
+                if actual_game_index == game_index {
+                    info!(
+                        %game_index,
+                        %operator_idx,
+                        "reusing completed adaptor signatures from consumed mosaic setup"
+                    );
+                    self.read_completed_adaptor_sigs(tableset_id)
+                        .await
+                        .map(Some)
+                } else {
+                    warn!(
+                        expected_game_index = %game_index,
+                        actual_game_index = %actual_game_index,
+                        "mosaic setup is already consumed by another game"
+                    );
+                    Ok(None)
+                }
+            }
+            RpcTablesetStatus::Aborted { reason } => Err(MosaicError::Aborted(reason)),
+            RpcTablesetStatus::Incomplete { .. }
+            | RpcTablesetStatus::SetupComplete
+            | RpcTablesetStatus::Contest { .. } => Ok(None),
+        }
     }
 
     #[instrument(skip_all, fields(%operator_idx, %game_index))]
