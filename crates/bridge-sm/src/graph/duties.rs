@@ -10,6 +10,7 @@ use musig2::{
 };
 use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_bridge_primitives::{
+    operator_table::OperatorTable,
     scripts::taproot::TaprootTweak,
     types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
 };
@@ -106,6 +107,9 @@ pub enum GraphDuty {
 
         /// Hash image that locks the claim-payout connector for this graph.
         unstaking_image: sha256::Hash,
+
+        /// Operator table snapshot from the GraphSM that emitted this duty.
+        operator_table: OperatorTable,
     },
 
     /// Verify the adaptor signatures for the generated graph.
@@ -261,6 +265,9 @@ pub enum GraphDuty {
 
         /// The on-chain bridge proof transaction to refute.
         bridge_proof_tx: Transaction,
+
+        /// Operator table snapshot from the GraphSM that emitted this duty.
+        operator_table: OperatorTable,
     },
 
     /// Publish a counterproof ACK transaction.

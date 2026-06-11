@@ -309,6 +309,7 @@ fn new_block_events(
 #[cfg(test)]
 mod tests {
     use bitcoin::{absolute, transaction};
+    use strata_bridge_sm::graph::duties::GraphDuty;
     use strata_bridge_test_utils::bitcoin::generate_txid;
 
     use super::*;
@@ -526,6 +527,17 @@ mod tests {
             duties.len(),
             1,
             "exactly one GenerateGraphData duty is emitted, for the POV operator only"
+        );
+        let UnifiedDuty::Graph(GraphDuty::GenerateGraphData {
+            operator_table: duty_operator_table,
+            ..
+        }) = &duties[0]
+        else {
+            panic!("expected GenerateGraphData duty, got {:?}", duties[0]);
+        };
+        assert_eq!(
+            duty_operator_table, &operator_table,
+            "initial graph duty must carry the active operator-table snapshot"
         );
     }
 }
