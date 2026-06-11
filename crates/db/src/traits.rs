@@ -9,7 +9,7 @@ use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
 };
 
-use crate::types::{StakeFundingReservation, WriteBatch};
+use crate::types::{FundingAssignment, StakeFundingReservation, WriteBatch};
 
 /// Standard persistence interface for a bridge node.
 pub trait BridgeDb {
@@ -123,13 +123,13 @@ pub trait BridgeDb {
         graph_idx: GraphIdx,
     ) -> impl Future<Output = Result<Option<OutPoint>, Self::Error>> + Send;
 
-    /// Sets the reserved [`OutPoint`] used to fund the claim transaction (and subsequently the
-    /// entire graph).
-    fn set_claim_funding_outpoint(
+    /// Returns the existing claim-funding [`OutPoint`] for `graph_idx`, or stores and returns
+    /// `outpoint` when no assignment exists.
+    fn get_or_set_claim_funding_outpoint(
         &self,
         graph_idx: GraphIdx,
         outpoint: OutPoint,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    ) -> impl Future<Output = Result<FundingAssignment<OutPoint>, Self::Error>> + Send;
 
     /// Gets, if present, the [`StakeFundingReservation`] persisted for the given operator.
     fn get_stake_funding_reservation(
@@ -137,12 +137,13 @@ pub trait BridgeDb {
         operator_idx: OperatorIdx,
     ) -> impl Future<Output = Result<Option<StakeFundingReservation>, Self::Error>> + Send;
 
-    /// Persists the [`StakeFundingReservation`] for the given operator.
-    fn set_stake_funding_reservation(
+    /// Returns the existing stake-funding reservation for `operator_idx`, or stores and returns
+    /// `reservation` when no assignment exists.
+    fn get_or_set_stake_funding_reservation(
         &self,
         operator_idx: OperatorIdx,
         reservation: StakeFundingReservation,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    ) -> impl Future<Output = Result<FundingAssignment<StakeFundingReservation>, Self::Error>> + Send;
 
     /// Deletes the [`StakeFundingReservation`] for the given operator.
     fn delete_stake_funding_reservation(
@@ -156,12 +157,13 @@ pub trait BridgeDb {
         deposit_idx: DepositIdx,
     ) -> impl Future<Output = Result<Option<Vec<OutPoint>>, Self::Error>> + Send;
 
-    /// Sets the reserved [`OutPoint`]s for fulfilling withdrawals requests.
-    fn set_withdrawal_funding_outpoints(
+    /// Returns the existing withdrawal-funding [`OutPoint`]s for `deposit_idx`, or stores and
+    /// returns `outpoints` when no assignment exists.
+    fn get_or_set_withdrawal_funding_outpoints(
         &self,
         deposit_idx: DepositIdx,
         outpoints: Vec<OutPoint>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    ) -> impl Future<Output = Result<FundingAssignment<Vec<OutPoint>>, Self::Error>> + Send;
 
     /// Returns all reserved general-wallet outpoints across the claim, stake, and withdrawal rows.
     ///

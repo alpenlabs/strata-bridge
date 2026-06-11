@@ -8,7 +8,7 @@ seen in the mempool.
 
 Test flow:
 1. Bring up the bridge network with auto-mining disabled and a short bury depth.
-   `nag_interval_secs=1` keeps peers constantly nagging the restarted operator so
+   `nag_interval_ms=1000` keeps peers constantly nagging the restarted operator so
    `PublishStakeData` re-runs quickly after restart.
 2. Wait for each operator's funding tx to land in the mempool, identifying it by
    its output paying into the operator's reserved-wallet address.
@@ -46,13 +46,13 @@ class StakeDataIdempotencyTest(StrataTestBase):
         # each operator's first stake-funding broadcast lands in the post-setup
         # mempool (and the env hard-codes `auto_mine=False` to keep it there).
         # `bury_depth=1` keeps the test fast: a tx is considered buried as soon as
-        # one block is mined on top of it. `nag_interval_secs=1` makes peers
+        # one block is mined on top of it. `nag_interval_ms=1000` makes peers
         # constantly nag the restarted operator so `PublishStakeData` re-runs
         # quickly post-restart.
         ctx.set_env(
             DeferredStartBridgeNetworkEnv(
                 bridge_protocol_params=BridgeProtocolParams(bury_depth=1),
-                bridge_config_params=BridgeConfigParams(nag_interval_secs=1),
+                bridge_config_params=BridgeConfigParams(nag_interval_ms=1_000),
             )
         )
 

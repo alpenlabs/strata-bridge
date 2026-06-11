@@ -27,7 +27,7 @@ use crate::{
         },
     },
     traits::BridgeDb,
-    types::{StakeFundingReservation, WriteBatch},
+    types::{FundingAssignment, StakeFundingReservation, WriteBatch},
 };
 
 impl BridgeDb for FdbClient {
@@ -173,19 +173,25 @@ impl BridgeDb for FdbClient {
         Ok(result.map(|v| v.0))
     }
 
-    async fn set_claim_funding_outpoint(
+    async fn get_or_set_claim_funding_outpoint(
         &self,
         graph_idx: GraphIdx,
         outpoint: OutPoint,
-    ) -> Result<(), Self::Error> {
-        self.basic_set::<ClaimFundingRowSpec>(
-            ClaimFundingKey {
-                deposit_idx: graph_idx.deposit,
-                operator_idx: graph_idx.operator,
-            },
-            ClaimFundingValue(outpoint),
-        )
-        .await
+    ) -> Result<FundingAssignment<OutPoint>, Self::Error> {
+        let assignment = self
+            .basic_get_or_set_assignment::<ClaimFundingRowSpec>(
+                ClaimFundingKey {
+                    deposit_idx: graph_idx.deposit,
+                    operator_idx: graph_idx.operator,
+                },
+                ClaimFundingValue(outpoint),
+            )
+            .await?;
+
+        Ok(match assignment {
+            FundingAssignment::Created(value) => FundingAssignment::Created(value.0),
+            FundingAssignment::Existing(value) => FundingAssignment::Existing(value.0),
+        })
     }
 
     async fn get_withdrawal_funding_outpoints(
@@ -198,16 +204,22 @@ impl BridgeDb for FdbClient {
         Ok(result.map(|v| v.0))
     }
 
-    async fn set_withdrawal_funding_outpoints(
+    async fn get_or_set_withdrawal_funding_outpoints(
         &self,
         deposit_idx: DepositIdx,
         outpoints: Vec<OutPoint>,
-    ) -> Result<(), Self::Error> {
-        self.basic_set::<WithdrawalFundingRowSpec>(
-            WithdrawalFundingKey { deposit_idx },
-            WithdrawalFundingValue(outpoints),
-        )
-        .await
+    ) -> Result<FundingAssignment<Vec<OutPoint>>, Self::Error> {
+        let assignment = self
+            .basic_get_or_set_assignment::<WithdrawalFundingRowSpec>(
+                WithdrawalFundingKey { deposit_idx },
+                WithdrawalFundingValue(outpoints),
+            )
+            .await?;
+
+        Ok(match assignment {
+            FundingAssignment::Created(value) => FundingAssignment::Created(value.0),
+            FundingAssignment::Existing(value) => FundingAssignment::Existing(value.0),
+        })
     }
 
     async fn get_all_funds(&self) -> Result<Vec<OutPoint>, Self::Error> {
@@ -258,16 +270,22 @@ impl BridgeDb for FdbClient {
         Ok(result.map(|v| v.0))
     }
 
-    async fn set_stake_funding_reservation(
+    async fn get_or_set_stake_funding_reservation(
         &self,
         operator_idx: OperatorIdx,
         reservation: StakeFundingReservation,
-    ) -> Result<(), Self::Error> {
-        self.basic_set::<StakeFundingReservationRowSpec>(
-            StakeFundingReservationKey { operator_idx },
-            StakeFundingReservationValue(reservation),
-        )
-        .await
+    ) -> Result<FundingAssignment<StakeFundingReservation>, Self::Error> {
+        let assignment = self
+            .basic_get_or_set_assignment::<StakeFundingReservationRowSpec>(
+                StakeFundingReservationKey { operator_idx },
+                StakeFundingReservationValue(reservation),
+            )
+            .await?;
+
+        Ok(match assignment {
+            FundingAssignment::Created(value) => FundingAssignment::Created(value.0),
+            FundingAssignment::Existing(value) => FundingAssignment::Existing(value.0),
+        })
     }
 
     async fn delete_stake_funding_reservation(
@@ -923,8 +941,10 @@ mod tests {
             block_on(async {
                 let client = get_client();
 
-                client
-                    .set_claim_funding_outpoint(graph_idx, outpoint)
+                client.delete_claim_funding_outpoint(graph_idx).await.unwrap();
+
+                let assignment = client
+                    .get_or_set_claim_funding_outpoint(graph_idx, outpoint)
                     .await
                     .unwrap();
 
@@ -933,7 +953,49 @@ mod tests {
                     .await
                     .unwrap();
 
+                prop_assert_eq!(FundingAssignment::Created(outpoint), assignment);
                 prop_assert_eq!(Some(outpoint), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: claim funding outpoint get-or-set preserves the first graph assignment.
+        #[test]
+        fn claim_funding_outpoint_get_or_set_is_idempotent(
+            deposit_idx in any::<DepositIdx>(),
+            operator_idx in any::<OperatorIdx>(),
+            first_outpoint in arb_outpoint(),
+            second_outpoint in arb_outpoint(),
+        ) {
+            prop_assume!(first_outpoint != second_outpoint);
+
+            let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .delete_claim_funding_outpoint(graph_idx)
+                    .await
+                    .unwrap();
+
+                let first = client
+                    .get_or_set_claim_funding_outpoint(graph_idx, first_outpoint)
+                    .await
+                    .unwrap();
+                let second = client
+                    .get_or_set_claim_funding_outpoint(graph_idx, second_outpoint)
+                    .await
+                    .unwrap();
+                let retrieved = client
+                    .get_claim_funding_outpoint(graph_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(FundingAssignment::Created(first_outpoint), first);
+                prop_assert_eq!(FundingAssignment::Existing(first_outpoint), second);
+                prop_assert_eq!(Some(first_outpoint), retrieved);
 
                 Ok(())
             })?;
@@ -945,11 +1007,21 @@ mod tests {
             deposit_idx in any::<DepositIdx>(),
             outpoints in arb_outpoints(),
         ) {
+            let graph_idx = GraphIdx {
+                deposit: deposit_idx,
+                operator: 0,
+            };
+
             block_on(async {
                 let client = get_client();
 
                 client
-                    .set_withdrawal_funding_outpoints(deposit_idx, outpoints.clone())
+                    .delete_withdrawal_funding_outpoints(graph_idx)
+                    .await
+                    .unwrap();
+
+                let assignment = client
+                    .get_or_set_withdrawal_funding_outpoints(deposit_idx, outpoints.clone())
                     .await
                     .unwrap();
 
@@ -958,7 +1030,50 @@ mod tests {
                     .await
                     .unwrap();
 
+                prop_assert_eq!(FundingAssignment::Created(outpoints.clone()), assignment);
                 prop_assert_eq!(Some(outpoints), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: withdrawal funding outpoints get-or-set preserves the first deposit assignment.
+        #[test]
+        fn withdrawal_funding_outpoints_get_or_set_is_idempotent(
+            deposit_idx in any::<DepositIdx>(),
+            first_outpoints in arb_outpoints(),
+            second_outpoints in arb_outpoints(),
+        ) {
+            prop_assume!(first_outpoints != second_outpoints);
+            let graph_idx = GraphIdx {
+                deposit: deposit_idx,
+                operator: 0,
+            };
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .delete_withdrawal_funding_outpoints(graph_idx)
+                    .await
+                    .unwrap();
+
+                let first = client
+                    .get_or_set_withdrawal_funding_outpoints(deposit_idx, first_outpoints.clone())
+                    .await
+                    .unwrap();
+                let second = client
+                    .get_or_set_withdrawal_funding_outpoints(deposit_idx, second_outpoints)
+                    .await
+                    .unwrap();
+                let retrieved = client
+                    .get_withdrawal_funding_outpoints(deposit_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(FundingAssignment::Created(first_outpoints.clone()), first);
+                prop_assert_eq!(FundingAssignment::Existing(first_outpoints.clone()), second);
+                prop_assert_eq!(Some(first_outpoints), retrieved);
 
                 Ok(())
             })?;
@@ -977,14 +1092,26 @@ mod tests {
             block_on(async {
                 let client = get_client();
 
+                client.delete_claim_funding_outpoint(graph_idx).await.unwrap();
                 client
-                    .set_claim_funding_outpoint(graph_idx, outpoint_claim)
+                    .delete_withdrawal_funding_outpoints(graph_idx)
                     .await
                     .unwrap();
-                client
-                    .set_withdrawal_funding_outpoints(deposit_idx, outpoints_wf.clone())
+
+                let claim_assignment = client
+                    .get_or_set_claim_funding_outpoint(graph_idx, outpoint_claim)
                     .await
                     .unwrap();
+                let withdrawal_assignment = client
+                    .get_or_set_withdrawal_funding_outpoints(deposit_idx, outpoints_wf.clone())
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(FundingAssignment::Created(outpoint_claim), claim_assignment);
+                prop_assert_eq!(
+                    FundingAssignment::Created(outpoints_wf.clone()),
+                    withdrawal_assignment
+                );
 
                 let all = client.get_all_funds().await.unwrap();
 
@@ -1010,7 +1137,12 @@ mod tests {
                 let client = get_client();
 
                 client
-                    .set_stake_funding_reservation(operator_idx, reservation.clone())
+                    .delete_stake_funding_reservation(operator_idx)
+                    .await
+                    .unwrap();
+
+                let assignment = client
+                    .get_or_set_stake_funding_reservation(operator_idx, reservation.clone())
                     .await
                     .unwrap();
 
@@ -1019,7 +1151,53 @@ mod tests {
                     .await
                     .unwrap();
 
+                prop_assert_eq!(FundingAssignment::Created(reservation.clone()), assignment);
                 prop_assert_eq!(Some(reservation), retrieved);
+
+                Ok(())
+            })?;
+        }
+
+        /// Property: stake funding reservation get-or-set preserves the first operator assignment.
+        #[test]
+        fn stake_funding_reservation_get_or_set_is_idempotent(
+            operator_idx in any::<OperatorIdx>(),
+            first_num_inputs in 1usize..4,
+            first_vout in 0u32..4,
+            second_num_inputs in 1usize..4,
+            second_vout in 0u32..4,
+        ) {
+            let first_reservation = make_reservation(first_num_inputs, first_vout);
+            let second_reservation = make_reservation(second_num_inputs, second_vout);
+            prop_assume!(first_reservation != second_reservation);
+
+            block_on(async {
+                let client = get_client();
+
+                client
+                    .delete_stake_funding_reservation(operator_idx)
+                    .await
+                    .unwrap();
+
+                let first = client
+                    .get_or_set_stake_funding_reservation(
+                        operator_idx,
+                        first_reservation.clone(),
+                    )
+                    .await
+                    .unwrap();
+                let second = client
+                    .get_or_set_stake_funding_reservation(operator_idx, second_reservation)
+                    .await
+                    .unwrap();
+                let retrieved = client
+                    .get_stake_funding_reservation(operator_idx)
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(FundingAssignment::Created(first_reservation.clone()), first);
+                prop_assert_eq!(FundingAssignment::Existing(first_reservation.clone()), second);
+                prop_assert_eq!(Some(first_reservation), retrieved);
 
                 Ok(())
             })?;
@@ -1047,9 +1225,16 @@ mod tests {
                 let client = get_client();
 
                 client
-                    .set_stake_funding_reservation(operator_idx, reservation)
+                    .delete_stake_funding_reservation(operator_idx)
                     .await
                     .unwrap();
+
+                let assignment = client
+                    .get_or_set_stake_funding_reservation(operator_idx, reservation)
+                    .await
+                    .unwrap();
+
+                prop_assert!(matches!(assignment, FundingAssignment::Created(_)));
 
                 let all = client.get_all_funds().await.unwrap();
                 for op in &expected_inputs {
@@ -1079,9 +1264,16 @@ mod tests {
                 let client = get_client();
 
                 client
-                    .set_stake_funding_reservation(operator_idx, reservation)
+                    .delete_stake_funding_reservation(operator_idx)
                     .await
                     .unwrap();
+
+                let assignment = client
+                    .get_or_set_stake_funding_reservation(operator_idx, reservation)
+                    .await
+                    .unwrap();
+
+                prop_assert!(matches!(assignment, FundingAssignment::Created(_)));
 
                 client
                     .delete_stake_funding_reservation(operator_idx)
@@ -1110,10 +1302,14 @@ mod tests {
             block_on(async {
                 let client = get_client();
 
-                client
-                    .set_claim_funding_outpoint(graph_idx, outpoint)
+                client.delete_claim_funding_outpoint(graph_idx).await.unwrap();
+
+                let assignment = client
+                    .get_or_set_claim_funding_outpoint(graph_idx, outpoint)
                     .await
                     .unwrap();
+
+                prop_assert_eq!(FundingAssignment::Created(outpoint), assignment);
 
                 client
                     .delete_claim_funding_outpoint(graph_idx)
@@ -1143,9 +1339,16 @@ mod tests {
                 let client = get_client();
 
                 client
-                    .set_withdrawal_funding_outpoints(deposit_idx, outpoints)
+                    .delete_withdrawal_funding_outpoints(graph_idx)
                     .await
                     .unwrap();
+
+                let assignment = client
+                    .get_or_set_withdrawal_funding_outpoints(deposit_idx, outpoints)
+                    .await
+                    .unwrap();
+
+                prop_assert!(matches!(assignment, FundingAssignment::Created(_)));
 
                 client
                     .delete_withdrawal_funding_outpoints(graph_idx)

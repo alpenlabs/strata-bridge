@@ -11,14 +11,17 @@ use foundationdb::{
 use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
 use terrors::OneOf;
 
-use crate::fdb::{
-    cfg::Config,
-    dirs::Directories,
-    errors::{LayerError, TransactionError},
-    row_spec::{
-        deposits::DepositStateKey,
-        kv::{KVRowSpec, PackableKey, SerializableValue},
+use crate::{
+    fdb::{
+        cfg::Config,
+        dirs::Directories,
+        errors::{LayerError, TransactionError},
+        row_spec::{
+            deposits::DepositStateKey,
+            kv::{KVRowSpec, PackableKey, SerializableValue},
+        },
     },
+    types::FundingAssignment,
 };
 
 /// The main entity for interacting with the FoundationDB database.
@@ -222,6 +225,44 @@ impl FdbClient {
             .map_err(LayerError::failed_to_deserialize_value)
             .map_err(OneOf::new)?;
         Ok(Some(value))
+    }
+
+    /// Basic generic first-writer-wins assignment operation.
+    pub async fn basic_get_or_set_assignment<RS: KVRowSpec>(
+        &self,
+        key: RS::Key,
+        value: RS::Value,
+    ) -> Result<FundingAssignment<RS::Value>, OneOf<(FdbBindingError, LayerError)>> {
+        let packed = key
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)
+            .map_err(OneOf::new)?;
+        let serialized = value
+            .serialize()
+            .map_err(LayerError::failed_to_serialize_value)
+            .map_err(OneOf::new)?;
+
+        let existing = self
+            .transact((packed, serialized), |trx, data| {
+                Box::pin(async move {
+                    let existing = trx.get(data.0.as_ref(), false).await?;
+                    if existing.is_none() {
+                        trx.set(data.0.as_ref(), data.1.as_ref());
+                    }
+                    Ok(existing.map(|s| s.to_vec()))
+                })
+            })
+            .await?;
+
+        let Some(bytes) = existing else {
+            return Ok(FundingAssignment::Created(value));
+        };
+
+        let value = RS::Value::deserialize(&bytes)
+            .map_err(LayerError::failed_to_deserialize_value)
+            .map_err(OneOf::new)?;
+
+        Ok(FundingAssignment::Existing(value))
     }
 
     /// Basic generic range-scan that returns all key-value pairs in a subspace.
