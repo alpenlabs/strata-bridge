@@ -130,13 +130,13 @@ docker compose exec -T foundationdb fdbcli --no-status --exec "status minimal"
 
 ### Bridge Params And Seeds
 
-Bridge params are derived from the secret-service seeds. The three bridge params files should contain the same network-wide covenant key list and protocol values:
+Bridge params are derived from the secret-service seeds. The three bridge params files should contain the same network-wide scheduled operator table and protocol values:
 
 - `docker/vol/strata-bridge-1/params.toml`
 - `docker/vol/strata-bridge-2/params.toml`
 - `docker/vol/strata-bridge-3/params.toml`
 
-Use `dev-cli derive-keys` to generate the key material (musig2, p2p, payout descriptor, wallet
+Use `dev-cli derive-keys` to generate the key material (covenant, p2p, payout descriptor, wallet
 addresses) for each seed without having to run the secret-service/bridge nodes:
 
 ```sh
