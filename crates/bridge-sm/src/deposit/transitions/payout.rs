@@ -31,31 +31,33 @@ impl DepositSM {
         cfg: Arc<DepositSMCfg>,
         assignment: WithdrawalAssignedEvent,
     ) -> DSMResult<DSMOutput> {
-        match self.state() {
-            DepositState::Deposited { last_block_height }
-            | DepositState::Assigned {
-                last_block_height, ..
+        let last_block_height = match self.state() {
+            DepositState::Deposited { last_block_height } => *last_block_height,
+            DepositState::Assigned {
+                last_block_height,
+                deadline,
+                recipient_desc,
+                ..
             } => {
-                self.state = DepositState::Assigned {
-                    last_block_height: *last_block_height,
-                    assignee: assignment.assignee,
-                    deadline: assignment.deadline,
-                    recipient_desc: assignment.recipient_desc.clone(),
-                };
-                // Dispatch the duty to fulfill the assignment if the assignee is the pov operator,
-                // otherwise no duties or signals need to be dispatched.
-                if self.context.operator_table().pov_idx() == assignment.assignee {
-                    Ok(DSMOutput::with_duties(vec![
-                        DepositDuty::FulfillWithdrawalRequest {
-                            deposit_idx: self.context.deposit_idx(),
-                            deadline: assignment.deadline,
-                            recipient_desc: assignment.recipient_desc,
-                            deposit_amount: cfg.deposit_amount(),
-                        },
-                    ]))
-                } else {
-                    Ok(DSMOutput::new())
+                // Recipient descriptor cannot be changed once assigned.
+                if *recipient_desc != assignment.recipient_desc {
+                    return Err(DSMError::rejected(
+                        self.state().clone(),
+                        assignment.into(),
+                        "recipient descriptor cannot be changed for an existing assignment",
+                    ));
                 }
+
+                // Assignment deadline must not be smaller than the existing deadline.
+                if assignment.deadline < *deadline {
+                    return Err(DSMError::rejected(
+                        self.state().clone(),
+                        assignment.into(),
+                        "assignment deadline must not be smaller than the existing deadline",
+                    ));
+                }
+
+                *last_block_height
             }
 
             // Post-assignment states: the deposit has already progressed past assignment,
@@ -65,14 +67,37 @@ impl DepositSM {
             | DepositState::PayoutNoncesCollected { .. }
             | DepositState::CooperativePathFailed { .. }
             | DepositState::Spent { .. } => {
-                Err(DSMError::duplicate(self.state.clone(), assignment.into()))
+                return Err(DSMError::duplicate(self.state.clone(), assignment.into()));
             }
 
-            _ => Err(DSMError::invalid_event(
-                self.state.clone(),
-                assignment.into(),
-                None,
-            )),
+            _ => {
+                return Err(DSMError::invalid_event(
+                    self.state.clone(),
+                    assignment.into(),
+                    None,
+                ));
+            }
+        };
+
+        self.state = DepositState::Assigned {
+            last_block_height,
+            assignee: assignment.assignee,
+            deadline: assignment.deadline,
+            recipient_desc: assignment.recipient_desc.clone(),
+        };
+        // Dispatch the duty to fulfill the assignment if the assignee is the pov operator,
+        // otherwise no duties or signals need to be dispatched.
+        if self.context.operator_table().pov_idx() == assignment.assignee {
+            Ok(DSMOutput::with_duties(vec![
+                DepositDuty::FulfillWithdrawalRequest {
+                    deposit_idx: self.context.deposit_idx(),
+                    deadline: assignment.deadline,
+                    recipient_desc: assignment.recipient_desc,
+                    deposit_amount: cfg.deposit_amount(),
+                },
+            ]))
+        } else {
+            Ok(DSMOutput::new())
         }
     }
 
