@@ -334,17 +334,6 @@ impl GraphSM {
             } => {
                 *last_block_height = new_block_event.block_height;
 
-                if let Some(slash_duty) = check_slash_timeout(
-                    &cfg,
-                    &graph_ctx,
-                    new_block_event.block_height,
-                    *contest_block_height,
-                    graph_data.clone(),
-                    signatures,
-                ) {
-                    return Ok(GSMOutput::with_duties(vec![slash_duty]));
-                }
-
                 if let Some(contested_payout_duty) = check_contested_payout_timeout(
                     &cfg,
                     &graph_ctx,
