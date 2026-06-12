@@ -75,19 +75,16 @@ mod tests {
     }
 
     /// tests correct re-assignment from Assigned state when Assignment event is received
-    /// and POV operator is the new assignee (should emit FulfillWithdrawalRequest duty).
+    /// and POV operator is the reassigned assignee (should emit FulfillWithdrawalRequest duty).
     #[test]
     fn test_reassignment_to_pov() {
-        let old_desc = random_p2tr_desc();
-        let new_desc = random_p2tr_desc();
-
-        assert_ne!(old_desc, new_desc, "must be diff");
+        let desc = random_p2tr_desc();
 
         let state = DepositState::Assigned {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_NONPOV_IDX,
             deadline: LATER_BLOCK_HEIGHT,
-            recipient_desc: old_desc,
+            recipient_desc: desc.clone(),
         };
 
         test_deposit_transition(DepositTransition {
@@ -95,18 +92,18 @@ mod tests {
             event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_POV_IDX,
                 deadline: REASSIGNMENT_DEADLINE,
-                recipient_desc: new_desc.clone(),
+                recipient_desc: desc.clone(),
             }),
             expected_state: DepositState::Assigned {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_POV_IDX,
                 deadline: REASSIGNMENT_DEADLINE,
-                recipient_desc: new_desc.clone(),
+                recipient_desc: desc.clone(),
             },
             expected_duties: vec![DepositDuty::FulfillWithdrawalRequest {
                 deposit_idx: TEST_DEPOSIT_IDX,
                 deadline: REASSIGNMENT_DEADLINE,
-                recipient_desc: new_desc,
+                recipient_desc: desc,
                 deposit_amount: TEST_DEPOSIT_AMOUNT,
             }],
             expected_signals: vec![],
@@ -117,15 +114,14 @@ mod tests {
     /// and POV operator is NOT the new assignee (should NOT emit any duty)
     #[test]
     fn test_reassignment_pov_is_not_assignee() {
-        let old_desc = random_p2tr_desc();
-        let new_desc = random_p2tr_desc();
+        let desc = random_p2tr_desc();
 
         // Start in Assigned state with POV operator
         let state = DepositState::Assigned {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             assignee: TEST_POV_IDX,
             deadline: LATER_BLOCK_HEIGHT,
-            recipient_desc: old_desc,
+            recipient_desc: desc.clone(),
         };
 
         test_deposit_transition(DepositTransition {
@@ -133,16 +129,70 @@ mod tests {
             event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
                 assignee: TEST_NONPOV_IDX,
                 deadline: REASSIGNMENT_DEADLINE,
-                recipient_desc: new_desc.clone(),
+                recipient_desc: desc.clone(),
             }),
             expected_state: DepositState::Assigned {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_NONPOV_IDX,
                 deadline: REASSIGNMENT_DEADLINE,
-                recipient_desc: new_desc,
+                recipient_desc: desc,
             },
             expected_duties: vec![],
             expected_signals: vec![],
+        });
+    }
+
+    #[test]
+    fn test_reassignment_rejected_when_recipient_changes() {
+        let original_desc = random_p2tr_desc();
+        let changed_desc = random_p2tr_desc();
+        assert_ne!(original_desc, changed_desc, "descriptors must differ");
+
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: DepositState::Assigned {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_NONPOV_IDX,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: original_desc,
+            },
+            event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_POV_IDX,
+                deadline: REASSIGNMENT_DEADLINE,
+                recipient_desc: changed_desc,
+            }),
+            expected_error: |e| {
+                matches!(
+                    e,
+                    DSMError::Rejected { reason, .. }
+                    if reason == "recipient descriptor cannot be changed for an existing assignment"
+                )
+            },
+        });
+    }
+
+    #[test]
+    fn test_reassignment_rejected_when_deadline_decreases() {
+        let desc = random_p2tr_desc();
+
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: DepositState::Assigned {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_POV_IDX,
+                deadline: REASSIGNMENT_DEADLINE,
+                recipient_desc: desc.clone(),
+            },
+            event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_POV_IDX,
+                deadline: REASSIGNMENT_DEADLINE - 1,
+                recipient_desc: desc,
+            }),
+            expected_error: |e| {
+                matches!(
+                    e,
+                    DSMError::Rejected { reason, .. }
+                    if reason == "assignment deadline must not be smaller than the existing deadline"
+                )
+            },
         });
     }
 
