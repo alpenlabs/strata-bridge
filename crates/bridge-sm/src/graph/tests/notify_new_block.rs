@@ -1267,9 +1267,9 @@ mod tests {
         );
     }
 
-    /// Non-owner publishes slash after payout timelock expires in AllNackd state.
+    /// Non-owner does not publish slash even after payout timelock expires in AllNackd state.
     #[test]
-    fn all_nackd_nonpov_slash() {
+    fn all_nackd_nonpov_no_slash() {
         let cfg = test_graph_sm_cfg();
         let ctx = test_graph_sm_ctx();
         let contest_height = LATER_BLOCK_HEIGHT;
@@ -1278,10 +1278,6 @@ mod tests {
 
         let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
-        let slash_sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
-            .expect("Failed to unpack signatures")
-            .slash;
-        let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
@@ -1297,7 +1293,7 @@ mod tests {
                     block_height: new_height,
                 }),
                 expected_state: all_nackd_state_with(new_height, contest_height, signatures),
-                expected_duties: vec![GraphDuty::PublishSlash { signed_slash_tx }],
+                expected_duties: vec![],
                 expected_signals: vec![],
             },
         );
