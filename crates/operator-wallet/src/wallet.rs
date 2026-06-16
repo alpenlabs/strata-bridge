@@ -118,6 +118,19 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         }
     }
 
+    // ── Sync status ─────────────────────────────────────────────────────────
+
+    /// Returns the block height of the reserved wallet's local chain tip (its most recent sync
+    /// checkpoint).
+    ///
+    /// This is a non-mutating, in-memory read: it neither contacts the backend nor takes any
+    /// internal write path, so health probes can observe sync progress through a shared read
+    /// lock without serializing against wallet-dependent duties. Both the general and reserved
+    /// wallets advance together in [`sync`](Self::sync), so the reserved tip is representative.
+    pub fn local_chain_tip_height(&self) -> u32 {
+        self.reserved.latest_checkpoint().height()
+    }
+
     // ── Reserved-wallet UTXO lookup ─────────────────────────────────────────
 
     /// Returns every reserved-wallet UTXO whose output value matches `value`.

@@ -28,7 +28,7 @@ use crate::{
             mosaic_client::{init_mosaic_client, run_mosaic_setup, spawn_mosaic_poller},
             operator_table::init_operator_table,
             operator_wallet::{init_operator_wallet, spawn_initial_operator_wallet_sync},
-            orchestrator::{build_sm_config, init_orchestrator},
+            orchestrator::init_orchestrator,
             p2p_handles::{P2PHandles, init_p2p_handles},
             secret_service::init_secret_service_client,
         },
@@ -129,13 +129,7 @@ pub(crate) async fn bootstrap(
 
     let probe_interval = DEFAULT_HEALTH_PROBE_INTERVAL;
     let expected_peer_count = operator_table.cardinality().saturating_sub(1);
-    let sm_config = build_sm_config(&config, &params);
-    spawn_fdb_probe(
-        db.clone(),
-        sm_config,
-        probe_interval,
-        health_registry.clone(),
-    );
+    spawn_fdb_probe(db.clone(), probe_interval, health_registry.clone());
     spawn_bitcoin_rpc_probe(
         btc_rpc_client.clone(),
         probe_interval,
