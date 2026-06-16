@@ -136,6 +136,7 @@ impl GraphSM {
                 deposit_outpoint: self.context().deposit_outpoint(),
                 stake_outpoint: self.context().stake_outpoint(),
                 unstaking_image: self.context().unstaking_image(),
+                operator_table: self.context().operator_table().clone(),
             }]),
             _ => {
                 tracing::debug!(
