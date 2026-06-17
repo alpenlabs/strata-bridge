@@ -230,6 +230,15 @@ where
             "admin multisig threshold must not exceed pubkey count",
         ));
     }
+    if let Some(duplicate_index) = admin_pubkeys
+        .iter()
+        .enumerate()
+        .find_map(|(i, pubkey)| admin_pubkeys[..i].contains(pubkey).then_some(i))
+    {
+        return Err(serde::de::Error::custom(format!(
+            "duplicate admin pubkey at index {duplicate_index}"
+        )));
+    }
     let admin = AdminParams {
         pubkeys: admin_pubkeys,
         threshold: encoded_keys.admin.threshold,
@@ -303,11 +312,142 @@ mod tests {
 
     #[test]
     fn test_params_serde_toml() {
+        let params = params_toml(&valid_admin_section());
+
+        let deserialized = toml::from_str::<Params>(&params);
+
+        assert!(
+            deserialized.is_ok(),
+            "must be able to deserialize params from toml but got: {}",
+            deserialized.unwrap_err()
+        );
+
+        let deserialized = deserialized.unwrap();
+        let serialized = toml::to_string(&deserialized).unwrap();
+        let params = toml::from_str::<Params>(&serialized).unwrap();
+
+        assert_eq!(
+            Amount::from_int_btc(1),
+            params.protocol.deposit_amount,
+            "deposit amounts must match across serialization"
+        );
+
+        assert_eq!(
+            params.keys.covenant.len(),
+            2,
+            "must have 2 covenant key entries"
+        );
+
+        assert_eq!(params.protocol.bury_depth, 6, "bury depth must round-trip");
+
+        assert_eq!(
+            params.keys.admin.threshold, 2,
+            "admin threshold must round-trip"
+        );
+        assert_eq!(
+            params.keys.admin.pubkeys.len(),
+            2,
+            "admin pubkeys must round-trip"
+        );
+    }
+
+    #[test]
+    fn params_reject_empty_admin_pubkeys() {
+        assert_admin_section_deserialize_error(
+            r#"
+            pubkeys = []
+            threshold = 1
+            "#,
+            "admin multisig must include at least one pubkey",
+        );
+    }
+
+    #[test]
+    fn params_reject_zero_admin_threshold() {
+        assert_admin_section_deserialize_error(
+            &format!(
+                r#"
+                pubkeys = ["{XONLY_KEY_1}"]
+                threshold = 0
+                "#
+            ),
+            "admin multisig threshold must be greater than zero",
+        );
+    }
+
+    #[test]
+    fn params_reject_admin_threshold_above_pubkey_count() {
+        assert_admin_section_deserialize_error(
+            &format!(
+                r#"
+                pubkeys = ["{XONLY_KEY_1}", "{XONLY_KEY_2}"]
+                threshold = 3
+                "#
+            ),
+            "admin multisig threshold must not exceed pubkey count",
+        );
+    }
+
+    #[test]
+    fn params_reject_duplicate_admin_pubkey() {
+        assert_admin_section_deserialize_error(
+            &format!(
+                r#"
+                pubkeys = ["{XONLY_KEY_1}", "{XONLY_KEY_1}"]
+                threshold = 2
+                "#
+            ),
+            "duplicate admin pubkey at index 1",
+        );
+    }
+
+    #[test]
+    fn params_reject_malformed_admin_pubkey() {
+        assert_admin_section_deserialize_error(
+            r#"
+            pubkeys = ["not-hex"]
+            threshold = 1
+            "#,
+            "failed to decode hex admin pubkey at index 0",
+        );
+    }
+
+    #[test]
+    fn params_reject_invalid_admin_pubkey() {
+        assert_admin_section_deserialize_error(
+            r#"
+            pubkeys = ["deadbeef"]
+            threshold = 1
+            "#,
+            "failed to create admin xonly pk at index 0",
+        );
+    }
+
+    fn valid_admin_section() -> String {
+        format!(
+            r#"
+            pubkeys = ["{XONLY_KEY_1}", "{XONLY_KEY_2}"]
+            threshold = 2
+            "#
+        )
+    }
+
+    fn assert_admin_section_deserialize_error(admin_section: &str, expected_error: &str) {
+        let err = toml::from_str::<Params>(&params_toml(admin_section)).unwrap_err();
+        let err = err.to_string();
+
+        assert!(
+            err.contains(expected_error),
+            "expected deserialize error to contain {expected_error:?}, got {err:?}"
+        );
+    }
+
+    fn params_toml(admin_section: &str) -> String {
         let deposit_amount = Amount::from_int_btc(1).to_sat();
         let desc_1 = p2tr_descriptor(XONLY_KEY_1);
         let desc_2 = p2tr_descriptor(XONLY_KEY_2);
 
-        let params = format!(
+        format!(
             r#"
             network = "signet"
             genesis_height = 101
@@ -315,8 +455,7 @@ mod tests {
             [keys]
 
             [keys.admin]
-            pubkeys = ["{XONLY_KEY_1}", "{XONLY_KEY_2}"]
-            threshold = 2
+            {admin_section}
 
             [[keys.covenant]]
             musig2 = "{XONLY_KEY_1}"
@@ -343,43 +482,7 @@ mod tests {
             nack_timelock = 144
             contested_payout_timelock = 1_008
     "#
-        );
-
-        let deserialized = toml::from_str::<Params>(&params);
-
-        assert!(
-            deserialized.is_ok(),
-            "must be able to deserialize params from toml but got: {}",
-            deserialized.unwrap_err()
-        );
-
-        let deserialized = deserialized.unwrap();
-        let serialized = toml::to_string(&deserialized).unwrap();
-        let params = toml::from_str::<Params>(&serialized).unwrap();
-
-        assert_eq!(
-            Amount::from_sat(deposit_amount),
-            params.protocol.deposit_amount,
-            "deposit amounts must match across serialization"
-        );
-
-        assert_eq!(
-            params.keys.covenant.len(),
-            2,
-            "must have 2 covenant key entries"
-        );
-
-        assert_eq!(params.protocol.bury_depth, 6, "bury depth must round-trip");
-
-        assert_eq!(
-            params.keys.admin.threshold, 2,
-            "admin threshold must round-trip"
-        );
-        assert_eq!(
-            params.keys.admin.pubkeys.len(),
-            2,
-            "admin pubkeys must round-trip"
-        );
+        )
     }
 
     /// Construct a P2TR BOSD descriptor string from an x-only public key hex string.

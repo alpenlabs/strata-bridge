@@ -29,7 +29,7 @@ from .config_cfg import (
     RpcConfig,
     SecretServiceClientConfig,
 )
-from .params_cfg import BridgeOperatorParams, BridgeProtocolParams, CovenantKeys, Keys
+from .params_cfg import Admin, BridgeOperatorParams, BridgeProtocolParams, CovenantKeys, Keys
 
 DEFAULT_INITIAL_HEARBEAT_DELAY_SECS = 10
 
@@ -225,6 +225,7 @@ def generate_params_toml(
         )
         for key in operator_key_infos
     ]
+    admin_pubkeys = [key.MUSIG2_KEY for key in operator_key_infos]
 
     # Resolve the predicate from the active backend unless the test pinned one explicitly.
     protocol = bridge_protocol_params
@@ -236,7 +237,10 @@ def generate_params_toml(
     params = BridgeOperatorParams(
         network="regtest",
         genesis_height=genesis_height,
-        keys=Keys(admin=operator_key_infos[0].MUSIG2_KEY, covenant=covenant),
+        keys=Keys(
+            admin=Admin(pubkeys=admin_pubkeys, threshold=min(2, len(admin_pubkeys))),
+            covenant=covenant,
+        ),
         protocol=protocol,
     )
 

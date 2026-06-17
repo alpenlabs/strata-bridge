@@ -19,8 +19,14 @@ class CovenantKeys:
 
 
 @dataclass
+class Admin:
+    pubkeys: list[str]
+    threshold: int
+
+
+@dataclass
 class Keys:
-    admin: str
+    admin: Admin
     covenant: list[CovenantKeys]
 
 
