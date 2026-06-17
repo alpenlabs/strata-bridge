@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use bitcoin::{
     absolute::LockTime,
-    opcodes::all::OP_RETURN,
+    opcodes::all::{OP_CHECKSIG, OP_CHECKSIGADD, OP_EQUAL, OP_RETURN},
     script::{Builder, PushBytesBuf},
     transaction, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Witness,
 };
@@ -23,6 +23,42 @@ pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> Script {
         { *aggregated_pubkey }
         OP_CHECKSIG
     }
+}
+
+/// Creates a script requiring exactly `threshold` successful signature checks from `pubkeys`.
+///
+/// # Panics
+///
+/// Panics if `pubkeys` is empty, if `threshold` is zero, or if `threshold` exceeds the number of
+/// pubkeys.
+pub fn threshold_multisig_script(pubkeys: &[XOnlyPublicKey], threshold: usize) -> ScriptBuf {
+    assert!(
+        !pubkeys.is_empty(),
+        "threshold multisig requires at least one pubkey"
+    );
+    assert!(
+        threshold > 0,
+        "threshold multisig threshold must be greater than zero"
+    );
+    assert!(
+        threshold <= pubkeys.len(),
+        "threshold multisig threshold must not exceed pubkey count"
+    );
+
+    let mut builder = Builder::new()
+        .push_slice(pubkeys[0].serialize())
+        .push_opcode(OP_CHECKSIG);
+
+    for pubkey in &pubkeys[1..] {
+        builder = builder
+            .push_slice(pubkey.serialize())
+            .push_opcode(OP_CHECKSIGADD);
+    }
+
+    builder
+        .push_int(threshold.try_into().expect("threshold must fit in i64"))
+        .push_opcode(OP_EQUAL)
+        .into_script()
 }
 
 /// Creates a "take back" script that is used to validate a deposit request transaction (DRT) given
@@ -143,6 +179,26 @@ mod tests {
     use secp256k1::{generate_keypair, rand::rngs::OsRng, Message, SECP256K1};
 
     use super::*;
+
+    #[test]
+    fn threshold_multisig_script_matches_spec_shape() {
+        let pubkeys = (0..3)
+            .map(|_| generate_keypair(&mut OsRng).1.x_only_public_key().0)
+            .collect::<Vec<_>>();
+
+        let expected = Builder::new()
+            .push_slice(pubkeys[0].serialize())
+            .push_opcode(OP_CHECKSIG)
+            .push_slice(pubkeys[1].serialize())
+            .push_opcode(OP_CHECKSIGADD)
+            .push_slice(pubkeys[2].serialize())
+            .push_opcode(OP_CHECKSIGADD)
+            .push_int(2)
+            .push_opcode(OP_EQUAL)
+            .into_script();
+
+        assert_eq!(threshold_multisig_script(&pubkeys, 2), expected);
+    }
 
     #[test]
     fn test_agg_pubkey_single() {
