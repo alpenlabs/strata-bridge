@@ -34,7 +34,8 @@ use strata_bridge_test_utils::{
 };
 use strata_bridge_tx_graph::{
     game_graph::{
-        CounterproofGraphSummary, DepositParams, GameGraph, GameGraphSummary, ProtocolParams,
+        AdminMultisig, CounterproofGraphSummary, DepositParams, GameGraph, GameGraphSummary,
+        ProtocolParams,
     },
     transactions::prelude::{ClaimTx, ContestTx, CounterproofTx},
 };
@@ -120,7 +121,10 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             deposit_amount: TEST_DEPOSIT_AMOUNT,
             stake_amount: STAKE_AMOUNT,
         },
-        admin_pubkey: generate_xonly_pubkey(),
+        admin: AdminMultisig {
+            pubkeys: vec![generate_xonly_pubkey()],
+            threshold: 1,
+        },
         operator_fee: TEST_OPERATOR_FEE,
         payout_descs,
         bridge_proof_predicate: PredicateKey::always_accept(),

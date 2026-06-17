@@ -149,9 +149,13 @@ fn compute_claim_funding_utxo_value(params: &Params, own_musig2_key: XOnlyPublic
         fee::claim_contest_surcharge(n_watchtowers, COUNTERPROOF_N_DATA),
     );
 
-    let admin_key = params.keys.admin;
-    let claim_payout_connector =
-        ClaimPayoutConnector::new(network, n_of_n_key, admin_key, unstaking_image);
+    let claim_payout_connector = ClaimPayoutConnector::new(
+        network,
+        n_of_n_key,
+        params.keys.admin.pubkeys.clone(),
+        params.keys.admin.threshold,
+        unstaking_image,
+    );
 
     ClaimTx::claim_funds_required(&claim_contest_connector, &claim_payout_connector)
 }

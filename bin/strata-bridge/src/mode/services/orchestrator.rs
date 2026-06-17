@@ -26,7 +26,7 @@ use strata_bridge_sm::{
     self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg, stake::config::StakeSMCfg,
 };
 use strata_bridge_tx_graph::{
-    game_graph::ProtocolParams as TxGraphProtocolParams,
+    game_graph::{AdminMultisig, ProtocolParams as TxGraphProtocolParams},
     stake_graph::ProtocolParams as StakeGraphProtocolParams,
 };
 use strata_mosaic_client_api::MosaicClientApi;
@@ -212,7 +212,10 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
     let graph_config = GraphSMCfg {
         game_graph_params,
         operator_fee,
-        admin_pubkey: params.keys.admin,
+        admin: AdminMultisig {
+            pubkeys: params.keys.admin.pubkeys.clone(),
+            threshold: params.keys.admin.threshold,
+        },
         payout_descs: params
             .keys
             .covenant

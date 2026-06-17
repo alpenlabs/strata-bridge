@@ -1,8 +1,8 @@
 //! Configuration shared across all graph state machines.
 
-use bitcoin::{Amount, XOnlyPublicKey};
+use bitcoin::Amount;
 use bitcoin_bosd::Descriptor;
-use strata_bridge_tx_graph::game_graph::ProtocolParams;
+use strata_bridge_tx_graph::game_graph::{AdminMultisig, ProtocolParams};
 use strata_predicate::PredicateKey;
 
 /// Bridge-wide configuration shared across all graph state machines.
@@ -17,10 +17,10 @@ pub struct GraphSMCfg {
     /// Fees paid to the operator for fronting a user.
     pub operator_fee: Amount,
 
-    /// Key that locks the payout connector output.
+    /// Admin multisig that locks the payout connector output.
     ///
-    /// Signature corresponding to this key can be used to block payouts to the operator.
-    pub admin_pubkey: XOnlyPublicKey,
+    /// Signatures satisfying this threshold can be used to block payouts to the operator.
+    pub admin: AdminMultisig,
 
     /// Descriptor to which payouts are to be sent in case of a successful peg out.
     pub payout_descs: Vec<Descriptor>,

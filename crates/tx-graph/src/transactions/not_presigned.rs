@@ -16,8 +16,8 @@ use bitcoin::{
 use secp256k1::schnorr;
 use strata_bridge_connectors::{
     prelude::{
-        ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness, CounterproofConnector,
-        TimelockedSpendPath, TimelockedWitness,
+        AdminSignature, ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness,
+        CounterproofConnector, TimelockedSpendPath, TimelockedWitness,
     },
     Connector, SigningInfo,
 };
@@ -169,13 +169,19 @@ impl AdminBurnTx {
     /// Finalizes the first transaction input and returns the resulting bitcoin transaction.
     ///
     /// The remaining inputs must be manually signed.
-    pub fn finalize_partial(self, admin_signature: schnorr::Signature) -> Transaction {
+    ///
+    /// # Panics
+    ///
+    /// Panics if fewer than the admin threshold signatures for distinct known admin pubkeys remain
+    /// after unknown or repeated pubkey indices are ignored, or if the underlying PSBT cannot be
+    /// built or extracted.
+    pub fn finalize_partial(self, admin_signatures: Vec<AdminSignature>) -> Transaction {
         let mut psbt = Psbt::from_unsigned_tx(self.tx).expect("witness should be empty");
         for (input, utxo) in psbt.inputs.iter_mut().zip(self.prevouts) {
             input.witness_utxo = Some(utxo);
         }
 
-        let witness = ClaimPayoutWitness::AdminBurn { admin_signature };
+        let witness = ClaimPayoutWitness::AdminBurn { admin_signatures };
         self.connector.finalize_input(&mut psbt.inputs[0], &witness);
 
         psbt.extract_tx().expect("should be able to extract tx")

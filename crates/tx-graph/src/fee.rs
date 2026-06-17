@@ -428,7 +428,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        game_graph::{DepositParams, GameData, GameGraph, KeyData, ProtocolParams, SetupParams},
+        game_graph::{
+            AdminMultisig, DepositParams, GameData, GameGraph, KeyData, ProtocolParams, SetupParams,
+        },
         stake_graph::{
             ProtocolParams as StakeProtocolParams, SetupParams as StakeSetupParams, StakeData,
             StakeGraph,
@@ -515,7 +517,10 @@ mod tests {
                 .take(n_wt)
                 .map(|k| k.x_only_public_key().0)
                 .collect(),
-            admin_pubkey: signer.admin.x_only_public_key().0,
+            admin: AdminMultisig {
+                pubkeys: vec![signer.admin.x_only_public_key().0],
+                threshold: 1,
+            },
             unstaking_image: sha256::Hash::hash(&signer.unstaking_preimage),
             wt_fault_pubkeys: signer
                 .wt_faults

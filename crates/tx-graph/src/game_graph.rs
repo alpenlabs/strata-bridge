@@ -97,8 +97,8 @@ pub struct KeyData {
     pub operator_adaptor_pubkeys: Vec<XOnlyPublicKey>,
     /// For each watchtower, a key to authorize the contest.
     pub watchtower_pubkeys: Vec<XOnlyPublicKey>,
-    /// Admin key.
-    pub admin_pubkey: XOnlyPublicKey,
+    /// Admin multisig used to block payouts.
+    pub admin: AdminMultisig,
     /// Unstaking hash image.
     pub unstaking_image: sha256::Hash,
     /// For each watchtower, a fault key from Mosaic.
@@ -107,6 +107,15 @@ pub struct KeyData {
     pub operator_descriptor: Descriptor,
     /// For each watchtower, a descriptor where to receive the slashed stake.
     pub slash_watchtower_descriptors: Vec<Descriptor>,
+}
+
+/// Admin threshold multisig that can block payouts.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AdminMultisig {
+    /// Public keys participating in the admin multisig.
+    pub pubkeys: Vec<XOnlyPublicKey>,
+    /// Number of signatures required to spend the admin path.
+    pub threshold: usize,
 }
 
 /// Parameters that are inherent from the protocol.
@@ -232,6 +241,9 @@ impl GameGraph {
     /// - The number of watchtower slash descriptors.
     ///
     /// This method panics if the number of watchtowers is greater than [`u32::MAX`].
+    ///
+    /// This method panics if the configured admin multisig has no pubkeys, a zero threshold, or a
+    /// threshold greater than the number of admin pubkeys.
     pub fn new(data: GameData) -> (Self, GameConnectors) {
         let protocol = data.protocol;
         let setup = data.setup;
@@ -262,7 +274,7 @@ impl GameGraph {
         let claim = ClaimTx::new(
             claim_data,
             connectors.claim_contest.clone(),
-            connectors.claim_payout,
+            connectors.claim_payout.clone(),
             keys.operator_pubkey,
         );
 
@@ -274,7 +286,7 @@ impl GameGraph {
             uncontested_payout_data,
             connectors.deposit,
             connectors.claim_contest.clone(),
-            connectors.claim_payout,
+            connectors.claim_payout.clone(),
             &keys.operator_descriptor,
         );
 
@@ -353,7 +365,7 @@ impl GameGraph {
         let contested_payout = ContestedPayoutTx::new(
             contested_payout_data,
             connectors.deposit,
-            connectors.claim_payout,
+            connectors.claim_payout.clone(),
             connectors.contest_payout,
             connectors.contest_slash,
             &keys.operator_descriptor,
@@ -511,6 +523,9 @@ impl GameConnectors {
     /// - The number of watchtower slash descriptors.
     ///
     /// This method also panics if the number of watchtowers is greater than [`u32::MAX`].
+    ///
+    /// This method panics if the configured admin multisig has no pubkeys, a zero threshold, or a
+    /// threshold greater than the number of admin pubkeys.
     pub fn new(game_index: NonZero<u32>, protocol: &ProtocolParams, setup: &SetupParams) -> Self {
         let keys = &setup.keys;
 
@@ -544,7 +559,8 @@ impl GameConnectors {
         let claim_payout = ClaimPayoutConnector::new(
             protocol.network,
             keys.n_of_n_pubkey,
-            keys.admin_pubkey,
+            keys.admin.pubkeys.clone(),
+            keys.admin.threshold,
             keys.unstaking_image,
         );
         let deposit = NOfNConnector::new(
@@ -624,7 +640,9 @@ mod tests {
     use bitcoin::{hashes::Hash, transaction::Version, TxOut};
     use secp256k1::{rand::random, Keypair, SECP256K1};
     use strata_bridge_connectors::{
-        prelude::ContestCounterproofWitness, test_utils::BitcoinNode, Connector,
+        prelude::{AdminSignature, ContestCounterproofWitness},
+        test_utils::BitcoinNode,
+        Connector,
     };
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins};
     use strata_bridge_test_utils::prelude::generate_keypair;
@@ -648,13 +666,15 @@ mod tests {
     const DEPOSIT_AMOUNT: Amount = Amount::from_sat(100_000_000);
     const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
     const FEE: Amount = Amount::from_sat(1_000);
+    const N_ADMINS: usize = 4;
+    const ADMIN_THRESHOLD: usize = 2;
 
     #[derive(Debug)]
     struct Signer {
         pub n_of_n_keypair: Keypair,
         pub operator_keypair: Keypair,
         pub watchtower_keypairs: Vec<Keypair>,
-        pub admin_keypair: Keypair,
+        pub admin_keypairs: Vec<Keypair>,
         pub unstaking_preimage: [u8; 32],
         pub wt_fault_keypairs: Vec<Keypair>,
     }
@@ -665,7 +685,7 @@ mod tests {
                 n_of_n_keypair: generate_keypair(),
                 operator_keypair: generate_keypair(),
                 watchtower_keypairs: (0..N_WATCHTOWERS).map(|_| generate_keypair()).collect(),
-                admin_keypair: generate_keypair(),
+                admin_keypairs: (0..N_ADMINS).map(|_| generate_keypair()).collect(),
                 unstaking_preimage: random(),
                 wt_fault_keypairs: (0..N_WATCHTOWERS).map(|_| generate_keypair()).collect(),
             }
@@ -696,7 +716,14 @@ mod tests {
                 .iter()
                 .map(|k| k.x_only_public_key().0)
                 .collect(),
-            admin_pubkey: signer.admin_keypair.x_only_public_key().0,
+            admin: AdminMultisig {
+                pubkeys: signer
+                    .admin_keypairs
+                    .iter()
+                    .map(|k| k.x_only_public_key().0)
+                    .collect(),
+                threshold: ADMIN_THRESHOLD,
+            },
             unstaking_image: sha256::Hash::hash(&signer.unstaking_preimage),
             wt_fault_pubkeys: signer
                 .wt_fault_keypairs
@@ -725,7 +752,8 @@ mod tests {
         let claim_payout_connector = ClaimPayoutConnector::new(
             protocol.network,
             keys.n_of_n_pubkey,
-            keys.admin_pubkey,
+            keys.admin.pubkeys.clone(),
+            keys.admin.threshold,
             keys.unstaking_image,
         );
         let claim_funds_amount =
@@ -886,10 +914,18 @@ mod tests {
                 script_pubkey: node.wallet_address().script_pubkey(),
             });
 
-            let admin_signature = admin_burn
-                .signing_info_partial()
-                .sign(&signer.admin_keypair);
-            let admin_burn = admin_burn.finalize_partial(admin_signature);
+            let signing_info = admin_burn.signing_info_partial();
+            let admin_signatures = signer
+                .admin_keypairs
+                .iter()
+                .enumerate()
+                .take(ADMIN_THRESHOLD)
+                .map(|(pubkey_index, keypair)| AdminSignature {
+                    pubkey_index,
+                    signature: signing_info.sign(keypair),
+                })
+                .collect();
+            let admin_burn = admin_burn.finalize_partial(admin_signatures);
             assert_eq!(admin_burn.version, Version(3));
 
             node.sign_and_broadcast(&admin_burn);
