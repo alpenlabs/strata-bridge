@@ -6,6 +6,7 @@ from dataclasses import asdict
 import toml
 
 from factory.bridge_operator.params_cfg import (
+    Admin,
     BridgeOperatorParams,
     BridgeProtocolParams,
     CovenantKeys,
@@ -45,12 +46,14 @@ class DevCli:
             )
             for key in self.operator_key_infos
         ]
+        # use the operator keys as the admin keys for simplicity
+        admin_pubkeys = [key.MUSIG2_KEY for key in self.operator_key_infos]
 
         params = BridgeOperatorParams(
             network="regtest",
             genesis_height=DEFAULT_GENESIS_HEIGHT,
             keys=Keys(
-                admin=self.operator_key_infos[0].MUSIG2_KEY,
+                admin=Admin(pubkeys=admin_pubkeys, threshold=min(2, len(admin_pubkeys))),
                 covenant=covenant,
             ),
             protocol=p,
