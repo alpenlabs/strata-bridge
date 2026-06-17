@@ -8,7 +8,7 @@ version = "0.1.0"
 [dependencies]
 ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.16.0" }
 strata-bridge-counterproof = { path = "../../../crates/proofs/bridge-counterproof" }
-zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.3", features = [
+zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.5", features = [
   "blake3",
 ] }
 
