@@ -40,7 +40,7 @@ use strata_bridge_test_utils::{
     bitcoin::generate_xonly_pubkey, bridge_fixtures::TEST_RECOVERY_DELAY, prelude::generate_txid,
 };
 use strata_bridge_tx_graph::{
-    game_graph::ProtocolParams as GameProtocolParams,
+    game_graph::{AdminMultisig, ProtocolParams as GameProtocolParams},
     stake_graph::{ProtocolParams as StakeProtocolParams, StakeGraphSummary},
     transactions::{deposit::DepositTx, prelude::DepositData},
 };
@@ -89,7 +89,10 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             deposit_amount: TEST_DEPOSIT_AMOUNT,
             stake_amount: Amount::from_sat(100_000_000),
         },
-        admin_pubkey: generate_xonly_pubkey(),
+        admin: AdminMultisig {
+            pubkeys: vec![generate_xonly_pubkey()],
+            threshold: 1,
+        },
         operator_fee: TEST_OPERATOR_FEE,
         payout_descs,
         bridge_proof_predicate: PredicateKey::always_accept(),

@@ -596,7 +596,8 @@ mod tests {
         let connector = ClaimPayoutConnector::new(
             Network::Regtest,
             xonly_pubkey(3),
-            xonly_pubkey(4),
+            vec![xonly_pubkey(4)],
+            1,
             sha256::Hash::hash(&unstaking_preimage),
         );
         let data = UnstakingBurnData {

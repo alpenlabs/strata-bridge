@@ -38,7 +38,7 @@ use strata_bridge_test_utils::{
     prelude::generate_txid,
 };
 use strata_bridge_tx_graph::{
-    game_graph::{DepositParams, GameGraphSummary, ProtocolParams},
+    game_graph::{AdminMultisig, DepositParams, GameGraphSummary, ProtocolParams},
     stake_graph::ProtocolParams as StakeProtocolParams,
     transactions::{
         cooperative_payout::{CooperativePayoutData, CooperativePayoutTx},
@@ -99,7 +99,10 @@ fn test_graph_cfg() -> GraphSMCfg {
             stake_amount: Amount::from_sat(20_000),
         },
         operator_fee: TEST_OPERATOR_FEE,
-        admin_pubkey: generate_xonly_pubkey(),
+        admin: AdminMultisig {
+            pubkeys: vec![generate_xonly_pubkey()],
+            threshold: 1,
+        },
         payout_descs: (0..3).map(|_| random_p2tr_desc()).collect(),
         bridge_proof_predicate: PredicateKey::always_accept(),
         counterproof_predicate: PredicateKey::always_accept(),

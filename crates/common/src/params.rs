@@ -107,12 +107,22 @@ pub struct ProtocolParams {
 /// The keys used by the operators.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyParams {
-    /// The admin key used to block payouts in case of a malicious operator flooding the network
-    /// with invalid claims and overwhelming the watchtowers.
-    pub admin: XOnlyPublicKey,
+    /// The admin multisig used to block payouts in case of a malicious operator flooding the
+    /// network with invalid claims and overwhelming the watchtowers.
+    pub admin: AdminParams,
 
     /// The per-operator keys that form the N-of-N covenant.
     pub covenant: Vec<CovenantKeys>,
+}
+
+/// The admin threshold multisig configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminParams {
+    /// Public keys participating in the admin multisig.
+    pub pubkeys: Vec<XOnlyPublicKey>,
+
+    /// Number of signatures required to spend the admin path.
+    pub threshold: usize,
 }
 
 /// The per-entity keys that form the N-of-N covenant.
@@ -140,8 +150,14 @@ struct EncodedCovenantKeys {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct EncodedAdminParams {
+    pubkeys: Vec<String>,
+    threshold: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct EncodedKeyParams {
-    admin: String,
+    admin: EncodedAdminParams,
     covenant: Vec<EncodedCovenantKeys>,
 }
 
@@ -151,7 +167,15 @@ where
     S: serde::Serializer,
 {
     let encoded_keys = EncodedKeyParams {
-        admin: keys.admin.serialize().to_lower_hex_string(),
+        admin: EncodedAdminParams {
+            pubkeys: keys
+                .admin
+                .pubkeys
+                .iter()
+                .map(|key| key.serialize().to_lower_hex_string())
+                .collect(),
+            threshold: keys.admin.threshold,
+        },
         covenant: keys
             .covenant
             .iter()
@@ -173,9 +197,43 @@ where
 {
     let encoded_keys = EncodedKeyParams::deserialize(deserializer)?;
 
-    let admin = hex::decode(&encoded_keys.admin).expect("Failed to decode hex admin key");
-    let admin =
-        XOnlyPublicKey::from_slice(&admin).expect("Failed to create admin xonly pk from slice");
+    let admin_pubkeys = encoded_keys
+        .admin
+        .pubkeys
+        .into_iter()
+        .enumerate()
+        .map(|(i, key)| -> Result<XOnlyPublicKey, D::Error> {
+            let key = hex::decode(&key).map_err(|e| {
+                serde::de::Error::custom(format!(
+                    "failed to decode hex admin pubkey at index {i}: {e}"
+                ))
+            })?;
+            XOnlyPublicKey::from_slice(&key).map_err(|e| {
+                serde::de::Error::custom(format!(
+                    "failed to create admin xonly pk at index {i}: {e}"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if admin_pubkeys.is_empty() {
+        return Err(serde::de::Error::custom(
+            "admin multisig must include at least one pubkey",
+        ));
+    }
+    if encoded_keys.admin.threshold == 0 {
+        return Err(serde::de::Error::custom(
+            "admin multisig threshold must be greater than zero",
+        ));
+    }
+    if encoded_keys.admin.threshold > admin_pubkeys.len() {
+        return Err(serde::de::Error::custom(
+            "admin multisig threshold must not exceed pubkey count",
+        ));
+    }
+    let admin = AdminParams {
+        pubkeys: admin_pubkeys,
+        threshold: encoded_keys.admin.threshold,
+    };
 
     let covenant = encoded_keys
         .covenant
@@ -255,7 +313,10 @@ mod tests {
             genesis_height = 101
 
             [keys]
-            admin = "{XONLY_KEY_1}"
+
+            [keys.admin]
+            pubkeys = ["{XONLY_KEY_1}", "{XONLY_KEY_2}"]
+            threshold = 2
 
             [[keys.covenant]]
             musig2 = "{XONLY_KEY_1}"
@@ -309,6 +370,16 @@ mod tests {
         );
 
         assert_eq!(params.protocol.bury_depth, 6, "bury depth must round-trip");
+
+        assert_eq!(
+            params.keys.admin.threshold, 2,
+            "admin threshold must round-trip"
+        );
+        assert_eq!(
+            params.keys.admin.pubkeys.len(),
+            2,
+            "admin pubkeys must round-trip"
+        );
     }
 
     /// Construct a P2TR BOSD descriptor string from an x-only public key hex string.

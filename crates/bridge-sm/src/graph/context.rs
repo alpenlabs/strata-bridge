@@ -102,7 +102,7 @@ impl GraphSMCtx {
         let owner_idx = self.operator_idx() as usize;
         let watchtower_pubkeys = self.watchtower_pubkeys();
 
-        let admin_pubkey = cfg.admin_pubkey;
+        let admin = cfg.admin.clone();
         let unstaking_image = self.unstaking_image();
 
         let owner_desc = cfg.payout_descs[owner_idx].clone();
@@ -125,7 +125,7 @@ impl GraphSMCtx {
             operator_pubkey,
             operator_adaptor_pubkeys: deposit_params.adaptor_pubkeys.clone(),
             watchtower_pubkeys,
-            admin_pubkey,
+            admin,
             unstaking_image,
             wt_fault_pubkeys: deposit_params.fault_pubkeys.clone(),
             operator_descriptor: owner_desc,
