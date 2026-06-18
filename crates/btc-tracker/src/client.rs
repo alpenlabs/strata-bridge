@@ -378,118 +378,114 @@ impl BtcNotifyClient<Disconnected> {
 
         let mut cursor = start_height;
         let thread_handle = Arc::new(task::spawn(async move {
-            loop {
-                // This loop has no break condition. It is only aborted when the BtcNotifyClient is
-                // dropped.
-                info!("listening for ZMQ events");
+            // Drains ZMQ events until the stream ends (only when the BtcNotifyClient is dropped),
+            // then emits `StreamEnded` and lets the task exit.
+            info!("listening for ZMQ events");
 
-                while let Some(res) = stream.next().await {
-                    let mut sm = state_machine_thread.lock().await;
-                    let diff = match res {
-                        Ok(SocketMessage::Message(msg)) => {
-                            if let Some(observer) = &health_observer {
-                                observer.observe(BtcNotifyHealthEvent::MessageReceived);
+            while let Some(res) = stream.next().await {
+                let mut sm = state_machine_thread.lock().await;
+                let diff = match res {
+                    Ok(SocketMessage::Message(msg)) => {
+                        if let Some(observer) = &health_observer {
+                            observer.observe(BtcNotifyHealthEvent::MessageReceived);
+                        }
+                        let topic = msg.topic_str();
+                        match msg {
+                            Message::HashBlock(_, _) => {
+                                trace!(%topic, "received event");
+                                Vec::new()
                             }
-                            let topic = msg.topic_str();
-                            match msg {
-                                Message::HashBlock(_, _) => {
-                                    trace!(%topic, "received event");
-                                    Vec::new()
-                                }
-                                Message::HashTx(_, _) => {
-                                    trace!(%topic, "received event");
-                                    Vec::new()
-                                }
-                                Message::Block(block, _) => {
-                                    trace!(%topic, "received event");
+                            Message::HashTx(_, _) => {
+                                trace!(%topic, "received event");
+                                Vec::new()
+                            }
+                            Message::Block(block, _) => {
+                                trace!(%topic, "received event");
 
-                                    process_block_message(
-                                        block,
-                                        &mut cursor,
-                                        start_height,
-                                        &mut sm,
-                                        &fetcher,
-                                        &block_subs_thread,
-                                    )
-                                    .await
-                                }
-                                Message::Tx(tx, _) => {
-                                    trace!(%topic, "received event");
-                                    info!(txid=%tx.compute_txid(), "processing transaction");
-                                    sm.process_tx(tx)
-                                }
-                                Message::Sequence(seq, _) => {
-                                    trace!(%topic, "received event");
-                                    info!(%seq, "processing sequence");
-                                    let (tx_events, block_event) = sm.process_sequence(seq);
+                                process_block_message(
+                                    block,
+                                    &mut cursor,
+                                    start_height,
+                                    &mut sm,
+                                    &fetcher,
+                                    &block_subs_thread,
+                                )
+                                .await
+                            }
+                            Message::Tx(tx, _) => {
+                                trace!(%topic, "received event");
+                                info!(txid=%tx.compute_txid(), "processing transaction");
+                                sm.process_tx(tx)
+                            }
+                            Message::Sequence(seq, _) => {
+                                trace!(%topic, "received event");
+                                info!(%seq, "processing sequence");
+                                let (tx_events, block_event) = sm.process_sequence(seq);
 
-                                    if let Some(block_event) = block_event {
-                                        if matches!(&block_event.status, BlockStatus::Uncled) {
-                                            let disconnected_height = block_event
-                                                .block
-                                                .bip34_block_height()
-                                                .unwrap_or(start_height);
-                                            let realigned_cursor =
-                                                disconnected_height.max(start_height);
-                                            if realigned_cursor < cursor {
-                                                warn!(
-                                                    cursor = %cursor,
-                                                    %disconnected_height,
-                                                    %start_height,
-                                                    %realigned_cursor,
-                                                    "block disconnect rolled back state machine tip, realigning cursor"
-                                                );
-                                                cursor = realigned_cursor;
-                                            }
+                                if let Some(block_event) = block_event {
+                                    if matches!(&block_event.status, BlockStatus::Uncled) {
+                                        let disconnected_height = block_event
+                                            .block
+                                            .bip34_block_height()
+                                            .unwrap_or(start_height);
+                                        let realigned_cursor = disconnected_height.max(start_height);
+                                        if realigned_cursor < cursor {
+                                            warn!(
+                                                cursor = %cursor,
+                                                %disconnected_height,
+                                                %start_height,
+                                                %realigned_cursor,
+                                                "block disconnect rolled back state machine tip, realigning cursor"
+                                            );
+                                            cursor = realigned_cursor;
                                         }
-
-                                        block_subs_thread
-                                            .lock()
-                                            .await
-                                            .retain(|sub| sub.send(block_event.clone()).is_ok())
                                     }
 
-                                    tx_events
+                                    block_subs_thread
+                                        .lock()
+                                        .await
+                                        .retain(|sub| sub.send(block_event.clone()).is_ok())
                                 }
-                            }
-                        }
-                        Ok(monitoring_msg) => {
-                            if let Some(observer) = &health_observer {
-                                observer.observe(BtcNotifyHealthEvent::MessageReceived);
-                            }
-                            warn!(?monitoring_msg, "ignoring monitoring message");
-                            Vec::new()
-                        }
-                        Err(e) => {
-                            if let Some(observer) = &health_observer {
-                                observer.observe(BtcNotifyHealthEvent::MessageError);
-                            }
-                            error!(%e, "Error processing ZMQ message");
-                            Vec::new()
-                        }
-                    };
 
-                    tx_subs_thread.lock().await.retain(|sub| {
-                        for msg in diff.iter().filter(|event| (sub.predicate)(&event.rawtx)) {
-                            // Now we send the diff to the relevant subscribers.
-                            // If we ever encounter a send error,
-                            // it means the receiver has been dropped.
-                            trace!(?msg, "notifying subscriber");
-
-                            if let Err(e) = sub.outbox.send(msg.clone()) {
-                                debug!(%e, "failed to notify subscriber");
-                                sm.rm_filter(&sub.predicate);
-                                return false;
+                                tx_events
                             }
                         }
-                        true
-                    });
-                }
+                    }
+                    Ok(monitoring_msg) => {
+                        if let Some(observer) = &health_observer {
+                            observer.observe(BtcNotifyHealthEvent::MessageReceived);
+                        }
+                        warn!(?monitoring_msg, "ignoring monitoring message");
+                        Vec::new()
+                    }
+                    Err(e) => {
+                        if let Some(observer) = &health_observer {
+                            observer.observe(BtcNotifyHealthEvent::MessageError);
+                        }
+                        error!(%e, "Error processing ZMQ message");
+                        Vec::new()
+                    }
+                };
 
-                if let Some(observer) = &health_observer {
-                    observer.observe(BtcNotifyHealthEvent::StreamEnded);
-                }
-                break;
+                tx_subs_thread.lock().await.retain(|sub| {
+                    for msg in diff.iter().filter(|event| (sub.predicate)(&event.rawtx)) {
+                        // Now we send the diff to the relevant subscribers.
+                        // If we ever encounter a send error,
+                        // it means the receiver has been dropped.
+                        trace!(?msg, "notifying subscriber");
+
+                        if let Err(e) = sub.outbox.send(msg.clone()) {
+                            debug!(%e, "failed to notify subscriber");
+                            sm.rm_filter(&sub.predicate);
+                            return false;
+                        }
+                    }
+                    true
+                });
+            }
+
+            if let Some(observer) = &health_observer {
+                observer.observe(BtcNotifyHealthEvent::StreamEnded);
             }
         }));
 

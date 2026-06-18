@@ -171,7 +171,7 @@ impl HealthRegistry {
         let (last_success_time, last_success_instant) = if update_last_success {
             (Some(now_rfc3339()), Some(Instant::now()))
         } else {
-            let previous = components
+            components
                 .get(component)
                 .map(|health| {
                     (
@@ -179,8 +179,7 @@ impl HealthRegistry {
                         health.last_success_instant,
                     )
                 })
-                .unwrap_or((None, None));
-            previous
+                .unwrap_or((None, None))
         };
 
         components.insert(
@@ -236,7 +235,7 @@ pub(crate) struct HealthHttpLayer {
 
 impl HealthHttpLayer {
     /// Creates a health HTTP layer backed by the shared registry.
-    pub(crate) fn new(registry: HealthRegistry) -> Self {
+    pub(crate) const fn new(registry: HealthRegistry) -> Self {
         Self { registry }
     }
 }
@@ -320,7 +319,7 @@ fn response(status: u16, content_type: &'static str, body: Vec<u8>) -> HttpRespo
         .expect("static health HTTP response should be valid")
 }
 
-fn http_status_for_health(status: HealthStatus) -> u16 {
+const fn http_status_for_health(status: HealthStatus) -> u16 {
     match status {
         HealthStatus::Ok | HealthStatus::Degraded => 200,
         HealthStatus::Unhealthy => 503,

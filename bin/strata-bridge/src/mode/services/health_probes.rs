@@ -279,7 +279,7 @@ pub(in crate::mode) fn spawn_orchestrator_stale_monitor(
     });
 }
 
-fn nonzero_interval(interval: Duration) -> Duration {
+const fn nonzero_interval(interval: Duration) -> Duration {
     if interval.is_zero() {
         Duration::from_secs(1)
     } else {
