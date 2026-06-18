@@ -33,7 +33,7 @@ class BitcoinConfig:
     rpc_url: str
     rpc_user: str
     rpc_password: str
-    rawblock_connection_string: str
+    hashblock_connection_string: str
     retry_count: int | None = None
     retry_interval: Duration | None = None
 
