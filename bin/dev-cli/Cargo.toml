@@ -11,7 +11,6 @@ name = "dev-cli"
 path = "src/main.rs"
 
 [dependencies]
-jsonrpsee = { workspace = true, features = ["http-client"] }
 strata-bridge-common.workspace = true
 strata-bridge-key-deriv.workspace = true
 strata-bridge-primitives.workspace = true
@@ -37,12 +36,15 @@ bitcoin-bosd = { workspace = true, features = ["address"] }
 bitcoincore-rpc.workspace = true
 clap.workspace = true
 hex.workspace = true
+jsonrpsee = { workspace = true, features = ["http-client"] }
 k256.workspace = true
 libp2p-identity = { workspace = true, features = ["ed25519"] }
 miniscript.workspace = true
 musig2.workspace = true
 rand.workspace = true
+reqwest.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand"] }
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true

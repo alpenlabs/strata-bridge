@@ -1,32 +1,39 @@
-network = "regtest"
-genesis_height = 101
+network = "signet"
+genesis_height = 303298
 
 [keys]
-admin = "b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d"
+admin = "2d2eefc1957d519357a1f69b243a2be8cb8ed1d5004eff6c2a0dc15136e96e41"
 
 [[keys.covenant]]
-musig2 = "b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d"
-p2p = "0de7729dcbeb5069136ee4bff1c4f2fd822fe8fbc9b518df434d4f0c6312d8f5"
-payout_descriptor = "0494047994e5ac5dabf9737a176f0c79eeb9f09c9749a087a138ddb1ff3caceb2f"
+musig2 = "d81329f87536da4bfd79be779b6826089189885229dcf53f5bb8c9b55cb4f346"
+p2p = "4a51ed0e6d52edae76dcdc0518e8cd83abe1ea3305ed222686610d0824512e83"
+adaptor = "d81329f87536da4bfd79be779b6826089189885229dcf53f5bb8c9b55cb4f346"
+watchtower_fault = "d81329f87536da4bfd79be779b6826089189885229dcf53f5bb8c9b55cb4f346"
+payout_descriptor = "04763c8bc3bb90e89445616785775710882256ac4da2df60bae78817d920742780"
 
 [[keys.covenant]]
-musig2 = "1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4"
-p2p = "255ab0da6d468a22910a7cf54021763417c63c28bbafd4e2359daf103bb61e9d"
-payout_descriptor = "044f935f6e983bd4bca4e512cc1a5f50137e3b4a03e20c90f60ac7387a88c2e114"
+musig2 = "b7e1c66e855393355d8a1f136bf07965546ae33129967f08f82ea0cdcbd43c0e"
+p2p = "61a78898def449f2ef21e0afe13f7552ee7fc217ce658a84aca6bba070e49952"
+adaptor = "b7e1c66e855393355d8a1f136bf07965546ae33129967f08f82ea0cdcbd43c0e"
+watchtower_fault = "b7e1c66e855393355d8a1f136bf07965546ae33129967f08f82ea0cdcbd43c0e"
+payout_descriptor = "047cb47c26a2ca77c150e287db872871418931a7119ad4caa43e41ab6584ffdb4e"
 
 [[keys.covenant]]
-musig2 = "a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
-p2p = "aeabd3a377c160590a0927bca0cb315eaebf5acc87476fbb317c6260b6f123c6"
-payout_descriptor = "04b63fea4640fbbf630e2bd949a588b63426bb2ea2771ce5b2caf44dbfa90d6cd3"
+musig2 = "9bdb644a747716eb6b0867f1514414968e5f13d67c5fbba314800bd6eb8d116a"
+p2p = "3af589feed29a15104550f76e1e26f815160fb30952f25b814673d12c94eeef6"
+adaptor = "9bdb644a747716eb6b0867f1514414968e5f13d67c5fbba314800bd6eb8d116a"
+watchtower_fault = "9bdb644a747716eb6b0867f1514414968e5f13d67c5fbba314800bd6eb8d116a"
+payout_descriptor = "043e04b7ccd670e1679de53b5b2e81a0e9af362819d791db4a6fa0d9c1f40ce300"
 
 [protocol]
 magic_bytes = "ALPN"
-deposit_amount = 1_000_000_000
-stake_amount = 100_000_000
-operator_fee = 10_000_000
+deposit_amount = 100_000_000
+stake_amount = 100_000_002
+operator_fee = 150_000
 recovery_delay = 1_008
-contest_timelock = 144
-proof_timelock = 144
-ack_timelock = 144
+contest_timelock = 6
+proof_timelock = 3
+ack_timelock = 3
 nack_timelock = 144
 contested_payout_timelock = 1_008
+bury_depth = 6

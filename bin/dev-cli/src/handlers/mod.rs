@@ -1,8 +1,11 @@
+pub(crate) mod addr;
 pub(crate) mod bridge_in;
 pub(crate) mod checkpoint;
 pub(crate) mod claim;
 pub(crate) mod contest;
 pub(crate) mod derive_keys;
 mod graph;
+pub(crate) mod keygen;
 mod rpc;
-mod wallet;
+pub(crate) mod send;
+pub(crate) mod wallet;

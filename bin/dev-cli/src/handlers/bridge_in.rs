@@ -23,21 +23,55 @@ use crate::{
     },
 };
 
-pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
+pub(crate) async fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
     let BridgeInArgs {
         btc_args,
         ee_address,
         params,
+        private_key_file,
+        esplora_url,
+        fee_rate_sats_per_vbyte,
+        change_address,
+        dry_run,
     } = args;
-    let rpc_client = rpc::get_btc_client(&btc_args.url, btc_args.user, btc_args.pass)?;
-    let params = Params::from_path(params)?;
 
-    let psbt_wallet = wallet::BitcoinRpcWallet::new(rpc_client);
+    info!(
+        command = "bridge-in",
+        %ee_address,
+        params = %params.display(),
+        key_file = ?private_key_file,
+        api_url = ?esplora_url,
+        fee_rate_sat_vb = fee_rate_sats_per_vbyte,
+        change_address = ?change_address,
+        dry_run,
+        "initiating bridge-in"
+    );
 
-    info!(action = "Initiating bridge-in", %ee_address);
+    let params = Params::from_path(&params)?;
+    info!(
+        network = %params.network,
+        deposit_amount_sats = params.protocol.deposit_amount.to_sat(),
+        recovery_delay = params.protocol.recovery_delay,
+        covenant_keys = params.keys.covenant.len(),
+        "loaded bridge params"
+    );
 
     let ee_address = EvmAddress::from_str(&ee_address)?;
-    let recovery_pubkey = get_recovery_pubkey();
+    let local_private_key = private_key_file
+        .as_deref()
+        .map(|path| wallet::read_private_key_file(path, params.network))
+        .transpose()?;
+    let recovery_pubkey = match &local_private_key {
+        Some(private_key) => {
+            let pubkey = wallet::xonly_pubkey_from_private_key(private_key);
+            info!(
+                event = "using WIF-derived x-only pubkey for recovery",
+                %pubkey
+            );
+            pubkey
+        }
+        None => get_recovery_pubkey(),
+    };
 
     let metadata =
         build_sps50_metadata(params.protocol.magic_bytes, &ee_address, &recovery_pubkey)?;
@@ -52,13 +86,54 @@ pub(crate) fn handle_bridge_in(args: BridgeInArgs) -> Result<()> {
     let taproot_address = generate_taproot_address(params.network, timelock_script, agg_key);
 
     let deposit_fees = Amount::from_sat(1_000);
-    let psbt = psbt_wallet.create_drt_psbt(
-        params.protocol.deposit_amount + deposit_fees,
-        &taproot_address,
-        metadata,
-        &params.network,
-    )?;
-    psbt_wallet.sign_and_broadcast_psbt(&psbt)?;
+    let deposit_amount = params.protocol.deposit_amount + deposit_fees;
+    info!(
+        %taproot_address,
+        deposit_amount_sats = deposit_amount.to_sat(),
+        deposit_fee_buffer_sats = deposit_fees.to_sat(),
+        "built DRT taproot destination"
+    );
+
+    if let Some(private_key) = local_private_key {
+        info!("using local WIF wallet for bridge-in");
+        let wallet = wallet::LocalBridgeInWallet::new(
+            private_key,
+            params.network,
+            change_address.as_deref(),
+            fee_rate_sats_per_vbyte,
+            esplora_url.as_deref(),
+        )?;
+
+        let outcome = wallet
+            .sign_and_maybe_broadcast_drt(deposit_amount, &taproot_address, metadata, dry_run)
+            .await?;
+        info!(
+            command = "bridge-in",
+            txid = %outcome.txid,
+            tx_url = %outcome.tx_url,
+            broadcasted = outcome.broadcasted,
+            "bridge-in command completed"
+        );
+        println!("transaction: {}", outcome.tx_url);
+    } else {
+        info!(btc_url = %btc_args.url, "using bitcoind wallet for bridge-in");
+        let rpc_client = rpc::get_btc_client(&btc_args.url, btc_args.user, btc_args.pass)?;
+        let psbt_wallet = wallet::BitcoinRpcWallet::new(rpc_client);
+        let psbt = psbt_wallet.create_drt_psbt(
+            deposit_amount,
+            &taproot_address,
+            metadata,
+            &params.network,
+        )?;
+        let txid = psbt_wallet.sign_and_broadcast_psbt(&psbt)?;
+        if let Some(tx_url) = wallet::default_mempool_tx_url(params.network, &txid) {
+            info!(command = "bridge-in", %txid, %tx_url, "bridge-in command completed");
+            println!("transaction: {tx_url}");
+        } else {
+            info!(command = "bridge-in", %txid, "bridge-in command completed");
+            println!("txid: {txid}");
+        }
+    }
 
     Ok(())
 }

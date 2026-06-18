@@ -71,6 +71,9 @@ target/
 mutants.out*
 lcov.info
 
+# Local Bitcoin key material
+*.wif
+
 ########
 # Nix
 ########

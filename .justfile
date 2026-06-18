@@ -362,7 +362,90 @@ bridge-in:
         --btc-user user \
         --btc-pass password \
         --params bin/dev-cli/params.toml \
-        --ee-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
+        --ee-address 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
+
+# Generate a signet WIF key file for local bridge-in funding
+[group('bridge')]
+keygen output="signet-bridge.wif" network="signet" force_flag="":
+    RUST_LOG=info \
+    cargo r \
+        --bin dev-cli \
+        -- \
+        keygen \
+        --network {{ network }} \
+        --output "{{ output }}" \
+        {{ force_flag }}
+
+# Print the P2TR funding address for a WIF key file
+[group('bridge')]
+addr key-file="signet-bridge.wif" network="signet":
+    RUST_LOG=info \
+    cargo r \
+        --bin dev-cli \
+        -- \
+        addr \
+        --network {{ network }} \
+        --key-file "{{ key-file }}"
+
+# Send signet bitcoin from a local WIF key
+[group('bridge')]
+send-signet amount-sats to fee-rate="1" key-file="signet-bridge.wif" api-url="https://mempool.space/signet/api":
+    RUST_LOG=info \
+    cargo r \
+        --bin dev-cli \
+        -- \
+        send \
+        --network signet \
+        --key-file "{{ key-file }}" \
+        --to "{{ to }}" \
+        --amount-sats {{ amount-sats }} \
+        --api-url "{{ api-url }}" \
+        --fee-rate {{ fee-rate }}
+
+# Dry-run a signet bitcoin send from a local WIF key without broadcasting
+[group('bridge')]
+send-signet-dry-run amount-sats to fee-rate="1" key-file="signet-bridge.wif" api-url="https://mempool.space/signet/api":
+    RUST_LOG=debug \
+    cargo r \
+        --bin dev-cli \
+        -- \
+        send \
+        --network signet \
+        --key-file "{{ key-file }}" \
+        --to "{{ to }}" \
+        --amount-sats {{ amount-sats }} \
+        --api-url "{{ api-url }}" \
+        --fee-rate {{ fee-rate }} \
+        --dry-run
+
+# Run bridge-in using a local WIF key and mempool/Esplora REST instead of bitcoind
+[group('bridge')]
+bridge-in-signet key-file="signet-bridge.wif" ee-address="0x70997970C51812dc3A010C7d01b50e0d17dc79C8" params="bin/dev-cli/params.toml" fee-rate="2" api-url="https://mempool.space/signet/api":
+    RUST_LOG=info \
+    cargo r \
+        --bin dev-cli \
+        -- \
+        bridge-in \
+        --params "{{ params }}" \
+        --ee-address {{ ee-address }} \
+        --key-file "{{ key-file }}" \
+        --api-url "{{ api-url }}" \
+        --fee-rate {{ fee-rate }}
+
+# Dry-run bridge-in using a local WIF key without broadcasting the transaction
+[group('bridge')]
+bridge-in-signet-dry-run key-file="signet-bridge.wif" ee-address="0x70997970C51812dc3A010C7d01b50e0d17dc79C8" params="bin/dev-cli/params.toml" fee-rate="2" api-url="https://mempool.space/signet/api":
+    RUST_LOG=debug \
+    cargo r \
+        --bin dev-cli \
+        -- \
+        bridge-in \
+        --params "{{ params }}" \
+        --ee-address {{ ee-address }} \
+        --key-file "{{ key-file }}" \
+        --api-url "{{ api-url }}" \
+        --fee-rate {{ fee-rate }} \
+        --dry-run
 
 # Contest a claim transaction by signing and broadcasting a challenge via the game graph
 [group('bridge')]

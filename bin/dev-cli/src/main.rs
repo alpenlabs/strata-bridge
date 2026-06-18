@@ -4,7 +4,7 @@ mod handlers;
 
 use anyhow::{Error, Result};
 use clap::Parser;
-use handlers::derive_keys;
+use handlers::{addr, derive_keys, keygen, send};
 use strata_bridge_common::logging::{self, LoggerConfig};
 
 use crate::handlers::{bridge_in, checkpoint, claim, contest};
@@ -17,7 +17,10 @@ async fn main() -> Result<(), Error> {
 
     let cli = cli::Cli::parse();
     match cli.command {
-        cli::Commands::BridgeIn(args) => bridge_in::handle_bridge_in(args),
+        cli::Commands::BridgeIn(args) => bridge_in::handle_bridge_in(args).await,
+        cli::Commands::GeneratePrivateKey(args) => keygen::handle_keygen(args),
+        cli::Commands::GenerateAddress(args) => addr::handle_addr(args),
+        cli::Commands::Send(args) => send::handle_send(args).await,
         cli::Commands::DeriveKeys(args) => derive_keys::handle_derive_keys(args),
         cli::Commands::CreateAndPublishMockCheckpoint(args) => {
             checkpoint::handle_create_and_publish_mock_checkpoint(args).await

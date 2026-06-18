@@ -18,6 +18,25 @@ pub(crate) struct Cli {
 pub(crate) enum Commands {
     BridgeIn(BridgeInArgs),
 
+    /// Generate a Bitcoin private key and write it as WIF.
+    #[command(
+        name = "keygen",
+        alias = "generate-private-key",
+        alias = "generate_a_private_key"
+    )]
+    GeneratePrivateKey(GeneratePrivateKeyArgs),
+
+    /// Generate the P2TR funding address for a private key.
+    #[command(
+        name = "addr",
+        alias = "generate-address",
+        alias = "generate_an_address"
+    )]
+    GenerateAddress(GenerateAddressArgs),
+
+    /// Send bitcoin from a WIF-backed address.
+    Send(SendArgs),
+
     DeriveKeys(DeriveKeysArgs),
 
     /// Create and publish a mock checkpoint.
@@ -55,8 +74,119 @@ pub(crate) struct BridgeInArgs {
     #[arg(long, help = "the path to the params file")]
     pub(crate) params: PathBuf,
 
+    #[arg(
+        long = "key-file",
+        alias = "private-key-file",
+        help = "path to a WIF private key; when set, bridge-in signs locally, uses this key for DRT recovery, and uses mempool/Esplora REST instead of bitcoind"
+    )]
+    pub(crate) private_key_file: Option<PathBuf>,
+
+    #[arg(
+        long = "api-url",
+        alias = "esplora-url",
+        help = "mempool/Esplora API base URL; defaults to the selected network"
+    )]
+    pub(crate) esplora_url: Option<String>,
+
+    #[arg(
+        long = "fee-rate",
+        alias = "fee-rate-sats-per-vbyte",
+        default_value_t = 2,
+        help = "fee rate in sat/vB for the private-key bridge-in path"
+    )]
+    pub(crate) fee_rate_sats_per_vbyte: u64,
+
+    #[arg(
+        long = "change",
+        alias = "change-address",
+        help = "optional change address for the private-key bridge-in path; defaults to the funding address"
+    )]
+    pub(crate) change_address: Option<String>,
+
+    #[arg(
+        long,
+        help = "construct and sign the private-key bridge-in transaction without broadcasting"
+    )]
+    pub(crate) dry_run: bool,
+
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(about = "Generate a Bitcoin private key", version)]
+pub(crate) struct GeneratePrivateKeyArgs {
+    #[arg(long, short, help = "path to write the WIF private key")]
+    pub(crate) output: PathBuf,
+
+    #[arg(long, default_value_t = Network::Signet, help = "bitcoin network")]
+    pub(crate) network: Network,
+
+    #[arg(long, help = "overwrite the output file if it already exists")]
+    pub(crate) force: bool,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(about = "Generate a Bitcoin address from a private key file", version)]
+pub(crate) struct GenerateAddressArgs {
+    #[arg(
+        long = "key-file",
+        alias = "private-key-file",
+        help = "path to a WIF private key"
+    )]
+    pub(crate) private_key_file: PathBuf,
+
+    #[arg(long, default_value_t = Network::Signet, help = "bitcoin network")]
+    pub(crate) network: Network,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(about = "Send bitcoin from a WIF private key", version)]
+pub(crate) struct SendArgs {
+    #[arg(
+        long = "key-file",
+        alias = "private-key-file",
+        help = "path to a WIF private key"
+    )]
+    pub(crate) private_key_file: PathBuf,
+
+    #[arg(long, default_value_t = Network::Signet, help = "bitcoin network")]
+    pub(crate) network: Network,
+
+    #[arg(long, help = "recipient bitcoin address")]
+    pub(crate) to: String,
+
+    #[arg(
+        long = "amount-sats",
+        alias = "sats",
+        help = "amount to send in satoshis"
+    )]
+    pub(crate) amount_sats: u64,
+
+    #[arg(
+        long = "fee-rate",
+        alias = "fee-rate-sats-per-vbyte",
+        default_value_t = 2,
+        help = "fee rate in sat/vB"
+    )]
+    pub(crate) fee_rate_sats_per_vbyte: u64,
+
+    #[arg(
+        long = "api-url",
+        alias = "esplora-url",
+        help = "mempool/Esplora API base URL; defaults to the selected network"
+    )]
+    pub(crate) esplora_url: Option<String>,
+
+    #[arg(
+        long = "change",
+        alias = "change-address",
+        help = "optional change address; defaults to the funding address"
+    )]
+    pub(crate) change_address: Option<String>,
+
+    #[arg(long, help = "construct and sign the transaction without broadcasting")]
+    pub(crate) dry_run: bool,
 }
 
 #[derive(Parser, Debug, Clone)]

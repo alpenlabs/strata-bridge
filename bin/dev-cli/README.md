@@ -8,6 +8,8 @@ Strata Bridge CLI for dev environment.
 
 Send a deposit request transaction on bitcoin.
 
+Using a bitcoind wallet:
+
 ```bash
 dev-cli bridge-in \
   --btc-url http://127.0.0.1:18443/wallet/testwallet \
@@ -16,6 +18,40 @@ dev-cli bridge-in \
   --params ./params.toml \
   --ee-address 0x<EVM_ADDRESS>
 ```
+
+Using a local WIF key and mempool/Esplora REST, useful for public signet:
+
+```bash
+dev-cli keygen --network signet --output signet-bridge.wif
+dev-cli addr --network signet --key-file signet-bridge.wif
+# Fund the printed address, then:
+dev-cli bridge-in \
+  --params ./params.toml \
+  --ee-address 0x<EVM_ADDRESS> \
+  --key-file signet-bridge.wif \
+  --api-url https://mempool.space/signet/api \
+  --fee-rate 2
+```
+
+The local path looks up UTXOs with `GET /address/:address/utxo`, builds and signs the DRT locally,
+uses the WIF-derived x-only pubkey as the DRT recovery key, then broadcasts the raw transaction with
+`POST /tx`.
+
+### `send`
+
+Send bitcoin from a local WIF key using mempool/Esplora REST.
+
+```bash
+dev-cli send \
+  --network signet \
+  --key-file signet-bridge.wif \
+  --to tb1... \
+  --amount-sats 10000 \
+  --api-url https://mempool.space/signet/api \
+  --fee-rate 2
+```
+
+Use `--dry-run` to construct and sign the transaction without broadcasting.
 
 ### `create-and-publish-mock-checkpoint`
 
