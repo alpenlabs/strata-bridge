@@ -356,7 +356,10 @@ mod tests {
             n_of_n_pubkey: xonly(n_of_n_kp).into(),
             proof_timelock: PROOF_TIMELOCK,
             bridge_proof_tx: RawBitcoinTx::from(tx),
-            bridge_proof_tx_prevouts: prevouts.into_iter().map(BitcoinTxOut::from).collect(),
+            bridge_proof_tx_prevouts: prevouts
+                .into_iter()
+                .map(|p| BitcoinTxOut::try_from(p).expect("fixture prevout fits SSZ bounds"))
+                .collect(),
             bridge_proof_tx_input_idx: TXIN_IDX,
         }
     }
@@ -615,9 +618,9 @@ mod tests {
     #[should_panic(expected = "prevouts must match inputs 1:1")]
     fn process_counterproof_inner_rejects_prevouts_input_mismatch() {
         let mut input = canonical_counterproof_input();
-        input
-            .bridge_proof_tx_prevouts
-            .push(BitcoinTxOut::from(txout(ScriptBuf::new())));
+        input.bridge_proof_tx_prevouts.push(
+            BitcoinTxOut::try_from(txout(ScriptBuf::new())).expect("empty script fits bounds"),
+        );
         run_counterproof(input, PredicateKey::never_accept());
     }
 

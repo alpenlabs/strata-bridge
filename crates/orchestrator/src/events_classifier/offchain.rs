@@ -574,7 +574,7 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
                 DepositEvent::WithdrawalAssigned(DepositEvents::WithdrawalAssignedEvent {
                     assignee: entry.current_assignee(),
                     deadline: entry.fulfillment_deadline().into(),
-                    recipient_desc: entry.withdrawal_command().destination().clone(),
+                    recipient_desc: entry.withdrawal_output().destination().clone(),
                 })
                 .into()
             })
@@ -584,7 +584,7 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
                 GraphEvent::WithdrawalAssigned(GraphEvents::WithdrawalAssignedEvent {
                     assignee: entry.current_assignee(),
                     deadline: entry.fulfillment_deadline().into(),
-                    recipient_desc: entry.withdrawal_command().destination().clone(),
+                    recipient_desc: entry.withdrawal_output().destination().clone(),
                 })
                 .into()
             })
@@ -727,7 +727,7 @@ mod tests {
         let (entry, dep_idx) = arb_entry();
         let expected_assignee = entry.current_assignee();
         let expected_deadline: BitcoinBlockHeight = entry.fulfillment_deadline().into();
-        let expected_desc = entry.withdrawal_command().destination().clone();
+        let expected_desc = entry.withdrawal_output().destination().clone();
 
         let sm_id = SMId::Deposit(dep_idx);
         let result = classify_assignment(&sm_id, &[entry]).unwrap();

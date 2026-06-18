@@ -217,7 +217,13 @@ async fn fetch_counterproof_input(
                     outpoint.vout, outpoint.txid,
                 )))
             })?;
-        bridge_proof_tx_prevouts.push(BitcoinTxOut::from(prevout));
+        let prevout = BitcoinTxOut::try_from(prevout).map_err(|e| {
+            ExecutorError::InvalidTxStructure(format!(
+                "prevout vout {} of parent tx {} is not a valid BitcoinTxOut: {e}",
+                outpoint.vout, outpoint.txid,
+            ))
+        })?;
+        bridge_proof_tx_prevouts.push(prevout);
     }
 
     let expected_spk = ScriptBuf::new_p2tr_tweaked(
