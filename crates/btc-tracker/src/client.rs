@@ -112,6 +112,22 @@ where
         return Vec::new();
     }
 
+    if let Some(next_expected_height) = sm.next_expected_block_height() {
+        if next_expected_height != *cursor {
+            warn!(
+                cursor = %*cursor,
+                %next_expected_height,
+                "block cursor diverged from state machine tip, realigning cursor"
+            );
+            *cursor = next_expected_height;
+        }
+    }
+
+    if received_height < *cursor {
+        warn!(%received_height, cursor = %*cursor, "received block is behind cursor, skipping block");
+        return Vec::new();
+    }
+
     debug!("received block at height {received_height}, expected {cursor}");
 
     // Backfill any skipped blocks in the range:
@@ -161,6 +177,19 @@ async fn process_connected_block(
     sm: &mut BtcNotifySM,
     block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
 ) -> Vec<TxEvent> {
+    let height = block.bip34_block_height().unwrap_or(0);
+    let block_hash = block.block_hash();
+
+    if !sm.can_connect_block(&block) {
+        warn!(
+            %height,
+            %block_hash,
+            cursor = %*cursor,
+            "block does not connect to state machine tip, leaving cursor unchanged"
+        );
+        return Vec::new();
+    }
+
     // First send the block to the block subscribers.
     // if the receiver has been dropped, we remove it from the
     // subscription list.
@@ -188,8 +217,7 @@ async fn process_connected_block(
             .retain(|sub| sub.send(block_event.clone()).is_ok())
     }
 
-    // increment the cursor with every block that is processed
-    *cursor += 1;
+    *cursor = height.saturating_add(1);
 
     tx_events
 }

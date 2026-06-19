@@ -129,6 +129,21 @@ impl BtcNotifySM {
         }
     }
 
+    /// Returns the height of the next block expected by the current in-memory tip.
+    pub(crate) fn next_expected_block_height(&self) -> Option<u64> {
+        self.unburied_blocks
+            .front()
+            .and_then(|block| block.bip34_block_height().ok())
+            .map(|height| height + 1)
+    }
+
+    /// Returns true when `block` can be appended to the current in-memory tip.
+    pub(crate) fn can_connect_block(&self, block: &Block) -> bool {
+        self.unburied_blocks
+            .front()
+            .is_none_or(|tip| block.header.prev_blockhash == tip.block_hash())
+    }
+
     /// One of the three primary state transition functions of the [`BtcNotifySM`], updating
     /// internal state to reflect the the `rawblock` event.
     pub(crate) fn process_block(&mut self, block: Block) -> (Vec<TxEvent>, Option<BlockEvent>) {
@@ -151,6 +166,7 @@ impl BtcNotifySM {
                     trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
                     warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
                     debug_assert!(false, "block's previous block hash does not match the tip");
+                    return (Vec::new(), None);
                 }
             }
             // TODO: <https://alpenlabs.atlassian.net/browse/STR-2685>
