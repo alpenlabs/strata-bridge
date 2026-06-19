@@ -89,6 +89,111 @@ pub trait BlockFetcher {
     async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error>;
 }
 
+/// Handles a `rawblock` ZMQ message and returns transaction events produced by it.
+///
+/// The handler enforces the configured start height, backfills any height gap before the received
+/// block, and then processes the resulting contiguous block list in order. `cursor` is advanced by
+/// the lower-level block processor for each block that is accepted.
+async fn process_block_message<F>(
+    block: Block,
+    cursor: &mut u64,
+    start_height: u64,
+    sm: &mut BtcNotifySM,
+    fetcher: &Arc<F>,
+    block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
+) -> Vec<TxEvent>
+where
+    F: BlockFetcher + Send + Sync + 'static,
+    <F as BlockFetcher>::Error: std::fmt::Debug + Send,
+{
+    let received_height = block.bip34_block_height().unwrap_or(0);
+    if start_height > received_height {
+        warn!(%received_height, %start_height, "start height is in the future, skipping block");
+        return Vec::new();
+    }
+
+    debug!("received block at height {received_height}, expected {cursor}");
+
+    // Backfill any skipped blocks in the range:
+    // [cursor, received_height).
+    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2680>
+    // Process massive backlogs in bounded batches instead of all
+    // at once to avoid excessive memory use after prolonged
+    // downtime.
+    let mut blocks = match join_all((*cursor..received_height).map(|height| {
+        debug!(%height, "fetching lagged block");
+        let fetcher = fetcher.clone();
+        async move { fetcher.fetch_block(height).await }
+    }))
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(skipped_blocks) => skipped_blocks,
+        Err(e) => {
+            error!(?e, "failed to backfill lagged blocks");
+            // if we can't fetch any of the skipped blocks,
+            // then we wait for the next ZMQ event and try
+            // again since returning intermediate/broken stream
+            // of blocks may introduce unpredictable weirdness.
+            return Vec::new();
+        }
+    };
+
+    blocks.push(block); // add the one from ZMQ
+
+    let mut all_tx_events = Vec::new();
+    for block in blocks {
+        all_tx_events.extend(process_connected_block(block, cursor, sm, block_subs).await);
+    }
+
+    all_tx_events
+}
+
+/// Applies one block to subscribers and the state machine.
+///
+/// The block is announced as mined, processed for transaction state transitions, and any resulting
+/// block event is forwarded to block subscribers. On success the cursor is moved past the processed
+/// block and the transaction diff is returned to the caller.
+async fn process_connected_block(
+    block: Block,
+    cursor: &mut u64,
+    sm: &mut BtcNotifySM,
+    block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
+) -> Vec<TxEvent> {
+    // First send the block to the block subscribers.
+    // if the receiver has been dropped, we remove it from the
+    // subscription list.
+    block_subs.lock().await.retain(|sub| {
+        sub.send(BlockEvent {
+            block: block.clone(),
+            status: BlockStatus::Mined,
+        })
+        .is_ok()
+    });
+
+    // Now we process the block to understand what the relevant
+    // transaction diff is.
+    trace!(?block, "processing block");
+    let height_string = block
+        .bip34_block_height()
+        .map_or_else(|_| "UNKNOWN".to_string(), |h| h.to_string());
+    info!(block_height=%height_string, block_hash=%block.block_hash(), "processing block");
+    let (tx_events, block_event) = sm.process_block(block);
+
+    if let Some(block_event) = block_event {
+        block_subs
+            .lock()
+            .await
+            .retain(|sub| sub.send(block_event.clone()).is_ok())
+    }
+
+    // increment the cursor with every block that is processed
+    *cursor += 1;
+
+    tx_events
+}
+
 // Implementation for Disconnected state
 impl BtcNotifyClient<Disconnected> {
     /// Creates a new disconnected client.
@@ -221,80 +326,15 @@ impl BtcNotifyClient<Disconnected> {
                                 Message::Block(block, _) => {
                                     trace!(%topic, "received event");
 
-                                    let received_height = block.bip34_block_height().unwrap_or(0);
-                                    if start_height > received_height {
-                                        warn!(%received_height, %start_height, "start height is in the future, skipping block");
-                                        continue;
-                                    }
-
-                                    debug!("received block at height {received_height}, expected {cursor}");
-
-                                    // Backfill any skipped blocks in the range:
-                                    // [cursor, received_height).
-                                    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2680>
-                                    // Process massive backlogs in bounded batches instead of all
-                                    // at once to avoid excessive memory use after prolonged
-                                    // downtime.
-                                    let mut blocks =
-                                        match join_all((cursor..received_height).map(|height| {
-                                            debug!(%height, "fetching lagged block");
-                                            let fetcher = fetcher.clone();
-                                            async move { fetcher.fetch_block(height).await }
-                                        }))
-                                        .await
-                                        .into_iter()
-                                        .collect::<Result<Vec<_>, _>>()
-                                        {
-                                            Ok(skipped_blocks) => skipped_blocks,
-                                            Err(e) => {
-                                                error!(?e, "failed to backfill lagged blocks");
-                                                // if we can't fetch any of the skipped blocks,
-                                                // then we wait for the next ZMQ event and try
-                                                // again since returning intermediate/broken stream
-                                                // of blocks may introduce unpredictable weirdness.
-                                                continue;
-                                            }
-                                        };
-
-                                    blocks.push(block); // add the one from ZMQ
-
-                                    let mut all_tx_events = Vec::new();
-                                    for block in blocks {
-                                        // First send the block to the block subscribers.
-                                        // if the receiver has been dropped, we remove it from the
-                                        // subscription list.
-                                        block_subs_thread.lock().await.retain(|sub| {
-                                            sub.send(BlockEvent {
-                                                block: block.clone(),
-                                                status: BlockStatus::Mined,
-                                            })
-                                            .is_ok()
-                                        });
-
-                                        // Now we process the block to understand what the relevant
-                                        // transaction diff is.
-                                        trace!(?block, "processing block");
-                                        let height_string = block.bip34_block_height().map_or_else(
-                                            |_| "UNKNOWN".to_string(),
-                                            |h| h.to_string(),
-                                        );
-                                        info!(block_height=%height_string, block_hash=%block.block_hash(), "processing block");
-                                        let (tx_events, block_event) = sm.process_block(block);
-
-                                        if let Some(block_event) = block_event {
-                                            block_subs_thread
-                                                .lock()
-                                                .await
-                                                .retain(|sub| sub.send(block_event.clone()).is_ok())
-                                        }
-
-                                        all_tx_events.extend(tx_events);
-
-                                        // increment the cursor with every block that is processed
-                                        cursor += 1;
-                                    }
-
-                                    all_tx_events
+                                    process_block_message(
+                                        block,
+                                        &mut cursor,
+                                        start_height,
+                                        &mut sm,
+                                        &fetcher,
+                                        &block_subs_thread,
+                                    )
+                                    .await
                                 }
                                 Message::Tx(tx, _) => {
                                     trace!(%topic, "received event");
