@@ -502,9 +502,154 @@ impl<State> BtcNotifyClient<State> {
 }
 
 #[cfg(test)]
-mod e2e_tests {
-    use std::{path::PathBuf, task::Poll};
+mod tests {
+    use std::{
+        collections::{BTreeMap, VecDeque},
+        sync::{Arc, Mutex as StdMutex},
+    };
 
+    use bitcoin::{
+        absolute::LockTime, block, hashes::Hash, script::Builder, transaction, Amount, BlockHash,
+        CompactTarget, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness,
+    };
+    use bitcoincore_zmq::SequenceMessage;
+
+    use super::*;
+    use crate::{constants::DEFAULT_BURY_DEPTH, event::BlockStatus};
+
+    #[derive(Clone)]
+    struct StaticFetcher {
+        blocks: Arc<BTreeMap<u64, Block>>,
+        fetched_heights: Arc<StdMutex<Vec<u64>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl BlockFetcher for StaticFetcher {
+        type Error = String;
+
+        async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
+            self.fetched_heights.lock().unwrap().push(height);
+            self.blocks
+                .get(&height)
+                .cloned()
+                .ok_or_else(|| format!("missing block at height {height}"))
+        }
+    }
+
+    fn test_block(height: u64, prev_blockhash: BlockHash, nonce: u32) -> Block {
+        let coinbase = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint::null(),
+                script_sig: Builder::new().push_int(height as i64).into_script(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }],
+            output: vec![TxOut {
+                value: Amount::ZERO,
+                script_pubkey: ScriptBuf::new(),
+            }],
+        };
+
+        let header = block::Header {
+            version: block::Version::TWO,
+            prev_blockhash,
+            merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+            time: height as u32,
+            bits: CompactTarget::from_consensus(u32::MAX),
+            nonce,
+        };
+        let mut block = Block {
+            header,
+            txdata: vec![coinbase],
+        };
+        block.header.merkle_root = block.compute_merkle_root().unwrap();
+        block
+    }
+
+    #[tokio::test]
+    async fn backfills_missing_block_after_reorg_disconnect_rolls_back_state_tip() {
+        const BASE_HEIGHT: u64 = 18;
+        let base = test_block(BASE_HEIGHT, BlockHash::all_zeros(), 1);
+        let stale_child = test_block(BASE_HEIGHT + 1, base.block_hash(), 2);
+        let canonical_child = test_block(BASE_HEIGHT + 1, base.block_hash(), 3);
+        let canonical_grandchild = test_block(BASE_HEIGHT + 2, canonical_child.block_hash(), 4);
+
+        let mut fetchable_blocks = BTreeMap::new();
+        fetchable_blocks.insert(BASE_HEIGHT + 1, canonical_child.clone());
+        let fetched_heights = Arc::new(StdMutex::new(Vec::new()));
+        let fetcher = Arc::new(StaticFetcher {
+            blocks: Arc::new(fetchable_blocks),
+            fetched_heights: fetched_heights.clone(),
+        });
+
+        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let mut cursor = BASE_HEIGHT;
+
+        process_block_message(
+            base,
+            &mut cursor,
+            BASE_HEIGHT,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+        assert_eq!(cursor, BASE_HEIGHT + 1);
+
+        process_block_message(
+            stale_child.clone(),
+            &mut cursor,
+            BASE_HEIGHT,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+        assert_eq!(cursor, BASE_HEIGHT + 2);
+
+        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
+            blockhash: stale_child.block_hash(),
+        });
+        assert_eq!(
+            disconnected.map(|event| event.status),
+            Some(BlockStatus::Uncled)
+        );
+        assert_eq!(cursor, BASE_HEIGHT + 2);
+
+        sm.process_sequence(SequenceMessage::BlockConnect {
+            blockhash: canonical_child.block_hash(),
+        });
+        sm.process_sequence(SequenceMessage::BlockConnect {
+            blockhash: canonical_grandchild.block_hash(),
+        });
+
+        process_block_message(
+            canonical_grandchild,
+            &mut cursor,
+            BASE_HEIGHT,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+
+        assert_eq!(
+            *fetched_heights.lock().unwrap(),
+            vec![BASE_HEIGHT + 1],
+            "canonical child must be backfilled after the disconnect rolled back the state tip"
+        );
+        assert_eq!(cursor, BASE_HEIGHT + 3);
+    }
+}
+
+#[cfg(test)]
+mod e2e_tests {
+    use std::{path::PathBuf, sync::Mutex as StdMutex, task::Poll};
+
+    use bitcoincore_zmq::SequenceMessage;
     use corepc_node::{client::client_sync::Auth, serde_json::json};
     use proptest::prelude::*;
     use serial_test::serial;
@@ -639,6 +784,145 @@ mod e2e_tests {
             .await?;
 
         Ok((client_1, client_2, bitcoind))
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn chain_reorg_backfills_replacement_parent_before_later_child(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        logging::init_from_env("btc-tracker");
+
+        struct RecordingFetcher {
+            client: corepc_node::Client,
+            fetched_heights: Arc<StdMutex<Vec<u64>>>,
+        }
+
+        #[async_trait::async_trait]
+        impl BlockFetcher for RecordingFetcher {
+            type Error = String;
+
+            async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
+                self.fetched_heights.lock().unwrap().push(height);
+
+                let hash = self
+                    .client
+                    .get_block_hash(height)
+                    .map_err(|e| e.to_string())?
+                    .block_hash()
+                    .expect("must be valid hash");
+
+                self.client.get_block(hash).map_err(|e| e.to_string())
+            }
+        }
+
+        let (cfg, bitcoind) = setup_node().await?;
+        let base_height = bitcoind.client.get_block_count()?.0;
+        let base_hash = bitcoind
+            .client
+            .get_block_hash(base_height)?
+            .block_hash()
+            .expect("must be valid hash");
+        let base = bitcoind.client.get_block(base_hash)?;
+
+        let fetched_heights = Arc::new(StdMutex::new(Vec::new()));
+        let fetcher = Arc::new(RecordingFetcher {
+            client: corepc_node::Client::new_with_auth(
+                &bitcoind.rpc_url(),
+                Auth::CookieFile(bitcoind.params.cookie_file.clone()),
+            )?,
+            fetched_heights: fetched_heights.clone(),
+        });
+        let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let mut sm = BtcNotifySM::init(cfg.bury_depth, VecDeque::new());
+        let mut cursor = base_height;
+
+        process_block_message(
+            base,
+            &mut cursor,
+            base_height,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+        assert_eq!(cursor, base_height + 1);
+
+        let stale_hash = bitcoind
+            .client
+            .generate_to_address(1, &bitcoind.client.new_address()?)?
+            .into_model()?
+            .0
+            .remove(0);
+        let stale = bitcoind.client.get_block(stale_hash)?;
+
+        process_block_message(
+            stale,
+            &mut cursor,
+            base_height,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+        assert_eq!(cursor, base_height + 2);
+
+        let backfilled_block_height = base_height + 1;
+        bitcoind
+            .client
+            .call::<()>("invalidateblock", &[json!(stale_hash.to_string())])?;
+        assert_eq!(
+            bitcoind.client.get_block_count()?.0,
+            base_height,
+            "chain must be back to base height"
+        );
+
+        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
+            blockhash: stale_hash,
+        });
+        assert_eq!(
+            disconnected.map(|event| event.status),
+            Some(BlockStatus::Uncled)
+        );
+        assert_eq!(
+            cursor,
+            base_height + 2,
+            "cursor must not move on disconnect"
+        );
+
+        let mut canonical_hashes = bitcoind
+            .client
+            .generate_to_address(2, &bitcoind.client.new_address()?)?
+            .into_model()?
+            .0;
+        let canonical_child_hash = canonical_hashes.remove(0);
+        let canonical_grandchild_hash = canonical_hashes.remove(0);
+        let canonical_grandchild = bitcoind.client.get_block(canonical_grandchild_hash)?;
+
+        sm.process_sequence(SequenceMessage::BlockConnect {
+            blockhash: canonical_child_hash,
+        });
+        sm.process_sequence(SequenceMessage::BlockConnect {
+            blockhash: canonical_grandchild_hash,
+        });
+
+        process_block_message(
+            canonical_grandchild,
+            &mut cursor,
+            base_height,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+
+        assert_eq!(
+            *fetched_heights.lock().unwrap(),
+            vec![backfilled_block_height],
+            "the replacement parent must be backfilled before the later child is processed"
+        );
+        assert_eq!(cursor, base_height + 3);
+
+        Ok(())
     }
 
     #[tokio::test]
