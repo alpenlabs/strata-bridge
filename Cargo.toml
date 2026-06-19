@@ -92,21 +92,21 @@ strata-mosaic-client-api = { path = "crates/mosaic-client-api" }
 # single strata_identifiers / strata_codec version.
 strata-ol-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "8589f8e8bc58e07183d5683b2a10b0c6748cb533" }
 
-# Dependencies from alpenlabs/asm pinned to commit b4ed6d5 (fix/asm-worker-phantom-reorg, on top of
-# v0.1-alpha.14 / 6177f51e) — picks up the phantom-reorg / MohoState desync fix (asm PR #155).
-asm-storage = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-proof-impl = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-rpc = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-spec = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
-strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "b4ed6d57da708a432e3138c453f92dac6b160400" }
+# Dependencies from alpenlabs/asm pinned to commit 31d88a4 (main — asm PR #155 squash-merged on top
+# of v0.1-alpha.14 / 6177f51e) — picks up the phantom-reorg / MohoState desync fix.
+asm-storage = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proof-impl = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-rpc = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-spec = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
 
 # Dependencies from alpenlabs/mosaic pinned to commit 0fc9ba8d (main @ 2026-06-05)
 mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "713324eea6d930713586dd37b0a63ae8cc98c9ed" }
