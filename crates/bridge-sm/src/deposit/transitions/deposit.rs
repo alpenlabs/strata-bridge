@@ -455,11 +455,10 @@ impl DepositSM {
                 ..
             } => {
                 let expected_txid = deposit_transaction.as_ref().compute_txid();
-                
+
                 // Ensure that the deposit transaction confirmed on-chain is the one we were
                 // expecting.
-                if confirmed.deposit_transaction.compute_txid() != expected_txid
-                {
+                if confirmed.deposit_transaction.compute_txid() != expected_txid {
                     return Err(DSMError::rejected(
                         self.state().clone(),
                         confirmed.into(),
