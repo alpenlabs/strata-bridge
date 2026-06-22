@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/root/.cargo/git \
     if [ -z "$ASM_REV" ]; then \
         echo "ERROR: failed to extract asm rev from Cargo.toml" >&2; exit 1; \
     fi && \
-    cargo install --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root /app strata-asm-runner
+    cargo install --locked --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root /app strata-asm-runner
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 

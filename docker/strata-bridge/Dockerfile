@@ -8,7 +8,7 @@ COPY bin/strata-bridge bin/strata-bridge
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo b -r -p strata-bridge
+    cargo b -r --locked -p strata-bridge
 
 RUN --mount=type=cache,target=/app/target cp /app/target/release/strata-bridge /app/strata-bridge
 
