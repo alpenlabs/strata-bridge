@@ -3023,7 +3023,7 @@ dependencies = [
 [[package]]
 name = "ckt-fmtv5-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/ckt#a3683426d73af89e136725b0f8957f073f67cc1b"
+source = "git+https://github.com/alpenlabs/ckt?rev=432cdd11eb5780bbf7edcaad698850deb5b49675#432cdd11eb5780bbf7edcaad698850deb5b49675"
 dependencies = [
  "blake3",
  "cynosure 0.4.0",
@@ -3035,7 +3035,7 @@ dependencies = [
 [[package]]
 name = "ckt-gobble"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/ckt#a3683426d73af89e136725b0f8957f073f67cc1b"
+source = "git+https://github.com/alpenlabs/ckt?rev=432cdd11eb5780bbf7edcaad698850deb5b49675#432cdd11eb5780bbf7edcaad698850deb5b49675"
 dependencies = [
  "bitvec",
  "blake3",
@@ -6775,7 +6775,7 @@ dependencies = [
 [[package]]
 name = "mosaic-adaptor-sigs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c#cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c"
+source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -6790,7 +6790,7 @@ dependencies = [
 [[package]]
 name = "mosaic-cac-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c#cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c"
+source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -6811,7 +6811,7 @@ dependencies = [
 [[package]]
 name = "mosaic-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c#cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c"
+source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -6820,7 +6820,7 @@ dependencies = [
 [[package]]
 name = "mosaic-heap-array"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c#cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c"
+source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -6829,7 +6829,7 @@ dependencies = [
 [[package]]
 name = "mosaic-net-svc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c#cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c"
+source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
 dependencies = [
  "ark-serialize 0.6.0",
  "ed25519-dalek",
@@ -6841,7 +6841,7 @@ dependencies = [
 [[package]]
 name = "mosaic-rpc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c#cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c"
+source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
@@ -6851,7 +6851,7 @@ dependencies = [
 [[package]]
 name = "mosaic-rpc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c#cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c"
+source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
 dependencies = [
  "bitcoin",
  "ckt-fmtv5-types",
@@ -6868,7 +6868,7 @@ dependencies = [
 [[package]]
 name = "mosaic-vs3"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c#cc7bb0a9b4af7f37d4173583c0c051b3c70c2a5c"
+source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
