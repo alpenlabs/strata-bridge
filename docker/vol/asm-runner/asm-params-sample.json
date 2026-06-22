@@ -36,15 +36,26 @@
                     ],
                     "threshold": 1
                 },
+                "strata_security_council": {
+                    "keys": [
+                        "02b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d",
+                        "021e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4",
+                        "02a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
+                    ],
+                    "threshold": 1
+                },
                 "confirmation_depths": {
                     "strata_admin_multisig_update": 144,
                     "strata_seq_manager_multisig_update": 144,
                     "alpen_admin_multisig_update": 144,
+                    "strata_security_council_multisig_update": 144,
                     "operator_update": 144,
                     "sequencer_update": 144,
                     "ol_stf_vk_update": 144,
                     "asm_stf_vk_update": 144,
-                    "ee_stf_vk_update": 144
+                    "ee_stf_vk_update": 144,
+                    "defcon3": 144,
+                    "safe_harbour_address_update": 144
                 },
                 "max_seqno_gap": 10
             }
@@ -67,7 +78,8 @@
                 "denomination": 1000000000,
                 "assignment_duration": 288,
                 "operator_fee": 10000000,
-                "recovery_delay": 1008
+                "recovery_delay": 1008,
+                "safe_harbour_address": "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
             }
         }
     ]
