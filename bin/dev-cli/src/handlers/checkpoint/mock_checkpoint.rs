@@ -10,7 +10,6 @@ use strata_asm_proto_checkpoint_types::{
     CheckpointTip, L2BlockRange, OLLog, SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
 };
 use strata_bridge_primitives::constants::BRIDGE_DENOMINATION;
-use strata_codec::encode_to_vec;
 use strata_crypto::hash;
 use strata_identifiers::{Buf32, OLBlockCommitment, OLBlockId};
 use strata_test_utils_arb::ArbitraryGenerator;
@@ -93,10 +92,11 @@ impl MockCheckpointBuilder {
                 )
                 .unwrap();
 
-                OLLog::new(
-                    BRIDGE_GATEWAY_ACCT_SERIAL,
-                    encode_to_vec(&log_data).unwrap(),
-                )
+                // `from_log` wraps the body in the msg-fmt envelope (`TypeId ++ codec(log)`)
+                // that ASM's `extract_withdrawal_intents` dispatches on. A raw `OLLog::new`
+                // with a bare `encode_to_vec` body has no type id, so ASM silently skips it
+                // and the checkpoint carries zero withdrawals.
+                OLLog::from_log(BRIDGE_GATEWAY_ACCT_SERIAL, &log_data).unwrap()
             })
             .collect();
 
