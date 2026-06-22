@@ -86,23 +86,23 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-mosaic-client = { path = "crates/mosaic-client" }
 strata-mosaic-client-api = { path = "crates/mosaic-client-api" }
 
-# Dependencies from alpenlabs/alpen pinned to commit 2c6ae209 (main @ 2026-05-13)
-strata-ol-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "2c6ae209dd5f2ed71e6f9f7b721ea7ab21190e10" }
+# Dependencies from alpenlabs/alpen pinned to commit 8589f8e (main @ 2026-06-18, alpen #1965 — coordinated rc26 / asm-alpha.14 / zkaleido-beta.5 bump)
+strata-ol-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "8589f8e8bc58e07183d5683b2a10b0c6748cb533" }
 
-# Dependencies from alpenlabs/asm pinned to commit dc6432ff (main @ 2026-05-13)
-asm-storage = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-proof-impl = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-rpc = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-spec = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
-strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "dc6432ffef44597c7db2447077f1e0fd677bff42" }
+# Dependencies from alpenlabs/asm pinned to commit 31d88a4 (main — asm PR #155 squash-merged on top of v0.1-alpha.14, picks up the phantom-reorg / MohoState desync fix)
+asm-storage = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proof-impl = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-rpc = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-spec = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
+strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "31d88a4f49c87c26f4db3859810de10775234339" }
 
 # Dependencies from alpenlabs/mosaic pinned to commit 0fc9ba8d (main @ 2026-04-20)
 mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2359c7509b8ebf65e8aa5d423704b505" }
@@ -110,17 +110,21 @@ mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2
 mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "0fc9ba8d2359c7509b8ebf65e8aa5d423704b505" }
 
 # Dependencies from alpenlabs/strata-common
-strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
-strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
-strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
-strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
-strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
-strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
-strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
-strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21", features = [
-  "all",
+strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
+strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
+strata-crypto = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
+strata-identifiers = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
+strata-l1-envelope-fmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
+strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
+strata-merkle = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
+strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26", features = [
+  # strata-common renamed `all` -> `all-verifiers` and dropped serde/borsh from
+  # its default set; list them explicitly to preserve the pre-bump feature set.
+  "all-verifiers",
+  "serde",
+  "borsh",
 ] }
-strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc21" }
+strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc26" }
 
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.7", features = [
   "quic",
@@ -129,19 +133,19 @@ strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.
 ], default-features = false }
 
 # Dependencies from alpenlabs/ssz-gen
-ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
-ssz_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.15.0" }
+ssz = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.16.0" }
+ssz_derive = { git = "https://github.com/alpenlabs/ssz-gen", tag = "v0.16.0" }
 
 # Dependencies from alpenlabs/moho
-moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.6" }
-moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.6" }
-moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.6" }
+moho-recursive-proof = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.9" }
+moho-runtime-interface = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.9" }
+moho-types = { git = "https://github.com/alpenlabs/moho", tag = "v0.1-alpha.9" }
 
 # Dependencies from alpenlabs/zkaleido
-zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2" }
-zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2" }
-zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2" }
-zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.2" }
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.5" }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.5" }
+zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.5" }
+zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1-beta.5" }
 
 # external deps
 alloy = { version = "2.0.4", features = ["full", "node-bindings"] }
@@ -161,7 +165,7 @@ blake3 = "1.8.3"
 # TODO: <https://alpenlabs.atlassian.net/browse/STR-2658>
 # Update `btc-tracker` and `tx-driver` tests when upgrading `bitcoin` to >=0.33.0.
 bitcoin = { version = "0.32.9", features = ["rand-std", "serde"] }
-bitcoin-bosd = { git = "https://github.com/alpenlabs/bitcoin-bosd", tag = "v0.10.0", features = [
+bitcoin-bosd = { git = "https://github.com/alpenlabs/bitcoin-bosd", tag = "v0.11.0", features = [
   "address",
 ] }
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
