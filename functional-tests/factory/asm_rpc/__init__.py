@@ -163,8 +163,8 @@ def generate_asm_rpc_config(
             rpc_url=f"http://{rpc_host}:{bitcoind_props['rpc_port']}",
             rpc_user=rpc_user,
             rpc_password=rpc_password,
-            rawblock_connection_string=zmq_connection_string(
-                bitcoind_props["zmq_rawblock"], zmq_host
+            hashblock_connection_string=zmq_connection_string(
+                bitcoind_props["zmq_hashblock"], zmq_host
             ),
             retry_count=3,
             retry_interval=Duration(secs=1, nanos=0),

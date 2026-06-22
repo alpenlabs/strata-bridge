@@ -12,6 +12,12 @@ from constants import ASM_MAGIC_BYTES
 # (mainnet, testnet, signet, regtest) per Bitcoin Core's consensus params.
 DIFFICULTY_ADJUSTMENT_INTERVAL = 2016
 
+# Default P2TR bosd descriptor used as the initial safe harbour address. Matches the
+# upstream asm functional-tests value for the P2TR address
+# bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf, encoded as type tag
+# 0x04 (P2A/P2TR) followed by the 32-byte x-only pubkey.
+DEFAULT_SAFE_HARBOUR_ADDRESS = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
+
 # A callable that returns the verbose ``getblockheader`` response (a dict with at least
 # ``hash``, ``bits``, and ``time`` fields) for the block at a given height.
 BlockHeaderFetcher = Callable[[int], dict[str, Any]]
@@ -42,11 +48,14 @@ class ConfirmationDepths:
     strata_admin_multisig_update: int
     strata_seq_manager_multisig_update: int
     alpen_admin_multisig_update: int
+    strata_security_council_multisig_update: int
     operator_update: int
     sequencer_update: int
     ol_stf_vk_update: int
     asm_stf_vk_update: int
     ee_stf_vk_update: int
+    defcon3: int
+    safe_harbour_address_update: int
 
 
 @dataclass
@@ -54,6 +63,7 @@ class AdminSubprotocol:
     strata_administrator: ThresholdConfig
     strata_sequencer_manager: ThresholdConfig
     alpen_administrator: ThresholdConfig
+    strata_security_council: ThresholdConfig
     confirmation_depths: ConfirmationDepths
     max_seqno_gap: int
 
@@ -73,6 +83,7 @@ class BridgeSubprotocol:
     assignment_duration: int
     operator_fee: int
     recovery_delay: int
+    safe_harbour_address: str
 
 
 @dataclass
@@ -117,6 +128,7 @@ class AsmParams:
             strata_administrator=ThresholdConfig(**admin_d["strata_administrator"]),
             strata_sequencer_manager=ThresholdConfig(**admin_d["strata_sequencer_manager"]),
             alpen_administrator=ThresholdConfig(**admin_d["alpen_administrator"]),
+            strata_security_council=ThresholdConfig(**admin_d["strata_security_council"]),
             confirmation_depths=ConfirmationDepths(**admin_d["confirmation_depths"]),
             max_seqno_gap=admin_d["max_seqno_gap"],
         )
@@ -177,21 +189,26 @@ def build_asm_params(
     assignment_duration: int = 10_000,
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
+    safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
 ) -> AsmParams:
     compressed_keys = [f"02{key}" for key in musig2_keys]
     admin = AdminSubprotocol(
         strata_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
         strata_sequencer_manager=ThresholdConfig(keys=compressed_keys, threshold=1),
         alpen_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
+        strata_security_council=ThresholdConfig(keys=compressed_keys, threshold=1),
         confirmation_depths=ConfirmationDepths(
             strata_admin_multisig_update=144,
             strata_seq_manager_multisig_update=144,
             alpen_admin_multisig_update=144,
+            strata_security_council_multisig_update=144,
             operator_update=144,
             sequencer_update=144,
             ol_stf_vk_update=144,
             asm_stf_vk_update=144,
             ee_stf_vk_update=144,
+            defcon3=144,
+            safe_harbour_address_update=144,
         ),
         max_seqno_gap=10,
     )
@@ -207,6 +224,7 @@ def build_asm_params(
         assignment_duration=assignment_duration,
         operator_fee=operator_fee,
         recovery_delay=recovery_delay,
+        safe_harbour_address=safe_harbour_address,
     )
     return AsmParams(
         magic=magic,

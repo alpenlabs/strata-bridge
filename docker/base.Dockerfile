@@ -43,4 +43,4 @@ ENV SP1_SKIP_PROGRAM_BUILD=true
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo b -r --workspace --exclude memory_pprof $(ls bin | grep -v / | xargs -I{} echo "--exclude {}")
+    cargo b -r --locked --workspace --exclude memory_pprof $(ls bin | grep -v / | xargs -I{} echo "--exclude {}")
