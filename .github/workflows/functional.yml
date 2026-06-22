@@ -222,7 +222,11 @@ jobs:
         env:
           MOSAIC_REV: ${{ steps.bin-versions.outputs.mosaic-rev }}
         run: |
-          cargo install --git https://github.com/alpenlabs/mosaic --rev "$MOSAIC_REV" --features=reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
+          # `--locked` forces use of mosaic's committed Cargo.lock so its transitive
+          # ckt-gobble dependency (declared without a rev, so otherwise floating to
+          # ckt `main`) is pinned to the commit mosaic was built against. Without it
+          # a moving ckt `main` yields a binary incompatible with the bridge.
+          cargo install --locked --git https://github.com/alpenlabs/mosaic --rev "$MOSAIC_REV" --features=reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
 
       - name: Add mosaic binary to PATH
         run: |
@@ -240,7 +244,7 @@ jobs:
         env:
           ASM_REV: ${{ steps.bin-versions.outputs.asm-rev }}
         run: |
-          cargo install --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root "$GITHUB_WORKSPACE/target/asm" strata-asm-runner
+          cargo install --locked --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root "$GITHUB_WORKSPACE/target/asm" strata-asm-runner
 
       - name: Add asm binary to PATH
         run: |

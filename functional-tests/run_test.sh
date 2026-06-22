@@ -74,7 +74,12 @@ echo "installing mosaic (rev $MOSAIC_REV)"
 mkdir -p functional-tests/_dd/.bin
 CARGO_LOCAL_BIN=$(realpath "functional-tests/_dd/.bin")
 export PATH="$CARGO_LOCAL_BIN/bin:$PATH"
+# `--locked` forces use of mosaic's committed Cargo.lock so its transitive
+# ckt-gobble dependency (declared without a rev, so otherwise floating to ckt
+# `main`) is pinned to the commit mosaic was built against. Without it a moving
+# ckt `main` yields a binary incompatible with the bridge.
 RUSTFLAGS="" cargo install \
+    --locked \
     --git https://github.com/alpenlabs/mosaic \
     --rev "$MOSAIC_REV" \
     --features=reduced-circuits \
@@ -88,6 +93,7 @@ if [ "$BRIDGE_PROOF_SP1_ASM" = "1" ]; then
 fi
 echo "installing strata-asm-runner (rev $ASM_REV) $ASM_RUNNER_FEATURES"
 RUSTFLAGS="" cargo install \
+    --locked \
     --git https://github.com/alpenlabs/asm \
     --rev "$ASM_REV" \
     $ASM_RUNNER_FEATURES \
