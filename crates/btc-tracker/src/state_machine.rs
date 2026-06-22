@@ -134,7 +134,7 @@ impl BtcNotifySM {
         self.unburied_blocks
             .front()
             .and_then(|block| block.bip34_block_height().ok())
-            .map(|height| height + 1)
+            .map(|height| height.saturating_add(1))
     }
 
     /// Returns true when `block` can be appended to the current in-memory tip.
