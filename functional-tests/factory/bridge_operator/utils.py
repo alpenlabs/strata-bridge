@@ -29,7 +29,7 @@ from .config_cfg import (
     RpcConfig,
     SecretServiceClientConfig,
 )
-from .params_cfg import BridgeOperatorParams, BridgeProtocolParams, CovenantKeys, Keys
+from .params_cfg import BridgeOperatorParams, BridgeProtocolParams, Keys, ScheduledOperator
 
 DEFAULT_INITIAL_HEARBEAT_DELAY_SECS = 10
 
@@ -217,13 +217,15 @@ def generate_params_toml(
         genesis_height: Bridge genesis height used for chain scanning start
         bridge_protocol_params: Bridge parameters for this test env
     """
-    covenant = [
-        CovenantKeys(
-            musig2=key.MUSIG2_KEY,
-            p2p=key.P2P_KEY,
+    operators = [
+        ScheduledOperator(
+            index=index,
+            covenant_key=key.MUSIG2_KEY,
+            p2p_key=key.P2P_KEY,
             payout_descriptor=key.GENERAL_WALLET_DESCRIPTOR,
+            activation_height=genesis_height,
         )
-        for key in operator_key_infos
+        for index, key in enumerate(operator_key_infos)
     ]
 
     # Resolve the predicate from the active backend unless the test pinned one explicitly.
@@ -236,12 +238,12 @@ def generate_params_toml(
     params = BridgeOperatorParams(
         network="regtest",
         genesis_height=genesis_height,
-        keys=Keys(admin=operator_key_infos[0].MUSIG2_KEY, covenant=covenant),
+        keys=Keys(admin=operator_key_infos[0].MUSIG2_KEY, operators=operators),
         protocol=protocol,
     )
 
     with open(output_path, "w") as f:
-        toml.dump(asdict(params), f)
+        toml.dump(_strip_nones(asdict(params)), f)
 
 
 def _strip_nones(value):

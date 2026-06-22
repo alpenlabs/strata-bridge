@@ -5,10 +5,13 @@
 use std::{fs, path::Path, str::FromStr};
 
 use bitcoin::{hex::DisplayHex, Amount, Network};
-use bitcoin_bosd::{Descriptor, DescriptorType};
-use libp2p::identity::ed25519::PublicKey as Libp2pKey;
+use bitcoin_bosd::Descriptor;
 use secp256k1::XOnlyPublicKey;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize};
+use strata_bridge_primitives::{
+    operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
+    types::P2POperatorPubKey,
+};
 use strata_l1_txfmt::MagicBytes;
 use strata_predicate::PredicateKey;
 
@@ -111,38 +114,29 @@ pub struct KeyParams {
     /// with invalid claims and overwhelming the watchtowers.
     pub admin: XOnlyPublicKey,
 
-    /// The per-operator keys that form the N-of-N covenant.
-    pub covenant: Vec<CovenantKeys>,
-}
-
-/// The per-entity keys that form the N-of-N covenant.
-///
-/// Each entry corresponds to a single operator's set of keys used in various aspects of the
-/// covenant enforcement. This includes keys required for signer, operator and watchtower roles
-/// until such a time as these roles become split.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CovenantKeys {
-    /// The key used for musig2 signing corresponding to the N-of-N covenant enforcement.
-    pub musig2: XOnlyPublicKey,
-
-    /// The key used for authenticated p2p communication.
-    pub p2p: Libp2pKey,
-
-    /// The operator payout descriptor.
-    pub payout_descriptor: Descriptor,
+    /// The configured operator set schedule.
+    pub operators: OperatorSetSchedule,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct EncodedCovenantKeys {
-    musig2: String,
-    p2p: String,
+#[serde(deny_unknown_fields)]
+struct EncodedScheduledOperator {
+    index: u32,
+    covenant_key: String,
+    p2p_key: String,
     payout_descriptor: String,
+    // Runtime handling for activation/deactivation is tracked in the operator-set parent:
+    // https://alpenlabs.atlassian.net/browse/STR-3455
+    activation_height: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    deactivation_height: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct EncodedKeyParams {
     admin: String,
-    covenant: Vec<EncodedCovenantKeys>,
+    operators: Vec<EncodedScheduledOperator>,
 }
 
 /// Serialize the keys into hex-encoded bytes.
@@ -152,13 +146,16 @@ where
 {
     let encoded_keys = EncodedKeyParams {
         admin: keys.admin.serialize().to_lower_hex_string(),
-        covenant: keys
-            .covenant
+        operators: keys
+            .operators
             .iter()
-            .map(|k| EncodedCovenantKeys {
-                musig2: k.musig2.serialize().to_lower_hex_string(),
-                p2p: k.p2p.to_bytes().to_lower_hex_string(),
-                payout_descriptor: k.payout_descriptor.to_string(),
+            .map(|operator| EncodedScheduledOperator {
+                index: operator.index(),
+                covenant_key: operator.covenant_key().serialize().to_lower_hex_string(),
+                p2p_key: operator.p2p_key().as_ref().to_lower_hex_string(),
+                payout_descriptor: operator.payout_descriptor().to_string(),
+                activation_height: operator.activation_height(),
+                deactivation_height: operator.deactivation_height(),
             })
             .collect(),
     };
@@ -173,44 +170,51 @@ where
 {
     let encoded_keys = EncodedKeyParams::deserialize(deserializer)?;
 
-    let admin = hex::decode(&encoded_keys.admin).expect("Failed to decode hex admin key");
-    let admin =
-        XOnlyPublicKey::from_slice(&admin).expect("Failed to create admin xonly pk from slice");
+    let admin = hex::decode(&encoded_keys.admin)
+        .map_err(|err| D::Error::custom(format!("failed to decode hex admin key: {err}")))?;
+    let admin = XOnlyPublicKey::from_slice(&admin)
+        .map_err(|err| D::Error::custom(format!("failed to create admin x-only key: {err}")))?;
 
-    let covenant = encoded_keys
-        .covenant
+    let operators = encoded_keys
+        .operators
         .into_iter()
         .enumerate()
         .map(|(i, k)| {
-            let musig2 = hex::decode(&k.musig2)
-                .unwrap_or_else(|_| panic!("Failed to decode hex musig2 key at index {i}"));
-            let musig2 = XOnlyPublicKey::from_slice(&musig2)
-                .unwrap_or_else(|_| panic!("Failed to create musig2 xonly pk at index {i}"));
+            let covenant_key = hex::decode(&k.covenant_key).map_err(|err| {
+                D::Error::custom(format!("failed to decode covenant_key at entry {i}: {err}"))
+            })?;
+            let covenant_key = XOnlyPublicKey::from_slice(&covenant_key).map_err(|err| {
+                D::Error::custom(format!(
+                    "failed to create covenant x-only key at entry {i}: {err}"
+                ))
+            })?;
 
-            let p2p = hex::decode(&k.p2p)
-                .unwrap_or_else(|_| panic!("Failed to decode hex p2p key at index {i}"));
-            let p2p = Libp2pKey::try_from_bytes(&p2p)
-                .unwrap_or_else(|_| panic!("Failed to decode Libp2pKey at index {i}"));
+            let p2p_key = hex::decode(&k.p2p_key).map_err(|err| {
+                D::Error::custom(format!("failed to decode p2p_key at entry {i}: {err}"))
+            })?;
+            let p2p_key = P2POperatorPubKey::from(p2p_key);
 
-            let payout_descriptor: Descriptor = k
-                .payout_descriptor
-                .parse()
-                .unwrap_or_else(|_| panic!("Failed to parse payout descriptor at index {i}"));
-            assert!(
-                payout_descriptor.type_tag() == DescriptorType::P2tr,
-                "payout descriptor at index {i} must be P2TR (fee constants assume \
-                 P2TR-sized operator/watchtower outputs)"
-            );
+            let payout_descriptor: Descriptor = k.payout_descriptor.parse().map_err(|err| {
+                D::Error::custom(format!(
+                    "failed to parse payout_descriptor at entry {i}: {err:?}"
+                ))
+            })?;
 
-            CovenantKeys {
-                musig2,
-                p2p,
+            ScheduledOperator::new(
+                k.index,
+                covenant_key,
+                p2p_key,
                 payout_descriptor,
-            }
+                k.activation_height,
+                k.deactivation_height,
+            )
+            .map_err(|err| D::Error::custom(format!("invalid operator at entry {i}: {err}")))
         })
-        .collect();
+        .collect::<Result<Vec<_>, D::Error>>()?;
 
-    Ok(KeyParams { admin, covenant })
+    let operators = OperatorSetSchedule::new(operators).map_err(D::Error::custom)?;
+
+    Ok(KeyParams { admin, operators })
 }
 
 fn serialize_magic_bytes<S>(magic_bytes: &MagicBytes, serializer: S) -> Result<S::Ok, S::Error>
@@ -257,17 +261,20 @@ mod tests {
             [keys]
             admin = "{XONLY_KEY_1}"
 
-            [[keys.covenant]]
-            musig2 = "{XONLY_KEY_1}"
-            p2p = "{P2P_KEY_1}"
+            [[keys.operators]]
+            index = 0
+            covenant_key = "{XONLY_KEY_1}"
+            p2p_key = "{P2P_KEY_1}"
             payout_descriptor = "{desc_1}"
+            activation_height = 101
 
-            [[keys.covenant]]
-            musig2 = "{XONLY_KEY_2}"
-            p2p = "{P2P_KEY_2}"
-            adaptor = "{XONLY_KEY_2}"
-            watchtower_fault = "{XONLY_KEY_2}"
+            [[keys.operators]]
+            index = 1
+            covenant_key = "{XONLY_KEY_2}"
+            p2p_key = "{P2P_KEY_2}"
             payout_descriptor = "{desc_2}"
+            activation_height = 200
+            deactivation_height = 300
 
             [protocol]
             bury_depth = 6
@@ -303,12 +310,84 @@ mod tests {
         );
 
         assert_eq!(
-            params.keys.covenant.len(),
+            params.keys.operators.len(),
             2,
-            "must have 2 covenant key entries"
+            "must have 2 scheduled operator entries"
         );
 
+        assert_eq!(
+            params.keys.operators.active_at(100).count(),
+            0,
+            "no operator must be active before activation"
+        );
+        assert_eq!(
+            params.keys.operators.active_at(101).count(),
+            1,
+            "activation height must be inclusive"
+        );
+        assert_eq!(
+            params.keys.operators.active_at(200).count(),
+            2,
+            "multiple active scheduled operators must be returned"
+        );
+        assert_eq!(
+            params.keys.operators.active_at(300).count(),
+            1,
+            "deactivation height must be exclusive"
+        );
         assert_eq!(params.protocol.bury_depth, 6, "bury depth must round-trip");
+    }
+
+    #[test]
+    fn non_dense_operator_indices_are_rejected_by_params() {
+        let deposit_amount = Amount::from_int_btc(1).to_sat();
+        let desc_1 = p2tr_descriptor(XONLY_KEY_1);
+        let desc_2 = p2tr_descriptor(XONLY_KEY_2);
+
+        let params = format!(
+            r#"
+            network = "signet"
+            genesis_height = 101
+
+            [keys]
+            admin = "{XONLY_KEY_1}"
+
+            [[keys.operators]]
+            index = 0
+            covenant_key = "{XONLY_KEY_1}"
+            p2p_key = "{P2P_KEY_1}"
+            payout_descriptor = "{desc_1}"
+            activation_height = 101
+
+            [[keys.operators]]
+            index = 2
+            covenant_key = "{XONLY_KEY_2}"
+            p2p_key = "{P2P_KEY_2}"
+            payout_descriptor = "{desc_2}"
+            activation_height = 101
+
+            [protocol]
+            bury_depth = 6
+            magic_bytes = "ALPN"
+            deposit_amount = {deposit_amount}
+            stake_amount = 100_000_000
+            operator_fee = 1_000_000
+            recovery_delay = 1_008
+            contest_timelock = 144
+            proof_timelock = 144
+            ack_timelock = 144
+            nack_timelock = 144
+            contested_payout_timelock = 1_008
+            "#
+        );
+
+        let err = toml::from_str::<Params>(&params)
+            .expect_err("non-dense operator indices must be rejected");
+
+        assert!(
+            err.to_string().contains("non-dense operator index"),
+            "unexpected error: {err}"
+        );
     }
 
     /// Construct a P2TR BOSD descriptor string from an x-only public key hex string.

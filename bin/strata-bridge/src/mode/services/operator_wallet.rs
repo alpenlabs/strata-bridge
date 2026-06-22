@@ -66,8 +66,9 @@ pub(in crate::mode) async fn init_operator_wallet(
     info!(%general_key, "operator wallet general key");
     let reserved_key = s2_client.reserved_wallet_signer().pubkey().await?;
     info!(%reserved_key, "operator wallet reserved key");
-    let own_musig2_key = s2_client.musig2_signer().pubkey().await?;
-    let claim_funding_utxo_value = compute_claim_funding_utxo_value(params, own_musig2_key);
+
+    let own_covenant_key = s2_client.musig2_signer().pubkey().await?;
+    let claim_funding_utxo_value = compute_claim_funding_utxo_value(params, own_covenant_key);
     let operator_wallet_config = OperatorWalletConfig::new(SEGWIT_MIN_AMOUNT, params.network);
     debug!(?operator_wallet_config, %claim_funding_utxo_value, "operator wallet config");
 
@@ -112,7 +113,7 @@ pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(wallet: Arc<RwLo
 /// the connectors that the claim tx must pay for (which depend on the watchtower set size).
 ///
 /// Not a constant since it depends on the number of watchtowers allowed to contest a claim.
-fn compute_claim_funding_utxo_value(params: &Params, own_musig2_key: XOnlyPublicKey) -> Amount {
+fn compute_claim_funding_utxo_value(params: &Params, own_covenant_key: XOnlyPublicKey) -> Amount {
     // Must match the value used in `orchestrator.rs::COUNTERPROOF_N_DATA`. Hardcoded here too
     // because `Params` does not currently expose it.
     const COUNTERPROOF_N_DATA: NonZero<usize> =
@@ -127,15 +128,16 @@ fn compute_claim_funding_utxo_value(params: &Params, own_musig2_key: XOnlyPublic
     let unstaking_image =
         sha256::Hash::from_slice(&[0u8; 32]).expect("must be a valid sha256 hash");
 
-    // NOTE: (@Rajil1213)  musig2 keys are the watchtower keys for the time being until we separate
-    // the sets. Exclude the owner — graph construction in `bridge-sm` excludes the owner from
-    // watchtowers (see `GraphContext::watchtower_pubkeys`), so the funding amount must too.
+    // NOTE: (@Rajil1213)  Covenant keys are the watchtower keys for the time being until we
+    // separate the sets. Exclude the owner — graph construction in `bridge-sm` excludes the owner
+    // from watchtowers (see `GraphContext::watchtower_pubkeys`), so the funding amount must
+    // too.
     let watchtower_keys: Vec<_> = params
         .keys
-        .covenant
+        .operators
         .iter()
-        .map(|c| c.musig2)
-        .filter(|k| *k != own_musig2_key)
+        .map(|operator| operator.covenant_key())
+        .filter(|k| *k != own_covenant_key)
         .collect();
     // cast safety: covenant.len() is bounded by the number of operators, much smaller than u32::MAX
     let n_watchtowers = watchtower_keys.len() as u32;

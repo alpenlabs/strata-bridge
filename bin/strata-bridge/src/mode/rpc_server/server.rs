@@ -11,8 +11,10 @@ use jsonrpsee::{
     core::RpcResult,
     types::{ErrorCode, ErrorObjectOwned},
 };
-use libp2p::{PeerId, identity::PublicKey as LibP2pPublicKey};
-use secp256k1::Parity;
+use libp2p::{
+    PeerId,
+    identity::{PublicKey as LibP2pPublicKey, ed25519::PublicKey as LibP2pEdPublicKey},
+};
 use serde::Serialize;
 use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
@@ -251,12 +253,9 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         Ok(self
             .params
             .keys
-            .covenant
+            .operators
             .iter()
-            .map(|cov| {
-                let secp_pk = cov.musig2.public_key(Parity::Even);
-                PublicKey::from(secp_pk)
-            })
+            .map(|operator| PublicKey::from(operator.covenant_public_key()))
             .collect())
     }
 
@@ -509,23 +508,26 @@ impl StrataBridgeDaApiServer for BridgeRpc {
 
 /// Converts a *MuSig2* operator [`PublicKey`] to a *P2P* [`PeerId`].
 ///
-/// Internally checks if the operator MuSig2 [`PublicKey`] is present in the vector of operator
-/// MuSig2 public keys in the [`Params`], then fetches the corresponding P2P [`PublicKey`] in the
-/// vector of the P2P public keys in the [`Params`] assuming that the index is the same in both
-/// vectors.
+/// Internally checks if the operator MuSig2 [`PublicKey`] is present in the configured operator
+/// schedule, then fetches the corresponding P2P [`PublicKey`] from the same operator entry.
 pub(crate) fn convert_operator_pk_to_peer_id(
     params: &Params,
     operator_pk: &PublicKey,
 ) -> anyhow::Result<PeerId> {
     params
         .keys
-        .covenant
+        .operators
         .iter()
-        .find(|cov| cov.musig2 == operator_pk.inner.x_only_public_key().0)
-        .map(|cov| {
-            let pk: LibP2pPublicKey = cov.p2p.clone().into();
-            PeerId::from(pk)
+        .find(|operator| operator.covenant_key() == operator_pk.inner.x_only_public_key().0)
+        .map(|operator| {
+            LibP2pEdPublicKey::try_from_bytes(operator.p2p_key().as_ref())
+                .map(|p2p_key| {
+                    let pk: LibP2pPublicKey = p2p_key.into();
+                    PeerId::from(pk)
+                })
+                .map_err(|err| anyhow::anyhow!("invalid p2p key in params: {err}"))
         })
+        .transpose()?
         .ok_or_else(|| anyhow::anyhow!("operator public key not found in params"))
 }
 
