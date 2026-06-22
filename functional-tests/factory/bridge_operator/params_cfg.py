@@ -12,16 +12,19 @@ class ProofPredicate:
 
 
 @dataclass
-class CovenantKeys:
-    musig2: str
-    p2p: str
+class ScheduledOperator:
+    index: int
+    covenant_key: str
+    p2p_key: str
     payout_descriptor: str
+    activation_height: int
+    deactivation_height: int | None = None
 
 
 @dataclass
 class Keys:
     admin: str
-    covenant: list[CovenantKeys]
+    operators: list[ScheduledOperator]
 
 
 @dataclass

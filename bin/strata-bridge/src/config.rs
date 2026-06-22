@@ -10,6 +10,7 @@ use strata_bridge_asm_events::config::AsmRpcConfig;
 pub(crate) use strata_bridge_counterproof::ProofBackendConfig as CounterproofBackendConfig;
 use strata_bridge_db::fdb::cfg::Config as FdbConfig;
 use strata_bridge_p2p_service::GossipsubScoringPreset;
+use strata_bridge_primitives::types::OperatorIdx;
 pub(crate) use strata_bridge_proof::ProofBackendConfig;
 
 /// Configuration values that dictate the behavior of the bridge node.
@@ -264,9 +265,18 @@ pub(crate) struct MosaicConfig {
     /// Poll interval for watched deposits.
     pub poll_interval: Duration,
 
-    /// Mosaic peer IDs for each operator, ordered by operator index.
-    /// Each entry is a 32-byte hex-encoded peer ID.
-    pub peer_ids: Vec<String>,
+    /// Mosaic peer IDs keyed by operator index.
+    pub peer_ids: Vec<MosaicPeerIdConfig>,
+}
+
+/// Mosaic peer ID for an operator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct MosaicPeerIdConfig {
+    /// Operator index this peer ID belongs to.
+    pub operator_idx: OperatorIdx,
+
+    /// 32-byte hex-encoded Mosaic peer ID.
+    pub peer_id: String,
 }
 
 /// Configuration for bridge process metrics exporters.
@@ -354,10 +364,13 @@ mod tests {
             retry_delay = { secs = 2, nanos = 0 }
             max_retries = 5
             poll_interval = { secs = 5, nanos = 0 }
-            peer_ids = [
-                "0000000000000000000000000000000000000000000000000000000000000001",
-                "0000000000000000000000000000000000000000000000000000000000000002",
-            ]
+            [[mosaic.peer_ids]]
+            operator_idx = 0
+            peer_id = "0000000000000000000000000000000000000000000000000000000000000001"
+
+            [[mosaic.peer_ids]]
+            operator_idx = 1
+            peer_id = "0000000000000000000000000000000000000000000000000000000000000002"
 
             [bridge_proof]
             kind = "native"

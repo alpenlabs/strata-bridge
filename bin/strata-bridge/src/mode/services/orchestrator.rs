@@ -44,7 +44,7 @@ use crate::{config::Config, mode::services::btc_client::init_zmq_client};
 pub(crate) async fn init_orchestrator<M>(
     params: &Params,
     config: &Config,
-    operator_table: OperatorTable,
+    full_operator_table: OperatorTable,
     s2_client: &SecretServiceClient,
     mosaic_client: Arc<M>,
     gossip_handle: GossipHandle,
@@ -126,13 +126,15 @@ where
         s2_client: s2_client.clone(),
         tx_driver,
         mosaic_client,
-        operator_table: operator_table.clone(),
+        operator_table: full_operator_table.clone(),
         bridge_proof_host,
         counterproof_host,
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());
 
     let orchestrator_pipeline = Pipeline::new(events_mux, registry, persister, duty_dispatcher);
+    let operator_schedule = params.keys.operators.clone();
+    let pov_idx = full_operator_table.pov_idx();
 
     debug!("starting orchestrator pipeline");
     executor.spawn_critical_async_with_shutdown("orchestrator", |shutdown_guard| async move {
@@ -151,7 +153,7 @@ where
 
             // Handle pipeline completion (this should indicate an error as this is supposed to run indefinitely)
             pipeline_complete = tokio::task::spawn(async move {
-                pipeline.run(operator_table, start_height).await
+                pipeline.run(operator_schedule, pov_idx, start_height).await
             }) => {
                 match pipeline_complete {
                     Ok(Ok(())) => {
@@ -215,9 +217,9 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         admin_pubkey: params.keys.admin,
         payout_descs: params
             .keys
-            .covenant
+            .operators
             .iter()
-            .map(|cov| cov.payout_descriptor.clone())
+            .map(|operator| operator.payout_descriptor().clone())
             .collect(),
         bridge_proof_predicate: params.protocol.bridge_proof_predicate.clone(),
         counterproof_predicate: params.protocol.counterproof_predicate.clone(),

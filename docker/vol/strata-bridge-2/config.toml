@@ -62,11 +62,18 @@ rpc_url = "http://mosaic-2:8000"
 retry_delay = { secs = 2, nanos = 0 }
 max_retries = 5
 poll_interval = { secs = 5, nanos = 0 }
-peer_ids = [
-  "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
-  "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
-  "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce",
-]
+
+[[mosaic.peer_ids]]
+operator_idx = 0
+peer_id = "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"
+
+[[mosaic.peer_ids]]
+operator_idx = 1
+peer_id = "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0"
+
+[[mosaic.peer_ids]]
+operator_idx = 2
+peer_id = "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce"
 
 [bridge_proof]
 kind = "native"
