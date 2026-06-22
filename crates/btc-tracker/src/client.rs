@@ -375,6 +375,25 @@ impl BtcNotifyClient<Disconnected> {
                                     let (tx_events, block_event) = sm.process_sequence(seq);
 
                                     if let Some(block_event) = block_event {
+                                        if matches!(&block_event.status, BlockStatus::Uncled) {
+                                            let disconnected_height = block_event
+                                                .block
+                                                .bip34_block_height()
+                                                .unwrap_or(start_height);
+                                            let realigned_cursor =
+                                                disconnected_height.max(start_height);
+                                            if realigned_cursor < cursor {
+                                                warn!(
+                                                    cursor = %cursor,
+                                                    %disconnected_height,
+                                                    %start_height,
+                                                    %realigned_cursor,
+                                                    "block disconnect rolled back state machine tip, realigning cursor"
+                                                );
+                                                cursor = realigned_cursor;
+                                            }
+                                        }
+
                                         block_subs_thread
                                             .lock()
                                             .await
@@ -641,11 +660,17 @@ mod tests {
         let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
             blockhash: stale_child.block_hash(),
         });
-        assert_eq!(
-            disconnected.map(|event| event.status),
-            Some(BlockStatus::Uncled)
-        );
-        assert_eq!(cursor, BASE_HEIGHT + 2);
+        let disconnected = disconnected.expect("disconnect should emit block event");
+        assert_eq!(disconnected.status, BlockStatus::Uncled);
+        let disconnected_height = disconnected
+            .block
+            .bip34_block_height()
+            .unwrap_or(BASE_HEIGHT);
+        let realigned_cursor = disconnected_height.max(BASE_HEIGHT);
+        if realigned_cursor < cursor {
+            cursor = realigned_cursor;
+        }
+        assert_eq!(cursor, BASE_HEIGHT + 1);
 
         sm.process_sequence(SequenceMessage::BlockConnect {
             blockhash: canonical_child.block_hash(),
@@ -670,6 +695,126 @@ mod tests {
             "canonical child must be backfilled after the disconnect rolled back the state tip"
         );
         assert_eq!(cursor, BASE_HEIGHT + 3);
+    }
+
+    #[tokio::test]
+    async fn disconnecting_only_tracked_block_rewinds_cursor_for_replacement_block() {
+        const BASE_HEIGHT: u64 = 18;
+        let stale_base = test_block(BASE_HEIGHT, BlockHash::all_zeros(), 1);
+        let canonical_base = test_block(BASE_HEIGHT, BlockHash::all_zeros(), 2);
+
+        let fetched_heights = Arc::new(StdMutex::new(Vec::new()));
+        let fetcher = Arc::new(StaticFetcher {
+            blocks: Arc::new(BTreeMap::new()),
+            fetched_heights,
+        });
+
+        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let mut cursor = BASE_HEIGHT;
+
+        process_block_message(
+            stale_base.clone(),
+            &mut cursor,
+            BASE_HEIGHT,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+        assert_eq!(cursor, BASE_HEIGHT + 1);
+
+        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
+            blockhash: stale_base.block_hash(),
+        });
+        let disconnected = disconnected.expect("disconnect should emit block event");
+        assert_eq!(disconnected.status, BlockStatus::Uncled);
+        let disconnected_height = disconnected
+            .block
+            .bip34_block_height()
+            .unwrap_or(BASE_HEIGHT);
+        let realigned_cursor = disconnected_height.max(BASE_HEIGHT);
+        if realigned_cursor < cursor {
+            cursor = realigned_cursor;
+        }
+        assert_eq!(cursor, BASE_HEIGHT);
+
+        process_block_message(
+            canonical_base,
+            &mut cursor,
+            BASE_HEIGHT,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+
+        assert_eq!(cursor, BASE_HEIGHT + 1);
+        assert_eq!(sm.next_expected_block_height(), Some(BASE_HEIGHT + 1));
+    }
+
+    #[tokio::test]
+    async fn disconnecting_only_tracked_block_backfills_replacement_before_child() {
+        const BASE_HEIGHT: u64 = 18;
+        let stale_base = test_block(BASE_HEIGHT, BlockHash::all_zeros(), 1);
+        let canonical_base = test_block(BASE_HEIGHT, BlockHash::all_zeros(), 2);
+        let canonical_child = test_block(BASE_HEIGHT + 1, canonical_base.block_hash(), 3);
+
+        let mut fetchable_blocks = BTreeMap::new();
+        fetchable_blocks.insert(BASE_HEIGHT, canonical_base);
+        let fetched_heights = Arc::new(StdMutex::new(Vec::new()));
+        let fetcher = Arc::new(StaticFetcher {
+            blocks: Arc::new(fetchable_blocks),
+            fetched_heights: fetched_heights.clone(),
+        });
+
+        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let mut cursor = BASE_HEIGHT;
+
+        process_block_message(
+            stale_base.clone(),
+            &mut cursor,
+            BASE_HEIGHT,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+        assert_eq!(cursor, BASE_HEIGHT + 1);
+
+        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
+            blockhash: stale_base.block_hash(),
+        });
+        let disconnected = disconnected.expect("disconnect should emit block event");
+        assert_eq!(disconnected.status, BlockStatus::Uncled);
+        let disconnected_height = disconnected
+            .block
+            .bip34_block_height()
+            .unwrap_or(BASE_HEIGHT);
+        let realigned_cursor = disconnected_height.max(BASE_HEIGHT);
+        if realigned_cursor < cursor {
+            cursor = realigned_cursor;
+        }
+        assert_eq!(cursor, BASE_HEIGHT);
+
+        process_block_message(
+            canonical_child,
+            &mut cursor,
+            BASE_HEIGHT,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+
+        assert_eq!(
+            *fetched_heights.lock().unwrap(),
+            vec![BASE_HEIGHT],
+            "replacement parent must be backfilled before the child is processed"
+        );
+        assert_eq!(cursor, BASE_HEIGHT + 2);
+        assert_eq!(sm.next_expected_block_height(), Some(BASE_HEIGHT + 2));
     }
 }
 
@@ -907,15 +1052,17 @@ mod e2e_tests {
         let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
             blockhash: stale_hash,
         });
-        assert_eq!(
-            disconnected.map(|event| event.status),
-            Some(BlockStatus::Uncled)
-        );
-        assert_eq!(
-            cursor,
-            base_height + 2,
-            "cursor must not move on disconnect"
-        );
+        let disconnected = disconnected.expect("disconnect should emit block event");
+        assert_eq!(disconnected.status, BlockStatus::Uncled);
+        let disconnected_height = disconnected
+            .block
+            .bip34_block_height()
+            .unwrap_or(base_height);
+        let realigned_cursor = disconnected_height.max(base_height);
+        if realigned_cursor < cursor {
+            cursor = realigned_cursor;
+        }
+        assert_eq!(cursor, base_height + 1, "cursor must rewind on disconnect");
 
         let mut canonical_hashes = bitcoind
             .client
