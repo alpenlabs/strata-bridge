@@ -32,6 +32,10 @@ pub(crate) enum Commands {
     /// Post an empty bridge proof receipt transaction.
     BridgeProof(BridgeProofArgs),
 
+    /// DEMO ONLY: forge + post a REAL bridge proof for an arbitrary claim
+    /// (unanchored-genesis attack). Requires the `sp1` build feature.
+    ForgeBridgeProof(ForgeBridgeProofArgs),
+
     /// Post an unstaking intent transaction.
     UnstakingIntent(UnstakingIntentArgs),
 }
@@ -165,6 +169,38 @@ pub(crate) struct BridgeProofArgs {
 
     #[arg(long, help = "the path to the params file")]
     pub(crate) params: PathBuf,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+}
+
+/// DEMO ONLY: args for the unanchored-genesis attack harness.
+#[derive(Parser, Debug, Clone)]
+#[command(about = "Forge and post a real bridge proof for an arbitrary claim", version)]
+pub(crate) struct ForgeBridgeProofArgs {
+    #[arg(long, help = "deposit index to forge a claim for")]
+    pub(crate) deposit_idx: u32,
+
+    #[arg(long, help = "operator index claiming it (the attacker)")]
+    pub(crate) operator_idx: u32,
+
+    #[arg(long, help = "url of the bridge node RPC")]
+    pub(crate) bridge_node_url: String,
+
+    #[arg(long, help = "hex-encoded seed of the graph-owning operator")]
+    pub(crate) seed: String,
+
+    #[arg(long, help = "the path to the params file")]
+    pub(crate) params: PathBuf,
+
+    #[arg(long, help = "url of the strata-asm-runner RPC")]
+    pub(crate) asm_rpc_url: String,
+
+    #[arg(long, help = "path to the honest bridge-proof guest ELF")]
+    pub(crate) elf_path: PathBuf,
+
+    #[arg(long, help = "L1 height to anchor the proof at (asm must have proven Moho for it)")]
+    pub(crate) last_block_height: u64,
 
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,

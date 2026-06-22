@@ -69,7 +69,13 @@ source functional-tests/sp1-setup.bash
 # Build all required binaries (only strata-bridge and secret-service gets coverage instrumentation)
 RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-bridge $CARGO_ARGS $BRIDGE_FEATURES
 RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO_ARGS
-cargo build --bin dev-cli $CARGO_ARGS
+# DEMO ONLY: build dev-cli's forge-bridge-proof subcommand (sp1 feature) only when the
+# attack test seeds a forged genesis claim, keeping the default dev-cli build light.
+DEV_CLI_FEATURES=""
+if [ -n "$FORGE_GENESIS_CLAIM" ]; then
+    DEV_CLI_FEATURES="--features sp1"
+fi
+cargo build --bin dev-cli $CARGO_ARGS $DEV_CLI_FEATURES
 
 MOSAIC_REV=$(extract_cargo_rev mosaic-rpc-api)
 echo "installing mosaic (rev $MOSAIC_REV)"
@@ -77,6 +83,7 @@ mkdir -p functional-tests/_dd/.bin
 CARGO_LOCAL_BIN=$(realpath "functional-tests/_dd/.bin")
 export PATH="$CARGO_LOCAL_BIN/bin:$PATH"
 RUSTFLAGS="" cargo install \
+    --locked \
     --git https://github.com/alpenlabs/mosaic \
     --rev "$MOSAIC_REV" \
     --features=reduced-circuits \

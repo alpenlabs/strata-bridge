@@ -45,12 +45,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: [fn_bridge_proof, fn_counterproof]
+        test: [fn_bridge_proof, fn_counterproof, fn_invalid_claim_valid_proof]
         include:
           - test: fn_bridge_proof
             sp1-log-services: operator-0
           - test: fn_counterproof
             sp1-log-services: operator-1
+          # DEMO ONLY: unanchored-genesis attack. The bridge proof is forged via
+          # dev-cli; the asm-runner does the real SP1 Moho/ASM proving (surface its
+          # log). forge-genesis-claim seeds the forged claim into the asm genesis.
+          - test: fn_invalid_claim_valid_proof
+            sp1-log-services: asm_rpc
+            forge-genesis-claim: "0:0"
     env:
       OPENSSL_VERSION: "3.5.0"
       OPENSSL_CACHE_VERSION: "v2"
@@ -199,6 +205,10 @@ jobs:
           PYTHON_VERSION: "3.12"
           NETWORK_PRIVATE_KEY: ${{ secrets.NETWORK_PRIVATE_KEY }}
           TEST_FILE: ${{ matrix.test }}
+          # DEMO ONLY: empty for the honest tests; "0:0" only for the attack test.
+          # Inherited by the asm-runner the test harness spawns, seeding the forged
+          # OperatorClaimUnlock leaf into the Moho genesis export MMR.
+          FORGE_GENESIS_CLAIM: ${{ matrix.forge-genesis-claim }}
         run: |
           cp functional-tests/sp1-env.bash.sample functional-tests/sp1-env.bash
           ./functional-tests/run_test.sh -t "functional-tests/tests/proofs/${TEST_FILE}.py"
