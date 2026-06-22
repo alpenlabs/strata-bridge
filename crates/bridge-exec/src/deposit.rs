@@ -33,7 +33,7 @@ use strata_bridge_tx_graph::{
 use tracing::{error, info, warn};
 
 use crate::{
-    chain::{is_txid_onchain, publish_signed_transaction},
+    chain::{self, CpfpKind, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::OutputHandles,
@@ -364,11 +364,17 @@ async fn publish_deposit(
     let drt_txid = signed_deposit_transaction.input[0].previous_output.txid;
     info!(%txid, %drt_txid, "publishing deposit transaction");
 
+    // The deposit tx has no operator-owned output: the SPS-50 header output is value-zero
+    // OP_RETURN and the deposit connector is n_of_n. It also has no keyed anchor — fee is
+    // baked into the DRT surcharge (`DepositTx::drt_required`). CPFP isn't possible here;
+    // if it gets evicted, the eviction arm re-broadcasts the bare tx at its baked-in rate.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_deposit_transaction,
         "deposit",
         TxStatus::is_buried,
+        chain::parent_fee_for_floor_tx(&signed_deposit_transaction),
+        CpfpKind::None,
     )
     .await
 }
@@ -588,11 +594,24 @@ async fn fulfill_withdrawal(
     };
 
     info!(%deposit_idx, %txid, "submitting withdrawal fulfillment transaction");
+    // wft is wallet-funded: BDK chose the rate, not the protocol floor. `Psbt::fee()` gives
+    // the exact value (`witness_utxo` is populated on every input, so the difference
+    // sum_inputs − sum_outputs resolves cleanly).
+    let wft_fee = wft_psbt
+        .fee()
+        .map_err(|e| ExecutorError::WalletErr(format!("wft psbt fee: {e:?}")))?;
+    // BDK adds a change output to the operator's general wallet at
+    // `WithdrawalFulfillmentTx::OPTIONAL_CHANGE_VOUT = 2` when selected inputs exceed
+    // (user_amount + fee). `InferGeneralPayout` scans for that change output and uses it
+    // as the CPFP payout; if BDK didn't add change (inputs match exactly), the helper
+    // returns `None` and we broadcast without CPFP.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "withdrawal fulfillment",
         TxStatus::is_buried,
+        wft_fee,
+        CpfpKind::InferGeneralPayout,
     )
     .await?;
 
@@ -805,11 +824,21 @@ async fn publish_payout(
 
     info!(%txid, "broadcasting payout transaction");
 
+    // Cooperative payout: vout 0 is the operator's payout output. Use ParentTxCombined so
+    // the CPFP child spends that output + adds wallet funding (no keyed anchor on this tx).
+    let coop_payout_outpoint = OutPoint {
+        txid: finalized_tx.compute_txid(),
+        vout: strata_bridge_tx_graph::transactions::cooperative_payout::CooperativePayoutTx::PAYOUT_VOUT,
+    };
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &finalized_tx,
         "cooperative payout",
         TxStatus::is_buried,
+        chain::parent_fee_for_floor_tx(&finalized_tx),
+        CpfpKind::PayoutCombined {
+            payout_outpoint: coop_payout_outpoint,
+        },
     )
     .await?;
 

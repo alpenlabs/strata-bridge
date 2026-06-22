@@ -5,15 +5,23 @@ use std::{num::NonZero, sync::Arc};
 use anyhow::anyhow;
 use bitcoin::{FeeRate, relative};
 use bitcoind_async_client::Client as BitcoinClient;
-use btc_tracker::tx_driver::TxDriver;
+use btc_tracker::{
+    cpfp::{CachedFeeSource, CpfpContext},
+    tx_driver::TxDriver,
+};
 use jsonrpsee::http_client::HttpClient;
 use libp2p_identity::ed25519::Keypair;
 use secret_service_client::SecretServiceClient;
+use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_asm_events::client::AsmEventFeed;
 use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{
     config::ExecutionConfig,
+    cpfp_adapters::{
+        BitcoindCpfpFeeSource, BitcoindCpfpPackageSubmitter, OperatorWalletCpfpAdapter,
+        build_anchor_input_signer, build_wallet_input_signer,
+    },
     output_handles::{NativeWallet, OutputHandles},
 };
 use strata_bridge_orchestrator::{
@@ -26,7 +34,7 @@ use strata_bridge_sm::{
     self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg, stake::config::StakeSMCfg,
 };
 use strata_bridge_tx_graph::{
-    game_graph::ProtocolParams as TxGraphProtocolParams,
+    fee, game_graph::ProtocolParams as TxGraphProtocolParams,
     stake_graph::ProtocolParams as StakeGraphProtocolParams,
 };
 use strata_mosaic_client_api::MosaicClientApi;
@@ -114,7 +122,101 @@ where
     };
 
     let exec_cfg = build_exec_config(params, config, &sm_config, claim_funding_utxo_value);
-    let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
+
+    // CPFP wiring: build the cached fee-source over a bitcoind-backed estimator, then bundle
+    // the wallet / fee-source / package-submitter / anchor-signer adapters into a
+    // `CpfpContext`. The tx-driver consumes this in its bump loop.
+    //
+    // Validate both Duration knobs up-front — `tokio::time::interval` panics if `period` is
+    // zero, and the panic would surface deep inside `CachedFeeSource::spawn` /
+    // `TxDriver::with_cpfp` as a cryptic task crash. Fail at orchestrator startup with a
+    // clear message instead.
+    if config.fee_refresh_interval.is_zero() {
+        return Err(anyhow!(
+            "config.fee_refresh_interval must be > 0; got {:?}",
+            config.fee_refresh_interval
+        ));
+    }
+    if config.cpfp_bump_check_interval.is_zero() {
+        return Err(anyhow!(
+            "config.cpfp_bump_check_interval must be > 0; got {:?}",
+            config.cpfp_bump_check_interval
+        ));
+    }
+    let btc_rpc_arc = Arc::new(btc_rpc_client.clone());
+    let bitcoind_fee_source = Arc::new(BitcoindCpfpFeeSource::new(btc_rpc_arc.clone(), 1));
+    let cached_fee_source = Arc::new(
+        CachedFeeSource::spawn(bitcoind_fee_source, config.fee_refresh_interval)
+            .await
+            .map_err(|e| anyhow!("failed to initialize cached fee source: {e}"))?,
+    );
+    // Fetch the operator's pubkeys up-front: needed both for the CPFP adapter
+    // (`operator_general_pubkey` is used as the foreign-UTXO `tap_internal_key` for
+    // `ParentTxCombined` strategies) and for `OutputHandles` (anchor inference key + caveat
+    // pubkeys for the publishing helper).
+    let operator_musig2_pubkey = s2_client
+        .musig2_signer()
+        .pubkey()
+        .await
+        .map_err(|e| anyhow!("failed to fetch operator musig2 pubkey from s2: {e:?}"))?;
+    let operator_general_pubkey = s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await
+        .map_err(|e| anyhow!("failed to fetch operator general wallet pubkey from s2: {e:?}"))?;
+
+    // Sanity check that our own musig2 pubkey is present in the covenant set. This is
+    // tautological by construction today (the operator table is built from `covenant.iter`
+    // and `OperatorTable::select_btc_x_only(our_pubkey)`), but the explicit lookup catches
+    // configuration drift between secret-service and the static params file.
+    //
+    // The OTHER invariant the CPFP path depends on — `watchtower_pubkey == musig2_pubkey`
+    // for counterproof / counterproof_ack anchors — is anchored at the `CovenantKeys`
+    // definition itself via `_covenant_keys_field_audit` (see `crates/common/src/params.rs`).
+    // That destructuring forces a compile error if anyone adds a separate `watchtower` field,
+    // which is the cue to thread per-anchor keys through `CpfpKind::InferAnchor`.
+    params
+        .keys
+        .covenant
+        .iter()
+        .find(|c| c.musig2 == operator_musig2_pubkey)
+        .ok_or_else(|| {
+            anyhow!(
+                "operator musig2 pubkey {} is not in the configured covenant set; \
+                 cannot establish watchtower-key = musig2-key invariant required by CPFP",
+                operator_musig2_pubkey,
+            )
+        })?;
+
+    let cpfp_wallet = Arc::new(OperatorWalletCpfpAdapter::new(
+        wallet.clone(),
+        operator_general_pubkey,
+    ));
+    let cpfp_submitter = Arc::new(BitcoindCpfpPackageSubmitter::new(btc_rpc_arc.clone()));
+    // Two distinct signers, bound to two distinct keys:
+    //   - anchor inputs use the musig2-signer pubkey (the bridge tx-graph keys every KeyedAnchor to
+    //     this pubkey — see `bridge-sm::graph::context::generate_key_data`).
+    //   - wallet funding inputs use the general-wallet-signer pubkey (the descriptor key of
+    //     `NativeGeneralWallet`).
+    let anchor_input_signer = build_anchor_input_signer(s2_client.clone());
+    let wallet_input_signer = build_wallet_input_signer(s2_client.clone());
+    let cpfp_ctx = CpfpContext {
+        wallet: cpfp_wallet,
+        fee_source: cached_fee_source,
+        anchor_input_signer,
+        wallet_input_signer,
+        max_fee_rate: exec_cfg.maximum_fee_rate,
+        package_submitter: cpfp_submitter,
+    };
+    let tx_driver = TxDriver::with_cpfp(
+        zmq_client,
+        btc_rpc_client.clone(),
+        Some(cpfp_ctx),
+        fee::FEE_RATE,
+        config.cpfp_bump_check_interval,
+    )
+    .await;
+
     let bridge_proof_host = strata_bridge_proof::build_host(&config.bridge_proof).await?;
     let counterproof_host = strata_bridge_counterproof::build_host(&config.counterproof).await?;
     let output_handles = OutputHandles {
@@ -129,6 +231,9 @@ where
         operator_table: operator_table.clone(),
         bridge_proof_host,
         counterproof_host,
+        operator_general_pubkey,
+        operator_musig2_pubkey,
+        network: params.network,
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());
 

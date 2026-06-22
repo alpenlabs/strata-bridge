@@ -20,7 +20,9 @@ use tracing::{info, warn};
 use zkaleido_sp1_groth16_verifier::Sp1Groth16Proof;
 
 use crate::{
-    chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
+    chain::{self, CpfpKind, publish_signed_transaction},
+    config::ExecutionConfig,
+    errors::ExecutorError,
     output_handles::OutputHandles,
 };
 
@@ -111,11 +113,15 @@ pub(super) async fn generate_and_publish_counterproof(
     };
     let signed_tx = counterproof_tx.finalize(&witness);
 
+    // Counterproof carries a keyed anchor — see note on `publish_counterproof_ack` for the
+    // watchtower-vs-musig2 key identity assumption.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "counterproof",
         TxStatus::is_buried,
+        chain::parent_fee_for_floor_tx(&signed_tx),
+        CpfpKind::InferAnchor,
     )
     .await
 }

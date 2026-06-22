@@ -1,11 +1,104 @@
 //! Shared Bitcoin chain helpers for executors.
 
-use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid, secp256k1::SECP256K1};
 use bitcoind_async_client::{Client as BitcoinClient, error::ClientError, traits::Reader};
-use btc_tracker::{event::TxStatus, tx_driver::TxDriver};
+use btc_tracker::{cpfp::CpfpStrategy, event::TxStatus, tx_driver::TxDriver};
+use strata_bridge_tx_graph::fee;
 use tracing::{debug, info, warn};
 
-use crate::errors::ExecutorError;
+use crate::{
+    cpfp_adapters::infer_anchor_strategy, errors::ExecutorError, output_handles::OutputHandles,
+};
+
+/// Computes the fee paid by a tx that follows the bridge protocol floor rate
+/// ([`fee::FEE_RATE`] = 2 sat/vB). This is the right helper for presigned bridge txs
+/// (claim, stake, contest, counterproof, payout, slash, ack, etc.) — their fee is exactly
+/// `vsize × FEE_RATE` by construction. Wallet-funded txs (withdrawal fulfillment, stake
+/// funding, unstaking intent funding) use [`exact_fee_from_prevouts`] instead because they
+/// may be funded at a higher rate.
+///
+/// Cannot overflow in practice: `tx.vsize()` is bounded by the consensus 4 MWU limit, well
+/// inside `u64`.
+pub(crate) fn parent_fee_for_floor_tx(tx: &Transaction) -> Amount {
+    // `Transaction::vsize()` returns `usize`. Both supported targets (x86_64, aarch64) have
+    // `usize == u64`, but use `try_into` to avoid a silent truncation hazard if a future
+    // 32-bit target ever ships a tx larger than `u32::MAX` vB (impossible in practice but
+    // the lint cleanup is free).
+    let vsize_vb: u64 = tx
+        .vsize()
+        .try_into()
+        .expect("tx.vsize() fits in u64 on every supported target");
+    fee::FEE_RATE
+        .fee_vb(vsize_vb)
+        .expect("protocol-floor × tx vsize cannot overflow Amount")
+}
+
+/// Scans `tx.output` for the first output paying the operator's general-wallet P2TR script
+/// (the script of `tr(operator_general_pubkey)` on `output_handles.network`). Returns the
+/// outpoint, or `None` if no matching output exists.
+///
+/// Used by [`CpfpKind::InferGeneralPayout`] to opportunistically classify a tx as
+/// `PayoutCombined` when an operator-owned output happens to be present. Three call sites
+/// rely on this:
+///
+/// - **Withdrawal fulfillment**: BDK adds a change output back to the general wallet at
+///   `WithdrawalFulfillmentTx::OPTIONAL_CHANGE_VOUT` (vout 2) when selected inputs exceed
+///   user_amount + fee. When change exists, CPFP via that output.
+/// - **Stake funding**: BDK adds a change output back to the general wallet (vout depends on BDK
+///   ordering, typically vout 1 after the reserved-wallet output at vout 0).
+/// - **Slash**: The calling watchtower's payout is at `vout = 1 + their_index_in_watchtowers` keyed
+///   to their payout descriptor (= the general-wallet P2TR, by the bridge's `payout_descriptor`
+///   convention). Scan finds it without threading the index through.
+///
+/// Brittle assumption: matches by exact `script_pubkey` equality. If two different
+/// operators happened to share the same payout descriptor, the first match wins — but each
+/// operator has a unique general-wallet key in practice (one per s2 instance), so this
+/// can't collide in production.
+pub(crate) fn first_general_payout_outpoint(
+    tx: &Transaction,
+    output_handles: &OutputHandles,
+) -> Option<OutPoint> {
+    first_payout_outpoint_keyed_to(
+        tx,
+        output_handles.operator_general_pubkey,
+        output_handles.network,
+    )
+}
+
+/// Inner helper for [`first_general_payout_outpoint`]; takes the pubkey/network explicitly so
+/// it can be unit-tested without constructing a full [`OutputHandles`].
+fn first_payout_outpoint_keyed_to(
+    tx: &Transaction,
+    pubkey: bitcoin::XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> Option<OutPoint> {
+    let expected_script = Address::p2tr(SECP256K1, pubkey, None, network).script_pubkey();
+    let txid = tx.compute_txid();
+    tx.output.iter().enumerate().find_map(|(vout, o)| {
+        if o.script_pubkey != expected_script {
+            return None;
+        }
+        u32::try_from(vout).ok().map(|vout| OutPoint { txid, vout })
+    })
+}
+
+/// Computes the exact fee paid by `tx` from its input `prevouts` (in input order). Returns
+/// `None` if the input or output sum overflows `Amount` or if outputs exceed inputs (an
+/// invariant violation in a real tx, but explicitly fallible here so callers can surface
+/// the error instead of panicking on an unexpected state).
+///
+/// Used by wallet-funded callers (withdrawal fulfillment, stake funding, unstaking intent
+/// funding) where the fee rate is whatever BDK chose, not the bridge protocol floor.
+pub(crate) fn exact_fee_from_prevouts(prevouts: &[TxOut], tx: &Transaction) -> Option<Amount> {
+    let inputs_sum = prevouts
+        .iter()
+        .try_fold(Amount::ZERO, |acc, o| acc.checked_add(o.value))?;
+    let outputs_sum = tx
+        .output
+        .iter()
+        .try_fold(Amount::ZERO, |acc, o| acc.checked_add(o.value))?;
+    inputs_sum.checked_sub(outputs_sum)
+}
 
 /// Returns whether the provided transaction ID already exists on chain (confirmed or in the
 /// mempool).
@@ -53,24 +146,110 @@ pub(crate) async fn is_outpoint_unspent(
     }
 }
 
-/// Publishes a signed transaction to Bitcoin and waits for the provided transaction status
-/// condition to be met.
+/// Hint that lets the caller of [`publish_signed_transaction`] override how the CPFP
+/// strategy is selected for a parent transaction.
+///
+/// - [`Self::InferAnchor`]: scan the parent for an operator-keyed Taproot anchor output via
+///   [`infer_anchor_strategy`]. Applies to claim/stake/unstaking_intent/counterproof/
+///   counterproof_ack and any other tx with a `KeyedAnchor` connector.
+/// - [`Self::PayoutCombined`] (for txs implementing
+///   [`strata_bridge_connectors::ParentTxCombined`]): no keyed anchor; instead the caller-supplied
+///   operator-owned output (`payout_outpoint`) is spent by the CPFP child. Applies to
+///   cooperative_payout, uncontested_payout, contested_payout, unstaking, counterproof_nack — all
+///   the txs whose payout vout is statically known to the caller.
+/// - [`Self::InferGeneralPayout`]: scan the parent for the FIRST output paying the operator's
+///   general-wallet script and use it as the CPFP payout. Applies to txs whose operator-owned
+///   output isn't at a fixed vout — wallet-funded txs whose BDK change output may or may not exist
+///   (withdrawal fulfillment, stake funding) and the slash tx (where the calling watchtower's vout
+///   = `1 + their_index_in_filtered_watchtowers`, which we discover by script-match rather than
+///   threading the index through). If no matching output exists, the helper falls back to
+///   [`Self::None`].
+/// - [`Self::None`]: broadcast as-is. Use only when the tx genuinely has no CPFP hook (deposit,
+///   bridge proof).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum CpfpKind {
+    /// Look for an operator-keyed anchor on the parent.
+    InferAnchor,
+    /// Build the child by spending the given operator-owned output of the parent.
+    PayoutCombined { payout_outpoint: OutPoint },
+    /// Look for the first output paying the operator's general-wallet script and use it as
+    /// the CPFP payout. Falls back to no-CPFP if no such output exists (e.g. BDK didn't add
+    /// a change output).
+    InferGeneralPayout,
+    /// No CPFP — broadcast as-is.
+    None,
+}
+
+/// Publishes a signed transaction and waits for the configured status. The `cpfp` parameter
+/// drives strategy selection — see [`CpfpKind`].
+///
+/// `parent_fee` must be the **exact fee** paid by `signed_tx` — passed in by the caller
+/// because computing it correctly requires either prevout lookups (expensive RPC) or
+/// information the funding step already had. For presigned bridge txs, callers use
+/// [`parent_fee_for_floor_tx`] (FEE_RATE × vsize). For wallet-funded txs they pass
+/// `Psbt::fee()` (BDK populates witness_utxo on every input) or
+/// [`exact_fee_from_prevouts`] (when the prevouts are known explicitly). An incorrect
+/// `parent_fee` makes the CPFP child either overpay (too low estimate) or underpay (too
+/// high estimate), so accuracy here matters.
 pub(crate) async fn publish_signed_transaction(
+    output_handles: &OutputHandles,
+    signed_tx: &Transaction,
+    label: &str,
+    wait_condition: fn(&TxStatus) -> bool,
+    parent_fee: Amount,
+    cpfp: CpfpKind,
+) -> Result<(), ExecutorError> {
+    let strategy = match cpfp {
+        CpfpKind::InferAnchor => infer_anchor_strategy(
+            signed_tx,
+            output_handles.operator_musig2_pubkey,
+            output_handles.network,
+            parent_fee,
+        ),
+        CpfpKind::PayoutCombined { payout_outpoint } => Some(CpfpStrategy::ParentTxCombined {
+            payout_outpoint,
+            parent_fee,
+        }),
+        CpfpKind::InferGeneralPayout => first_general_payout_outpoint(signed_tx, output_handles)
+            .map(|payout_outpoint| CpfpStrategy::ParentTxCombined {
+                payout_outpoint,
+                parent_fee,
+            }),
+        CpfpKind::None => None,
+    };
+    drive_with_optional_cpfp(
+        &output_handles.tx_driver,
+        signed_tx,
+        label,
+        wait_condition,
+        strategy,
+    )
+    .await
+}
+
+async fn drive_with_optional_cpfp(
     tx_driver: &TxDriver,
     signed_tx: &Transaction,
     label: &str,
     wait_condition: fn(&TxStatus) -> bool,
+    cpfp: Option<CpfpStrategy>,
 ) -> Result<(), ExecutorError> {
     let txid = signed_tx.compute_txid();
-    info!(%txid, %label, "publishing transaction");
+    let cpfp_enabled = cpfp.is_some();
+    info!(%txid, %label, cpfp_enabled, "publishing transaction");
 
-    tx_driver
-        .drive(signed_tx.clone(), wait_condition)
-        .await
-        .map_err(|e| {
-            warn!(%txid, %label, ?e, "failed to publish transaction");
-            ExecutorError::TxDriverErr(e)
-        })?;
+    let drive_result = match cpfp {
+        Some(strategy) => {
+            tx_driver
+                .drive_with_cpfp(signed_tx.clone(), strategy, wait_condition)
+                .await
+        }
+        None => tx_driver.drive(signed_tx.clone(), wait_condition).await,
+    };
+    drive_result.map_err(|e| {
+        warn!(%txid, %label, ?e, "failed to publish transaction");
+        ExecutorError::TxDriverErr(e)
+    })?;
 
     info!(%txid, %label, "transaction reached target status");
     Ok(())
@@ -79,15 +258,104 @@ pub(crate) async fn publish_signed_transaction(
 #[cfg(test)]
 mod tests {
     use bitcoin::{
-        Amount, OutPoint, Transaction, Txid, consensus::encode::deserialize_hex, hashes::Hash,
+        Address, Amount, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid, absolute,
+        consensus::encode::deserialize_hex,
+        hashes::Hash,
+        key::Secp256k1,
+        secp256k1::{SECP256K1, SecretKey},
+        transaction::Version,
     };
     use bitcoind_async_client::{Auth, Client as BitcoinClient, traits::Reader};
     use corepc_node::{Conf, Input, Node, Output};
 
-    use super::{is_outpoint_unspent, is_txid_onchain};
+    use super::{first_payout_outpoint_keyed_to, is_outpoint_unspent, is_txid_onchain};
 
     /// Per-coinbase reward on regtest before any halving.
     const REGTEST_COINBASE_AMOUNT: Amount = Amount::from_sat(50 * 100_000_000);
+
+    fn xonly_from_seed(seed: u8) -> bitcoin::XOnlyPublicKey {
+        let sk = SecretKey::from_slice(&[seed; 32]).unwrap();
+        let kp = bitcoin::key::Keypair::from_secret_key(&Secp256k1::new(), &sk);
+        kp.x_only_public_key().0
+    }
+
+    fn dummy_v3_tx(outputs: Vec<TxOut>) -> Transaction {
+        Transaction {
+            version: Version(3),
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output: outputs,
+        }
+    }
+
+    #[test]
+    fn first_payout_finds_matching_output_at_first_match() {
+        let our_key = xonly_from_seed(1);
+        let other_key = xonly_from_seed(2);
+        let our_script = Address::p2tr(SECP256K1, our_key, None, Network::Regtest).script_pubkey();
+        let other_script =
+            Address::p2tr(SECP256K1, other_key, None, Network::Regtest).script_pubkey();
+        let tx = dummy_v3_tx(vec![
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: ScriptBuf::new(),
+            }, // vout 0: OP_RETURN-style placeholder
+            TxOut {
+                value: Amount::from_sat(100_000),
+                script_pubkey: other_script,
+            }, // vout 1: other key
+            TxOut {
+                value: Amount::from_sat(50_000),
+                script_pubkey: our_script,
+            }, // vout 2: our key
+        ]);
+        let found = first_payout_outpoint_keyed_to(&tx, our_key, Network::Regtest)
+            .expect("should find our output");
+        assert_eq!(found.vout, 2);
+    }
+
+    #[test]
+    fn first_payout_returns_none_when_no_match() {
+        // WFT funding-without-change case: BDK didn't add a change output, so no operator
+        // output exists on this tx.
+        let our_key = xonly_from_seed(1);
+        let other_key = xonly_from_seed(2);
+        let other_script =
+            Address::p2tr(SECP256K1, other_key, None, Network::Regtest).script_pubkey();
+        let tx = dummy_v3_tx(vec![
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: ScriptBuf::new(),
+            },
+            TxOut {
+                value: Amount::from_sat(100_000),
+                script_pubkey: other_script,
+            },
+        ]);
+        assert!(first_payout_outpoint_keyed_to(&tx, our_key, Network::Regtest).is_none());
+    }
+
+    #[test]
+    fn first_payout_picks_first_match_when_multiple_match() {
+        // Defensive: if two outputs somehow pay our script, return the FIRST. The slash tx
+        // shouldn't ever produce duplicate payouts (each watchtower has a unique
+        // descriptor), but enforce the deterministic-first-match invariant.
+        let our_key = xonly_from_seed(1);
+        let our_script = Address::p2tr(SECP256K1, our_key, None, Network::Regtest).script_pubkey();
+        let tx = dummy_v3_tx(vec![
+            TxOut {
+                value: Amount::from_sat(100_000),
+                script_pubkey: our_script.clone(),
+            }, // vout 0
+            TxOut {
+                value: Amount::from_sat(50_000),
+                script_pubkey: our_script,
+            }, // vout 1
+        ]);
+        let found = first_payout_outpoint_keyed_to(&tx, our_key, Network::Regtest)
+            .expect("should find first match");
+        assert_eq!(found.vout, 0);
+    }
 
     fn setup_btc_client(bitcoind: &Node) -> BitcoinClient {
         let cookie = bitcoind

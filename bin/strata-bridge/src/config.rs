@@ -4,6 +4,17 @@
 //! different operators.
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
+/// Default cadence for the background fee-rate refresh task — see
+/// [`Config::fee_refresh_interval`].
+const fn default_fee_refresh_interval() -> Duration {
+    Duration::from_secs(30)
+}
+
+/// Default cadence for the CPFP bump-check timer — see [`Config::cpfp_bump_check_interval`].
+const fn default_cpfp_bump_check_interval() -> Duration {
+    Duration::from_secs(30)
+}
+
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
@@ -49,6 +60,20 @@ pub(crate) struct Config {
 
     /// The maximum fee rate for any transaction (in sats/vb).
     pub max_fee_rate: u64,
+
+    /// Background-refresh cadence for the cached fee rate. The bridge spawns a tokio task at
+    /// startup that polls the configured fee source at this interval and stores the result in
+    /// a shared atomic; the CPFP bump loop reads from that cache instead of hitting the
+    /// underlying source per call. Defaults to 30 seconds.
+    #[serde(default = "default_fee_refresh_interval")]
+    pub fee_refresh_interval: Duration,
+
+    /// Cadence at which the CPFP bump loop polls the cached fee rate and attempts an RBF bump
+    /// of any active CPFP parent whose current package rate is below the new target. Defaults
+    /// to 30 seconds. Set higher to reduce wallet-lock contention; set lower for snappier
+    /// reaction to fee-market moves between blocks.
+    #[serde(default = "default_cpfp_bump_check_interval")]
+    pub cpfp_bump_check_interval: Duration,
 
     /// Configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,

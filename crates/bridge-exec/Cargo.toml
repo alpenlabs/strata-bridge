@@ -53,6 +53,7 @@ tracing.workspace = true
 [dev-dependencies]
 bdk_bitcoind_rpc.workspace = true
 corepc-node.workspace = true
+serial_test.workspace = true
 
 [features]
 default = []

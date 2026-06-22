@@ -2,6 +2,7 @@
 
 use std::{fmt, sync::Arc};
 
+use bitcoin::{Network, XOnlyPublicKey};
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use jsonrpsee::http_client::HttpClient;
@@ -70,6 +71,26 @@ pub struct OutputHandles {
 
     /// Host used to generate bridge counterproofs.
     pub counterproof_host: BridgeCounterproofHost,
+
+    /// Operator's general-wallet x-only pubkey. Cached at orchestrator startup so the
+    /// CPFP-publishing path doesn't have to round-trip to secret-service on every broadcast.
+    /// Used by [`crate::cpfp_adapters::build_wallet_input_signer`] when signing the
+    /// operator-owned funding inputs of CPFP children.
+    pub operator_general_pubkey: XOnlyPublicKey,
+
+    /// Operator's musig2-signer x-only pubkey (the "btc key" from the operator table).
+    /// Every bridge tx that participates in CPFP carries a keyed-Taproot anchor keyed
+    /// to this pubkey (see `KeyData::operator_pubkey` in `bridge-sm`, fed from
+    /// `OperatorTable::idx_to_btc_key`). Cached at orchestrator startup so
+    /// [`crate::cpfp_adapters::infer_anchor_strategy`] can detect anchors without an RPC
+    /// hop. (Counterproof/ack txs key their anchors to the operator's watchtower key,
+    /// which today equals the musig2 key per `bin/strata-bridge::operator_wallet`'s
+    /// watchtower-key note; if those sets ever diverge this needs to grow.)
+    pub operator_musig2_pubkey: XOnlyPublicKey,
+
+    /// Bitcoin network — needed alongside [`Self::operator_musig2_pubkey`] to derive the
+    /// expected anchor `script_pubkey` for CPFP-strategy inference.
+    pub network: Network,
 }
 
 impl fmt::Debug for OutputHandles {

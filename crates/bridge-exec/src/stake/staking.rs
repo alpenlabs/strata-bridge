@@ -30,8 +30,11 @@ use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::pre
 use tracing::{error, info, warn};
 
 use crate::{
-    chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
-    output_handles::OutputHandles, stake::utils::get_preimage,
+    chain::{self, CpfpKind, publish_signed_transaction},
+    config::ExecutionConfig,
+    errors::ExecutorError,
+    output_handles::OutputHandles,
+    stake::utils::get_preimage,
 };
 
 pub(crate) async fn publish_stake_data(
@@ -51,11 +54,25 @@ pub(crate) async fn publish_stake_data(
 
     info!(%operator_idx, %stake_funding_txid, "submitting stake funding transaction");
     let signed_tx = sign_reservation(output_handles, &reservation).await?;
+    // The funding tx is wallet-funded; its exact fee is the sum of input prevouts (from the
+    // reservation) minus the sum of outputs. CPFP needs the exact value because the child's
+    // fee math depends on it (see `chain::publish_signed_transaction` docs).
+    let stake_funding_fee = chain::exact_fee_from_prevouts(&reservation.prevouts, &signed_tx)
+        .ok_or_else(|| {
+            ExecutorError::WalletErr("stake funding fee arithmetic overflowed".into())
+        })?;
+    // Stake funding is wallet-funded. The reserved-wallet output at vout 0 is consumed
+    // immediately by the stake tx (can't CPFP via it without conflicting), but BDK
+    // typically adds a change output to the general wallet. `InferGeneralPayout` finds
+    // that change output and uses it as the CPFP payout; if no change exists (inputs
+    // exactly match), the helper falls back to no-CPFP.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "stake funding tx",
         TxStatus::is_buried,
+        stake_funding_fee,
+        CpfpKind::InferGeneralPayout,
     )
     .await?;
 
@@ -456,10 +473,12 @@ pub(crate) async fn publish_stake(
 
     info!(%stake_txid, "publishing signed stake transaction");
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "stake tx",
         TxStatus::is_buried,
+        chain::parent_fee_for_floor_tx(&signed_tx),
+        CpfpKind::InferAnchor,
     )
     .await?;
     info!(%stake_txid, "stake transaction confirmed on-chain");
