@@ -113,13 +113,16 @@ where
     }
 
     if let Some(next_expected_height) = sm.next_expected_block_height() {
-        if next_expected_height != *cursor {
+        let realigned_cursor = next_expected_height.max(start_height);
+        if realigned_cursor != *cursor {
             warn!(
                 cursor = %*cursor,
                 %next_expected_height,
+                %start_height,
+                %realigned_cursor,
                 "block cursor diverged from state machine tip, realigning cursor"
             );
-            *cursor = next_expected_height;
+            *cursor = realigned_cursor;
         }
     }
 
@@ -815,6 +818,40 @@ mod tests {
         );
         assert_eq!(cursor, BASE_HEIGHT + 2);
         assert_eq!(sm.next_expected_block_height(), Some(BASE_HEIGHT + 2));
+    }
+
+    #[tokio::test]
+    async fn state_tip_realignment_does_not_backfill_before_start_height() {
+        const START_HEIGHT: u64 = 20;
+        let old_tip = test_block(START_HEIGHT - 2, BlockHash::all_zeros(), 1);
+        let first_allowed = test_block(START_HEIGHT, old_tip.block_hash(), 2);
+
+        let fetched_heights = Arc::new(StdMutex::new(Vec::new()));
+        let fetcher = Arc::new(StaticFetcher {
+            blocks: Arc::new(BTreeMap::new()),
+            fetched_heights: fetched_heights.clone(),
+        });
+
+        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::from([old_tip]));
+        let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let mut cursor = START_HEIGHT;
+
+        process_block_message(
+            first_allowed,
+            &mut cursor,
+            START_HEIGHT,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+        )
+        .await;
+
+        assert!(
+            fetched_heights.lock().unwrap().is_empty(),
+            "realignment must not backfill blocks before the configured start height"
+        );
+        assert_eq!(cursor, START_HEIGHT + 1);
+        assert_eq!(sm.next_expected_block_height(), Some(START_HEIGHT + 1));
     }
 }
 
