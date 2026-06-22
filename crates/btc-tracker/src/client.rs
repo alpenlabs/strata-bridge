@@ -106,7 +106,15 @@ where
     F: BlockFetcher + Send + Sync + 'static,
     <F as BlockFetcher>::Error: std::fmt::Debug + Send,
 {
-    let received_height = block.bip34_block_height().unwrap_or(0);
+    let received_height = match block.bip34_block_height() {
+        Ok(block_height) => block_height,
+        Err(e) => {
+            error!(?e, block_hash = %block.block_hash(),
+                "could not determine block height, skipping block");
+            return Vec::new();
+        }
+    };
+
     if start_height > received_height {
         warn!(%received_height, %start_height, "start height is in the future, skipping block");
         return Vec::new();
