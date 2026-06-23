@@ -16,8 +16,9 @@ pub(crate) const DEFAULT_RPC_CACHE_REFRESH_INTERVAL: Duration = Duration::from_s
 pub(crate) const DEFAULT_HEALTH_PROBE_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Maximum time a single health probe waits on an external system before it is marked unhealthy.
-///
-/// Bounds every probe that performs network I/O so a hung backend cannot leave a component
-/// reporting a stale `ok` state indefinitely. Kept well below
-/// [`DEFAULT_HEALTH_PROBE_INTERVAL`] so a timed-out probe still resolves before the next tick.
 pub(crate) const DEFAULT_HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+const _: () = assert!(
+    DEFAULT_HEALTH_PROBE_TIMEOUT.as_secs() < DEFAULT_HEALTH_PROBE_INTERVAL.as_secs(),
+    "health probe timeout must be shorter than the probe interval"
+);

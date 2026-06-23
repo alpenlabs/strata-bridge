@@ -428,7 +428,8 @@ impl BtcNotifyClient<Disconnected> {
                                             .block
                                             .bip34_block_height()
                                             .unwrap_or(start_height);
-                                        let realigned_cursor = disconnected_height.max(start_height);
+                                        let realigned_cursor =
+                                            disconnected_height.max(start_height);
                                         if realigned_cursor < cursor {
                                             warn!(
                                                 cursor = %cursor,

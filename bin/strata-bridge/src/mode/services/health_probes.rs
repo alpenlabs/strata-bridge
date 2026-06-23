@@ -1,6 +1,6 @@
 //! Periodic bridge component health probes.
 
-use std::{sync::Arc, time::Duration};
+use std::{fmt::Display, future::Future, sync::Arc, time::Duration};
 
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::tx_driver::TxDriverHealthHandle;
@@ -41,17 +41,15 @@ pub(in crate::mode) fn spawn_fdb_probe(
 
         loop {
             ticker.tick().await;
-            match timeout(DEFAULT_HEALTH_PROBE_TIMEOUT, db.health_check()).await {
-                Ok(Ok(())) => health_registry.mark_ok(COMPONENT_FDB, "fdb_reachable"),
-                Ok(Err(err)) => {
-                    health_registry.mark_unhealthy(COMPONENT_FDB, "fdb_unreachable");
-                    error!(%err, "FDB health probe failed");
-                }
-                Err(_) => {
-                    health_registry.mark_unhealthy(COMPONENT_FDB, "probe_timed_out");
-                    error!("FDB health probe timed out");
-                }
-            }
+            run_external_probe(
+                &health_registry,
+                COMPONENT_FDB,
+                "fdb",
+                db.health_check(),
+                "fdb_reachable",
+                "fdb_unreachable",
+            )
+            .await;
         }
     });
 }
@@ -67,17 +65,15 @@ pub(in crate::mode) fn spawn_bitcoin_rpc_probe(
 
         loop {
             ticker.tick().await;
-            match timeout(DEFAULT_HEALTH_PROBE_TIMEOUT, client.get_block_count()).await {
-                Ok(Ok(_)) => health_registry.mark_ok(COMPONENT_BITCOIN_RPC, "block_count_read"),
-                Ok(Err(err)) => {
-                    health_registry.mark_unhealthy(COMPONENT_BITCOIN_RPC, "block_count_failed");
-                    error!(%err, "Bitcoin RPC health probe failed");
-                }
-                Err(_) => {
-                    health_registry.mark_unhealthy(COMPONENT_BITCOIN_RPC, "probe_timed_out");
-                    error!("Bitcoin RPC health probe timed out");
-                }
-            }
+            run_external_probe(
+                &health_registry,
+                COMPONENT_BITCOIN_RPC,
+                "bitcoin_rpc",
+                client.get_block_count(),
+                "block_count_read",
+                "block_count_failed",
+            )
+            .await;
         }
     });
 }
@@ -93,17 +89,15 @@ pub(in crate::mode) fn spawn_asm_rpc_probe(
 
         loop {
             ticker.tick().await;
-            match timeout(DEFAULT_HEALTH_PROBE_TIMEOUT, client.get_uptime()).await {
-                Ok(Ok(_)) => health_registry.mark_ok(COMPONENT_ASM_RPC, "asm_rpc_reachable"),
-                Ok(Err(err)) => {
-                    health_registry.mark_unhealthy(COMPONENT_ASM_RPC, "asm_rpc_unreachable");
-                    error!(%err, "ASM RPC health probe failed");
-                }
-                Err(_) => {
-                    health_registry.mark_unhealthy(COMPONENT_ASM_RPC, "probe_timed_out");
-                    error!("ASM RPC health probe timed out");
-                }
-            }
+            run_external_probe(
+                &health_registry,
+                COMPONENT_ASM_RPC,
+                "asm_rpc",
+                client.get_uptime(),
+                "asm_rpc_reachable",
+                "asm_rpc_unreachable",
+            )
+            .await;
         }
     });
 }
@@ -156,17 +150,15 @@ pub(in crate::mode) fn spawn_mosaic_probe(
 
         loop {
             ticker.tick().await;
-            match timeout(DEFAULT_HEALTH_PROBE_TIMEOUT, client.health_check()).await {
-                Ok(Ok(())) => health_registry.mark_ok(COMPONENT_MOSAIC, "rpc_reachable"),
-                Ok(Err(err)) => {
-                    health_registry.mark_unhealthy(COMPONENT_MOSAIC, "rpc_unreachable");
-                    error!(%err, "Mosaic health probe failed");
-                }
-                Err(_) => {
-                    health_registry.mark_unhealthy(COMPONENT_MOSAIC, "probe_timed_out");
-                    error!("Mosaic health probe timed out");
-                }
-            }
+            run_external_probe(
+                &health_registry,
+                COMPONENT_MOSAIC,
+                "mosaic",
+                client.health_check(),
+                "rpc_reachable",
+                "rpc_unreachable",
+            )
+            .await;
         }
     });
 }
@@ -182,22 +174,15 @@ pub(in crate::mode) fn spawn_s2_probe(
 
         loop {
             ticker.tick().await;
-            match timeout(
-                DEFAULT_HEALTH_PROBE_TIMEOUT,
+            run_external_probe(
+                &health_registry,
+                COMPONENT_S2,
+                "secret_service",
                 client.musig2_signer().pubkey(),
+                "s2_read_succeeded",
+                "s2_read_failed",
             )
-            .await
-            {
-                Ok(Ok(_)) => health_registry.mark_ok(COMPONENT_S2, "s2_read_succeeded"),
-                Ok(Err(err)) => {
-                    health_registry.mark_unhealthy(COMPONENT_S2, "s2_read_failed");
-                    error!(%err, "secret-service health probe failed");
-                }
-                Err(_) => {
-                    health_registry.mark_unhealthy(COMPONENT_S2, "probe_timed_out");
-                    error!("secret-service health probe timed out");
-                }
-            }
+            .await;
         }
     });
 }
@@ -284,5 +269,29 @@ const fn nonzero_interval(interval: Duration) -> Duration {
         Duration::from_secs(1)
     } else {
         interval
+    }
+}
+
+async fn run_external_probe<T, E, F>(
+    health_registry: &HealthRegistry,
+    component: &'static str,
+    probe_name: &'static str,
+    probe: F,
+    ok_reason: &'static str,
+    error_reason: &'static str,
+) where
+    E: Display,
+    F: Future<Output = Result<T, E>>,
+{
+    match timeout(DEFAULT_HEALTH_PROBE_TIMEOUT, probe).await {
+        Ok(Ok(_)) => health_registry.mark_ok(component, ok_reason),
+        Ok(Err(err)) => {
+            health_registry.mark_unhealthy(component, error_reason);
+            error!(component, probe_name, %err, "health probe failed");
+        }
+        Err(_) => {
+            health_registry.mark_unhealthy(component, "probe_timed_out");
+            error!(component, probe_name, "health probe timed out");
+        }
     }
 }
