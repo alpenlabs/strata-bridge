@@ -11362,6 +11362,8 @@ dependencies = [
  "secret-service-client",
  "secret-service-proto",
  "serde",
+ "serde_json",
+ "strata-asm-rpc",
  "strata-bridge-asm-events",
  "strata-bridge-common",
  "strata-bridge-connectors",
@@ -11385,6 +11387,7 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "toml 0.8.23",
+ "tower 0.5.2",
  "tracing",
  "zkaleido",
 ]

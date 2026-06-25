@@ -114,6 +114,20 @@ pub struct TxDriver {
     new_jobs_sender: UnboundedSender<TxDriveJob>,
     driver: JoinHandle<()>,
 }
+
+/// Lightweight health handle for the transaction driver background worker.
+#[derive(Clone, Debug)]
+pub struct TxDriverHealthHandle {
+    new_jobs_sender: UnboundedSender<TxDriveJob>,
+}
+
+impl TxDriverHealthHandle {
+    /// Returns true while the transaction driver is still accepting jobs.
+    pub fn is_accepting_jobs(&self) -> bool {
+        !self.new_jobs_sender.is_closed()
+    }
+}
+
 impl TxDriver {
     /// Initializes the TxDriver.
     pub async fn new(zmq_client: BtcNotifyClient<Connected>, rpc_client: BitcoinClient) -> Self {
@@ -287,6 +301,13 @@ impl TxDriver {
             .await
             .map_err(|_| DriveErr::DriverAborted)
             .flatten()
+    }
+
+    /// Returns a cloneable health handle for observing the background worker.
+    pub fn health_handle(&self) -> TxDriverHealthHandle {
+        TxDriverHealthHandle {
+            new_jobs_sender: self.new_jobs_sender.clone(),
+        }
     }
 }
 

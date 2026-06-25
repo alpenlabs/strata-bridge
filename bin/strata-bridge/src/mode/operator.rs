@@ -7,15 +7,24 @@ use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_tasks::TaskExecutor;
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::{
     config::Config,
+    constants::DEFAULT_HEALTH_PROBE_INTERVAL,
+    health::{
+        COMPONENT_ASM_RPC, COMPONENT_BITCOIN_RPC, COMPONENT_MOSAIC, COMPONENT_P2P, COMPONENT_S2,
+        COMPONENT_WALLET, HealthRegistry,
+    },
     mode::{
         rpc_server::init_rpc_server,
         services::{
             asm_rpc::init_asm_rpc_client,
             btc_client::init_btc_rpc_client,
+            health_probes::{
+                spawn_asm_rpc_probe, spawn_bitcoin_rpc_probe, spawn_fdb_probe, spawn_mosaic_probe,
+                spawn_p2p_probe, spawn_s2_probe, spawn_wallet_probe,
+            },
             mosaic_client::{init_mosaic_client, run_mosaic_setup, spawn_mosaic_poller},
             operator_table::init_operator_table,
             operator_wallet::{init_operator_wallet, spawn_initial_operator_wallet_sync},
@@ -31,6 +40,7 @@ pub(crate) async fn bootstrap(
     config: Config,
     db: Arc<FdbClient>,
     executor: TaskExecutor,
+    health_registry: HealthRegistry,
 ) -> anyhow::Result<()> {
     info!("starting operator loop");
     debug!(
@@ -50,12 +60,14 @@ pub(crate) async fn bootstrap(
     let pov_p2p_key = operator_table.pov_p2p_key();
     let agg_key = operator_table.aggregated_btc_key();
     info!(%pov_idx, %pov_p2p_key, %pov_btc_key, %agg_key, "operator table initialized");
+    health_registry.mark_ok(COMPONENT_S2, "operator_table_loaded");
 
     debug!("initializing operator wallet");
     let initialized_wallet = init_operator_wallet(&config, &params, &s2_client, &db).await?;
     let claim_funding_utxo_value = initialized_wallet.claim_funding_utxo_value;
     let operator_wallet = Arc::new(RwLock::new(initialized_wallet.wallet));
     info!(%claim_funding_utxo_value, "operator wallet initialized");
+    health_registry.mark_ok(COMPONENT_WALLET, "wallet_initialized");
 
     debug!("spawning initial operator wallet sync");
     let sync_wallet = operator_wallet.clone();
@@ -68,10 +80,12 @@ pub(crate) async fn bootstrap(
     let btc_rpc_client = init_btc_rpc_client(&config)?;
     let cur_height = btc_rpc_client.get_block_count().await?;
     info!(%cur_height, "bitcoin client initialized and synced");
+    health_registry.mark_ok(COMPONENT_BITCOIN_RPC, "block_count_read");
 
     debug!("initializing asm rpc client");
     let asm_rpc_client = init_asm_rpc_client(&config.asm_rpc);
     info!("asm rpc client initialized");
+    health_registry.mark_degraded(COMPONENT_ASM_RPC, "client_initialized_not_checked");
 
     debug!("initializing p2p client");
     let P2PHandles {
@@ -81,9 +95,18 @@ pub(crate) async fn bootstrap(
         keypair,
     } = init_p2p_handles(&config, &params, &s2_client, &executor).await?;
     info!("p2p client initialized, connected to swarm and listening");
+    health_registry.mark_ok(COMPONENT_P2P, "swarm_initialized");
 
     debug!("starting rpc server");
-    init_rpc_server(&params, &config, db.clone(), command_handle, &executor).await?;
+    init_rpc_server(
+        &params,
+        &config,
+        db.clone(),
+        command_handle.clone(),
+        &executor,
+        health_registry.clone(),
+    )
+    .await?;
     info!(addr=%config.rpc.rpc_addr, "rpc server started and listening for requests");
 
     debug!("initializing mosaic client");
@@ -93,10 +116,47 @@ pub(crate) async fn bootstrap(
         operator_table.pov_idx(),
     ));
     info!("mosaic client initialized");
+    health_registry.mark_degraded(COMPONENT_MOSAIC, "setup_pending");
 
     debug!("running mosaic setup for all operator pairs");
-    run_mosaic_setup(mosaic_client.as_ref(), &operator_table).await?;
+    if let Err(err) = run_mosaic_setup(mosaic_client.as_ref(), &operator_table).await {
+        health_registry.mark_unhealthy(COMPONENT_MOSAIC, "setup_failed");
+        error!(%err, "mosaic setup failed");
+        return Err(err);
+    }
     info!("mosaic setup complete for all operator pairs");
+    health_registry.mark_ok(COMPONENT_MOSAIC, "setup_complete");
+
+    let probe_interval = DEFAULT_HEALTH_PROBE_INTERVAL;
+    let expected_peer_count = operator_table.cardinality().saturating_sub(1);
+    spawn_fdb_probe(db.clone(), probe_interval, health_registry.clone());
+    spawn_bitcoin_rpc_probe(
+        btc_rpc_client.clone(),
+        probe_interval,
+        health_registry.clone(),
+    );
+    spawn_asm_rpc_probe(
+        asm_rpc_client.clone(),
+        probe_interval,
+        health_registry.clone(),
+    );
+    spawn_p2p_probe(
+        command_handle.clone(),
+        expected_peer_count,
+        probe_interval,
+        health_registry.clone(),
+    );
+    spawn_mosaic_probe(
+        mosaic_client.clone(),
+        probe_interval,
+        health_registry.clone(),
+    );
+    spawn_s2_probe(s2_client.clone(), probe_interval, health_registry.clone());
+    spawn_wallet_probe(
+        operator_wallet.clone(),
+        probe_interval,
+        health_registry.clone(),
+    );
 
     debug!("starting orchestrator pipeline");
     let mosaic_poller_client = mosaic_client.clone();
@@ -115,6 +175,7 @@ pub(crate) async fn bootstrap(
         asm_rpc_client,
         db.clone(),
         &executor,
+        health_registry.clone(),
     )
     .await?;
 

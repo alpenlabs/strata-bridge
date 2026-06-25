@@ -61,9 +61,20 @@ impl Pipeline {
     /// preserved; only missing ones are created. The `start_height` is used as the initial block
     /// height for newly created stake SMs (typically the chain tip or the persisted cursor).
     pub async fn run(
+        self,
+        initial_operator_table: OperatorTable,
+        start_height: BitcoinBlockHeight,
+    ) -> Result<(), PipelineError> {
+        self.run_with_observer(initial_operator_table, start_height, || {})
+            .await
+    }
+
+    /// Runs the main event loop and calls `on_event` after each non-shutdown event is received.
+    pub async fn run_with_observer(
         mut self,
         initial_operator_table: OperatorTable,
         start_height: BitcoinBlockHeight,
+        mut on_event: impl FnMut(),
     ) -> Result<(), PipelineError> {
         self.bootstrap_stake_sms(&initial_operator_table, start_height)
             .await?;
@@ -83,6 +94,7 @@ impl Pipeline {
                 // Routable events — pass through to the classification stage
                 routable => routable,
             };
+            on_event();
 
             // Stage 2+3: Classify and process through Applicator
             let mut applicator = Applicator::new(&mut self.registry);
