@@ -240,6 +240,21 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(completed_sigs)
     }
 
+    /// Performs a read-only Mosaic RPC health check.
+    pub async fn health_check(&self) -> Result<(), MosaicError> {
+        let rpc = self.rpc.clone();
+        retry_with(self.default_retry_strategy(), move || {
+            let rpc = rpc.clone();
+            async move {
+                rpc.list_tableset_ids()
+                    .await
+                    .map(|_| ())
+                    .map_err(MosaicError::rpc_error)
+            }
+        })
+        .await
+    }
+
     /// Polls `get_tableset_status` until the tableset is `Consumed`, checking the game
     /// index at each step. Returns the `success` flag from the `Consumed` variant.
     //

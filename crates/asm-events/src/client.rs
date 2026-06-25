@@ -14,7 +14,7 @@
 // TODO: <https://alpenlabs.atlassian.net/browse/STR-2667>
 // Explicitly detect lag vs. fork divergence and surface a clear health signal.
 
-use std::{marker::PhantomData, sync::Arc};
+use std::{fmt, marker::PhantomData, sync::Arc};
 
 use algebra::retry::{Strategy, retry_with};
 use bitcoin::BlockHash;
@@ -49,7 +49,35 @@ pub struct AsmEventFeed<State = Detached> {
     client: HttpClient,
     subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<AssignmentsState>>>>,
     thread_handle: Option<Arc<JoinHandle<()>>>,
+    health_observer: Option<HealthObserver>,
     _state: PhantomData<State>,
+}
+
+/// Health events emitted by the ASM assignments feed.
+#[derive(Debug, Clone, Copy)]
+pub enum AsmFeedHealthEvent {
+    /// Assignments were fetched successfully for a buried block.
+    AssignmentsFetched,
+
+    /// Assignment fetching exhausted all retries for a buried block.
+    AssignmentsFetchFailed,
+}
+
+#[derive(Clone)]
+struct HealthObserver(Arc<dyn Fn(AsmFeedHealthEvent) + Send + Sync>);
+
+impl HealthObserver {
+    fn observe(&self, event: AsmFeedHealthEvent) {
+        (self.0)(event);
+    }
+}
+
+impl fmt::Debug for HealthObserver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("HealthObserver")
+            .field(&"<callback>")
+            .finish()
+    }
 }
 
 impl<State> Drop for AsmEventFeed<State> {
@@ -68,6 +96,7 @@ impl AsmEventFeed<Detached> {
             client,
             subscribers: Arc::new(Mutex::new(Vec::new())),
             thread_handle: None,
+            health_observer: None,
             _state: PhantomData,
         }
     }
@@ -89,13 +118,19 @@ impl AsmEventFeed<Detached> {
         // Assignment state is idempotent and queryable by block hash.
         let (request_sender, request_receiver) = watch::channel(None);
         let subscribers_worker = self.subscribers.clone();
+        let health_observer = self.health_observer.clone();
         let cfg = self.cfg.clone();
         let client = self.client.clone();
 
         let thread_handle = Arc::new(task::spawn(async move {
             let forwarder = run_block_ref_forwarder(block_sub, request_sender);
-            let fetcher =
-                run_assignments_state_fetcher(cfg, client, request_receiver, subscribers_worker);
+            let fetcher = run_assignments_state_fetcher(
+                cfg,
+                client,
+                request_receiver,
+                subscribers_worker,
+                health_observer,
+            );
 
             tokio::join!(forwarder, fetcher);
         }));
@@ -105,8 +140,20 @@ impl AsmEventFeed<Detached> {
             client: self.client.clone(),
             subscribers: self.subscribers.clone(),
             thread_handle: Some(thread_handle),
+            health_observer: self.health_observer.clone(),
             _state: PhantomData,
         }
+    }
+}
+
+impl<State> AsmEventFeed<State> {
+    /// Installs a synchronous health observer for assignment fetch success and failure.
+    pub fn with_health_observer(
+        mut self,
+        observer: impl Fn(AsmFeedHealthEvent) + Send + Sync + 'static,
+    ) -> Self {
+        self.health_observer = Some(HealthObserver(Arc::new(observer)));
+        self
     }
 }
 
@@ -162,6 +209,7 @@ async fn run_assignments_state_fetcher(
     client: HttpClient,
     mut request_receiver: watch::Receiver<Option<BlockHash>>,
     subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<AssignmentsState>>>>,
+    health_observer: Option<HealthObserver>,
 ) {
     let mut last_processed: Option<BlockHash> = None;
 
@@ -199,6 +247,9 @@ async fn run_assignments_state_fetcher(
         match result {
             Ok(assignments) => {
                 last_processed = Some(block_hash);
+                if let Some(observer) = &health_observer {
+                    observer.observe(AsmFeedHealthEvent::AssignmentsFetched);
+                }
                 info!(
                     %block_hash,
                     num_assignments = assignments.len(),
@@ -214,6 +265,9 @@ async fn run_assignments_state_fetcher(
                 subs.retain(|sub| sub.send(event.clone()).is_ok());
             }
             Err(err) => {
+                if let Some(observer) = &health_observer {
+                    observer.observe(AsmFeedHealthEvent::AssignmentsFetchFailed);
+                }
                 error!(
                     ?err,
                     %block_hash,
