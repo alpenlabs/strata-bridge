@@ -19,14 +19,14 @@ strata-crypto.workspace = true
 
 # Optional dependencies for test_utils feature
 bitcoind-async-client = { workspace = true, features = [
-  "29_0",
+  "30_2",
 ], optional = true }
-corepc-node = { workspace = true, features = ["29_0"], optional = true }
+corepc-node = { workspace = true, features = ["30_2"], optional = true }
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
 
 strata-bridge-common.workspace = true
-bitcoind-async-client = { workspace = true, features = ["29_0"] }
-corepc-node = { workspace = true, features = ["29_0"] }
+bitcoind-async-client = { workspace = true, features = ["30_2"] }
+corepc-node = { workspace = true, features = ["30_2"] }
 tracing.workspace = true

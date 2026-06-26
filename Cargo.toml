@@ -92,25 +92,25 @@ strata-mosaic-client-api = { path = "crates/mosaic-client-api" }
 # single strata_identifiers / strata_codec version.
 strata-ol-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "e63783002c12b5e61891cf1b04c341cbf0f31bd3" }
 
-# Dependencies from alpenlabs/asm pinned to tag v0.3.0-rc.1 (commit d35687b, main @ 2026-06-22)
-asm-storage = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-common = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-params = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-proof-impl = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-rpc = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-spec = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-asm-worker = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
-strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm.git", rev = "d35687b2bded925d7562057ff9cd6b49bf91cd95" }
+# Dependencies from alpenlabs/asm
+asm-storage = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-common = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-params = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-proof-impl = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-rpc = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-spec = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-asm-worker = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
+strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.1" }
 
-# Dependencies from alpenlabs/mosaic pinned to commit 6a85547c (main @ 2026-06-22)
-mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "6a85547cc8d4d408eaa7e1aa121a285e7813430f" }
-mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "6a85547cc8d4d408eaa7e1aa121a285e7813430f" }
-mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "6a85547cc8d4d408eaa7e1aa121a285e7813430f" }
+# Dependencies from alpenlabs/mosaic
+mosaic-common = { git = "https://github.com/alpenlabs/mosaic", tag = "v0.3.0-rc.1" }
+mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", tag = "v0.3.0-rc.1" }
+mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", tag = "v0.3.0-rc.1" }
 
 # Dependencies from alpenlabs/strata-common
 strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.1" }
@@ -175,12 +175,14 @@ bitcoin-bosd = { git = "https://github.com/alpenlabs/bitcoin-bosd", tag = "v0.11
 ] }
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
 bitcoincore-rpc = "0.19.0"
-bitcoind-async-client = { version = "0.11.0", features = ["29_0"] }
+bitcoind-async-client = { version = "0.14.0", default-features = false, features = [
+  "30_2",
+] }
 borsh = { version = "1.6.1", features = ["derive"] }
 cfg-if = "1.0"
 chrono = "0.4.44"
 clap = { version = "4.6.1", features = ["cargo", "derive", "env"] }
-corepc-node = { version = "0.12.0", features = ["29_0"] }
+corepc-node = { version = "0.12.0", features = ["30_2"] }
 ed25519-dalek = { version = "2.2.0", features = ["zeroize"] }
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
   "blocking-https-rustls",
@@ -255,6 +257,7 @@ tokio-stream = "0.1.18"
 tokio-util = { version = "0.7.18", default-features = false, features = ["rt"] }
 
 toml = "0.8.20"
+tower = "0.5.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 zeroize = { version = "1.8.2", features = ["derive"] }

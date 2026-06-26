@@ -28,25 +28,36 @@ pub const TEST_ASSIGNEE: OperatorIdx = 2;
 
 /// Returns a deterministic P2TR descriptor for use in fulfillment tests.
 ///
-/// Both [`test_fulfillment_tx`] and the `Assigned` state in TxClassifier tests must use the same
-/// recipient descriptor so that [`is_fulfillment`](crate::tx_classifier::is_fulfillment) can match
-/// the transaction against the state.
+/// Both [`test_fulfillment_tx_for_recipient`] and the `Assigned` state in TxClassifier tests must
+/// use the same recipient descriptor so that
+/// [`is_fulfillment`](crate::tx_classifier::is_fulfillment) can match the transaction against the
+/// state.
 pub fn test_recipient_desc(key_byte: u8) -> Descriptor {
     let sk = SecretKey::from_slice(&[key_byte; 32]).unwrap();
     let pk = sk.public_key(SECP256K1).x_only_public_key().0;
     Descriptor::new_p2tr(&pk.serialize()).expect("valid descriptor")
 }
 
+/// Returns a deterministic OP_RETURN descriptor for fulfillment classifier tests.
+pub fn test_op_return_recipient_desc() -> Descriptor {
+    Descriptor::new_op_return(&[1u8; 32]).expect("valid descriptor")
+}
+
 /// Creates a test withdrawal fulfillment transaction with the test deposit index and magic bytes.
 ///
 /// This constructs a properly formatted SPS-50 transaction that the classifier can parse.
-pub fn test_fulfillment_tx() -> Transaction {
+pub fn test_fulfillment_tx_for_recipient(recipient_desc: Descriptor) -> Transaction {
     let data = WithdrawalFulfillmentData {
         deposit_idx: TEST_DEPOSIT_IDX,
         user_amount: TEST_DEPOSIT_AMOUNT - TEST_OPERATOR_FEE,
         magic_bytes: TEST_MAGIC_BYTES.into(),
     };
-    WithdrawalFulfillmentTx::new(data, test_recipient_desc(1)).into_unsigned_tx()
+    WithdrawalFulfillmentTx::new(data, recipient_desc).into_unsigned_tx()
+}
+
+/// Creates a test withdrawal fulfillment transaction for [`test_recipient_desc`].
+pub fn test_fulfillment_tx() -> Transaction {
+    test_fulfillment_tx_for_recipient(test_recipient_desc(1))
 }
 
 // ===== Transaction Fixtures =====

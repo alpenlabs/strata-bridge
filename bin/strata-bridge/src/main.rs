@@ -16,6 +16,7 @@ use tracing::{debug, error, info, trace};
 mod args;
 mod config;
 mod constants;
+mod health;
 mod mode;
 mod observability;
 
@@ -67,6 +68,8 @@ fn main() {
     }
 
     info!(mode = %mode_label, network = %network_label, "starting bridge node");
+    let health_registry = health::HealthRegistry::new();
+    health_registry.mark_ok(health::COMPONENT_PROCESS, "process_started");
 
     // Initialize FDB client
     // Must happen once per process, before spawning tasks.
@@ -80,6 +83,7 @@ fn main() {
         .expect("should initialize FDB client");
     let fdb_client = Arc::new(fdb_client);
     debug!("FoundationDB client initialized");
+    health_registry.mark_ok(health::COMPONENT_FDB, "client_initialized");
 
     let task_manager = TaskManager::new(runtime_handle);
     task_manager.start_signal_listeners();
@@ -89,12 +93,14 @@ fn main() {
     match cli.mode {
         OperationMode::Operator => {
             let fdb = fdb_client.clone();
+            let health_registry = health_registry.clone();
             executor
                 .clone()
                 .spawn_critical_async("operator", async move {
                     #[cfg(feature = "memory_profiling")]
                     memory_pprof::setup_memory_profiling(3_000);
-                    operator::bootstrap(params, config, fdb, executor.clone()).await
+                    operator::bootstrap(params, config, fdb, executor.clone(), health_registry)
+                        .await
                 });
         }
         OperationMode::Watchtower => {

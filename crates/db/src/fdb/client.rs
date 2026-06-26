@@ -130,6 +130,17 @@ impl FdbClient {
         self.db.create_trx()
     }
 
+    /// Performs a lightweight cluster-liveness check.
+    ///
+    /// Fetches a read version, which forces a single round-trip to the FDB cluster without
+    /// reading any user keys. This is intended for health probes: it is far cheaper than a
+    /// range scan and returns an error when the cluster is unreachable. Note that creating a
+    /// transaction alone does not contact the cluster, so the read-version fetch is what
+    /// actually verifies connectivity.
+    pub async fn health_check(&self) -> Result<(), FdbError> {
+        self.db.create_trx()?.get_read_version().await.map(|_| ())
+    }
+
     /// Returns a reference to the client's [`TransactOption`] configuration, which is used for all
     /// transactions initiated via `transact` and the auto-transactional primitives.
     pub const fn transact_options(&self) -> &TransactOption {

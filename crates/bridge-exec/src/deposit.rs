@@ -6,7 +6,7 @@ use std::{
 };
 
 use bitcoin::{
-    Amount, FeeRate, OutPoint, TapSighashType, Transaction, Txid,
+    Amount, OutPoint, TapSighashType, Transaction, Txid,
     secp256k1::{Message, PublicKey, XOnlyPublicKey, schnorr},
     sighash::{Prevouts, SighashCache},
 };
@@ -413,14 +413,15 @@ async fn fulfill_withdrawal(
     // Get fee rate estimate from bitcoind, bounded from below by `fee::FEE_RATE` so the
     // withdrawal-fulfillment v3 transaction always meets the bridge's hardcoded minimum even
     // on networks where `estimatesmartfee` returns a value below `minrelaytxfee`.
-    let fee_rate = output_handles
+    let smart_fee = output_handles
         .bitcoind_rpc_client
         .estimate_smart_fee(1)
         .await
         .map_err(|e| ExecutorError::WalletErr(format!("failed to estimate fee: {e}")))?;
-    info!(%fee_rate, "estimated fee rate for withdrawal fulfillment");
+    info!(?smart_fee, "estimated fee rate for withdrawal fulfillment");
 
-    let fee_rate = FeeRate::from_sat_per_vb(fee_rate)
+    let fee_rate = smart_fee
+        .fee_rate
         .unwrap_or(fee::FEE_RATE)
         .max(fee::FEE_RATE);
 
@@ -612,17 +613,11 @@ async fn request_payout_nonces(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, "creating descriptor to request payout nonces");
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2668>
-    // Have the s2 client provide the descriptor directly instead of only the public key.
-    // Get the general wallet public key for the payout descriptor
-    let pubkey = output_handles
-        .s2_client
-        .general_wallet_signer()
-        .pubkey()
-        .await?;
-
-    // Create a P2TR descriptor for the payout address.
-    let descriptor = Descriptor::new_p2tr(&pubkey.serialize())
+    let descriptor = output_handles
+        .wallet
+        .read()
+        .await
+        .descriptor()
         .map_err(|e| ExecutorError::WalletErr(format!("failed to create descriptor: {e}")))?;
 
     // Convert to PayoutDescriptor for P2P transmission

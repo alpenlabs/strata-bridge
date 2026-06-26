@@ -38,6 +38,7 @@ use tokio::{
     sync::{RwLock, oneshot},
     time::interval,
 };
+use tower::ServiceBuilder;
 use tracing::{debug, info, warn};
 
 use super::monitoring::{
@@ -48,6 +49,7 @@ use super::monitoring::{
 use crate::{
     config::{Config, RpcConfig},
     constants::DEFAULT_RPC_CACHE_REFRESH_INTERVAL,
+    health::{COMPONENT_RPC_CACHE, HealthHttpLayer, HealthRegistry},
     mode::{
         rpc_server::da::{stake_aggregate_signatures_response, stake_data_response},
         services::orchestrator::build_sm_config,
@@ -61,6 +63,7 @@ pub(in crate::mode) async fn init_rpc_server(
     db: Arc<FdbClient>,
     command_handle: CommandHandle,
     executor: &TaskExecutor,
+    health_registry: HealthRegistry,
 ) -> anyhow::Result<()> {
     let rpc_persister = Persister::new(db);
     let sm_config = build_sm_config(config, params);
@@ -76,14 +79,19 @@ pub(in crate::mode) async fn init_rpc_server(
             rpc_params,
             sm_config,
             rpc_config,
+            health_registry.clone(),
         );
-        start_rpc(&rpc_impl, rpc_addr.as_str()).await
+        start_rpc(&rpc_impl, rpc_addr.as_str(), health_registry).await
     });
 
     Ok(())
 }
 
-async fn start_rpc<T>(rpc_impl: &T, rpc_addr: &str) -> anyhow::Result<()>
+async fn start_rpc<T>(
+    rpc_impl: &T,
+    rpc_addr: &str,
+    health_registry: HealthRegistry,
+) -> anyhow::Result<()>
 where
     T: StrataBridgeControlApiServer
         + StrataBridgeMonitoringApiServer
@@ -102,10 +110,12 @@ where
         .context("merge monitoring api")?;
     rpc_module.merge(da_api).context("merge da api")?;
     debug!("starting bridge rpc server at {rpc_addr}");
+    let health_middleware = ServiceBuilder::new().layer(HealthHttpLayer::new(health_registry));
     let rpc_server = jsonrpsee::server::ServerBuilder::new()
+        .set_http_middleware(health_middleware)
         .build(&rpc_addr)
         .await
-        .expect("build bridge rpc server");
+        .context("build bridge rpc server")?;
     let rpc_handle = rpc_server.start(rpc_module);
 
     // Using `_` for `_stop_tx` as the variable causes it to be dropped immediately!
@@ -149,6 +159,9 @@ pub(crate) struct BridgeRpc {
 
     /// RPC server configuration.
     config: RpcConfig,
+
+    /// Shared bridge component health registry.
+    health_registry: HealthRegistry,
 }
 
 impl BridgeRpc {
@@ -159,6 +172,7 @@ impl BridgeRpc {
         params: Params,
         sm_config: SMConfig,
         config: RpcConfig,
+        health_registry: HealthRegistry,
     ) -> Self {
         // Initialize with empty cache
         let cached_contracts = Arc::new(RwLock::new(SMRegistry::new(sm_config)));
@@ -171,6 +185,7 @@ impl BridgeRpc {
             command_handle,
             params,
             config,
+            health_registry,
         };
 
         // Start the cache refresh task
@@ -187,26 +202,47 @@ impl BridgeRpc {
             .refresh_interval
             .unwrap_or(DEFAULT_RPC_CACHE_REFRESH_INTERVAL);
         let db = self.db.clone();
+        let health_registry = self.health_registry.clone();
 
         // Spawn a background task to refresh the cache
         tokio::spawn(async move {
             info!(?period, "initializing rpc server cache refresh task");
 
-            Self::refresh_registry(&db, &cached_registry).await;
-            debug!("rpc server contracts cache initialized");
+            match Self::refresh_registry(&db, &cached_registry).await {
+                Ok(()) => {
+                    health_registry.mark_ok(COMPONENT_RPC_CACHE, "cache_initialized");
+                    debug!("rpc server contracts cache initialized");
+                }
+                Err(err) => {
+                    health_registry.mark_unhealthy(COMPONENT_RPC_CACHE, "recover_registry_failed");
+                    warn!(%err, "rpc server cache initialization failed");
+                }
+            }
 
             // Periodic refresh in a separate loop outside the closure
             let mut refresh_interval = interval(period);
             loop {
                 refresh_interval.tick().await;
 
-                Self::refresh_registry(&db, &cached_registry).await;
-                debug!("rpc state machine registry cache refreshed");
+                match Self::refresh_registry(&db, &cached_registry).await {
+                    Ok(()) => {
+                        health_registry.mark_ok(COMPONENT_RPC_CACHE, "cache_refreshed");
+                        debug!("rpc state machine registry cache refreshed");
+                    }
+                    Err(err) => {
+                        health_registry
+                            .mark_unhealthy(COMPONENT_RPC_CACHE, "recover_registry_failed");
+                        warn!(%err, "rpc state machine registry cache refresh failed");
+                    }
+                }
             }
         });
     }
 
-    async fn refresh_registry(db: &Persister, cached_registry: &RwLock<SMRegistry>) {
+    async fn refresh_registry(
+        db: &Persister,
+        cached_registry: &RwLock<SMRegistry>,
+    ) -> anyhow::Result<()> {
         let config = {
             let registry_read_lock = cached_registry.read().await;
             registry_read_lock.cfg().clone()
@@ -216,13 +252,14 @@ impl BridgeRpc {
         let sm_registry = db
             .recover_registry(config)
             .await
-            .expect("must recover state machine registry from database");
+            .map_err(|e| anyhow::anyhow!("recover state machine registry from database: {e:?}"))?;
 
         let mut cache_registry_lock = cached_registry.write().await;
         *cache_registry_lock = sm_registry;
 
         let deposit_count = cache_registry_lock.num_deposits();
         info!(%deposit_count, "rpc server state machine registry cache refresh complete");
+        Ok(())
     }
 }
 

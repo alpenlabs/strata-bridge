@@ -8,9 +8,14 @@
 mod tests {
     use std::collections::BTreeMap;
 
+    use bitcoin_bosd::Descriptor;
+
     use crate::{
         deposit::tests::*,
-        testing::fixtures::{test_payout_tx, test_takeback_tx},
+        testing::fixtures::{
+            test_fulfillment_tx_for_recipient, test_op_return_recipient_desc, test_payout_tx,
+            test_takeback_tx,
+        },
         tx_classifier::TxClassifier,
     };
 
@@ -82,13 +87,17 @@ mod tests {
         ]
     }
 
-    fn assigned_state() -> DepositState {
+    fn assigned_state_with_recipient(recipient_desc: Descriptor) -> DepositState {
         DepositState::Assigned {
             last_block_height: LATER_BLOCK_HEIGHT,
             assignee: TEST_ASSIGNEE,
             deadline: LATER_BLOCK_HEIGHT + 15,
-            recipient_desc: test_recipient_desc(1),
+            recipient_desc,
         }
+    }
+
+    fn assigned_state() -> DepositState {
+        assigned_state_with_recipient(test_recipient_desc(1))
     }
 
     /// States that expect a payout (deposit spend).
@@ -190,6 +199,19 @@ mod tests {
         let cfg = test_deposit_sm_cfg();
         let sm = create_sm(assigned_state());
         let result = sm.classify_tx(&cfg, &test_fulfillment_tx(), LATER_BLOCK_HEIGHT);
+        assert!(
+            matches!(result, Some(DepositEvent::FulfillmentConfirmed(_))),
+            "expected Some(FulfillmentConfirmed) but got {result:?}"
+        );
+    }
+
+    #[test]
+    fn classify_tx_recognizes_op_return_fulfillment() {
+        let cfg = test_deposit_sm_cfg();
+        let recipient_desc = test_op_return_recipient_desc();
+        let fulfillment_tx = test_fulfillment_tx_for_recipient(recipient_desc.clone());
+        let sm = create_sm(assigned_state_with_recipient(recipient_desc));
+        let result = sm.classify_tx(&cfg, &fulfillment_tx, LATER_BLOCK_HEIGHT);
         assert!(
             matches!(result, Some(DepositEvent::FulfillmentConfirmed(_))),
             "expected Some(FulfillmentConfirmed) but got {result:?}"

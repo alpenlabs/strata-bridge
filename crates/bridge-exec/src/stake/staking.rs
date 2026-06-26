@@ -4,13 +4,11 @@
 //! the stake transaction.
 
 use bitcoin::{
-    Address, Amount, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
+    Amount, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
     hashes::{Hash, sha256},
-    key::TapTweak,
     secp256k1::{Message, XOnlyPublicKey},
     sighash::{Prevouts, SighashCache},
 };
-use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
@@ -65,18 +63,15 @@ pub(crate) async fn publish_stake_data(
     info!(%unstaking_image, "fetched unstaking intent preimage and computed the unstaking image");
 
     info!("constructing the unstaking output descriptor");
-    let general_wallet_key = output_handles
-        .s2_client
-        .general_wallet_signer()
-        .pubkey()
-        .await?;
-    // Safety: the general wallet uses the operator's pubkey directly as the taproot output key
-    // (no additional tweak), so the pubkey returned by secret-service is already tweaked.
-    let address = Address::p2tr_tweaked(general_wallet_key.dangerous_assume_tweaked(), cfg.network);
-    info!(%address, "constructed the unstaking output address");
-
-    let output_desc = Descriptor::try_from(address)
-        .expect("must be able to create descriptor from a valid address");
+    let output_desc = output_handles
+        .wallet
+        .read()
+        .await
+        .descriptor()
+        .map_err(|e| {
+            ExecutorError::WalletErr(format!("failed to create unstaking descriptor: {e}"))
+        })?;
+    info!(%output_desc, "constructed the unstaking output descriptor");
 
     let unstaking_input = UnstakingInput {
         stake_funds,
@@ -193,16 +188,17 @@ async fn estimate_funding_fee_rate(
     output_handles: &OutputHandles,
 ) -> Result<FeeRate, ExecutorError> {
     info!("fetching fee rate from bitcoind");
-    let raw_fee_rate = output_handles
+    let smart_fee = output_handles
         .bitcoind_rpc_client
         .estimate_smart_fee(1)
         .await?;
-    info!(%raw_fee_rate, "fetched fee rate from bitcoind");
+    info!(?smart_fee, "fetched fee rate from bitcoind");
 
     // Bound the rate from below by `fee::FEE_RATE` so this v3 (TRUC) funding transaction
     // always meets the bridge's hardcoded minimum, even on networks like signet where
     // `estimatesmartfee` may return a value below `minrelaytxfee`.
-    let fee_rate = FeeRate::from_sat_per_vb(raw_fee_rate)
+    let fee_rate = smart_fee
+        .fee_rate
         .unwrap_or(fee::FEE_RATE)
         .max(fee::FEE_RATE);
 

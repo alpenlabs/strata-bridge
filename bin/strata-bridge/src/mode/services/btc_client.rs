@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use bitcoin::Block;
 use bitcoind_async_client::{Auth, Client as BitcoinClient, error::ClientError, traits::Reader};
 use btc_tracker::{
-    client::{BlockFetcher, BtcNotifyClient, Connected},
+    client::{BlockFetcher, BtcNotifyClient, BtcNotifyHealthEvent, Connected},
     config::BtcNotifyConfig,
 };
 
@@ -23,7 +23,7 @@ pub(in crate::mode) fn init_btc_rpc_client(config: &Config) -> anyhow::Result<Bi
     BitcoinClient::new(
         config.btc_client.url.to_string(),
         auth,
-        config.btc_client.retry_count,
+        config.btc_client.retry_count.map(u16::from),
         config.btc_client.retry_interval,
         None,
     )
@@ -36,11 +36,13 @@ pub(in crate::mode) async fn init_zmq_client(
     config: &Config,
     bury_depth: usize,
     start_height: u64,
+    health_observer: impl Fn(BtcNotifyHealthEvent) + Send + Sync + 'static,
 ) -> anyhow::Result<BtcNotifyClient<Connected>> {
     // We have no awareness of what blocks are unburied at startup, so we start with an empty list.
     let unburied_blocks = VecDeque::new();
     let zmq_cfg = btc_notify_config(config, bury_depth);
-    let zmq_client = BtcNotifyClient::new(&zmq_cfg, unburied_blocks);
+    let zmq_client =
+        BtcNotifyClient::new(&zmq_cfg, unburied_blocks).with_health_observer(health_observer);
 
     let btc_rpc_client = init_btc_rpc_client(config)?;
     zmq_client
