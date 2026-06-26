@@ -6775,7 +6775,7 @@ dependencies = [
 [[package]]
 name = "mosaic-adaptor-sigs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -6790,7 +6790,7 @@ dependencies = [
 [[package]]
 name = "mosaic-cac-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -6811,7 +6811,7 @@ dependencies = [
 [[package]]
 name = "mosaic-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -6820,7 +6820,7 @@ dependencies = [
 [[package]]
 name = "mosaic-heap-array"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -6829,7 +6829,7 @@ dependencies = [
 [[package]]
 name = "mosaic-net-svc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
 dependencies = [
  "ark-serialize 0.6.0",
  "ed25519-dalek",
@@ -6841,7 +6841,7 @@ dependencies = [
 [[package]]
 name = "mosaic-rpc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
@@ -6851,7 +6851,7 @@ dependencies = [
 [[package]]
 name = "mosaic-rpc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
 dependencies = [
  "bitcoin",
  "ckt-fmtv5-types",
@@ -6868,7 +6868,7 @@ dependencies = [
 [[package]]
 name = "mosaic-vs3"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=6a85547cc8d4d408eaa7e1aa121a285e7813430f#6a85547cc8d4d408eaa7e1aa121a285e7813430f"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
