@@ -40,6 +40,12 @@ pub enum Error {
     /// The general wallet backend reported an error.
     #[error("general wallet: {0}")]
     General(Box<dyn std::error::Error + Send + Sync>),
+    /// The wallet receive script cannot be represented as a Bitcoin address.
+    #[error("wallet receive script is not addressable: {0}")]
+    Address(#[from] bdk_wallet::bitcoin::address::FromScriptError),
+    /// The wallet address cannot be represented as a BOSD descriptor.
+    #[error("wallet address cannot be converted into a descriptor: {0}")]
+    Descriptor(#[from] bitcoin_bosd::DescriptorError),
     /// BDK reported an error building a transaction on the reserved wallet.
     #[error("reserved wallet create-tx: {0}")]
     Reserved(#[from] bdk_wallet::error::CreateTxError),
