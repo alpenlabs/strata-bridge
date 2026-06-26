@@ -8,8 +8,7 @@
 # and bake them into the ELF so proofs verify against the actual chain; otherwise build
 # with bundled stub params.
 #
-# Sourced from run_test.sh after `pushd ..`: expects CWD = repo root and consumes the
-# parent shell's `extract_cargo_rev` helper plus `$ASM_REV`.
+# Sourced from run_test.sh after `pushd ..`: expects CWD = repo root and consumes `$ASM_REF`.
 BRIDGE_FEATURES=""
 if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
     export SP1_PROVER="${SP1_PROVER:-mock}"
@@ -19,17 +18,19 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
         export BRIDGE_PROOF_NUM_OPERATORS="${BRIDGE_PROOF_NUM_OPERATORS:-2}"
 
         # Opt-in: real SP1 Groth16 ASM+Moho proving. Build the asm/moho guest ELFs at the
-        # pinned asm rev, derive their Sp1Groth16 predicates, and (later) point the
+        # pinned asm ref, derive their Sp1Groth16 predicates, and (later) point the
         # asm-runner at the ELFs. Without this, the asm-runner signs native Schnorr
         # attestations and the vk files stay Bip340Schnorr.
         if [ "$BRIDGE_PROOF_SP1_ASM" = "1" ]; then
             ASM_SRC="$(realpath functional-tests)/.asm-src"
-            if [ "$(git -C "$ASM_SRC" rev-parse HEAD 2>/dev/null)" != "$ASM_REV" ]; then
+            CURRENT_ASM_COMMIT="$(git -C "$ASM_SRC" rev-parse HEAD 2>/dev/null || true)"
+            TARGET_ASM_COMMIT="$(git -C "$ASM_SRC" rev-parse "$ASM_REF^{commit}" 2>/dev/null || true)"
+            if [ -z "$TARGET_ASM_COMMIT" ] || [ "$CURRENT_ASM_COMMIT" != "$TARGET_ASM_COMMIT" ]; then
                 rm -rf "$ASM_SRC"
                 git clone https://github.com/alpenlabs/asm "$ASM_SRC"
-                git -C "$ASM_SRC" checkout "$ASM_REV"
+                git -C "$ASM_SRC" checkout "$ASM_REF"
             fi
-            echo "Building ASM/Moho SP1 guest ELFs (asm rev $ASM_REV); this is slow"
+            echo "Building ASM/Moho SP1 guest ELFs (asm ref $ASM_REF); this is slow"
             # The asm guest-builder compiles C deps for the riscv guest target; point AR at
             # the succinct toolchain's llvm-ar so cross-compilation finds a compatible archiver.
             SP1_AR="$(rustc +succinct --print sysroot)/lib/rustlib/$(rustc +succinct -vV | sed -n 's/^host: //p')/bin/llvm-ar"
