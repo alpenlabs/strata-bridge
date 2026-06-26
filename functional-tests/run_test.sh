@@ -16,20 +16,21 @@ ulimit -n 10240
 # Move to project root for cargo builds
 pushd .. > /dev/null
 
-# Resolve a dependency's git rev pinned in Cargo.toml.
-extract_cargo_rev() {
+# Resolve a dependency's git ref pinned in Cargo.toml.
+extract_cargo_git_ref() {
     local crate="$1"
-    local rev
-    rev=$(grep "${crate}.*rev" Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/')
-    if [ -z "$rev" ]; then
-        echo "ERROR: failed to extract ${crate} rev from Cargo.toml" >&2
-        exit 1
+    local dep_line
+    dep_line=$(grep -E "^[[:space:]]*${crate}[[:space:]]*=" Cargo.toml | head -n 1)
+    if [[ "$dep_line" =~ (rev|tag)[[:space:]]*=[[:space:]]*\"([^\"]+)\" ]]; then
+        echo "${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"
+        return
     fi
-    echo "$rev"
+    echo "ERROR: failed to extract ${crate} git ref from Cargo.toml" >&2
+    exit 1
 }
 
-# Pin the asm rev once; sp1-setup.bash and the asm-runner install both consume it.
-ASM_REV=$(extract_cargo_rev strata-asm-worker)
+# Pin the asm ref once; sp1-setup.bash and the asm-runner install both consume it.
+read -r ASM_REF_TYPE ASM_REF < <(extract_cargo_git_ref strata-asm-worker)
 
 # Configure build parameters based on environment
 if [ $CI_COVERAGE ]; then
@@ -71,14 +72,14 @@ RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-bridge $CARGO_ARGS $BRIDGE_FEATU
 RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO_ARGS
 cargo build --bin dev-cli $CARGO_ARGS
 
-MOSAIC_REV=$(extract_cargo_rev mosaic-rpc-api)
-echo "installing mosaic (rev $MOSAIC_REV)"
+read -r MOSAIC_REF_TYPE MOSAIC_REF < <(extract_cargo_git_ref mosaic-rpc-api)
+echo "installing mosaic ($MOSAIC_REF_TYPE $MOSAIC_REF)"
 mkdir -p functional-tests/_dd/.bin
 CARGO_LOCAL_BIN=$(realpath "functional-tests/_dd/.bin")
 export PATH="$CARGO_LOCAL_BIN/bin:$PATH"
 RUSTFLAGS="" cargo install \
     --git https://github.com/alpenlabs/mosaic \
-    --rev "$MOSAIC_REV" \
+    "--$MOSAIC_REF_TYPE" "$MOSAIC_REF" \
     --features=reduced-circuits \
     --root "$CARGO_LOCAL_BIN" \
     mosaic
@@ -88,11 +89,11 @@ ASM_RUNNER_FEATURES=""
 if [ "$BRIDGE_PROOF_SP1_ASM" = "1" ]; then
     ASM_RUNNER_FEATURES="--features sp1"
 fi
-echo "installing strata-asm-runner (rev $ASM_REV) $ASM_RUNNER_FEATURES"
+echo "installing strata-asm-runner ($ASM_REF_TYPE $ASM_REF) $ASM_RUNNER_FEATURES"
 RUSTFLAGS="" cargo install \
     --locked \
     --git https://github.com/alpenlabs/asm \
-    --rev "$ASM_REV" \
+    "--$ASM_REF_TYPE" "$ASM_REF" \
     $ASM_RUNNER_FEATURES \
     --root "$CARGO_LOCAL_BIN" \
     strata-asm-runner
