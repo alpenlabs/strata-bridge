@@ -612,17 +612,11 @@ async fn request_payout_nonces(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, "creating descriptor to request payout nonces");
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2668>
-    // Have the s2 client provide the descriptor directly instead of only the public key.
-    // Get the general wallet public key for the payout descriptor
-    let pubkey = output_handles
-        .s2_client
-        .general_wallet_signer()
-        .pubkey()
-        .await?;
-
-    // Create a P2TR descriptor for the payout address.
-    let descriptor = Descriptor::new_p2tr(&pubkey.serialize())
+    let descriptor = output_handles
+        .wallet
+        .read()
+        .await
+        .descriptor()
         .map_err(|e| ExecutorError::WalletErr(format!("failed to create descriptor: {e}")))?;
 
     // Convert to PayoutDescriptor for P2P transmission
