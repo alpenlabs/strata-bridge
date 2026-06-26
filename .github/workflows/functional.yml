@@ -195,19 +195,24 @@ jobs:
       - name: Resolve external binary versions
         id: bin-versions
         run: |
-          MOSAIC_REV=$(grep 'mosaic-rpc-api.*rev' Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/')
-          if [ -z "$MOSAIC_REV" ]; then
-            echo "ERROR: failed to extract mosaic rev from Cargo.toml" >&2
+          extract_cargo_git_ref() {
+            local crate="$1"
+            local dep_line
+            dep_line=$(grep -E "^[[:space:]]*${crate}[[:space:]]*=" Cargo.toml | head -n 1)
+            if [[ "$dep_line" =~ (rev|tag)[[:space:]]*=[[:space:]]*\"([^\"]+)\" ]]; then
+              echo "${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"
+              return
+            fi
+            echo "ERROR: failed to extract ${crate} git ref from Cargo.toml" >&2
             exit 1
-          fi
-          ASM_REV=$(grep 'strata-asm-worker.*rev' Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/')
-          if [ -z "$ASM_REV" ]; then
-            echo "ERROR: failed to extract asm rev from Cargo.toml" >&2
-            exit 1
-          fi
+          }
+          read -r MOSAIC_REF_TYPE MOSAIC_REF < <(extract_cargo_git_ref mosaic-rpc-api)
+          read -r ASM_REF_TYPE ASM_REF < <(extract_cargo_git_ref strata-asm-worker)
           {
-            echo "mosaic-rev=$MOSAIC_REV"
-            echo "asm-rev=$ASM_REV"
+            echo "mosaic-ref-type=$MOSAIC_REF_TYPE"
+            echo "mosaic-ref=$MOSAIC_REF"
+            echo "asm-ref-type=$ASM_REF_TYPE"
+            echo "asm-ref=$ASM_REF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore cached mosaic binary
@@ -215,14 +220,15 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ github.workspace }}/target/mosaic
-          key: ${{ runner.os }}-mosaic-${{ steps.bin-versions.outputs.mosaic-rev }}-${{ needs.extract-rust-version.outputs.nightly-version }}
+          key: ${{ runner.os }}-mosaic-${{ steps.bin-versions.outputs.mosaic-ref-type }}-${{ steps.bin-versions.outputs.mosaic-ref }}-${{ needs.extract-rust-version.outputs.nightly-version }}
 
       - name: Install mosaic binary
         if: steps.cache-mosaic.outputs.cache-hit != 'true'
         env:
-          MOSAIC_REV: ${{ steps.bin-versions.outputs.mosaic-rev }}
+          MOSAIC_REF_TYPE: ${{ steps.bin-versions.outputs.mosaic-ref-type }}
+          MOSAIC_REF: ${{ steps.bin-versions.outputs.mosaic-ref }}
         run: |
-          cargo install --locked --git https://github.com/alpenlabs/mosaic --rev "$MOSAIC_REV" --features=reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
+          cargo install --locked --git https://github.com/alpenlabs/mosaic "--$MOSAIC_REF_TYPE" "$MOSAIC_REF" --features=reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
 
       - name: Add mosaic binary to PATH
         run: |
@@ -233,14 +239,15 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ github.workspace }}/target/asm
-          key: ${{ runner.os }}-asm-runner-${{ steps.bin-versions.outputs.asm-rev }}-${{ needs.extract-rust-version.outputs.nightly-version }}
+          key: ${{ runner.os }}-asm-runner-${{ steps.bin-versions.outputs.asm-ref-type }}-${{ steps.bin-versions.outputs.asm-ref }}-${{ needs.extract-rust-version.outputs.nightly-version }}
 
       - name: Install asm binary
         if: steps.cache-asm.outputs.cache-hit != 'true'
         env:
-          ASM_REV: ${{ steps.bin-versions.outputs.asm-rev }}
+          ASM_REF_TYPE: ${{ steps.bin-versions.outputs.asm-ref-type }}
+          ASM_REF: ${{ steps.bin-versions.outputs.asm-ref }}
         run: |
-          cargo install --locked --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root "$GITHUB_WORKSPACE/target/asm" strata-asm-runner
+          cargo install --locked --git https://github.com/alpenlabs/asm "--$ASM_REF_TYPE" "$ASM_REF" --root "$GITHUB_WORKSPACE/target/asm" strata-asm-runner
 
       - name: Add asm binary to PATH
         run: |
