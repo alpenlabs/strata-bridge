@@ -8,11 +8,13 @@ COPY Cargo.toml /tmp/Cargo.toml
 
 RUN --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/root/.cargo/registry \
-    ASM_REV=$(grep 'strata-asm-worker.*rev' /tmp/Cargo.toml | sed 's/.*rev = "\([^"]*\)".*/\1/') && \
-    if [ -z "$ASM_REV" ]; then \
-        echo "ERROR: failed to extract asm rev from Cargo.toml" >&2; exit 1; \
+    ASM_DEP=$(grep -E '^[[:space:]]*strata-asm-worker[[:space:]]*=' /tmp/Cargo.toml) && \
+    ASM_REF_TYPE=$(printf '%s\n' "$ASM_DEP" | sed -n 's/.*tag[[:space:]]*=[[:space:]]*"[^"]*".*/tag/p; s/.*rev[[:space:]]*=[[:space:]]*"[^"]*".*/rev/p') && \
+    ASM_REF=$(printf '%s\n' "$ASM_DEP" | sed -n 's/.*tag[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p; s/.*rev[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p') && \
+    if [ -z "$ASM_REF_TYPE" ] || [ -z "$ASM_REF" ]; then \
+        echo "ERROR: failed to extract asm git ref from Cargo.toml" >&2; exit 1; \
     fi && \
-    cargo install --locked --git https://github.com/alpenlabs/asm --rev "$ASM_REV" --root /app strata-asm-runner ${ASM_FEATURES}
+    cargo install --locked --git https://github.com/alpenlabs/asm "--$ASM_REF_TYPE" "$ASM_REF" --root /app strata-asm-runner ${ASM_FEATURES}
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 
