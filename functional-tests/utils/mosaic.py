@@ -58,5 +58,7 @@ def get_peer_ids(num_operators: int) -> list[str]:
 
 
 def get_circuit_path() -> str:
+    # Same circuit as mosaic's artifact; regenerate from g16 (branch
+    # test/simple_circuit_postaudit_smallest) and re-copy from mosaic on any ckt bump.
     abs_path = (Path(__file__).parent.parent / "artifacts" / "mosaic_depositidx_ckt.v5c").resolve()
     return str(abs_path)
