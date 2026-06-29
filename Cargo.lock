@@ -787,7 +787,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 1.8.3",
  "alloy-sol-types",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -808,7 +808,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 2.0.4",
  "alloy-sol-types",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -1048,7 +1048,7 @@ checksum = "eed3ed3300a998f88639ed619fdbbd88bd82865e00c6a8ecb796c99eb12358f6"
 dependencies = [
  "alloy-json-rpc 2.0.4",
  "alloy-transport",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "reqwest 0.13.2",
  "serde_json",
  "tower 0.5.2",
@@ -3665,7 +3665,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -4166,7 +4166,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6676,7 +6676,7 @@ dependencies = [
 [[package]]
 name = "moho-recursive-proof"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.1#8e8f70f6ac865d9dbaf01f34635d5712e632f6be"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.1#dd8a10cac2d1f93921d26b01f970194f25556634"
 dependencies = [
  "moho-types",
  "ssz",
@@ -6692,7 +6692,7 @@ dependencies = [
 [[package]]
 name = "moho-runtime-impl"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.1#8e8f70f6ac865d9dbaf01f34635d5712e632f6be"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.1#dd8a10cac2d1f93921d26b01f970194f25556634"
 dependencies = [
  "moho-runtime-interface",
  "moho-types",
@@ -6703,7 +6703,7 @@ dependencies = [
 [[package]]
 name = "moho-runtime-interface"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.1#8e8f70f6ac865d9dbaf01f34635d5712e632f6be"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.1#dd8a10cac2d1f93921d26b01f970194f25556634"
 dependencies = [
  "moho-types",
  "ssz",
@@ -6713,7 +6713,7 @@ dependencies = [
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.1#8e8f70f6ac865d9dbaf01f34635d5712e632f6be"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.1#dd8a10cac2d1f93921d26b01f970194f25556634"
 dependencies = [
  "hex",
  "sha2 0.11.0",
@@ -8431,7 +8431,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9029,7 +9029,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9097,7 +9097,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9118,7 +9118,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -11844,7 +11844,7 @@ dependencies = [
 [[package]]
 name = "strata-codec"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.1#861ef15a7a2e0335ca84d21d35c2326c85638904"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.1#36468e192a3dad031fa962f7f6539df5f49abe7d"
 dependencies = [
  "strata-codec-derive",
  "thiserror 2.0.18",
@@ -11853,7 +11853,7 @@ dependencies = [
 [[package]]
 name = "strata-codec-derive"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.1#861ef15a7a2e0335ca84d21d35c2326c85638904"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.1#36468e192a3dad031fa962f7f6539df5f49abe7d"
 dependencies = [
  "quote",
  "syn 2.0.117",
@@ -11954,7 +11954,7 @@ dependencies = [
 [[package]]
 name = "strata-merkle"
 version = "0.2.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.1#861ef15a7a2e0335ca84d21d35c2326c85638904"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.1#36468e192a3dad031fa962f7f6539df5f49abe7d"
 dependencies = [
  "borsh",
  "digest 0.10.7",
@@ -12076,7 +12076,7 @@ dependencies = [
 [[package]]
 name = "strata-predicate"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.1#861ef15a7a2e0335ca84d21d35c2326c85638904"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.1#36468e192a3dad031fa962f7f6539df5f49abe7d"
 dependencies = [
  "arbitrary",
  "borsh",
@@ -12386,7 +12386,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
