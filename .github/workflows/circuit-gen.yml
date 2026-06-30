@@ -1,0 +1,152 @@
+name: Generate g16 Circuit
+
+# Generates the g16 Groth16 boolean circuit (v5c.ckt, ~142 GB) from the
+# counterproof verification key produced by "Publish SP1 Bridge Guests", and
+# uploads it to S3. Auto-chains off a successful publish run; can also be run
+# manually. See .github/scripts/circuit_gen.py for the per-step logic.
+#
+# zizmor dangerous-triggers: workflow_run is intentional and safe here — the
+# upstream "Publish SP1 Bridge Guests" is workflow_dispatch-only (no fork/PR can
+# initiate the chain), and this job checks out trusted `main` (not the triggering
+# run's code) and only parses JSON / reads a 32-byte vkey from the artifact.
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: ["Publish SP1 Bridge Guests"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      publish_run_id:
+        description: Run id of a completed "Publish SP1 Bridge Guests" run to consume.
+        required: true
+        type: string
+      g16_ref:
+        description: alpenlabs/g16 git ref (commit SHA or branch) to build g16-pipeline from.
+        required: true
+        type: string
+      runs_dir:
+        description: Parent dir for pipeline run output (must sit on a >=300 GB mount). Defaults to runner temp.
+        required: false
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  S3_BUCKET: alpen-shared-mosaic-circuits
+  S3_PREFIX: mosaic-circuits
+  # TEMP: hardcoded to g16-lite (c76ab7e), which provides the --mock flag used for
+  # dry runs. Revert to g16 main (93173abe1770b373f718187e3db3bb901fb7ebda) and drop
+  # --mock from the gen step in the follow-up PR.
+  G16_DEFAULT_REF: c76ab7e7538b6fd91c51aada4445bdd56dfe55af
+
+concurrency:
+  # The pipeline forbids parallel runs sharing a runs-dir; serialize globally.
+  group: circuit-gen
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  generate-circuit:
+    name: Generate and upload g16 circuit
+    runs-on: 16-core-runner
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      id-token: write # assume the circuit S3 role via OIDC
+      actions: read # download the publish run's artifact
+    steps:
+      - name: Checkout strata-bridge
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Resolve paths and g16 ref
+        env:
+          INPUT_RUNS_DIR: ${{ inputs.runs_dir }}
+          INPUT_G16_REF: ${{ inputs.g16_ref }}
+        run: |
+          set -euo pipefail
+          runs_dir="${INPUT_RUNS_DIR:-$RUNNER_TEMP/g16-runs}"
+          {
+            echo "RUNS_DIR=$runs_dir"
+            echo "ART=$RUNNER_TEMP/guest-artifact"
+            echo "G16_REF=${INPUT_G16_REF:-$G16_DEFAULT_REF}"
+          } >> "$GITHUB_ENV"
+
+      - name: Resolve source publish run
+        id: resolve
+        env:
+          INPUT_PUBLISH_RUN_ID: ${{ inputs.publish_run_id }}
+        run: python3 .github/scripts/circuit_gen.py resolve
+
+      - name: Preflight (disk + tooling)
+        run: python3 .github/scripts/circuit_gen.py preflight
+
+      - name: Download publish artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_RUN_ID: ${{ steps.resolve.outputs.publish_run_id }}
+        run: |
+          set -euo pipefail
+          rm -rf "$ART"
+          gh run download "$PUBLISH_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir "$ART"
+
+      - name: Derive version and validate vkey
+        id: version
+        env:
+          ARTIFACT_DIR: ${{ env.ART }}
+        run: python3 .github/scripts/circuit_gen.py version
+
+      - name: Checkout alpenlabs/g16
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: alpenlabs/g16
+          ref: ${{ env.G16_REF }}
+          path: g16
+          persist-credentials: false
+
+      - name: Install g16 Rust toolchain
+        working-directory: g16
+        run: rustup show # installs the channel pinned by g16/rust-toolchain.toml
+
+      - name: Generate v5c circuit
+        working-directory: g16
+        env:
+          VKEY_PATH: ${{ steps.version.outputs.vkey_path }}
+        run: |
+          set -euo pipefail
+          # TEMP: --mock is for dry-running on main and needs the g16 ref set to
+          # c76ab7e (g16-lite). Remove --mock in the follow-up PR (main rev lacks it).
+          cargo run -p g16-pipeline --release -- gen --vkey "$VKEY_PATH" --runs-dir "$RUNS_DIR" --mock
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: arn:aws:iam::496607027995:role/github-actions-strata-bridge-circuit-s3
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload circuit to S3
+        id: upload
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python3 .github/scripts/circuit_gen.py upload
+
+      - name: Traceability summary
+        if: always()
+        env:
+          S3_URI: ${{ steps.upload.outputs.s3_uri }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PUBLISH_RUN_ID: ${{ steps.resolve.outputs.publish_run_id }}
+          G16_REF: ${{ env.G16_REF }}
+          VKEY_SHA256: ${{ steps.version.outputs.vkey_sha256 }}
+          GENESIS_L1_HEIGHT: ${{ steps.version.outputs.genesis_l1_height }}
+          BRIDGE_SHA: ${{ steps.version.outputs.bridge_sha }}
+          CIRCUIT_SIZE_BYTES: ${{ steps.upload.outputs.circuit_size_bytes }}
+        run: python3 .github/scripts/circuit_gen.py summarize
+
+      - name: Cleanup run output
+        if: always()
+        run: |
+          set -u
+          [ -n "${RUNS_DIR:-}" ] && rm -rf "$RUNS_DIR" || true
+          [ -n "${ART:-}" ] && rm -rf "$ART" || true
