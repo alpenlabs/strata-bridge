@@ -34,8 +34,9 @@ pub(crate) fn verify_bridge_proof(
         return false;
     };
 
-    // TODO(STR-3863): bind `output.total_pow` to a trusted chain-work threshold once "heavier
-    // chain mode" lands. We have no threshold to compare against yet, so PoW stays unchecked.
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-3863>
+    // Bind `output.total_pow` to a trusted chain-work threshold once "heavier chain mode" lands.
+    // We have no threshold to compare against yet, so PoW stays unchecked.
     let _ = output.total_pow;
 
     // Bind the committed claim to the one this graph defends.

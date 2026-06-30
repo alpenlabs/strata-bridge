@@ -20,7 +20,8 @@ mod tests {
         tests::{
             FULFILLMENT_BLOCK_HEIGHT, GraphHandlerOutput, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
             TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX, create_nonpov_sm, create_sm,
-            dummy_proof_receipt, mock_game_signatures,
+            dummy_proof_receipt, matching_proof_receipt, mismatching_proof_receipt,
+            mock_game_signatures,
             mock_states::{
                 assigned_state, bridge_proof_posted_state, bridge_proof_posted_state_with,
                 claimed_state, contested_state, counter_proof_posted_state,
@@ -332,10 +333,15 @@ mod tests {
     // (graph owner: non-PoV, proof valid?: valid)     -> []
     #[test]
     fn test_retry_tick_noop_in_bridge_proof_posted_when_proof_valid() {
+        let mut state = bridge_proof_posted_state();
+        if let GraphState::BridgeProofPosted { proof, .. } = &mut state {
+            *proof = matching_proof_receipt();
+        }
+
         test_nonpov_owned_handler_output(
             test_graph_sm_cfg(),
             GraphHandlerOutput {
-                state: bridge_proof_posted_state(),
+                state,
                 event: GraphEvent::RetryTick(RetryTickEvent),
                 expected_duties: vec![],
             },
@@ -354,6 +360,33 @@ mod tests {
         let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let state = bridge_proof_posted_state_with(LATER_BLOCK_HEIGHT, signatures);
+        let expected_duty = expected_counterproof_duty(&cfg, &sm, &state);
+
+        test_nonpov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![expected_duty],
+            },
+        );
+    }
+
+    // (graph owner: non-PoV, proof valid SNARK but claim mismatched)  -> [counterproof]
+    //
+    // Soundness: an accepting predicate must not let a proof bound to a *different* operator's
+    // claim pass. The retry handler must still emit a counterproof.
+    #[test]
+    fn test_retry_tick_emits_counterproof_in_bridge_proof_posted_when_claim_mismatched() {
+        let cfg = test_graph_sm_cfg();
+
+        let sm = create_nonpov_sm(bridge_proof_posted_state());
+        let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let mut state = bridge_proof_posted_state_with(LATER_BLOCK_HEIGHT, signatures);
+        if let GraphState::BridgeProofPosted { proof, .. } = &mut state {
+            *proof = mismatching_proof_receipt();
+        }
         let expected_duty = expected_counterproof_duty(&cfg, &sm, &state);
 
         test_nonpov_owned_handler_output(
@@ -702,10 +735,19 @@ mod tests {
     // (refuted_proof: Some, proof_valid?: valid, , PoV cp confirmed: no)     -> []
     #[test]
     fn test_retry_tick_noop_in_counter_proof_posted_for_nonpov_graph_when_proof_valid() {
+        let mut state = counter_proof_posted_state();
+        if let GraphState::CounterProofPosted {
+            refuted_bridge_proof: Some((_, proof)),
+            ..
+        } = &mut state
+        {
+            *proof = matching_proof_receipt();
+        }
+
         test_nonpov_owned_handler_output(
             test_graph_sm_cfg(),
             GraphHandlerOutput {
-                state: counter_proof_posted_state(),
+                state,
                 event: GraphEvent::RetryTick(RetryTickEvent),
                 expected_duties: vec![],
             },
@@ -720,7 +762,7 @@ mod tests {
             test_graph_sm_cfg(),
             GraphHandlerOutput {
                 state: counter_proof_posted_state_with(
-                    Some(dummy_proof_receipt()),
+                    Some(matching_proof_receipt()),
                     &[TEST_NONPOV_IDX],
                     &[],
                 ),
@@ -743,6 +785,37 @@ mod tests {
         let signatures = mock_game_signatures(&game_graph);
         let state = counter_proof_posted_state_with_signatures(
             Some(dummy_proof_receipt()),
+            &[],
+            &[],
+            signatures,
+        );
+        let expected_duty = expected_counterproof_duty(&cfg, &sm, &state);
+
+        test_nonpov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![expected_duty],
+            },
+        );
+    }
+
+    // (refuted_proof: Some, valid SNARK but claim mismatched, PoV cp confirmed: no) ->
+    // [counterproof]
+    //
+    // Soundness, refuted-proof retry path: accepting predicate, proof bound to a different
+    // operator.
+    #[test]
+    fn test_retry_tick_emits_counterproof_in_counter_proof_posted_when_refuted_proof_claim_mismatched()
+     {
+        let cfg = test_graph_sm_cfg();
+
+        let sm = create_nonpov_sm(counter_proof_posted_state());
+        let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let state = counter_proof_posted_state_with_signatures(
+            Some(mismatching_proof_receipt()),
             &[],
             &[],
             signatures,

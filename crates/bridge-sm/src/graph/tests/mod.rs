@@ -28,6 +28,7 @@ use strata_bridge_primitives::{
     secp::EvenSecretKey,
     types::{GraphIdx, OperatorIdx},
 };
+use strata_bridge_proof::{BridgeProofOutput, OperatorClaimUnlock};
 use strata_bridge_test_utils::{
     bitcoin::{generate_spending_tx, generate_xonly_pubkey},
     prelude::generate_signature,
@@ -39,6 +40,7 @@ use strata_bridge_tx_graph::{
     },
     transactions::prelude::{ClaimTx, ContestTx, CounterproofTx},
 };
+use strata_codec::encode_to_vec;
 use strata_mosaic_client_api::types::CompletedSignatures;
 use strata_predicate::PredicateKey;
 use zkaleido::{Proof, ProofReceipt, PublicValues};
@@ -69,8 +71,41 @@ use crate::{
 
 // ===== Dummy Values =====
 
+/// A proof receipt with **empty** public values. Models an *undecodable / invalid* bridge proof:
+/// verification fails at the public-values decode step regardless of the predicate. Use it where
+/// the proof content is irrelevant or where an invalid proof is intended.
 pub(super) fn dummy_proof_receipt() -> ProofReceipt {
     ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]))
+}
+
+/// Builds a [`ProofReceipt`] whose public values commit a [`BridgeProofOutput`] binding the given
+/// `(deposit_idx, operator_idx)` claim. The PoW/MMR fields are placeholders — they are not checked
+/// by verification yet (see STR-3863).
+pub(super) fn proof_receipt_for_claim(deposit_idx: u32, operator_idx: OperatorIdx) -> ProofReceipt {
+    let claim_unlock = encode_to_vec(&OperatorClaimUnlock::new(deposit_idx, operator_idx)).unwrap();
+    let output = BridgeProofOutput {
+        total_pow: [0u8; 32],
+        claim_unlock,
+        mmr_idx: 0,
+    };
+    ProofReceipt::new(
+        Proof::new(vec![]),
+        PublicValues::new(ssz::Encode::as_ssz_bytes(&output)),
+    )
+}
+
+/// A proof receipt whose committed claim matches the graph under test (`TEST_DEPOSIT_IDX`,
+/// `TEST_POV_IDX`) — the graph owner in both [`create_sm`] and [`create_nonpov_sm`]. Combined with
+/// `PredicateKey::always_accept`, this is a fully valid, correctly-bound proof.
+pub(super) fn matching_proof_receipt() -> ProofReceipt {
+    proof_receipt_for_claim(TEST_DEPOSIT_IDX, TEST_POV_IDX)
+}
+
+/// A proof receipt that is a valid SNARK (under `always_accept`) but commits a claim for a
+/// *different* operator. A watchtower must reject it as a defense of this graph — this is the
+/// soundness case the verifier's claim-binding closes.
+pub(super) fn mismatching_proof_receipt() -> ProofReceipt {
+    proof_receipt_for_claim(TEST_DEPOSIT_IDX, TEST_NONPOV_IDX)
 }
 
 // ===== Test Constants =====
