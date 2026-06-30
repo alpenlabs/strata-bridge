@@ -95,6 +95,10 @@ pub struct ProtocolParams {
     /// becomes viable.
     pub contested_payout_timelock: u16,
 
+    /// The number of blocks after the unstaking intent transaction until which the operator cannot
+    /// post the unstaking transaction.
+    pub unstaking_timelock: u16,
+
     /// Predicate key used to verify bridge proof.
     #[serde(default = "PredicateKey::always_accept")]
     pub bridge_proof_predicate: PredicateKey,
@@ -481,6 +485,7 @@ mod tests {
             ack_timelock = 144
             nack_timelock = 144
             contested_payout_timelock = 1_008
+            unstaking_timelock = 2_016
     "#
         )
     }

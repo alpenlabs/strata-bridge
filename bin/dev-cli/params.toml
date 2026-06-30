@@ -37,3 +37,4 @@ proof_timelock = 144
 ack_timelock = 144
 nack_timelock = 144
 contested_payout_timelock = 1_008
+unstaking_timelock = 2_016

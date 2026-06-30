@@ -43,6 +43,7 @@ class BridgeProtocolParams:
     ack_timelock: int = 35
     nack_timelock: int = 30
     contested_payout_timelock: int = 60
+    unstaking_timelock: int = 75
     bridge_proof_predicate: str | None = None
     counterproof_predicate: str | None = None
 
