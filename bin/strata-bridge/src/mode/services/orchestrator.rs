@@ -286,15 +286,11 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         counterproof_predicate: params.protocol.counterproof_predicate.clone(),
     };
 
-    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2924>
-    // Promote `unstaking_timelock` to a protocol parameter on `ProtocolParams` once the
-    // params schema is updated. For now, use a sensible default (approximately 21 days).
-    const DEFAULT_UNSTAKING_TIMELOCK_BLOCKS: u16 = 3024;
     let stake_config = StakeSMCfg {
         protocol_params: StakeGraphProtocolParams {
             network,
             magic_bytes,
-            unstaking_timelock: relative::Height::from_height(DEFAULT_UNSTAKING_TIMELOCK_BLOCKS),
+            unstaking_timelock: relative::Height::from_height(params.protocol.unstaking_timelock),
             stake_amount: params.protocol.stake_amount,
         },
     };
