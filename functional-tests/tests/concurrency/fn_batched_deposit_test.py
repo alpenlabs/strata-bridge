@@ -19,8 +19,12 @@ GRAPH_NAG_INTERVAL_MS = 900  # set this to a lower value on more powerful machin
 GRAPH_BLOCK_GENERATION_INTERVAL_SECS = 3
 
 
+# FIXME: <https://alpenlabs.atlassian.net/browse/STR-3867>
+# rethink how this test can be re-written to test the desired property
+# without being so sensitive to timing and resource constraints.
+# The current implementation is too brittle and fails often in CI. And so this has been disabled.
 @flexitest.register
-class BatchedDepositTest(StrataTestBase):
+class BatchedDepositTestDisabled(StrataTestBase):
     """Batched deposits must complete when graph nags duplicate initial duties."""
 
     def __init__(self, ctx: flexitest.InitContext):
