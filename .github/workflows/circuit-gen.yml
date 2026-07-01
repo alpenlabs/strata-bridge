@@ -19,7 +19,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-  S3_BUCKET: alpen-shared-mosaic-circuits
+  S3_BUCKET: alpen-mosaic-artifacts
   S3_PREFIX: mosaic-circuits
   G16_DEFAULT_REF: v0.3.0-rc.2
 
