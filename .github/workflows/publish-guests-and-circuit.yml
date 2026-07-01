@@ -23,6 +23,10 @@ on:
         description: alpenlabs/g16 git ref to build g16-pipeline from. Defaults to the pinned rev.
         required: false
         type: string
+      runs_dir:
+        description: Parent dir for circuit output (must sit on a >=300 GB mount). Defaults to runner temp.
+        required: false
+        type: string
 
 concurrency:
   group: publish-guests-and-circuit-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}
@@ -51,3 +55,4 @@ jobs:
       actions: read
     with:
       g16_ref: ${{ inputs.g16_ref }}
+      runs_dir: ${{ inputs.runs_dir }}
