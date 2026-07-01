@@ -1,27 +1,15 @@
 name: Generate g16 Circuit
 
-# Generates the g16 Groth16 boolean circuit (v5c.ckt, ~142 GB) from the
-# counterproof verification key produced by "Publish SP1 Bridge Guests", and
-# uploads it to S3. Auto-chains off a successful publish run; can also be run
-# manually. See .github/scripts/circuit_gen.py for the per-step logic.
-#
-# zizmor dangerous-triggers: workflow_run is intentional and safe here — the
-# upstream "Publish SP1 Bridge Guests" is workflow_dispatch-only (no fork/PR can
-# initiate the chain), and this job checks out trusted `main` (not the triggering
-# run's code) and only parses JSON / reads a 32-byte vkey from the artifact.
-on: # zizmor: ignore[dangerous-triggers]
-  workflow_run:
-    workflows: ["Publish SP1 Bridge Guests"]
-    types: [completed]
-  workflow_dispatch:
+# Reusable workflow: generates the g16 Groth16 boolean circuit (v5c.ckt, ~142 GB)
+# from the counterproof verification key produced by "Publish SP1 Bridge Guests"
+# in the SAME run, and uploads it to S3. Called by publish-guests-and-circuit.yml
+# after the guest-build job. See .github/scripts/circuit_gen.py for step logic.
+on:
+  workflow_call:
     inputs:
-      publish_run_id:
-        description: Run id of a completed "Publish SP1 Bridge Guests" run to consume.
-        required: true
-        type: string
       g16_ref:
         description: alpenlabs/g16 git ref (commit SHA or branch) to build g16-pipeline from.
-        required: true
+        required: false
         type: string
       runs_dir:
         description: Parent dir for pipeline run output (must sit on a >=300 GB mount). Defaults to runner temp.
@@ -53,7 +41,7 @@ jobs:
     permissions:
       contents: read
       id-token: write # assume the circuit S3 role via OIDC
-      actions: read # download the publish run's artifact
+      actions: read # download the guest-build artifact from this run
     steps:
       - name: Checkout strata-bridge
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -73,23 +61,15 @@ jobs:
             echo "G16_REF=${INPUT_G16_REF:-$G16_DEFAULT_REF}"
           } >> "$GITHUB_ENV"
 
-      - name: Resolve source publish run
-        id: resolve
-        env:
-          INPUT_PUBLISH_RUN_ID: ${{ inputs.publish_run_id }}
-        run: python3 .github/scripts/circuit_gen.py resolve
-
       - name: Preflight (disk + tooling)
         run: python3 .github/scripts/circuit_gen.py preflight
 
-      - name: Download publish artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PUBLISH_RUN_ID: ${{ steps.resolve.outputs.publish_run_id }}
-        run: |
-          set -euo pipefail
-          rm -rf "$ART"
-          gh run download "$PUBLISH_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir "$ART"
+      - name: Download guest-build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: sp1-bridge-guests-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/guest-artifact
 
       - name: Derive version and validate vkey
         id: version
@@ -109,6 +89,19 @@ jobs:
         working-directory: g16
         run: rustup show # installs the channel pinned by g16/rust-toolchain.toml
 
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          workspaces: g16
+          cache-on-failure: true
+
+      - name: Build g16-pipeline
+        working-directory: g16
+        # --mock skips the g16gen/prealloc stages, so only the pipeline binary is
+        # needed. When --mock is dropped, the pipeline spawns g16gen via `cargo run`
+        # at runtime — add `-p g16gen` here to pre-build it and keep gen pure execution.
+        run: cargo build --release -p g16-pipeline
+
       - name: Generate v5c circuit
         working-directory: g16
         env:
@@ -117,7 +110,7 @@ jobs:
           set -euo pipefail
           # TEMP: --mock is for dry-running on main and needs the g16 ref set to
           # c76ab7e (g16-lite). Remove --mock in the follow-up PR (main rev lacks it).
-          cargo run -p g16-pipeline --release -- gen --vkey "$VKEY_PATH" --runs-dir "$RUNS_DIR" --mock
+          ./target/release/g16-pipeline gen --vkey "$VKEY_PATH" --runs-dir "$RUNS_DIR" --mock
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
@@ -136,7 +129,7 @@ jobs:
         env:
           S3_URI: ${{ steps.upload.outputs.s3_uri }}
           VERSION: ${{ steps.version.outputs.version }}
-          PUBLISH_RUN_ID: ${{ steps.resolve.outputs.publish_run_id }}
+          PUBLISH_RUN_ID: ${{ github.run_id }}
           G16_REF: ${{ env.G16_REF }}
           VKEY_SHA256: ${{ steps.version.outputs.vkey_sha256 }}
           GENESIS_L1_HEIGHT: ${{ steps.version.outputs.genesis_l1_height }}
