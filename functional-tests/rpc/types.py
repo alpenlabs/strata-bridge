@@ -208,6 +208,7 @@ class RpcStakeStateLabel(Enum):
     CONFIRMED = "confirmed"
     PREIMAGE_REVEALED = "preimage_revealed"
     UNSTAKED = "unstaked"
+    SLASHED = "slashed"
 
 
 @dataclass
@@ -218,6 +219,7 @@ class RpcOperatorStakeInfo:
     state: RpcStakeStateLabel
     stake_txid: str | None = None
     unstaking_txid: str | None = None
+    slash_txid: str | None = None
 
     @classmethod
     def from_json(cls, data: dict) -> "RpcOperatorStakeInfo":
@@ -226,4 +228,5 @@ class RpcOperatorStakeInfo:
             state=RpcStakeStateLabel(data["state"]),
             stake_txid=data.get("stake_txid"),
             unstaking_txid=data.get("unstaking_txid"),
+            slash_txid=data.get("slash_txid"),
         )
