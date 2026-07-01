@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Trivy
-        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
         with:
           version: v0.69.3
           cache: true
@@ -95,7 +95,7 @@ jobs:
       - name: Upload SARIF to GitHub Security tab
         if: steps.trivy_sarif_cargo.outcome == 'success'
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v3
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v3
         with:
           sarif_file: trivy-cargo.sarif
           category: cargo-fs
