@@ -81,7 +81,7 @@ jobs:
       # so only reviewed, merged code runs on the runner — an untrusted inputs.ref cannot
       # inject code into the plan step.
       - name: Checkout workflow scripts from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: main
@@ -89,7 +89,7 @@ jobs:
       # The requested build ref is checked out into plan-src/ solely to resolve its SHA.
       # No code from it is executed by the runner directly.
       - name: Checkout build ref into plan-src/
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
@@ -124,7 +124,7 @@ jobs:
       # main so only reviewed, merged code can affect the gate — an untrusted resolved_sha
       # cannot manipulate CVE suppressions or bypass the scan action.
       - name: Checkout workflow scripts from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: main
@@ -132,7 +132,7 @@ jobs:
       # The build ref is checked out into build-src/ and used only as Docker build context —
       # no code from it is executed by the runner directly.
       - name: Checkout build ref into build-src/
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: ${{ needs.plan.outputs.resolved_sha }}
@@ -260,7 +260,7 @@ jobs:
       # main so only reviewed, merged code can affect the gate — an untrusted resolved_sha
       # cannot manipulate CVE suppressions or bypass the scan action.
       - name: Checkout workflow scripts from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: main
@@ -268,7 +268,7 @@ jobs:
       # The build ref is checked out into build-src/ and used only as Docker build context —
       # no code from it is executed by the runner directly.
       - name: Checkout build ref into build-src/
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: ${{ needs.plan.outputs.resolved_sha }}
@@ -408,7 +408,7 @@ jobs:
       # Render scripts always come from main — the resolved_sha is user-supplied and must
       # not execute on the runner. Artifacts are downloaded separately and contain no code.
       - name: Checkout workflow scripts from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: main
