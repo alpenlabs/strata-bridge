@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """circuit_gen.py — Helpers for the "Generate g16 Circuit" workflow.
 
-Drives the g16 boolean-circuit generation that runs *after* a "Publish SP1
-Bridge Guests" run: it resolves which publish run to consume, validates disk
-and tooling, derives the S3 version string from that run's artifact, uploads
+Drives the g16 boolean-circuit generation that runs *after* the "Publish SP1
+Bridge Guests" guest build in the same pipeline run: it validates disk and
+tooling, derives the S3 version string from the guest-build artifact, uploads
 the (~142 GB) `v5c.ckt` to S3, and writes a traceability summary.
 
 Pure-stdlib so it runs on any runner without an install step, mirroring
@@ -11,7 +11,6 @@ Pure-stdlib so it runs on any runner without an install step, mirroring
 documented on the per-command function.
 
 Subcommands:
-    resolve     Pick the source publish run id from the triggering event.
     preflight   Check free disk on the runs-dir mount and required CLIs.
     version     Validate the vkey and derive `<genesis_l1_height>-<bridge_sha8>`.
     upload      Copy `v5c.ckt` to s3://<bucket>/<prefix>/<version>/g16.v5c.
@@ -49,44 +48,6 @@ VKEY_NAME = "counterproof-vkey.bin"
 MANIFEST_NAME = "manifest.json"
 ASM_PARAMS_NAME = "asm-params.json"
 VKEY_LEN = 32
-
-
-# ---- resolve ---------------------------------------------------------------
-
-
-def cmd_resolve() -> None:
-    """Env: GITHUB_EVENT_NAME, GITHUB_EVENT_PATH, INPUT_PUBLISH_RUN_ID,
-    GITHUB_OUTPUT.
-
-    On a `workflow_run` event, consume the triggering publish run (and require
-    it succeeded). Otherwise (manual dispatch) use the `publish_run_id` input.
-    """
-    event_name = os.environ.get("GITHUB_EVENT_NAME", "")
-    run_id = ""
-
-    if event_name == "workflow_run":
-        event_path = os.environ.get("GITHUB_EVENT_PATH")
-        if not event_path or not Path(event_path).is_file():
-            fail("workflow_run event but GITHUB_EVENT_PATH is missing")
-        payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
-        wr = payload.get("workflow_run") or {}
-        conclusion = wr.get("conclusion")
-        if conclusion != "success":
-            fail(
-                "triggering publish run did not succeed "
-                f"(conclusion={conclusion!r}); skipping circuit generation"
-            )
-        run_id = str(wr.get("id") or "")
-        if not run_id:
-            fail("workflow_run payload has no run id")
-    else:
-        run_id = os.environ.get("INPUT_PUBLISH_RUN_ID", "").strip()
-        if not run_id:
-            fail("no publish run id: pass the `publish_run_id` dispatch input")
-
-    if not run_id.isdigit():
-        fail(f"resolved publish_run_id is not numeric: {run_id!r}")
-    set_outputs(publish_run_id=run_id)
 
 
 # ---- preflight -------------------------------------------------------------
@@ -159,10 +120,7 @@ def cmd_version() -> None:
     vkey_path = _find_one(artifact_dir, VKEY_NAME)
     vkey_bytes = vkey_path.read_bytes()
     if len(vkey_bytes) != VKEY_LEN:
-        fail(
-            f"{VKEY_NAME} must be exactly {VKEY_LEN} bytes "
-            f"(got {len(vkey_bytes)} at {vkey_path})"
-        )
+        fail(f"{VKEY_NAME} must be exactly {VKEY_LEN} bytes (got {len(vkey_bytes)} at {vkey_path})")
 
     manifest = json.loads(_find_one(artifact_dir, MANIFEST_NAME).read_text())
     bridge_sha_full = (manifest.get("strata_bridge") or {}).get("sha", "")
@@ -248,9 +206,7 @@ def cmd_summarize() -> None:
     genesis = os.environ.get("GENESIS_L1_HEIGHT", "")
     bridge_sha = os.environ.get("BRIDGE_SHA", "")
     size_bytes = os.environ.get("CIRCUIT_SIZE_BYTES", "")
-    size_gib = (
-        f"{int(size_bytes) / (1024**3):.1f} GiB" if size_bytes.isdigit() else "n/a"
-    )
+    size_gib = f"{int(size_bytes) / (1024**3):.1f} GiB" if size_bytes.isdigit() else "n/a"
 
     lines = [
         "## g16 circuit generation",
@@ -277,7 +233,6 @@ def cmd_summarize() -> None:
 # ---- entry point -----------------------------------------------------------
 
 COMMANDS = {
-    "resolve": cmd_resolve,
     "preflight": cmd_preflight,
     "version": cmd_version,
     "upload": cmd_upload,

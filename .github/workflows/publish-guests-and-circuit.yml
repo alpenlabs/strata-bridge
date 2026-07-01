@@ -1,0 +1,53 @@
+name: Publish Guests + g16 Circuit
+
+# Single entry point for the two-stage pipeline, shown as one navigable run:
+#   guest-build (ELF + counterproof vkey)  ->  circuit-gen (g16 v5c -> S3)
+# Both stages are reusable workflows (uses:), chained with needs:, so the Actions
+# UI nests them under this run — the same pattern as test-coverage.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      asm_tag:
+        description: Tag in alpenlabs/asm whose release ships asm-vk.json and moho-vk.json (e.g. v0.1-alpha.11).
+        required: true
+        type: string
+      asm_params_url:
+        description: HTTPS URL to fetch asm-params.json from (raw URL, not a github.com /blob/ view URL).
+        required: true
+        type: string
+      ref:
+        description: strata-bridge git ref to build. Defaults to the branch selected in the UI.
+        required: false
+        type: string
+      g16_ref:
+        description: alpenlabs/g16 git ref to build g16-pipeline from. Defaults to the pinned rev.
+        required: false
+        type: string
+
+concurrency:
+  group: publish-guests-and-circuit-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  guest-build:
+    name: Guest build
+    uses: ./.github/workflows/publish-sp1-bridge-guests.yml
+    permissions:
+      contents: read
+    with:
+      asm_tag: ${{ inputs.asm_tag }}
+      asm_params_url: ${{ inputs.asm_params_url }}
+      ref: ${{ inputs.ref }}
+
+  circuit-gen:
+    name: Circuit gen
+    needs: guest-build
+    uses: ./.github/workflows/circuit-gen.yml
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    with:
+      g16_ref: ${{ inputs.g16_ref }}
