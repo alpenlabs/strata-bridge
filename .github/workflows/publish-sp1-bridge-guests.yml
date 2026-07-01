@@ -15,6 +15,20 @@ on:
         description: strata-bridge git ref to build. Defaults to the branch selected in the UI.
         required: false
         type: string
+  workflow_call:
+    inputs:
+      asm_tag:
+        description: Tag in alpenlabs/asm whose release ships asm-vk.json and moho-vk.json.
+        required: true
+        type: string
+      asm_params_url:
+        description: HTTPS URL to fetch asm-params.json from (raw URL, not a /blob/ view URL).
+        required: true
+        type: string
+      ref:
+        description: strata-bridge git ref to build. Defaults to the caller's ref.
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
