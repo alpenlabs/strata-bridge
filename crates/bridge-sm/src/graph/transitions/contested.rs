@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bitcoin::Transaction;
-use strata_bridge_primitives::{proof::verify_bridge_proof, types::OperatorIdx};
+use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_tx_graph::{
     game_graph::{GameConnectors, GameGraphSummary},
     musig_functor::GameFunctor,
@@ -17,6 +17,7 @@ use crate::{
             CounterProofAckConfirmedEvent, CounterProofNackConfirmedEvent, StakeSpentEvent,
         },
         machine::{GSMOutput, GraphSM, generate_game_graph},
+        proof::verify_bridge_proof,
         state::{AbortReason, GraphState},
         watchtower::watchtower_slot_for_operator,
     },
@@ -131,8 +132,11 @@ impl GraphSM {
 
                 let is_watchtower =
                     self.context().operator_idx() != self.context().operator_table().pov_idx();
-                let is_proof_valid =
-                    verify_bridge_proof(&cfg.bridge_proof_predicate, &bridge_proof);
+                let is_proof_valid = verify_bridge_proof(
+                    self.context().graph_idx(),
+                    &cfg.bridge_proof_predicate,
+                    &bridge_proof,
+                );
 
                 let mut duties = Vec::new();
 
@@ -221,8 +225,11 @@ impl GraphSM {
                 let bridge_proof = event.proof.clone();
                 let pov_idx = self.context().operator_table().pov_idx();
                 let is_watchtower = self.context().operator_idx() != pov_idx;
-                let is_proof_valid =
-                    verify_bridge_proof(&cfg.bridge_proof_predicate, &bridge_proof);
+                let is_proof_valid = verify_bridge_proof(
+                    self.context().graph_idx(),
+                    &cfg.bridge_proof_predicate,
+                    &bridge_proof,
+                );
                 let counterproof_exists = counterproofs_and_confs.contains_key(&pov_idx);
 
                 let mut duties = Vec::new();

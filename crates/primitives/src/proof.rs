@@ -1,15 +1,6 @@
 //! Proof-related types used across the bridge.
 
 use strata_identifiers::L1BlockCommitment;
-use strata_predicate::PredicateKey;
-use zkaleido::ProofReceipt;
-
-/// Returns `true` if the proof is valid according to the given predicate key.
-pub fn verify_bridge_proof(predicate_key: &PredicateKey, proof: &ProofReceipt) -> bool {
-    predicate_key
-        .verify_claim_witness(proof.public_values().as_bytes(), proof.proof().as_bytes())
-        .is_ok()
-}
 
 /// An opaque ASM step proof for a range of L1 blocks.
 #[derive(Debug, Clone, PartialEq, Eq)]

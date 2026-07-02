@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use bitcoin::Transaction;
 use musig2::secp256k1::schnorr::Signature;
-use strata_bridge_primitives::proof::verify_bridge_proof;
 use strata_bridge_tx_graph::{
     game_graph::{DepositParams, GameConnectors},
     musig_functor::GameFunctor,
@@ -16,6 +15,7 @@ use crate::graph::{
     errors::{GSMError, GSMResult},
     events::RetryTickEvent,
     machine::{GSMOutput, GraphSM, generate_game_graph},
+    proof::verify_bridge_proof,
     state::GraphState,
     watchtower::watchtower_slot_for_operator,
 };
@@ -125,7 +125,11 @@ impl GraphSM {
                 bridge_proof_tx,
                 ..
             } if self.context().operator_idx() != self.context().operator_table().pov_idx()
-                && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof) =>
+                && !verify_bridge_proof(
+                    self.context().graph_idx(),
+                    &cfg.bridge_proof_predicate,
+                    proof,
+                ) =>
             {
                 vec![self.generate_counterproof_duty(
                     &cfg,
@@ -200,7 +204,11 @@ impl GraphSM {
                     // invalid bridge proof exists and PoV operator's counterproof has not
                     // appeared on chain yet.
                     if let Some((bridge_proof_tx, proof)) = refuted_bridge_proof
-                        && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof)
+                        && !verify_bridge_proof(
+                            self.context().graph_idx(),
+                            &cfg.bridge_proof_predicate,
+                            proof,
+                        )
                         && !counterproofs_and_confs.contains_key(&pov_idx)
                     {
                         vec![self.generate_counterproof_duty(

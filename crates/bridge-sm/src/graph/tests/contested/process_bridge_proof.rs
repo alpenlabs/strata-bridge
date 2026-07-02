@@ -16,7 +16,8 @@ use crate::{
         state::{CounterproofData, GraphState},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
-            create_nonpov_sm, create_sm, dummy_proof_receipt, get_state, mock_game_signatures,
+            create_nonpov_sm, create_sm, dummy_proof_receipt, get_state, matching_proof_receipt,
+            mismatching_proof_receipt, mock_game_signatures,
             mock_states::{
                 TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
                 bridge_proof_posted_state, contested_state, contested_state_with,
@@ -38,6 +39,25 @@ fn bridge_proof_event() -> BridgeProofConfirmedEvent {
         bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
         tx: test_bridge_proof_tx(),
         proof: dummy_proof_receipt(),
+    }
+}
+
+/// A bridge proof event carrying a valid proof bound to the graph under test.
+fn matching_bridge_proof_event() -> BridgeProofConfirmedEvent {
+    BridgeProofConfirmedEvent {
+        bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+        tx: test_bridge_proof_tx(),
+        proof: matching_proof_receipt(),
+    }
+}
+
+/// A bridge proof event carrying a valid SNARK whose committed claim is for a *different* operator,
+/// so a watchtower must counterproof it even under an accepting predicate.
+fn mismatching_bridge_proof_event() -> BridgeProofConfirmedEvent {
+    BridgeProofConfirmedEvent {
+        bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+        tx: test_bridge_proof_tx(),
+        proof: mismatching_proof_receipt(),
     }
 }
 
@@ -76,7 +96,7 @@ fn event_accepted_pov_no_duties() {
 #[test]
 fn watchtower_skips_counterproof_when_proof_valid() {
     let cfg = test_graph_sm_cfg();
-    let event = bridge_proof_event();
+    let event = matching_bridge_proof_event();
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
@@ -94,7 +114,7 @@ fn watchtower_skips_counterproof_when_proof_valid() {
                 contest_block_height: LATER_BLOCK_HEIGHT,
                 bridge_proof_tx: event.tx.clone(),
                 bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
-                proof: dummy_proof_receipt(),
+                proof: matching_proof_receipt(),
                 stake_spent: None,
                 payout_connector_spent: None,
             },
@@ -160,8 +180,66 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
 }
 
 #[test]
+fn watchtower_emits_counterproof_when_proof_claim_mismatched() {
+    // Soundness: the predicate accepts the SNARK, but the proof commits a claim for a *different*
+    // operator than the one this graph defends. The watchtower must still counterproof it.
+    // Before the claim-binding fix this proof was treated as valid and no counterproof was raised.
+    let cfg = test_graph_sm_cfg();
+    let event = mismatching_bridge_proof_event();
+    let sm = create_nonpov_sm(contested_state());
+
+    let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+    let signatures = mock_game_signatures(&game_graph);
+    let watchtower_idx = watchtower_slot_for_operator(
+        sm.context().operator_idx(),
+        sm.context().operator_table().pov_idx(),
+    )
+    .expect("graph owner has no watchtower index");
+    let expected_counterproof_tx = game_graph.counterproofs[watchtower_idx]
+        .counterproof
+        .clone();
+    let expected_n_of_n_sig =
+        GameFunctor::unpack(signatures.clone(), sm.context().watchtower_pubkeys().len())
+            .expect("unpack must succeed")
+            .watchtowers[watchtower_idx]
+            .counterproof[0];
+
+    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
+        create_nonpov_sm,
+        get_state,
+        cfg,
+        GraphTransition {
+            from_state: contested_state_with(LATER_BLOCK_HEIGHT, signatures.clone()),
+            event: GraphEvent::BridgeProofConfirmed(event.clone()),
+            expected_state: GraphState::BridgeProofPosted {
+                last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: TEST_GRAPH_SUMMARY.clone(),
+                signatures,
+                fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                contest_block_height: LATER_BLOCK_HEIGHT,
+                bridge_proof_tx: event.tx.clone(),
+                bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+                proof: mismatching_proof_receipt(),
+                stake_spent: None,
+                payout_connector_spent: None,
+            },
+            expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
+                graph_idx: sm.context().graph_idx(),
+                game_index: test_deposit_params().game_index,
+                counterproof_tx: expected_counterproof_tx,
+                n_of_n_signature: expected_n_of_n_sig,
+                proof: mismatching_proof_receipt(),
+                bridge_proof_tx: event.tx.clone(),
+            }],
+            expected_signals: vec![],
+        },
+    );
+}
+
+#[test]
 fn accepts_bridge_proof_posted_after_counterproof() {
-    let event = bridge_proof_event();
+    let event = matching_bridge_proof_event();
     let event_tx = event.tx.clone();
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
@@ -178,7 +256,7 @@ fn accepts_bridge_proof_posted_after_counterproof() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                refuted_bridge_proof: Some((event_tx, dummy_proof_receipt())),
+                refuted_bridge_proof: Some((event_tx, matching_proof_receipt())),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
                 stake_spent: None,
@@ -252,6 +330,76 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
                 counterproof_tx: expected_counterproof_tx,
                 n_of_n_signature: expected_n_of_n_sig,
                 proof: dummy_proof_receipt(),
+                bridge_proof_tx: event.tx.clone(),
+            }],
+            expected_signals: vec![],
+        },
+    );
+}
+
+#[test]
+fn watchtower_emits_counterproof_when_late_proof_claim_mismatched() {
+    // Soundness, late path: accepting predicate, but the proof binds a different operator's claim.
+    let cfg = test_graph_sm_cfg();
+    let event = mismatching_bridge_proof_event();
+    let sm = create_nonpov_sm(counter_proof_posted_without_refuted_proof_state());
+
+    let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+    let signatures = mock_game_signatures(&game_graph);
+    let watchtower_idx = watchtower_slot_for_operator(
+        sm.context().operator_idx(),
+        sm.context().operator_table().pov_idx(),
+    )
+    .expect("graph owner has no watchtower index");
+    let expected_counterproof_tx = game_graph.counterproofs[watchtower_idx]
+        .counterproof
+        .clone();
+    let expected_n_of_n_sig =
+        GameFunctor::unpack(signatures.clone(), sm.context().watchtower_pubkeys().len())
+            .expect("unpack must succeed")
+            .watchtowers[watchtower_idx]
+            .counterproof[0];
+
+    let from_state = GraphState::CounterProofPosted {
+        last_block_height: LATER_BLOCK_HEIGHT,
+        graph_data: test_deposit_params(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        signatures: signatures.clone(),
+        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        contest_block_height: LATER_BLOCK_HEIGHT,
+        refuted_bridge_proof: None,
+        counterproofs_and_confs: Default::default(),
+        counterproof_nacks: Default::default(),
+        stake_spent: None,
+        payout_connector_spent: None,
+    };
+
+    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
+        create_nonpov_sm,
+        get_state,
+        cfg,
+        GraphTransition {
+            from_state,
+            event: GraphEvent::BridgeProofConfirmed(event.clone()),
+            expected_state: GraphState::CounterProofPosted {
+                last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: TEST_GRAPH_SUMMARY.clone(),
+                signatures,
+                fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                contest_block_height: LATER_BLOCK_HEIGHT,
+                refuted_bridge_proof: Some((event.tx.clone(), mismatching_proof_receipt())),
+                counterproofs_and_confs: Default::default(),
+                counterproof_nacks: Default::default(),
+                stake_spent: None,
+                payout_connector_spent: None,
+            },
+            expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
+                graph_idx: sm.context().graph_idx(),
+                game_index: test_deposit_params().game_index,
+                counterproof_tx: expected_counterproof_tx,
+                n_of_n_signature: expected_n_of_n_sig,
+                proof: mismatching_proof_receipt(),
                 bridge_proof_tx: event.tx.clone(),
             }],
             expected_signals: vec![],
