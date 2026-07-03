@@ -36,4 +36,21 @@ ignore = [
   # Tracked upstream: https://github.com/libp2p/rust-libp2p/issues/6412.
   "RUSTSEC-2026-0118",
   "RUSTSEC-2026-0119",
+
+  # quick-xml 0.37.5 pulled transitively by inferno 0.12.2 (its flamegraph SVG
+  # writer) via jemalloc_pprof -> memory_pprof, behind the optional
+  # `memory_profiling` feature of strata-bridge / secret-service.
+  #
+  # Both advisories are denial-of-service bugs in quick-xml's XML *parsing*
+  # path: RUSTSEC-2026-0194 (O(n²) duplicate-attribute check on a start tag)
+  # and RUSTSEC-2026-0195 (unbounded NsReader namespace-declaration
+  # allocation). inferno only uses quick-xml to *write* SVG flamegraphs from
+  # local profiling data and never parses untrusted XML, so neither is
+  # reachable here.
+  #
+  # Fix requires quick-xml >= 0.41, but every published inferno (through the
+  # latest 0.12.6) still pins quick-xml ^0.37, so the bump is unreachable via
+  # semver until inferno upstream updates.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
 ]
