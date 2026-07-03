@@ -33,6 +33,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   SP1_VERSION: v6.2.0
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  S3_BUCKET: alpen-mosaic-artifacts
+  S3_PREFIX: elfs
 
 concurrency:
   group: publish-sp1-bridge-guests-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}
@@ -64,6 +67,7 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+      id-token: write # assume the artifacts S3 role via OIDC
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -111,7 +115,8 @@ jobs:
           cargo install sp1-core-executor-runner-binary --version 6.2.0 --root "$RUNNER_TEMP/sp1-core-runner" --force
           echo "SP1_CORE_RUNNER_OVERRIDE_BINARY=$RUNNER_TEMP/sp1-core-runner/bin/sp1-core-executor-runner-binary" >> "$GITHUB_ENV"
 
-      - name: Fetch asm-vk, moho-vk, asm-params
+      - name: Fetch asm-vk, moho-vk, asm/moho ELFs, asm-params
+        id: fetch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ASM_TAG: ${{ inputs.asm_tag }}
@@ -134,10 +139,28 @@ jobs:
           ELF_DIR: guest-builder/sp1/elfs
           INPUTS_DIR: ${{ runner.temp }}/bridge-genesis
           ASM_TAG: ${{ inputs.asm_tag }}
+          ASM_REV: ${{ steps.fetch.outputs.asm_rev }}
           ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
           BRIDGE_REF: ${{ inputs.ref || github.ref }}
           BRIDGE_SHA: ${{ steps.resolve-sha.outputs.sha }}
         run: python3 .github/scripts/guest_publish.py summarize
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: arn:aws:iam::496607027995:role/github-actions-strata-bridge-circuit-s3
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload ELFs to S3
+        id: upload
+        env:
+          ELF_DIR: guest-builder/sp1/elfs
+          INPUTS_DIR: ${{ runner.temp }}/bridge-genesis
+          ASM_TAG: ${{ inputs.asm_tag }}
+          ASM_REV: ${{ steps.fetch.outputs.asm_rev }}
+          S3_BUCKET: ${{ env.S3_BUCKET }}
+          S3_PREFIX: ${{ env.S3_PREFIX }}
+        run: python3 .github/scripts/guest_publish.py upload
 
       - name: Upload elfs/ as workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
