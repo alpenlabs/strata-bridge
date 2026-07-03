@@ -40,6 +40,7 @@ jobs:
     uses: ./.github/workflows/publish-sp1-bridge-guests.yml
     permissions:
       contents: read
+      id-token: write
     with:
       asm_tag: ${{ inputs.asm_tag }}
       asm_params_url: ${{ inputs.asm_params_url }}
