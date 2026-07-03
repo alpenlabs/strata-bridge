@@ -7,8 +7,8 @@ tooling, derives the S3 version string from the guest-build artifact, uploads
 the (~142 GB) `v5c.ckt` to S3, and writes a traceability summary.
 
 Pure-stdlib so it runs on any runner without an install step, mirroring
-`guest_publish.py`. Each subcommand reads its inputs from environment variables
-documented on the per-command function.
+`guest_publish.py`; shared helpers live in ci_common.py. Each subcommand reads
+its inputs from environment variables documented on the per-command function.
 
 Subcommands:
     preflight   Check free disk on the runs-dir mount and required CLIs.
@@ -21,29 +21,12 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
+from ci_common import VERSION_RE, fail, genesis_l1_height, set_outputs
 
-def fail(message: str) -> None:
-    """Print a GHA `::error::` annotation and exit non-zero."""
-    print(f"::error::{message}", file=sys.stderr)
-    sys.exit(1)
-
-
-def set_outputs(**outputs: str) -> None:
-    """Append `name=value` step outputs to the $GITHUB_OUTPUT file."""
-    with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-        for name, value in outputs.items():
-            f.write(f"{name}={value}\n")
-
-
-# `<genesis>-<sha8>` — both components are numeric/hex, so this is the full
-# legal set. Reject anything else before it becomes an S3 key segment.
-VERSION_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 VKEY_NAME = "counterproof-vkey.bin"
 MANIFEST_NAME = "manifest.json"
 ASM_PARAMS_NAME = "asm-params.json"
@@ -95,18 +78,6 @@ def _find_one(root: Path, name: str) -> Path:
     return matches[0]
 
 
-def _genesis_l1_height(asm_params: dict) -> int:
-    """asm-params.json shape: subprotocols is a list of single-key objects;
-    the Checkpoint subprotocol carries `genesis_l1_height`."""
-    for entry in asm_params.get("subprotocols", []):
-        if isinstance(entry, dict) and "Checkpoint" in entry:
-            height = entry["Checkpoint"].get("genesis_l1_height")
-            if height is None:
-                fail("Checkpoint subprotocol has no genesis_l1_height")
-            return int(height)
-    fail("no Checkpoint subprotocol in asm-params.json")
-
-
 def cmd_version() -> None:
     """Env: ARTIFACT_DIR, GITHUB_OUTPUT.
 
@@ -120,7 +91,9 @@ def cmd_version() -> None:
     vkey_path = _find_one(artifact_dir, VKEY_NAME)
     vkey_bytes = vkey_path.read_bytes()
     if len(vkey_bytes) != VKEY_LEN:
-        fail(f"{VKEY_NAME} must be exactly {VKEY_LEN} bytes (got {len(vkey_bytes)} at {vkey_path})")
+        fail(
+            f"{VKEY_NAME} must be exactly {VKEY_LEN} bytes (got {len(vkey_bytes)} at {vkey_path})"
+        )
 
     manifest = json.loads(_find_one(artifact_dir, MANIFEST_NAME).read_text())
     bridge_sha_full = (manifest.get("strata_bridge") or {}).get("sha", "")
@@ -129,7 +102,7 @@ def cmd_version() -> None:
         fail("manifest.json missing strata_bridge.sha")
 
     asm_params = json.loads(_find_one(artifact_dir, ASM_PARAMS_NAME).read_text())
-    genesis = _genesis_l1_height(asm_params)
+    genesis = genesis_l1_height(asm_params)
 
     version = f"{genesis}-{bridge_sha}"
     if not VERSION_RE.fullmatch(version):
@@ -206,7 +179,9 @@ def cmd_summarize() -> None:
     genesis = os.environ.get("GENESIS_L1_HEIGHT", "")
     bridge_sha = os.environ.get("BRIDGE_SHA", "")
     size_bytes = os.environ.get("CIRCUIT_SIZE_BYTES", "")
-    size_gib = f"{int(size_bytes) / (1024**3):.1f} GiB" if size_bytes.isdigit() else "n/a"
+    size_gib = (
+        f"{int(size_bytes) / (1024**3):.1f} GiB" if size_bytes.isdigit() else "n/a"
+    )
 
     lines = [
         "## g16 circuit generation",
