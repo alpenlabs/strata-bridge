@@ -135,8 +135,8 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
                 .expect("moho_state must contain a bridge-v1 export container");
 
-            // Fail if the heavier chain doesn't have more proof of work than the operator chain.
-            if heavier_bridge_container.extra_data() <= &total_pow {
+            // Fail if pow(heavier_chain) <= pow(operator_chain)
+            if leq_little_endian(heavier_bridge_container.extra_data(), &total_pow) {
                 panic!("invalid heavier chain: not enough proof of work");
             }
 
@@ -300,6 +300,11 @@ fn extract_op_return_payload(script_pubkey: &Script) -> Option<&[u8]> {
     Some(bytes.as_bytes())
 }
 
+/// Returns `true` if `lhs <= rhs` for byte arrays in little-endian format.
+fn leq_little_endian(lhs: &[u8; 32], rhs: &[u8; 32]) -> bool {
+    lhs.iter().rev().cmp(rhs.iter().rev()).is_le()
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -349,8 +354,14 @@ mod tests {
         LazyLock::new(|| OperatorClaimUnlock::new(0, 0));
     static HEAVIER_CHAIN_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
         LazyLock::new(|| OperatorClaimUnlock::new(0, 1));
-    const BRIDGE_PROOF_POW: [u8; 32] = [1; 32];
-    const HEAVIER_CHAIN_POW: [u8; 32] = [2; 32];
+    const BRIDGE_PROOF_POW: [u8; 32] = [
+        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0,
+    ];
+    const HEAVIER_CHAIN_POW: [u8; 32] = [
+        1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0,
+    ];
     static BRIDGE_PROOF_TX_UNSIGNED: LazyLock<BridgeProofTx> = LazyLock::new(|| {
         let bridge_proof_output = BridgeProofOutput {
             total_pow: BRIDGE_PROOF_POW,
@@ -439,6 +450,40 @@ mod tests {
 
         process_counterproof_inner(&machine, &genesis);
         CounterproofOutput::from_ssz_bytes(&machine.state.borrow().output).unwrap()
+    }
+
+    #[test]
+    fn leq_little_endian_correct() {
+        assert!(!leq_little_endian(
+            &[
+                0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0,
+            ],
+            &[
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0,
+            ],
+        ));
+        assert!(leq_little_endian(
+            &[
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0,
+            ],
+            &[
+                0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0,
+            ],
+        ));
+        assert!(leq_little_endian(
+            &[
+                0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0,
+            ],
+            &[
+                0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0,
+            ],
+        ));
     }
 
     #[test]
