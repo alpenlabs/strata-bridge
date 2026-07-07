@@ -32,9 +32,10 @@ mod release {
 
     use sp1_build::{build_program_with_args, BuildArgs};
     use ssz::Encode;
-    use strata_bridge_counterproof::load_genesis_from_predicate;
+    use strata_bridge_counterproof::load_genesis_from_paths as load_counterproof_genesis_from_paths;
     use strata_bridge_proof::{
-        load_genesis_from_paths, ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
+        load_genesis_from_paths as load_bridge_proof_genesis_from_paths, ASM_PARAMS_PATH_ENV,
+        ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
     };
     use strata_bridge_proof_common::host::{
         sp1_groth16_predicate_key, sp1_groth16_predicate_string_from_key, sp1_program_vkey_hash,
@@ -75,7 +76,8 @@ mod release {
 
         // 1) Build the bridge-proof guest first; its Groth16 VK is an input to the counterproof's
         //    genesis.
-        write_bridge_proof_genesis();
+        let (asm_params_path, asm_vk_path, moho_vk_path) = resolve_genesis_inputs();
+        write_bridge_proof_genesis(&asm_params_path, &asm_vk_path, &moho_vk_path);
         build_guest(BRIDGE_PROOF_GUEST_DIR, BRIDGE_PROOF_ELF_NAME);
         let bridge_proof_vk = emit_predicate(
             BRIDGE_PROOF_ELF_NAME,
@@ -83,8 +85,15 @@ mod release {
             BRIDGE_PROOF_VKEY_NAME,
         );
 
-        // 2) Bake that VK into the counterproof guest's embedded genesis, then build.
-        write_counterproof_genesis(bridge_proof_vk);
+        // 2) Bake that VK into the counterproof guest's embedded genesis, then build. The
+        //    counterproof derives its Moho anchors from the same inputs as the bridge-proof ELF it
+        //    verifies, so both stay in lockstep (and SKIP_PARAMS is honored end-to-end).
+        write_counterproof_genesis(
+            bridge_proof_vk,
+            &asm_params_path,
+            &asm_vk_path,
+            &moho_vk_path,
+        );
         build_guest(COUNTERPROOF_GUEST_DIR, COUNTERPROOF_ELF_NAME);
         let _ = emit_predicate(
             COUNTERPROOF_ELF_NAME,
@@ -93,10 +102,10 @@ mod release {
         );
     }
 
-    fn write_bridge_proof_genesis() {
-        let build_out_dir = Path::new(BRIDGE_PROOF_GUEST_DIR).join("build");
-        let genesis_out_file = build_out_dir.join("genesis.bin");
-
+    /// Resolves the three genesis input paths, honoring `SKIP_PARAMS` (stub fallback), and emits a
+    /// `rerun-if-changed` for each. Shared by both genesis writers so they bake anchors derived
+    /// from identical inputs.
+    fn resolve_genesis_inputs() -> (PathBuf, PathBuf, PathBuf) {
         let skip = std::env::var_os(SKIP_PARAMS_ENV).is_some();
         let asm_params_path = resolve_input(ASM_PARAMS_PATH_ENV, STUB_ASM_PARAMS, skip);
         let asm_vk_path = resolve_input(ASM_VK_PATH_ENV, STUB_ASM_VK, skip);
@@ -106,10 +115,18 @@ mod release {
         println!("cargo:rerun-if-changed={}", asm_vk_path.display());
         println!("cargo:rerun-if-changed={}", moho_vk_path.display());
 
+        (asm_params_path, asm_vk_path, moho_vk_path)
+    }
+
+    fn write_bridge_proof_genesis(asm_params_path: &Path, asm_vk_path: &Path, moho_vk_path: &Path) {
+        let build_out_dir = Path::new(BRIDGE_PROOF_GUEST_DIR).join("build");
+        let genesis_out_file = build_out_dir.join("genesis.bin");
+
         fs::create_dir_all(&build_out_dir)
             .unwrap_or_else(|e| panic!("create {}: {e}", build_out_dir.display()));
 
-        let genesis = load_genesis_from_paths(&asm_params_path, &asm_vk_path, &moho_vk_path);
+        let genesis =
+            load_bridge_proof_genesis_from_paths(asm_params_path, asm_vk_path, moho_vk_path);
         // Surface the genesis baked into this ELF; it pins the trust anchors the guest verifies
         // against.
         println!("cargo:warning=bridge-proof ELF baking in genesis: {genesis:?}");
@@ -117,14 +134,24 @@ mod release {
             .unwrap_or_else(|e| panic!("write {}: {e}", genesis_out_file.display()));
     }
 
-    fn write_counterproof_genesis(bridge_proof_vk: PredicateKey) {
+    fn write_counterproof_genesis(
+        bridge_proof_vk: PredicateKey,
+        asm_params_path: &Path,
+        asm_vk_path: &Path,
+        moho_vk_path: &Path,
+    ) {
         let build_out_dir = Path::new(COUNTERPROOF_GUEST_DIR).join("build");
         let genesis_out_file = build_out_dir.join("genesis.bin");
 
         fs::create_dir_all(&build_out_dir)
             .unwrap_or_else(|e| panic!("create {}: {e}", build_out_dir.display()));
 
-        let genesis = load_genesis_from_predicate(bridge_proof_vk);
+        let genesis = load_counterproof_genesis_from_paths(
+            bridge_proof_vk,
+            asm_params_path,
+            asm_vk_path,
+            moho_vk_path,
+        );
         println!("cargo:warning=counterproof ELF baking in genesis: {genesis:?}");
         fs::write(&genesis_out_file, genesis.as_ssz_bytes())
             .unwrap_or_else(|e| panic!("write {}: {e}", genesis_out_file.display()));
