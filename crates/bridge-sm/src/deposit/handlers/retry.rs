@@ -38,6 +38,24 @@ impl DepositSM {
                 vec![DepositDuty::RequestPayoutNonces {
                     deposit_idx: self.context().deposit_idx(),
                     pov_operator_idx: self.context().operator_table().pov_idx(),
+                    payout_descriptor: None,
+                }]
+            }
+            // Another node might not have received the broadcasted payout descriptor, so we need to
+            // re-broadcast it. It can also be the case that the other node rejects the descriptor
+            // because it sees the fulfillment late.
+            DepositState::PayoutDescriptorReceived {
+                payout_nonces,
+                cooperative_payout_tx,
+                assignee,
+                ..
+            } if payout_nonces.len() != operator_table_cardinality
+                && self.context().operator_table().pov_idx() == *assignee =>
+            {
+                vec![DepositDuty::RequestPayoutNonces {
+                    deposit_idx: self.context().deposit_idx(),
+                    pov_operator_idx: self.context().operator_table().pov_idx(),
+                    payout_descriptor: Some(cooperative_payout_tx.payout_descriptor(cfg.network())),
                 }]
             }
             DepositState::PayoutNoncesCollected {

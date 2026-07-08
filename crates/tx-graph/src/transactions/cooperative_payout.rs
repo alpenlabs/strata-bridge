@@ -4,7 +4,7 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    OutPoint, Psbt, Transaction, TxIn, TxOut,
+    Address, Network, OutPoint, Psbt, Transaction, TxIn, TxOut,
 };
 use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
@@ -124,6 +124,15 @@ impl CooperativePayoutTx {
             0,
         )]
     }
+
+    /// Returns the operator payout descriptor encoded in the payout output.
+    pub fn payout_descriptor(&self, network: Network) -> Descriptor {
+        let script = &self.psbt.unsigned_tx.output[Self::PAYOUT_VOUT as usize].script_pubkey;
+        let address =
+            Address::from_script(script, network).expect("payout output must be addressable");
+
+        Descriptor::try_from(address).expect("payout output must encode a supported descriptor")
+    }
 }
 
 impl ParentTxCombined for CooperativePayoutTx {
@@ -144,5 +153,37 @@ impl ParentTxCombined for CooperativePayoutTx {
 impl AsRef<Transaction> for CooperativePayoutTx {
     fn as_ref(&self) -> &Transaction {
         &self.psbt.unsigned_tx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{Amount, Network, OutPoint};
+    use strata_bridge_primitives::scripts::prelude::get_aggregated_pubkey;
+    use strata_bridge_test_utils::bridge_fixtures::{
+        random_p2tr_desc, test_operator_table, TEST_POV_IDX,
+    };
+
+    use super::*;
+
+    #[test]
+    fn payout_descriptor_round_trips_from_payout_output() {
+        let operator_descriptor = random_p2tr_desc();
+        let operator_table = test_operator_table(3, TEST_POV_IDX);
+        let n_of_n_pubkey = get_aggregated_pubkey(operator_table.btc_keys());
+        let deposit_connector = NOfNConnector::new(
+            Network::Regtest,
+            n_of_n_pubkey,
+            Amount::from_sat(10_000_000),
+        );
+        let tx = CooperativePayoutTx::new(
+            CooperativePayoutData {
+                deposit_outpoint: OutPoint::null(),
+            },
+            deposit_connector,
+            operator_descriptor.clone(),
+        );
+
+        assert_eq!(tx.payout_descriptor(Network::Regtest), operator_descriptor);
     }
 }

@@ -106,7 +106,16 @@ pub async fn execute_deposit_duty(
         DepositDuty::RequestPayoutNonces {
             deposit_idx,
             pov_operator_idx,
-        } => request_payout_nonces(&output_handles, *deposit_idx, *pov_operator_idx).await,
+            payout_descriptor,
+        } => {
+            request_payout_nonces(
+                &output_handles,
+                *deposit_idx,
+                *pov_operator_idx,
+                payout_descriptor.clone(),
+            )
+            .await
+        }
         DepositDuty::PublishPayoutNonce {
             deposit_idx,
             deposit_outpoint,
@@ -610,18 +619,27 @@ async fn request_payout_nonces(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
+    payout_descriptor: Option<Descriptor>,
 ) -> Result<(), ExecutorError> {
-    info!(%deposit_idx, "creating descriptor to request payout nonces");
+    let payout_descriptor = match payout_descriptor {
+        Some(descriptor) => {
+            info!(%deposit_idx, "reusing descriptor to request payout nonces");
+            PayoutDescriptor::from(descriptor)
+        }
+        None => {
+            info!(%deposit_idx, "creating descriptor to request payout nonces");
 
-    let descriptor = output_handles
-        .wallet
-        .read()
-        .await
-        .descriptor()
-        .map_err(|e| ExecutorError::WalletErr(format!("failed to create descriptor: {e}")))?;
-
-    // Convert to PayoutDescriptor for P2P transmission
-    let payout_descriptor: PayoutDescriptor = descriptor.into();
+            output_handles
+                .wallet
+                .read()
+                .await
+                .descriptor()
+                .map(PayoutDescriptor::from)
+                .map_err(|e| {
+                    ExecutorError::WalletErr(format!("failed to create descriptor: {e}"))
+                })?
+        }
+    };
 
     // Broadcast to all operators
     output_handles
