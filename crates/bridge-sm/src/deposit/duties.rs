@@ -152,6 +152,8 @@ pub enum DepositDuty {
         deposit_idx: DepositIdx,
         /// The index of the point-of-view operator.
         pov_operator_idx: OperatorIdx,
+        /// The operator payout descriptor, if it has already been created.
+        payout_descriptor: Option<Descriptor>,
     },
     /// Publish the nonce for spending the deposit UTXO cooperatively.
     PublishPayoutNonce {

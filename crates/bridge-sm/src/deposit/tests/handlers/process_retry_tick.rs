@@ -65,6 +65,32 @@ mod tests {
             expected_duties: vec![DepositDuty::RequestPayoutNonces {
                 deposit_idx: TEST_DEPOSIT_IDX,
                 pov_operator_idx: TEST_POV_IDX,
+                payout_descriptor: None,
+            }],
+        });
+    }
+
+    #[test]
+    fn test_retry_tick_replays_payout_descriptor_when_missing_nonces() {
+        let operator_desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_cooperative_payout_txn(operator_desc.clone());
+        let mut payout_nonces = BTreeMap::new();
+        payout_nonces.insert(TEST_POV_IDX, generate_pubnonce());
+
+        test_handler_output(DepositHandlerOutput {
+            state: DepositState::PayoutDescriptorReceived {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_POV_IDX,
+                fulfillment_txid: generate_txid(),
+                cooperative_payout_tx,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces,
+            },
+            event: DepositEvent::RetryTick(RetryTickEvent),
+            expected_duties: vec![DepositDuty::RequestPayoutNonces {
+                deposit_idx: TEST_DEPOSIT_IDX,
+                pov_operator_idx: TEST_POV_IDX,
+                payout_descriptor: Some(operator_desc),
             }],
         });
     }
@@ -120,6 +146,47 @@ mod tests {
             },
             event: DepositEvent::RetryTick(RetryTickEvent),
             expected_duties: vec![], // No duties when POV is not assignee
+        });
+    }
+
+    #[test]
+    fn test_retry_tick_noop_in_payout_descriptor_received_when_pov_is_not_assignee() {
+        let operator_desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_cooperative_payout_txn(operator_desc);
+
+        test_handler_output(DepositHandlerOutput {
+            state: DepositState::PayoutDescriptorReceived {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_NONPOV_IDX,
+                fulfillment_txid: generate_txid(),
+                cooperative_payout_tx,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces: BTreeMap::new(),
+            },
+            event: DepositEvent::RetryTick(RetryTickEvent),
+            expected_duties: vec![],
+        });
+    }
+
+    #[test]
+    fn test_retry_tick_noop_in_payout_descriptor_received_when_all_nonces_collected() {
+        let operator_desc = random_p2tr_desc();
+        let cooperative_payout_tx = test_cooperative_payout_txn(operator_desc);
+        let payout_nonces: BTreeMap<_, _> = (0..N_TEST_OPERATORS as u32)
+            .map(|idx| (idx, generate_pubnonce()))
+            .collect();
+
+        test_handler_output(DepositHandlerOutput {
+            state: DepositState::PayoutDescriptorReceived {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_POV_IDX,
+                fulfillment_txid: generate_txid(),
+                cooperative_payout_tx,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                payout_nonces,
+            },
+            event: DepositEvent::RetryTick(RetryTickEvent),
+            expected_duties: vec![],
         });
     }
 
@@ -192,9 +259,6 @@ mod tests {
 
     #[test]
     fn test_retry_tick_noop_for_non_retriable_states() {
-        let operator_desc = random_p2tr_desc();
-        let cooperative_payout_tx = test_cooperative_payout_txn(operator_desc.clone());
-
         let non_retriable_states = [
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
@@ -217,14 +281,6 @@ mod tests {
             },
             DepositState::Deposited {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
-            },
-            DepositState::PayoutDescriptorReceived {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                assignee: TEST_POV_IDX,
-                fulfillment_txid: generate_txid(),
-                cooperative_payout_tx,
-                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
