@@ -160,6 +160,7 @@ impl DepositSM {
                         DepositDuty::RequestPayoutNonces {
                             deposit_idx: self.context.deposit_idx(),
                             pov_operator_idx,
+                            payout_descriptor: None,
                         },
                     ]))
                 } else {
@@ -303,6 +304,7 @@ impl DepositSM {
                 cooperative_payment_deadline,
                 cooperative_payout_tx,
                 payout_nonces,
+                ..
             } => {
                 let assignee = *assignee;
 
