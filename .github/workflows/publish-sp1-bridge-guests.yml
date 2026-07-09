@@ -3,6 +3,14 @@ name: Publish SP1 Bridge Guests
 on:
   workflow_dispatch:
     inputs:
+      env:
+        description: Deployment environment. Prefixes the S3 version segment, keeping each env's artifacts distinct.
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
       asm_tag:
         description: Tag in alpenlabs/asm whose release ships asm-vk.json and moho-vk.json (e.g. v0.1-alpha.11).
         required: true
@@ -17,6 +25,12 @@ on:
         type: string
   workflow_call:
     inputs:
+      env:
+        # `type: choice` is dispatch-only; the guest_publish.py `validate` step is what
+        # actually rejects anything outside {dev,staging,prod} on this path.
+        description: Deployment environment (dev | staging | prod).
+        required: true
+        type: string
       asm_tag:
         description: Tag in alpenlabs/asm whose release ships asm-vk.json and moho-vk.json.
         required: true
@@ -38,7 +52,7 @@ env:
   S3_PREFIX: elfs
 
 concurrency:
-  group: publish-sp1-bridge-guests-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}
+  group: publish-sp1-bridge-guests-${{ inputs.env }}-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}
   cancel-in-progress: false
 
 permissions: {}
@@ -81,6 +95,7 @@ jobs:
 
       - name: Validate manual inputs
         env:
+          INPUT_ENV: ${{ inputs.env }}
           INPUT_ASM_TAG: ${{ inputs.asm_tag }}
           INPUT_ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
           INPUT_REF: ${{ inputs.ref }}
@@ -138,6 +153,7 @@ jobs:
         env:
           ELF_DIR: guest-builder/sp1/elfs
           INPUTS_DIR: ${{ runner.temp }}/bridge-genesis
+          DEPLOY_ENV: ${{ inputs.env }}
           ASM_TAG: ${{ inputs.asm_tag }}
           ASM_REV: ${{ steps.fetch.outputs.asm_rev }}
           ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
@@ -165,7 +181,7 @@ jobs:
       - name: Upload elfs/ as workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sp1-bridge-guests-${{ inputs.asm_tag }}-${{ github.run_id }}
+          name: sp1-bridge-guests-${{ inputs.env }}-${{ inputs.asm_tag }}-${{ github.run_id }}
           path: guest-builder/sp1/elfs/
           if-no-files-found: error
           retention-days: 90

@@ -12,8 +12,8 @@ Subcommands:
     summarize   Verify built artifacts, write the bridge + asm-runner manifests, and
                 append a traceability block to $GITHUB_STEP_SUMMARY.
     upload      Copy the bridge guests (+vkeys) and the asm-runner ELFs to
-                s3://<bucket>/<prefix>/{bridge,asm-runner}/<version>/, each with a
-                `<name>.sha256` sidecar in `sha256sum -c` format.
+                s3://<bucket>/<prefix>/{bridge,asm-runner}/<env>-<version>/, each with
+                a `<name>.sha256` sidecar in `sha256sum -c` format.
 
 Each subcommand reads its inputs from environment variables documented on the
 per-command function. Shared helpers live in ci_common.py.
@@ -35,6 +35,7 @@ from ci_common import (
     genesis_l1_height,
     set_outputs,
     sha256_hex,
+    validate_env,
     write_sha256_sidecar,
 )
 
@@ -60,10 +61,13 @@ BLOB_HINT = (
 
 
 def cmd_validate() -> None:
-    """Env: INPUT_ASM_TAG, INPUT_ASM_PARAMS_URL, INPUT_REF (optional)."""
+    """Env: INPUT_ENV, INPUT_ASM_TAG, INPUT_ASM_PARAMS_URL, INPUT_REF (optional)."""
+    env = os.environ["INPUT_ENV"]
     asm_tag = os.environ["INPUT_ASM_TAG"]
     asm_params_url = os.environ["INPUT_ASM_PARAMS_URL"]
     ref = os.environ.get("INPUT_REF", "")
+
+    validate_env(env)
 
     if WHITESPACE_RE.search(asm_tag):
         fail("asm_tag must not contain whitespace")
@@ -197,10 +201,13 @@ BUNDLED_INPUTS = ("asm-params.json", "asm-vk.json", "moho-vk.json")
 
 
 def cmd_summarize() -> None:
-    """Env: ELF_DIR, INPUTS_DIR, ASM_TAG, ASM_REV, ASM_PARAMS_URL, BRIDGE_REF, BRIDGE_SHA,
-    GITHUB_STEP_SUMMARY."""
+    """Env: ELF_DIR, INPUTS_DIR, DEPLOY_ENV, ASM_TAG, ASM_REV, ASM_PARAMS_URL, BRIDGE_REF,
+    BRIDGE_SHA, GITHUB_STEP_SUMMARY."""
     elf_dir = Path(os.environ["ELF_DIR"])
     inputs_dir = Path(os.environ["INPUTS_DIR"])
+    # DEPLOY_ENV, not ENV: POSIX reserves `ENV` as a shell startup-file path, so keep
+    # it out of the environment of steps that shell out.
+    env = validate_env(os.environ["DEPLOY_ENV"])
     asm_tag = os.environ["ASM_TAG"]
     asm_rev = os.environ["ASM_REV"]
     asm_params_url = os.environ["ASM_PARAMS_URL"]
@@ -222,10 +229,10 @@ def cmd_summarize() -> None:
     # as hex so consumers can grab the vkey without parsing the predicate blob.
     bridge_vkey_hex = (elf_dir / "bridge-proof-vkey.bin").read_bytes().hex()
     counter_vkey_hex = (elf_dir / "counterproof-vkey.bin").read_bytes().hex()
-    digests = dict((name, sha256_hex(elf_dir / name)) for name in EXPECTED_ARTIFACTS)
+    digests = {name: sha256_hex(elf_dir / name) for name in EXPECTED_ARTIFACTS}
 
-    # asm genesis L1 height + run id go into the manifest so `upload` can derive the
-    # S3 version (`<genesis>-<bridge_sha8>`) from a single source of truth.
+    # The manifest carries env + genesis + run id so `upload` and the circuit job both
+    # derive `<env>-<genesis>-<bridge_sha8>` from one source of truth.
     asm_params = json.loads((inputs_dir / "asm-params.json").read_text())
     genesis = genesis_l1_height(asm_params)
     run_id = os.environ.get("GITHUB_RUN_ID", "")
@@ -240,7 +247,8 @@ def cmd_summarize() -> None:
     input_digests = {name: sha256_hex(elf_dir / name) for name in BUNDLED_INPUTS}
 
     manifest = {
-        "schema": 2,
+        "schema": 3,
+        "env": env,
         "asm_tag": asm_tag,
         "asm_params_url": asm_params_url,
         "asm_genesis_l1_height": genesis,
@@ -268,7 +276,8 @@ def cmd_summarize() -> None:
         if not p.is_file() or p.stat().st_size == 0:
             fail(f"expected asm artifact missing or empty: {p}")
     asm_manifest = {
-        "schema": 1,
+        "schema": 2,
+        "env": env,
         "asm_tag": asm_tag,
         "asm_rev": asm_rev,
         "run_id": run_id,
@@ -281,6 +290,7 @@ def cmd_summarize() -> None:
     lines: list[str] = [
         "## SP1 bridge guest publish",
         "",
+        f"- env: `{env}`",
         f"- asm tag (alpenlabs/asm): `{asm_tag}`",
         f"- asm-params source: `{asm_params_url}`",
         f"- strata-bridge ref: `{bridge_ref}` @ `{bridge_sha}`",
@@ -368,8 +378,8 @@ def cmd_upload() -> None:
 
     Uploads two independently-versioned trees, each ELF/vkey followed by its
     `<name>.sha256` sidecar:
-      <prefix>/bridge/<genesis>-<bridge_sha8>/   built guests + vkeys + manifest
-      <prefix>/asm-runner/<asm_tag>-<asm_sha8>/  asm.elf, moho.elf + manifest
+      <prefix>/bridge/<env>-<genesis>-<bridge_sha8>/   built guests + vkeys + manifest
+      <prefix>/asm-runner/<env>-<asm_tag>-<asm_sha8>/  asm.elf, moho.elf + manifest
     """
     elf_dir = Path(os.environ["ELF_DIR"])
     inputs_dir = Path(os.environ["INPUTS_DIR"])
@@ -384,12 +394,15 @@ def cmd_upload() -> None:
     bridge_sha = (manifest.get("strata_bridge") or {}).get("sha", "")[:8]
     if genesis is None or not bridge_sha:
         fail("manifest.json missing asm_genesis_l1_height or strata_bridge.sha")
-    bridge_version = f"{genesis}-{bridge_sha}"
+    # Read env back from the manifest rather than the environment, so the published
+    # key can only ever be the one summarize recorded.
+    env = validate_env(manifest.get("env", ""))
+    bridge_version = f"{env}-{genesis}-{bridge_sha}"
     if not VERSION_RE.fullmatch(bridge_version):
         fail(f"bridge version is not S3-key-safe: {bridge_version!r}")
 
     # asm-runner tree — version pins the asm release the ELFs came from.
-    asm_version = f"{asm_tag}-{asm_rev[:8]}"
+    asm_version = f"{env}-{asm_tag}-{asm_rev[:8]}"
     if not VERSION_RE.fullmatch(asm_version):
         fail(f"asm-runner version is not S3-key-safe: {asm_version!r}")
 
