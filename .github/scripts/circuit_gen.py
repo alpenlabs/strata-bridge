@@ -12,7 +12,7 @@ its inputs from environment variables documented on the per-command function.
 
 Subcommands:
     preflight   Check free disk on the runs-dir mount and required CLIs.
-    version     Validate the vkey and derive `<genesis_l1_height>-<bridge_sha8>`.
+    version     Validate the vkey and derive `<env>-<genesis_l1_height>-<bridge_sha8>`.
     upload      Copy `v5c.ckt` to s3://<bucket>/<prefix>/<version>/g16.v5c, plus a
                 `g16.v5c.sha256` sidecar in `sha256sum -c` format.
     summarize   Append a traceability block to $GITHUB_STEP_SUMMARY.
@@ -31,6 +31,7 @@ from ci_common import (
     genesis_l1_height,
     set_outputs,
     sha256_hex,
+    validate_env,
     write_sha256_sidecar,
 )
 
@@ -90,8 +91,8 @@ def _find_one(root: Path, name: str) -> Path:
 def cmd_version() -> None:
     """Env: ARTIFACT_DIR, GITHUB_OUTPUT.
 
-    Validate the counterproof vkey and derive the S3 version string from the
-    publish run's bundled manifest + asm-params.
+    Validate the counterproof vkey and derive the S3 version string (and env) from
+    the publish run's bundled manifest + asm-params.
     """
     artifact_dir = Path(os.environ["ARTIFACT_DIR"])
     if not artifact_dir.is_dir():
@@ -109,16 +110,20 @@ def cmd_version() -> None:
     bridge_sha = bridge_sha_full[:8]
     if not bridge_sha:
         fail("manifest.json missing strata_bridge.sha")
+    # Taken from the same manifest as bridge_sha, so the circuit's key can never name a
+    # different env than the bridge tree it was generated from.
+    env = validate_env(manifest.get("env", ""))
 
     asm_params = json.loads(_find_one(artifact_dir, ASM_PARAMS_NAME).read_text())
     genesis = genesis_l1_height(asm_params)
 
-    version = f"{genesis}-{bridge_sha}"
+    version = f"{env}-{genesis}-{bridge_sha}"
     if not VERSION_RE.fullmatch(version):
         fail(f"derived version is not S3-key-safe: {version!r}")
 
     set_outputs(
         version=version,
+        env=env,
         bridge_sha=bridge_sha,
         genesis_l1_height=str(genesis),
         vkey_sha256=sha256_hex(vkey_path),
@@ -188,12 +193,14 @@ def cmd_upload() -> None:
 
 
 def cmd_summarize() -> None:
-    """Env: VERSION, S3_URI, PUBLISH_RUN_ID, G16_REF, VKEY_SHA256, CIRCUIT_SHA256,
-    GENESIS_L1_HEIGHT, BRIDGE_SHA, CIRCUIT_SIZE_BYTES, GITHUB_STEP_SUMMARY.
+    """Env: VERSION, DEPLOY_ENV, S3_URI, PUBLISH_RUN_ID, G16_REF, VKEY_SHA256,
+    CIRCUIT_SHA256, GENESIS_L1_HEIGHT, BRIDGE_SHA, CIRCUIT_SIZE_BYTES,
+    GITHUB_STEP_SUMMARY.
 
     Runs with `if: always()`, so upstream step outputs may be empty on failure.
     """
     version = os.environ.get("VERSION", "")
+    env = os.environ.get("DEPLOY_ENV", "")
     s3_uri = os.environ.get("S3_URI", "")
     publish_run_id = os.environ.get("PUBLISH_RUN_ID", "")
     g16_ref = os.environ.get("G16_REF", "")
@@ -209,6 +216,7 @@ def cmd_summarize() -> None:
     lines = [
         "## g16 circuit generation",
         "",
+        f"- env: `{env or 'n/a'}`",
         f"- version: `{version}`",
         f"- S3 object: `{s3_uri or '(not uploaded — see step logs)'}`",
         f"- circuit size: {size_gib}",
