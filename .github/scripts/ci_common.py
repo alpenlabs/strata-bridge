@@ -6,9 +6,11 @@ invoked as `python3 .github/scripts/<name>.py`, so the script's directory is on
 sys.path and a plain `import ci_common` resolves. Pure-stdlib, no install step.
 """
 
+import hashlib
 import os
 import re
 import sys
+from pathlib import Path
 
 
 def fail(message: str) -> None:
@@ -22,6 +24,27 @@ def set_outputs(**outputs: str) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
         for name, value in outputs.items():
             f.write(f"{name}={value}\n")
+
+
+def sha256_hex(path: Path) -> str:
+    """Return the SHA-256 of `path` as a lowercase hex digest, read in chunks so
+    the 142 GB v5c circuit doesn't have to fit in memory."""
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def write_sha256_sidecar(digest: str, s3_name: str, dest_dir: Path) -> Path:
+    """Write `<dest_dir>/<s3_name>.sha256` in `sha256sum -c` format (two spaces).
+
+    Records the *S3 object* name, not the local one: the circuit is `v5c.ckt` on
+    disk but `g16.v5c` in the bucket, and the check runs against the download.
+    """
+    sidecar = dest_dir / f"{s3_name}.sha256"
+    sidecar.write_text(f"{digest}  {s3_name}\n", encoding="utf-8")
+    return sidecar
 
 
 # `<genesis>-<sha8>` / `<tag>-<sha8>` — the components are numeric/hex/tag chars,
