@@ -13,24 +13,33 @@ its inputs from environment variables documented on the per-command function.
 Subcommands:
     preflight   Check free disk on the runs-dir mount and required CLIs.
     version     Validate the vkey and derive `<genesis_l1_height>-<bridge_sha8>`.
-    upload      Copy `v5c.ckt` to s3://<bucket>/<prefix>/<version>/g16.v5c.
+    upload      Copy `v5c.ckt` to s3://<bucket>/<prefix>/<version>/g16.v5c, plus a
+                `g16.v5c.sha256` sidecar in `sha256sum -c` format.
     summarize   Append a traceability block to $GITHUB_STEP_SUMMARY.
 """
 
 import argparse
-import hashlib
 import json
 import os
 import shutil
 import subprocess
 from pathlib import Path
 
-from ci_common import VERSION_RE, fail, genesis_l1_height, set_outputs
+from ci_common import (
+    VERSION_RE,
+    fail,
+    genesis_l1_height,
+    set_outputs,
+    sha256_hex,
+    write_sha256_sidecar,
+)
 
 VKEY_NAME = "counterproof-vkey.bin"
 MANIFEST_NAME = "manifest.json"
 ASM_PARAMS_NAME = "asm-params.json"
 VKEY_LEN = 32
+# The circuit is `v5c.ckt` on disk but ships under this name in S3.
+S3_CIRCUIT_NAME = "g16.v5c"
 
 
 # ---- preflight -------------------------------------------------------------
@@ -112,7 +121,7 @@ def cmd_version() -> None:
         version=version,
         bridge_sha=bridge_sha,
         genesis_l1_height=str(genesis),
-        vkey_sha256=hashlib.sha256(vkey_bytes).hexdigest(),
+        vkey_sha256=sha256_hex(vkey_path),
         vkey_path=str(vkey_path),
     )
 
@@ -148,7 +157,13 @@ def cmd_upload() -> None:
     if size_bytes == 0:
         fail(f"v5c.ckt is empty: {v5c}")
 
-    s3_uri = f"s3://{bucket}/{prefix}/{version}/g16.v5c"
+    s3_uri = f"s3://{bucket}/{prefix}/{version}/{S3_CIRCUIT_NAME}"
+
+    # Hash before the transfer so a read error surfaces before we push 142 GB.
+    # The pass is disk-bound and silent for minutes; announce it or the log looks hung.
+    print(f"hashing {v5c} ({size_bytes} bytes)")
+    digest = sha256_hex(v5c)
+    print(f"sha256: {digest}")
 
     # Default 8 MB parts would exceed the 10,000-part cap for a 142 GB file;
     # a larger part size keeps the upload to a few thousand parts.
@@ -159,14 +174,21 @@ def cmd_upload() -> None:
     print(f"uploading {v5c} ({size_bytes} bytes) -> {s3_uri}")
     subprocess.run(["aws", "s3", "cp", str(v5c), s3_uri], check=True)
 
-    set_outputs(s3_uri=s3_uri, circuit_size_bytes=str(size_bytes))
+    # Sidecar last, so its presence marks a circuit that finished uploading.
+    sidecar = write_sha256_sidecar(digest, S3_CIRCUIT_NAME, v5c.parent)
+    print(f"uploading {sidecar} -> {s3_uri}.sha256")
+    subprocess.run(["aws", "s3", "cp", str(sidecar), f"{s3_uri}.sha256"], check=True)
+
+    set_outputs(
+        s3_uri=s3_uri, circuit_size_bytes=str(size_bytes), circuit_sha256=digest
+    )
 
 
 # ---- summarize -------------------------------------------------------------
 
 
 def cmd_summarize() -> None:
-    """Env: VERSION, S3_URI, PUBLISH_RUN_ID, G16_REF, VKEY_SHA256,
+    """Env: VERSION, S3_URI, PUBLISH_RUN_ID, G16_REF, VKEY_SHA256, CIRCUIT_SHA256,
     GENESIS_L1_HEIGHT, BRIDGE_SHA, CIRCUIT_SIZE_BYTES, GITHUB_STEP_SUMMARY.
 
     Runs with `if: always()`, so upstream step outputs may be empty on failure.
@@ -176,6 +198,7 @@ def cmd_summarize() -> None:
     publish_run_id = os.environ.get("PUBLISH_RUN_ID", "")
     g16_ref = os.environ.get("G16_REF", "")
     vkey_sha256 = os.environ.get("VKEY_SHA256", "")
+    circuit_sha256 = os.environ.get("CIRCUIT_SHA256", "")
     genesis = os.environ.get("GENESIS_L1_HEIGHT", "")
     bridge_sha = os.environ.get("BRIDGE_SHA", "")
     size_bytes = os.environ.get("CIRCUIT_SIZE_BYTES", "")
@@ -189,6 +212,7 @@ def cmd_summarize() -> None:
         f"- version: `{version}`",
         f"- S3 object: `{s3_uri or '(not uploaded — see step logs)'}`",
         f"- circuit size: {size_gib}",
+        f"- circuit sha256: `{circuit_sha256 or 'n/a'}`",
         "",
         "### Provenance",
         "",

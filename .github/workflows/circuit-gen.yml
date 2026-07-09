@@ -126,6 +126,7 @@ jobs:
           PUBLISH_RUN_ID: ${{ github.run_id }}
           G16_REF: ${{ env.G16_REF }}
           VKEY_SHA256: ${{ steps.version.outputs.vkey_sha256 }}
+          CIRCUIT_SHA256: ${{ steps.upload.outputs.circuit_sha256 }}
           GENESIS_L1_HEIGHT: ${{ steps.version.outputs.genesis_l1_height }}
           BRIDGE_SHA: ${{ steps.version.outputs.bridge_sha }}
           CIRCUIT_SIZE_BYTES: ${{ steps.upload.outputs.circuit_size_bytes }}
