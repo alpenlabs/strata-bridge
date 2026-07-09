@@ -6786,7 +6786,7 @@ dependencies = [
 [[package]]
 name = "mosaic-adaptor-sigs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot/cargo/rust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
+source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot%2Fcargo%2Frust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -6801,7 +6801,7 @@ dependencies = [
 [[package]]
 name = "mosaic-cac-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot/cargo/rust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
+source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot%2Fcargo%2Frust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -6822,7 +6822,7 @@ dependencies = [
 [[package]]
 name = "mosaic-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot/cargo/rust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
+source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot%2Fcargo%2Frust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -6831,7 +6831,7 @@ dependencies = [
 [[package]]
 name = "mosaic-heap-array"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot/cargo/rust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
+source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot%2Fcargo%2Frust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -6840,7 +6840,7 @@ dependencies = [
 [[package]]
 name = "mosaic-net-svc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot/cargo/rust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
+source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot%2Fcargo%2Frust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
 dependencies = [
  "ark-serialize 0.6.0",
  "ed25519-dalek",
@@ -6852,7 +6852,7 @@ dependencies = [
 [[package]]
 name = "mosaic-rpc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot/cargo/rust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
+source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot%2Fcargo%2Frust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
@@ -6862,7 +6862,7 @@ dependencies = [
 [[package]]
 name = "mosaic-rpc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot/cargo/rust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
+source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot%2Fcargo%2Frust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
 dependencies = [
  "bitcoin",
  "ckt-fmtv5-types",
@@ -6879,7 +6879,7 @@ dependencies = [
 [[package]]
 name = "mosaic-vs3"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot/cargo/rust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
+source = "git+https://github.com/alpenlabs/mosaic?branch=dependabot%2Fcargo%2Frust-dependencies-f2832285e5#0acce4489ac6e039276756a57bce945425caa22b"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
