@@ -109,9 +109,9 @@ strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.
 
 # Dependencies from alpenlabs/mosaic
 # Temporarily repointed at mosaic PR #312 branch to test the bumped deps (bitcoin et al.).
-mosaic-common = { git = "https://github.com/alpenlabs/mosaic", branch = "dependabot/cargo/rust-dependencies-f2832285e5" }
-mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", branch = "dependabot/cargo/rust-dependencies-f2832285e5" }
-mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", branch = "dependabot/cargo/rust-dependencies-f2832285e5" }
+mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "0acce4489ac6e039276756a57bce945425caa22b" }
+mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "0acce4489ac6e039276756a57bce945425caa22b" }
+mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "0acce4489ac6e039276756a57bce945425caa22b" }
 
 # Dependencies from alpenlabs/strata-common
 strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.2" }
