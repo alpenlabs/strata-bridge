@@ -12,14 +12,14 @@ Subcommands:
     summarize   Verify built artifacts, write the bridge + asm-runner manifests, and
                 append a traceability block to $GITHUB_STEP_SUMMARY.
     upload      Copy the bridge guests (+vkeys) and the asm-runner ELFs to
-                s3://<bucket>/<prefix>/{bridge,asm-runner}/<version>/.
+                s3://<bucket>/<prefix>/{bridge,asm-runner}/<version>/, each with a
+                `<name>.sha256` sidecar in `sha256sum -c` format.
 
 Each subcommand reads its inputs from environment variables documented on the
 per-command function. Shared helpers live in ci_common.py.
 """
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -29,7 +29,14 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ci_common import VERSION_RE, fail, genesis_l1_height, set_outputs
+from ci_common import (
+    VERSION_RE,
+    fail,
+    genesis_l1_height,
+    set_outputs,
+    sha256_hex,
+    write_sha256_sidecar,
+)
 
 
 # ---- validate --------------------------------------------------------------
@@ -189,15 +196,6 @@ EXPECTED_ARTIFACTS = (
 BUNDLED_INPUTS = ("asm-params.json", "asm-vk.json", "moho-vk.json")
 
 
-def sha256_hex(path: Path) -> str:
-    """Return the SHA-256 of `path` as a lowercase hex digest."""
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def cmd_summarize() -> None:
     """Env: ELF_DIR, INPUTS_DIR, ASM_TAG, ASM_REV, ASM_PARAMS_URL, BRIDGE_REF, BRIDGE_SHA,
     GITHUB_STEP_SUMMARY."""
@@ -324,6 +322,9 @@ BRIDGE_UPLOAD_FILES = (
     "manifest.json",
 )
 
+# A manifest needs no sidecar: it already carries the digest of every file beside it.
+NO_SIDECAR = frozenset({"manifest.json"})
+
 
 def s3_cp(src: Path, dst: str) -> None:
     """Copy a single non-empty file to S3, failing fast if it's missing/empty."""
@@ -333,11 +334,40 @@ def s3_cp(src: Path, dst: str) -> None:
     subprocess.run(["aws", "s3", "cp", str(src), dst], check=True)
 
 
+def upload_tree(
+    names: tuple[str, ...], src_dir: Path, base: str, digests: dict[str, str]
+) -> list[str]:
+    """Upload each of `names` from `src_dir` to `<base>/<name>`, following every
+    non-manifest object with its `<name>.sha256` sidecar.
+
+    Digests come from the manifest `summarize` already wrote, so a sidecar can
+    never disagree with the manifest that sits next to it.
+    """
+    # Resolve every digest up front: a missing one means summarize and upload
+    # disagree about what was built, and failing mid-loop would half-publish the tree.
+    missing = [n for n in names if n not in NO_SIDECAR and not digests.get(n)]
+    if missing:
+        fail(f"manifest has no sha256 for {', '.join(missing)}; cannot write sidecars")
+
+    uris: list[str] = []
+    for name in names:
+        dst = f"{base}/{name}"
+        s3_cp(src_dir / name, dst)
+        uris.append(dst)
+        if name in NO_SIDECAR:
+            continue
+        sidecar = write_sha256_sidecar(digests[name], name, src_dir)
+        s3_cp(sidecar, f"{dst}.sha256")
+        uris.append(f"{dst}.sha256")
+    return uris
+
+
 def cmd_upload() -> None:
     """Env: ELF_DIR, INPUTS_DIR, ASM_TAG, ASM_REV, S3_BUCKET, S3_PREFIX (default elfs),
     GITHUB_OUTPUT, GITHUB_STEP_SUMMARY.
 
-    Uploads two independently-versioned trees:
+    Uploads two independently-versioned trees, each ELF/vkey followed by its
+    `<name>.sha256` sidecar:
       <prefix>/bridge/<genesis>-<bridge_sha8>/   built guests + vkeys + manifest
       <prefix>/asm-runner/<asm_tag>-<asm_sha8>/  asm.elf, moho.elf + manifest
     """
@@ -366,19 +396,19 @@ def cmd_upload() -> None:
     bridge_base = f"s3://{bucket}/{prefix}/bridge/{bridge_version}"
     asm_base = f"s3://{bucket}/{prefix}/asm-runner/{asm_version}"
 
-    uris: list[str] = []
-    for name in BRIDGE_UPLOAD_FILES:
-        dst = f"{bridge_base}/{name}"
-        s3_cp(elf_dir / name, dst)
-        uris.append(dst)
-    for name in ELF_FILES:
-        dst = f"{asm_base}/{name}"
-        s3_cp(inputs_dir / name, dst)
-        uris.append(dst)
+    asm_manifest_src = inputs_dir / "asm-runner-manifest.json"
+    asm_manifest = json.loads(asm_manifest_src.read_text())
+
+    uris = upload_tree(
+        BRIDGE_UPLOAD_FILES, elf_dir, bridge_base, manifest.get("sha256") or {}
+    )
+    uris += upload_tree(
+        ELF_FILES, inputs_dir, asm_base, asm_manifest.get("sha256") or {}
+    )
     # The asm-runner manifest is staged under a distinct local name to avoid
     # colliding with the bridge manifest; it lands in S3 as manifest.json.
     asm_manifest_dst = f"{asm_base}/manifest.json"
-    s3_cp(inputs_dir / "asm-runner-manifest.json", asm_manifest_dst)
+    s3_cp(asm_manifest_src, asm_manifest_dst)
     uris.append(asm_manifest_dst)
 
     set_outputs(
