@@ -83,6 +83,10 @@ pub(crate) struct Config {
     /// Backend that produces bridge counterproofs.
     pub counterproof: CounterproofBackendConfig,
 
+    /// Developer/experimentation mode. When `true`, the startup consistency checks are skipped.
+    #[serde(default)]
+    pub dev: bool,
+
     /// Configuration for process-level metrics exporters.
     #[serde(default)]
     pub metrics: MetricsConfig,
