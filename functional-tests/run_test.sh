@@ -78,6 +78,7 @@ mkdir -p functional-tests/_dd/.bin
 CARGO_LOCAL_BIN=$(realpath "functional-tests/_dd/.bin")
 export PATH="$CARGO_LOCAL_BIN/bin:$PATH"
 RUSTFLAGS="" cargo install \
+    --locked \
     --git https://github.com/alpenlabs/mosaic \
     "--$MOSAIC_REF_TYPE" "$MOSAIC_REF" \
     --features=reduced-circuits \

@@ -10,12 +10,17 @@ use std::time::Instant;
 #[cfg(feature = "sp1")]
 use anyhow::Context;
 use anyhow::Result;
+use strata_predicate::PredicateKey;
 use tracing::info;
+#[cfg(feature = "sp1")]
+use zkaleido::ZkVmExecutor;
 use zkaleido_native_adapter::{NativeHost, NativeMachine};
 #[cfg(feature = "sp1")]
 use zkaleido_sp1_host::SP1Host;
 
 use crate::host::config::ProofBackendConfig;
+#[cfg(feature = "sp1")]
+use crate::host::predicate::sp1_groth16_predicate_key;
 
 /// Runtime selection of the host used to generate proofs.
 #[derive(Clone, Debug)]
@@ -25,6 +30,19 @@ pub enum Host {
     /// SP1 host loaded from a compiled guest ELF.
     #[cfg(feature = "sp1")]
     Sp1(Box<SP1Host>),
+}
+
+impl Host {
+    /// The predicate derived from the loaded SP1 guest ELF; `None` for the native host or in
+    /// non-`sp1` builds.
+    #[cfg_attr(not(feature = "sp1"), allow(clippy::missing_const_for_fn))]
+    pub fn sp1_predicate(&self) -> Result<Option<PredicateKey>> {
+        #[cfg(feature = "sp1")]
+        if let Host::Sp1(host) = self {
+            return Ok(Some(sp1_groth16_predicate_key(host.program_id().0)?));
+        }
+        Ok(None)
+    }
 }
 
 /// Builds a [`Host`] from operator config, binding the given native statement processor.
