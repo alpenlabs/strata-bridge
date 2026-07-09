@@ -47,9 +47,22 @@ def write_sha256_sidecar(digest: str, s3_name: str, dest_dir: Path) -> Path:
     return sidecar
 
 
-# `<genesis>-<sha8>` / `<tag>-<sha8>` — the components are numeric/hex/tag chars,
-# so this is the full legal set for an S3 key segment. Reject anything else.
+# `<env>-<genesis>-<sha8>` / `<env>-<tag>-<sha8>` — the components are numeric/hex/tag
+# chars, so this is the full legal set for an S3 key segment. Reject anything else.
 VERSION_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+ENVIRONMENTS = ("dev", "staging", "prod")
+
+
+def validate_env(env: str) -> str:
+    """Reject anything outside the known environments before it reaches an S3 key.
+
+    `workflow_call` inputs can't be `type: choice`, so the reusable-workflow path has
+    no dropdown to lean on — this is the only guard there.
+    """
+    if env not in ENVIRONMENTS:
+        fail(f"env must be one of {', '.join(ENVIRONMENTS)} (got {env!r})")
+    return env
 
 
 def genesis_l1_height(asm_params: dict) -> int:

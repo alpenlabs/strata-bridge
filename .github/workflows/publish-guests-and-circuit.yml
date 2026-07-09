@@ -7,6 +7,14 @@ name: Publish Guests + g16 Circuit
 on:
   workflow_dispatch:
     inputs:
+      env:
+        description: Deployment environment. Prefixes the S3 version segment, keeping each env's artifacts distinct.
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
       asm_tag:
         description: Tag in alpenlabs/asm whose release ships asm-vk.json and moho-vk.json (e.g. v0.1-alpha.11).
         required: true
@@ -29,7 +37,7 @@ on:
         type: string
 
 concurrency:
-  group: publish-guests-and-circuit-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}
+  group: publish-guests-and-circuit-${{ inputs.env }}-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}
   cancel-in-progress: false
 
 permissions: {}
@@ -42,6 +50,7 @@ jobs:
       contents: read
       id-token: write
     with:
+      env: ${{ inputs.env }}
       asm_tag: ${{ inputs.asm_tag }}
       asm_params_url: ${{ inputs.asm_params_url }}
       ref: ${{ inputs.ref }}
@@ -49,6 +58,8 @@ jobs:
   circuit-gen:
     name: Circuit gen
     needs: guest-build
+    # No `env:` input — circuit-gen reads it from the manifest in guest-build's
+    # artifact, so the circuit key can't name a different env than the bridge tree.
     uses: ./.github/workflows/circuit-gen.yml
     permissions:
       contents: read
