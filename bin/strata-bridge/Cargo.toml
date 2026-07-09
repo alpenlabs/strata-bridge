@@ -30,6 +30,7 @@ strata-mosaic-client-api.workspace = true
 
 strata-asm-rpc.workspace = true
 strata-p2p.workspace = true
+strata-predicate.workspace = true
 strata-tasks.workspace = true
 
 anyhow.workspace = true
@@ -62,7 +63,6 @@ tikv-jemallocator = "0.6"
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
-strata-predicate.workspace = true
 zkaleido.workspace = true
 
 [features]

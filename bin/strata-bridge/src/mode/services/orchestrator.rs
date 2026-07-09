@@ -36,7 +36,7 @@ use tokio::{
     select,
     sync::{RwLock, mpsc, oneshot},
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     config::Config,
@@ -48,6 +48,7 @@ use crate::{
     mode::services::{
         btc_client::init_zmq_client,
         health_probes::{spawn_orchestrator_stale_monitor, spawn_tx_driver_probe},
+        startup_checks,
     },
 };
 
@@ -163,6 +164,11 @@ where
     );
     let bridge_proof_host = strata_bridge_proof::build_host(&config.bridge_proof).await?;
     let counterproof_host = strata_bridge_counterproof::build_host(&config.counterproof).await?;
+    if config.dev {
+        warn!("dev mode: skipping bridge startup consistency checks");
+    } else {
+        startup_checks::verify(params, &bridge_proof_host, &counterproof_host)?;
+    }
     let output_handles = OutputHandles {
         wallet,
         msg_handler: RwLock::new(message_handler),
