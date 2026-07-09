@@ -123,6 +123,7 @@ jobs:
         env:
           S3_URI: ${{ steps.upload.outputs.s3_uri }}
           VERSION: ${{ steps.version.outputs.version }}
+          DEPLOY_ENV: ${{ steps.version.outputs.env }}
           PUBLISH_RUN_ID: ${{ github.run_id }}
           G16_REF: ${{ env.G16_REF }}
           VKEY_SHA256: ${{ steps.version.outputs.vkey_sha256 }}
