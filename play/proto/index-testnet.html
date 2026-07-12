@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata Bridge Explorer (signet)</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b23; --text: #dbe2ea; --muted: #8b96a5;
+    --green: #2ea36b; --red: #d05252; --orange: #d08a3c; --gray: #5c6673; --blue: #4a8fd4;
+    --border: #232b36;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 26px 0 10px; color: var(--muted); font-weight: 600;
+        text-transform: uppercase; letter-spacing: .05em; }
+  .sub { color: var(--muted); margin-bottom: 16px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tab { padding: 7px 18px; border: 1px solid var(--border); border-radius: 8px;
+          background: var(--panel); color: var(--muted); cursor: pointer; font-size: 14px; }
+  .tab.active { color: var(--text); border-color: var(--blue); }
+  .cards { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+           padding: 12px 18px; min-width: 110px; }
+  .card .num { font-size: 22px; font-weight: 600; }
+  .card .lbl { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel);
+           border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border);
+            vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase;
+        letter-spacing: 0.04em; }
+  tr:last-child td { border-bottom: none; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px;
+           margin: 1px 2px 1px 0; white-space: nowrap; }
+  .chip.green { background: rgba(46,163,107,.15); color: var(--green); }
+  .chip.red { background: rgba(208,82,82,.15); color: var(--red); }
+  .chip.orange { background: rgba(208,138,60,.15); color: var(--orange); }
+  .chip.gray { background: rgba(92,102,115,.2); color: var(--muted); }
+  .chip.blue { background: rgba(74,143,212,.15); color: var(--blue); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .muted { color: var(--muted); }
+  .dest { display: inline-block; max-width: 190px; overflow: hidden; text-overflow: ellipsis;
+           white-space: nowrap; vertical-align: bottom; }
+  td.verif { max-width: 150px; }
+  td.verif .chip { white-space: normal; }
+  details.lots { margin-top: 4px; }
+  details.lots summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details.section { margin-top: 22px; }
+  details.section summary { cursor: pointer; color: var(--muted); }
+  .lotline { margin: 3px 0 3px 10px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Strata Bridge Explorer</h1>
+<div class="sub">
+  signet · bitcoin height <b>312845</b> · EE block <b>169808</b> ·
+  generated <span data-ts="1783856273">…</span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="deposits">Deposits</div>
+  <div class="tab" data-tab="withdrawals">Withdrawals</div>
+  <div class="tab" data-tab="flow">Deposits ⇄ Withdrawals</div>
+</div>
+
+<div id="tab-deposits">
+<div class="cards">
+  <div class="card"><div class="num">46</div><div class="lbl">DRTs found</div></div>
+  <div class="card"><div class="num">42</div><div class="lbl">valid</div></div>
+  <div class="card"><div class="num">35</div><div class="lbl">deposited</div></div>
+  <div class="card"><div class="num">7</div><div class="lbl">pending</div></div>
+  <div class="card" title="4 DRT(s) taken back: 0 valid (the bridge did not process them within the recovery window) and 4 invalid (never processable; routine fund recovery)"><div class="num">4</div><div class="lbl">taken back</div></div>
+  <div class="card"><div class="num">30</div><div class="lbl">minted on Alpen</div></div>
+  <div class="card"><div class="num">26</div><div class="lbl">UTXOs in bridge</div></div>
+  <div class="card"><div class="num">52.0</div><div class="lbl">BTC in bridge</div></div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Height</th><th>Time</th><th>DRT</th><th>Amount (BTC)</th>
+      <th>Verification</th><th>Status</th><th>Destination</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">312840</td>
+      <td class="muted" data-ts="1783851685">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/fe244e5ea805054371a3af809397e2b2a1fb81a4d18ba4f088971444d1680efd" target="_blank" rel="noopener">fe244e…680efd</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip blue">pending</span> <span class="muted">takeback in 30 blocks</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span></td>
+    </tr>
+    <tr>
+      <td class="mono">312840</td>
+      <td class="muted" data-ts="1783851685">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/ecd62dffa9850157de509f37ba83614fda2826c1b643bf261277c6c94c3a5551" target="_blank" rel="noopener">ecd62d…3a5551</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip blue">pending</span> <span class="muted">takeback in 30 blocks</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span></td>
+    </tr>
+    <tr>
+      <td class="mono">312840</td>
+      <td class="muted" data-ts="1783851685">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/d8fc40158d39ec85f3d2398706f97c5628ee5a3d1dfdbe6195a32e7d4a7fd798" target="_blank" rel="noopener">d8fc40…7fd798</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip blue">pending</span> <span class="muted">takeback in 30 blocks</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span></td>
+    </tr>
+    <tr>
+      <td class="mono">312840</td>
+      <td class="muted" data-ts="1783851685">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/8ab39d4d1d34525ffc81e5ef95e232573d5e2f716684be40d18c42d0f3731a6d" target="_blank" rel="noopener">8ab39d…731a6d</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip blue">pending</span> <span class="muted">takeback in 30 blocks</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span></td>
+    </tr>
+    <tr>
+      <td class="mono">312840</td>
+      <td class="muted" data-ts="1783851685">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/69278b639891db11c668b2662e6e8558563146acb7b26a08f8ec495c27139e67" target="_blank" rel="noopener">69278b…139e67</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip blue">pending</span> <span class="muted">takeback in 30 blocks</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span></td>
+    </tr>
+    <tr>
+      <td class="mono">312840</td>
+      <td class="muted" data-ts="1783851685">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/2e31c94c99d025a510d0d30f79477239b792c158289acec53a0c5e91111a688e" target="_blank" rel="noopener">2e31c9…1a688e</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip blue">pending</span> <span class="muted">takeback in 30 blocks</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span></td>
+    </tr>
+    <tr>
+      <td class="mono">312834</td>
+      <td class="muted" data-ts="1783847529">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/8fd528865cf7397c10026b88e01ef3ca539384ea9b01ce26ec9a845bf50f8000" target="_blank" rel="noopener">8fd528…0f8000</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip blue">pending</span> <span class="muted">takeback in 24 blocks</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span></td>
+    </tr>
+    <tr>
+      <td class="mono">312820</td>
+      <td class="muted" data-ts="1783842952">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/92369043c31adbfd1ada25faf0e7368b00cf5866c2cb895f3ad7de6b791cc824" target="_blank" rel="noopener">923690…1cc824</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/be77e69a9e6bf6428b8b5a7e6abe5dc08751142c840c94294a10cb0bb38e9921" target="_blank" rel="noopener">be77e6…8e9921</a> <span class="muted">· deposit&nbsp;#34</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">not yet minted</span></td>
+    </tr>
+    <tr>
+      <td class="mono">312820</td>
+      <td class="muted" data-ts="1783842952">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/34fcd5f2aa9a4447dcf1fd1790ecb1ea534b331637c7deed0794bdd81eae14a6" target="_blank" rel="noopener">34fcd5…ae14a6</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/fbe1cd453e1ea160416a9a660850bfabb0b5545e5581b00360d06812976ef89a" target="_blank" rel="noopener">fbe1cd…6ef89a</a> <span class="muted">· deposit&nbsp;#33</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f4f46b2e26539c8a04933c347dcc12c7da4abfee"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf4f46b2e26539c8a04933c347dcc12c7da4abfee" target="_blank" rel="noopener">0xf4f46b2e26539c8a04933c347dcc12c7da4abfee</a></span><br><span class="muted">not yet minted</span></td>
+    </tr>
+    <tr>
+      <td class="mono">312813</td>
+      <td class="muted" data-ts="1783836583">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/dae56dc5e8015087c301b148a5edcf2d8dea0f651b9eee4d2c281248eb4d9a78" target="_blank" rel="noopener">dae56d…4d9a78</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/822c8c96ab4ef58bc4d9fed0516a7b9171f06bac490256f447da72972036357c" target="_blank" rel="noopener">822c8c…36357c</a> <span class="muted">· deposit&nbsp;#32</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">not yet minted</span></td>
+    </tr>
+    <tr>
+      <td class="mono">312813</td>
+      <td class="muted" data-ts="1783836583">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/8b4c09ac3d019a26a557eb8d0fd6308cd13a3205d8a7907db8ab03f265045cd4" target="_blank" rel="noopener">8b4c09…045cd4</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/6d08352dd57fc97ec1eb5782981bd5da73b3322ef1dccff31ca81eeb33be230e" target="_blank" rel="noopener">6d0835…be230e</a> <span class="muted">· deposit&nbsp;#31</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">not yet minted</span></td>
+    </tr>
+    <tr>
+      <td class="mono">312813</td>
+      <td class="muted" data-ts="1783836583">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/4f2a5a851bd41e0c7c3c7d5a806e02e86842b01354c499939f13275eb50697f2" target="_blank" rel="noopener">4f2a5a…0697f2</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/8932caafb37eb5f1f2f118a64234ddd704ca4ff007676c01d35cdcaef0e4a701" target="_blank" rel="noopener">8932ca…e4a701</a> <span class="muted">· deposit&nbsp;#30</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">not yet minted</span></td>
+    </tr>
+    <tr>
+      <td class="mono">312732</td>
+      <td class="muted" data-ts="1783788986">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/d41d2571131ce48f9bd240c3435b8ed1847fa3caa500bd407a2654715c353459" target="_blank" rel="noopener">d41d25…353459</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/8f91d08aafc6cc05d63fe0581f4e4d927b9201007d31b2e0f945e61e696093dc" target="_blank" rel="noopener">8f91d0…6093dc</a> <span class="muted">· deposit&nbsp;#27</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/165894" target="_blank" rel="noopener">block 165894</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312732</td>
+      <td class="muted" data-ts="1783788986">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/9f84b11da942baae7b9d50954ec1bd20a5f500ba2a212718dc1433c85e843c28" target="_blank" rel="noopener">9f84b1…843c28</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/7fb82dc0b4859a901a87c8edf4aa0aa1e1cb75df69958b51dc0f5b7670c4684c" target="_blank" rel="noopener">7fb82d…c4684c</a> <span class="muted">· deposit&nbsp;#28</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/165894" target="_blank" rel="noopener">block 165894</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312732</td>
+      <td class="muted" data-ts="1783788986">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/933a1cca3629452e14c22b916740ee5b522360f88e95259c0f2fc462bbb49a39" target="_blank" rel="noopener">933a1c…b49a39</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/d62de8cbedcfeff893cbad065b55a41e53ecb941ffa954f7586fca734e8f0813" target="_blank" rel="noopener">d62de8…8f0813</a> <span class="muted">· deposit&nbsp;#29</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/165894" target="_blank" rel="noopener">block 165894</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312712</td>
+      <td class="muted" data-ts="1783778079">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/83f9586b8ffeb345cd1f6de4e84a671b2003996e41cc641937c7f02caea2acec" target="_blank" rel="noopener">83f958…a2acec</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/e99589f1163df10a002125669dcd900afc313d1d6aef22888d81f659fa3ba38d" target="_blank" rel="noopener">e99589…3ba38d</a> <span class="muted">· deposit&nbsp;#25</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/158696" target="_blank" rel="noopener">block 158696</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312712</td>
+      <td class="muted" data-ts="1783778079">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/24c80c8503b270e9e2e833e3af8165e3b41bee3f5ece3db60515829cdd09ef74" target="_blank" rel="noopener">24c80c…09ef74</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/0b4596a4496952b825220c72aef806aeea118246bff898358bf31d188f417b9c" target="_blank" rel="noopener">0b4596…417b9c</a> <span class="muted">· deposit&nbsp;#26</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/158696" target="_blank" rel="noopener">block 158696</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312706</td>
+      <td class="muted" data-ts="1783772448">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/13b84e6c03fd19ea5fa1ada6fbf2f092def85a45364702753dfd825741a69d8c" target="_blank" rel="noopener">13b84e…a69d8c</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/9d4f05ee9d056cd8705bffa1738ea2edab05f5bd617390ef0f0a055601d218b1" target="_blank" rel="noopener">9d4f05…d218b1</a> <span class="muted">· deposit&nbsp;#24</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/158696" target="_blank" rel="noopener">block 158696</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312622</td>
+      <td class="muted" data-ts="1783716600">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/d33aa9782d523e5dd4593d100ad2b07737c2915575e813167daece50d04c1f5b" target="_blank" rel="noopener">d33aa9…4c1f5b</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/dd4fd2ac7612bb310773d38543e47e23c0c2f1577e06fa1c8edb539fa422aef6" target="_blank" rel="noopener">dd4fd2…22aef6</a> <span class="muted">· deposit&nbsp;#23</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/152217" target="_blank" rel="noopener">block 152217</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312619</td>
+      <td class="muted" data-ts="1783714928">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/b817052ece922e3f0b1ed28d562fb85479a3692a40c5080f27da875e3d93d81b" target="_blank" rel="noopener">b81705…93d81b</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/2dbe40803718bee08344fe3dfaf279de22bb35aae952bfdb512bea71123bc189" target="_blank" rel="noopener">2dbe40…3bc189</a> <span class="muted">· deposit&nbsp;#22</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/152217" target="_blank" rel="noopener">block 152217</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312616</td>
+      <td class="muted" data-ts="1783714212">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/f89c2154ec152e06968def57999ce3e1f4838fc4455818dbc9f43702cdebc498" target="_blank" rel="noopener">f89c21…ebc498</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/8813c08786da34c0fb70d5d9296d09b29eb3c2e019440b756705b1c6a78bc8f0" target="_blank" rel="noopener">8813c0…8bc8f0</a> <span class="muted">· deposit&nbsp;#21</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/152217" target="_blank" rel="noopener">block 152217</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312595</td>
+      <td class="muted" data-ts="1783702480">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/28c743c71ea496d61c2b03463b9cd7dd4b2bccd03b5b2efca52a6f8a1d58fe0e" target="_blank" rel="noopener">28c743…58fe0e</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/b584ba25dcec5e252a004ffd464d897492495c65c370d0cd5348b2e979019a0d" target="_blank" rel="noopener">b584ba…019a0d</a> <span class="muted">· deposit&nbsp;#20</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080260891ed0b6bc3699b47db5132c3e58f83ba36d6"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x260891ed0b6bc3699b47db5132c3e58f83ba36d6" target="_blank" rel="noopener">0x260891ed0b6bc3699b47db5132c3e58f83ba36d6</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312552</td>
+      <td class="muted" data-ts="1783677999">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/dc14037b8b07513c11c7edeabcb3158c11af168b425b7f416a699f6a6ddf0338" target="_blank" rel="noopener">dc1403…df0338</a></td>
+      <td class="mono">1.00001000</td>
+      <td class="verif"><span class="chip gray">invalid (amount; takeback: 6)</span></td>
+      <td><span class="chip orange">taken back</span> <a class="mono" href="https://mempool.space/signet/tx/12576f65b82a08a90dd0538f6190c82b7a72cfd95e32d0cb766bc8a900027c10" target="_blank" rel="noopener">12576f…027c10</a> <span class="muted">via recovery path</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080260891ed0b6bc3699b47db5132c3e58f83ba36d6"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x260891ed0b6bc3699b47db5132c3e58f83ba36d6" target="_blank" rel="noopener">0x260891ed0b6bc3699b47db5132c3e58f83ba36d6</a></span></td>
+    </tr>
+    <tr>
+      <td class="mono">312547</td>
+      <td class="muted" data-ts="1783675627">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/eebfce79aef4a3d3a608f5096cc9a7675b666ed34c31c5c11514a197456b96c7" target="_blank" rel="noopener">eebfce…6b96c7</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/122422ce2f54e9babbae452a878ea6f90817a8be29767482ac57c1df160832b7" target="_blank" rel="noopener">122422…0832b7</a> <span class="muted">· deposit&nbsp;#19</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 008040441fd2c761a65491c25dc6dbd8dc87126ac36c"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x40441fd2c761a65491c25dc6dbd8dc87126ac36c" target="_blank" rel="noopener">0x40441fd2c761a65491c25dc6dbd8dc87126ac36c</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312547</td>
+      <td class="muted" data-ts="1783675627">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/d56f76fc41aa263b64bf6253662360cbf8ee537818abd5f348fa41fcdce4aea8" target="_blank" rel="noopener">d56f76…e4aea8</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/7ef80f2443811e893919c5495227edc0a6c4dd75aaed892bd10ad6bb0de4e755" target="_blank" rel="noopener">7ef80f…e4e755</a> <span class="muted">· deposit&nbsp;#16</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 008040441fd2c761a65491c25dc6dbd8dc87126ac36c"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x40441fd2c761a65491c25dc6dbd8dc87126ac36c" target="_blank" rel="noopener">0x40441fd2c761a65491c25dc6dbd8dc87126ac36c</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312547</td>
+      <td class="muted" data-ts="1783675627">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/c5a5a92e0d2160206b80719c71aea85d805fdf8b4887b33ace35e3d67b19ad81" target="_blank" rel="noopener">c5a5a9…19ad81</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/22569383c19aea17b85a348b34ceb61fcc54e9a34b6fb9d319a58948bc02899b" target="_blank" rel="noopener">225693…02899b</a> <span class="muted">· deposit&nbsp;#18</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 008040441fd2c761a65491c25dc6dbd8dc87126ac36c"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x40441fd2c761a65491c25dc6dbd8dc87126ac36c" target="_blank" rel="noopener">0x40441fd2c761a65491c25dc6dbd8dc87126ac36c</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312547</td>
+      <td class="muted" data-ts="1783675627">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/b494ea75297ebad0f68232100ad2a8771407b15ed2cd5add096737df18161e56" target="_blank" rel="noopener">b494ea…161e56</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/6660c721aaeb2f51df7f454d59520739e08243603a66e6ae1292562323dded9b" target="_blank" rel="noopener">6660c7…dded9b</a> <span class="muted">· deposit&nbsp;#17</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 008040441fd2c761a65491c25dc6dbd8dc87126ac36c"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x40441fd2c761a65491c25dc6dbd8dc87126ac36c" target="_blank" rel="noopener">0x40441fd2c761a65491c25dc6dbd8dc87126ac36c</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312547</td>
+      <td class="muted" data-ts="1783675627">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/00547cf72068f79bbb4c70c97ff142af567b1d1d86489072ad8a2e806b065dc5" target="_blank" rel="noopener">00547c…065dc5</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/cab0056efab42127a4b5a9cec8f8a02ee87f4c974f4b1eebc084eceb276160c3" target="_blank" rel="noopener">cab005…6160c3</a> <span class="muted">· deposit&nbsp;#15</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 008040441fd2c761a65491c25dc6dbd8dc87126ac36c"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x40441fd2c761a65491c25dc6dbd8dc87126ac36c" target="_blank" rel="noopener">0x40441fd2c761a65491c25dc6dbd8dc87126ac36c</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312544</td>
+      <td class="muted" data-ts="1783673761">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/c799adec71db2262e55f904fabad77bd573ccc637c58976d70bd7507e255d3de" target="_blank" rel="noopener">c799ad…55d3de</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/8a77966535c1588096c48cdc8b662c901116ffcd5092de449a2d49e84dd60f09" target="_blank" rel="noopener">8a7796…d60f09</a> <span class="muted">· deposit&nbsp;#12</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312544</td>
+      <td class="muted" data-ts="1783673761">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/337ebd3d4a0ef55b723f28f1f66c325ea700a597592855b6b7225cc55c443b03" target="_blank" rel="noopener">337ebd…443b03</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/c7b18e1ec8a18cef6e13d2017d82c4a9234b64838733c67a7d618afdc0af05ae" target="_blank" rel="noopener">c7b18e…af05ae</a> <span class="muted">· deposit&nbsp;#14</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312544</td>
+      <td class="muted" data-ts="1783673761">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/310ff51e531a9a0d91c66e73474823a388a76ff38762e651234949702823ef3c" target="_blank" rel="noopener">310ff5…23ef3c</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/67add8d3793c31ca7233a48bcb5a1ab298ccf3f68e28b448e072069a3fb14406" target="_blank" rel="noopener">67add8…b14406</a> <span class="muted">· deposit&nbsp;#13</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312542</td>
+      <td class="muted" data-ts="1783672287">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/2c78d9907e4cdb00ce8924592deed825972034259890e62b2cb4433e93df7755" target="_blank" rel="noopener">2c78d9…df7755</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/b0b73106ca40de2086d5645128b209f699ecf56ce85af76ea16656a8183498ca" target="_blank" rel="noopener">b0b731…3498ca</a> <span class="muted">· deposit&nbsp;#11</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312542</td>
+      <td class="muted" data-ts="1783672287">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/1d8b904c5a59344c524268801e0881fb58a0f512896ba398cb5dd3980219b82a" target="_blank" rel="noopener">1d8b90…19b82a</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/e6ab4199640cf297d32c3c81f3d49afdf5a7aa5e62f314c55c2e0f5d16a645a6" target="_blank" rel="noopener">e6ab41…a645a6</a> <span class="muted">· deposit&nbsp;#10</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener">block 144299</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312382</td>
+      <td class="muted" data-ts="1783572214">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/f2f81babb29c6286d79c500f6fe0ef2ccacd3c7e1c4596604c7dc4d0b16cfa29" target="_blank" rel="noopener">f2f81b…6cfa29</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/51afa38027265514db4865283f57470277df878fcbe061d010ec64acebba6189" target="_blank" rel="noopener">51afa3…ba6189</a> <span class="muted">· deposit&nbsp;#9</span><br><span class="muted">UTXO: spent by</span> <a class="mono" href="https://mempool.space/signet/tx/cfb8a131dbae0505fb04399809ae855919eb9519a884a7d7ca003592d9745f2d" target="_blank" rel="noopener">cfb8a1…745f2d</a></td>
+      <td class="mono"><span class="dest" title="raw: 00803c0988989387d25c7875f218f10411d280340942"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x3c0988989387d25c7875f218f10411d280340942" target="_blank" rel="noopener">0x3c0988989387d25c7875f218f10411d280340942</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/123446" target="_blank" rel="noopener">block 123446</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312308</td>
+      <td class="muted" data-ts="1783531032">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/9da22311a1750ca3fe37f57adf6f4152df98c5c096e7681610ca74edcc0fa935" target="_blank" rel="noopener">9da223…0fa935</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/0b4a3444459fca28ea2946846902a68cd6cfc1214530e973f6f2abf575a6ae65" target="_blank" rel="noopener">0b4a34…a6ae65</a> <span class="muted">· deposit&nbsp;#8</span><br><span class="muted">UTXO: spent by</span> <a class="mono" href="https://mempool.space/signet/tx/923c22edbc776a4ae083910b4cd56fccac72558c4653357249b1115f0d26ea34" target="_blank" rel="noopener">923c22…26ea34</a></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/115528" target="_blank" rel="noopener">block 115528</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312307</td>
+      <td class="muted" data-ts="1783529232">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/b34e916c25341da3395102fbebd8e00ba72dfae2cd1d47eecea439bde3f8cacc" target="_blank" rel="noopener">b34e91…f8cacc</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/80e7b00c97ceeec9d1eb407df1ac286dc003bba235b4e031db64a9c8cf0493ad" target="_blank" rel="noopener">80e7b0…0493ad</a> <span class="muted">· deposit&nbsp;#7</span><br><span class="muted">UTXO: spent by</span> <a class="mono" href="https://mempool.space/signet/tx/de35026f63ab9d15435b956357cf1861764b65cff41145db7c9c86a1a6885295" target="_blank" rel="noopener">de3502…885295</a></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/115528" target="_blank" rel="noopener">block 115528</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312296</td>
+      <td class="muted" data-ts="1783521521">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/8be9134d6efc6a5adf2904db60f9b5cd6bbbf7d8ef3f4b4774488ce9d257badc" target="_blank" rel="noopener">8be913…57badc</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/53ab7c9c8c1783d1908844d9f2c694190be5b6a42689db14f7854e3bf1848e21" target="_blank" rel="noopener">53ab7c…848e21</a> <span class="muted">· deposit&nbsp;#6</span><br><span class="muted">UTXO: spent by</span> <a class="mono" href="https://mempool.space/signet/tx/04364d31ceab4cdc5fb386da401620865b90cec39bc59c279e9034f76aa3ac45" target="_blank" rel="noopener">04364d…a3ac45</a></td>
+      <td class="mono"><span class="dest" title="raw: 00809f39346a2c31b0c984bd9503d7dc136971651815"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x9f39346a2c31b0c984bd9503d7dc136971651815" target="_blank" rel="noopener">0x9f39346a2c31b0c984bd9503d7dc136971651815</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/108330" target="_blank" rel="noopener">block 108330</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312238</td>
+      <td class="muted" data-ts="1783489186">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/146e031d0cba5cd386243d6cb80d785e1a52d59ec9bc7d7bcda053bd35fc9919" target="_blank" rel="noopener">146e03…fc9919</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/e9bd09191220a2a37b93e01e062dc62b673d48aafdefa1ff83b660790ab48c06" target="_blank" rel="noopener">e9bd09…b48c06</a> <span class="muted">· deposit&nbsp;#5</span><br><span class="muted">UTXO: spent by</span> <a class="mono" href="https://mempool.space/signet/tx/609cafedf5e3f62f3530bd39d09523585f987a29643f900bc8e84130756e379d" target="_blank" rel="noopener">609caf…6e379d</a></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/101131" target="_blank" rel="noopener">block 101131</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312141</td>
+      <td class="muted" data-ts="1783428534">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/fbdfec4834f7a6ee7683bc1640788097d697341aeace350e1b0eda9e22b5953c" target="_blank" rel="noopener">fbdfec…b5953c</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/3d1ff5938591c94dc6c8c6afcf924fbc975a76806a9010d052d703f2d54995dd" target="_blank" rel="noopener">3d1ff5…4995dd</a> <span class="muted">· deposit&nbsp;#4</span><br><span class="muted">UTXO: spent by</span> <a class="mono" href="https://mempool.space/signet/tx/c32cc95b7dfbe278901e34e167debd096cf9f58dca2c61a52984fb6d03f1b4c8" target="_blank" rel="noopener">c32cc9…f1b4c8</a></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/94653" target="_blank" rel="noopener">block 94653</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312141</td>
+      <td class="muted" data-ts="1783428534">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/f50594aceae1eb3956712f2dd2def19e3cae748064c29969c6dac859cc4e1977" target="_blank" rel="noopener">f50594…4e1977</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/d2e2c4eba666ccf088e59eaf955201dff21c17879a266949d2e4fb80d19f8e6a" target="_blank" rel="noopener">d2e2c4…9f8e6a</a> <span class="muted">· deposit&nbsp;#3</span><br><span class="muted">UTXO: spent by</span> <a class="mono" href="https://mempool.space/signet/tx/31b5c5c37f3e70554f9ff9129807a2f944b3fcd15702b1231e10af1736ada63c" target="_blank" rel="noopener">31b5c5…ada63c</a></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/94653" target="_blank" rel="noopener">block 94653</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312125</td>
+      <td class="muted" data-ts="1783419107">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/9233bd2701107a60d287ab0c51c431f69093a995fdca47f0fdd9cd2546459b3a" target="_blank" rel="noopener">9233bd…459b3a</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/d50b0663629825769221c1dc038bbe77b325504ccd0bee78447f39c971defee0" target="_blank" rel="noopener">d50b06…defee0</a> <span class="muted">· deposit&nbsp;#2</span><br><span class="muted">UTXO: spent by</span> <a class="mono" href="https://mempool.space/signet/tx/ac11908f81d159062f853d6c53b144417a31319b18dbfc360914aaeefaac81aa" target="_blank" rel="noopener">ac1190…ac81aa</a></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/94653" target="_blank" rel="noopener">block 94653</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312123</td>
+      <td class="muted" data-ts="1783418953">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/6b7a5b392122181705076ea6209f5cdb91c338970620269d24e9f28409c4a5f2" target="_blank" rel="noopener">6b7a5b…c4a5f2</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/e0508f1d3937d497499dec7e98ca6f824679b0e395e455208a04068bf3ac9a21" target="_blank" rel="noopener">e0508f…ac9a21</a> <span class="muted">· deposit&nbsp;#1</span><br><span class="muted">UTXO: spent by</span> <a class="mono" href="https://mempool.space/signet/tx/6d68d52b520553c3e4f052182111a9772c167b61c3c798a690d84f889f520fb0" target="_blank" rel="noopener">6d68d5…520fb0</a></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/94653" target="_blank" rel="noopener">block 94653</a></td>
+    </tr>
+    <tr>
+      <td class="mono">312123</td>
+      <td class="muted" data-ts="1783418953">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/5ab70fd92ece36ca489a313903f07a54cfcf66c90e006f6b22240c372107bee5" target="_blank" rel="noopener">5ab70f…07bee5</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/88575b39205f1a8635794fefecf43bf29a69b7481df649991fb5f47fd1ec5d50" target="_blank" rel="noopener">88575b…ec5d50</a> <span class="muted">· deposit&nbsp;#0</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/94653" target="_blank" rel="noopener">block 94653</a></td>
+    </tr>
+    <tr>
+      <td class="mono">311567</td>
+      <td class="muted" data-ts="1783096443">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/47836920b5a16ed98d86acae6362aadfa7b8bdb063f1703bf191bc811778d6c8" target="_blank" rel="noopener">478369…78d6c8</a></td>
+      <td class="mono">0.00002000</td>
+      <td class="verif"><span class="chip gray">invalid (amount)</span></td>
+      <td><span class="chip orange">taken back</span> <a class="mono" href="https://mempool.space/signet/tx/ff755b29f60f15e87c0f79dc9e867f27a96c815401d6e7292c36848ec549fc05" target="_blank" rel="noopener">ff755b…49fc05</a> <span class="muted">via recovery path</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span></td>
+    </tr>
+    <tr>
+      <td class="mono">311520</td>
+      <td class="muted" data-ts="1783072029">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/eba931c6a63b5c294810a7e72d1749c5a359eb113758f18a51263dac6fcee33d" target="_blank" rel="noopener">eba931…cee33d</a></td>
+      <td class="mono">0.00002000</td>
+      <td class="verif"><span class="chip gray">invalid (amount; takeback: 6)</span></td>
+      <td><span class="chip orange">taken back</span> <a class="mono" href="https://mempool.space/signet/tx/b241d52ed921028fb9b7016809a386a305c2b649582e1518fd06ab454bd7098e" target="_blank" rel="noopener">b241d5…d7098e</a> <span class="muted">via recovery path</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span></td>
+    </tr>
+    <tr>
+      <td class="mono">311520</td>
+      <td class="muted" data-ts="1783072029">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/5afaeac2952a07fef3ddb91c846742ee97b2be1183b9753668772f410860317c" target="_blank" rel="noopener">5afaea…60317c</a></td>
+      <td class="mono">0.00003000</td>
+      <td class="verif"><span class="chip gray">invalid (script)</span></td>
+      <td><span class="chip orange">taken back</span> <a class="mono" href="https://mempool.space/signet/tx/d54b8ea2202cf3047e2faeee4791d4591b713399ea78f48882e9dc04e50dc028" target="_blank" rel="noopener">d54b8e…0dc028</a> <span class="muted">via recovery path</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span></td>
+    </tr>
+
+  </tbody>
+</table>
+
+
+</div>
+<div id="tab-withdrawals" style="display:none">
+<div class="cards">
+  <div class="card"><div class="num">8</div><div class="lbl">withdrawal requests</div></div>
+  <div class="card"><div class="num">12</div><div class="lbl">lots</div></div>
+  <div class="card"><div class="num">10</div><div class="lbl">fulfilled</div></div>
+  <div class="card"><div class="num">0</div><div class="lbl">delayed</div></div>
+  <div class="card"><div class="num">1</div><div class="lbl">open claims</div></div>
+  <div class="card"><div class="num">20.0</div><div class="lbl">BTC withdrawn</div></div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>EE block</th><th>Time</th><th>WRT</th><th>Amount</th><th>Destination</th>
+      <th>Operator pref.</th><th>Deposits</th><th>Status</th><th>Payout</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">169747</td>
+      <td class="muted" data-ts="1783855964">…</td>
+      <td><a class="mono" href="https://explorer.testnet.alpen.org/tx/0x974d323b5e3b8532fd36660d5f5e1a6332b1a1cf9af2215a43052b3786d36f3e" target="_blank" rel="noopener">0x974d…d36f3e</a></td>
+      <td class="mono">2.00 BTC (1 lot)</td>
+      <td class="mono"><span class="dest" title="bosd: 0426f2afce76fbdfab4fe8ead8b899beb5dd360ebf33ac1e318a736ee47d12cfdc"><a class="mono" href="https://mempool.space/signet/address/tb1pyme2lnnkl006knlgatvt3xd7khwnvr4lxwkpuvv2wdhwglgjelwq2f34dk" target="_blank" rel="noopener">tb1pyme2lnnkl006knlgatvt3xd7khwnvr4lxwkpuvv2wdhwglgjelwq2f34dk</a></span></td>
+      <td><span class="chip gray" title="selected operator index 77 is not in the operator set; the protocol ignores it and assigns randomly, as if no preference was given">op #77 (→ any)</span></td>
+      <td><span class="mono"><span title="assumed — not yet confirmed by a fulfillment">#11</span></span></td>
+      <td><span class="chip blue">requested</span> <span class="muted">(<span data-age="1783855964">…</span>)</span></td>
+      <td><span class="muted">in bridge</span></td>
+    </tr>
+    <tr>
+      <td class="mono">166177</td>
+      <td class="muted" data-ts="1783838110">…</td>
+      <td><a class="mono" href="https://explorer.testnet.alpen.org/tx/0x2c4a689e6da224b7b56215f2f6adbb452bfc5a79c983660ab49eed0bd6a420ea" target="_blank" rel="noopener">0x2c4a…a420ea</a></td>
+      <td class="mono">2.00 BTC (1 lot)</td>
+      <td class="mono"><span class="dest" title="bosd: 049cc228c39f929da816dbdb8d08c9fcf538935adde17804d21e00ba480d337eed"><a class="mono" href="https://mempool.space/signet/address/tb1pnnpz3sulj2w6s9kmmwxs3j0u75ufxkkau9uqf5s7qzaysrfn0mkswkfz8n" target="_blank" rel="noopener">tb1pnnpz3sulj2w6s9kmmwxs3j0u75ufxkkau9uqf5s7qzaysrfn0mkswkfz8n</a></span></td>
+      <td><span class="muted">any</span></td>
+      <td><span class="mono"><span title="assumed — not yet confirmed by a fulfillment">#10</span></span></td>
+      <td><span class="chip blue">requested</span> <span class="muted">(<span data-age="1783838110">…</span>)</span></td>
+      <td><span class="muted">in bridge</span></td>
+    </tr>
+    <tr>
+      <td class="mono">160205</td>
+      <td class="muted" data-ts="1783808243">…</td>
+      <td><a class="mono" href="https://explorer.testnet.alpen.org/tx/0x81d75bc6857b3f06957a86f5317dbb3459dad3e4c2c663fa796fdcc70de76afc" target="_blank" rel="noopener">0x81d7…e76afc</a></td>
+      <td class="mono">2.00 BTC (1 lot)</td>
+      <td class="mono"><span class="dest" title="bosd: 04403d1a0f2a4b9171bad7be6b1429d0ed1d7de031ec868cf5f3503435b4720a5e"><a class="mono" href="https://mempool.space/signet/address/tb1pgq735re2fwghrwkhhe43g2wsa5whmcp3ajrgea0n2q6rtdrjpf0q8gqtj8" target="_blank" rel="noopener">tb1pgq735re2fwghrwkhhe43g2wsa5whmcp3ajrgea0n2q6rtdrjpf0q8gqtj8</a></span></td>
+      <td><span class="chip blue">Alpen op-3</span></td>
+      <td><span class="mono">#9</span></td>
+      <td><span class="chip green">fulfilled by Alpen op-3</span> <a class="mono" href="https://mempool.space/signet/tx/b06d64f2811ed2ea9ac58f573f5c5bf6ef83191ff67a60bb20e916d3c3a1f63f" target="_blank" rel="noopener">b06d64…a1f63f</a></td>
+      <td><span class="chip green">paid — cooperative</span> <span class="muted">→ Alpen op-3</span> <a class="mono" href="https://mempool.space/signet/tx/cfb8a131dbae0505fb04399809ae855919eb9519a884a7d7ca003592d9745f2d" target="_blank" rel="noopener">cfb8a1…745f2d</a></td>
+    </tr>
+    <tr>
+      <td class="mono">158124</td>
+      <td class="muted" data-ts="1783797836">…</td>
+      <td><a class="mono" href="https://explorer.testnet.alpen.org/tx/0x7044e0e1c93f68f95c11cf67380ce70842139bec4249f1609953415d0a483c05" target="_blank" rel="noopener">0x7044…483c05</a></td>
+      <td class="mono">4.00 BTC (2 lots)</td>
+      <td class="mono"><span class="dest" title="bosd: 04592f47bc4dd5ec4cea4db28a642010962b60e9cf4726e852c1164eff83995481"><a class="mono" href="https://mempool.space/signet/address/tb1ptyh500zd6hkye6jdk29xggqsjc4kp6w0gunws5kpze80lque2jqsejhjay" target="_blank" rel="noopener">tb1ptyh500zd6hkye6jdk29xggqsjc4kp6w0gunws5kpze80lque2jqsejhjay</a></span></td>
+      <td><span class="muted">any</span></td>
+      <td><span class="mono">#7, #8</span></td>
+      <td><span class="chip green">2/2 fulfilled</span><details class="lots"><summary>lots</summary><div class="lotline"><span class="muted">lot 1</span> <span class="chip green">fulfilled by Stakely</span> <a class="mono" href="https://mempool.space/signet/tx/f7ad84de5896f1062c7da4fd679c7348057d456e93440e871d939973b7d91408" target="_blank" rel="noopener">f7ad84…d91408</a></div><div class="lotline"><span class="muted">lot 2</span> <span class="chip green">fulfilled by Chainflow</span> <a class="mono" href="https://mempool.space/signet/tx/7a78833af4d138e4a18d9f2dcac6ff3736769318c61c22efef08382188b11a42" target="_blank" rel="noopener">7a7883…b11a42</a></div></details></td>
+      <td><span class="muted">2/2 paid</span><details class="lots"><summary>lots</summary><div class="lotline"><span class="muted">lot 1</span> <span class="chip green">paid — cooperative</span> <span class="muted">→ Stakely</span> <a class="mono" href="https://mempool.space/signet/tx/de35026f63ab9d15435b956357cf1861764b65cff41145db7c9c86a1a6885295" target="_blank" rel="noopener">de3502…885295</a></div><div class="lotline"><span class="muted">lot 2</span> <span class="chip green">paid — cooperative</span> <span class="muted">→ Chainflow</span> <a class="mono" href="https://mempool.space/signet/tx/923c22edbc776a4ae083910b4cd56fccac72558c4653357249b1115f0d26ea34" target="_blank" rel="noopener">923c22…26ea34</a></div></details></td>
+    </tr>
+    <tr>
+      <td class="mono">141101</td>
+      <td class="muted" data-ts="1783712701">…</td>
+      <td><a class="mono" href="https://explorer.testnet.alpen.org/tx/0x4cf39344b7ae5ea9dad7b5f566992bcebdfa46392438dbc58c7628c54a140d0a" target="_blank" rel="noopener">0x4cf3…140d0a</a></td>
+      <td class="mono">2.00 BTC (1 lot)</td>
+      <td class="mono"><span class="dest" title="bosd: 0483d08f12a40d44530a20b31441b09ab595f7b9937c8111734c2ac50ab5c8acf5"><a class="mono" href="https://mempool.space/signet/address/tb1ps0gg7y4yp4z9xz3qkv2yrvy6kk2l0wvn0jq3zu6v9tzs4dwg4n6s53p4qp" target="_blank" rel="noopener">tb1ps0gg7y4yp4z9xz3qkv2yrvy6kk2l0wvn0jq3zu6v9tzs4dwg4n6s53p4qp</a></span></td>
+      <td><span class="muted">any</span></td>
+      <td><span class="mono">#6</span></td>
+      <td><span class="chip green">fulfilled by Alpen op-1</span> <a class="mono" href="https://mempool.space/signet/tx/6f5c007b59b78bf112da99513c6acfddc84fd9600421bbd6ce9b2efb13ab58a9" target="_blank" rel="noopener">6f5c00…ab58a9</a></td>
+      <td><span class="chip green">paid — cooperative</span> <span class="muted">→ Alpen op-1</span> <a class="mono" href="https://mempool.space/signet/tx/04364d31ceab4cdc5fb386da401620865b90cec39bc59c279e9034f76aa3ac45" target="_blank" rel="noopener">04364d…a3ac45</a></td>
+    </tr>
+    <tr>
+      <td class="mono">124372</td>
+      <td class="muted" data-ts="1783628923">…</td>
+      <td><a class="mono" href="https://explorer.testnet.alpen.org/tx/0xf38c6d3107ff2a7390665ac86176477f68b51866797277b5e5927ab36cdcd1ef" target="_blank" rel="noopener">0xf38c…dcd1ef</a></td>
+      <td class="mono">6.00 BTC (3 lots)</td>
+      <td class="mono"><span class="dest" title="bosd: 04180a3a8442f06a405990ac453cb25331f63a875ffed5e626cadfe2da36c9d8cf"><a class="mono" href="https://mempool.space/signet/address/tb1prq9r4pzz7p4yqkvs43znevjnx8mr4p6llm27vfk2ml3d5dkfmr8sqxt89u" target="_blank" rel="noopener">tb1prq9r4pzz7p4yqkvs43znevjnx8mr4p6llm27vfk2ml3d5dkfmr8sqxt89u</a></span></td>
+      <td><span class="muted">any</span></td>
+      <td><span class="mono">#3, #4, #5</span></td>
+      <td><span class="chip green">3/3 fulfilled</span><details class="lots"><summary>lots</summary><div class="lotline"><span class="muted">lot 1</span> <span class="chip green">fulfilled by Stakely</span> <a class="mono" href="https://mempool.space/signet/tx/261c36a22105683214dd68f67860583f4be0558bda23768c4b32b5a8d3d00cd9" target="_blank" rel="noopener">261c36…d00cd9</a></div><div class="lotline"><span class="muted">lot 2</span> <span class="chip green">fulfilled by Chainflow</span> <a class="mono" href="https://mempool.space/signet/tx/9fa85ca55c0da5fb9b28f8595c2ee812357f3fb49d71011134d5ae5b694bfb85" target="_blank" rel="noopener">9fa85c…4bfb85</a></div><div class="lotline"><span class="muted">lot 3</span> <span class="chip green">fulfilled by Chainflow</span> <a class="mono" href="https://mempool.space/signet/tx/09e07787717610ea6c494358ee90f6c56d5b6a0bdba92fc5c0c5595c7fd5aa72" target="_blank" rel="noopener">09e077…d5aa72</a></div></details></td>
+      <td><span class="muted">3/3 paid</span><details class="lots"><summary>lots</summary><div class="lotline"><span class="muted">lot 1</span> <span class="chip green">paid — cooperative</span> <span class="muted">→ Stakely</span> <a class="mono" href="https://mempool.space/signet/tx/31b5c5c37f3e70554f9ff9129807a2f944b3fcd15702b1231e10af1736ada63c" target="_blank" rel="noopener">31b5c5…ada63c</a></div><div class="lotline"><span class="muted">lot 2</span> <span class="chip green">paid — cooperative</span> <span class="muted">→ Chainflow</span> <a class="mono" href="https://mempool.space/signet/tx/c32cc95b7dfbe278901e34e167debd096cf9f58dca2c61a52984fb6d03f1b4c8" target="_blank" rel="noopener">c32cc9…f1b4c8</a></div><div class="lotline"><span class="muted">lot 3</span> <span class="chip green">paid — cooperative</span> <span class="muted">→ Chainflow</span> <a class="mono" href="https://mempool.space/signet/tx/609cafedf5e3f62f3530bd39d09523585f987a29643f900bc8e84130756e379d" target="_blank" rel="noopener">609caf…6e379d</a></div></details></td>
+    </tr>
+    <tr>
+      <td class="mono">102836</td>
+      <td class="muted" data-ts="1783521219">…</td>
+      <td><a class="mono" href="https://explorer.testnet.alpen.org/tx/0xd9dec61d8f1eb61a42b1983a0fe4c66990bd498fca527608e22ef20438a82656" target="_blank" rel="noopener">0xd9de…a82656</a></td>
+      <td class="mono">4.00 BTC (2 lots)</td>
+      <td class="mono"><span class="dest" title="bosd: 049a594ec708e3098bdff8476acc2f5c408037c6979566aebc6fb7e8020af7d259"><a class="mono" href="https://mempool.space/signet/address/tb1pnfv5a3cguvychhlcga4vct6ugzqr035hj4n2a0r0kl5qyzhh6fvsqwsjal" target="_blank" rel="noopener">tb1pnfv5a3cguvychhlcga4vct6ugzqr035hj4n2a0r0kl5qyzhh6fvsqwsjal</a></span></td>
+      <td><span class="muted">any</span></td>
+      <td><span class="mono">#1, #2</span></td>
+      <td><span class="chip green">2/2 fulfilled</span><details class="lots"><summary>lots</summary><div class="lotline"><span class="muted">lot 1</span> <span class="chip green">fulfilled by Alpen op-1</span> <a class="mono" href="https://mempool.space/signet/tx/9cbf99ca43ac13b3b4119252547a6689871a7c24c4393223f271a2ff86fcb83b" target="_blank" rel="noopener">9cbf99…fcb83b</a></div><div class="lotline"><span class="muted">lot 2</span> <span class="chip green">fulfilled by Alpen op-3</span> <a class="mono" href="https://mempool.space/signet/tx/7d1fa75c3647368c2c69da1338c3986aa638433c67075eab1c411bb68793c3df" target="_blank" rel="noopener">7d1fa7…93c3df</a></div></details></td>
+      <td><span class="muted">2/2 paid</span><details class="lots"><summary>lots</summary><div class="lotline"><span class="muted">lot 1</span> <span class="chip green">paid — cooperative</span> <span class="muted">→ Alpen op-1</span> <a class="mono" href="https://mempool.space/signet/tx/6d68d52b520553c3e4f052182111a9772c167b61c3c798a690d84f889f520fb0" target="_blank" rel="noopener">6d68d5…520fb0</a></div><div class="lotline"><span class="muted">lot 2</span> <span class="chip green">paid — cooperative</span> <span class="muted">→ Alpen op-3</span> <a class="mono" href="https://mempool.space/signet/tx/ac11908f81d159062f853d6c53b144417a31319b18dbfc360914aaeefaac81aa" target="_blank" rel="noopener">ac1190…ac81aa</a></div></details></td>
+    </tr>
+    <tr>
+      <td class="mono">96118</td>
+      <td class="muted" data-ts="1783487622">…</td>
+      <td><a class="mono" href="https://explorer.testnet.alpen.org/tx/0xba46e36cd9c2d6e1e306410aaf4375963787b07086a7b1ae4ea540d641e5ff43" target="_blank" rel="noopener">0xba46…e5ff43</a></td>
+      <td class="mono">2.00 BTC (1 lot)</td>
+      <td class="mono"><span class="dest" title="bosd: 0492d27cf0de5e052aa89ffd1c05f7422de112847064f834835d81171619b8359d"><a class="mono" href="https://mempool.space/signet/address/tb1pjtf8eux7tczj42yll5wqta6z9hs39prsvnurfq6asyt3vxdcxkwsr6s7y5" target="_blank" rel="noopener">tb1pjtf8eux7tczj42yll5wqta6z9hs39prsvnurfq6asyt3vxdcxkwsr6s7y5</a></span></td>
+      <td><span class="muted">any</span></td>
+      <td><span class="mono">#0</span></td>
+      <td><span class="chip green">fulfilled by Alpen op-1</span> <a class="mono" href="https://mempool.space/signet/tx/78b7d5e93d2d57c407dd39bc5e1211cdfbb6df93f4c349809a6ed40f0ecaef0b" target="_blank" rel="noopener">78b7d5…caef0b</a></td>
+      <td><span class="muted">in bridge</span></td>
+    </tr>
+
+  </tbody>
+</table>
+
+<h2>Open claims</h2>
+<table>
+  <thead><tr><th>Height</th><th>Time</th><th>Claim</th><th>Operator</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">312436</td><td class="muted" data-ts="1783605151">…</td><td><a class="mono" href="https://mempool.space/signet/tx/4e4e72033660d66398ed06ed3d064dbb692d536e828793b13d95497a15d9f4b2" target="_blank" rel="noopener">4e4e72…d9f4b2</a></td><td><span class="chip blue">Alpen op-1</span></td></tr>
+
+  </tbody>
+</table>
+
+
+</div>
+<div id="tab-flow" style="display:none">
+<div class="cards">
+  <div class="card"><div class="num">35</div><div class="lbl">deposit slots</div></div>
+  <div class="card"><div class="num">26</div><div class="lbl">in bridge</div></div>
+  <div class="card"><div class="num">9</div><div class="lbl">withdrawn</div></div>
+  <div class="card"><div class="num">52.0</div><div class="lbl">BTC in bridge</div></div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th><th>Deposit</th><th>Minted</th><th>UTXO</th>
+      <th>Payout</th><th>Withdrawal</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">34</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/92369043c31adbfd1ada25faf0e7368b00cf5866c2cb895f3ad7de6b791cc824" target="_blank" rel="noopener">923690…1cc824</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/be77e69a9e6bf6428b8b5a7e6abe5dc08751142c840c94294a10cb0bb38e9921" target="_blank" rel="noopener">be77e6…8e9921</a></td>
+      <td class="mono"><span class="muted">—</span></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">33</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/34fcd5f2aa9a4447dcf1fd1790ecb1ea534b331637c7deed0794bdd81eae14a6" target="_blank" rel="noopener">34fcd5…ae14a6</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/fbe1cd453e1ea160416a9a660850bfabb0b5545e5581b00360d06812976ef89a" target="_blank" rel="noopener">fbe1cd…6ef89a</a></td>
+      <td class="mono"><span class="muted">—</span></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">32</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/dae56dc5e8015087c301b148a5edcf2d8dea0f651b9eee4d2c281248eb4d9a78" target="_blank" rel="noopener">dae56d…4d9a78</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/822c8c96ab4ef58bc4d9fed0516a7b9171f06bac490256f447da72972036357c" target="_blank" rel="noopener">822c8c…36357c</a></td>
+      <td class="mono"><span class="muted">—</span></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">31</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/8b4c09ac3d019a26a557eb8d0fd6308cd13a3205d8a7907db8ab03f265045cd4" target="_blank" rel="noopener">8b4c09…045cd4</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/6d08352dd57fc97ec1eb5782981bd5da73b3322ef1dccff31ca81eeb33be230e" target="_blank" rel="noopener">6d0835…be230e</a></td>
+      <td class="mono"><span class="muted">—</span></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">30</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/4f2a5a851bd41e0c7c3c7d5a806e02e86842b01354c499939f13275eb50697f2" target="_blank" rel="noopener">4f2a5a…0697f2</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/8932caafb37eb5f1f2f118a64234ddd704ca4ff007676c01d35cdcaef0e4a701" target="_blank" rel="noopener">8932ca…e4a701</a></td>
+      <td class="mono"><span class="muted">—</span></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">29</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/933a1cca3629452e14c22b916740ee5b522360f88e95259c0f2fc462bbb49a39" target="_blank" rel="noopener">933a1c…b49a39</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/d62de8cbedcfeff893cbad065b55a41e53ecb941ffa954f7586fca734e8f0813" target="_blank" rel="noopener">d62de8…8f0813</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/165894" target="_blank" rel="noopener" title="minted to 0x9f39346a2c31b0c984bd9503d7dc136971651815">block 165894</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">28</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/9f84b11da942baae7b9d50954ec1bd20a5f500ba2a212718dc1433c85e843c28" target="_blank" rel="noopener">9f84b1…843c28</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/7fb82dc0b4859a901a87c8edf4aa0aa1e1cb75df69958b51dc0f5b7670c4684c" target="_blank" rel="noopener">7fb82d…c4684c</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/165894" target="_blank" rel="noopener" title="minted to 0x9f39346a2c31b0c984bd9503d7dc136971651815">block 165894</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">27</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/d41d2571131ce48f9bd240c3435b8ed1847fa3caa500bd407a2654715c353459" target="_blank" rel="noopener">d41d25…353459</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/8f91d08aafc6cc05d63fe0581f4e4d927b9201007d31b2e0f945e61e696093dc" target="_blank" rel="noopener">8f91d0…6093dc</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/165894" target="_blank" rel="noopener" title="minted to 0x9f39346a2c31b0c984bd9503d7dc136971651815">block 165894</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">26</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/24c80c8503b270e9e2e833e3af8165e3b41bee3f5ece3db60515829cdd09ef74" target="_blank" rel="noopener">24c80c…09ef74</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/0b4596a4496952b825220c72aef806aeea118246bff898358bf31d188f417b9c" target="_blank" rel="noopener">0b4596…417b9c</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/158696" target="_blank" rel="noopener" title="minted to 0x9f39346a2c31b0c984bd9503d7dc136971651815">block 158696</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">25</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/83f9586b8ffeb345cd1f6de4e84a671b2003996e41cc641937c7f02caea2acec" target="_blank" rel="noopener">83f958…a2acec</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/e99589f1163df10a002125669dcd900afc313d1d6aef22888d81f659fa3ba38d" target="_blank" rel="noopener">e99589…3ba38d</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/158696" target="_blank" rel="noopener" title="minted to 0x9f39346a2c31b0c984bd9503d7dc136971651815">block 158696</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">24</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/13b84e6c03fd19ea5fa1ada6fbf2f092def85a45364702753dfd825741a69d8c" target="_blank" rel="noopener">13b84e…a69d8c</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/9d4f05ee9d056cd8705bffa1738ea2edab05f5bd617390ef0f0a055601d218b1" target="_blank" rel="noopener">9d4f05…d218b1</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/158696" target="_blank" rel="noopener" title="minted to 0x9f39346a2c31b0c984bd9503d7dc136971651815">block 158696</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">23</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/d33aa9782d523e5dd4593d100ad2b07737c2915575e813167daece50d04c1f5b" target="_blank" rel="noopener">d33aa9…4c1f5b</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/dd4fd2ac7612bb310773d38543e47e23c0c2f1577e06fa1c8edb539fa422aef6" target="_blank" rel="noopener">dd4fd2…22aef6</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/152217" target="_blank" rel="noopener" title="minted to 0x9f39346a2c31b0c984bd9503d7dc136971651815">block 152217</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">22</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/b817052ece922e3f0b1ed28d562fb85479a3692a40c5080f27da875e3d93d81b" target="_blank" rel="noopener">b81705…93d81b</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/2dbe40803718bee08344fe3dfaf279de22bb35aae952bfdb512bea71123bc189" target="_blank" rel="noopener">2dbe40…3bc189</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/152217" target="_blank" rel="noopener" title="minted to 0x9f39346a2c31b0c984bd9503d7dc136971651815">block 152217</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">21</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/f89c2154ec152e06968def57999ce3e1f4838fc4455818dbc9f43702cdebc498" target="_blank" rel="noopener">f89c21…ebc498</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/8813c08786da34c0fb70d5d9296d09b29eb3c2e019440b756705b1c6a78bc8f0" target="_blank" rel="noopener">8813c0…8bc8f0</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/152217" target="_blank" rel="noopener" title="minted to 0x9f39346a2c31b0c984bd9503d7dc136971651815">block 152217</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">20</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/28c743c71ea496d61c2b03463b9cd7dd4b2bccd03b5b2efca52a6f8a1d58fe0e" target="_blank" rel="noopener">28c743…58fe0e</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/b584ba25dcec5e252a004ffd464d897492495c65c370d0cd5348b2e979019a0d" target="_blank" rel="noopener">b584ba…019a0d</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0x260891ed0b6bc3699b47db5132c3e58f83ba36d6">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">19</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/eebfce79aef4a3d3a608f5096cc9a7675b666ed34c31c5c11514a197456b96c7" target="_blank" rel="noopener">eebfce…6b96c7</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/122422ce2f54e9babbae452a878ea6f90817a8be29767482ac57c1df160832b7" target="_blank" rel="noopener">122422…0832b7</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0x40441fd2c761a65491c25dc6dbd8dc87126ac36c">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">18</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/c5a5a92e0d2160206b80719c71aea85d805fdf8b4887b33ace35e3d67b19ad81" target="_blank" rel="noopener">c5a5a9…19ad81</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/22569383c19aea17b85a348b34ceb61fcc54e9a34b6fb9d319a58948bc02899b" target="_blank" rel="noopener">225693…02899b</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0x40441fd2c761a65491c25dc6dbd8dc87126ac36c">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">17</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/b494ea75297ebad0f68232100ad2a8771407b15ed2cd5add096737df18161e56" target="_blank" rel="noopener">b494ea…161e56</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/6660c721aaeb2f51df7f454d59520739e08243603a66e6ae1292562323dded9b" target="_blank" rel="noopener">6660c7…dded9b</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0x40441fd2c761a65491c25dc6dbd8dc87126ac36c">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">16</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/d56f76fc41aa263b64bf6253662360cbf8ee537818abd5f348fa41fcdce4aea8" target="_blank" rel="noopener">d56f76…e4aea8</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/7ef80f2443811e893919c5495227edc0a6c4dd75aaed892bd10ad6bb0de4e755" target="_blank" rel="noopener">7ef80f…e4e755</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0x40441fd2c761a65491c25dc6dbd8dc87126ac36c">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">15</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/00547cf72068f79bbb4c70c97ff142af567b1d1d86489072ad8a2e806b065dc5" target="_blank" rel="noopener">00547c…065dc5</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/cab0056efab42127a4b5a9cec8f8a02ee87f4c974f4b1eebc084eceb276160c3" target="_blank" rel="noopener">cab005…6160c3</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0x40441fd2c761a65491c25dc6dbd8dc87126ac36c">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">14</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/337ebd3d4a0ef55b723f28f1f66c325ea700a597592855b6b7225cc55c443b03" target="_blank" rel="noopener">337ebd…443b03</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/c7b18e1ec8a18cef6e13d2017d82c4a9234b64838733c67a7d618afdc0af05ae" target="_blank" rel="noopener">c7b18e…af05ae</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">13</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/310ff51e531a9a0d91c66e73474823a388a76ff38762e651234949702823ef3c" target="_blank" rel="noopener">310ff5…23ef3c</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/67add8d3793c31ca7233a48bcb5a1ab298ccf3f68e28b448e072069a3fb14406" target="_blank" rel="noopener">67add8…b14406</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">12</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/c799adec71db2262e55f904fabad77bd573ccc637c58976d70bd7507e255d3de" target="_blank" rel="noopener">c799ad…55d3de</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/8a77966535c1588096c48cdc8b662c901116ffcd5092de449a2d49e84dd60f09" target="_blank" rel="noopener">8a7796…d60f09</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">11</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/2c78d9907e4cdb00ce8924592deed825972034259890e62b2cb4433e93df7755" target="_blank" rel="noopener">2c78d9…df7755</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/b0b73106ca40de2086d5645128b209f699ecf56ce85af76ea16656a8183498ca" target="_blank" rel="noopener">b0b731…3498ca</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0x974d323b5e3b8532fd36660d5f5e1a6332b1a1cf9af2215a43052b3786d36f3e" target="_blank" rel="noopener">0x974d…d36f3e</a></td>
+    </tr>
+    <tr>
+      <td class="mono">10</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/1d8b904c5a59344c524268801e0881fb58a0f512896ba398cb5dd3980219b82a" target="_blank" rel="noopener">1d8b90…19b82a</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/e6ab4199640cf297d32c3c81f3d49afdf5a7aa5e62f314c55c2e0f5d16a645a6" target="_blank" rel="noopener">e6ab41…a645a6</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/144299" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 144299</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0x2c4a689e6da224b7b56215f2f6adbb452bfc5a79c983660ab49eed0bd6a420ea" target="_blank" rel="noopener">0x2c4a…a420ea</a></td>
+    </tr>
+    <tr>
+      <td class="mono">9</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/f2f81babb29c6286d79c500f6fe0ef2ccacd3c7e1c4596604c7dc4d0b16cfa29" target="_blank" rel="noopener">f2f81b…6cfa29</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/51afa38027265514db4865283f57470277df878fcbe061d010ec64acebba6189" target="_blank" rel="noopener">51afa3…ba6189</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/123446" target="_blank" rel="noopener" title="minted to 0x3c0988989387d25c7875f218f10411d280340942">block 123446</a></td>
+      <td><span class="chip gray">withdrawn</span></td>
+      <td><span class="muted" title="cooperative payout to Alpen op-3">payout</span> <a class="mono" href="https://mempool.space/signet/tx/cfb8a131dbae0505fb04399809ae855919eb9519a884a7d7ca003592d9745f2d" target="_blank" rel="noopener">cfb8a1…745f2d</a></td>
+      <td><span class="muted" title="fulfilled by Alpen op-3">WFT</span> <a class="mono" href="https://mempool.space/signet/tx/b06d64f2811ed2ea9ac58f573f5c5bf6ef83191ff67a60bb20e916d3c3a1f63f" target="_blank" rel="noopener">b06d64…a1f63f</a> <span class="muted">← WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0x81d75bc6857b3f06957a86f5317dbb3459dad3e4c2c663fa796fdcc70de76afc" target="_blank" rel="noopener">0x81d7…e76afc</a></td>
+    </tr>
+    <tr>
+      <td class="mono">8</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/9da22311a1750ca3fe37f57adf6f4152df98c5c096e7681610ca74edcc0fa935" target="_blank" rel="noopener">9da223…0fa935</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/0b4a3444459fca28ea2946846902a68cd6cfc1214530e973f6f2abf575a6ae65" target="_blank" rel="noopener">0b4a34…a6ae65</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/115528" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 115528</a></td>
+      <td><span class="chip gray">withdrawn</span></td>
+      <td><span class="muted" title="cooperative payout to Chainflow">payout</span> <a class="mono" href="https://mempool.space/signet/tx/923c22edbc776a4ae083910b4cd56fccac72558c4653357249b1115f0d26ea34" target="_blank" rel="noopener">923c22…26ea34</a></td>
+      <td><span class="muted" title="fulfilled by Chainflow">WFT</span> <a class="mono" href="https://mempool.space/signet/tx/7a78833af4d138e4a18d9f2dcac6ff3736769318c61c22efef08382188b11a42" target="_blank" rel="noopener">7a7883…b11a42</a> <span class="muted">← WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0x7044e0e1c93f68f95c11cf67380ce70842139bec4249f1609953415d0a483c05" target="_blank" rel="noopener">0x7044…483c05</a> <span class="muted">(lot 2/2)</span></td>
+    </tr>
+    <tr>
+      <td class="mono">7</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/b34e916c25341da3395102fbebd8e00ba72dfae2cd1d47eecea439bde3f8cacc" target="_blank" rel="noopener">b34e91…f8cacc</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/80e7b00c97ceeec9d1eb407df1ac286dc003bba235b4e031db64a9c8cf0493ad" target="_blank" rel="noopener">80e7b0…0493ad</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/115528" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 115528</a></td>
+      <td><span class="chip gray">withdrawn</span></td>
+      <td><span class="muted" title="cooperative payout to Stakely">payout</span> <a class="mono" href="https://mempool.space/signet/tx/de35026f63ab9d15435b956357cf1861764b65cff41145db7c9c86a1a6885295" target="_blank" rel="noopener">de3502…885295</a></td>
+      <td><span class="muted" title="fulfilled by Stakely">WFT</span> <a class="mono" href="https://mempool.space/signet/tx/f7ad84de5896f1062c7da4fd679c7348057d456e93440e871d939973b7d91408" target="_blank" rel="noopener">f7ad84…d91408</a> <span class="muted">← WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0x7044e0e1c93f68f95c11cf67380ce70842139bec4249f1609953415d0a483c05" target="_blank" rel="noopener">0x7044…483c05</a> <span class="muted">(lot 1/2)</span></td>
+    </tr>
+    <tr>
+      <td class="mono">6</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/8be9134d6efc6a5adf2904db60f9b5cd6bbbf7d8ef3f4b4774488ce9d257badc" target="_blank" rel="noopener">8be913…57badc</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/53ab7c9c8c1783d1908844d9f2c694190be5b6a42689db14f7854e3bf1848e21" target="_blank" rel="noopener">53ab7c…848e21</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/108330" target="_blank" rel="noopener" title="minted to 0x9f39346a2c31b0c984bd9503d7dc136971651815">block 108330</a></td>
+      <td><span class="chip gray">withdrawn</span></td>
+      <td><span class="muted" title="cooperative payout to Alpen op-1">payout</span> <a class="mono" href="https://mempool.space/signet/tx/04364d31ceab4cdc5fb386da401620865b90cec39bc59c279e9034f76aa3ac45" target="_blank" rel="noopener">04364d…a3ac45</a></td>
+      <td><span class="muted" title="fulfilled by Alpen op-1">WFT</span> <a class="mono" href="https://mempool.space/signet/tx/6f5c007b59b78bf112da99513c6acfddc84fd9600421bbd6ce9b2efb13ab58a9" target="_blank" rel="noopener">6f5c00…ab58a9</a> <span class="muted">← WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0x4cf39344b7ae5ea9dad7b5f566992bcebdfa46392438dbc58c7628c54a140d0a" target="_blank" rel="noopener">0x4cf3…140d0a</a></td>
+    </tr>
+    <tr>
+      <td class="mono">5</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/146e031d0cba5cd386243d6cb80d785e1a52d59ec9bc7d7bcda053bd35fc9919" target="_blank" rel="noopener">146e03…fc9919</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/e9bd09191220a2a37b93e01e062dc62b673d48aafdefa1ff83b660790ab48c06" target="_blank" rel="noopener">e9bd09…b48c06</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/101131" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 101131</a></td>
+      <td><span class="chip gray">withdrawn</span></td>
+      <td><span class="muted" title="cooperative payout to Chainflow">payout</span> <a class="mono" href="https://mempool.space/signet/tx/609cafedf5e3f62f3530bd39d09523585f987a29643f900bc8e84130756e379d" target="_blank" rel="noopener">609caf…6e379d</a></td>
+      <td><span class="muted" title="fulfilled by Chainflow">WFT</span> <a class="mono" href="https://mempool.space/signet/tx/09e07787717610ea6c494358ee90f6c56d5b6a0bdba92fc5c0c5595c7fd5aa72" target="_blank" rel="noopener">09e077…d5aa72</a> <span class="muted">← WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0xf38c6d3107ff2a7390665ac86176477f68b51866797277b5e5927ab36cdcd1ef" target="_blank" rel="noopener">0xf38c…dcd1ef</a> <span class="muted">(lot 3/3)</span></td>
+    </tr>
+    <tr>
+      <td class="mono">4</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/fbdfec4834f7a6ee7683bc1640788097d697341aeace350e1b0eda9e22b5953c" target="_blank" rel="noopener">fbdfec…b5953c</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/3d1ff5938591c94dc6c8c6afcf924fbc975a76806a9010d052d703f2d54995dd" target="_blank" rel="noopener">3d1ff5…4995dd</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/94653" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 94653</a></td>
+      <td><span class="chip gray">withdrawn</span></td>
+      <td><span class="muted" title="cooperative payout to Chainflow">payout</span> <a class="mono" href="https://mempool.space/signet/tx/c32cc95b7dfbe278901e34e167debd096cf9f58dca2c61a52984fb6d03f1b4c8" target="_blank" rel="noopener">c32cc9…f1b4c8</a></td>
+      <td><span class="muted" title="fulfilled by Chainflow">WFT</span> <a class="mono" href="https://mempool.space/signet/tx/9fa85ca55c0da5fb9b28f8595c2ee812357f3fb49d71011134d5ae5b694bfb85" target="_blank" rel="noopener">9fa85c…4bfb85</a> <span class="muted">← WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0xf38c6d3107ff2a7390665ac86176477f68b51866797277b5e5927ab36cdcd1ef" target="_blank" rel="noopener">0xf38c…dcd1ef</a> <span class="muted">(lot 2/3)</span></td>
+    </tr>
+    <tr>
+      <td class="mono">3</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/f50594aceae1eb3956712f2dd2def19e3cae748064c29969c6dac859cc4e1977" target="_blank" rel="noopener">f50594…4e1977</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/d2e2c4eba666ccf088e59eaf955201dff21c17879a266949d2e4fb80d19f8e6a" target="_blank" rel="noopener">d2e2c4…9f8e6a</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/94653" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 94653</a></td>
+      <td><span class="chip gray">withdrawn</span></td>
+      <td><span class="muted" title="cooperative payout to Stakely">payout</span> <a class="mono" href="https://mempool.space/signet/tx/31b5c5c37f3e70554f9ff9129807a2f944b3fcd15702b1231e10af1736ada63c" target="_blank" rel="noopener">31b5c5…ada63c</a></td>
+      <td><span class="muted" title="fulfilled by Stakely">WFT</span> <a class="mono" href="https://mempool.space/signet/tx/261c36a22105683214dd68f67860583f4be0558bda23768c4b32b5a8d3d00cd9" target="_blank" rel="noopener">261c36…d00cd9</a> <span class="muted">← WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0xf38c6d3107ff2a7390665ac86176477f68b51866797277b5e5927ab36cdcd1ef" target="_blank" rel="noopener">0xf38c…dcd1ef</a> <span class="muted">(lot 1/3)</span></td>
+    </tr>
+    <tr>
+      <td class="mono">2</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/9233bd2701107a60d287ab0c51c431f69093a995fdca47f0fdd9cd2546459b3a" target="_blank" rel="noopener">9233bd…459b3a</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/d50b0663629825769221c1dc038bbe77b325504ccd0bee78447f39c971defee0" target="_blank" rel="noopener">d50b06…defee0</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/94653" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 94653</a></td>
+      <td><span class="chip gray">withdrawn</span></td>
+      <td><span class="muted" title="cooperative payout to Alpen op-3">payout</span> <a class="mono" href="https://mempool.space/signet/tx/ac11908f81d159062f853d6c53b144417a31319b18dbfc360914aaeefaac81aa" target="_blank" rel="noopener">ac1190…ac81aa</a></td>
+      <td><span class="muted" title="fulfilled by Alpen op-3">WFT</span> <a class="mono" href="https://mempool.space/signet/tx/7d1fa75c3647368c2c69da1338c3986aa638433c67075eab1c411bb68793c3df" target="_blank" rel="noopener">7d1fa7…93c3df</a> <span class="muted">← WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0xd9dec61d8f1eb61a42b1983a0fe4c66990bd498fca527608e22ef20438a82656" target="_blank" rel="noopener">0xd9de…a82656</a> <span class="muted">(lot 2/2)</span></td>
+    </tr>
+    <tr>
+      <td class="mono">1</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/6b7a5b392122181705076ea6209f5cdb91c338970620269d24e9f28409c4a5f2" target="_blank" rel="noopener">6b7a5b…c4a5f2</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/e0508f1d3937d497499dec7e98ca6f824679b0e395e455208a04068bf3ac9a21" target="_blank" rel="noopener">e0508f…ac9a21</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/94653" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 94653</a></td>
+      <td><span class="chip gray">withdrawn</span></td>
+      <td><span class="muted" title="cooperative payout to Alpen op-1">payout</span> <a class="mono" href="https://mempool.space/signet/tx/6d68d52b520553c3e4f052182111a9772c167b61c3c798a690d84f889f520fb0" target="_blank" rel="noopener">6d68d5…520fb0</a></td>
+      <td><span class="muted" title="fulfilled by Alpen op-1">WFT</span> <a class="mono" href="https://mempool.space/signet/tx/9cbf99ca43ac13b3b4119252547a6689871a7c24c4393223f271a2ff86fcb83b" target="_blank" rel="noopener">9cbf99…fcb83b</a> <span class="muted">← WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0xd9dec61d8f1eb61a42b1983a0fe4c66990bd498fca527608e22ef20438a82656" target="_blank" rel="noopener">0xd9de…a82656</a> <span class="muted">(lot 1/2)</span></td>
+    </tr>
+    <tr>
+      <td class="mono">0</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/5ab70fd92ece36ca489a313903f07a54cfcf66c90e006f6b22240c372107bee5" target="_blank" rel="noopener">5ab70f…07bee5</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/88575b39205f1a8635794fefecf43bf29a69b7481df649991fb5f47fd1ec5d50" target="_blank" rel="noopener">88575b…ec5d50</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/94653" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 94653</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted" title="Open claim — placement inferred, not confirmed. Posted by Alpen op-1 (reserve-wallet funded) at height 312436. Matched by order: this operator's #1 open claim ↔ their #1 unreimbursed fulfillment. Confirmed or corrected when a payout spends this deposit's UTXO.">claim</span> <a class="mono" href="https://mempool.space/signet/tx/4e4e72033660d66398ed06ed3d064dbb692d536e828793b13d95497a15d9f4b2" target="_blank" rel="noopener">4e4e72…d9f4b2</a></td>
+      <td><span class="muted" title="fulfilled by Alpen op-1">WFT</span> <a class="mono" href="https://mempool.space/signet/tx/78b7d5e93d2d57c407dd39bc5e1211cdfbb6df93f4c349809a6ed40f0ecaef0b" target="_blank" rel="noopener">78b7d5…caef0b</a> <span class="muted">← WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0xba46e36cd9c2d6e1e306410aaf4375963787b07086a7b1ae4ea540d641e5ff43" target="_blank" rel="noopener">0xba46…e5ff43</a></td>
+    </tr>
+
+  </tbody>
+</table>
+</div>
+
+<script>
+  for (const el of document.querySelectorAll('[data-ts]')) {
+    const ts = parseInt(el.dataset.ts, 10);
+    if (ts) el.textContent = new Date(ts * 1000).toISOString().replace('T',' ').slice(0, 16) + ' UTC';
+  }
+  // Relative ages, computed at viewing time (see the "generated" stamp for data freshness).
+  for (const el of document.querySelectorAll('[data-age]')) {
+    const ts = parseInt(el.dataset.age, 10);
+    if (!ts) continue;
+    const s = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+    el.textContent = Math.floor(s / 3600) + 'h ago';
+  }
+  for (const tab of document.querySelectorAll('.tab')) {
+    tab.addEventListener('click', () => {
+      for (const t of document.querySelectorAll('.tab')) t.classList.remove('active');
+      tab.classList.add('active');
+      for (const sec of document.querySelectorAll('[id^="tab-"]')) sec.style.display = 'none';
+      document.getElementById('tab-' + tab.dataset.tab).style.display = '';
+    });
+  }
+</script>
+</body>
+</html>
