@@ -108,9 +108,9 @@ strata-asm-worker = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc
 strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm", tag = "v0.3.0-rc.2" }
 
 # Dependencies from alpenlabs/mosaic
-mosaic-common = { git = "https://github.com/alpenlabs/mosaic", tag = "v0.3.0-rc.2" }
-mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", tag = "v0.3.0-rc.2" }
-mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", tag = "v0.3.0-rc.2" }
+mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "c25ae6e4acc71f57d5e05e3a3c977e535d723241" }
+mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "c25ae6e4acc71f57d5e05e3a3c977e535d723241" }
+mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "c25ae6e4acc71f57d5e05e3a3c977e535d723241" }
 
 # Dependencies from alpenlabs/strata-common
 strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.3.0-rc.2" }
