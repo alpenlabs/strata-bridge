@@ -3033,9 +3033,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckt-fmtv5-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/ckt?rev=432cdd11eb5780bbf7edcaad698850deb5b49675#432cdd11eb5780bbf7edcaad698850deb5b49675"
+dependencies = [
+ "blake3",
+ "cynosure 0.4.0",
+ "kanal",
+ "libc",
+ "monoio",
+]
+
+[[package]]
 name = "ckt-gobble"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/ckt?tag=v0.3.0-rc.2#a7462a1d1372f5dbf0519c61b39a2f032898edff"
+dependencies = [
+ "bitvec",
+ "blake3",
+ "rand_chacha 0.10.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "ckt-gobble"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/ckt?rev=432cdd11eb5780bbf7edcaad698850deb5b49675#432cdd11eb5780bbf7edcaad698850deb5b49675"
 dependencies = [
  "bitvec",
  "blake3",
@@ -6786,16 +6809,52 @@ dependencies = [
 [[package]]
 name = "mosaic-adaptor-sigs"
 version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
+dependencies = [
+ "ark-ec",
+ "ark-ff 0.6.0",
+ "ark-secp256k1",
+ "ark-serialize 0.6.0",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
+ "rand 0.8.5",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "mosaic-adaptor-sigs"
+version = "0.1.0"
 source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2#27d619b91cb4d9a19f6f27608e85d57b9c40217e"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
  "ark-secp256k1",
  "ark-serialize 0.6.0",
- "mosaic-common",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "rand 0.8.5",
  "sha2 0.11.0",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "mosaic-cac-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
+dependencies = [
+ "ark-ec",
+ "ark-ff 0.6.0",
+ "ark-secp256k1",
+ "ark-serialize 0.6.0",
+ "fasm",
+ "futures",
+ "hex",
+ "mosaic-adaptor-sigs 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
+ "mosaic-heap-array 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
+ "mosaic-net-svc-api 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
+ "mosaic-vs3 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
+ "rand 0.8.5",
+ "serde",
 ]
 
 [[package]]
@@ -6810,12 +6869,21 @@ dependencies = [
  "fasm",
  "futures",
  "hex",
- "mosaic-adaptor-sigs",
- "mosaic-common",
- "mosaic-heap-array",
- "mosaic-net-svc-api",
- "mosaic-vs3",
+ "mosaic-adaptor-sigs 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-heap-array 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-net-svc-api 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-vs3 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "rand 0.8.5",
+ "serde",
+]
+
+[[package]]
+name = "mosaic-common"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
+dependencies = [
+ "ark-serialize 0.6.0",
  "serde",
 ]
 
@@ -6831,9 +6899,30 @@ dependencies = [
 [[package]]
 name = "mosaic-heap-array"
 version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
+dependencies = [
+ "ark-serialize 0.6.0",
+ "serde",
+]
+
+[[package]]
+name = "mosaic-heap-array"
+version = "0.1.0"
 source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2#27d619b91cb4d9a19f6f27608e85d57b9c40217e"
 dependencies = [
  "ark-serialize 0.6.0",
+ "serde",
+]
+
+[[package]]
+name = "mosaic-net-svc-api"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
+dependencies = [
+ "ark-serialize 0.6.0",
+ "ed25519-dalek",
+ "hex",
+ "kanal",
  "serde",
 ]
 
@@ -6856,7 +6945,24 @@ source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2#27d619b91cb4d9
 dependencies = [
  "bitcoin",
  "jsonrpsee",
- "mosaic-rpc-types",
+ "mosaic-rpc-types 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+]
+
+[[package]]
+name = "mosaic-rpc-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
+dependencies = [
+ "bitcoin",
+ "ckt-fmtv5-types 0.1.0 (git+https://github.com/alpenlabs/ckt?rev=432cdd11eb5780bbf7edcaad698850deb5b49675)",
+ "hex",
+ "jsonrpsee-types",
+ "mosaic-cac-types 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
+ "mosaic-net-svc-api 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
+ "serde",
+ "serde_with",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -6865,14 +6971,30 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2#27d619b91cb4d9a19f6f27608e85d57b9c40217e"
 dependencies = [
  "bitcoin",
- "ckt-fmtv5-types",
+ "ckt-fmtv5-types 0.1.0 (git+https://github.com/alpenlabs/ckt?tag=v0.3.0-rc.2)",
  "hex",
  "jsonrpsee-types",
- "mosaic-cac-types",
- "mosaic-common",
- "mosaic-net-svc-api",
+ "mosaic-cac-types 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-net-svc-api 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "serde",
  "serde_with",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "mosaic-vs3"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
+dependencies = [
+ "ark-ec",
+ "ark-ff 0.6.0",
+ "ark-secp256k1",
+ "ark-serialize 0.6.0",
+ "blake3",
+ "ckt-gobble 0.1.0 (git+https://github.com/alpenlabs/ckt?rev=432cdd11eb5780bbf7edcaad698850deb5b49675)",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
+ "rand_chacha 0.3.1",
  "thiserror 2.0.18",
 ]
 
@@ -6886,8 +7008,8 @@ dependencies = [
  "ark-secp256k1",
  "ark-serialize 0.6.0",
  "blake3",
- "ckt-gobble",
- "mosaic-common",
+ "ckt-gobble 0.1.0 (git+https://github.com/alpenlabs/ckt?tag=v0.3.0-rc.2)",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "rand_chacha 0.3.1",
  "thiserror 2.0.18",
 ]
@@ -12011,7 +12133,7 @@ dependencies = [
  "algebra",
  "async-trait",
  "mosaic-rpc-api",
- "mosaic-rpc-types",
+ "mosaic-rpc-types 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
  "strata-bridge-primitives",
  "strata-mosaic-client-api",
  "tokio",
@@ -12024,7 +12146,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bitcoin",
- "mosaic-common",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "strata-bridge-primitives",
  "thiserror 2.0.18",
 ]
