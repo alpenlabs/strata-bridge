@@ -65,17 +65,6 @@ jobs:
       - name: Install protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
 
-      # `sp1-core-executor-runner` v6.x has a `build.rs` that runs a nested `cargo build`
-      # and embeds the resulting helper binary via `include_bytes!`. In CI the embedded
-      # path resolves under the registry source dir and is unreadable at compile time.
-      # Upstream's documented escape hatch is to pre-build the helper and point
-      # `SP1_CORE_RUNNER_OVERRIDE_BINARY` at it; the build script then skips the nested
-      # build entirely. Keep the version in sync with `sp1-sdk` in workspace `Cargo.toml`.
-      - name: Pre-build SP1 core runner binary
-        run: |
-          cargo install sp1-core-executor-runner-binary --version 6.2.0 --root "$RUNNER_TEMP/sp1-core-runner" --force
-          echo "SP1_CORE_RUNNER_OVERRIDE_BINARY=$RUNNER_TEMP/sp1-core-runner/bin/sp1-core-executor-runner-binary" >> "$GITHUB_ENV"
-
       - name: Build SP1 bridge-proof and counterproof guests with bundled stub params
         run: SKIP_PARAMS=1 cargo build --locked -p strata-bridge-sp1-guest-builder --release --features docker-build
 
