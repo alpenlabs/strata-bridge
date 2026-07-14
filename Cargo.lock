@@ -6792,7 +6792,7 @@ dependencies = [
  "ark-ff 0.6.0",
  "ark-secp256k1",
  "ark-serialize 0.6.0",
- "mosaic-common",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "rand 0.8.5",
  "sha2 0.11.0",
  "thiserror 2.0.18",
@@ -6811,11 +6811,20 @@ dependencies = [
  "futures",
  "hex",
  "mosaic-adaptor-sigs",
- "mosaic-common",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "mosaic-heap-array",
  "mosaic-net-svc-api",
  "mosaic-vs3",
  "rand 0.8.5",
+ "serde",
+]
+
+[[package]]
+name = "mosaic-common"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1#5d88561f2dfd10e9857be11f6640fab62497cd41"
+dependencies = [
+ "ark-serialize 0.6.0",
  "serde",
 ]
 
@@ -6869,7 +6878,7 @@ dependencies = [
  "hex",
  "jsonrpsee-types",
  "mosaic-cac-types",
- "mosaic-common",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "mosaic-net-svc-api",
  "serde",
  "serde_with",
@@ -6887,7 +6896,7 @@ dependencies = [
  "ark-serialize 0.6.0",
  "blake3",
  "ckt-gobble",
- "mosaic-common",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "rand_chacha 0.3.1",
  "thiserror 2.0.18",
 ]
@@ -12063,7 +12072,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bitcoin",
- "mosaic-common",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.1)",
  "strata-bridge-primitives",
  "thiserror 2.0.18",
 ]
