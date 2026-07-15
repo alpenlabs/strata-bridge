@@ -434,14 +434,11 @@ impl BtcNotifySM {
                             }
                         }
                     }
-                    // In this case we have received a MempoolAcceptance event for this txid, but
-                    // haven't yet processed the accompanying rawtx event.
-                    //
-                    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2686>
-                    // Replace this panic-only assumption with explicit handling if
-                    // `MempoolAcceptance` arrives before the corresponding `rawtx`.
+                    // Reorg reacceptance can deliver duplicate MempoolAcceptance events before
+                    // rawtx catches up; the pending placeholder is enough until tx bytes arrive.
                     Some(None) => {
-                        panic!("invariant violated: MempoolAcceptance received before rawtx")
+                        trace!(?seq, %txid, "ignoring duplicate MempoolAcceptance before rawtx");
+                        (vec![], None)
                     }
                     // In this case we know nothing of this transaction yet.
                     None => {
@@ -839,6 +836,66 @@ mod prop_tests {
 
             let diff = sm.process_sequence(SequenceMessage::MempoolAcceptance { txid: tx.compute_txid(), mempool_sequence: 0 });
             prop_assert!(diff.0.is_empty());
+
+            let diff = sm.process_tx(tx.clone());
+            prop_assert_eq!(diff, vec![TxEvent { rawtx: tx, status: TxStatus::Mempool }]);
+        }
+
+        // Ensures that repeated MempoolAcceptance events remain pending until the rawtx event
+        // supplies transaction data.
+        #[test]
+        fn repeated_seq_before_tx_yields_one_mempool(tx in arb_transaction()) {
+            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let txid = tx.compute_txid();
+
+            sm.add_filter(Arc::new(|_|true));
+
+            let diff = sm.process_sequence(SequenceMessage::MempoolAcceptance { txid, mempool_sequence: 0 });
+            prop_assert!(diff.0.is_empty());
+
+            let sm_after_first_acceptance = sm.clone();
+            let diff = sm.process_sequence(SequenceMessage::MempoolAcceptance { txid, mempool_sequence: 1 });
+            prop_assert!(diff.0.is_empty());
+            prop_assert_eq!(&sm, &sm_after_first_acceptance);
+
+            let diff = sm.process_tx(tx.clone());
+            prop_assert_eq!(diff, vec![TxEvent { rawtx: tx, status: TxStatus::Mempool }]);
+        }
+
+        // Ensures that a transaction reaccepted after block disconnection can receive another
+        // MempoolAcceptance before rawtx catches up.
+        #[test]
+        fn duplicate_reorg_reacceptance_before_rawtx_stays_pending(
+            tx in arb_transaction(),
+            mut block in arb_block(BIP34_MIN_HEIGHT, Hash::all_zeros()),
+        ) {
+            let txid = tx.compute_txid();
+            block.txdata.push(tx.clone());
+            block.header.merkle_root = block.compute_merkle_root().unwrap();
+            let blockhash = block.block_hash();
+
+            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            sm.add_filter(Arc::new(move |candidate| candidate.compute_txid() == txid));
+
+            let (mined, _block_event) = sm.process_block(block);
+            let mined_contains_tx = mined.iter().any(|event| {
+                event.rawtx.compute_txid() == txid && matches!(event.status, TxStatus::Mined { .. })
+            });
+            prop_assert!(mined_contains_tx);
+
+            let (unknown, _block_event) = sm.process_sequence(SequenceMessage::BlockDisconnect { blockhash });
+            let unknown_contains_tx = unknown.iter().any(|event| {
+                event.rawtx.compute_txid() == txid && event.status == TxStatus::Unknown
+            });
+            prop_assert!(unknown_contains_tx);
+
+            let reaccepted = sm.process_sequence(SequenceMessage::MempoolAcceptance { txid, mempool_sequence: 0 });
+            prop_assert!(reaccepted.0.is_empty());
+
+            let sm_after_reacceptance = sm.clone();
+            let duplicate = sm.process_sequence(SequenceMessage::MempoolAcceptance { txid, mempool_sequence: 1 });
+            prop_assert!(duplicate.0.is_empty());
+            prop_assert_eq!(&sm, &sm_after_reacceptance);
 
             let diff = sm.process_tx(tx.clone());
             prop_assert_eq!(diff, vec![TxEvent { rawtx: tx, status: TxStatus::Mempool }]);
