@@ -1,0 +1,86 @@
+name: SELFTEST Bare-Metal Binaries (TEMP - delete before merge)
+
+# TEMPORARY self-test of the publish-baremetal-binaries pipeline from a feature
+# branch (workflow_dispatch can't run off the default branch). Push-triggered on
+# the test branch only; assumes a throwaway branch-trusted role and uploads to a
+# _selftest prefix. DELETE this file + the gha-strata-bridge-binary-selftest role
+# + the _selftest objects once verified. STR-3985.
+
+on:
+  push:
+    branches: [ci/str-3985-publish-baremetal-binaries]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_TO_ASSUME: arn:aws:iam::496607027995:role/gha-strata-bridge-binary-selftest
+  S3_BUCKET: alpen-mosaic-artifacts
+  S3_PREFIX_ROOT: binaries/strata-bridge/_selftest
+  PLATFORM: linux-amd64
+  FDB_VERSION: "7.3.63"
+
+jobs:
+  selftest:
+    name: Build & publish (self-test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout pushed commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Resolve built commit
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install FoundationDB client
+        run: |
+          curl -fsSLO --proto "=https" --tlsv1.2 \
+            "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+          sudo dpkg -i "foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+          rm -f "foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Build release binaries
+        run: cargo build --release --locked -p strata-bridge -p secret-service -p dev-cli
+
+      - name: Stage binaries + checksums
+        run: |
+          mkdir -p out
+          for b in strata-bridge secret-service dev-cli; do
+            install -m 0755 "target/release/${b}" "out/${b}"
+            ( cd out && sha256sum "${b}" > "${b}.sha256" )
+          done
+          echo "Staged:"; ls -la out
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3 (_selftest)
+        env:
+          COMMIT: ${{ steps.rev.outputs.sha }}
+        run: |
+          DEST="s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}"
+          aws s3 cp out/ "${DEST}/" --recursive --no-progress
+          echo "Published to ${DEST}/"
+
+      - name: Job summary
+        env:
+          COMMIT: ${{ steps.rev.outputs.sha }}
+        run: |
+          {
+            echo "### SELFTEST published"
+            echo "- commit: \`${COMMIT}\`"
+            echo "- s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}/"
+          } >> "$GITHUB_STEP_SUMMARY"
