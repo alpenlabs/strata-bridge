@@ -91,17 +91,24 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload to S3
+        # Interpolated values passed via env (never into the shell script) — avoids
+        # template-injection from the user-controlled ref/commit.
+        env:
+          COMMIT: ${{ steps.rev.outputs.sha }}
         run: |
-          DEST="s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${{ steps.rev.outputs.sha }}/${PLATFORM}"
+          DEST="s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}"
           aws s3 cp out/ "${DEST}/" --recursive --no-progress
           echo "Published to ${DEST}/"
 
       - name: Job summary
+        env:
+          BUILT_REF: ${{ inputs.ref }}
+          COMMIT: ${{ steps.rev.outputs.sha }}
         run: |
           {
             echo "### Bare-metal binaries published"
             echo ""
-            echo "- ref built: \`${{ inputs.ref }}\` → commit \`${{ steps.rev.outputs.sha }}\`"
-            echo "- location: \`s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${{ steps.rev.outputs.sha }}/${PLATFORM}/\`"
+            echo "- ref built: \`${BUILT_REF}\` → commit \`${COMMIT}\`"
+            echo "- location: \`s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}/\`"
             echo "- binaries: \`strata-bridge\`, \`secret-service\`, \`dev-cli\` (+ \`.sha256\` each)"
           } >> "$GITHUB_STEP_SUMMARY"
