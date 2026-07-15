@@ -1,0 +1,107 @@
+name: Publish Bare-Metal Binaries (S3)
+
+# Builds the strata-bridge bare-metal operator binaries — bridge-client
+# (strata-bridge), secret-service, and dev-cli — from a chosen ref and publishes
+# them, with SHA-256 checksums, to the central shared-services artifact bucket
+# so external bare-metal operators can DOWNLOAD prebuilt binaries instead of
+# building from source (~40-60 min/build). STR-3985.
+#
+# Manual only, and always run FROM main so the pipeline steps stay reviewed and
+# stable. The ref it BUILDS is a free-form input (commit / branch / tag /
+# release) — GitHub's OIDC `sub` claim reflects the workflow's own ref (main),
+# which is what github-actions-strata-bridge-circuit-s3 trusts, so the built ref
+# is irrelevant to the S3 write permission.
+#
+# Objects land at:
+#   s3://alpen-mosaic-artifacts/binaries/strata-bridge/<built-commit>/linux-amd64/
+#     strata-bridge  secret-service  dev-cli  (+ a .sha256 sidecar each)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to build & publish — commit SHA, branch, tag, or release (default: main)"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  id-token: write # assume the S3 upload role via OIDC
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_TO_ASSUME: arn:aws:iam::496607027995:role/github-actions-strata-bridge-circuit-s3
+  S3_BUCKET: alpen-mosaic-artifacts
+  S3_PREFIX_ROOT: binaries/strata-bridge
+  PLATFORM: linux-amd64
+  # Matches the bridge-onboarding bare-metal doc + the deployed FDB cluster
+  # (docs/bare-metal-binary-deployment.md Step 4). libfdb_c is dynamically
+  # linked, so the built binary runs against the operator's 7.3.63 cluster.
+  FDB_VERSION: "7.3.63"
+
+jobs:
+  publish:
+    name: Build & publish binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Gate publishing behind an environment so a run requires reviewer approval
+    # (configure required reviewers on the `baremetal-binaries` environment).
+    environment: baremetal-binaries
+    steps:
+      - name: Checkout the ref to build
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Resolve built commit
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install FoundationDB client (libfdb_c + headers, required to link)
+        run: |
+          curl -fsSLO --proto "=https" --tlsv1.2 \
+            "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+          sudo dpkg -i "foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+          rm -f "foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Build release binaries
+        # rustup auto-installs the pinned nightly from the ref's rust-toolchain.toml
+        run: cargo build --release --locked -p strata-bridge -p secret-service -p dev-cli
+
+      - name: Stage binaries + checksums
+        run: |
+          mkdir -p out
+          for b in strata-bridge secret-service dev-cli; do
+            install -m 0755 "target/release/${b}" "out/${b}"
+            ( cd out && sha256sum "${b}" > "${b}.sha256" )
+          done
+          echo "Staged:"; ls -la out
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        run: |
+          DEST="s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${{ steps.rev.outputs.sha }}/${PLATFORM}"
+          aws s3 cp out/ "${DEST}/" --recursive --no-progress
+          echo "Published to ${DEST}/"
+
+      - name: Job summary
+        run: |
+          {
+            echo "### Bare-metal binaries published"
+            echo ""
+            echo "- ref built: \`${{ inputs.ref }}\` → commit \`${{ steps.rev.outputs.sha }}\`"
+            echo "- location: \`s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${{ steps.rev.outputs.sha }}/${PLATFORM}/\`"
+            echo "- binaries: \`strata-bridge\`, \`secret-service\`, \`dev-cli\` (+ \`.sha256\` each)"
+          } >> "$GITHUB_STEP_SUMMARY"
