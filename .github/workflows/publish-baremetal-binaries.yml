@@ -82,6 +82,8 @@ jobs:
 
       - name: Install FoundationDB client (required to link)
         uses: ./.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
+        with:
+          version: "7.3.63" # match the deployed/documented target environment (action default is stale)
 
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
@@ -108,14 +110,22 @@ jobs:
           name: strata-bridge-binaries-${{ steps.rev.outputs.sha }}
           path: out/
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7 # must outlast the publish job's reviewer-approval wait
 
   publish:
     name: Publish to S3 (credentialed, no untrusted code)
     needs: build
+    # Only the reviewed main copy of this workflow may publish. workflow_dispatch
+    # can run a feature branch's YAML, so gate the OIDC-enabled job on the run ref
+    # (belt-and-suspenders with the environment's main-only deployment policy).
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: baremetal-binaries
+    # Serialize by resolved commit so two refs at the same commit can't double-publish.
+    concurrency:
+      group: publish-baremetal-s3-${{ needs.build.outputs.commit }}
+      cancel-in-progress: false
     permissions:
       id-token: write # assume the S3 upload role via OIDC
       contents: read
