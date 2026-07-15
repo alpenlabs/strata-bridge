@@ -6,15 +6,28 @@ name: Publish Bare-Metal Binaries (S3)
 # so external bare-metal operators can DOWNLOAD prebuilt binaries instead of
 # building from source (~40-60 min/build). STR-3985.
 #
-# Manual only, and always run FROM main so the pipeline steps stay reviewed and
-# stable. The ref it BUILDS is a free-form input (commit / branch / tag /
-# release) — GitHub's OIDC `sub` claim reflects the workflow's own ref (main),
-# which is what github-actions-strata-bridge-circuit-s3 trusts, so the built ref
-# is irrelevant to the S3 write permission.
+# SECURITY MODEL
+# --------------
+# The ref to build is a free-form dispatch input (any commit/branch/tag/release),
+# so its build scripts (build.rs, proc-macros) are UNTRUSTED code. Two jobs keep
+# that code away from the AWS credentials:
+#   * build   — checks out + compiles the untrusted ref. Has NO id-token, so a
+#               malicious ref cannot mint/exfiltrate an OIDC token. Emits the
+#               binaries as a workflow artifact.
+#   * publish — downloads that artifact and uploads to S3. Has id-token:write but
+#               checks out no untrusted code and runs only trusted steps.
+#
+# Publish is gated on the `baremetal-binaries` GitHub Environment: GitHub sets
+# the OIDC `sub` to `repo:alpenlabs/strata-bridge:environment:baremetal-binaries`,
+# which is what github-actions-strata-bridge-binary-s3 trusts (a dedicated,
+# prefix-scoped role — NOT the whole-bucket circuit role). The environment's
+# deployment-branch policy is pinned to `main` and carries required-reviewer
+# protection.
 #
 # Objects land at:
 #   s3://alpen-mosaic-artifacts/binaries/strata-bridge/<built-commit>/linux-amd64/
 #     strata-bridge  secret-service  dev-cli  (+ a .sha256 sidecar each)
+# A commit's prefix is write-once: publish refuses to overwrite an existing one.
 
 on:
   workflow_dispatch:
@@ -25,29 +38,30 @@ on:
         default: "main"
         type: string
 
+# One publish per ref at a time; never cancel an in-flight publish mid-upload.
+concurrency:
+  group: publish-baremetal-binaries-${{ inputs.ref }}
+  cancel-in-progress: false
+
 permissions:
-  id-token: write # assume the S3 upload role via OIDC
   contents: read
 
 env:
   AWS_REGION: us-east-1
-  AWS_ROLE_TO_ASSUME: arn:aws:iam::496607027995:role/github-actions-strata-bridge-circuit-s3
+  AWS_ROLE_TO_ASSUME: arn:aws:iam::496607027995:role/github-actions-strata-bridge-binary-s3
   S3_BUCKET: alpen-mosaic-artifacts
   S3_PREFIX_ROOT: binaries/strata-bridge
   PLATFORM: linux-amd64
-  # Matches the bridge-onboarding bare-metal doc + the deployed FDB cluster
-  # (docs/bare-metal-binary-deployment.md Step 4). libfdb_c is dynamically
-  # linked, so the built binary runs against the operator's 7.3.63 cluster.
-  FDB_VERSION: "7.3.63"
 
 jobs:
-  publish:
-    name: Build & publish binaries
+  build:
+    name: Build binaries (untrusted ref, no credentials)
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    # Gate publishing behind an environment so a run requires reviewer approval
-    # (configure required reviewers on the `baremetal-binaries` environment).
-    environment: baremetal-binaries
+    permissions:
+      contents: read # deliberately no id-token here
+    outputs:
+      commit: ${{ steps.rev.outputs.sha }}
     steps:
       - name: Checkout the ref to build
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -55,16 +69,19 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - name: Resolve built commit
+      - name: Resolve built commit (immutable SHA)
         id: rev
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Install FoundationDB client (libfdb_c + headers, required to link)
         run: |
-          curl -fsSLO --proto "=https" --tlsv1.2 \
-            "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
-          sudo dpkg -i "foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
-          rm -f "foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          if [ -z "${sha}" ]; then
+            echo "::error::failed to resolve commit SHA"; exit 1
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "Built commit: ${sha}"
+
+      - name: Install FoundationDB client (required to link)
+        uses: ./.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
 
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
@@ -77,6 +94,7 @@ jobs:
 
       - name: Stage binaries + checksums
         run: |
+          set -euo pipefail
           mkdir -p out
           for b in strata-bridge secret-service dev-cli; do
             install -m 0755 "target/release/${b}" "out/${b}"
@@ -84,26 +102,53 @@ jobs:
           done
           echo "Staged:"; ls -la out
 
+      - name: Upload built binaries as workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: strata-bridge-binaries-${{ steps.rev.outputs.sha }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish to S3 (credentialed, no untrusted code)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: baremetal-binaries
+    permissions:
+      id-token: write # assume the S3 upload role via OIDC
+      contents: read
+    env:
+      COMMIT: ${{ needs.build.outputs.commit }}
+    steps:
+      - name: Download built binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: strata-bridge-binaries-${{ needs.build.outputs.commit }}
+          path: out
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
         with:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Upload to S3
-        # Interpolated values passed via env (never into the shell script) — avoids
-        # template-injection from the user-controlled ref/commit.
-        env:
-          COMMIT: ${{ steps.rev.outputs.sha }}
+      - name: Upload to S3 (write-once per commit)
         run: |
+          set -euo pipefail
           DEST="s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}"
+          existing="$(aws s3 ls "s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/" || true)"
+          if [ -n "${existing}" ]; then
+            echo "::error::${S3_PREFIX_ROOT}/${COMMIT}/ already published — refusing to overwrite"
+            exit 1
+          fi
           aws s3 cp out/ "${DEST}/" --recursive --no-progress
           echo "Published to ${DEST}/"
 
       - name: Job summary
         env:
           BUILT_REF: ${{ inputs.ref }}
-          COMMIT: ${{ steps.rev.outputs.sha }}
         run: |
           {
             echo "### Bare-metal binaries published"
