@@ -13,6 +13,7 @@ use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PubNonce};
+use operator_wallet::GeneralUtxoPolicy;
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors::prelude::UnstakingIntentOutput;
 use strata_bridge_db::{
@@ -134,9 +135,14 @@ async fn read_or_create_stake_funding(
     // takes denomination + quantity uniformly (claim-funding pool uses larger quantity
     // with a smaller per-UTXO value); for the stake-funding case it's always quantity 1.
     let funded = wallet
-        .create_reserved_utxos(fee_rate, funding_amount, 1)
+        .create_reserved_utxos(
+            fee_rate,
+            funding_amount,
+            1,
+            GeneralUtxoPolicy::IncludeUnconfirmed,
+        )
         .await
-        .expect("must be able to create stake funding transaction");
+        .map_err(|e| ExecutorError::WalletErr(format!("stake funding failed: {e}")))?;
     let reservation = reservation_from_psbt(&funded.psbt);
 
     let candidate_inputs: Vec<OutPoint> = reservation

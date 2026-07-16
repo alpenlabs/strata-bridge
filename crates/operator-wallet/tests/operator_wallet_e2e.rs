@@ -36,7 +36,8 @@ use bdk_wallet::bitcoin::{
 };
 use corepc_node::{Conf, Node};
 use operator_wallet::{
-    sync::Backend, GeneralWallet, NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
+    sync::Backend, Error as OperatorWalletError, GeneralUtxoPolicy, GeneralWallet,
+    NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
 };
 use serial_test::serial;
 
@@ -205,7 +206,12 @@ async fn create_reserved_utxos_funds_pool_and_leases_inputs() {
     let quantity = 5;
     let fee_rate = FeeRate::from_sat_per_vb(5).unwrap();
     let funded = wallet
-        .create_reserved_utxos(fee_rate, utxo_value, quantity)
+        .create_reserved_utxos(
+            fee_rate,
+            utxo_value,
+            quantity,
+            GeneralUtxoPolicy::IncludeUnconfirmed,
+        )
         .await
         .expect("funding must succeed");
 
@@ -264,6 +270,132 @@ async fn create_reserved_utxos_funds_pool_and_leases_inputs() {
 
 #[tokio::test]
 #[serial]
+async fn create_reserved_utxos_reports_only_unconfirmed_general_utxos() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, _, general_pubkey) =
+        build_operator_wallet(&bitcoind, 13, 14, 0, Amount::ZERO).await;
+
+    let unconfirmed_amount = Amount::from_btc(1.0).unwrap();
+    let general_address = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
+    bitcoind
+        .client
+        .send_to_address(&general_address, unconfirmed_amount)
+        .expect("send unconfirmed funds");
+    wallet.sync().await.expect("sync unconfirmed deposit");
+
+    let general_utxos = wallet.general().list_utxos();
+    assert_eq!(general_utxos.len(), 1, "one general-wallet UTXO");
+    assert_eq!(
+        general_utxos[0].confirmations, 0,
+        "deposit must be unconfirmed"
+    );
+
+    let err = wallet
+        .create_reserved_utxos(
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            Amount::from_btc(0.01).unwrap(),
+            1,
+            GeneralUtxoPolicy::ConfirmedOnly,
+        )
+        .await
+        .expect_err("unconfirmed general-wallet funds must not be selected");
+
+    match err {
+        OperatorWalletError::NoConfirmedGeneralUtxos {
+            unconfirmed_count,
+            unconfirmed_amount: actual_amount,
+        } => {
+            assert_eq!(unconfirmed_count, 1);
+            assert_eq!(actual_amount, unconfirmed_amount);
+        }
+        other => panic!("expected no-confirmed-UTXO error, got {other:?}"),
+    }
+    assert!(
+        wallet.leased_outpoints().is_empty(),
+        "failed refill must not lease the unconfirmed UTXO"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn create_reserved_utxos_can_include_unconfirmed_general_utxos_when_allowed() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, _, general_pubkey) =
+        build_operator_wallet(&bitcoind, 15, 16, 0, Amount::ZERO).await;
+
+    let unconfirmed_amount = Amount::from_btc(1.0).unwrap();
+    let general_address = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
+    bitcoind
+        .client
+        .send_to_address(&general_address, unconfirmed_amount)
+        .expect("send unconfirmed funds");
+    wallet.sync().await.expect("sync unconfirmed deposit");
+
+    let unconfirmed_outpoint = wallet.general().list_utxos()[0].outpoint;
+    let funded = wallet
+        .create_reserved_utxos(
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            Amount::from_btc(0.01).unwrap(),
+            1,
+            GeneralUtxoPolicy::IncludeUnconfirmed,
+        )
+        .await
+        .expect("unconfirmed general-wallet funds may be selected when allowed");
+
+    assert!(
+        funded.spent().contains(&unconfirmed_outpoint),
+        "funding transaction should spend the unconfirmed general-wallet UTXO"
+    );
+    assert!(
+        wallet.leased_outpoints().contains(&unconfirmed_outpoint),
+        "selected unconfirmed UTXO must be leased"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn create_reserved_utxos_excludes_unconfirmed_when_confirmed_funds_are_available() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, _, general_pubkey) =
+        build_operator_wallet(&bitcoind, 17, 18, 1, Amount::from_btc(1.0).unwrap()).await;
+
+    let confirmed_outpoint = wallet.general().list_utxos()[0].outpoint;
+    let general_address = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
+    bitcoind
+        .client
+        .send_to_address(&general_address, Amount::from_btc(0.5).unwrap())
+        .expect("send unconfirmed funds");
+    wallet.sync().await.expect("sync mixed funds");
+
+    let unconfirmed_outpoint = wallet
+        .general()
+        .list_utxos()
+        .into_iter()
+        .find(|utxo| utxo.confirmations == 0)
+        .expect("unconfirmed UTXO")
+        .outpoint;
+    let funded = wallet
+        .create_reserved_utxos(
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            Amount::from_btc(0.01).unwrap(),
+            1,
+            GeneralUtxoPolicy::ConfirmedOnly,
+        )
+        .await
+        .expect("confirmed funds should fund reserved UTXOs");
+
+    assert!(
+        funded.spent().contains(&confirmed_outpoint),
+        "funding transaction should spend the confirmed UTXO"
+    );
+    assert!(
+        !funded.spent().contains(&unconfirmed_outpoint),
+        "funding transaction must exclude the unconfirmed UTXO"
+    );
+}
+
+#[tokio::test]
+#[serial]
 async fn reserve_utxo_with_value_picks_and_leases_one() {
     let bitcoind = setup_bitcoind();
     let (mut wallet, general_kp, _) =
@@ -272,7 +404,12 @@ async fn reserve_utxo_with_value_picks_and_leases_one() {
     // Seed the reserved pool with 3 UTXOs of 0.01 BTC.
     let utxo_value = Amount::from_btc(0.01).unwrap();
     let funded = wallet
-        .create_reserved_utxos(FeeRate::from_sat_per_vb(5).unwrap(), utxo_value, 3)
+        .create_reserved_utxos(
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            utxo_value,
+            3,
+            GeneralUtxoPolicy::IncludeUnconfirmed,
+        )
         .await
         .expect("seed funding");
     let signed = sign_and_finalize(funded.psbt, general_kp);
@@ -320,7 +457,12 @@ async fn reserve_utxo_with_value_filters_by_value() {
     let large_value = Amount::from_btc(0.05).unwrap();
     for value in [small_value, large_value] {
         let funded = wallet
-            .create_reserved_utxos(FeeRate::from_sat_per_vb(5).unwrap(), value, 2)
+            .create_reserved_utxos(
+                FeeRate::from_sat_per_vb(5).unwrap(),
+                value,
+                2,
+                GeneralUtxoPolicy::IncludeUnconfirmed,
+            )
             .await
             .unwrap_or_else(|e| panic!("seed funding for {value} failed: {e}"));
         let signed = sign_and_finalize(funded.psbt, general_kp);
@@ -435,7 +577,12 @@ async fn refill_workflow_skips_existing_pool_members() {
 
     // First batch: seed the pool with 2 UTXOs.
     let first = wallet
-        .create_reserved_utxos(fee_rate, utxo_value, 2)
+        .create_reserved_utxos(
+            fee_rate,
+            utxo_value,
+            2,
+            GeneralUtxoPolicy::IncludeUnconfirmed,
+        )
         .await
         .expect("first seed");
     let signed = sign_and_finalize(first.psbt, general_kp);
@@ -457,7 +604,12 @@ async fn refill_workflow_skips_existing_pool_members() {
 
     // Refill: ask for 2 more. The composer must NOT spend the existing 2 back to itself.
     let refill = wallet
-        .create_reserved_utxos(fee_rate, utxo_value, 2)
+        .create_reserved_utxos(
+            fee_rate,
+            utxo_value,
+            2,
+            GeneralUtxoPolicy::IncludeUnconfirmed,
+        )
         .await
         .expect("refill");
     for spent in refill.spent() {
