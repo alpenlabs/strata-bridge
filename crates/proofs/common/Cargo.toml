@@ -11,7 +11,6 @@ strata-predicate.workspace = true
 
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
 anyhow.workspace = true
-borsh = { workspace = true, optional = true }
 hex.workspace = true
 k256.workspace = true
 serde.workspace = true
@@ -23,15 +22,12 @@ tokio.workspace = true
 tracing.workspace = true
 zkaleido.workspace = true
 zkaleido-native-adapter.workspace = true
-zkaleido-sp1-groth16-verifier = { workspace = true, optional = true, features = [
-  "borsh",
-] }
+zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
 zkaleido-sp1-host = { workspace = true, optional = true }
 
 [features]
 default = []
 sp1 = [
-  "dep:borsh",
   "dep:serde_json",
   "dep:sp1-sdk",
   "dep:sp1-verifier",
