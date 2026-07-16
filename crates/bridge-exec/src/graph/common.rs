@@ -9,7 +9,7 @@ use bitcoin::{
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
-use operator_wallet::UtxoInfo;
+use operator_wallet::{GeneralUtxoPolicy, UtxoInfo};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
 use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
@@ -186,7 +186,12 @@ async fn ensure_claim_funding_outpoint(
                 };
                 let batch_size = cfg.funding_uxto_pool_size.saturating_sub(current_pool_size);
                 let funded = wallet
-                    .create_reserved_utxos(fee::FEE_RATE, cfg.claim_funding_utxo_value, batch_size)
+                    .create_reserved_utxos(
+                        fee::FEE_RATE,
+                        cfg.claim_funding_utxo_value,
+                        batch_size,
+                        GeneralUtxoPolicy::ConfirmedOnly,
+                    )
                     .await
                     .map_err(|e| ExecutorError::WalletErr(format!("refill failed: {e}")))?;
                 finalize_claim_funding_tx(
