@@ -1,5 +1,7 @@
 //! Executors for uncontested payout graph duties.
 
+use std::collections::BTreeSet;
+
 use algebra::predicate;
 use bitcoin::{
     OutPoint, TapSighashType, TxOut, Txid, XOnlyPublicKey,
@@ -9,7 +11,7 @@ use bitcoin::{
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
-use operator_wallet::{GeneralUtxoPolicy, UtxoInfo};
+use operator_wallet::{GeneralUtxoPolicy, GeneralWallet, OperatorWallet, UtxoInfo};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
 use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
@@ -30,7 +32,7 @@ use strata_mosaic_client_api::{
 };
 use tracing::{error, info, warn};
 
-use super::utils::finalize_claim_funding_tx;
+use super::utils::sign_claim_funding_tx;
 use crate::{
     chain::{is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
@@ -194,12 +196,38 @@ async fn ensure_claim_funding_outpoint(
                     )
                     .await
                     .map_err(|e| ExecutorError::WalletErr(format!("refill failed: {e}")))?;
-                finalize_claim_funding_tx(
-                    &output_handles.s2_client,
-                    &output_handles.tx_driver,
-                    funded.psbt,
-                )
-                .await?;
+                let spent = funded.spent();
+                let tx = match sign_claim_funding_tx(&output_handles.s2_client, funded.psbt).await {
+                    Ok(tx) => tx,
+                    Err(err) => {
+                        wallet.release(&spent);
+                        warn!(
+                            ?err,
+                            ?spent,
+                            "claim-funding refill signing failed; released inputs"
+                        );
+
+                        return Err(err);
+                    }
+                };
+                let txid = tx.compute_txid();
+                info!(%txid, "submitting claim funding tx to the tx driver");
+                if let Err(err) = output_handles
+                    .tx_driver
+                    .drive(tx, predicate::eq(TxStatus::Mempool))
+                    .await
+                {
+                    warn!(
+                        ?err,
+                        ?spent,
+                        "claim-funding tx driver failed; syncing wallet before reconciling input leases"
+                    );
+                    reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &spent).await;
+
+                    return Err(err.into());
+                }
+                info!(%txid, "claim funding tx detected in mempool");
+
                 wallet.sync().await.map_err(|e| {
                     error!(?e, "could not sync wallet after refilling funding utxos");
                     ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
@@ -245,6 +273,47 @@ async fn ensure_claim_funding_outpoint(
     };
 
     Ok(assigned_outpoint)
+}
+
+async fn reconcile_claim_funding_leases_after_driver_failure<G: GeneralWallet>(
+    wallet: &mut OperatorWallet<G>,
+    spent: &[OutPoint],
+) {
+    if let Err(sync_err) = wallet.sync().await {
+        warn!(
+            ?sync_err,
+            ?spent,
+            "could not sync wallet after tx-driver failure; retaining claim-funding input leases"
+        );
+        return;
+    }
+
+    let live_general_outpoints: BTreeSet<_> = wallet
+        .general()
+        .list_utxos()
+        .into_iter()
+        .map(|u| u.outpoint)
+        .collect();
+    let still_unspent: Vec<_> = spent
+        .iter()
+        .copied()
+        .filter(|outpoint| live_general_outpoints.contains(outpoint))
+        .collect();
+    let pruned_count = spent.len().saturating_sub(still_unspent.len());
+
+    if pruned_count > 0 {
+        info!(
+            pruned_count,
+            "wallet sync pruned claim-funding input leases no longer seen as spendable"
+        );
+    }
+    if !still_unspent.is_empty() {
+        wallet.release(&still_unspent);
+        warn!(
+            ?still_unspent,
+            "released claim-funding input leases after wallet sync showed they are still spendable"
+        );
+    }
 }
 
 /// Fetches the owner's adaptor pubkey and the per-watchtower fault pubkeys from mosaic.
@@ -664,9 +733,110 @@ pub(super) async fn publish_claim(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeSet, io, sync::Arc, time::Duration};
+
+    use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client as CoreRpcClient};
+    use bitcoin::{
+        Amount, FeeRate, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+        hashes::Hash,
+        secp256k1::{Keypair, SECP256K1, SecretKey},
+    };
+    use corepc_node::{Conf, Node};
+    use operator_wallet::{
+        FundedPsbt, GeneralWallet, OperatorWallet, OperatorWalletConfig, UtxoInfo, sync::Backend,
+    };
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
 
-    use super::watchtower_idxs;
+    use super::{reconcile_claim_funding_leases_after_driver_failure, watchtower_idxs};
+
+    #[derive(Debug)]
+    struct ReconciliationGeneralWallet {
+        live_utxos: Vec<UtxoInfo>,
+        sync_fails: bool,
+    }
+
+    impl GeneralWallet for ReconciliationGeneralWallet {
+        type Error = io::Error;
+
+        async fn sync(&mut self) -> Result<(), Self::Error> {
+            if self.sync_fails {
+                Err(io::Error::other("test sync failure"))
+            } else {
+                Ok(())
+            }
+        }
+
+        fn script_pubkey(&self) -> ScriptBuf {
+            ScriptBuf::new()
+        }
+
+        fn list_utxos(&self) -> Vec<UtxoInfo> {
+            self.live_utxos.clone()
+        }
+
+        async fn fund_v3_transaction(
+            &mut self,
+            _outputs: Vec<TxOut>,
+            _explicit_inputs: Option<&[OutPoint]>,
+            _fee_rate: FeeRate,
+            _exclude: &[OutPoint],
+        ) -> Result<FundedPsbt, Self::Error> {
+            unreachable!("reconciliation tests do not fund transactions")
+        }
+
+        async fn build_cpfp_child(
+            &mut self,
+            _parent: &Transaction,
+            _anchor_vout: u32,
+            _target_pkg_fee_rate: FeeRate,
+            _exclude: &[OutPoint],
+        ) -> Result<FundedPsbt, Self::Error> {
+            unreachable!("reconciliation tests do not build CPFP transactions")
+        }
+    }
+
+    fn xonly_pubkey(byte: u8) -> XOnlyPublicKey {
+        let secret_key = SecretKey::from_slice(&[byte; 32]).expect("valid secret key");
+        Keypair::from_secret_key(SECP256K1, &secret_key)
+            .x_only_public_key()
+            .0
+    }
+
+    fn core_rpc_client(bitcoind: &Node) -> CoreRpcClient {
+        let auth = Auth::CookieFile(bitcoind.params.cookie_file.clone());
+        CoreRpcClient::new(bitcoind.rpc_url().as_str(), auth).expect("core rpc client")
+    }
+
+    fn reconciliation_wallet(
+        bitcoind: &Node,
+        live_utxos: Vec<UtxoInfo>,
+        sync_fails: bool,
+        initial_leases: BTreeSet<OutPoint>,
+    ) -> OperatorWallet<ReconciliationGeneralWallet> {
+        let general = ReconciliationGeneralWallet {
+            live_utxos,
+            sync_fails,
+        };
+        let config = OperatorWalletConfig::new(Amount::from_sat(330), Network::Regtest)
+            .with_sync_policy(0, 1, Duration::ZERO);
+
+        OperatorWallet::new(
+            general,
+            xonly_pubkey(42),
+            config,
+            Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
+            initial_leases,
+        )
+    }
+
+    fn test_utxo(outpoint: OutPoint) -> UtxoInfo {
+        UtxoInfo {
+            outpoint,
+            amount: Amount::ONE_BTC,
+            confirmations: 1,
+            script_pubkey: ScriptBuf::new(),
+        }
+    }
 
     #[test]
     fn watchtower_order_uses_supplied_operator_table_snapshot() {
@@ -678,5 +848,50 @@ mod tests {
 
         assert_eq!(historical_watchtowers, vec![1, 2]);
         assert_eq!(later_watchtowers, vec![1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn reconciliation_prunes_spent_inputs_and_releases_live_inputs() {
+        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
+        let spent = OutPoint {
+            txid: Txid::from_slice(&[1; 32]).expect("valid txid"),
+            vout: 0,
+        };
+        let live = OutPoint {
+            txid: Txid::from_slice(&[2; 32]).expect("valid txid"),
+            vout: 0,
+        };
+        let mut wallet = reconciliation_wallet(
+            &bitcoind,
+            vec![test_utxo(live)],
+            false,
+            BTreeSet::from([spent, live]),
+        );
+
+        reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &[spent, live]).await;
+
+        assert!(
+            wallet.leased_outpoints().is_empty(),
+            "sync should prune the spent input and reconciliation should release the live input"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconciliation_retains_input_leases_when_sync_fails() {
+        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
+        let input = OutPoint {
+            txid: Txid::from_slice(&[3; 32]).expect("valid txid"),
+            vout: 0,
+        };
+        let mut wallet = reconciliation_wallet(
+            &bitcoind,
+            vec![test_utxo(input)],
+            true,
+            BTreeSet::from([input]),
+        );
+
+        reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &[input]).await;
+
+        assert_eq!(wallet.leased_outpoints(), &BTreeSet::from([input]));
     }
 }
