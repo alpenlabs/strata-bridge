@@ -1,10 +1,17 @@
 name: Publish Bare-Metal Binaries (S3)
 
 # Builds the strata-bridge bare-metal operator binaries — bridge-client
-# (strata-bridge), secret-service, and dev-cli — from a chosen ref and publishes
-# them, with SHA-256 checksums, to the central shared-services artifact bucket
-# so external bare-metal operators can DOWNLOAD prebuilt binaries instead of
-# building from source (~40-60 min/build). STR-3985.
+# (strata-bridge, built --features sp1), secret-service, and dev-cli — from a
+# chosen ref and publishes them, with SHA-256 checksums, to the central
+# shared-services artifact bucket so external bare-metal operators can DOWNLOAD
+# prebuilt binaries instead of building from source (~40-60 min/build). STR-3985.
+#
+# The bridge client is built WITH --features sp1 to match the deployed image
+# (build_matrix.py) — testnet uses Sp1Groth16 predicates, and without the feature
+# the sp1 proof backend is compiled out so an SP1 operator config can't start.
+# secret-service and dev-cli are plain (no proofs). SP1 guest ELFs are published
+# separately, so the build sets SP1_SKIP_PROGRAM_BUILD=true and needs no succinct
+# toolchain for the binary.
 #
 # SECURITY MODEL
 # --------------
@@ -80,12 +87,24 @@ jobs:
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
           echo "Built commit: ${sha}"
 
-      - name: Install FoundationDB client (required to link)
-        uses: ./.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
         with:
-          version: "7.3.63" # match the deployed/documented target environment (action default is stale)
-          # SHA-256 of foundationdb-clients_7.3.63-1_amd64.deb (immutable release asset)
-          sha256: "4241d43395d74f229b232e3dd2e71a693013db96d4924010cf403ee93119b423"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install FoundationDB client 7.3.43 (verified, required to link)
+        # Inlined in the REVIEWED workflow (not ./.github/actions from the built
+        # ref), so the pinned version + checksum can't be silently bypassed by an
+        # old/modified ref. 7.3.43 matches docker/base.Dockerfile (prod build);
+        # libfdb_c is dynamically linked so operators still run their own cluster.
+        run: |
+          set -euo pipefail
+          deb="foundationdb-clients_7.3.43-1_amd64.deb"
+          curl -fsSLO --proto "=https" --tlsv1.2 \
+            "https://github.com/apple/foundationdb/releases/download/7.3.43/${deb}"
+          echo "c3fa0a59c7355b914a1455dac909238d5ea3b6c6bc7b530af8597e6487c1651a  ${deb}" | sha256sum -c -
+          sudo dpkg -i "${deb}"
+          rm -f "${deb}"
 
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
@@ -93,8 +112,16 @@ jobs:
           cache-on-failure: true
 
       - name: Build release binaries
-        # rustup auto-installs the pinned nightly from the ref's rust-toolchain.toml
-        run: cargo build --release --locked -p strata-bridge -p secret-service -p dev-cli
+        # strata-bridge needs --features sp1 (see header). SP1_SKIP_PROGRAM_BUILD
+        # skips guest ELF compilation (ELFs delivered separately) so no succinct
+        # toolchain is required. rustup auto-installs the pinned nightly from the
+        # ref's rust-toolchain.toml.
+        env:
+          SP1_SKIP_PROGRAM_BUILD: "true"
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p strata-bridge --features sp1
+          cargo build --release --locked -p secret-service -p dev-cli
 
       - name: Stage binaries + checksums
         run: |
@@ -150,8 +177,13 @@ jobs:
         run: |
           set -euo pipefail
           DEST="s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}"
-          existing="$(aws s3 ls "s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/" || true)"
-          if [ -n "${existing}" ]; then
+          # Fail closed: capture the list result OUTSIDE an `if` so a list error
+          # (missing ListBucket, transient) fails the job via set -e instead of
+          # being treated as "not published" and overwriting a trusted prefix.
+          key="$(aws s3api list-objects-v2 --bucket "${S3_BUCKET}" \
+                  --prefix "${S3_PREFIX_ROOT}/${COMMIT}/" --max-items 1 \
+                  --query 'Contents[0].Key' --output text)"
+          if [ "${key}" != "None" ] && [ -n "${key}" ]; then
             echo "::error::${S3_PREFIX_ROOT}/${COMMIT}/ already published — refusing to overwrite"
             exit 1
           fi
