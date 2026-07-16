@@ -84,6 +84,8 @@ jobs:
         uses: ./.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
         with:
           version: "7.3.63" # match the deployed/documented target environment (action default is stale)
+          # SHA-256 of foundationdb-clients_7.3.63-1_amd64.deb (immutable release asset)
+          sha256: "4241d43395d74f229b232e3dd2e71a693013db96d4924010cf403ee93119b423"
 
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
