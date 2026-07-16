@@ -34,7 +34,8 @@ name: Publish Bare-Metal Binaries (S3)
 # Objects land at:
 #   s3://alpen-mosaic-artifacts/binaries/strata-bridge/<built-commit>/linux-amd64/
 #     strata-bridge  secret-service  dev-cli  (+ a .sha256 sidecar each)
-# A commit's prefix is write-once: publish refuses to overwrite an existing one.
+# A COMPLETED publish (`.publish-complete` marker, written last) is write-once;
+# an interrupted upload is healed by re-running, never wedged.
 
 on:
   workflow_dispatch:
@@ -111,6 +112,19 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: Pre-build SP1 core runner helper
+        # The sp1 feature pulls in sp1-core-executor-runner, whose build.rs embeds
+        # a nested-built helper that rust-cache does not preserve — on a cache hit
+        # the include_bytes! fails. Pre-install the helper (version pinned by the
+        # ref's Cargo.lock) and pass SP1_CORE_RUNNER_OVERRIDE_BINARY.
+        id: sp1-runner
+        run: |
+          set -euo pipefail
+          VER="$(awk -F'"' '/^name = "sp1-core-executor-runner-binary"$/{f=1;next} f&&/^version = /{print $2;exit}' Cargo.lock)"
+          test -n "$VER" || { echo "::error::could not determine sp1-core-executor-runner-binary version from Cargo.lock"; exit 1; }
+          cargo install sp1-core-executor-runner-binary --version "$VER" --root "$RUNNER_TEMP/sp1-core-runner" --force
+          echo "override-binary=$RUNNER_TEMP/sp1-core-runner/bin/sp1-core-executor-runner-binary" >> "$GITHUB_OUTPUT"
+
       - name: Build release binaries
         # strata-bridge needs --features sp1 (see header). SP1_SKIP_PROGRAM_BUILD
         # skips guest ELF compilation (ELFs delivered separately) so no succinct
@@ -118,6 +132,7 @@ jobs:
         # ref's rust-toolchain.toml.
         env:
           SP1_SKIP_PROGRAM_BUILD: "true"
+          SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: |
           set -euo pipefail
           cargo build --release --locked -p strata-bridge --features sp1
@@ -173,21 +188,33 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Upload to S3 (write-once per commit)
+      - name: Upload to S3 (write-once per completed publish)
         run: |
           set -euo pipefail
-          DEST="s3://${S3_BUCKET}/${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}"
-          # Fail closed: capture the list result OUTSIDE an `if` so a list error
-          # (missing ListBucket, transient) fails the job via set -e instead of
-          # being treated as "not published" and overwriting a trusted prefix.
-          key="$(aws s3api list-objects-v2 --bucket "${S3_BUCKET}" \
-                  --prefix "${S3_PREFIX_ROOT}/${COMMIT}/" --max-items 1 \
-                  --query 'Contents[0].Key' --output text)"
-          if [ "${key}" != "None" ] && [ -n "${key}" ]; then
-            echo "::error::${S3_PREFIX_ROOT}/${COMMIT}/ already published — refusing to overwrite"
+          DEST_KEY="${S3_PREFIX_ROOT}/${COMMIT}/${PLATFORM}"
+          DEST="s3://${S3_BUCKET}/${DEST_KEY}"
+          # Write-once is keyed on a completion marker written LAST, so an
+          # interrupted upload never wedges the prefix: marker present = complete
+          # publish, refuse; objects without marker = interrupted, heal by
+          # re-uploading. List results are captured OUTSIDE an `if` so a list
+          # error (missing ListBucket, transient) fails the job via set -e
+          # instead of being treated as "not published".
+          marker="$(aws s3api list-objects-v2 --bucket "${S3_BUCKET}" \
+                     --prefix "${DEST_KEY}/.publish-complete" --max-items 1 \
+                     --query 'Contents[0].Key' --output text)"
+          if [ "${marker}" != "None" ] && [ -n "${marker}" ]; then
+            echo "::error::${DEST_KEY}/ already published (completion marker present) — refusing to overwrite"
             exit 1
           fi
+          partial="$(aws s3api list-objects-v2 --bucket "${S3_BUCKET}" \
+                      --prefix "${DEST_KEY}/" --max-items 1 \
+                      --query 'Contents[0].Key' --output text)"
+          if [ "${partial}" != "None" ] && [ -n "${partial}" ]; then
+            echo "::warning::${DEST_KEY}/ has objects but no completion marker (interrupted publish) — re-uploading"
+          fi
           aws s3 cp out/ "${DEST}/" --recursive --no-progress
+          printf 'commit=%s\ncompleted=%s\n' "${COMMIT}" "$(date -u +%FT%TZ)" \
+            | aws s3 cp - "${DEST}/.publish-complete"
           echo "Published to ${DEST}/"
 
       - name: Job summary
