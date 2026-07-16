@@ -25,7 +25,7 @@ pub fn sp1_program_vkey_hash(elf: &[u8]) -> Result<[u8; 32]> {
 pub fn sp1_groth16_predicate_key(vkey_hash: [u8; 32]) -> Result<PredicateKey> {
     let verifier = SP1Groth16Verifier::load(&GROTH16_VK_BYTES, vkey_hash, *VK_ROOT_BYTES, true)
         .context("load SP1 Groth16 verifier")?;
-    let condition = borsh::to_vec(&verifier).context("borsh-encode SP1 Groth16 verifier")?;
+    let condition = verifier.to_uncompressed_bytes();
 
     Ok(PredicateKey::new(PredicateTypeId::Sp1Groth16, condition))
 }
