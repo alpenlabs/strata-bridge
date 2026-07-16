@@ -1,31 +1,27 @@
 //! Shared helpers for graph executors.
 
-use algebra::predicate;
 use bitcoin::{
-    Psbt, TapSighashType,
+    Psbt, TapSighashType, Transaction,
     hashes::Hash,
     sighash::{Prevouts, SighashCache},
     taproot,
 };
-use btc_tracker::{event::TxStatus, tx_driver::TxDriver};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::*;
-use tracing::info;
 
 use crate::errors::ExecutorError;
 
-/// Finalizes and broadcasts a claim funding transaction.
+/// Signs a claim funding transaction.
 ///
 /// This function assumes that the [`Psbt`] has already been funded with `witness_utxo`
 /// populated on every input (which `OperatorWallet::create_reserved_utxos` guarantees by
 /// returning a [`crate::Psbt`] whose inputs all carry the wallet's `witness_utxo`). It signs
-/// all inputs via the caller-provided signer, submits the finalized transaction to the tx
-/// driver for broadcasting, and waits for it to appear in the mempool.
-pub(super) async fn finalize_claim_funding_tx(
+/// all inputs via the caller-provided signer and returns the finalized transaction without
+/// submitting it to the tx driver.
+pub(super) async fn sign_claim_funding_tx(
     s2_client: &SecretServiceClient,
-    tx_driver: &TxDriver,
     psbt: Psbt,
-) -> Result<(), ExecutorError> {
+) -> Result<Transaction, ExecutorError> {
     let txins_as_outs = psbt
         .inputs
         .iter()
@@ -60,13 +56,5 @@ pub(super) async fn finalize_claim_funding_tx(
             .push(signature.to_vec());
     }
 
-    let txid = tx.compute_txid();
-    info!(%txid, "submitting claim funding tx to the tx driver");
-    tx_driver
-        .drive(tx, predicate::eq(TxStatus::Mempool)) // It's our tx, we won't double spend
-        .await?;
-
-    info!(%txid, "claim funding tx detected in mempool");
-
-    Ok(())
+    Ok(tx)
 }
