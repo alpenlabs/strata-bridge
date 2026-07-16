@@ -11712,7 +11712,6 @@ name = "strata-bridge-proof-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "borsh",
  "hex",
  "k256",
  "moho-recursive-proof",
