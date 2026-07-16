@@ -30,7 +30,7 @@ pub use crate::{
     config::OperatorWalletConfig,
     general::{native::NativeGeneralWallet, FundedPsbt, GeneralWallet, UtxoInfo},
     sync::SyncError,
-    wallet::OperatorWallet,
+    wallet::{GeneralUtxoPolicy, OperatorWallet},
 };
 
 /// Errors returned by [`OperatorWallet`] methods. Backend errors are boxed so call sites don't
@@ -40,6 +40,17 @@ pub enum Error {
     /// The general wallet backend reported an error.
     #[error("general wallet: {0}")]
     General(Box<dyn std::error::Error + Send + Sync>),
+    /// Confirmed-only reserved-wallet funding can see only unconfirmed general-wallet funds.
+    #[error(
+        "no confirmed general-wallet UTXOs available for reserved-wallet funding \
+         ({unconfirmed_count} unconfirmed UTXOs totaling {unconfirmed_amount})"
+    )]
+    NoConfirmedGeneralUtxos {
+        /// Number of unconfirmed candidate UTXOs after normal exclusions.
+        unconfirmed_count: usize,
+        /// Total value of unconfirmed candidate UTXOs after normal exclusions.
+        unconfirmed_amount: bdk_wallet::bitcoin::Amount,
+    },
     /// The wallet receive script cannot be represented as a Bitcoin address.
     #[error("wallet receive script is not addressable: {0}")]
     Address(#[from] bdk_wallet::bitcoin::address::FromScriptError),

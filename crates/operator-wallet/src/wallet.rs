@@ -29,6 +29,15 @@ use crate::{
     Error,
 };
 
+/// Whether general-wallet funding may spend unconfirmed UTXOs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeneralUtxoPolicy {
+    /// Allow the general wallet backend to select confirmed or unconfirmed UTXOs.
+    IncludeUnconfirmed,
+    /// Exclude unconfirmed general-wallet UTXOs from automatic input selection.
+    ConfirmedOnly,
+}
+
 /// The operator's wallet: a [`GeneralWallet`] backend composed with the always-native reserved
 /// wallet, shared lease bookkeeping, and cross-wallet transaction construction helpers.
 #[derive(Debug)]
@@ -284,12 +293,14 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     /// [`Self::reserved_utxos_with_value`] first and request only the delta they're
     /// missing; existing reserved-wallet UTXOs of the same `utxo_value` are
     /// automatically excluded from input selection so the composer doesn't re-spend pool
-    /// members back to themselves.
+    /// members back to themselves. `general_utxo_policy` controls whether unconfirmed
+    /// general-wallet UTXOs may be selected.
     pub async fn create_reserved_utxos(
         &mut self,
         fee_rate: FeeRate,
         utxo_value: Amount,
         quantity: usize,
+        general_utxo_policy: GeneralUtxoPolicy,
     ) -> Result<FundedPsbt, Error> {
         // Exclude already-existing reserved UTXOs of the same value from selection so the
         // composer doesn't accidentally spend pool members back to itself.
@@ -308,6 +319,32 @@ impl<G: GeneralWallet> OperatorWallet<G> {
 
         let mut exclude = self.exclude_anchors_and_leases();
         exclude.extend(existing);
+
+        if general_utxo_policy == GeneralUtxoPolicy::ConfirmedOnly {
+            let excluded: BTreeSet<OutPoint> = exclude.iter().copied().collect();
+            let (confirmed, unconfirmed): (Vec<UtxoInfo>, Vec<UtxoInfo>) = self
+                .general
+                .list_utxos()
+                .into_iter()
+                .filter(|u| !excluded.contains(&u.outpoint))
+                .partition(|u| u.confirmations > 0);
+            if confirmed.is_empty() && !unconfirmed.is_empty() {
+                let unconfirmed_count = unconfirmed.len();
+                let unconfirmed_amount = unconfirmed
+                    .iter()
+                    .fold(Amount::ZERO, |total, u| total + u.amount);
+                warn!(
+                    unconfirmed_count,
+                    %unconfirmed_amount,
+                    "reserved-wallet funding has no confirmed general-wallet UTXOs available"
+                );
+                return Err(Error::NoConfirmedGeneralUtxos {
+                    unconfirmed_count,
+                    unconfirmed_amount,
+                });
+            }
+            exclude.extend(unconfirmed.into_iter().map(|u| u.outpoint));
+        }
 
         let funded = self
             .general
