@@ -6,10 +6,6 @@ inputs:
     description: "FoundationDB version to install"
     required: false
     default: "7.3.43"
-  sha256:
-    description: "If set, verify the downloaded client .deb against this SHA-256 before install"
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -23,16 +19,6 @@ runs:
         curl -fsSLO --proto "=https" --tlsv1.2 \
           "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
         echo "::endgroup::"
-
-    - name: Verify client package checksum
-      if: inputs.sha256 != ''
-      shell: bash
-      env:
-        FDB_VERSION: ${{ inputs.version }}
-        EXPECTED_SHA256: ${{ inputs.sha256 }}
-      run: |
-        set -euo pipefail
-        echo "${EXPECTED_SHA256}  foundationdb-clients_${FDB_VERSION}-1_amd64.deb" | sha256sum -c -
 
     - name: Install FoundationDB client package
       shell: bash
