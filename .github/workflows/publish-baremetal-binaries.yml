@@ -122,7 +122,7 @@ jobs:
           set -euo pipefail
           VER="$(awk -F'"' '/^name = "sp1-core-executor-runner-binary"$/{f=1;next} f&&/^version = /{print $2;exit}' Cargo.lock)"
           test -n "$VER" || { echo "::error::could not determine sp1-core-executor-runner-binary version from Cargo.lock"; exit 1; }
-          cargo install sp1-core-executor-runner-binary --version "$VER" --root "$RUNNER_TEMP/sp1-core-runner" --force
+          cargo install sp1-core-executor-runner-binary --version "$VER" --locked --root "$RUNNER_TEMP/sp1-core-runner" --force
           echo "override-binary=$RUNNER_TEMP/sp1-core-runner/bin/sp1-core-executor-runner-binary" >> "$GITHUB_OUTPUT"
 
       - name: Build release binaries
