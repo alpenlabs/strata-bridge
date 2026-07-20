@@ -107,10 +107,15 @@ jobs:
           sudo dpkg -i "${deb}"
           rm -f "${deb}"
 
-      - name: Rust cache
+      - name: Rust cache (restore-only)
+        # This job compiles UNTRUSTED refs (see SECURITY MODEL), so it must never
+        # write back to the shared Actions cache: rust-cache keys on lockfiles,
+        # not the built commit, so a dispatched ref's build.rs/proc-macro output
+        # could otherwise seed a cache that later trusted builds restore.
+        # Restore-only keeps the speedup without the poisoning vector.
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
-          cache-on-failure: true
+          save-if: ${{ false }}
 
       - name: Pre-build SP1 core runner helper
         # The sp1 feature pulls in sp1-core-executor-runner, whose build.rs embeds
