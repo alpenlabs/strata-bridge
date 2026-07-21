@@ -3818,6 +3818,8 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde_json",
  "ssz",
+ "strata-asm-params",
+ "strata-asm-proto-admin-txs",
  "strata-asm-proto-bridge-v1-txs",
  "strata-asm-proto-checkpoint-txs",
  "strata-asm-proto-checkpoint-types",
@@ -11108,6 +11110,7 @@ dependencies = [
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
+ "strata-asm-proto-txs-test-utils",
  "strata-crypto",
  "strata-identifiers",
  "strata-l1-envelope-fmt",
@@ -11268,6 +11271,18 @@ dependencies = [
  "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
+]
+
+[[package]]
+name = "strata-asm-proto-txs-test-utils"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+dependencies = [
+ "bitcoin",
+ "rand 0.8.5",
+ "strata-asm-common",
+ "strata-l1-envelope-fmt",
+ "strata-l1-txfmt",
 ]
 
 [[package]]
@@ -11938,6 +11953,7 @@ dependencies = [
  "borsh",
  "hex",
  "musig2",
+ "rand 0.8.5",
  "secp256k1 0.29.1",
  "serde",
  "sha2 0.10.9",
