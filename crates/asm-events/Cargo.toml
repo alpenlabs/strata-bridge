@@ -10,8 +10,10 @@ workspace = true
 algebra.workspace = true
 btc-tracker.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
+strata-asm-proto-bridge-v1-types.workspace = true
 strata-asm-rpc = { workspace = true, features = ["client"] }
 strata-bridge-primitives.workspace = true
+strata-btc-types.workspace = true
 
 bitcoin.workspace = true
 futures.workspace = true
