@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
-# schedule_gate.sh — Decide whether a functional-sp1-proofs tick should run.
-#
-# The workflow cron ticks hourly because GitHub cannot read vars.* inside
-# on.schedule.cron; this script turns those ticks into the real cadence and
+# schedule_gate.sh — Decide whether a functional-sp1-proofs tick should run;
+# the hourly cron becomes the real cadence here because GitHub cannot read
+# vars.* inside on.schedule.cron. Reads EVENT_NAME, INTERVAL_HOURS, CACHE_HIT;
 # writes should_run=true|false to GITHUB_OUTPUT.
-#
-# Expected env vars (all injected by the workflow step):
-#   EVENT_NAME      — github.event_name; anything but "schedule" always runs
-#   INTERVAL_HOURS  — vars.SP1_FN_TESTS_INTERVAL_HOURS; falls back to 6 when
-#                     unset or not a positive integer
-#   CACHE_HIT       — "true" when the sp1-fn-tested-<sha> cache marker exists,
-#                     i.e. this commit already passed
-#   GITHUB_OUTPUT   — path to the GHA outputs file (set by the runner)
 
 set -euo pipefail
 
@@ -27,16 +18,18 @@ fi
 
 INTERVAL="${INTERVAL_HOURS:-6}"
 case "$INTERVAL" in
-  *[!0-9]* | 0)
-    echo "Invalid SP1_FN_TESTS_INTERVAL_HOURS='$INTERVAL' — falling back to 6"
-    INTERVAL=6
-    ;;
+  *[!0-9]*) INTERVAL=-1 ;;
+  *) INTERVAL=$((10#$INTERVAL)) ;; # base 10: "08" would be bad octal
 esac
+if [ "$INTERVAL" -lt 1 ]; then
+  echo "Invalid SP1_FN_TESTS_INTERVAL_HOURS='$INTERVAL_HOURS' — falling back to 6"
+  INTERVAL=6
+fi
 
-# Intervals dividing 24 give even spacing; others wrap unevenly at midnight UTC.
-HOUR=$((10#$(date -u +%H)))
-if [ $((HOUR % INTERVAL)) -ne 0 ]; then
-  echo "Hour $HOUR is not a multiple of interval $INTERVAL — skipping"
+# Epoch hours, not hour-of-day: the cadence must not reset at midnight.
+EPOCH_HOUR=$(( $(date -u +%s) / 3600 ))
+if [ $((EPOCH_HOUR % INTERVAL)) -ne 0 ]; then
+  echo "Epoch hour $EPOCH_HOUR is not a multiple of interval $INTERVAL — skipping"
   should_run false
 fi
 
