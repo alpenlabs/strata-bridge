@@ -38,6 +38,12 @@ jobs:
     outputs:
       should_run: ${{ steps.decide.outputs.should_run }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
+
       - name: Check whether this commit already passed
         id: tested
         if: github.event_name == 'schedule'
@@ -53,40 +59,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           INTERVAL_HOURS: ${{ vars.SP1_FN_TESTS_INTERVAL_HOURS }}
           CACHE_HIT: ${{ steps.tested.outputs.cache-hit }}
-        run: |
-          should_run() {
-            echo "should_run=$1" >> "$GITHUB_OUTPUT"
-            exit 0
-          }
-
-          if [ "$EVENT_NAME" != "schedule" ]; then
-            echo "Manual trigger — running"
-            should_run true
-          fi
-
-          INTERVAL="${INTERVAL_HOURS:-6}"
-          case "$INTERVAL" in
-            *[!0-9]* | 0)
-              echo "Invalid SP1_FN_TESTS_INTERVAL_HOURS='$INTERVAL_HOURS' — falling back to 6"
-              INTERVAL=6
-              ;;
-          esac
-
-          # Intervals dividing 24 give even spacing; others wrap unevenly at
-          # midnight UTC.
-          HOUR=$((10#$(date -u +%H)))
-          if [ $((HOUR % INTERVAL)) -ne 0 ]; then
-            echo "Hour $HOUR is not a multiple of interval $INTERVAL — skipping"
-            should_run false
-          fi
-
-          if [ "$CACHE_HIT" = "true" ]; then
-            echo "Commit already tested successfully — skipping"
-            should_run false
-          fi
-
-          echo "Interval hour reached and commit not yet tested — running"
-          should_run true
+        # Full logic in .github/scripts/schedule_gate.sh
+        run: bash .github/scripts/schedule_gate.sh
 
   extract-rust-version:
     name: Extract toolchain version
@@ -320,29 +294,34 @@ jobs:
     if: failure()
     timeout-minutes: 5
     steps:
-      - name: Send Slack alert
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
+
+      # Expressions cannot slice strings, so the short SHA is composed in bash.
+      - name: Compose failure message
+        id: msg
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           WORKFLOW_NAME: ${{ github.workflow }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           COMMIT_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ -z "${SLACK_WEBHOOK_URL}" ]; then
-            echo "SLACK_WEBHOOK_URL not set — skipping notification"
-            exit 0
-          fi
+          # shellcheck disable=SC2016 # backticks are literal Slack mrkdwn
+          {
+            echo "text<<MSG_EOF"
+            printf '🚨 *%s failed* — commit `%s` (%s run)\n<%s|View run>\n' \
+              "$WORKFLOW_NAME" "${COMMIT_SHA:0:7}" "$EVENT_NAME" "$RUN_URL"
+            echo "MSG_EOF"
+          } >> "$GITHUB_OUTPUT"
 
-          PAYLOAD=$(jq -n \
-            --arg workflow "${WORKFLOW_NAME}" \
-            --arg run_url "${RUN_URL}" \
-            --arg sha "${COMMIT_SHA:0:7}" \
-            --arg event "${EVENT_NAME}" \
-            '{text: "🚨 *\($workflow) failed* — commit `\($sha)` (\($event) run)\n<\($run_url)|View run>"}')
-
-          curl -sf -X POST "${SLACK_WEBHOOK_URL}" \
-            -H 'Content-Type: application/json' \
-            -d "${PAYLOAD}"
+      - name: Send Slack alert
+        uses: ./.github/actions/notify-slack # zizmor: ignore[unpinned-uses]
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          message: ${{ steps.msg.outputs.text }}
 
   functional-sp1-proofs-success:
     name: Check that all SP1 proof tests pass
