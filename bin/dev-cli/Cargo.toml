@@ -20,6 +20,8 @@ strata-bridge-rpc = { workspace = true, features = ["client"] }
 strata-bridge-tx-graph.workspace = true
 
 ssz.workspace = true
+strata-asm-params.workspace = true
+strata-asm-proto-admin-txs = { workspace = true, features = ["test-utils"] }
 strata-asm-proto-bridge-v1-txs.workspace = true
 strata-asm-proto-checkpoint-txs.workspace = true
 strata-asm-proto-checkpoint-types.workspace = true
