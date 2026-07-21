@@ -99,6 +99,7 @@ strata-asm-params = { git = "https://github.com/alpenlabs/asm", rev = "9d2eb7758
 strata-asm-proof-impl = { git = "https://github.com/alpenlabs/asm", rev = "9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c" }
 strata-asm-proto-bridge-v1 = { git = "https://github.com/alpenlabs/asm", rev = "9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c" }
 strata-asm-proto-bridge-v1-txs = { git = "https://github.com/alpenlabs/asm", rev = "9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c" }
+strata-asm-proto-bridge-v1-types = { git = "https://github.com/alpenlabs/asm", rev = "9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c" }
 strata-asm-proto-checkpoint = { git = "https://github.com/alpenlabs/asm", rev = "9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c" }
 strata-asm-proto-checkpoint-txs = { git = "https://github.com/alpenlabs/asm", rev = "9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c" }
 strata-asm-proto-checkpoint-types = { git = "https://github.com/alpenlabs/asm", rev = "9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c" }
