@@ -1,0 +1,29 @@
+name: Notify Slack
+description: >-
+  Posts a message to a Slack incoming webhook. No-op when the webhook URL is
+  empty, so workflows can wire this up before the secret is configured.
+inputs:
+  webhook-url:
+    description: "Slack incoming webhook URL (pass the secret); empty skips the post"
+    required: true
+  message:
+    description: "Message text (Slack mrkdwn)"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Post to Slack
+      shell: bash
+      env:
+        SLACK_WEBHOOK_URL: ${{ inputs.webhook-url }}
+        MESSAGE: ${{ inputs.message }}
+      run: |
+        if [ -z "${SLACK_WEBHOOK_URL}" ]; then
+          echo "webhook-url is empty — skipping notification"
+          exit 0
+        fi
+        jq -n --arg text "${MESSAGE}" '{text: $text}' \
+          | curl -sf -X POST "${SLACK_WEBHOOK_URL}" \
+              -H 'Content-Type: application/json' \
+              -d @-
