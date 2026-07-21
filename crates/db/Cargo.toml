@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+strata-asm-proto-bridge-v1-types.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-sm.workspace = true
 
@@ -25,5 +26,6 @@ fdb = ["foundationdb", "serde"]
 strata-bridge-test-utils.workspace = true
 strata-bridge-tx-graph.workspace = true
 
+bitcoin-bosd.workspace = true
 proptest.workspace = true
 tokio.workspace = true
