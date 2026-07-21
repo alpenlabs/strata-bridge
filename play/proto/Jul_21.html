@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata Bridge Explorer (signet)</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b23; --text: #dbe2ea; --muted: #8b96a5;
+    --green: #2ea36b; --red: #d05252; --orange: #d08a3c; --gray: #5c6673; --blue: #4a8fd4;
+    --border: #232b36;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; cursor: pointer; }
+  h2 { font-size: 15px; margin: 26px 0 10px; color: var(--muted); font-weight: 600;
+        text-transform: uppercase; letter-spacing: .05em; }
+  .sub { color: var(--muted); margin-bottom: 16px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tab { padding: 7px 18px; border: 1px solid var(--border); border-radius: 8px;
+          background: var(--panel); color: var(--muted); cursor: pointer; font-size: 14px; }
+  .tab.active { color: var(--text); border-color: var(--blue); }
+  .cards { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+           padding: 12px 18px; min-width: 110px; }
+  .card .num { font-size: 22px; font-weight: 600; }
+  .card .lbl { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel);
+           border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border);
+            vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase;
+        letter-spacing: 0.04em; }
+  tr:last-child td { border-bottom: none; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px;
+           margin: 1px 2px 1px 0; white-space: nowrap; }
+  .chip.green { background: rgba(46,163,107,.15); color: var(--green); }
+  .chip.red { background: rgba(208,82,82,.15); color: var(--red); }
+  .chip.orange { background: rgba(208,138,60,.15); color: var(--orange); }
+  .chip.gray { background: rgba(92,102,115,.2); color: var(--muted); }
+  .chip.blue { background: rgba(74,143,212,.15); color: var(--blue); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .muted { color: var(--muted); }
+  .dest { display: inline-block; max-width: 190px; overflow: hidden; text-overflow: ellipsis;
+           white-space: nowrap; vertical-align: bottom; }
+  td.verif { max-width: 150px; }
+  td.verif .chip { white-space: normal; }
+  details.lots { margin-top: 4px; }
+  details.lots summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  /* Inline expander variant: summary stays on the item's line, links drop below. */
+  details.inline { display: inline-block; vertical-align: top; margin-top: 0; }
+  details.inline summary { display: inline; }
+  details.inline summary::after { content: " ▸"; }
+  details.inline[open] summary::after { content: " ▾"; }
+  details.section { margin-top: 22px; }
+  details.section summary { cursor: pointer; color: var(--muted); }
+  a.xref { margin-right: 20px; }
+  /* Full-width table whose FIRST column hugs its content (width:1% + nowrap =
+     shrink-to-fit): narrow without mint info, wider with it; the rest of the
+     columns share the remaining space. */
+  table.fit { width: 100%; }
+  table.fit th:first-child, table.fit td:first-child { width: 1%; white-space: nowrap; min-width: 480px; }
+  /* Equal-width digits: countdown ticks ("2 blocks" -> "1 block") don't reflow columns. */
+  table.fit td:last-child { font-variant-numeric: tabular-nums; }
+  /* Seam between the deposit and withdrawal groups of the in-flight table. */
+  table.fit tr.group > td { border-top: 4px solid var(--border); padding-top: 12px; }
+  /* Symmetric space above the seam (default cell padding is 9px). */
+  table.fit tr.pregroup > td { padding-bottom: 12px; }
+  /* In-flight ladder: expandable per-row pipeline view. */
+  .chev { cursor: pointer; color: var(--muted); margin-right: 16px; user-select: none; }
+  table.fit tr.ladder > td { background: rgba(0,0,0,.18); padding: 6px 12px 12px 34px;
+    white-space: normal; width: auto; min-width: 0; }
+  .ladderbox { font-size: 13px; line-height: 1.9; }
+  .ladderbox .lind { margin-left: 18px; }
+  .ladderbox .ldone { color: var(--gray); }
+  .ladderbox .lfut { color: var(--muted); }
+  .ladderbox .lmut { color: var(--muted); }
+  @keyframes rowflash { 0% { background: rgba(96,165,250,.28); } 100% { background: transparent; } }
+  tr.flash > td { animation: rowflash 2.6s ease-out; }
+  .lotline { margin: 3px 0 3px 10px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1 id="page-title" title="reset the URL">Strata Bridge Explorer</h1>
+<div class="sub">
+  signet · bitcoin height <b>314176</b> · EE block <b>69969</b> ·
+  generated <span data-ts="1784643989">…</span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="inflight">In-flight</div>
+  <div class="tab" data-tab="deposits">Deposits</div>
+  <div class="tab" data-tab="withdrawals">Withdrawals</div>
+  <div class="tab" data-tab="flow">Deposits ⇄ Withdrawals</div>
+</div>
+
+<div id="tab-inflight">
+
+<table class="fit">
+  <thead>
+    <tr><th>Item</th><th>Stage</th><th>Waiting for</th><th title="countdown for the current step · upper estimate until completion (worst-case timing)">ETA</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="chev" data-target="ladder-0">▸</span><a class="muted xref" href="#drt-3d539e584b361d538c0c0f857ceac478a0c552b000c357fa4deebf102b2100e4" title="open in the Deposits tab">↪ details</a><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/3d539e584b361d538c0c0f857ceac478a0c552b000c357fa4deebf102b2100e4" target="_blank" rel="noopener">3d539e…2100e4</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/1946db99dc99236e3c0da3fbbc1eef2f67e4a2cde95bff3a804c999b512874fe" target="_blank" rel="noopener">1946db…2874fe</a> <span class="muted">· #2</span></td>
+      <td>DT buried</td>
+      <td>OL crediting</td>
+      <td><span title="at slot 100">~2 h 41 min</span> <span class="muted">· minting ≤ 6 h</span></td>
+    </tr>
+    <tr class="ladder" id="ladder-0" style="display:none">
+      <td colspan="4"><div class="ladderbox"><div class="ldone">✓ requested</div><div class="ldone">✓ deposited</div><div>credited</div><div class="lind">● OL crediting <span class="lmut">— <span title="at slot 100">~2 h 41 min</span></span></div><div class="lfut">○ checkpointed <span class="lmut">— ≤ 5 h</span></div><div class="lfut">○ minted <span class="lmut">— ≤ 6 h</span></div></div></td>
+    </tr>
+    <tr>
+      <td><span class="chev" data-target="ladder-1">▸</span><a class="muted xref" href="#drt-7ba145a313e03272dda781456f440cb7d69a5ba35d5a41df66b2cccb64f6651e" title="open in the Deposits tab">↪ details</a><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/7ba145a313e03272dda781456f440cb7d69a5ba35d5a41df66b2cccb64f6651e" target="_blank" rel="noopener">7ba145…f6651e</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/40d4d789dfd6d676f0cc455a51e0b13ae5d41eb1e0b112561f0905903dc06b63" target="_blank" rel="noopener">40d4d7…c06b63</a> <span class="muted">· #3</span></td>
+      <td>DT confirmed</td>
+      <td>DT burial</td>
+      <td>in 5 blocks <span class="muted">· minting ≤ 15 h</span></td>
+    </tr>
+    <tr class="ladder" id="ladder-1" style="display:none">
+      <td colspan="4"><div class="ladderbox"><div class="ldone">✓ requested</div><div>deposited</div><div class="ldone lind">✓ DT creation</div><div class="ldone lind">✓ DT inclusion</div><div class="lind">● DT burial <span class="lmut">— in 5 blocks</span></div><div class="lfut">○ credited <span class="lmut">— ≤ 11 h</span></div><div class="lfut">○ checkpointed <span class="lmut">— ≤ 13 h</span></div><div class="lfut">○ minted <span class="lmut">— ≤ 15 h</span></div></div></td>
+    </tr>
+    <tr class="pregroup">
+      <td><span class="chev" data-target="ladder-2">▸</span><a class="muted xref" href="#drt-3167f76a9c23d2d60dbd692484aa5d9baa0e3fb1de7c78b9a930877386443e7f" title="open in the Deposits tab">↪ details</a><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/3167f76a9c23d2d60dbd692484aa5d9baa0e3fb1de7c78b9a930877386443e7f" target="_blank" rel="noopener">3167f7…443e7f</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/c6146ffdb36f5d75f502de050037023f0d77445d2a91f745ecba3bd052c156c1" target="_blank" rel="noopener">c6146f…c156c1</a> <span class="muted">· #4</span></td>
+      <td>DT confirmed</td>
+      <td>DT burial</td>
+      <td>in 5 blocks <span class="muted">· minting ≤ 15 h</span></td>
+    </tr>
+    <tr class="ladder" id="ladder-2" style="display:none">
+      <td colspan="4"><div class="ladderbox"><div class="ldone">✓ requested</div><div>deposited</div><div class="ldone lind">✓ DT creation</div><div class="ldone lind">✓ DT inclusion</div><div class="lind">● DT burial <span class="lmut">— in 5 blocks</span></div><div class="lfut">○ credited <span class="lmut">— ≤ 11 h</span></div><div class="lfut">○ checkpointed <span class="lmut">— ≤ 13 h</span></div><div class="lfut">○ minted <span class="lmut">— ≤ 15 h</span></div></div></td>
+    </tr>
+    <tr class="group">
+      <td><span class="chev" data-target="ladder-3">▸</span><a class="muted xref" href="#wrt-0x045493f9fbfad04b68e45c8f70806f80411a6d9212e50ae38338a841cc04d30d" title="open in the Withdrawals tab">↪ details</a><span class="muted">WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0x045493f9fbfad04b68e45c8f70806f80411a6d9212e50ae38338a841cc04d30d" target="_blank" rel="noopener">0x045493…04d30d</a> <span class="muted">· 1 lot(s)</span></td>
+      <td>batch sealed</td>
+      <td><span title="the batch data is posted to bitcoin and buried, then the batch proof is generated">DA & proving</span></td>
+      <td>~2 h <span class="muted">· fulfillment ≤ 16 h</span></td>
+    </tr>
+    <tr class="ladder" id="ladder-3" style="display:none">
+      <td colspan="4"><div class="ladderbox"><div class="ldone">✓ requested</div><div>proven</div><div class="lind">● DA & proving <span class="lmut">— ~2 h</span></div><div class="lfut">○ debited <span class="lmut">— ≤ 14 h</span></div><div class="lfut">○ checkpointed <span class="lmut">— ≤ 16 h</span></div><div class="lfut">○ fulfilled <span class="lmut">— ≤ 16 h</span></div></div></td>
+    </tr>
+
+  </tbody>
+</table>
+</div>
+<div id="tab-deposits" style="display:none">
+<div class="cards">
+  <div class="card"><div class="num">6</div><div class="lbl">DRTs found</div></div>
+  <div class="card"><div class="num">5</div><div class="lbl">valid</div></div>
+  <div class="card"><div class="num">5</div><div class="lbl">deposited</div></div>
+  <div class="card"><div class="num">1</div><div class="lbl">pending</div></div>
+  <div class="card" title="0 DRT(s) taken back: 0 valid (the bridge did not process them within the recovery window) and 0 invalid (never processable; routine fund recovery)"><div class="num">0</div><div class="lbl">taken back</div></div>
+  <div class="card"><div class="num">2</div><div class="lbl">minted on Alpen</div></div>
+  <div class="card"><div class="num">5</div><div class="lbl">UTXOs in bridge</div></div>
+  <div class="card"><div class="num">10.0</div><div class="lbl">BTC in bridge</div></div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Height</th><th>Time</th><th>DRT</th><th>Amount (BTC)</th>
+      <th>Verification</th><th>Status</th><th>Destination</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr id="drt-7ba145a313e03272dda781456f440cb7d69a5ba35d5a41df66b2cccb64f6651e">
+      <td class="mono">314156</td>
+      <td class="muted" data-ts="1784634022">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/7ba145a313e03272dda781456f440cb7d69a5ba35d5a41df66b2cccb64f6651e" target="_blank" rel="noopener">7ba145…f6651e</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/40d4d789dfd6d676f0cc455a51e0b13ae5d41eb1e0b112561f0905903dc06b63" target="_blank" rel="noopener">40d4d7…c06b63</a> <span class="muted">· deposit&nbsp;#3</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">not yet minted</span></td>
+    </tr>
+    <tr id="drt-3167f76a9c23d2d60dbd692484aa5d9baa0e3fb1de7c78b9a930877386443e7f">
+      <td class="mono">314156</td>
+      <td class="muted" data-ts="1784634022">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/3167f76a9c23d2d60dbd692484aa5d9baa0e3fb1de7c78b9a930877386443e7f" target="_blank" rel="noopener">3167f7…443e7f</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/c6146ffdb36f5d75f502de050037023f0d77445d2a91f745ecba3bd052c156c1" target="_blank" rel="noopener">c6146f…c156c1</a> <span class="muted">· deposit&nbsp;#4</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">not yet minted</span></td>
+    </tr>
+    <tr id="drt-5d8196ba03af65b708f7a3c457a0a2ff21adeb807816d63f080eba6885377a12">
+      <td class="mono">314140</td>
+      <td class="muted" data-ts="1784619875">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/5d8196ba03af65b708f7a3c457a0a2ff21adeb807816d63f080eba6885377a12" target="_blank" rel="noopener">5d8196…377a12</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip gray">invalid (script)</span></td>
+      <td><span class="chip blue">pending</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7f372cf103700e902ce2d1cd5bdce03bbf4aa86"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7f372cf103700e902ce2d1cd5bdce03bbf4aa86" target="_blank" rel="noopener">0xf7f372cf103700e902ce2d1cd5bdce03bbf4aa86</a></span></td>
+    </tr>
+    <tr id="drt-3d539e584b361d538c0c0f857ceac478a0c552b000c357fa4deebf102b2100e4">
+      <td class="mono">314122</td>
+      <td class="muted" data-ts="1784610147">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/3d539e584b361d538c0c0f857ceac478a0c552b000c357fa4deebf102b2100e4" target="_blank" rel="noopener">3d539e…2100e4</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/1946db99dc99236e3c0da3fbbc1eef2f67e4a2cde95bff3a804c999b512874fe" target="_blank" rel="noopener">1946db…2874fe</a> <span class="muted">· deposit&nbsp;#2</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080260891ed0b6bc3699b47db5132c3e58f83ba36d6"><a class="mono" href="https://explorer.testnet.alpen.org/address/0x260891ed0b6bc3699b47db5132c3e58f83ba36d6" target="_blank" rel="noopener">0x260891ed0b6bc3699b47db5132c3e58f83ba36d6</a></span><br><span class="muted">not yet minted</span></td>
+    </tr>
+    <tr id="drt-f605961f88d07c1618c074c704de567357f299f7c5da963a7da1253f70e100cb">
+      <td class="mono">314065</td>
+      <td class="muted" data-ts="1784584781">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/f605961f88d07c1618c074c704de567357f299f7c5da963a7da1253f70e100cb" target="_blank" rel="noopener">f60596…e100cb</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/d6960de059670e9166b3312bf2283e80bb4f6ec22134932524f94aec8ae4ed42" target="_blank" rel="noopener">d6960d…e4ed42</a> <span class="muted">· deposit&nbsp;#1</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/66861" target="_blank" rel="noopener">block 66861</a></td>
+    </tr>
+    <tr id="drt-da8acb37a284310f8c2c7b898110e37e36efcae7b5cdb0acbc082d9d3fc5d025">
+      <td class="mono">314064</td>
+      <td class="muted" data-ts="1784583862">…</td>
+      <td><a class="mono" href="https://mempool.space/signet/tx/da8acb37a284310f8c2c7b898110e37e36efcae7b5cdb0acbc082d9d3fc5d025" target="_blank" rel="noopener">da8acb…c5d025</a></td>
+      <td class="mono">2.00001000</td>
+      <td class="verif"><span class="chip green">valid</span></td>
+      <td><span class="chip green">deposited</span> DT <a class="mono" href="https://mempool.space/signet/tx/40cf7f45db3dbec61de52470be6d040aedbf58b049a226e3d6ea99d348cc1588" target="_blank" rel="noopener">40cf7f…cc1588</a> <span class="muted">· deposit&nbsp;#0</span><br><span class="muted">UTXO: in bridge (unspent)</span></td>
+      <td class="mono"><span class="dest" title="raw: 0080f7d857daf359d37d16a8e805ff4b13076b2a2289"><a class="mono" href="https://explorer.testnet.alpen.org/address/0xf7d857daf359d37d16a8e805ff4b13076b2a2289" target="_blank" rel="noopener">0xf7d857daf359d37d16a8e805ff4b13076b2a2289</a></span><br><span class="muted">minted ·</span> <a class="mono" href="https://explorer.testnet.alpen.org/block/66861" target="_blank" rel="noopener">block 66861</a></td>
+    </tr>
+
+  </tbody>
+</table>
+
+
+</div>
+<div id="tab-withdrawals" style="display:none">
+<div class="cards">
+  <div class="card"><div class="num">1</div><div class="lbl">withdrawal requests</div></div>
+  <div class="card"><div class="num">1</div><div class="lbl">lots</div></div>
+  <div class="card"><div class="num">0</div><div class="lbl">fulfilled</div></div>
+  <div class="card"><div class="num">0</div><div class="lbl">delayed</div></div>
+  <div class="card"><div class="num">0</div><div class="lbl">open claims</div></div>
+  <div class="card"><div class="num">0.0</div><div class="lbl">BTC withdrawn</div></div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>EE block</th><th>Time</th><th>WRT</th><th>Amount</th><th>Destination</th>
+      <th>Operator pref.</th><th>Deposits</th><th>Status</th><th>Payout</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr id="wrt-0x045493f9fbfad04b68e45c8f70806f80411a6d9212e50ae38338a841cc04d30d">
+      <td class="mono">67395</td>
+      <td class="muted" data-ts="1784631112">…</td>
+      <td><a class="mono" href="https://explorer.testnet.alpen.org/tx/0x045493f9fbfad04b68e45c8f70806f80411a6d9212e50ae38338a841cc04d30d" target="_blank" rel="noopener">0x0454…04d30d</a></td>
+      <td class="mono">2.00 BTC (1 lot)</td>
+      <td class="mono"><span class="dest" title="bosd: 04e8d8775351a6e4d69c8d63ea4127db490cf7cac06918e78adac349b6672a8a07"><a class="mono" href="https://mempool.space/signet/address/tb1parv8w5635mjdd8ydv04yzf7mfyx00jkqdyvw0zk6cdymvee23grsqlthg9" target="_blank" rel="noopener">tb1parv8w5635mjdd8ydv04yzf7mfyx00jkqdyvw0zk6cdymvee23grsqlthg9</a></span></td>
+      <td><span class="muted">any</span></td>
+      <td><span class="mono"><span title="assumed — not yet confirmed by a fulfillment">#0</span></span></td>
+      <td><span class="chip blue">requested</span> <span class="muted">(<span data-age="1784631112">…</span>)</span></td>
+      <td><span class="muted">in bridge</span></td>
+    </tr>
+
+  </tbody>
+</table>
+
+<h2>Open claims</h2>
+<p class="muted">No open claims.</p>
+
+
+</div>
+<div id="tab-flow" style="display:none">
+<div class="cards">
+  <div class="card"><div class="num">5</div><div class="lbl">deposit slots</div></div>
+  <div class="card"><div class="num">5</div><div class="lbl">in bridge</div></div>
+  <div class="card"><div class="num">0</div><div class="lbl">withdrawn</div></div>
+  <div class="card"><div class="num">10.0</div><div class="lbl">BTC in bridge</div></div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th><th>Deposit</th><th>Minted</th><th>UTXO</th>
+      <th>Payout</th><th>Withdrawal</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">4</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/3167f76a9c23d2d60dbd692484aa5d9baa0e3fb1de7c78b9a930877386443e7f" target="_blank" rel="noopener">3167f7…443e7f</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/c6146ffdb36f5d75f502de050037023f0d77445d2a91f745ecba3bd052c156c1" target="_blank" rel="noopener">c6146f…c156c1</a></td>
+      <td class="mono"><span class="muted">—</span></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">3</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/7ba145a313e03272dda781456f440cb7d69a5ba35d5a41df66b2cccb64f6651e" target="_blank" rel="noopener">7ba145…f6651e</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/40d4d789dfd6d676f0cc455a51e0b13ae5d41eb1e0b112561f0905903dc06b63" target="_blank" rel="noopener">40d4d7…c06b63</a></td>
+      <td class="mono"><span class="muted">—</span></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">2</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/3d539e584b361d538c0c0f857ceac478a0c552b000c357fa4deebf102b2100e4" target="_blank" rel="noopener">3d539e…2100e4</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/1946db99dc99236e3c0da3fbbc1eef2f67e4a2cde95bff3a804c999b512874fe" target="_blank" rel="noopener">1946db…2874fe</a></td>
+      <td class="mono"><span class="muted">—</span></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">1</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/f605961f88d07c1618c074c704de567357f299f7c5da963a7da1253f70e100cb" target="_blank" rel="noopener">f60596…e100cb</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/d6960de059670e9166b3312bf2283e80bb4f6ec22134932524f94aec8ae4ed42" target="_blank" rel="noopener">d6960d…e4ed42</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/66861" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 66861</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">—</span></td>
+    </tr>
+    <tr>
+      <td class="mono">0</td>
+      <td><span class="muted">DRT</span> <a class="mono" href="https://mempool.space/signet/tx/da8acb37a284310f8c2c7b898110e37e36efcae7b5cdb0acbc082d9d3fc5d025" target="_blank" rel="noopener">da8acb…c5d025</a> <span class="muted">→ DT</span> <a class="mono" href="https://mempool.space/signet/tx/40cf7f45db3dbec61de52470be6d040aedbf58b049a226e3d6ea99d348cc1588" target="_blank" rel="noopener">40cf7f…cc1588</a></td>
+      <td class="mono"><a class="mono" href="https://explorer.testnet.alpen.org/block/66861" target="_blank" rel="noopener" title="minted to 0xf7d857daf359d37d16a8e805ff4b13076b2a2289">block 66861</a></td>
+      <td><span class="chip green">in bridge</span></td>
+      <td><span class="muted">—</span></td>
+      <td><span class="muted">WRT</span> <a class="mono" href="https://explorer.testnet.alpen.org/tx/0x045493f9fbfad04b68e45c8f70806f80411a6d9212e50ae38338a841cc04d30d" target="_blank" rel="noopener">0x0454…04d30d</a></td>
+    </tr>
+
+  </tbody>
+</table>
+</div>
+
+<script>
+  for (const el of document.querySelectorAll('[data-ts]')) {
+    const ts = parseInt(el.dataset.ts, 10);
+    if (ts) el.textContent = new Date(ts * 1000).toISOString().replace('T',' ').slice(0, 16) + ' UTC';
+  }
+  // Relative ages, computed at viewing time (see the "generated" stamp for data freshness).
+  for (const el of document.querySelectorAll('[data-age]')) {
+    const ts = parseInt(el.dataset.age, 10);
+    if (!ts) continue;
+    const s = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+    el.textContent = Math.floor(s / 3600) + 'h ago';
+  }
+  function showTab(name) {
+    // Re-showing a hidden section restarts CSS animations, so leftover flash
+    // classes would replay; strip them on every switch.
+    for (const el of document.querySelectorAll('tr.flash')) el.classList.remove('flash');
+    for (const t of document.querySelectorAll('.tab')) t.classList.toggle('active', t.dataset.tab === name);
+    for (const sec of document.querySelectorAll('[id^="tab-"]')) sec.style.display = 'none';
+    document.getElementById('tab-' + name).style.display = '';
+  }
+  for (const tab of document.querySelectorAll('.tab')) {
+    tab.addEventListener('click', () => showTab(tab.dataset.tab));
+  }
+  // Cross-references: #drt-<txid> / #wrt-<txid> switch to the owning tab and
+  // highlight the row.
+  function jumpToHash() {
+    const isDrt = location.hash.startsWith('#drt-');
+    const isWrt = location.hash.startsWith('#wrt-');
+    if (!isDrt && !isWrt) return;
+    const row = document.getElementById(location.hash.slice(1));
+    if (!row) return;
+    showTab(isDrt ? 'deposits' : 'withdrawals');
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    void row.offsetWidth; // restart the animation on repeat jumps
+    row.classList.add('flash');
+  }
+  // Title click: strip the #drt-... fragment from the URL (no navigation, no
+  // tab change — replaceState rewrites the address bar in place).
+  document.getElementById('page-title').addEventListener('click', () => {
+    history.replaceState(null, '', location.pathname + location.search);
+  });
+  for (const c of document.querySelectorAll('.chev')) {
+    c.addEventListener('click', () => {
+      const lr = document.getElementById(c.dataset.target);
+      if (!lr) return;
+      const open = lr.style.display !== 'none';
+      lr.style.display = open ? 'none' : '';
+      c.textContent = open ? '▸' : '▾';
+    });
+  }
+  window.addEventListener('hashchange', jumpToHash);
+  // Same-hash clicks fire no hashchange event, so in-page links get their own
+  // handler (deferred a tick so location.hash is updated first). Running twice
+  // on hash-changing clicks is harmless: the jump is idempotent.
+  for (const a of document.querySelectorAll("a[href^='#drt-'], a[href^='#wrt-']")) {
+    a.addEventListener('click', () => setTimeout(jumpToHash, 0));
+  }
+  jumpToHash();
+</script>
+</body>
+</html>
