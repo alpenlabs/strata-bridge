@@ -8,6 +8,7 @@ use std::{
 };
 
 use bitcoin::{OutPoint, hashes::sha256};
+use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{DepositIdx, GraphIdx, OperatorIdx},
@@ -56,6 +57,11 @@ pub struct SMRegistry {
     /// The state machines responsible for tracking an operator's stake, indexed by the operator
     /// index. There is exactly one stake state machine per operator in the operator table.
     stakes: BTreeMap<OperatorIdx, StakeSM>,
+    /// The latched safe-harbour destination address, set once when the ASM reports the safe
+    /// harbour as activated. This is sticky and monotonic: the first write wins and it is never
+    /// cleared, so it survives a tip reorg that flips the ASM flag back to inactive. `None` means
+    /// safe harbour has not been observed as activated on this node.
+    safe_harbour: Option<SafeHarbourAddress>,
 }
 
 /// Invariant errors when inserting state machines into the registry.
@@ -140,12 +146,41 @@ impl SMRegistry {
             deposits: BTreeMap::new(),
             graphs: BTreeMap::new(),
             stakes: BTreeMap::new(),
+            safe_harbour: None,
         }
     }
 
     /// Gets a reference to the registry configuration.
     pub const fn cfg(&self) -> &SMConfig {
         &self.cfg
+    }
+
+    // ── Safe Harbour ──────────────────────────────────────────────────
+
+    /// Latches the frozen safe-harbour `address` on the first activation.
+    ///
+    /// Monotonic: the first write wins and subsequent calls are no-ops, even with a different
+    /// address. This is what makes the flag reorg-safe — once a node has observed activation it
+    /// stays in safe-harbour mode regardless of what the (non-final) ASM tip later reports.
+    ///
+    /// Returns `true` if this call latched the address (i.e. it was the first activation), and
+    /// `false` if the safe harbour was already latched.
+    pub fn activate_safe_harbour(&mut self, address: SafeHarbourAddress) -> bool {
+        if self.safe_harbour.is_some() {
+            return false;
+        }
+        self.safe_harbour = Some(address);
+        true
+    }
+
+    /// Returns the latched safe-harbour address, or `None` if safe harbour is not active.
+    pub const fn safe_harbour_address(&self) -> Option<&SafeHarbourAddress> {
+        self.safe_harbour.as_ref()
+    }
+
+    /// Returns `true` iff safe harbour has been latched on this node.
+    pub const fn safe_harbour_active(&self) -> bool {
+        self.safe_harbour.is_some()
     }
 
     /// Gets the total number of deposit state machines currently in the registry.
@@ -575,6 +610,69 @@ mod tests {
         let registry = test_empty_registry();
         assert_eq!(registry.num_deposits(), 0);
         assert!(registry.get_all_ids().is_empty());
+    }
+
+    // ===== Safe-harbour latch tests =====
+
+    /// Builds a P2TR [`SafeHarbourAddress`] from a 32-byte x-only pubkey payload.
+    ///
+    /// `new_p2tr` rejects payloads that are not valid on-curve x-coordinates (only ~half of all
+    /// 32-byte values are), so `a`/`b` below use fills known to be valid; e.g. `[3u8; 32]` is not.
+    fn safe_harbour_address(payload: [u8; 32]) -> SafeHarbourAddress {
+        let descriptor =
+            bitcoin_bosd::Descriptor::new_p2tr(&payload).expect("valid x-only public key");
+        SafeHarbourAddress::try_from(descriptor).expect("p2tr descriptor accepted")
+    }
+
+    fn safe_harbour_address_a() -> SafeHarbourAddress {
+        safe_harbour_address([2u8; 32])
+    }
+
+    fn safe_harbour_address_b() -> SafeHarbourAddress {
+        safe_harbour_address([7u8; 32])
+    }
+
+    #[test]
+    fn safe_harbour_defaults_to_inactive() {
+        let registry = test_empty_registry();
+        assert!(!registry.safe_harbour_active());
+        assert_eq!(registry.safe_harbour_address(), None);
+    }
+
+    #[test]
+    fn activate_safe_harbour_latches_address() {
+        let mut registry = test_empty_registry();
+        let address = safe_harbour_address_a();
+
+        assert!(
+            registry.activate_safe_harbour(address.clone()),
+            "first activation must report it latched"
+        );
+        assert!(registry.safe_harbour_active());
+        assert_eq!(registry.safe_harbour_address(), Some(&address));
+    }
+
+    #[test]
+    fn activate_safe_harbour_is_monotonic_first_write_wins() {
+        // Models the reorg/convergence property: once a node has latched the activation, a later
+        // observation (even one carrying a different address) must not change or clear the latch.
+        let mut registry = test_empty_registry();
+        let first = safe_harbour_address_a();
+        let second = safe_harbour_address_b();
+        assert_ne!(first, second);
+
+        assert!(registry.activate_safe_harbour(first.clone()));
+        assert!(
+            !registry.activate_safe_harbour(second),
+            "a subsequent activation must be a no-op and report it did not latch"
+        );
+
+        assert!(registry.safe_harbour_active());
+        assert_eq!(
+            registry.safe_harbour_address(),
+            Some(&first),
+            "the originally latched address must be preserved"
+        );
     }
 
     #[test]
