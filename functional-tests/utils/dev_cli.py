@@ -102,6 +102,34 @@ class DevCli:
         txid = res.splitlines()[-1].split("=")[-1].strip()
         return txid
 
+    def send_defcon1(self, seqno: int = 1) -> str:
+        """Publish a Defcon1 admin tx activating the ASM safe harbour.
+
+        The test ASM params configure the security council as the operators' musig2 keys
+        with threshold 1, so operator 0's seed signs as the council (signer index 0).
+        """
+        rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
+        wallet = self.bitcoind_props.get("walletname", "testwallet")
+
+        args = [
+            "defcon1",
+            "--btc-url",
+            f"http://127.0.0.1:{rpc_port}/wallet/{wallet}",
+            "--btc-user",
+            self.bitcoind_props.get("rpc_user", "user"),
+            "--btc-pass",
+            self.bitcoind_props.get("rpc_password", "password"),
+            "--seed",
+            self.operator_key_infos[0].SEED,
+            "--seqno",
+            str(seqno),
+        ]
+
+        res = self._run_command(args)
+        # HACK: (@Rajil1213) parse raw stdout to extract txid
+        txid = res.splitlines()[-1].split("=")[-1].strip()
+        return txid
+
     def send_mock_checkpoint(
         self,
         checkpoint_tip: CheckpointTip | None,
