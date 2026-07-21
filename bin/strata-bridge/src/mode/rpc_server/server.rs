@@ -499,6 +499,15 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             })
             .collect())
     }
+
+    async fn get_safe_harbour_address(&self) -> RpcResult<Option<String>> {
+        Ok(self
+            .cached_registry
+            .read()
+            .await
+            .safe_harbour_address()
+            .map(|address| hex::encode(address.as_descriptor().to_bytes())))
+    }
 }
 
 #[async_trait]
