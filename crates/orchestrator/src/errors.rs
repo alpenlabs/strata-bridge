@@ -42,6 +42,10 @@ pub enum PipelineError {
     /// A fatal error occurred while persisting state to disk.
     #[error("persist error: {0}")]
     Persist(#[from] PersistError),
+
+    /// The pipeline reached an internal state that its stage boundaries prohibit.
+    #[error("pipeline invariant violation: {0}")]
+    InternalInvariant(&'static str),
 }
 
 /// Unified output from processing an event through any state machine.

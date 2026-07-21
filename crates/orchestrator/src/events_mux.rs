@@ -16,6 +16,8 @@ use strata_p2p::{
 };
 use tracing::warn;
 
+use crate::observability;
+
 // NOTE: (@Rajil1213) the following use full `tokio` paths for disambiguation with `std` types.
 
 /// All possible events that the orchestrator can receive.
@@ -132,15 +134,18 @@ impl EventsMux {
 
 fn decode_gossip_message(raw_msg: &[u8]) -> Option<GossipsubMsg> {
     let Ok(msg) = rkyv::from_bytes::<GossipsubMsg, rancor::Error>(raw_msg) else {
+        observability::record_p2p_message("receive", "decode_error");
         warn!("received invalid gossip message from peer");
         return None;
     };
 
     if !msg.verify() {
+        observability::record_p2p_message("receive", "invalid_signature");
         warn!(peer = %msg.key, "received gossip message with invalid signature from peer");
         return None;
     }
 
+    observability::record_p2p_message("receive", "accepted");
     Some(msg)
 }
 

@@ -26,6 +26,7 @@ strata-p2p.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 futures.workspace = true
+metrics.workspace = true
 musig2.workspace = true
 rkyv.workspace = true
 thiserror.workspace = true

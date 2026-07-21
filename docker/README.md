@@ -271,6 +271,15 @@ kind/source, state-machine kind/state, duty kind, dependency, result, and error 
 `deposit_idx`, `graph_idx`, txids, pubkeys, peer ids, outpoints, or message ids in metric labels;
 keep that per-deposit or per-withdrawal detail in spans, logs, and lifecycle records.
 
+For the provisioned local Prometheus, Loki, Alloy, alert rules, and Grafana bridge control room,
+see [`docker/observability/README.md`](observability/README.md). The monitoring-only overlay starts
+with:
+
+```sh
+docker compose -f compose.yml -f docker/observability/compose.yml \
+  up -d prometheus loki alloy grafana
+```
+
 ### Bridging in
 
 To send a deposit request against the Docker stack, run:
