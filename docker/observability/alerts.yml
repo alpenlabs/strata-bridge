@@ -1,0 +1,70 @@
+# Local-only alert rules. Every threshold in this file is a placeholder chosen without
+# representative traffic; none of them may be copied into the deployment repository without a
+# staging alert-noise study.
+groups:
+  - name: strata-bridge-local
+    rules:
+      - alert: BridgeOperatorDown
+        expr: up{job="strata-bridge"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Bridge operator {{ $labels.operator }} is not scrapeable"
+          description: "Prometheus has been unable to scrape {{ $labels.instance }} for one minute."
+
+      - alert: BridgeComponentUnhealthy
+        expr: strata_bridge_health_component_status{job="strata-bridge"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Bridge component {{ $labels.component }} is unhealthy"
+          description: "Operator {{ $labels.operator }} has reported {{ $labels.component }} unhealthy for two minutes."
+
+      # Best-effort: a fatal pipeline error terminates the process, so this sample is only
+      # scraped if a scrape lands in the shutdown window. BridgeOperatorDown is the primary
+      # signal for pipeline death; this rule adds the error class when the scrape wins the race.
+      - alert: BridgePipelineError
+        expr: increase(strata_bridge_pipeline_event_duration_seconds_count{result="error"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Bridge pipeline event failed"
+          description: "Operator {{ $labels.operator }} failed a {{ $labels.event_kind }} event with class {{ $labels.error_class }}."
+
+      - alert: BridgePersistenceFailure
+        expr: increase(strata_bridge_persistence_operations_total{result="error"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Bridge state persistence failed"
+          description: "Operator {{ $labels.operator }} hit a {{ $labels.error_class }} persistence failure."
+
+      - alert: BridgeDutyFailures
+        expr: increase(strata_bridge_duties_total{result=~"error|panic"}[10m]) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bridge duty execution is repeatedly failing"
+          description: "Operator {{ $labels.operator }} failed {{ $labels.duty_kind }} duties with class {{ $labels.error_class }}."
+
+      - alert: BridgeInvalidP2PBurst
+        expr: sum by (operator) (increase(strata_bridge_p2p_messages_total{result=~"decode_error|invalid_signature"}[5m])) > 5
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bridge operator {{ $labels.operator }} is receiving invalid P2P traffic"
+          description: "More than five invalid messages were rejected in five minutes."
+
+      # The exporter emits summaries (exporter-side rolling quantiles), not histogram buckets,
+      # so this uses the per-operator quantile series directly; histogram_quantile over _bucket
+      # would match nothing until bucket support lands in strata-common's Prometheus recorder.
+      - alert: BridgeEventLatencyHigh
+        expr: max by (operator) (strata_bridge_pipeline_event_duration_seconds{quantile="0.95"}) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bridge event pipeline p95 exceeds five seconds"
+          description: "Operator {{ $labels.operator }} has sustained high end-to-end event latency."
