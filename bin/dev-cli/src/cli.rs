@@ -23,6 +23,9 @@ pub(crate) enum Commands {
     /// Create and publish a mock checkpoint.
     CreateAndPublishMockCheckpoint(CreateAndPublishMockCheckpointArgs),
 
+    /// Publish a Defcon1 admin transaction activating the ASM safe harbour.
+    Defcon1(Defcon1Args),
+
     /// Contest a claim transaction.
     Contest(ContestArgs),
 
@@ -93,6 +96,32 @@ pub(crate) struct CreateAndPublishMockCheckpointArgs {
         help = "operator node index to assign withdrawals to"
     )]
     pub(crate) assignee_node_idx: u32,
+
+    #[arg(long, default_value_t = Network::Regtest, help = "bitcoin network")]
+    pub(crate) network: Network,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(
+    about = "Publish a Defcon1 admin tx activating the ASM safe harbour",
+    version
+)]
+pub(crate) struct Defcon1Args {
+    #[arg(
+        long,
+        help = "hex-encoded seed of the council signer (operator 0 in test setups)"
+    )]
+    pub(crate) seed: String,
+
+    #[arg(
+        long,
+        default_value = "1",
+        help = "admin action sequence number (must exceed the council's last seqno)"
+    )]
+    pub(crate) seqno: u64,
 
     #[arg(long, default_value_t = Network::Regtest, help = "bitcoin network")]
     pub(crate) network: Network,
