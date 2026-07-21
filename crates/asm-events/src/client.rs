@@ -22,8 +22,10 @@ use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
 use jsonrpsee::http_client::HttpClient;
 use strata_asm_proto_bridge_v1::AssignmentEntry;
-use strata_asm_rpc::traits::AsmStateApiClient;
+use strata_asm_proto_bridge_v1_types::SafeHarbour;
+use strata_asm_rpc::traits::{AsmControlApiClient, AsmStateApiClient};
 use strata_bridge_primitives::subscription::Subscription;
+use strata_btc_types::L1BlockIdBitcoinExt;
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, mpsc, watch},
@@ -32,7 +34,7 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
-use crate::{config::AsmRpcConfig, event::AssignmentsState};
+use crate::{config::AsmRpcConfig, event::AsmState};
 
 /// Marker type indicating the feed is not attached to a block stream yet.
 #[derive(Debug)]
@@ -42,18 +44,18 @@ pub struct Detached;
 #[derive(Debug)]
 pub struct Attached;
 
-/// ASM event feed, currently providing assignment state updates.
+/// ASM event feed, providing per-buried-block assignment and safe-harbour state updates.
 #[derive(Debug, Clone)]
 pub struct AsmEventFeed<State = Detached> {
     cfg: AsmRpcConfig,
     client: HttpClient,
-    subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<AssignmentsState>>>>,
+    subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<AsmState>>>>,
     thread_handle: Option<Arc<JoinHandle<()>>>,
     health_observer: Option<HealthObserver>,
     _state: PhantomData<State>,
 }
 
-/// Health events emitted by the ASM assignments feed.
+/// Health events emitted by the ASM state feed.
 #[derive(Debug, Clone, Copy)]
 pub enum AsmFeedHealthEvent {
     /// Assignments were fetched successfully for a buried block.
@@ -61,6 +63,12 @@ pub enum AsmFeedHealthEvent {
 
     /// Assignment fetching exhausted all retries for a buried block.
     AssignmentsFetchFailed,
+
+    /// Safe-harbour state was fetched successfully from the ASM tip.
+    SafeHarbourFetched,
+
+    /// Safe-harbour fetching exhausted all retries; the flag is delivered as unknown this cycle.
+    SafeHarbourFetchFailed,
 }
 
 #[derive(Clone)]
@@ -105,7 +113,8 @@ impl AsmEventFeed<Detached> {
     ///
     /// This spawns two background tasks:
     /// - A block forwarder that forwards buried block notifications without blocking
-    /// - An assignments fetcher that queries ASM RPC and fans out results to subscribers
+    /// - An ASM state fetcher that queries ASM RPC (assignments at the buried block, safe harbour
+    ///   at the ASM tip) and fans out results to subscribers
     ///
     /// Note: this does not validate ASM RPC connectivity. The fetcher will retry failed
     /// requests and log failures.
@@ -115,7 +124,8 @@ impl AsmEventFeed<Detached> {
     ) -> AsmEventFeed<Attached> {
         // Using watch channel (latest-value semantics) is intentional: if the fetcher is slow,
         // we want to skip to the most recent block rather than queue all intermediate blocks.
-        // Assignment state is idempotent and queryable by block hash.
+        // Assignment state is idempotent and queryable by block hash, and the safe-harbour flag
+        // is monotonic, so skipping intermediate buried blocks is harmless.
         let (request_sender, request_receiver) = watch::channel(None);
         let subscribers_worker = self.subscribers.clone();
         let health_observer = self.health_observer.clone();
@@ -124,7 +134,7 @@ impl AsmEventFeed<Detached> {
 
         let thread_handle = Arc::new(task::spawn(async move {
             let forwarder = run_block_ref_forwarder(block_sub, request_sender);
-            let fetcher = run_assignments_state_fetcher(
+            let fetcher = run_asm_state_fetcher(
                 cfg,
                 client,
                 request_receiver,
@@ -147,7 +157,7 @@ impl AsmEventFeed<Detached> {
 }
 
 impl<State> AsmEventFeed<State> {
-    /// Installs a synchronous health observer for assignment fetch success and failure.
+    /// Installs a synchronous health observer for ASM fetch success and failure.
     pub fn with_health_observer(
         mut self,
         observer: impl Fn(AsmFeedHealthEvent) + Send + Sync + 'static,
@@ -158,10 +168,10 @@ impl<State> AsmEventFeed<State> {
 }
 
 impl AsmEventFeed<Attached> {
-    /// Subscribes to assignment state updates.
+    /// Subscribes to ASM state updates.
     ///
-    /// Returns a subscription that will receive [`AssignmentsState`] events for buried blocks.
-    pub async fn subscribe_assignments_state(&self) -> Subscription<AssignmentsState> {
+    /// Returns a subscription that will receive [`AsmState`] events for buried blocks.
+    pub async fn subscribe_asm_state(&self) -> Subscription<AsmState> {
         let (send, recv) = mpsc::unbounded_channel();
 
         self.subscribers.lock().await.push(send);
@@ -179,7 +189,7 @@ enum FetchError {
     Timeout,
 }
 
-/// Forwards buried block refs to the assignments fetcher without blocking on RPC latency.
+/// Forwards buried block refs to the ASM state fetcher without blocking on RPC latency.
 async fn run_block_ref_forwarder(
     mut block_sub: Subscription<BlockEvent>,
     request_sender: watch::Sender<Option<BlockHash>>,
@@ -199,16 +209,17 @@ async fn run_block_ref_forwarder(
     debug!("block subscription closed; ASM forwarder exiting");
 }
 
-/// Fetches assignment state from ASM and fans it out to subscribers.
+/// Fetches ASM state and fans it out to subscribers.
 ///
-/// Assumes ASM has already ingested the notified block; lag is handled via retries.
-/// Fork divergence or persistent lag can surface as "block not found" or repeated failures;
-/// those cases are logged and skipped after retries for now.
-async fn run_assignments_state_fetcher(
+/// Assignments are read at the buried block (assumed already ingested by ASM; lag is handled via
+/// retries) and the safe-harbour flag is read at the ASM tip for a faster emergency response. A
+/// failed assignment fetch skips the cycle (as before); a failed safe-harbour fetch is best-effort
+/// and delivers `safe_harbour: None` so assignment processing is never blocked by it.
+async fn run_asm_state_fetcher(
     cfg: AsmRpcConfig,
     client: HttpClient,
     mut request_receiver: watch::Receiver<Option<BlockHash>>,
-    subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<AssignmentsState>>>>,
+    subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<AsmState>>>>,
     health_observer: Option<HealthObserver>,
 ) {
     let mut last_processed: Option<BlockHash> = None;
@@ -227,54 +238,60 @@ async fn run_assignments_state_fetcher(
             continue;
         }
 
-        let strategy = retry_strategy(&cfg);
-        let timeout = cfg.request_timeout;
-        let client_handle = client.clone();
-
-        let result = retry_with(strategy, move || {
-            let client_handle = client_handle.clone();
-            async move {
-                fetch_assignments(&client_handle, block_hash, timeout)
-                    .await
-                    .map_err(|err| {
-                        warn!(?err, %block_hash, "failed to fetch ASM assignments");
-                        err
-                    })
-            }
-        })
-        .await;
-
-        match result {
+        // Assignments are authoritative for block processing; a failed fetch skips the cycle so it
+        // is retried on the next buried block.
+        let assignments = match fetch_assignments_with_retry(&cfg, &client, block_hash).await {
             Ok(assignments) => {
-                last_processed = Some(block_hash);
-                if let Some(observer) = &health_observer {
-                    observer.observe(AsmFeedHealthEvent::AssignmentsFetched);
-                }
-                info!(
-                    %block_hash,
-                    num_assignments = assignments.len(),
-                    "received ASM assignment state"
-                );
-
-                let event = AssignmentsState {
-                    block_hash,
-                    assignments,
-                };
-
-                let mut subs = subscribers.lock().await;
-                subs.retain(|sub| sub.send(event.clone()).is_ok());
+                observe(&health_observer, AsmFeedHealthEvent::AssignmentsFetched);
+                assignments
             }
             Err(err) => {
-                if let Some(observer) = &health_observer {
-                    observer.observe(AsmFeedHealthEvent::AssignmentsFetchFailed);
-                }
+                observe(&health_observer, AsmFeedHealthEvent::AssignmentsFetchFailed);
                 error!(
                     ?err,
                     %block_hash,
                     "exhausted ASM assignment retries; skipping assignment state"
                 );
+                continue;
             }
-        }
+        };
+
+        // Safe harbour is best-effort: a failed fetch delivers `None` (unknown this cycle) rather
+        // than blocking assignment delivery. The monotonic latch and sweep backstop cover the gap.
+        let safe_harbour = match fetch_safe_harbour_with_retry(&cfg, &client).await {
+            Ok(safe_harbour) => {
+                observe(&health_observer, AsmFeedHealthEvent::SafeHarbourFetched);
+                safe_harbour
+            }
+            Err(err) => {
+                observe(&health_observer, AsmFeedHealthEvent::SafeHarbourFetchFailed);
+                warn!(?err, %block_hash, "exhausted ASM safe-harbour retries; treating as unknown");
+                None
+            }
+        };
+
+        last_processed = Some(block_hash);
+        info!(
+            %block_hash,
+            num_assignments = assignments.len(),
+            safe_harbour_active = safe_harbour.as_ref().is_some_and(SafeHarbour::is_activated),
+            "received ASM state"
+        );
+
+        let event = AsmState {
+            block_hash,
+            assignments,
+            safe_harbour,
+        };
+
+        let mut subs = subscribers.lock().await;
+        subs.retain(|sub| sub.send(event.clone()).is_ok());
+    }
+}
+
+fn observe(health_observer: &Option<HealthObserver>, event: AsmFeedHealthEvent) {
+    if let Some(observer) = health_observer {
+        observer.observe(event);
     }
 }
 
@@ -287,15 +304,82 @@ fn retry_strategy(cfg: &AsmRpcConfig) -> Strategy<FetchError> {
     .with_max_retries(cfg.max_retries)
 }
 
+async fn fetch_assignments_with_retry(
+    cfg: &AsmRpcConfig,
+    client: &HttpClient,
+    block_hash: BlockHash,
+) -> Result<Vec<AssignmentEntry>, FetchError> {
+    let timeout = cfg.request_timeout;
+    let strategy = retry_strategy(cfg);
+    let client = client.clone();
+    retry_with(strategy, move || {
+        let client = client.clone();
+        async move {
+            fetch_assignments(&client, block_hash, timeout)
+                .await
+                .map_err(|err| {
+                    warn!(?err, %block_hash, "failed to fetch ASM assignments");
+                    err
+                })
+        }
+    })
+    .await
+}
+
+async fn fetch_safe_harbour_with_retry(
+    cfg: &AsmRpcConfig,
+    client: &HttpClient,
+) -> Result<Option<SafeHarbour>, FetchError> {
+    let timeout = cfg.request_timeout;
+    let strategy = retry_strategy(cfg);
+    let client = client.clone();
+    retry_with(strategy, move || {
+        let client = client.clone();
+        async move {
+            fetch_safe_harbour(&client, timeout).await.map_err(|err| {
+                warn!(?err, "failed to fetch ASM safe harbour");
+                err
+            })
+        }
+    })
+    .await
+}
+
 async fn fetch_assignments(
     client: &HttpClient,
     block_hash: BlockHash,
     timeout: time::Duration,
 ) -> Result<Vec<AssignmentEntry>, FetchError> {
-    let call = client.get_assignments(block_hash);
-
-    match time::timeout(timeout, call).await {
+    match time::timeout(timeout, client.get_assignments(block_hash)).await {
         Ok(Ok(assignments)) => Ok(assignments),
+        Ok(Err(err)) => Err(FetchError::Rpc(err)),
+        Err(_) => Err(FetchError::Timeout),
+    }
+}
+
+/// Reads the safe-harbour flag at the ASM tip.
+///
+/// Reading at the tip (rather than the buried block) trades finality for latency so the bridge
+/// reacts to an emergency about `bury_depth` blocks sooner. The lost finality is recovered by the
+/// bridge-side monotonic latch, which never un-latches even if the tip later reorgs.
+async fn fetch_safe_harbour(
+    client: &HttpClient,
+    timeout: time::Duration,
+) -> Result<Option<SafeHarbour>, FetchError> {
+    let status = match time::timeout(timeout, client.get_status()).await {
+        Ok(Ok(status)) => status,
+        Ok(Err(err)) => return Err(FetchError::Rpc(err)),
+        Err(_) => return Err(FetchError::Timeout),
+    };
+
+    let Some(cur_block) = status.cur_block else {
+        // ASM has not processed any block yet; there is nothing to read.
+        return Ok(None);
+    };
+    let tip_hash = cur_block.blkid().to_block_hash();
+
+    match time::timeout(timeout, client.get_safe_harbour(tip_hash)).await {
+        Ok(Ok(safe_harbour)) => Ok(safe_harbour),
         Ok(Err(err)) => Err(FetchError::Rpc(err)),
         Err(_) => Err(FetchError::Timeout),
     }

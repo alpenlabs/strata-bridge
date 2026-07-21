@@ -24,6 +24,9 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
         // handled outside this component as this is not state machine specific, it's a signal to
         // the orchestrator to shutdown, so we don't route it to any state machine
         UnifiedEvent::Shutdown => Vec::new(),
+        // handled directly by the pipeline/registry (the latch), not deposit-scoped, so it is not
+        // routed to any state machine
+        UnifiedEvent::SafeHarbour(_) => Vec::new(),
         // relevant to all state machines
         UnifiedEvent::NagTick | UnifiedEvent::RetryTick => registry.get_all_ids(),
 

@@ -27,6 +27,8 @@ pub(crate) const COMPONENT_BITCOIN_ZMQ: &str = "bitcoin_zmq";
 pub(crate) const COMPONENT_ASM_RPC: &str = "asm_rpc";
 /// ASM assignment feed component name.
 pub(crate) const COMPONENT_ASM_ASSIGNMENT_FEED: &str = "asm_assignment_feed";
+/// ASM safe-harbour feed component name.
+pub(crate) const COMPONENT_ASM_SAFE_HARBOUR_FEED: &str = "asm_safe_harbour_feed";
 /// FoundationDB component name.
 pub(crate) const COMPONENT_FDB: &str = "fdb";
 /// P2P component name.
@@ -50,6 +52,7 @@ const ALL_COMPONENTS: &[&str] = &[
     COMPONENT_BITCOIN_ZMQ,
     COMPONENT_ASM_RPC,
     COMPONENT_ASM_ASSIGNMENT_FEED,
+    COMPONENT_ASM_SAFE_HARBOUR_FEED,
     COMPONENT_FDB,
     COMPONENT_P2P,
     COMPONENT_MOSAIC,
