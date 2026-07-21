@@ -327,7 +327,9 @@ jobs:
     name: Check that all SP1 proof tests pass
     runs-on: ubuntu-latest
     if: always()
-    needs: [schedule-gate, run]
+    # extract-rust-version must be listed: its failure skips `run`, and a skip
+    # is only acceptable when the gate (not a broken dependency) caused it.
+    needs: [schedule-gate, extract-rust-version, run]
     timeout-minutes: 5
     steps:
       - name: Decide whether the needed jobs succeeded or failed
