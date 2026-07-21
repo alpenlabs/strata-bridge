@@ -146,7 +146,11 @@ jobs:
       - name: Stage binaries + checksums
         run: |
           set -euo pipefail
-          mkdir -p out
+          # Recreate out/ from scratch: the dispatched ref (or its build scripts)
+          # may have planted files there — including a fake .publish-complete
+          # marker — and the recursive artifact/S3 upload would publish anything
+          # in this directory under the approved commit prefix.
+          rm -rf out && mkdir out
           for b in strata-bridge secret-service dev-cli; do
             install -m 0755 "target/release/${b}" "out/${b}"
             ( cd out && sha256sum "${b}" > "${b}.sha256" )
@@ -159,7 +163,7 @@ jobs:
           name: strata-bridge-binaries-${{ steps.rev.outputs.sha }}
           path: out/
           if-no-files-found: error
-          retention-days: 7 # must outlast the publish job's reviewer-approval wait
+          retention-days: 30 # environment approval can wait up to 30 days (GitHub max)
 
   publish:
     name: Publish to S3 (credentialed, no untrusted code)
