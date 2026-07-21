@@ -4,6 +4,7 @@ use std::fmt::Debug;
 
 use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
+use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
@@ -180,6 +181,25 @@ pub trait BridgeDb {
     fn delete_withdrawal_funding_outpoints(
         &self,
         graph_idx: GraphIdx,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    // ── Safe Harbour ──────────────────────────────────────────────────
+
+    /// Gets the latched safe-harbour address, if the safe harbour has been activated.
+    ///
+    /// The presence of a stored address encodes activation: it is written exactly once, on the
+    /// first observation of an activated safe harbour, and never cleared.
+    fn get_safe_harbour(
+        &self,
+    ) -> impl Future<Output = Result<Option<SafeHarbourAddress>, Self::Error>> + Send;
+
+    /// Latches the frozen safe-harbour `address`.
+    ///
+    /// This is a plain set: the in-memory registry latch already enforces monotonicity, so this is
+    /// only invoked once per node lifetime with a single frozen address.
+    fn set_safe_harbour(
+        &self,
+        address: SafeHarbourAddress,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     // ── Batch Persistence ─────────────────────────────────────────────
