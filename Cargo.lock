@@ -11507,11 +11507,13 @@ name = "strata-bridge-db"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "bitcoin-bosd 0.11.0",
  "foundationdb",
  "postcard",
  "proptest",
  "secp256k1 0.29.1",
  "serde",
+ "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-test-utils",

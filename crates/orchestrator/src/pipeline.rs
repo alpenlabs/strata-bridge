@@ -147,12 +147,12 @@ impl Pipeline {
         }
     }
 
-    /// Latches a safe-harbour activation.
+    /// Latches and persists a safe-harbour activation.
     ///
-    /// Idempotent and monotonic: only the first activation latches and logs. Subsequent
-    /// activations — including re-emitted ones from the monotonic feed — are no-ops.
-    /// Non-activation observations are ignored, so a tip reorg that flips the ASM flag back to
-    /// inactive never un-latches the node.
+    /// Idempotent and monotonic: only the first activation latches, persists the frozen address
+    /// (so the latch survives a restart), and logs. Subsequent activations — including re-emitted
+    /// ones from the monotonic feed — are no-ops. Non-activation observations are ignored, so a
+    /// tip reorg that flips the ASM flag back to inactive never un-latches the node.
     async fn process_safe_harbour(&mut self, event: SafeHarbourEvent) -> Result<(), PipelineError> {
         if !event.activated {
             return Ok(());
@@ -162,8 +162,9 @@ impl Pipeline {
             return Ok(());
         };
 
-        if self.registry.activate_safe_harbour(address) {
+        if self.registry.activate_safe_harbour(address.clone()) {
             info!("safe harbour activated; latching frozen address and halting new custody");
+            self.persister.persist_safe_harbour(&address).await?;
         }
 
         Ok(())
