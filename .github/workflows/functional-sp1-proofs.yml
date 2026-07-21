@@ -1,8 +1,16 @@
-# Manually-invokable CI that runs the SP1 proof functional tests with real
-# Succinct network proving.
+# Runs the SP1 proof functional tests with real Succinct network proving, on a
+# schedule and on manual dispatch.
+#
+# The cron ticks hourly; the actual cadence is controlled by the repository
+# variable SP1_FN_TESTS_INTERVAL_HOURS (default 6) via the schedule-gate job,
+# because GitHub cannot read vars.* inside on.schedule.cron. Scheduled runs
+# skip commits that already passed (cache marker keyed by SHA). Failures are
+# reported to Slack through the SLACK_WEBHOOK_URL secret.
 name: Functional tests (SP1 proofs)
 
 on:
+  schedule:
+    - cron: "17 * * * *" # hourly tick; real cadence gated by vars.SP1_FN_TESTS_INTERVAL_HOURS
   workflow_dispatch:
     inputs:
       RUST_LOG:
@@ -15,13 +23,71 @@ env:
   CARGO_TERM_COLOR: always
   SP1_VERSION: v6.2.0
 
+# Scheduled ticks queue behind an in-flight (up to 6 h) proving run instead of
+# cancelling it; manual dispatch keeps the cancel-and-restart behavior.
 concurrency:
   group: functional-sp1-proofs
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 permissions: {}
 
 jobs:
+  schedule-gate:
+    name: Decide whether this tick should run
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.decide.outputs.should_run }}
+    steps:
+      - name: Check whether this commit already passed
+        id: tested
+        if: github.event_name == 'schedule'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .sp1-fn-tested-marker
+          key: sp1-fn-tested-${{ github.sha }}
+          lookup-only: true
+
+      - name: Decide
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INTERVAL_HOURS: ${{ vars.SP1_FN_TESTS_INTERVAL_HOURS }}
+          CACHE_HIT: ${{ steps.tested.outputs.cache-hit }}
+        run: |
+          should_run() {
+            echo "should_run=$1" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
+          if [ "$EVENT_NAME" != "schedule" ]; then
+            echo "Manual trigger — running"
+            should_run true
+          fi
+
+          INTERVAL="${INTERVAL_HOURS:-6}"
+          case "$INTERVAL" in
+            *[!0-9]* | 0)
+              echo "Invalid SP1_FN_TESTS_INTERVAL_HOURS='$INTERVAL_HOURS' — falling back to 6"
+              INTERVAL=6
+              ;;
+          esac
+
+          # Intervals dividing 24 give even spacing; others wrap unevenly at
+          # midnight UTC.
+          HOUR=$((10#$(date -u +%H)))
+          if [ $((HOUR % INTERVAL)) -ne 0 ]; then
+            echo "Hour $HOUR is not a multiple of interval $INTERVAL — skipping"
+            should_run false
+          fi
+
+          if [ "$CACHE_HIT" = "true" ]; then
+            echo "Commit already tested successfully — skipping"
+            should_run false
+          fi
+
+          echo "Interval hour reached and commit not yet tested — running"
+          should_run true
+
   extract-rust-version:
     name: Extract toolchain version
     runs-on: ubuntu-latest
@@ -40,7 +106,8 @@ jobs:
   run:
     name: Run ${{ matrix.test }} with real SP1 proving
     runs-on: 16-core-runner
-    needs: extract-rust-version
+    needs: [extract-rust-version, schedule-gate]
+    if: needs.schedule-gate.outputs.should_run == 'true'
     timeout-minutes: 360
     strategy:
       fail-fast: false
@@ -183,7 +250,7 @@ jobs:
         id: funcTestsRun
         continue-on-error: true
         env:
-          RUST_LOG: ${{ inputs.RUST_LOG }}
+          RUST_LOG: ${{ inputs.RUST_LOG || 'info' }} # inputs is empty on schedule events
           NO_COLOR: "1"
           LOG_LEVEL: "info"
           PYTHON_VERSION: "3.12"
@@ -229,14 +296,63 @@ jobs:
           echo "Functional test ${{ matrix.test }} failed"
           exit 1
 
+  # Marks this SHA as tested so later scheduled ticks skip it. Manual runs
+  # count too: a manually verified commit is not re-proven on schedule.
+  mark-tested:
+    name: Record commit as tested
+    runs-on: ubuntu-latest
+    needs: [run] # default needs semantics: runs only when every matrix leg passed
+    timeout-minutes: 5
+    steps:
+      - name: Save tested marker
+        run: echo "tested" > .sp1-fn-tested-marker
+
+      - name: Cache tested marker
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .sp1-fn-tested-marker
+          key: sp1-fn-tested-${{ github.sha }}
+
+  notify-failure:
+    name: Notify Slack on failure
+    runs-on: ubuntu-latest
+    needs: [schedule-gate, run]
+    if: failure()
+    timeout-minutes: 5
+    steps:
+      - name: Send Slack alert
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ -z "${SLACK_WEBHOOK_URL}" ]; then
+            echo "SLACK_WEBHOOK_URL not set — skipping notification"
+            exit 0
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg workflow "${WORKFLOW_NAME}" \
+            --arg run_url "${RUN_URL}" \
+            --arg sha "${COMMIT_SHA:0:7}" \
+            --arg event "${EVENT_NAME}" \
+            '{text: "🚨 *\($workflow) failed* — commit `\($sha)` (\($event) run)\n<\($run_url)|View run>"}')
+
+          curl -sf -X POST "${SLACK_WEBHOOK_URL}" \
+            -H 'Content-Type: application/json' \
+            -d "${PAYLOAD}"
+
   functional-sp1-proofs-success:
     name: Check that all SP1 proof tests pass
     runs-on: ubuntu-latest
     if: always()
-    needs: [run]
+    needs: [schedule-gate, run]
     timeout-minutes: 5
     steps:
       - name: Decide whether the needed jobs succeeded or failed
         uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe # release/v1
         with:
           jobs: ${{ toJSON(needs) }}
+          allowed-skips: run # a gate-skipped tick is green, not a failure
