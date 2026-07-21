@@ -86,6 +86,11 @@ pub trait StrataBridgeMonitoringApi {
     /// Get the stake status for every operator the node is tracking.
     #[method(name = "stakeStatus")]
     async fn get_stake_status(&self) -> RpcResult<Vec<RpcOperatorStakeInfo>>;
+
+    /// Get the latched safe-harbour address as a hex-encoded BOSD descriptor, or `None` if
+    /// this node has not observed a safe-harbour activation.
+    #[method(name = "safeHarbourAddress")]
+    async fn get_safe_harbour_address(&self) -> RpcResult<Option<String>>;
 }
 
 /// RPCs required for data availability.
