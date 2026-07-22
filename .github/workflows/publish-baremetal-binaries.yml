@@ -10,8 +10,8 @@ name: Publish Bare-Metal Binaries (S3)
 # (build_matrix.py) — testnet uses Sp1Groth16 predicates, and without the feature
 # the sp1 proof backend is compiled out so an SP1 operator config can't start.
 # secret-service and dev-cli are plain (no proofs). SP1 guest ELFs are published
-# separately, so the build sets SP1_SKIP_PROGRAM_BUILD=true and needs no succinct
-# toolchain for the binary.
+# separately; the repo defaults already skip guest ELF compilation, so no
+# succinct toolchain is needed for the binary.
 #
 # SECURITY MODEL
 # --------------
@@ -64,7 +64,10 @@ env:
 jobs:
   build:
     name: Build binaries (untrusted ref, no credentials)
-    runs-on: ubuntu-latest
+    # Pinned (not -latest): binaries are dynamically linked; a floating runner
+    # advancing would silently raise the glibc/libstdc++ floor above what
+    # operators' Ubuntu 24.04 hosts ship (docs pin the target OS to 24.04).
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read # deliberately no id-token here
@@ -101,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           deb="foundationdb-clients_7.3.43-1_amd64.deb"
-          curl -fsSLO --proto "=https" --tlsv1.2 \
+          curl -fsSLO --proto "=https" --proto-redir "=https" --tlsv1.2 \
             "https://github.com/apple/foundationdb/releases/download/7.3.43/${deb}"
           echo "c3fa0a59c7355b914a1455dac909238d5ea3b6c6bc7b530af8597e6487c1651a  ${deb}" | sha256sum -c -
           sudo dpkg -i "${deb}"
@@ -131,12 +134,11 @@ jobs:
           echo "override-binary=$RUNNER_TEMP/sp1-core-runner/bin/sp1-core-executor-runner-binary" >> "$GITHUB_OUTPUT"
 
       - name: Build release binaries
-        # strata-bridge needs --features sp1 (see header). SP1_SKIP_PROGRAM_BUILD
-        # skips guest ELF compilation (ELFs delivered separately) so no succinct
-        # toolchain is required. rustup auto-installs the pinned nightly from the
-        # ref's rust-toolchain.toml.
+        # strata-bridge needs --features sp1 (see header). Guest ELF compilation
+        # is skipped by the repo defaults (ELFs delivered separately) so no
+        # succinct toolchain is required. rustup auto-installs the pinned nightly
+        # from the ref's rust-toolchain.toml.
         env:
-          SP1_SKIP_PROGRAM_BUILD: "true"
           SP1_CORE_RUNNER_OVERRIDE_BINARY: ${{ steps.sp1-runner.outputs.override-binary }}
         run: |
           set -euo pipefail
