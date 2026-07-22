@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, btree_map::Entry},
     fmt::{Debug, Display},
     sync::Arc,
+    time::Instant,
 };
 
 use bitcoin::{OutPoint, hashes::sha256};
@@ -23,10 +24,11 @@ use strata_bridge_sm::{
 };
 use strata_bridge_tx_graph::transactions::stake::StakeTx;
 use thiserror::Error;
-use tracing::error;
+use tracing::{debug, error, info, info_span, warn};
 
 use crate::{
     errors::{ProcessError, ProcessOutput},
+    observability,
     sm_types::{OperatorKey, SMEvent, SMId, UnifiedDuty},
 };
 
@@ -153,6 +155,11 @@ impl SMRegistry {
         self.deposits.len()
     }
 
+    /// Gets the total number of graph state machines currently in the registry.
+    pub fn num_graphs(&self) -> usize {
+        self.graphs.len()
+    }
+
     /// Gets the total number of stake state machines currently in the registry.
     pub fn num_stakes(&self) -> usize {
         self.stakes.len()
@@ -214,6 +221,11 @@ impl SMRegistry {
     /// Returns an iterator over all stake state machines and their operator indices.
     pub fn stakes(&self) -> impl Iterator<Item = (&OperatorIdx, &StakeSM)> {
         self.stakes.iter()
+    }
+
+    /// Returns the total number of active state machines across all families in `O(1)`.
+    pub fn active_sm_count(&self) -> usize {
+        self.num_deposits() + self.num_graphs() + self.num_stakes()
     }
 
     /// Checks if an ID is present in the registry.
@@ -407,6 +419,129 @@ impl SMRegistry {
         id: &SMId,
         event: SMEvent,
     ) -> Result<ProcessOutcome, ProcessError> {
+        let sm_kind = observability::sm_kind(id);
+        let event_kind = observability::sm_event_kind(&event);
+        let from_state = self.state_kind(id).unwrap_or("missing");
+        // Info-level so the transition span exists under the default INFO filter; span creation
+        // emits no log lines, and the per-tick log statements below stay at debug.
+        let span = info_span!(
+            "bridge_sm_transition",
+            sm_kind,
+            sm_id = %id,
+            event_kind,
+            from_state,
+            to_state = tracing::field::Empty,
+            result = tracing::field::Empty,
+        );
+        let _entered = span.enter();
+        let started = Instant::now();
+        let outcome = self.process_event_inner(id, event);
+        let to_state = self.state_kind(id).unwrap_or("missing");
+        let result = transition_result(&outcome);
+
+        span.record("to_state", to_state);
+        span.record("result", result);
+        observability::record_transition(
+            sm_kind,
+            event_kind,
+            from_state,
+            to_state,
+            result,
+            started.elapsed(),
+        );
+
+        match &outcome {
+            Ok(ProcessOutcome::Applied(output))
+                if output.did_mutate()
+                    && matches!(event_kind, "new_block" | "nag_tick" | "retry_tick") =>
+            {
+                debug!(
+                    sm_kind,
+                    sm_id = %id,
+                    event_kind,
+                    from_state,
+                    to_state,
+                    duty_count = output.duties.len(),
+                    signal_count = output.signals.len(),
+                    "periodic state-machine transition applied"
+                );
+            }
+            Ok(ProcessOutcome::Applied(output)) if output.did_mutate() => {
+                info!(
+                    sm_kind,
+                    sm_id = %id,
+                    event_kind,
+                    from_state,
+                    to_state,
+                    duty_count = output.duties.len(),
+                    signal_count = output.signals.len(),
+                    "state-machine transition applied"
+                );
+            }
+            Ok(ProcessOutcome::Applied(output)) => {
+                debug!(
+                    sm_kind,
+                    sm_id = %id,
+                    event_kind,
+                    from_state,
+                    to_state,
+                    duty_count = output.duties.len(),
+                    signal_count = output.signals.len(),
+                    "state-machine event applied without a state mutation"
+                );
+            }
+            Ok(ProcessOutcome::Ignored {
+                event,
+                reason: IgnoredEventReason::Duplicate,
+                ..
+            }) => {
+                debug!(
+                    sm_kind,
+                    sm_id = %id,
+                    event_kind,
+                    from_state,
+                    to_state,
+                    event = %event,
+                    "duplicate state-machine event ignored"
+                );
+            }
+            Ok(ProcessOutcome::Ignored {
+                event,
+                reason: IgnoredEventReason::Rejected(reason),
+                ..
+            }) => {
+                warn!(
+                    sm_kind,
+                    sm_id = %id,
+                    event_kind,
+                    from_state,
+                    to_state,
+                    event = %event,
+                    reason,
+                    "state-machine event rejected"
+                );
+            }
+            Err(error) => {
+                error!(
+                    %error,
+                    sm_kind,
+                    sm_id = %id,
+                    event_kind,
+                    from_state,
+                    to_state,
+                    "state-machine event processing failed"
+                );
+            }
+        }
+
+        outcome
+    }
+
+    fn process_event_inner(
+        &mut self,
+        id: &SMId,
+        event: SMEvent,
+    ) -> Result<ProcessOutcome, ProcessError> {
         let cross_sm_context = self.resolve_cross_sm_context(id);
 
         match (id, event) {
@@ -462,6 +597,23 @@ impl SMRegistry {
         }
     }
 
+    fn state_kind(&self, id: &SMId) -> Option<&'static str> {
+        match id {
+            SMId::Deposit(idx) => self
+                .deposits
+                .get(idx)
+                .map(|sm| observability::deposit_state_kind(sm.state())),
+            SMId::Graph(idx) => self
+                .graphs
+                .get(idx)
+                .map(|sm| observability::graph_state_kind(sm.state())),
+            SMId::Stake(idx) => self
+                .stakes
+                .get(idx)
+                .map(|sm| observability::stake_state_kind(sm.state())),
+        }
+    }
+
     /// Resolves auxiliary state from sibling state machines for the destination `id`.
     ///
     /// This context is intentionally not routed as a signal: resolving it does not create a
@@ -486,6 +638,22 @@ impl SMRegistry {
                 CrossSmContext::default,
                 CrossSmContext::with_unstaking_preimage,
             )
+    }
+}
+
+const fn transition_result(outcome: &Result<ProcessOutcome, ProcessError>) -> &'static str {
+    match outcome {
+        Ok(ProcessOutcome::Applied(output)) if output.did_mutate() => "applied_mutated",
+        Ok(ProcessOutcome::Applied(_)) => "applied_unchanged",
+        Ok(ProcessOutcome::Ignored {
+            reason: IgnoredEventReason::Duplicate,
+            ..
+        }) => "duplicate",
+        Ok(ProcessOutcome::Ignored {
+            reason: IgnoredEventReason::Rejected(_),
+            ..
+        }) => "rejected",
+        Err(_) => "invalid",
     }
 }
 
@@ -575,6 +743,19 @@ mod tests {
         let registry = test_empty_registry();
         assert_eq!(registry.num_deposits(), 0);
         assert!(registry.get_all_ids().is_empty());
+    }
+
+    #[test]
+    fn active_sm_count_spans_all_families() {
+        let registry = test_empty_registry();
+        assert_eq!(registry.active_sm_count(), 0);
+
+        let registry = test_populated_registry(2);
+        assert_eq!(
+            registry.active_sm_count(),
+            registry.num_deposits() + registry.num_graphs() + registry.num_stakes()
+        );
+        assert!(registry.active_sm_count() > 0);
     }
 
     #[test]

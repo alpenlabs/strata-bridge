@@ -3,6 +3,7 @@
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
+    time::Instant,
 };
 
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
@@ -10,6 +11,7 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::{
+    observability,
     sm_registry::{RegistryInsertError, SMConfig, SMRegistry},
     sm_types::SMId,
 };
@@ -124,40 +126,39 @@ impl Persister {
         batch: BTreeSet<SMId>,
         sm_registry: &SMRegistry,
     ) -> Result<(), PersistError> {
-        let write_batch = batch
-            .into_iter()
-            .fold(WriteBatch::new(), |mut write_batch, sm_id| {
-                match sm_id {
-                    SMId::Deposit(deposit_idx) => {
-                        if let Some(deposit_sm) = sm_registry.get_deposit(&deposit_idx) {
-                            write_batch.add_deposit(deposit_sm.clone());
-                        } else {
-                            error!("Attempted to persist deposit state machine with index {deposit_idx}, but it was not found in the registry");
-                        }
-                    }
-                    SMId::Graph(graph_idx) => {
-                        if let Some(graph_sm) = sm_registry.get_graph(&graph_idx) {
-                            write_batch.add_graph(graph_sm.clone());
-                        } else {
-                            error!("Attempted to persist graph state machine with index {graph_idx}, but it was not found in the registry");
-                        }
-                    }
-                    SMId::Stake(operator_idx) => {
-                        if let Some(stake_sm) = sm_registry.get_stake(&operator_idx) {
-                            write_batch.add_stake(stake_sm.clone());
-                        } else {
-                            error!("Attempted to persist stake state machine for operator {operator_idx}, but it was not found in the registry");
-                        }
-                    }
-                }
+        let started = Instant::now();
+        let batch_size = batch.len();
+        let write_batch = match build_write_batch(batch, sm_registry) {
+            Ok(write_batch) => write_batch,
+            Err(error) => {
+                observability::record_persistence(
+                    "error",
+                    observability::persist_error_class(&error),
+                    batch_size,
+                    started.elapsed(),
+                );
+                error!(%error, batch_size, "failed to build state-machine persistence batch");
+                return Err(error);
+            }
+        };
 
-                write_batch
-            });
-
-        self.db
-            .persist_batch(&write_batch)
-            .await
-            .map_err(PersistError::DbErr)
+        match self.db.persist_batch(&write_batch).await {
+            Ok(()) => {
+                observability::record_persistence("success", "none", batch_size, started.elapsed());
+                Ok(())
+            }
+            Err(source) => {
+                let error = PersistError::DbErr(source);
+                observability::record_persistence(
+                    "error",
+                    observability::persist_error_class(&error),
+                    batch_size,
+                    started.elapsed(),
+                );
+                error!(%error, batch_size, "failed to persist state-machine batch");
+                Err(error)
+            }
+        }
     }
 
     /// Build the entire registry using the most recently persisted state from disk.
@@ -205,6 +206,42 @@ pub enum PersistError {
     /// Error indicating duplicate or invalid registry state during recovery.
     #[error("registry invariant violation: {0}")]
     RegistryInvariant(#[from] RegistryInsertError),
+
+    /// A tracked state machine was absent when its atomic write batch was constructed.
+    #[error("state machine {0} is missing from the registry during persistence")]
+    MissingStateMachine(SMId),
+}
+
+fn build_write_batch(
+    batch: BTreeSet<SMId>,
+    sm_registry: &SMRegistry,
+) -> Result<WriteBatch, PersistError> {
+    let mut write_batch = WriteBatch::new();
+
+    for sm_id in batch {
+        match sm_id {
+            SMId::Deposit(deposit_idx) => {
+                let deposit_sm = sm_registry
+                    .get_deposit(&deposit_idx)
+                    .ok_or(PersistError::MissingStateMachine(sm_id))?;
+                write_batch.add_deposit(deposit_sm.clone());
+            }
+            SMId::Graph(graph_idx) => {
+                let graph_sm = sm_registry
+                    .get_graph(&graph_idx)
+                    .ok_or(PersistError::MissingStateMachine(sm_id))?;
+                write_batch.add_graph(graph_sm.clone());
+            }
+            SMId::Stake(operator_idx) => {
+                let stake_sm = sm_registry
+                    .get_stake(&operator_idx)
+                    .ok_or(PersistError::MissingStateMachine(sm_id))?;
+                write_batch.add_stake(stake_sm.clone());
+            }
+        }
+    }
+
+    Ok(write_batch)
 }
 
 #[cfg(test)]
@@ -214,6 +251,7 @@ mod tests {
     use strata_bridge_primitives::types::GraphIdx;
 
     use super::*;
+    use crate::testing::test_empty_registry;
 
     fn deposit(idx: u32) -> SMId {
         SMId::Deposit(idx)
@@ -236,6 +274,23 @@ mod tests {
         let batches = tracker.into_batches();
         assert_eq!(batches.len(), 1);
         assert!(batches[0].contains(&deposit(0)));
+    }
+
+    #[test]
+    fn building_batch_fails_if_tracked_state_machine_is_missing() {
+        let registry = test_empty_registry();
+        let missing_id = deposit(99);
+        let batch = BTreeSet::from([missing_id]);
+
+        let result = build_write_batch(batch, &registry);
+        let Err(error) = result else {
+            panic!("missing state machine must fail the entire persistence batch");
+        };
+
+        assert!(matches!(
+            error,
+            PersistError::MissingStateMachine(id) if id == missing_id
+        ));
     }
 
     #[test]

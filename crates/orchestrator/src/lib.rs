@@ -15,6 +15,7 @@ pub mod errors;
 pub mod events_classifier;
 pub mod events_mux;
 pub mod events_router;
+mod observability;
 pub mod persister;
 pub mod pipeline;
 pub mod signals_router;

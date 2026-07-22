@@ -11590,6 +11590,7 @@ dependencies = [
  "btc-tracker",
  "futures",
  "libp2p-identity",
+ "metrics",
  "musig2",
  "rkyv",
  "strata-asm-proto-bridge-v1",

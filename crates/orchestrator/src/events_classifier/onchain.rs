@@ -8,7 +8,7 @@
 //!
 //! [`TxClassifier::classify_tx()`]: strata_bridge_sm::tx_classifier::TxClassifier::classify_tx
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use bitcoin::{OutPoint, Transaction};
 use btc_tracker::event::BlockEvent;
@@ -42,6 +42,7 @@ use super::drt;
 use crate::{
     applicator::Applicator,
     errors::{PipelineError, ProcessError},
+    observability,
     sm_registry::{ActiveOperatorSnapshot, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
@@ -55,6 +56,22 @@ use crate::{
 /// After all transactions are processed, `NewBlock` cursor events are emitted for all SMs that
 /// existed before the block was processed.
 pub(crate) fn process_block(
+    applicator: &mut Applicator<'_>,
+    initial_operator_table: &OperatorTable,
+    block_event: &BlockEvent,
+) -> Result<(), PipelineError> {
+    let started = Instant::now();
+    let transaction_count = block_event.block.txdata.len();
+    let result = process_block_inner(applicator, initial_operator_table, block_event);
+    observability::record_block(
+        if result.is_ok() { "success" } else { "error" },
+        transaction_count,
+        started.elapsed(),
+    );
+    result
+}
+
+fn process_block_inner(
     applicator: &mut Applicator<'_>,
     initial_operator_table: &OperatorTable,
     block_event: &BlockEvent,
@@ -90,6 +107,8 @@ pub(crate) fn process_block(
         // expensive if for a saturated bitcoin block (~3000 txs) and ~1000*15 SMs (45M
         // lookups), we are unable to classify the block within ~5 minutes (half the average
         // block time) on a reasonably powerful machine.
+        let state_machine_count = applicator.registry().active_sm_count();
+        let classification_started = Instant::now();
         let seed_events = classify_tx_for_all_sms(
             &deposit_cfg,
             &graph_cfg,
@@ -97,6 +116,11 @@ pub(crate) fn process_block(
             applicator.registry(),
             tx,
             height,
+        );
+        observability::record_block_tx_classification(
+            state_machine_count,
+            seed_events.len(),
+            classification_started.elapsed(),
         );
 
         // Apply seed events as one fixed-point batch per transaction

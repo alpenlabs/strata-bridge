@@ -12,13 +12,14 @@ use std::collections::VecDeque;
 
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
 use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
-use tracing::warn;
+use tracing::debug;
 
 use crate::{
     errors::PipelineError,
+    observability,
     persister::PersistenceTracker,
     signals_router,
-    sm_registry::{IgnoredEventReason, ProcessOutcome, RegistryInsertError, SMRegistry},
+    sm_registry::{ProcessOutcome, RegistryInsertError, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
@@ -148,6 +149,14 @@ impl<'a> Applicator<'a> {
                 self.duties.extend(output.duties);
 
                 for signal in output.signals {
+                    let signal_kind = observability::signal_kind(&signal);
+                    observability::record_signal(signal_kind);
+                    debug!(
+                        signal_kind,
+                        source_sm_id = %sm_id,
+                        signal = ?signal,
+                        "routing cross-state-machine signal"
+                    );
                     for (target_id, target_event) in
                         signals_router::route_signal(self.registry, signal)
                     {
@@ -160,17 +169,7 @@ impl<'a> Applicator<'a> {
 
                 Ok(())
             }
-            Ok(ProcessOutcome::Ignored { id, event, reason }) => {
-                match reason {
-                    IgnoredEventReason::Duplicate => {
-                        warn!(?id, %event, "duplicate event, skipping");
-                    }
-                    IgnoredEventReason::Rejected(rejected_reason) => {
-                        warn!(?id, %event, %rejected_reason, "event rejected by state machine, skipping");
-                    }
-                }
-                Ok(())
-            }
+            Ok(ProcessOutcome::Ignored { .. }) => Ok(()),
             Err(e) => Err(e.into()),
         }
     }

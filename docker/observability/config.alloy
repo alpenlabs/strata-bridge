@@ -1,0 +1,60 @@
+discovery.docker "bridge_containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "5s"
+}
+
+discovery.relabel "bridge_containers" {
+	targets = discovery.docker.bridge_containers.targets
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		regex         = "bridge-[123]|secret-service-[123]|asm-runner|mosaic-[123]|bitcoind|foundationdb"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		replacement   = "$1"
+		target_label  = "container"
+	}
+
+	rule {
+		replacement  = "local"
+		target_label = "environment"
+	}
+}
+
+loki.source.docker "bridge_logs" {
+	host             = "unix:///var/run/docker.sock"
+	targets          = discovery.relabel.bridge_containers.output
+	forward_to       = [loki.process.bridge_logs.receiver]
+	refresh_interval = "5s"
+}
+
+loki.process "bridge_logs" {
+	stage.docker { }
+
+	stage.regex {
+		expression = "(?i)(?P<level>trace|debug|info|warn|error)"
+	}
+
+	stage.labels {
+		values = {
+			level = "",
+		}
+	}
+
+	forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

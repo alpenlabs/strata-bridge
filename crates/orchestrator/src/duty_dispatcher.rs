@@ -1,14 +1,15 @@
 //! Provides interface for dispatching duties to the appropriate executors.
 
-use std::sync::Arc;
+use std::{any::Any, panic::AssertUnwindSafe, sync::Arc, time::Instant};
 
+use futures::FutureExt;
 use strata_bridge_exec::{
-    config::ExecutionConfig, deposit::execute_deposit_duty, graph::execute_graph_duty,
-    output_handles::OutputHandles, stake::execute_stake_duty,
+    config::ExecutionConfig, deposit::execute_deposit_duty, errors::ExecutorError,
+    graph::execute_graph_duty, output_handles::OutputHandles, stake::execute_stake_duty,
 };
-use tracing::error;
+use tracing::{Instrument, debug, error, info_span};
 
-use crate::sm_types::UnifiedDuty;
+use crate::{observability, sm_types::UnifiedDuty};
 
 // TODO: <https://alpenlabs.atlassian.net/browse/STR-2698>
 // Add a `duty_tracker` to track executed, pending, and failed duties for retries and better error
@@ -39,36 +40,98 @@ impl DutyDispatcher {
     /// this property falls upon the implementers of the duty executors, and it is crucial for
     /// ensuring the robustness and reliability of the overall system.
     pub fn dispatch(&self, duty: UnifiedDuty) {
+        let duty_kind = observability::duty_kind(&duty);
+        let duty_context = observability::duty_context(&duty);
+        observability::record_duty(duty_kind, "dispatched", "none");
+
         let cfg = self.cfg.clone();
         let handles = self.handles.clone();
-        match duty {
-            UnifiedDuty::Deposit(deposit_duty) => {
-                tokio::task::spawn(async move {
-                    execute_deposit_duty(cfg.clone(), handles.clone(), &deposit_duty)
-                        .await
-                        .inspect_err(|err| {
-                            error!(%err, ?deposit_duty, "failed to execute deposit duty");
-                        })
-                });
+        let span = info_span!(
+            "bridge_duty_execution",
+            duty_kind,
+            duty = %duty_context,
+            result = tracing::field::Empty,
+        );
+        let task = async move {
+            let started = Instant::now();
+            observability::record_duty_started(duty_kind);
+            let execution = execute_duty(cfg, handles, &duty);
+
+            match AssertUnwindSafe(execution).catch_unwind().await {
+                Ok(Ok(())) => {
+                    observability::record_duty(duty_kind, "success", "none");
+                    observability::record_duty_duration(duty_kind, "success", started.elapsed());
+                    tracing::Span::current().record("result", "success");
+                    debug!(duty_kind, "duty execution completed");
+                }
+                Ok(Err(execution_error)) => {
+                    let error_class = observability::executor_error_class(&execution_error);
+                    observability::record_duty(duty_kind, "error", error_class);
+                    observability::record_duty_duration(duty_kind, "error", started.elapsed());
+                    tracing::Span::current().record("result", "error");
+                    error!(
+                        error = %execution_error,
+                        error_class,
+                        duty_kind,
+                        "duty execution failed"
+                    );
+                }
+                Err(panic_payload) => {
+                    observability::record_duty(duty_kind, "panic", "panic");
+                    observability::record_duty_duration(duty_kind, "panic", started.elapsed());
+                    tracing::Span::current().record("result", "panic");
+                    error!(
+                        panic = panic_payload_message(panic_payload.as_ref()),
+                        duty_kind, "duty execution panicked"
+                    );
+                }
             }
-            UnifiedDuty::Graph(graph_duty) => {
-                tokio::task::spawn(async move {
-                    execute_graph_duty(cfg, handles, &graph_duty)
-                        .await
-                        .inspect_err(|err| {
-                            error!(%err, ?graph_duty, "failed to execute graph duty");
-                        })
-                });
-            }
-            UnifiedDuty::Stake(stake_duty) => {
-                tokio::task::spawn(async move {
-                    execute_stake_duty(cfg, handles, &stake_duty)
-                        .await
-                        .inspect_err(|err| {
-                            error!(%err, ?stake_duty, "failed to execute stake duty");
-                        })
-                });
-            }
+
+            observability::record_duty_settled(duty_kind);
         }
+        .instrument(span);
+
+        // Duty tasks are intentionally detached, but all executor errors and task panics are
+        // handled inside the task before the join handle is dropped.
+        drop(tokio::task::spawn(task));
+    }
+}
+
+async fn execute_duty(
+    cfg: Arc<ExecutionConfig>,
+    handles: Arc<OutputHandles>,
+    duty: &UnifiedDuty,
+) -> Result<(), ExecutorError> {
+    match duty {
+        UnifiedDuty::Deposit(deposit_duty) => {
+            execute_deposit_duty(cfg, handles, deposit_duty).await
+        }
+        UnifiedDuty::Graph(graph_duty) => execute_graph_duty(cfg, handles, graph_duty).await,
+        UnifiedDuty::Stake(stake_duty) => execute_stake_duty(cfg, handles, stake_duty).await,
+    }
+}
+
+fn panic_payload_message(payload: &(dyn Any + Send)) -> &str {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        message
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.as_str()
+    } else {
+        "non-string panic payload"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panic_payload_message_preserves_string_context() {
+        let owned = "owned panic".to_owned();
+        let borrowed = "borrowed panic";
+
+        assert_eq!(panic_payload_message(&owned), "owned panic");
+        assert_eq!(panic_payload_message(&borrowed), "borrowed panic");
+        assert_eq!(panic_payload_message(&42_u64), "non-string panic payload");
     }
 }

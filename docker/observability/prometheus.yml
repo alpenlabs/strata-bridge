@@ -1,0 +1,41 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  external_labels:
+    environment: local
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: strata-bridge
+    static_configs:
+      - targets: [bridge-1:9615]
+        labels:
+          operator: "1"
+      - targets: [bridge-2:9615]
+        labels:
+          operator: "2"
+      - targets: [bridge-3:9615]
+        labels:
+          operator: "3"
+
+  - job_name: secret-service
+    static_configs:
+      - targets: [secret-service-1:9616]
+        labels:
+          operator: "1"
+      - targets: [secret-service-2:9616]
+        labels:
+          operator: "2"
+      - targets: [secret-service-3:9616]
+        labels:
+          operator: "3"
+
+  - job_name: observability
+    static_configs:
+      - targets:
+          - prometheus:9090
+          - loki:3100
+          - alloy:12345
+          - grafana:3000
