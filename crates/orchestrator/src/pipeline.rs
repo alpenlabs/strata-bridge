@@ -5,14 +5,14 @@ use std::collections::BTreeSet;
 
 use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
 use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
-use tracing::{info, trace};
+use tracing::{info, trace, warn};
 
 use crate::{
     applicator::Applicator,
     duty_dispatcher::DutyDispatcher,
     errors::{PipelineError, ProcessError},
     events_classifier::{offchain, onchain},
-    events_mux::{EventsMux, UnifiedEvent},
+    events_mux::{EventsMux, SafeHarbourEvent, UnifiedEvent},
     events_router,
     persister::Persister,
     sm_registry::SMRegistry,
@@ -96,6 +96,14 @@ impl Pipeline {
             };
             on_event();
 
+            // Safe harbour is registry-level, not SM-scoped: latch it before borrowing the
+            // registry for the applicator, and skip the classify/persist/dispatch stages since it
+            // produces no SM batches or duties. Matched by reference so `event` stays usable.
+            if let UnifiedEvent::SafeHarbour(safe_harbour) = &event {
+                self.process_safe_harbour(safe_harbour.clone()).await?;
+                continue;
+            }
+
             // Stage 2+3: Classify and process through Applicator
             let mut applicator = Applicator::new(&mut self.registry);
 
@@ -137,6 +145,29 @@ impl Pipeline {
                 self.dispatcher.dispatch(duty);
             }
         }
+    }
+
+    /// Latches and persists a safe-harbour activation.
+    ///
+    /// Idempotent and monotonic: only the first activation latches, persists the frozen address
+    /// (so the latch survives a restart), and logs. Subsequent activations — including re-emitted
+    /// ones from the monotonic feed — are no-ops. Non-activation observations are ignored, so a
+    /// tip reorg that flips the ASM flag back to inactive never un-latches the node.
+    async fn process_safe_harbour(&mut self, event: SafeHarbourEvent) -> Result<(), PipelineError> {
+        if !event.activated {
+            return Ok(());
+        }
+        let Some(address) = event.address else {
+            warn!("ASM reported safe harbour active without an address; ignoring");
+            return Ok(());
+        };
+
+        if self.registry.activate_safe_harbour(address.clone()) {
+            info!("safe harbour activated; latching frozen address and halting new custody");
+            self.persister.persist_safe_harbour(&address).await?;
+        }
+
+        Ok(())
     }
 
     /// Creates one stake state machine per operator in `operator_table` that does not yet exist in

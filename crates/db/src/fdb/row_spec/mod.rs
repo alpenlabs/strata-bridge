@@ -4,5 +4,6 @@ pub mod deposits;
 pub mod funds;
 pub mod graphs;
 pub mod kv;
+pub mod safe_harbour;
 pub mod signatures;
 pub mod stakes;

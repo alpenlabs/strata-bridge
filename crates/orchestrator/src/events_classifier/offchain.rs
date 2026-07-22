@@ -54,7 +54,9 @@ pub(crate) fn classify(
             classify_mosaic_event(sm_id, sm_registry)
         }
 
-        UnifiedEvent::Block(_) | UnifiedEvent::Shutdown => None,
+        // Safe harbour is not deposit-scoped; it is handled by the pipeline/registry directly and
+        // never routed to an SM, so there is nothing to classify.
+        UnifiedEvent::Block(_) | UnifiedEvent::Shutdown | UnifiedEvent::SafeHarbour(_) => None,
 
         UnifiedEvent::NagTick => classify_nag_tick(sm_id, sm_registry),
         UnifiedEvent::RetryTick => classify_retry_tick(sm_id, sm_registry),

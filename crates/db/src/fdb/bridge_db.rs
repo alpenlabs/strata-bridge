@@ -3,6 +3,7 @@
 use bitcoin::{OutPoint, Txid};
 use foundationdb::{FdbBindingError, options::TransactionOption};
 use secp256k1::schnorr::Signature;
+use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
@@ -22,6 +23,7 @@ use crate::{
                 WithdrawalFundingValue,
             },
             graphs::GraphStateRowSpec,
+            safe_harbour::{SafeHarbourKey, SafeHarbourRowSpec},
             signatures::{SignatureKey, SignatureRowSpec},
             stakes::{StakeStateKey, StakeStateRowSpec},
         },
@@ -314,6 +316,17 @@ impl BridgeDb for FdbClient {
             deposit_idx: graph_idx.deposit,
         })
         .await
+    }
+
+    // ── Safe Harbour ──────────────────────────────────────────────
+
+    async fn get_safe_harbour(&self) -> Result<Option<SafeHarbourAddress>, Self::Error> {
+        self.basic_get::<SafeHarbourRowSpec>(SafeHarbourKey).await
+    }
+
+    async fn set_safe_harbour(&self, address: SafeHarbourAddress) -> Result<(), Self::Error> {
+        self.basic_set::<SafeHarbourRowSpec>(SafeHarbourKey, address)
+            .await
     }
 
     // ── Batch Persistence ─────────────────────────────────────────
@@ -1933,6 +1946,25 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(Some(graph_sm), retrieved_graph);
+        });
+    }
+
+    /// The safe-harbour latch round-trips through the DB: writing an address and reading it back
+    /// yields the same P2TR descriptor, which is what lets the activation survive a restart.
+    #[test]
+    fn safe_harbour_roundtrip() {
+        use bitcoin_bosd::Descriptor;
+
+        let descriptor = Descriptor::new_p2tr(&[2u8; 32]).expect("valid x-only public key");
+        let address = SafeHarbourAddress::try_from(descriptor).expect("p2tr accepted");
+
+        block_on(async {
+            let client = get_client();
+
+            client.set_safe_harbour(address.clone()).await.unwrap();
+            let retrieved = client.get_safe_harbour().await.unwrap();
+
+            assert_eq!(Some(address), retrieved);
         });
     }
 }

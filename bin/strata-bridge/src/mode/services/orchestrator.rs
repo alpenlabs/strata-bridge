@@ -1,6 +1,6 @@
 //! Provides orchestrator initialization.
 
-use std::{cmp, num::NonZero, sync::Arc, time::Duration};
+use std::{cmp, collections::VecDeque, num::NonZero, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use bitcoin::{FeeRate, relative};
@@ -42,8 +42,8 @@ use crate::{
     config::Config,
     constants::DEFAULT_HEALTH_PROBE_INTERVAL,
     health::{
-        COMPONENT_ASM_ASSIGNMENT_FEED, COMPONENT_BITCOIN_ZMQ, COMPONENT_ORCHESTRATOR,
-        COMPONENT_TX_DRIVER, HealthRegistry,
+        COMPONENT_ASM_ASSIGNMENT_FEED, COMPONENT_ASM_SAFE_HARBOUR_FEED, COMPONENT_BITCOIN_ZMQ,
+        COMPONENT_ORCHESTRATOR, COMPONENT_TX_DRIVER, HealthRegistry,
     },
     mode::services::{
         btc_client::init_zmq_client,
@@ -116,7 +116,7 @@ where
     let message_handler =
         MessageHandler::new(ouroboros_msg_sender, gossip_handle.clone(), p2p_keypair);
 
-    debug!("initializing asm assignments feed");
+    debug!("initializing asm state feed");
     let asm_block_feed = zmq_client.subscribe_blocks().await;
     let feed_health_registry = health_registry.clone();
     let asm_feed = AsmEventFeed::new(asm_rpc_client.clone(), config.asm_rpc.clone())
@@ -126,11 +126,16 @@ where
             }
             AsmFeedHealthEvent::AssignmentsFetchFailed => feed_health_registry
                 .mark_unhealthy(COMPONENT_ASM_ASSIGNMENT_FEED, "assignments_fetch_failed"),
+            AsmFeedHealthEvent::SafeHarbourFetched => feed_health_registry
+                .mark_ok(COMPONENT_ASM_SAFE_HARBOUR_FEED, "safe_harbour_fetched"),
+            AsmFeedHealthEvent::SafeHarbourFetchFailed => feed_health_registry
+                .mark_unhealthy(COMPONENT_ASM_SAFE_HARBOUR_FEED, "safe_harbour_fetch_failed"),
         });
     let asm_feed = asm_feed.attach_block_stream(asm_block_feed);
-    let assignments_sub = asm_feed.subscribe_assignments_state().await;
-    info!("asm assignments feed initialized and subscribed to assignment events");
+    let asm_state_sub = asm_feed.subscribe_asm_state().await;
+    info!("asm state feed initialized and subscribed to assignment and safe-harbour events");
     health_registry.mark_ok(COMPONENT_ASM_ASSIGNMENT_FEED, "assignments_subscribed");
+    health_registry.mark_ok(COMPONENT_ASM_SAFE_HARBOUR_FEED, "safe_harbour_subscribed");
 
     let orchestrator_block_sub = zmq_client.subscribe_blocks().await;
 
@@ -145,12 +150,13 @@ where
         ouroboros_msg_rx: ouroboros_msg_receiver,
         shutdown_rx: Some(shutdown_receiver),
         block_sub: orchestrator_block_sub,
-        assignments_sub,
+        asm_state_sub,
         mosaic_event_sub,
         gossip_handle,
         req_resp_handle,
         nag_tick,
         retry_tick,
+        pending: VecDeque::new(),
     };
 
     let exec_cfg = build_exec_config(params, config, &sm_config, claim_funding_utxo_value);

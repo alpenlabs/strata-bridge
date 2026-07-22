@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
 use thiserror::Error;
 use tracing::error;
@@ -160,7 +161,22 @@ impl Persister {
             .map_err(PersistError::DbErr)
     }
 
+    /// Persists the frozen safe-harbour `address` to disk so the activation latch survives a
+    /// restart without re-consulting the (non-final) ASM tip.
+    pub async fn persist_safe_harbour(
+        &self,
+        address: &SafeHarbourAddress,
+    ) -> Result<(), PersistError> {
+        self.db
+            .set_safe_harbour(address.clone())
+            .await
+            .map_err(PersistError::DbErr)
+    }
+
     /// Build the entire registry using the most recently persisted state from disk.
+    ///
+    /// Also recovers the safe-harbour latch: if a frozen address was persisted before the
+    /// restart, the registry is re-latched from it so the node stays in safe-harbour mode.
     pub async fn recover_registry(&self, config: SMConfig) -> Result<SMRegistry, PersistError> {
         let mut registry = SMRegistry::new(config);
 
@@ -189,6 +205,15 @@ impl Persister {
             .map_err(PersistError::DbErr)?
         {
             registry.insert_stake(operator_idx, stake_sm)?;
+        }
+
+        if let Some(address) = self
+            .db
+            .get_safe_harbour()
+            .await
+            .map_err(PersistError::DbErr)?
+        {
+            registry.activate_safe_harbour(address);
         }
 
         Ok(registry)
