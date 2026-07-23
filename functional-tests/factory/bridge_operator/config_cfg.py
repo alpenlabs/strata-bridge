@@ -108,6 +108,7 @@ class BridgeConfigParams:
     nag_interval_ms: int = 10_000
     retry_interval_secs: int = 10
     prometheus_metrics: bool = False
+    dev: bool = False
 
 
 @dataclass
@@ -127,6 +128,7 @@ class BridgeOperatorConfig:
     shutdown_timeout: Duration
     cooperative_payout_timeout: int
     max_fee_rate: int
+    dev: bool
     secret_service_client: SecretServiceClientConfig
     btc_client: BtcClientConfig
     db: DbConfig

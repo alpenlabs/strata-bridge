@@ -75,6 +75,7 @@ def generate_config_toml(
         shutdown_timeout=Duration(secs=30, nanos=0),
         cooperative_payout_timeout=bridge_config_params.cooperative_payout_timeout,
         max_fee_rate=bridge_config_params.max_fee_rate,
+        dev=bridge_config_params.dev,
         secret_service_client=SecretServiceClientConfig(
             server_addr=f"127.0.0.1:{s2_props.get('s2_port')}",
             server_hostname="secret-service",
