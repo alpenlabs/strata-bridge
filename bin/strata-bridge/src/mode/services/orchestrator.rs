@@ -167,7 +167,13 @@ where
     if config.dev {
         warn!("dev mode: skipping bridge startup consistency checks");
     } else {
-        startup_checks::verify(params, &bridge_proof_host, &counterproof_host)?;
+        startup_checks::verify(
+            params,
+            &asm_rpc_client,
+            &bridge_proof_host,
+            &counterproof_host,
+        )
+        .await?;
     }
     let output_handles = OutputHandles {
         wallet,
