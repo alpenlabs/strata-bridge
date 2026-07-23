@@ -11676,10 +11676,8 @@ dependencies = [
  "serde_json",
  "strata-crypto",
  "strata-identifiers",
- "strata-predicate",
  "thiserror 2.0.18",
  "tokio",
- "zkaleido",
 ]
 
 [[package]]
@@ -11758,13 +11756,16 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "serde-big-array",
+ "ssz",
  "strata-asm-common",
  "strata-asm-proto-bridge-v1-txs",
  "strata-bridge-connectors",
  "strata-bridge-p2p-types",
  "strata-bridge-primitives",
+ "strata-bridge-proof",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
+ "strata-codec",
  "strata-l1-txfmt",
  "strata-mosaic-client-api",
  "strata-predicate",
