@@ -252,8 +252,24 @@ impl GraphSM {
         let sigs: Vec<Signature> = items
             .into_iter()
             .skip(3)
-            .map(|w| Signature::from_slice(&w).expect("on-chain counterproof signature must parse"))
-            .collect();
-        Ok(sigs.try_into().expect("witness length validated above"))
+            .enumerate()
+            .map(|(idx, w)| {
+                Signature::from_slice(&w).map_err(|_| {
+                    GSMError::rejected(
+                        self.state.clone(),
+                        event.clone().into(),
+                        format!("counterproof witness signature {idx} is malformed"),
+                    )
+                })
+            })
+            .collect::<GSMResult<Vec<_>>>()?;
+
+        sigs.try_into().map_err(|_| {
+            GSMError::rejected(
+                self.state.clone(),
+                event.clone().into(),
+                "counterproof witness has an invalid signature count",
+            )
+        })
     }
 }
