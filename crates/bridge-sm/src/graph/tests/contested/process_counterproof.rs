@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use bitcoin::Witness;
 use strata_bridge_test_utils::bitcoin::generate_tx;
 use strata_bridge_tx_graph::{
     game_graph::GameConnectors,
@@ -23,8 +24,8 @@ use crate::{
                 all_state_variants, bridge_proof_posted_state, contested_state,
             },
             test_completed_signatures, test_counterproof_tx, test_deposit_params,
-            test_graph_invalid_transition, test_graph_sm_cfg, test_graph_sm_ctx,
-            test_graph_transition,
+            test_graph_invalid_transition, test_graph_invalid_transition_with, test_graph_sm_cfg,
+            test_graph_sm_ctx, test_graph_transition,
         },
         watchtower::watchtower_slot_for_operator,
     },
@@ -376,6 +377,37 @@ fn event_rejected_invalid_counterproof_witness() {
         }),
         expected_error: |e| matches!(e, GSMError::Rejected { .. }),
     });
+}
+
+/// Non-POV operators reject malformed signature encodings instead of panicking while
+/// persisting the counterproof data.
+#[test]
+fn event_rejected_malformed_counterproof_signature_nonpov() {
+    let mut tx = test_counterproof_tx();
+    let expected_txid = tx.compute_txid();
+    let mut witness = tx.input[0].witness.to_vec();
+    witness[0] = vec![0; 32];
+    tx.input[0].witness = Witness::from_slice(&witness);
+    assert_eq!(tx.compute_txid(), expected_txid);
+
+    test_graph_invalid_transition_with(
+        create_nonpov_sm,
+        GraphInvalidTransition {
+            from_state: contested_state(),
+            event: GraphEvent::CounterProofConfirmed(CounterProofConfirmedEvent {
+                counterproof_block_height: COUNTERPROOF_BLOCK_HEIGHT,
+                tx,
+                counterprover_idx: TEST_NONPOV_IDX,
+            }),
+            expected_error: |e| {
+                matches!(
+                    e,
+                    GSMError::Rejected { reason, .. }
+                        if reason.contains("counterproof witness signature")
+                )
+            },
+        },
+    );
 }
 
 /// Returns `true` if the state is valid for [`GraphEvent::CounterProofConfirmed`].
