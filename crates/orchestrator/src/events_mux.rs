@@ -88,24 +88,15 @@ pub struct EventsMux {
     /// Timer for retrying failed duties.
     pub retry_tick: tokio::time::Interval,
 
-    /// Events decomposed from a single upstream item and awaiting delivery across successive
-    /// [`next`](Self::next) calls. One `AsmState` snapshot yields both a safe-harbour and an
-    /// assignment event; the safe-harbour event is returned first and the assignment is buffered
-    /// here. Initialize empty.
-    pub pending: VecDeque<UnifiedEvent>,
+    /// Buffer for events decomposed from an `AsmState` snapshot but not yet delivered.
+    /// Initialize empty.
+    pub pending_asm_events: VecDeque<UnifiedEvent>,
 }
 
 impl EventsMux {
     /// Get the next available event, respecting the priority ordering.
     pub async fn next(&mut self) -> UnifiedEvent {
         loop {
-            // Deliver any events buffered from a previously-decomposed upstream item (e.g. the
-            // assignment event that trails a safe-harbour event from the same `AsmState`) before
-            // polling the streams again.
-            if let Some(event) = self.pending.pop_front() {
-                return event;
-            }
-
             tokio::select! {
                 biased; // follow the same order as written below.
 
@@ -134,14 +125,18 @@ impl EventsMux {
                     // If the block is not buried, we ignore it and continue polling.
                 }
 
+                // Next, we drain events buffered from a previously-decomposed `AsmState` snapshot,
+                // so they never preempt the branches above but still precede new ASM state.
+                Some(event) = async { self.pending_asm_events.pop_front() } => return event,
+
                 // Next, we handle ASM state (assignments + safe harbour) from the ASM runner, which
                 // is also derived from bitcoin. A single snapshot decomposes into a safe-harbour
                 // event (returned first, so the latch is set before assignment-driven work) and an
-                // assignment event (buffered in `pending`).
+                // assignment event (buffered in `pending_asm_events`).
                 Some(state) = self.asm_state_sub.next() => {
-                    self.pending.extend(asm_state_events(state));
+                    self.pending_asm_events.extend(asm_state_events(state));
                     // `asm_state_events` always yields at least the assignment event.
-                    return self.pending.pop_front().expect("asm_state_events yields >= 1 event");
+                    return self.pending_asm_events.pop_front().expect("asm_state_events yields >= 1 event");
                 }
 
                 // Then, we handle gossip messages received from peers.
