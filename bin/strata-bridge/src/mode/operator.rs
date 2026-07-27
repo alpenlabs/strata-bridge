@@ -7,7 +7,7 @@ use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_tasks::TaskExecutor;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     config::Config,
@@ -31,6 +31,7 @@ use crate::{
             orchestrator::init_orchestrator,
             p2p_handles::{P2PHandles, init_p2p_handles},
             secret_service::init_secret_service_client,
+            startup_checks,
         },
     },
 };
@@ -48,6 +49,27 @@ pub(crate) async fn bootstrap(
         ?config,
         "starting operator loop with provided params and config"
     );
+
+    // Run the startup consistency checks before starting any services so that a
+    // misconfigured node fails fast
+    debug!("initializing asm rpc client");
+    let asm_rpc_client = init_asm_rpc_client(&config.asm_rpc);
+    info!("asm rpc client initialized");
+    health_registry.mark_degraded(COMPONENT_ASM_RPC, "client_initialized_not_checked");
+
+    let bridge_proof_host = strata_bridge_proof::build_host(&config.bridge_proof).await?;
+    let counterproof_host = strata_bridge_counterproof::build_host(&config.counterproof).await?;
+    if config.dev {
+        warn!("dev mode: skipping bridge startup consistency checks");
+    } else {
+        startup_checks::verify(
+            &params,
+            &asm_rpc_client,
+            &bridge_proof_host,
+            &counterproof_host,
+        )
+        .await?;
+    }
 
     debug!(config=?config.secret_service_client, "initializing secret service client");
     let s2_client = init_secret_service_client(&config.secret_service_client).await;
@@ -81,11 +103,6 @@ pub(crate) async fn bootstrap(
     let cur_height = btc_rpc_client.get_block_count().await?;
     info!(%cur_height, "bitcoin client initialized and synced");
     health_registry.mark_ok(COMPONENT_BITCOIN_RPC, "block_count_read");
-
-    debug!("initializing asm rpc client");
-    let asm_rpc_client = init_asm_rpc_client(&config.asm_rpc);
-    info!("asm rpc client initialized");
-    health_registry.mark_degraded(COMPONENT_ASM_RPC, "client_initialized_not_checked");
 
     debug!("initializing p2p client");
     let P2PHandles {
@@ -173,6 +190,8 @@ pub(crate) async fn bootstrap(
         claim_funding_utxo_value,
         btc_rpc_client,
         asm_rpc_client,
+        bridge_proof_host,
+        counterproof_host,
         db.clone(),
         &executor,
         health_registry.clone(),
