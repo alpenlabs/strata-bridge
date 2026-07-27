@@ -81,7 +81,8 @@ pub(in crate::mode) async fn init_rpc_server(
             sm_config,
             rpc_config,
             health_registry.clone(),
-        );
+        )
+        .await?;
         start_rpc(&rpc_impl, rpc_addr.as_str(), health_registry).await
     });
 
@@ -167,14 +168,17 @@ pub(crate) struct BridgeRpc {
 
 impl BridgeRpc {
     /// Create a new instance of [`BridgeRpc`].
-    pub(crate) fn new(
+    ///
+    /// Completes the initial registry cache recovery before returning, so endpoints never serve
+    /// pre-recovery state (e.g. a `null` safe-harbour address on a restarted, latched node).
+    pub(crate) async fn new(
         db: Persister,
         command_handle: CommandHandle,
         params: Params,
         sm_config: SMConfig,
         config: RpcConfig,
         health_registry: HealthRegistry,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         // Initialize with empty cache
         let cached_contracts = Arc::new(RwLock::new(SMRegistry::new(sm_config)));
         let start_time = Utc::now();
@@ -189,10 +193,17 @@ impl BridgeRpc {
             health_registry,
         };
 
+        Self::refresh_registry(&instance.db, &instance.cached_registry)
+            .await
+            .context("initialize rpc server registry cache")?;
+        instance
+            .health_registry
+            .mark_ok(COMPONENT_RPC_CACHE, "cache_initialized");
+
         // Start the cache refresh task
         instance.start_cache_refresh_task();
 
-        instance
+        Ok(instance)
     }
 
     /// Starts a task to periodically refresh the contracts cache.
@@ -209,18 +220,6 @@ impl BridgeRpc {
         tokio::spawn(async move {
             info!(?period, "initializing rpc server cache refresh task");
 
-            match Self::refresh_registry(&db, &cached_registry).await {
-                Ok(()) => {
-                    health_registry.mark_ok(COMPONENT_RPC_CACHE, "cache_initialized");
-                    debug!("rpc server contracts cache initialized");
-                }
-                Err(err) => {
-                    health_registry.mark_unhealthy(COMPONENT_RPC_CACHE, "recover_registry_failed");
-                    warn!(%err, "rpc server cache initialization failed");
-                }
-            }
-
-            // Periodic refresh in a separate loop outside the closure
             let mut refresh_interval = interval(period);
             loop {
                 refresh_interval.tick().await;
