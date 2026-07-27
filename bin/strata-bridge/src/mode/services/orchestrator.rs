@@ -11,6 +11,7 @@ use libp2p_identity::ed25519::Keypair;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_asm_events::client::{AsmEventFeed, AsmFeedHealthEvent};
 use strata_bridge_common::params::Params;
+use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{
     config::ExecutionConfig,
@@ -22,6 +23,7 @@ use strata_bridge_orchestrator::{
 };
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_proof::BridgeProofHost;
 use strata_bridge_sm::{
     self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg, stake::config::StakeSMCfg,
 };
@@ -36,7 +38,7 @@ use tokio::{
     select,
     sync::{RwLock, mpsc, oneshot},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::{
     config::Config,
@@ -48,7 +50,6 @@ use crate::{
     mode::services::{
         btc_client::init_zmq_client,
         health_probes::{spawn_orchestrator_stale_monitor, spawn_tx_driver_probe},
-        startup_checks,
     },
 };
 
@@ -66,6 +67,8 @@ pub(crate) async fn init_orchestrator<M>(
     claim_funding_utxo_value: bitcoin::Amount,
     btc_rpc_client: BitcoinClient,
     asm_rpc_client: HttpClient,
+    bridge_proof_host: BridgeProofHost,
+    counterproof_host: BridgeCounterproofHost,
     fdb_client: Arc<FdbClient>,
     executor: &TaskExecutor,
     health_registry: HealthRegistry,
@@ -162,19 +165,6 @@ where
         DEFAULT_HEALTH_PROBE_INTERVAL,
         health_registry.clone(),
     );
-    let bridge_proof_host = strata_bridge_proof::build_host(&config.bridge_proof).await?;
-    let counterproof_host = strata_bridge_counterproof::build_host(&config.counterproof).await?;
-    if config.dev {
-        warn!("dev mode: skipping bridge startup consistency checks");
-    } else {
-        startup_checks::verify(
-            params,
-            &asm_rpc_client,
-            &bridge_proof_host,
-            &counterproof_host,
-        )
-        .await?;
-    }
     let output_handles = OutputHandles {
         wallet,
         msg_handler: RwLock::new(message_handler),
