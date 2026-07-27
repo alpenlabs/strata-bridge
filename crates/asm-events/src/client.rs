@@ -212,9 +212,13 @@ async fn run_block_ref_forwarder(
 /// Fetches ASM state and fans it out to subscribers.
 ///
 /// Assignments are read at the buried block (assumed already ingested by ASM; lag is handled via
-/// retries) and the safe-harbour flag is read at the ASM tip for a faster emergency response. A
-/// failed assignment fetch skips the cycle (as before); a failed safe-harbour fetch is best-effort
-/// and delivers `safe_harbour: None` so assignment processing is never blocked by it.
+/// retries) and the safe-harbour flag is read at the ASM tip for a faster emergency response.
+///
+/// The two fetches run concurrently and neither gates the other: a failure on one side must never
+/// suppress the other, or an ASM lag/fork that breaks assignment fetching would also hide an
+/// emergency activation. A failed assignment fetch delivers no assignments (the next buried block
+/// carries the full snapshot again); a failed safe-harbour fetch delivers `safe_harbour: None`
+/// (unknown this cycle), with the monotonic latch and sweep backstop covering the gap.
 async fn run_asm_state_fetcher(
     cfg: AsmRpcConfig,
     client: HttpClient,
@@ -238,9 +242,17 @@ async fn run_asm_state_fetcher(
             continue;
         }
 
-        // Assignments are authoritative for block processing; a failed fetch skips the cycle so it
-        // is retried on the next buried block.
-        let assignments = match fetch_assignments_with_retry(&cfg, &client, block_hash).await {
+        // Run both fetches concurrently so neither one's retry budget can suppress or delay the
+        // other. Safe-harbour detection in particular must survive a broken assignment fetch.
+        let (assignments, safe_harbour) = tokio::join!(
+            fetch_assignments_with_retry(&cfg, &client, block_hash),
+            fetch_safe_harbour_with_retry(&cfg, &client),
+        );
+        let both_err = assignments.is_err() && safe_harbour.is_err();
+
+        // A failed assignment fetch yields no assignments for this block. Assignments are a
+        // snapshot rather than a delta, so the next buried block carries anything missed here.
+        let assignments = match assignments {
             Ok(assignments) => {
                 observe(&health_observer, AsmFeedHealthEvent::AssignmentsFetched);
                 assignments
@@ -252,13 +264,13 @@ async fn run_asm_state_fetcher(
                     %block_hash,
                     "exhausted ASM assignment retries; skipping assignment state"
                 );
-                continue;
+                Vec::new()
             }
         };
 
-        // Safe harbour is best-effort: a failed fetch delivers `None` (unknown this cycle) rather
-        // than blocking assignment delivery. The monotonic latch and sweep backstop cover the gap.
-        let safe_harbour = match fetch_safe_harbour_with_retry(&cfg, &client).await {
+        // A failed safe-harbour fetch delivers `None` (unknown this cycle). The monotonic latch and
+        // sweep backstop cover the gap.
+        let safe_harbour = match safe_harbour {
             Ok(safe_harbour) => {
                 observe(&health_observer, AsmFeedHealthEvent::SafeHarbourFetched);
                 safe_harbour
@@ -269,6 +281,11 @@ async fn run_asm_state_fetcher(
                 None
             }
         };
+
+        // Both sides failed, so there is nothing to publish; leave the block unprocessed.
+        if both_err {
+            continue;
+        }
 
         last_processed = Some(block_hash);
         info!(
@@ -373,5 +390,282 @@ async fn fetch_safe_harbour(
         Ok(Ok(safe_harbour)) => Ok(safe_harbour),
         Ok(Err(err)) => Err(FetchError::Rpc(err)),
         Err(_) => Err(FetchError::Timeout),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{
+            Mutex as StdMutex,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
+    };
+
+    use async_trait::async_trait;
+    use bitcoin::hashes::Hash;
+    use jsonrpsee::{
+        core::RpcResult,
+        http_client::HttpClientBuilder,
+        server::{ServerBuilder, ServerHandle},
+        types::ErrorObjectOwned,
+    };
+    use strata_asm_common::{AnchorState, AsmManifest};
+    use strata_asm_params::AsmParams;
+    use strata_asm_proto_bridge_v1::DepositEntry;
+    use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+    use strata_asm_proto_checkpoint_types::CheckpointTip;
+    use strata_asm_rpc::traits::{AsmControlApiServer, AsmStateApiServer};
+    use strata_asm_worker::AsmWorkerStatus;
+    use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};
+
+    use super::*;
+
+    const TEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+    /// Mock ASM RPC whose assignment and safe-harbour paths fail independently, so tests can
+    /// break one while the other keeps working.
+    #[derive(Clone)]
+    struct MockAsm {
+        tip: L1BlockCommitment,
+        safe_harbour: Option<SafeHarbour>,
+        fail_assignments: Arc<AtomicBool>,
+        fail_safe_harbour: Arc<AtomicBool>,
+    }
+
+    fn mock_err() -> ErrorObjectOwned {
+        ErrorObjectOwned::owned(-32000, "mock failure", None::<()>)
+    }
+
+    #[async_trait]
+    impl AsmControlApiServer for MockAsm {
+        async fn get_uptime(&self) -> RpcResult<u64> {
+            Ok(0)
+        }
+
+        async fn get_status(&self) -> RpcResult<AsmWorkerStatus> {
+            Ok(AsmWorkerStatus {
+                is_initialized: true,
+                cur_block: Some(self.tip),
+                cur_state: None,
+            })
+        }
+
+        async fn get_params(&self) -> RpcResult<AsmParams> {
+            Err(mock_err())
+        }
+    }
+
+    #[async_trait]
+    impl AsmStateApiServer for MockAsm {
+        async fn get_assignments(&self, _block_hash: BlockHash) -> RpcResult<Vec<AssignmentEntry>> {
+            if self.fail_assignments.load(Ordering::Relaxed) {
+                return Err(mock_err());
+            }
+            Ok(Vec::new())
+        }
+
+        async fn get_deposits(&self, _block_hash: BlockHash) -> RpcResult<Vec<DepositEntry>> {
+            Err(mock_err())
+        }
+
+        async fn get_safe_harbour(&self, _block_hash: BlockHash) -> RpcResult<Option<SafeHarbour>> {
+            if self.fail_safe_harbour.load(Ordering::Relaxed) {
+                return Err(mock_err());
+            }
+            Ok(self.safe_harbour.clone())
+        }
+
+        async fn get_checkpoint_tip(
+            &self,
+            _block_hash: BlockHash,
+        ) -> RpcResult<Option<CheckpointTip>> {
+            Err(mock_err())
+        }
+
+        async fn get_anchor_state(&self, _block_hash: BlockHash) -> RpcResult<Option<AnchorState>> {
+            Err(mock_err())
+        }
+
+        async fn get_manifest(&self, _block_hash: BlockHash) -> RpcResult<Option<AsmManifest>> {
+            Err(mock_err())
+        }
+    }
+
+    /// A [`run_asm_state_fetcher`] instance wired to an in-process mock ASM server.
+    struct Harness {
+        request_tx: watch::Sender<Option<BlockHash>>,
+        state_rx: mpsc::UnboundedReceiver<AsmState>,
+        health: Arc<StdMutex<Vec<AsmFeedHealthEvent>>>,
+        _server: ServerHandle,
+    }
+
+    async fn spawn_fetcher(mock: MockAsm) -> Harness {
+        let server = ServerBuilder::default()
+            .build("127.0.0.1:0")
+            .await
+            .expect("bind mock ASM server");
+        let addr = server.local_addr().expect("mock server addr");
+        let mut module = AsmControlApiServer::into_rpc(mock.clone());
+        module
+            .merge(AsmStateApiServer::into_rpc(mock))
+            .expect("merge RPC modules");
+        let server_handle = server.start(module);
+
+        let rpc_url = format!("http://{addr}");
+        let client = HttpClientBuilder::default()
+            .build(&rpc_url)
+            .expect("mock ASM client");
+        let cfg = AsmRpcConfig {
+            rpc_url,
+            request_timeout: Duration::from_secs(1),
+            max_retries: 1,
+            retry_initial_delay: Duration::from_millis(5),
+            retry_max_delay: Duration::from_millis(10),
+            retry_multiplier: 2,
+        };
+
+        let (request_tx, request_rx) = watch::channel(None);
+        let (state_tx, state_rx) = mpsc::unbounded_channel();
+        let health = Arc::new(StdMutex::new(Vec::new()));
+        let health_sink = health.clone();
+        let observer = HealthObserver(Arc::new(move |event| {
+            health_sink.lock().unwrap().push(event);
+        }));
+
+        task::spawn(run_asm_state_fetcher(
+            cfg,
+            client,
+            request_rx,
+            Arc::new(Mutex::new(vec![state_tx])),
+            Some(observer),
+        ));
+
+        Harness {
+            request_tx,
+            state_rx,
+            health,
+            _server: server_handle,
+        }
+    }
+
+    impl Harness {
+        fn request(&self, block_hash: BlockHash) {
+            self.request_tx
+                .send(Some(block_hash))
+                .expect("fetcher alive");
+        }
+
+        async fn recv_state(&mut self) -> AsmState {
+            time::timeout(TEST_TIMEOUT, self.state_rx.recv())
+                .await
+                .expect("AsmState before timeout")
+                .expect("subscriber channel open")
+        }
+
+        fn saw_health(&self, pred: impl Fn(&AsmFeedHealthEvent) -> bool) -> bool {
+            self.health.lock().unwrap().iter().any(pred)
+        }
+
+        async fn wait_for_health(&self, pred: impl Fn(&AsmFeedHealthEvent) -> bool) {
+            time::timeout(TEST_TIMEOUT, async {
+                while !self.saw_health(&pred) {
+                    time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("health event before timeout");
+        }
+    }
+
+    fn activated_safe_harbour() -> SafeHarbour {
+        // `[2u8; 32]` is a valid x-only pubkey; see the bitcoin-bosd `new_p2tr` doctest.
+        let descriptor = bitcoin_bosd::Descriptor::new_p2tr(&[2u8; 32]).expect("valid x-only key");
+        let address = SafeHarbourAddress::try_from(descriptor).expect("p2tr descriptor accepted");
+        let mut safe_harbour = SafeHarbour::new(address);
+        safe_harbour.set_activated(true);
+        safe_harbour
+    }
+
+    fn mock_asm(fail_assignments: bool, fail_safe_harbour: bool) -> MockAsm {
+        MockAsm {
+            tip: L1BlockCommitment::new(100, L1BlockId::from(Buf32([9u8; 32]))),
+            safe_harbour: Some(activated_safe_harbour()),
+            fail_assignments: Arc::new(AtomicBool::new(fail_assignments)),
+            fail_safe_harbour: Arc::new(AtomicBool::new(fail_safe_harbour)),
+        }
+    }
+
+    fn block_hash(byte: u8) -> BlockHash {
+        BlockHash::from_byte_array([byte; 32])
+    }
+
+    /// An assignment-fetch failure (e.g. ASM lag or fork divergence at the buried block) must not
+    /// suppress safe-harbour detection at the tip.
+    #[tokio::test]
+    async fn safe_harbour_delivery_survives_assignment_fetch_failure() {
+        let mut harness = spawn_fetcher(mock_asm(true, false)).await;
+
+        harness.request(block_hash(1));
+        let state = harness.recv_state().await;
+
+        assert_eq!(state.block_hash, block_hash(1));
+        assert!(state.assignments.is_empty());
+        assert!(
+            state
+                .safe_harbour
+                .as_ref()
+                .is_some_and(SafeHarbour::is_activated)
+        );
+        assert!(harness.saw_health(|e| matches!(e, AsmFeedHealthEvent::AssignmentsFetchFailed)));
+        assert!(harness.saw_health(|e| matches!(e, AsmFeedHealthEvent::SafeHarbourFetched)));
+    }
+
+    /// A safe-harbour fetch failure must not block assignment delivery; the flag is delivered as
+    /// unknown (`None`) instead.
+    #[tokio::test]
+    async fn assignment_delivery_survives_safe_harbour_fetch_failure() {
+        let mut harness = spawn_fetcher(mock_asm(false, true)).await;
+
+        harness.request(block_hash(2));
+        let state = harness.recv_state().await;
+
+        assert_eq!(state.block_hash, block_hash(2));
+        assert!(state.safe_harbour.is_none());
+        assert!(harness.saw_health(|e| matches!(e, AsmFeedHealthEvent::AssignmentsFetched)));
+        assert!(harness.saw_health(|e| matches!(e, AsmFeedHealthEvent::SafeHarbourFetchFailed)));
+    }
+
+    /// When both fetches fail there is nothing to publish; the cycle is skipped and the next
+    /// buried block recovers.
+    #[tokio::test]
+    async fn total_fetch_failure_publishes_nothing_and_recovers() {
+        let mock = mock_asm(true, true);
+        let fail_assignments = mock.fail_assignments.clone();
+        let fail_safe_harbour = mock.fail_safe_harbour.clone();
+        let mut harness = spawn_fetcher(mock).await;
+
+        harness.request(block_hash(1));
+        harness
+            .wait_for_health(|e| matches!(e, AsmFeedHealthEvent::AssignmentsFetchFailed))
+            .await;
+        harness
+            .wait_for_health(|e| matches!(e, AsmFeedHealthEvent::SafeHarbourFetchFailed))
+            .await;
+
+        fail_assignments.store(false, Ordering::Relaxed);
+        fail_safe_harbour.store(false, Ordering::Relaxed);
+        harness.request(block_hash(2));
+
+        // The failed cycle published nothing, so the first delivered state is block 2's.
+        let state = harness.recv_state().await;
+        assert_eq!(state.block_hash, block_hash(2));
+        assert!(
+            state
+                .safe_harbour
+                .as_ref()
+                .is_some_and(SafeHarbour::is_activated)
+        );
     }
 }

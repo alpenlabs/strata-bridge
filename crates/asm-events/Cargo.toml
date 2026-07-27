@@ -22,3 +22,14 @@ serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+strata-asm-common.workspace = true
+strata-asm-params.workspace = true
+strata-asm-proto-checkpoint-types.workspace = true
+strata-asm-worker.workspace = true
+strata-identifiers.workspace = true
+
+async-trait.workspace = true
+bitcoin-bosd.workspace = true
+jsonrpsee = { workspace = true, features = ["client", "server"] }
