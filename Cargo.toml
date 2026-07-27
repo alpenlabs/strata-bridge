@@ -183,7 +183,7 @@ cfg-if = "1.0"
 chrono = "0.4.44"
 clap = { version = "4.6.1", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.12.0", features = ["30_2"] }
-ed25519-dalek = { version = "2.2.0", features = ["zeroize"] }
+ed25519-dalek = { version = "3.0.0", features = ["zeroize"] }
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
   "blocking-https-rustls",
   "async-https-rustls",
