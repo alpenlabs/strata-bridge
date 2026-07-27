@@ -29,6 +29,7 @@ strata-mosaic-client.workspace = true
 strata-mosaic-client-api.workspace = true
 
 strata-asm-params.workspace = true
+strata-asm-proto-bridge-v1-types.workspace = true
 strata-asm-rpc = { workspace = true, features = ["client"] }
 strata-p2p.workspace = true
 strata-predicate.workspace = true

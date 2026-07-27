@@ -14,6 +14,7 @@ use jsonrpsee::{
 use libp2p::{PeerId, identity::PublicKey as LibP2pPublicKey};
 use secp256k1::Parity;
 use serde::Serialize;
+use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
 use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_orchestrator::{
@@ -500,13 +501,13 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             .collect())
     }
 
-    async fn get_safe_harbour_address(&self) -> RpcResult<Option<String>> {
+    async fn get_safe_harbour_address(&self) -> RpcResult<Option<SafeHarbourAddress>> {
         Ok(self
             .cached_registry
             .read()
             .await
             .safe_harbour_address()
-            .map(|address| hex::encode(address.as_descriptor().to_bytes())))
+            .cloned())
     }
 }
 
