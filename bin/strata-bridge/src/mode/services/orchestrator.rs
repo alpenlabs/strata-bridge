@@ -159,7 +159,7 @@ where
         req_resp_handle,
         nag_tick,
         retry_tick,
-        pending: VecDeque::new(),
+        pending_asm_events: VecDeque::new(),
     };
 
     let exec_cfg = build_exec_config(params, config, &sm_config, claim_funding_utxo_value);
