@@ -124,10 +124,7 @@ jobs:
         # strata-bridge needs --features sp1 (see header). Guest ELF compilation
         # is skipped by the repo defaults (ELFs delivered separately) so no
         # succinct toolchain is required. rustup auto-installs the pinned nightly
-        # from the ref's rust-toolchain.toml. No SP1_CORE_RUNNER_OVERRIDE_BINARY:
-        # the override would compile the ephemeral $RUNNER_TEMP helper path into
-        # the published binary and break operator-side proving; the pre-build
-        # workaround it belonged to was removed repo-wide in #724.
+        # from the ref's rust-toolchain.toml.
         run: |
           set -euo pipefail
           cargo build --release --locked -p strata-bridge --features sp1
