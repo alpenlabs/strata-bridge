@@ -147,6 +147,40 @@ regtest `bitcoind` (the `network-extbtc` environment).
    to keep the ASM/Moho layer as native Schnorr attestations. Real Groth16 proving
    (and the extra ELF builds) only happens under `SP1_PROVER` ≠ `mock`.
 
+### Full mosaic circuit mode
+
+By default the mosaic nodes run the bundled 768 KB reduced circuit
+([`artifacts/mosaic_depositidx_ckt.v5c`](artifacts/mosaic_depositidx_ckt.v5c))
+with mosaic built `--features=reduced-circuits`. `MOSAIC_CIRCUIT_MODE=full`
+instead generates the REAL g16 Groth16 circuit (~142 GB `v5c.ckt`) from this
+run's counterproof vkey with [alpenlabs/g16](https://github.com/alpenlabs/g16)'s
+`g16-pipeline`, and installs full-featured mosaic against it (see
+[`g16-setup.bash`](g16-setup.bash)). The circuit must be regenerated every run
+because the counterproof vkey bakes in per-run asm-params from the live regtest
+chain; the generation runs in the background, overlapping the remaining builds.
+
+Requirements: SP1 proving mode set up as above (`sp1-env.bash`, external
+bitcoind, `BRIDGE_PROOF_SP1=1`), ~320 GB free disk, and multiple hours of CPU.
+
+Run locally:
+
+```bash
+MOSAIC_CIRCUIT_MODE=full ./run_test.sh -t tests/proofs/fn_counterproof.py
+```
+
+(or set `MOSAIC_CIRCUIT_MODE=full` in your `sp1-env.bash` to make it sticky).
+g16 is cloned into `.g16-src/`, the circuit lands in `_dd/.g16-runs/` (gen log
+at `_dd/.g16-runs/g16-gen.log`); delete `_dd/.g16-runs` afterwards to reclaim
+the ~142 GB. Switching mock↔full reinstalls mosaic (cargo tracks the feature
+set).
+
+In CI, `functional-sp1-proofs.yml` runs each tick in two sequential phases:
+mock circuit first, then — gated on the mock phase passing — the full circuit.
+The reduced circuit's verdict is just the deposit index's least significant
+bit rather than real Groth16 verification, so the two phases exercise both
+counterproof branches (NACK vs ACK) of the contest game. The `mosaic_circuit`
+dispatch input can restrict a manual run to a single phase.
+
 ### SP1 env vars
 
 Defaults come from [`sp1-env.bash.sample`](sp1-env.bash.sample). Override any of
@@ -161,6 +195,11 @@ them inline (e.g. `SP1_PROVER=cpu ./run_test.sh ...`) or by editing your local
 | `NETWORK_RPC_URL` | `https://rpc.production.succinct.xyz` | Point at a different Succinct prover network endpoint. |
 | `NETWORK_PRIVATE_KEY` | _(unset)_ | **Required** for `SP1_PROVER=network`. Your Succinct prover account key; the network rejects requests without it. |
 | `BRIDGE_PROOF_SP1_ASM` | `1` | `0` keeps the ASM/Moho layer as native Schnorr attestations (`Bip340Schnorr`) and skips the asm/moho guest ELF builds; `1` builds them and the bridge verifies real `Sp1Groth16` predicates. |
+| `MOSAIC_CIRCUIT_MODE` | `mock` | `full` generates the real g16 Groth16 circuit (~142 GB) for this run and installs full-featured mosaic (see [Full mosaic circuit mode](#full-mosaic-circuit-mode)). |
+| `G16_REF` | `G16_DEFAULT_REF` in `circuit-gen.yml` | alpenlabs/g16 ref to build `g16-pipeline` from (full mode only). |
+| `G16_DIR` | _(unset)_ | Existing g16 checkout to use (CI pre-clones it for caching); otherwise cloned into `.g16-src/`. |
+| `G16_RUNS_DIR` | `_dd/.g16-runs` | Where the g16 pipeline writes the circuit (needs a large mount). |
+| `G16_MIN_FREE_GB` | `320` | Disk preflight threshold for full mode. |
 
 ## Running with code coverage
 

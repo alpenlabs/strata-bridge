@@ -9,6 +9,17 @@ if [ -f sp1-env.bash ]; then
     source sp1-env.bash
 fi
 
+# Mosaic circuit mode: mock (default; bundled 768 KB reduced circuit) or full
+# (generate the real g16 Groth16 circuit for this run — see g16-setup.bash).
+export MOSAIC_CIRCUIT_MODE="${MOSAIC_CIRCUIT_MODE:-mock}"
+case "$MOSAIC_CIRCUIT_MODE" in
+    mock|full) ;;
+    *)
+        echo "ERROR: MOSAIC_CIRCUIT_MODE must be 'mock' or 'full' (got '$MOSAIC_CIRCUIT_MODE')" >&2
+        exit 1
+        ;;
+esac
+
 # Set an explicit finite limit so bitcoind (and other
 # subprocesses) inherit a sane value.
 ulimit -n 10240
@@ -67,13 +78,33 @@ fi
 
 source functional-tests/sp1-setup.bash
 
+# Full circuit mode: kick off the g16 circuit generation in the background right
+# after the guest build (the circuit embeds this run's counterproof vkey), so it
+# overlaps the remaining builds and installs; the wait sits just before entry.py.
+source functional-tests/g16-setup.bash
+if [ "$MOSAIC_CIRCUIT_MODE" = "full" ]; then
+    if [ "$BRIDGE_PROOF_SP1" != "1" ]; then
+        echo "ERROR: MOSAIC_CIRCUIT_MODE=full requires BRIDGE_PROOF_SP1=1 (the circuit embeds this run's counterproof vkey)" >&2
+        exit 1
+    fi
+    trap g16_cleanup_on_exit EXIT
+    g16_start_generation
+fi
+
 # Build all required binaries (only strata-bridge and secret-service gets coverage instrumentation)
 RUSTFLAGS="$RUSTFLAGS" cargo build --bin strata-bridge $CARGO_ARGS $BRIDGE_FEATURES
 RUSTFLAGS="$RUSTFLAGS" cargo build -p secret-service --bin secret-service $CARGO_ARGS
 cargo build --bin dev-cli $CARGO_ARGS
 
 read -r MOSAIC_REF_TYPE MOSAIC_REF < <(extract_cargo_git_ref mosaic-rpc-api)
-echo "installing mosaic ($MOSAIC_REF_TYPE $MOSAIC_REF)"
+# Full circuit mode needs the full-featured garbling backend; mock uses the
+# reduced one. cargo tracks the feature set in .crates2.json, so flipping modes
+# reinstalls automatically.
+MOSAIC_FEATURES="--features=reduced-circuits"
+if [ "$MOSAIC_CIRCUIT_MODE" = "full" ]; then
+    MOSAIC_FEATURES=""
+fi
+echo "installing mosaic ($MOSAIC_REF_TYPE $MOSAIC_REF) [circuit: $MOSAIC_CIRCUIT_MODE]"
 mkdir -p functional-tests/_dd/.bin
 CARGO_LOCAL_BIN=$(realpath "functional-tests/_dd/.bin")
 export PATH="$CARGO_LOCAL_BIN/bin:$PATH"
@@ -81,7 +112,7 @@ RUSTFLAGS="" cargo install \
     --locked \
     --git https://github.com/alpenlabs/mosaic \
     "--$MOSAIC_REF_TYPE" "$MOSAIC_REF" \
-    --features=reduced-circuits \
+    $MOSAIC_FEATURES \
     --root "$CARGO_LOCAL_BIN" \
     mosaic
 
@@ -101,4 +132,11 @@ RUSTFLAGS="" cargo install \
 
 export PATH=$BIN_PATH:$PATH
 popd > /dev/null
+
+# Block on the backgrounded circuit generation; exports MOSAIC_CIRCUIT_PATH for
+# the mosaic node configs, or exits non-zero so entry.py never starts against a
+# missing circuit.
+if [ "$MOSAIC_CIRCUIT_MODE" = "full" ]; then
+    g16_wait_for_circuit
+fi
 uv run python entry.py "$@"

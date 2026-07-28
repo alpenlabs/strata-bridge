@@ -18,6 +18,20 @@ export NETWORK_PRIVATE_KEY=${NETWORK_PRIVATE_KEY:-}   # required for SP1_PROVER=
 # Set 0 to fall back to native Schnorr attestations (Bip340Schnorr) for the ASM/Moho layer.
 export BRIDGE_PROOF_SP1_ASM=${BRIDGE_PROOF_SP1_ASM:-1}
 
+# --- Mosaic circuit ---
+# mock (default): bundled 768 KB reduced circuit + mosaic built with
+# --features=reduced-circuits. full: generate the REAL g16 Groth16 circuit
+# (~142 GB; needs >= ~320 GB free disk and multiple hours of CPU) from this
+# run's counterproof vkey, and run full-featured mosaic against it. CI runs
+# both phases (mock, then full); keep mock locally unless you really mean it.
+export MOSAIC_CIRCUIT_MODE=${MOSAIC_CIRCUIT_MODE:-mock}
+# Full-mode knobs (all optional, see g16-setup.bash):
+#   G16_REF          alpenlabs/g16 ref (default: G16_DEFAULT_REF in circuit-gen.yml)
+#   G16_DIR          existing g16 checkout (CI pre-clones it for rust-cache);
+#                    else cloned into functional-tests/.g16-src
+#   G16_RUNS_DIR     pipeline output dir (default functional-tests/_dd/.g16-runs)
+#   G16_MIN_FREE_GB  disk preflight threshold (default 320)
+
 # --- External regtest bitcoind (network-extbtc env) ---
 export BRIDGE_EXTERNAL_BITCOIN=${BRIDGE_EXTERNAL_BITCOIN:-1}
 export BITCOIN_RPC_URL=${BITCOIN_RPC_URL:-http://127.0.0.1:18443}

@@ -49,7 +49,8 @@ REQUIRED_CLIS = ("gh", "jq", "aws", "rustup")
 
 
 def cmd_preflight() -> None:
-    """Env: RUNS_DIR, MIN_FREE_GB (default 300).
+    """Env: RUNS_DIR, MIN_FREE_GB (default 300), REQUIRED_CLIS (comma-separated
+    override of the default CLI list, for callers that don't upload to S3).
 
     Fail fast if the runs-dir mount can't hold the ~142 GB output plus the v5a
     intermediate and caches, or if a required CLI is missing — both surface
@@ -71,7 +72,12 @@ def cmd_preflight() -> None:
             f"need >= {min_free_gb} GB for v5c.ckt (~142 GB) + intermediates"
         )
 
-    missing = [c for c in REQUIRED_CLIS if shutil.which(c) is None]
+    required = [
+        c.strip()
+        for c in os.environ.get("REQUIRED_CLIS", ",".join(REQUIRED_CLIS)).split(",")
+        if c.strip()
+    ]
+    missing = [c for c in required if shutil.which(c) is None]
     if missing:
         fail(f"required CLI(s) not found on PATH: {', '.join(missing)}")
 

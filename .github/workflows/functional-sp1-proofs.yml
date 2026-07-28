@@ -18,10 +18,22 @@ on:
         required: false
         default: "info"
         type: string
+      mosaic_circuit:
+        description: "Mosaic circuit: full = generate the real g16 Groth16 circuit in-run (~142 GB, adds hours); mock = bundled reduced circuit"
+        required: true
+        default: "full"
+        type: choice
+        options: [full, mock]
+      g16_ref:
+        description: "alpenlabs/g16 ref override for full mode"
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
   SP1_VERSION: v6.2.0
+  # Keep in sync with circuit-gen.yml.
+  G16_DEFAULT_REF: v0.3.0-rc.2
 
 # Scheduled ticks queue behind an in-flight (up to 6 h) proving run instead of
 # cancelling it; manual dispatch keeps the cancel-and-restart behavior.
@@ -105,6 +117,23 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Resolve g16 ref
+        if: inputs.mosaic_circuit == 'full'
+        env:
+          INPUT_G16_REF: ${{ inputs.g16_ref }}
+        run: echo "G16_REF=${INPUT_G16_REF:-$G16_DEFAULT_REF}" >> "$GITHUB_ENV"
+
+      # Pre-clone g16 so the dedicated rust-cache instance below can cache its
+      # build; run_test.sh's g16-setup.bash consumes it via G16_DIR.
+      - name: Checkout alpenlabs/g16
+        if: inputs.mosaic_circuit == 'full'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: alpenlabs/g16
+          ref: ${{ env.G16_REF }}
+          path: g16
+          persist-credentials: false
+
       - name: Restore cached OpenSSL build
         id: cache-openssl
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -139,6 +168,16 @@ jobs:
       - name: Cleanup space
         uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
 
+      # Fail on insufficient disk now, hours before g16-setup.bash's own check
+      # would. gh/jq/aws are not needed here (no S3 upload).
+      - name: Disk preflight (full circuit)
+        if: inputs.mosaic_circuit == 'full'
+        env:
+          RUNS_DIR: ${{ github.workspace }}/functional-tests/_dd/.g16-runs
+          MIN_FREE_GB: "320"
+          REQUIRED_CLIS: "rustup"
+        run: python3 .github/scripts/circuit_gen.py preflight
+
       - name: Install bitcoind
         env:
           BITCOIND_VERSION: "30.2"
@@ -162,6 +201,16 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
+          cache-on-failure: true
+
+      # Separate instance scoped to the g16 checkout; distinct prefix-key so the
+      # two instances don't fight over save keys.
+      - name: Rust cache (g16)
+        if: inputs.mosaic_circuit == 'full'
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          workspaces: g16
+          prefix-key: v0-rust-g16
           cache-on-failure: true
 
       - name: Install uv
@@ -232,6 +281,8 @@ jobs:
           PYTHON_VERSION: "3.12"
           NETWORK_PRIVATE_KEY: ${{ secrets.NETWORK_PRIVATE_KEY }}
           TEST_FILE: ${{ matrix.test }}
+          MOSAIC_CIRCUIT_MODE: ${{ inputs.mosaic_circuit }}
+          G16_DIR: ${{ github.workspace }}/g16 # only read in full mode
         run: |
           cp functional-tests/sp1-env.bash.sample functional-tests/sp1-env.bash
           ./functional-tests/run_test.sh -t "functional-tests/tests/proofs/${TEST_FILE}.py"
@@ -261,6 +312,17 @@ jobs:
           retention-days: 30
           if-no-files-found: error
           compression-level: 0 # already compressed
+
+      # Always upload the circuit-generation log in full mode so timing data
+      # survives green runs too.
+      - name: Upload g16 generation log
+        if: always() && inputs.mosaic_circuit == 'full'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: g16-gen-log-${{ matrix.test }}
+          path: functional-tests/_dd/.g16-runs/g16-gen.log
+          retention-days: 30
+          if-no-files-found: ignore
 
       - name: Stop bitcoind
         if: always()
