@@ -245,6 +245,32 @@ pub(super) fn counter_proof_posted_without_refuted_proof_state() -> GraphState {
     }
 }
 
+/// Overrides `signatures` on a mock `CounterProofPosted` state.
+fn override_signatures(mut state: GraphState, signatures: Vec<Signature>) -> GraphState {
+    let GraphState::CounterProofPosted {
+        signatures: slot, ..
+    } = &mut state
+    else {
+        panic!("expected CounterProofPosted state");
+    };
+    *slot = signatures;
+    state
+}
+
+/// Variant of [`counter_proof_posted_without_refuted_proof_state`] that also overrides
+/// `signatures`.
+///
+/// Use this when the test exercises a code path that unpacks the signatures (e.g. a watchtower
+/// building a counterproof duty), which would otherwise panic on the default empty signatures.
+pub(super) fn counter_proof_posted_without_refuted_proof_state_with_signatures(
+    signatures: Vec<Signature>,
+) -> GraphState {
+    override_signatures(
+        counter_proof_posted_without_refuted_proof_state(),
+        signatures,
+    )
+}
+
 /// Builds a mock `CounterProofPosted` state with explicit values for
 /// `refuted_bridge_proof`, confirmed counterproofs, and counterproof NACKs.
 ///
@@ -294,24 +320,18 @@ pub(super) fn counter_proof_posted_state_with(
 
 /// Variant of [`counter_proof_posted_state_with`] that also overrides `signatures`.
 ///
-/// Use this when the test exercises a code path that unpacks the signatures
-/// (e.g. building a counterproof duty). The default builder uses
-/// `Default::default()` signatures, which would panic in `GameFunctor::unpack`.
+/// Use this when the test exercises a code path that unpacks the signatures (e.g. a watchtower
+/// building a counterproof duty), which would otherwise panic on the default empty signatures.
 pub(super) fn counter_proof_posted_state_with_signatures(
     refuted_proof: Option<ProofReceipt>,
     counterprover_idxs: &[OperatorIdx],
     nacked_idxs: &[OperatorIdx],
     signatures: Vec<Signature>,
 ) -> GraphState {
-    let mut state = counter_proof_posted_state_with(refuted_proof, counterprover_idxs, nacked_idxs);
-    if let GraphState::CounterProofPosted {
-        signatures: state_signatures,
-        ..
-    } = &mut state
-    {
-        *state_signatures = signatures;
-    }
-    state
+    override_signatures(
+        counter_proof_posted_state_with(refuted_proof, counterprover_idxs, nacked_idxs),
+        signatures,
+    )
 }
 
 /// Builds a mock `AllNackd` state with default test values.

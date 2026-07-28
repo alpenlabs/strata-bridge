@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use bitcoin::Transaction;
 use musig2::secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
@@ -9,6 +10,7 @@ use strata_bridge_tx_graph::{
     game_graph::{DepositParams, GameData, GameGraph},
     musig_functor::GameFunctor,
 };
+use zkaleido::ProofReceipt;
 
 use crate::{
     cross_sm_context::CrossSmContext,
@@ -20,6 +22,7 @@ use crate::{
         errors::{GSMError, GSMResult},
         events::GraphEvent,
         state::GraphState,
+        watchtower::watchtower_slot_for_operator,
     },
     signals::GraphSignal,
     state_machine::{SMOutput, StateMachine},
@@ -167,6 +170,52 @@ impl GraphSM {
                 format!("Operator index {} not in operator table", operator_idx),
             ))
         }
+    }
+
+    /// Builds the [`GraphDuty::PotentialCounterProof`] a watchtower emits for an observed
+    /// bridge proof.
+    ///
+    /// The GSM emits this for every observed proof without inspecting it: verification needs
+    /// network access (ASM state, heavier-chain checks) that the GSM doesn't have, so the
+    /// executor verifies the proof and decides whether a counterproof actually goes on chain.
+    pub(super) fn potential_counterproof_duty(
+        &self,
+        cfg: &GraphSMCfg,
+        graph_data: &DepositParams,
+        signatures: &[Signature],
+        proof: &ProofReceipt,
+        bridge_proof_tx: &Transaction,
+        event: GraphEvent,
+    ) -> GSMResult<GraphDuty> {
+        let (game_graph, sigs) = unpack_game(cfg, self.context(), graph_data, signatures);
+        let watchtower_idx = watchtower_slot_for_operator(
+            self.context().operator_idx(),
+            self.context().operator_table().pov_idx(),
+        )
+        .expect("watchtower slot must exist for non-pov operator");
+
+        let counterproof_tx = game_graph
+            .counterproofs
+            .get(watchtower_idx)
+            .ok_or_else(|| {
+                GSMError::rejected(
+                    self.state().clone(),
+                    event,
+                    format!("missing counterproof graph for watchtower {watchtower_idx}"),
+                )
+            })?
+            .counterproof
+            .clone();
+
+        Ok(GraphDuty::PotentialCounterProof {
+            graph_idx: self.context().graph_idx(),
+            game_index: graph_data.game_index,
+            counterproof_tx,
+            n_of_n_signature: sigs.watchtowers[watchtower_idx].counterproof[0],
+            proof: proof.clone(),
+            bridge_proof_tx: bridge_proof_tx.clone(),
+            operator_table: self.context().operator_table().clone(),
+        })
     }
 }
 

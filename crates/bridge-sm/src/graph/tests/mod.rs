@@ -37,6 +37,7 @@ use strata_bridge_tx_graph::{
         AdminMultisig, CounterproofGraphSummary, DepositParams, GameGraph, GameGraphSummary,
         ProtocolParams,
     },
+    musig_functor::GameFunctor,
     transactions::prelude::{ClaimTx, ContestTx, CounterproofTx},
 };
 use strata_mosaic_client_api::types::CompletedSignatures;
@@ -56,6 +57,7 @@ use crate::{
         events::GraphEvent,
         machine::{self, GraphSM},
         state::GraphState,
+        watchtower::watchtower_slot_for_operator,
     },
     signals::GraphSignal,
     testing::{
@@ -453,6 +455,42 @@ pub(super) fn mock_game_signatures(game_graph: &GameGraph) -> Vec<Signature> {
         .musig_signing_info()
         .map(|_| generate_signature())
         .pack()
+}
+
+/// The [`GraphDuty::PotentialCounterProof`] a non-PoV watchtower is expected to emit for an
+/// observed bridge proof. The GSM emits this for every observed proof regardless of validity —
+/// verification happens in the executor.
+pub(super) fn expected_potential_counterproof_duty(
+    cfg: &GraphSMCfg,
+    sm: &GraphSM,
+    signatures: &[Signature],
+    proof: &ProofReceipt,
+    bridge_proof_tx: &Transaction,
+) -> GraphDuty {
+    let graph_data = test_deposit_params();
+    let game_graph = machine::generate_game_graph(cfg, sm.context(), &graph_data);
+    let watchtower_idx = watchtower_slot_for_operator(
+        sm.context().operator_idx(),
+        sm.context().operator_table().pov_idx(),
+    )
+    .expect("non-pov operator must have a watchtower slot");
+    let n_of_n_signature =
+        GameFunctor::unpack(signatures.to_vec(), sm.context().watchtower_pubkeys().len())
+            .expect("signature layout matches watchtower count")
+            .watchtowers[watchtower_idx]
+            .counterproof[0];
+
+    GraphDuty::PotentialCounterProof {
+        graph_idx: sm.context().graph_idx(),
+        game_index: graph_data.game_index,
+        counterproof_tx: game_graph.counterproofs[watchtower_idx]
+            .counterproof
+            .clone(),
+        n_of_n_signature,
+        proof: proof.clone(),
+        bridge_proof_tx: bridge_proof_tx.clone(),
+        operator_table: sm.context().operator_table().clone(),
+    }
 }
 
 /// Creates test musig signers for the operators.

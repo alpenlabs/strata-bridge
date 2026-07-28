@@ -4,28 +4,27 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{Txid, hashes::Hash};
 use strata_bridge_test_utils::bitcoin::generate_tx;
-use strata_bridge_tx_graph::musig_functor::GameFunctor;
 use strata_predicate::PredicateKey;
 
 use crate::{
     graph::{
-        duties::GraphDuty,
         errors::GSMError,
         events::{BridgeProofConfirmedEvent, GraphEvent},
         machine::generate_game_graph,
         state::{CounterproofData, GraphState},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
-            create_nonpov_sm, create_sm, dummy_proof_receipt, get_state, mock_game_signatures,
+            create_nonpov_sm, create_sm, dummy_proof_receipt, expected_potential_counterproof_duty,
+            get_state, mock_game_signatures,
             mock_states::{
                 TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_state_variants,
                 bridge_proof_posted_state, contested_state, contested_state_with,
                 counter_proof_posted_state, counter_proof_posted_without_refuted_proof_state,
+                counter_proof_posted_without_refuted_proof_state_with_signatures,
             },
             test_bridge_proof_tx, test_completed_signatures, test_deposit_params,
             test_graph_invalid_transition, test_graph_sm_cfg, test_graph_transition,
         },
-        watchtower::watchtower_slot_for_operator,
     },
     testing::test_transition,
 };
@@ -74,57 +73,19 @@ fn event_accepted_pov_no_duties() {
 }
 
 #[test]
-fn watchtower_skips_counterproof_when_proof_valid() {
+fn watchtower_emits_potential_counterproof_when_proof_valid() {
     let cfg = test_graph_sm_cfg();
     let event = bridge_proof_event();
-
-    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
-        create_nonpov_sm,
-        get_state,
-        cfg,
-        GraphTransition {
-            from_state: contested_state(),
-            event: GraphEvent::BridgeProofConfirmed(event.clone()),
-            expected_state: GraphState::BridgeProofPosted {
-                last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
-                graph_data: test_deposit_params(),
-                graph_summary: TEST_GRAPH_SUMMARY.clone(),
-                signatures: vec![],
-                fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
-                contest_block_height: LATER_BLOCK_HEIGHT,
-                bridge_proof_tx: event.tx.clone(),
-                bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
-                proof: dummy_proof_receipt(),
-                stake_spent: None,
-                payout_connector_spent: None,
-            },
-            expected_duties: vec![],
-            expected_signals: vec![],
-        },
-    );
-}
-
-#[test]
-fn watchtower_emits_counterproof_when_proof_invalid() {
-    let cfg = cfg_with_reject_predicate();
-    let event = bridge_proof_event();
     let sm = create_nonpov_sm(contested_state());
-
     let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
     let signatures = mock_game_signatures(&game_graph);
-    let watchtower_idx = watchtower_slot_for_operator(
-        sm.context().operator_idx(),
-        sm.context().operator_table().pov_idx(),
-    )
-    .expect("graph owner has no watchtower index");
-    let expected_counterproof_tx = game_graph.counterproofs[watchtower_idx]
-        .counterproof
-        .clone();
-    let expected_n_of_n_sig =
-        GameFunctor::unpack(signatures.clone(), sm.context().watchtower_pubkeys().len())
-            .expect("unpack must succeed")
-            .watchtowers[watchtower_idx]
-            .counterproof[0];
+    let expected_duty = expected_potential_counterproof_duty(
+        &cfg,
+        &sm,
+        &signatures,
+        &dummy_proof_receipt(),
+        &event.tx,
+    );
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
@@ -146,15 +107,48 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
                 stake_spent: None,
                 payout_connector_spent: None,
             },
-            expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
-                graph_idx: sm.context().graph_idx(),
-                game_index: test_deposit_params().game_index,
-                counterproof_tx: expected_counterproof_tx,
-                n_of_n_signature: expected_n_of_n_sig,
-                proof: dummy_proof_receipt(),
+            expected_duties: vec![expected_duty],
+            expected_signals: vec![],
+        },
+    );
+}
+
+#[test]
+fn watchtower_emits_potential_counterproof_even_when_proof_invalid() {
+    let cfg = cfg_with_reject_predicate();
+    let event = bridge_proof_event();
+    let sm = create_nonpov_sm(contested_state());
+    let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+    let signatures = mock_game_signatures(&game_graph);
+    let expected_duty = expected_potential_counterproof_duty(
+        &cfg,
+        &sm,
+        &signatures,
+        &dummy_proof_receipt(),
+        &event.tx,
+    );
+
+    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
+        create_nonpov_sm,
+        get_state,
+        cfg,
+        GraphTransition {
+            from_state: contested_state_with(LATER_BLOCK_HEIGHT, signatures.clone()),
+            event: GraphEvent::BridgeProofConfirmed(event.clone()),
+            expected_state: GraphState::BridgeProofPosted {
+                last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: TEST_GRAPH_SUMMARY.clone(),
+                signatures,
+                fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                contest_block_height: LATER_BLOCK_HEIGHT,
                 bridge_proof_tx: event.tx.clone(),
-                operator_table: sm.context().operator_table().clone(),
-            }],
+                bridge_proof_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
+                proof: dummy_proof_receipt(),
+                stake_spent: None,
+                payout_connector_spent: None,
+            },
+            expected_duties: vec![expected_duty],
             expected_signals: vec![],
         },
     );
@@ -162,56 +156,62 @@ fn watchtower_emits_counterproof_when_proof_invalid() {
 
 #[test]
 fn accepts_bridge_proof_posted_after_counterproof() {
+    let cfg = test_graph_sm_cfg();
     let event = bridge_proof_event();
     let event_tx = event.tx.clone();
+    let sm = create_nonpov_sm(counter_proof_posted_without_refuted_proof_state());
+    let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+    let signatures = mock_game_signatures(&game_graph);
+    let expected_duty = expected_potential_counterproof_duty(
+        &cfg,
+        &sm,
+        &signatures,
+        &dummy_proof_receipt(),
+        &event_tx,
+    );
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
-        test_graph_sm_cfg(),
+        cfg,
         GraphTransition {
-            from_state: counter_proof_posted_without_refuted_proof_state(),
+            from_state: counter_proof_posted_without_refuted_proof_state_with_signatures(
+                signatures.clone(),
+            ),
             event: GraphEvent::BridgeProofConfirmed(event),
             expected_state: GraphState::CounterProofPosted {
                 last_block_height: BRIDGE_PROOF_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
                 graph_summary: TEST_GRAPH_SUMMARY.clone(),
-                signatures: vec![],
+                signatures,
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
-                refuted_bridge_proof: Some((event_tx, dummy_proof_receipt())),
+                refuted_bridge_proof: Some((event_tx.clone(), dummy_proof_receipt())),
                 counterproofs_and_confs: Default::default(),
                 counterproof_nacks: Default::default(),
                 stake_spent: None,
                 payout_connector_spent: None,
             },
-            expected_duties: vec![],
+            expected_duties: vec![expected_duty],
             expected_signals: vec![],
         },
     );
 }
 
 #[test]
-fn watchtower_emits_counterproof_when_late_proof_invalid() {
+fn watchtower_emits_potential_counterproof_on_late_proof_even_when_invalid() {
     let cfg = cfg_with_reject_predicate();
     let event = bridge_proof_event();
     let sm = create_nonpov_sm(counter_proof_posted_without_refuted_proof_state());
-
     let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
     let signatures = mock_game_signatures(&game_graph);
-    let watchtower_idx = watchtower_slot_for_operator(
-        sm.context().operator_idx(),
-        sm.context().operator_table().pov_idx(),
-    )
-    .expect("graph owner has no watchtower index");
-    let expected_counterproof_tx = game_graph.counterproofs[watchtower_idx]
-        .counterproof
-        .clone();
-    let expected_n_of_n_sig =
-        GameFunctor::unpack(signatures.clone(), sm.context().watchtower_pubkeys().len())
-            .expect("unpack must succeed")
-            .watchtowers[watchtower_idx]
-            .counterproof[0];
+    let expected_duty = expected_potential_counterproof_duty(
+        &cfg,
+        &sm,
+        &signatures,
+        &dummy_proof_receipt(),
+        &event.tx,
+    );
 
     let from_state = GraphState::CounterProofPosted {
         last_block_height: LATER_BLOCK_HEIGHT,
@@ -247,15 +247,7 @@ fn watchtower_emits_counterproof_when_late_proof_invalid() {
                 stake_spent: None,
                 payout_connector_spent: None,
             },
-            expected_duties: vec![GraphDuty::GenerateAndPublishCounterProof {
-                graph_idx: sm.context().graph_idx(),
-                game_index: test_deposit_params().game_index,
-                counterproof_tx: expected_counterproof_tx,
-                n_of_n_signature: expected_n_of_n_sig,
-                proof: dummy_proof_receipt(),
-                bridge_proof_tx: event.tx.clone(),
-                operator_table: sm.context().operator_table().clone(),
-            }],
+            expected_duties: vec![expected_duty],
             expected_signals: vec![],
         },
     );

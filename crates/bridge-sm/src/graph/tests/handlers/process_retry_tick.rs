@@ -7,7 +7,6 @@ mod tests {
     use strata_bridge_test_utils::bitcoin::generate_txid;
     use strata_bridge_tx_graph::{
         game_graph::GameConnectors,
-        musig_functor::GameFunctor,
         transactions::prelude::{CounterproofNackData, CounterproofNackTx},
     };
     use strata_predicate::PredicateKey;
@@ -20,7 +19,7 @@ mod tests {
         tests::{
             FULFILLMENT_BLOCK_HEIGHT, GraphHandlerOutput, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
             TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX, create_nonpov_sm, create_sm,
-            dummy_proof_receipt, mock_game_signatures,
+            dummy_proof_receipt, expected_potential_counterproof_duty, mock_game_signatures,
             mock_states::{
                 assigned_state, bridge_proof_posted_state, bridge_proof_posted_state_with,
                 claimed_state, contested_state, counter_proof_posted_state,
@@ -329,23 +328,36 @@ mod tests {
         );
     }
 
-    // (graph owner: non-PoV, proof valid?: valid)     -> []
+    // (graph owner: non-PoV, proof valid?: valid)     -> [potential_counterproof]
+    //
+    // A valid proof may still be anchored on a non-canonical fork, so the watchtower re-emits a
+    // PotentialCounterProof for the executor to evaluate against its ASM node.
     #[test]
-    fn test_retry_tick_noop_in_bridge_proof_posted_when_proof_valid() {
+    fn test_retry_tick_emits_potential_counterproof_in_bridge_proof_posted_when_proof_valid() {
+        let cfg = test_graph_sm_cfg();
+        let sm = create_nonpov_sm(bridge_proof_posted_state());
+        let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let state = bridge_proof_posted_state_with(LATER_BLOCK_HEIGHT, signatures);
+        let expected_duty = expected_counterproof_duty(&cfg, &sm, &state);
+
         test_nonpov_owned_handler_output(
-            test_graph_sm_cfg(),
+            cfg,
             GraphHandlerOutput {
-                state: bridge_proof_posted_state(),
+                state,
                 event: GraphEvent::RetryTick(RetryTickEvent),
-                expected_duties: vec![],
+                expected_duties: vec![expected_duty],
             },
         );
     }
 
-    // (graph owner: non-PoV, proof valid?: invalid)  -> [counterproof]
+    // (graph owner: non-PoV, proof valid?: invalid)  -> [potential_counterproof]
+    //
+    // The GSM does not verify proofs, so it re-emits a PotentialCounterProof even under a reject
+    // predicate; the executor verifies and challenges.
     #[test]
-    fn test_retry_tick_emits_counterproof_in_bridge_proof_posted_for_nonpov_graph_with_invalid_proof()
-     {
+    fn test_retry_tick_emits_potential_counterproof_in_bridge_proof_posted_even_with_invalid_proof()
+    {
         let mut cfg = (*test_graph_sm_cfg()).clone();
         cfg.bridge_proof_predicate = PredicateKey::never_accept();
         let cfg = Arc::new(cfg);
@@ -425,48 +437,24 @@ mod tests {
         sm: &GraphSM,
         state: &GraphState,
     ) -> GraphDuty {
-        let (graph_data, signatures, proof, bridge_proof_tx) = match state {
+        let (signatures, proof, bridge_proof_tx) = match state {
             GraphState::BridgeProofPosted {
-                graph_data,
                 signatures,
                 proof,
                 bridge_proof_tx,
                 ..
-            } => (graph_data, signatures, proof, bridge_proof_tx),
+            } => (signatures, proof, bridge_proof_tx),
             GraphState::CounterProofPosted {
-                graph_data,
                 signatures,
                 refuted_bridge_proof: Some((bridge_proof_tx, proof)),
                 ..
-            } => (graph_data, signatures, proof, bridge_proof_tx),
+            } => (signatures, proof, bridge_proof_tx),
             _ => panic!(
                 "expected BridgeProofPosted or CounterProofPosted with refuted_bridge_proof present"
             ),
         };
 
-        let game_graph = generate_game_graph(cfg, sm.context(), graph_data);
-        let watchtower_idx = watchtower_slot_for_operator(
-            sm.context().operator_idx(),
-            sm.context().operator_table().pov_idx(),
-        )
-        .expect("watchtower slot must exist");
-
-        let counterproof_graph = &game_graph.counterproofs[watchtower_idx];
-        let n_of_n_signature =
-            GameFunctor::unpack(signatures.clone(), sm.context().watchtower_pubkeys().len())
-                .expect("unpack failed")
-                .watchtowers[watchtower_idx]
-                .counterproof[0];
-
-        GraphDuty::GenerateAndPublishCounterProof {
-            graph_idx: sm.context().graph_idx(),
-            game_index: graph_data.game_index,
-            counterproof_tx: counterproof_graph.counterproof.clone(),
-            n_of_n_signature,
-            proof: proof.clone(),
-            bridge_proof_tx: bridge_proof_tx.clone(),
-            operator_table: sm.context().operator_table().clone(),
-        }
+        expected_potential_counterproof_duty(cfg, sm, signatures, proof, bridge_proof_tx)
     }
 
     fn expected_counterproof_nack_duty(
@@ -700,15 +688,29 @@ mod tests {
         );
     }
 
-    // (refuted_proof: Some, proof_valid?: valid, , PoV cp confirmed: no)     -> []
+    // (refuted_proof: Some, proof_valid?: valid, PoV cp confirmed: no)     ->
+    // [potential_counterproof]
     #[test]
-    fn test_retry_tick_noop_in_counter_proof_posted_for_nonpov_graph_when_proof_valid() {
+    fn test_retry_tick_emits_potential_counterproof_in_counter_proof_posted_for_nonpov_graph_when_proof_valid()
+     {
+        let cfg = test_graph_sm_cfg();
+        let sm = create_nonpov_sm(counter_proof_posted_state());
+        let game_graph = generate_game_graph(&cfg, sm.context(), &test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let state = counter_proof_posted_state_with_signatures(
+            Some(dummy_proof_receipt()),
+            &[],
+            &[],
+            signatures,
+        );
+        let expected_duty = expected_counterproof_duty(&cfg, &sm, &state);
+
         test_nonpov_owned_handler_output(
-            test_graph_sm_cfg(),
+            cfg,
             GraphHandlerOutput {
-                state: counter_proof_posted_state(),
+                state,
                 event: GraphEvent::RetryTick(RetryTickEvent),
-                expected_duties: vec![],
+                expected_duties: vec![expected_duty],
             },
         );
     }
@@ -731,9 +733,13 @@ mod tests {
         );
     }
 
-    // (refuted_proof: Some, proof_valid?: invalid, PoV cp confirmed: no)     -> [counterproof]
+    // (refuted_proof: Some, proof_valid?: invalid, PoV cp confirmed: no)  ->
+    // [potential_counterproof]
+    //
+    // The GSM does not verify proofs, so it re-emits a PotentialCounterProof even under a reject
+    // predicate; the executor verifies and challenges.
     #[test]
-    fn test_retry_tick_emits_counterproof_in_counter_proof_posted_for_nonpov_graph_with_invalid_refuted_proof()
+    fn test_retry_tick_emits_potential_counterproof_in_counter_proof_posted_even_with_invalid_refuted_proof()
      {
         let mut cfg = (*test_graph_sm_cfg()).clone();
         cfg.bridge_proof_predicate = PredicateKey::never_accept();

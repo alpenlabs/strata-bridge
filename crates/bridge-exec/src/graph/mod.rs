@@ -27,7 +27,7 @@ use crate::{
             publish_bridge_proof_timeout, publish_contest, publish_contested_payout,
             publish_counterproof_ack, publish_slash,
         },
-        counterproof::generate_and_publish_counterproof,
+        counterproof::evaluate_and_publish_counterproof,
         counterproof_nack::publish_counterproof_nack,
         uncontested::publish_uncontested_payout,
         unstaking_burn::publish_unstaking_burn,
@@ -174,16 +174,16 @@ pub async fn execute_graph_duty(
         GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx } => {
             publish_bridge_proof_timeout(&output_handles, signed_timeout_tx).await
         }
-        GraphDuty::GenerateAndPublishCounterProof {
+        GraphDuty::PotentialCounterProof {
             graph_idx,
             game_index,
             counterproof_tx,
             n_of_n_signature,
+            proof,
             bridge_proof_tx,
             operator_table,
-            ..
         } => {
-            generate_and_publish_counterproof(
+            evaluate_and_publish_counterproof(
                 &cfg,
                 &output_handles,
                 counterproof_tx.clone(),
@@ -191,6 +191,7 @@ pub async fn execute_graph_duty(
                 graph_idx.deposit,
                 *game_index,
                 *n_of_n_signature,
+                proof.clone(),
                 bridge_proof_tx.clone(),
                 operator_table,
             )
