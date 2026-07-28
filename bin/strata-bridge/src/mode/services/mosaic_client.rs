@@ -91,19 +91,11 @@ impl MosaicIdResolver for BridgeMosaicIdResolver {
 
 /// Build a [`MosaicClient`] from the mosaic config and operator table.
 pub(crate) fn init_mosaic_client(
+    http_client: HttpClient,
     config: &MosaicConfig,
     operator_table: &OperatorTable,
     pov_idx: OperatorIdx,
 ) -> MosaicClient<HttpClient, BridgeMosaicIdResolver> {
-    let http_client = HttpClientBuilder::default()
-        .build(&config.rpc_url)
-        .unwrap_or_else(|e| {
-            panic!(
-                "failed to build mosaic HTTP client for {}: {e}",
-                config.rpc_url
-            )
-        });
-
     let resolver = BridgeMosaicIdResolver::new(config, operator_table);
 
     MosaicClient::builder(Arc::new(http_client), resolver, pov_idx)
@@ -111,6 +103,18 @@ pub(crate) fn init_mosaic_client(
         .max_retries(config.max_retries)
         .poll_interval(config.poll_interval)
         .build()
+}
+
+/// Build a [`jsonrpsee`] HTTP client targeting the local Mosaic RPC service.
+pub(crate) fn init_mosaic_rpc_client(config: &MosaicConfig) -> HttpClient {
+    HttpClientBuilder::default()
+        .build(&config.rpc_url)
+        .unwrap_or_else(|e| {
+            panic!(
+                "failed to build mosaic HTTP client for {}: {e}",
+                config.rpc_url
+            )
+        })
 }
 
 /// Run `ensure_mosaic_setup` for every `(other_operator, role)` pair concurrently.
