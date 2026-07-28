@@ -65,6 +65,7 @@ pub(crate) async fn bootstrap(
         startup_checks::verify(
             &params,
             &asm_rpc_client,
+            &config.asm_rpc,
             &bridge_proof_host,
             &counterproof_host,
         )

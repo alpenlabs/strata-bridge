@@ -1,33 +1,56 @@
 //! Startup consistency checks between the bridge and its external components.
 use std::fmt::Debug;
 
-use anyhow::{Context, Result};
+use algebra::retry::retry_with;
+use anyhow::{Context, Result, anyhow};
 use bitcoin::Amount;
 use jsonrpsee::http_client::HttpClient;
 use secp256k1::XOnlyPublicKey;
 use strata_asm_params::AsmParams;
 use strata_asm_rpc::traits::AsmControlApiClient;
+use strata_bridge_asm_events::config::AsmRpcConfig;
 use strata_bridge_common::params::Params;
 use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_proof::BridgeProofHost;
 use strata_predicate::PredicateKey;
+use tokio::time;
 use tracing::warn;
 
 /// Runs every startup consistency check; a failure aborts node startup.
 pub(in crate::mode) async fn verify(
     params: &Params,
     asm_rpc_client: &HttpClient,
+    asm_rpc_config: &AsmRpcConfig,
     bridge_proof_host: &BridgeProofHost,
     counterproof_host: &BridgeCounterproofHost,
 ) -> Result<()> {
     verify_predicates(params, bridge_proof_host, counterproof_host)?;
 
-    let asm_params = asm_rpc_client
-        .get_params()
+    let asm_params = fetch_asm_params(asm_rpc_client, asm_rpc_config)
         .await
         .context("fetching ASM params for startup consistency check")?;
     verify_asm_params(params, &asm_params).context("bridge/ASM params mismatch")?;
     Ok(())
+}
+
+async fn fetch_asm_params(client: &HttpClient, config: &AsmRpcConfig) -> Result<AsmParams> {
+    let timeout = config.request_timeout;
+    let client = client.clone();
+    retry_with(config.retry_strategy(), move || {
+        let client = client.clone();
+        async move {
+            match time::timeout(timeout, client.get_params()).await {
+                Ok(Ok(params)) => Ok(params),
+                Ok(Err(err)) => Err(anyhow::Error::from(err)),
+                Err(_) => Err(anyhow!("request timed out after {timeout:?}")),
+            }
+            .map_err(|err| {
+                warn!(%err, "failed to fetch ASM params");
+                err
+            })
+        }
+    })
+    .await
 }
 
 /// Each proof host's loaded guest ELF matches its corresponding verification predicate.
@@ -75,13 +98,19 @@ fn verify_asm_params(params: &Params, asm: &AsmParams) -> Result<()> {
         bridge.recovery_delay,
     )?;
 
-    // Divergence in genesis block height is suspicious but not consensus-breaking by itself.
+    // The protocol allows the ASM anchor at or below the bridge genesis; a bridge genesis
+    // below the anchor would have the bridge processing blocks the ASM has never seen.
     let anchor_height = u64::from(asm.anchor.block.height());
-    if params.genesis_height != anchor_height {
+    if params.genesis_height < anchor_height {
+        anyhow::bail!(
+            "genesis_height: bridge genesis_height {} precedes ASM anchor height {anchor_height}",
+            params.genesis_height
+        );
+    } else if params.genesis_height > anchor_height {
         warn!(
             bridge = params.genesis_height,
             asm = anchor_height,
-            "bridge genesis_height differs from ASM anchor height"
+            "bridge genesis_height is ahead of the ASM anchor height"
         );
     }
 
@@ -189,6 +218,8 @@ mod tests {
         let mut asm: AsmParams = ArbitraryGenerator::new().generate();
         asm.magic = params.protocol.magic_bytes;
         asm.anchor.network = params.network;
+        asm.anchor.block.height =
+            u32::try_from(params.genesis_height).expect("test genesis_height fits in u32");
         let bridge = bridge_cfg_mut(&mut asm);
         bridge.denomination = params.protocol.deposit_amount.into();
         bridge.operator_fee = params.protocol.operator_fee.into();
@@ -263,11 +294,23 @@ mod tests {
     }
 
     #[test]
-    fn genesis_height_mismatch_only_warns() {
+    fn bridge_genesis_at_or_after_asm_anchor_passes() {
         let mut params = test_params();
         let asm = matching_asm(&params);
         params.genesis_height = u64::from(asm.anchor.block.height()) + 1;
 
-        verify_asm_params(&params, &asm).expect("genesis_height divergence must not be fatal");
+        verify_asm_params(&params, &asm)
+            .expect("bridge genesis at or after the ASM anchor must not be fatal");
+    }
+
+    #[test]
+    fn bridge_genesis_below_asm_anchor_fails() {
+        let mut params = test_params();
+        let mut asm = matching_asm(&params);
+        asm.anchor.block.height = 100;
+        params.genesis_height = 99;
+
+        let err = verify_asm_params(&params, &asm).unwrap_err().to_string();
+        assert!(err.starts_with("genesis_height"), "got: {err}");
     }
 }
