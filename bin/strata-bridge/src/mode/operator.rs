@@ -64,9 +64,8 @@ pub(crate) async fn bootstrap(
     } else {
         startup_checks::verify(
             &params,
-            config.min_withdrawal_fulfillment_window,
+            &config,
             &asm_rpc_client,
-            &config.asm_rpc,
             &bridge_proof_host,
             &counterproof_host,
         )
