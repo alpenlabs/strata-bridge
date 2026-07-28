@@ -19,6 +19,7 @@ use tracing::warn;
 /// Runs every startup consistency check; a failure aborts node startup.
 pub(in crate::mode) async fn verify(
     params: &Params,
+    min_withdrawal_fulfillment_window: u64,
     asm_rpc_client: &HttpClient,
     asm_rpc_config: &AsmRpcConfig,
     bridge_proof_host: &BridgeProofHost,
@@ -29,7 +30,8 @@ pub(in crate::mode) async fn verify(
     let asm_params = fetch_asm_params(asm_rpc_client, asm_rpc_config)
         .await
         .context("fetching ASM params for startup consistency check")?;
-    verify_asm_params(params, &asm_params).context("bridge/ASM params mismatch")?;
+    verify_asm_params(params, min_withdrawal_fulfillment_window, &asm_params)
+        .context("bridge/ASM params mismatch")?;
     Ok(())
 }
 
@@ -71,8 +73,12 @@ fn verify_predicates(
     )
 }
 
-/// The params shared between the bridge and the ASM instance agree.
-fn verify_asm_params(params: &Params, asm: &AsmParams) -> Result<()> {
+/// The bridge params and local fulfillment window are compatible with the ASM instance.
+fn verify_asm_params(
+    params: &Params,
+    min_withdrawal_fulfillment_window: u64,
+    asm: &AsmParams,
+) -> Result<()> {
     let Some(bridge) = asm.bridge_config() else {
         anyhow::bail!(
             "ASM params carry no bridge-v1 subprotocol config; point the bridge at an ASM \
@@ -97,6 +103,13 @@ fn verify_asm_params(params: &Params, asm: &AsmParams) -> Result<()> {
         params.protocol.recovery_delay,
         bridge.recovery_delay,
     )?;
+    if min_withdrawal_fulfillment_window >= u64::from(bridge.assignment_duration) {
+        anyhow::bail!(
+            "min_withdrawal_fulfillment_window: bridge config value \
+             {min_withdrawal_fulfillment_window} must be less than ASM assignment_duration {}",
+            bridge.assignment_duration
+        );
+    }
 
     ensure_eq(
         "genesis_height",
@@ -157,6 +170,8 @@ mod tests {
     const XONLY_KEY_2: &str = "1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4";
     const P2P_KEY_1: &str = "0de7729dcbeb5069136ee4bff1c4f2fd822fe8fbc9b518df434d4f0c6312d8f5";
     const P2P_KEY_2: &str = "255ab0da6d468a22910a7cf54021763417c63c28bbafd4e2359daf103bb61e9d";
+    const MIN_WITHDRAWAL_FULFILLMENT_WINDOW: u64 = 143;
+    const ASSIGNMENT_DURATION: u16 = 144;
 
     fn test_params() -> Params {
         let p2tr = |xonly_hex: &str| {
@@ -214,6 +229,7 @@ mod tests {
         bridge.denomination = params.protocol.deposit_amount.into();
         bridge.operator_fee = params.protocol.operator_fee.into();
         bridge.recovery_delay = params.protocol.recovery_delay;
+        bridge.assignment_duration = ASSIGNMENT_DURATION;
         bridge.operators = params
             .keys
             .covenant
@@ -236,7 +252,31 @@ mod tests {
     #[test]
     fn matching_params_pass() {
         let params = test_params();
-        verify_asm_params(&params, &matching_asm(&params)).expect("matching params must verify");
+        verify_asm_params(
+            &params,
+            MIN_WITHDRAWAL_FULFILLMENT_WINDOW,
+            &matching_asm(&params),
+        )
+        .expect("matching params must verify");
+    }
+
+    #[test]
+    fn withdrawal_fulfillment_window_must_be_less_than_assignment_duration() {
+        let params = test_params();
+        let asm = matching_asm(&params);
+
+        for window in [
+            u64::from(ASSIGNMENT_DURATION),
+            u64::from(ASSIGNMENT_DURATION) + 1,
+        ] {
+            let err = verify_asm_params(&params, window, &asm)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.starts_with("min_withdrawal_fulfillment_window"),
+                "expected withdrawal fulfillment window error, got: {err}"
+            );
+        }
     }
 
     #[test]
@@ -265,7 +305,9 @@ mod tests {
         for (label, mutate) in cases {
             let mut asm = matching_asm(&params);
             mutate(&mut asm);
-            let err = verify_asm_params(&params, &asm).unwrap_err().to_string();
+            let err = verify_asm_params(&params, MIN_WITHDRAWAL_FULFILLMENT_WINDOW, &asm)
+                .unwrap_err()
+                .to_string();
             assert!(
                 err.starts_with(label),
                 "expected `{label}` mismatch, got: {err}"
@@ -280,7 +322,9 @@ mod tests {
         asm.subprotocols
             .retain(|s| !matches!(s, SubprotocolInstance::Bridge(_)));
 
-        let err = verify_asm_params(&params, &asm).unwrap_err().to_string();
+        let err = verify_asm_params(&params, MIN_WITHDRAWAL_FULFILLMENT_WINDOW, &asm)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("no bridge-v1 subprotocol"), "got: {err}");
     }
 }
