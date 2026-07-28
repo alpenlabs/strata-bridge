@@ -20,7 +20,7 @@ use crate::{
         rpc_server::init_rpc_server,
         services::{
             asm_rpc::init_asm_rpc_client,
-            btc_client::init_btc_rpc_client,
+            btc_client::{init_btc_rpc_client, verify_btc_network},
             health_probes::{
                 spawn_asm_rpc_probe, spawn_bitcoin_rpc_probe, spawn_fdb_probe, spawn_mosaic_probe,
                 spawn_p2p_probe, spawn_s2_probe, spawn_wallet_probe,
@@ -72,6 +72,13 @@ pub(crate) async fn bootstrap(
         .await?;
     }
 
+    debug!("initializing bitcoin client");
+    let btc_rpc_client = init_btc_rpc_client(&config)?;
+    verify_btc_network(&btc_rpc_client, params.network).await?;
+    let cur_height = btc_rpc_client.get_block_count().await?;
+    info!(%cur_height, network = %params.network, "bitcoin client initialized and synced");
+    health_registry.mark_ok(COMPONENT_BITCOIN_RPC, "network_and_block_count_verified");
+
     debug!(config=?config.secret_service_client, "initializing secret service client");
     let s2_client = init_secret_service_client(&config.secret_service_client).await;
     info!("initialized secret service client");
@@ -98,12 +105,6 @@ pub(crate) async fn bootstrap(
     // This is just to speed up syncing when we actually need to use the funds.
     tokio::spawn(async move { spawn_initial_operator_wallet_sync(sync_wallet).await });
     info!("initial operator wallet sync task spawned");
-
-    debug!("initializing bitcoin client");
-    let btc_rpc_client = init_btc_rpc_client(&config)?;
-    let cur_height = btc_rpc_client.get_block_count().await?;
-    info!(%cur_height, "bitcoin client initialized and synced");
-    health_registry.mark_ok(COMPONENT_BITCOIN_RPC, "block_count_read");
 
     debug!("initializing p2p client");
     let P2PHandles {
