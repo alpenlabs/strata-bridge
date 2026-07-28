@@ -1,10 +1,12 @@
 //! Startup consistency checks between the bridge and its external components.
 use std::fmt::Debug;
 
-use algebra::retry::retry_with;
+use algebra::retry::{Strategy, retry_with};
 use anyhow::{Context, Result, anyhow};
 use bitcoin::Amount;
 use jsonrpsee::http_client::HttpClient;
+use mosaic_rpc_api::MosaicRpcClient;
+use mosaic_rpc_types::RpcCircuitInfoEntry;
 use secp256k1::XOnlyPublicKey;
 use strata_asm_params::AsmParams;
 use strata_asm_rpc::traits::AsmControlApiClient;
@@ -16,13 +18,14 @@ use strata_predicate::PredicateKey;
 use tokio::time;
 use tracing::warn;
 
-use crate::config::Config;
+use crate::config::{Config, MosaicConfig};
 
 /// Runs every startup consistency check; a failure aborts node startup.
 pub(in crate::mode) async fn verify(
     params: &Params,
     config: &Config,
     asm_rpc_client: &HttpClient,
+    mosaic_rpc_client: &HttpClient,
     bridge_proof_host: &BridgeProofHost,
     counterproof_host: &BridgeCounterproofHost,
 ) -> Result<()> {
@@ -31,7 +34,14 @@ pub(in crate::mode) async fn verify(
     let asm_params = fetch_asm_params(asm_rpc_client, &config.asm_rpc)
         .await
         .context("fetching ASM params for startup consistency check")?;
-    verify_asm_params(params, config, &asm_params).context("bridge/ASM params mismatch")
+    verify_asm_params(params, config, &asm_params).context("bridge/ASM params mismatch")?;
+
+    let circuit_defs = fetch_mosaic_circuit_defs(mosaic_rpc_client, &config.mosaic)
+        .await
+        .context("fetching Mosaic circuit definitions for startup consistency check")?;
+    verify_mosaic_vkey(counterproof_host.vkey_hash(), &circuit_defs)
+        .context("bridge/Mosaic counterproof vkey mismatch")?;
+    Ok(())
 }
 
 async fn fetch_asm_params(client: &HttpClient, config: &AsmRpcConfig) -> Result<AsmParams> {
@@ -49,6 +59,29 @@ async fn fetch_asm_params(client: &HttpClient, config: &AsmRpcConfig) -> Result<
                 warn!(%err, "failed to fetch ASM params");
                 err
             })
+        }
+    })
+    .await
+}
+
+async fn fetch_mosaic_circuit_defs(
+    client: &HttpClient,
+    config: &MosaicConfig,
+) -> Result<Vec<RpcCircuitInfoEntry>> {
+    let client = client.clone();
+    let retry_strategy =
+        Strategy::fixed_delay(config.retry_delay).with_max_retries(config.max_retries);
+    retry_with(retry_strategy, move || {
+        let client = client.clone();
+        async move {
+            client
+                .get_circuit_defs()
+                .await
+                .map_err(anyhow::Error::from)
+                .map_err(|err| {
+                    warn!(%err, "failed to fetch Mosaic circuit definitions");
+                    err
+                })
         }
     })
     .await
@@ -122,6 +155,27 @@ fn verify_asm_params(params: &Params, config: &Config, asm: &AsmParams) -> Resul
     ensure_eq("operators", bridge_operators, asm_operators)
 }
 
+/// The configured Mosaic circuit is pinned to the counterproof host's verifying key.
+fn verify_mosaic_vkey(expected: [u8; 32], circuit_defs: &[RpcCircuitInfoEntry]) -> Result<()> {
+    let [circuit] = circuit_defs else {
+        anyhow::bail!(
+            "Mosaic returned {} circuit definitions; expected exactly one",
+            circuit_defs.len()
+        );
+    };
+    let actual = *circuit.vk_hash.inner();
+    if expected != actual {
+        anyhow::bail!(
+            "counterproof_vkey: bridge proof host value {} does not match Mosaic circuit `{}` \
+             value {}",
+            hex::encode(expected),
+            circuit.name,
+            hex::encode(actual),
+        );
+    }
+    Ok(())
+}
+
 /// Errors unless the ELF's `derived` predicate matches the `expected` params one. `None` (native
 /// host or non-`sp1` build) pins no ELF — nothing to check.
 fn ensure_predicate_match(
@@ -155,6 +209,7 @@ fn ensure_eq<T: PartialEq + Debug>(label: &str, bridge_value: T, peer_value: T) 
 #[cfg(test)]
 mod tests {
     use bitcoin_bosd::Descriptor;
+    use mosaic_rpc_types::{RpcByte32, RpcCircuitInfo};
     use strata_asm_params::{BridgeV1InitConfig, SubprotocolInstance};
     use strata_bridge_test_utils::arbitrary_generator::ArbitraryGenerator;
     use strata_l1_txfmt::MagicBytes;
@@ -245,6 +300,22 @@ mod tests {
             .expect("arbitrary AsmParams always carries a bridge subprotocol")
     }
 
+    fn circuit_def(vkey_hash: [u8; 32]) -> RpcCircuitInfoEntry {
+        RpcCircuitInfoEntry {
+            name: "bridge".to_owned(),
+            commitment: RpcByte32::new([0; 32]),
+            vk_hash: RpcByte32::new(vkey_hash),
+            info: RpcCircuitInfo {
+                total_size_bytes: 0,
+                total_gates: 0,
+                xor_gates: 0,
+                and_gates: 0,
+                num_input_wires: 0,
+                num_output_wires: 0,
+            },
+        }
+    }
+
     #[test]
     fn matching_params_pass() {
         let params = test_params();
@@ -322,5 +393,27 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("no bridge-v1 subprotocol"), "got: {err}");
+    }
+
+    #[test]
+    fn native_vkey_matches_zeroed_mosaic_vkey() {
+        verify_mosaic_vkey([0; 32], &[circuit_def([0; 32])])
+            .expect("native vkey must match a zeroed Mosaic circuit vkey");
+    }
+
+    #[test]
+    fn native_vkey_rejects_nonzero_mosaic_vkey() {
+        let err = verify_mosaic_vkey([0; 32], &[circuit_def([1; 32])])
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("counterproof_vkey"), "got: {err}");
+    }
+
+    #[test]
+    fn mosaic_must_return_exactly_one_circuit() {
+        for defs in [vec![], vec![circuit_def([0; 32]), circuit_def([0; 32])]] {
+            let err = verify_mosaic_vkey([0; 32], &defs).unwrap_err().to_string();
+            assert!(err.contains("expected exactly one"), "got: {err}");
+        }
     }
 }

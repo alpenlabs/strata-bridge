@@ -25,7 +25,9 @@ use crate::{
                 spawn_asm_rpc_probe, spawn_bitcoin_rpc_probe, spawn_fdb_probe, spawn_mosaic_probe,
                 spawn_p2p_probe, spawn_s2_probe, spawn_wallet_probe,
             },
-            mosaic_client::{init_mosaic_client, run_mosaic_setup, spawn_mosaic_poller},
+            mosaic_client::{
+                init_mosaic_client, init_mosaic_rpc_client, run_mosaic_setup, spawn_mosaic_poller,
+            },
             operator_table::init_operator_table,
             operator_wallet::{init_operator_wallet, spawn_initial_operator_wallet_sync},
             orchestrator::init_orchestrator,
@@ -57,6 +59,10 @@ pub(crate) async fn bootstrap(
     info!("asm rpc client initialized");
     health_registry.mark_degraded(COMPONENT_ASM_RPC, "client_initialized_not_checked");
 
+    debug!("initializing mosaic rpc client");
+    let mosaic_rpc_client = init_mosaic_rpc_client(&config.mosaic);
+    info!("mosaic rpc client initialized");
+
     let bridge_proof_host = strata_bridge_proof::build_host(&config.bridge_proof).await?;
     let counterproof_host = strata_bridge_counterproof::build_host(&config.counterproof).await?;
     if config.dev {
@@ -66,6 +72,7 @@ pub(crate) async fn bootstrap(
             &params,
             &config,
             &asm_rpc_client,
+            &mosaic_rpc_client,
             &bridge_proof_host,
             &counterproof_host,
         )
@@ -130,6 +137,7 @@ pub(crate) async fn bootstrap(
 
     debug!("initializing mosaic client");
     let mosaic_client = Arc::new(init_mosaic_client(
+        mosaic_rpc_client,
         &config.mosaic,
         &operator_table,
         operator_table.pov_idx(),

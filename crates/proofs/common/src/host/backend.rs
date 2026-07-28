@@ -33,6 +33,19 @@ pub enum Host {
 }
 
 impl Host {
+    /// The verifying-key hash expected by a circuit consuming proofs from this host.
+    ///
+    /// Native proofs are not tied to a zkVM program and therefore use the all-zero hash. SP1
+    /// proofs use the hash derived from the guest ELF loaded by `SP1Host`.
+    #[cfg_attr(not(feature = "sp1"), allow(clippy::missing_const_for_fn))]
+    pub fn vkey_hash(&self) -> [u8; 32] {
+        match self {
+            Self::Native(_) => [0; 32],
+            #[cfg(feature = "sp1")]
+            Self::Sp1(host) => host.program_id().0,
+        }
+    }
+
     /// The predicate derived from the loaded SP1 guest ELF; `None` for the native host or in
     /// non-`sp1` builds.
     #[cfg_attr(not(feature = "sp1"), allow(clippy::missing_const_for_fn))]

@@ -11388,6 +11388,8 @@ dependencies = [
  "libp2p-identity",
  "memory_pprof",
  "metrics",
+ "mosaic-rpc-api",
+ "mosaic-rpc-types",
  "operator-wallet",
  "rustls-pemfile",
  "secp256k1 0.29.1",
