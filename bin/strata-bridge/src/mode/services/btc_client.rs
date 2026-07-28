@@ -3,8 +3,8 @@
 use std::{collections::VecDeque, time::Duration};
 
 use algebra::retry::{Strategy, retry_with};
-use anyhow::anyhow;
-use bitcoin::Block;
+use anyhow::{anyhow, ensure};
+use bitcoin::{Block, Network};
 use bitcoind_async_client::{Auth, Client as BitcoinClient, error::ClientError, traits::Reader};
 use btc_tracker::{
     client::{BlockFetcher, BtcNotifyClient, BtcNotifyHealthEvent, Connected},
@@ -28,6 +28,22 @@ pub(in crate::mode) fn init_btc_rpc_client(config: &Config) -> anyhow::Result<Bi
         None,
     )
     .map_err(|e| anyhow!("could not create bitcoin rpc client due to {e:?}"))
+}
+
+/// Verifies that the connected Bitcoin node is on the network configured in bridge params.
+pub(in crate::mode) async fn verify_btc_network(
+    client: &BitcoinClient,
+    configured: Network,
+) -> anyhow::Result<()> {
+    let connected = client
+        .network()
+        .await
+        .map_err(|e| anyhow!("could not query bitcoin node network due to {e:?}"))?;
+    ensure!(
+        configured == connected,
+        "bitcoin network mismatch: configured {configured}, connected node reports {connected}"
+    );
+    Ok(())
 }
 
 /// Initializes the ZMQ client for subscribing to Bitcoin (on-chain) events, starting from the
