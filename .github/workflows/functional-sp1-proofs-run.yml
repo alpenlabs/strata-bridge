@@ -1,0 +1,289 @@
+# Reusable inner workflow for functional-sp1-proofs.yml: runs the SP1 proof
+# test matrix once under the given mosaic circuit mode. The caller invokes it
+# twice per tick — mock first, then full — so the cheap mock phase gates the
+# multi-hour full-circuit phase.
+name: Functional tests (SP1 proofs) run
+
+on:
+  workflow_call:
+    inputs:
+      mosaic_circuit:
+        description: "Mosaic circuit: full = generate the real g16 Groth16 circuit in-run (~142 GB, adds hours); mock = bundled reduced circuit"
+        required: true
+        type: string
+      g16_ref:
+        description: "alpenlabs/g16 ref override for full mode (empty = G16_DEFAULT_REF)"
+        required: false
+        default: ""
+        type: string
+      rust_log:
+        description: "RUST_LOG for the test run"
+        required: false
+        default: "info"
+        type: string
+      rust_nightly:
+        description: "Nightly Rust toolchain version (from extract-rust-version)"
+        required: true
+        type: string
+    secrets:
+      NETWORK_PRIVATE_KEY:
+        description: "Succinct prover network account key"
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+  SP1_VERSION: v6.2.0
+
+permissions: {}
+
+jobs:
+  run:
+    name: Run ${{ matrix.test }} with real SP1 proving
+    runs-on: 16-core-runner
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [fn_bridge_proof, fn_counterproof]
+        include:
+          - test: fn_bridge_proof
+            sp1-log-services: operator-0
+          - test: fn_counterproof
+            sp1-log-services: operator-1
+    env:
+      OPENSSL_VERSION: "3.5.0"
+      OPENSSL_CACHE_VERSION: "v2"
+      OPENSSL_INSTALL_DIR: ${{ github.workspace }}/.cache/openssl-3.5.0
+      MOSAIC_CIRCUIT_MODE: ${{ inputs.mosaic_circuit }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # Same source of truth (and same sed) as g16-setup.bash: circuit-gen.yml's
+      # G16_DEFAULT_REF, so a pin bump there cannot leave this workflow stale.
+      - name: Resolve g16 ref
+        if: inputs.mosaic_circuit == 'full'
+        env:
+          INPUT_G16_REF: ${{ inputs.g16_ref }}
+        run: |
+          DEFAULT_REF="$(sed -n 's/^[[:space:]]*G16_DEFAULT_REF:[[:space:]]*//p' .github/workflows/circuit-gen.yml | head -n 1)"
+          if [ -z "$DEFAULT_REF" ] && [ -z "$INPUT_G16_REF" ]; then
+            echo "G16_DEFAULT_REF not found in circuit-gen.yml and no g16_ref input given" >&2
+            exit 1
+          fi
+          echo "G16_REF=${INPUT_G16_REF:-$DEFAULT_REF}" >> "$GITHUB_ENV"
+
+      # Pre-clone g16 so the dedicated rust-cache instance below can cache its
+      # build; run_test.sh's g16-setup.bash consumes it via G16_DIR.
+      - name: Checkout alpenlabs/g16
+        if: inputs.mosaic_circuit == 'full'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: alpenlabs/g16
+          ref: ${{ env.G16_REF }}
+          path: g16
+          persist-credentials: false
+
+      - name: Restore cached OpenSSL build
+        id: cache-openssl
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.OPENSSL_INSTALL_DIR }}
+          key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VERSION }}-${{ env.OPENSSL_CACHE_VERSION }}
+
+      - name: Download and build OpenSSL
+        if: steps.cache-openssl.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSLO "https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz"
+          tar -xzf "openssl-$OPENSSL_VERSION.tar.gz"
+          cd "openssl-$OPENSSL_VERSION"
+          ./config --prefix="$OPENSSL_INSTALL_DIR" --openssldir="$OPENSSL_INSTALL_DIR"
+          make -j"$(nproc)"
+          make install_sw install_ssldirs
+
+      - name: Configure OpenSSL environment
+        run: |
+          OPENSSL_LIB_DIR="$OPENSSL_INSTALL_DIR/lib64"
+          if [ ! -d "$OPENSSL_LIB_DIR" ]; then
+            OPENSSL_LIB_DIR="$OPENSSL_INSTALL_DIR/lib"
+          fi
+          {
+            echo "OPENSSL_ROOT_DIR=$OPENSSL_INSTALL_DIR"
+            echo "OPENSSL_DIR=$OPENSSL_INSTALL_DIR"
+            echo "PKG_CONFIG_PATH=$OPENSSL_LIB_DIR/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+            echo "LD_LIBRARY_PATH=$OPENSSL_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          } >> "$GITHUB_ENV"
+          echo "$OPENSSL_INSTALL_DIR/bin" >> "$GITHUB_PATH"
+
+      - name: Cleanup space
+        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+
+      # Fail on insufficient disk now, hours before g16-setup.bash's own check
+      # would. gh/jq/aws are not needed here (no S3 upload).
+      - name: Disk preflight (full circuit)
+        if: inputs.mosaic_circuit == 'full'
+        env:
+          RUNS_DIR: ${{ github.workspace }}/functional-tests/_dd/.g16-runs
+          MIN_FREE_GB: "320"
+          REQUIRED_CLIS: "rustup"
+        run: python3 .github/scripts/circuit_gen.py preflight
+
+      - name: Install bitcoind
+        env:
+          BITCOIND_VERSION: "30.2"
+          BITCOIND_ARCH: "x86_64-linux-gnu"
+        run: |
+          curl -fsSLO --proto "=https" --tlsv1.2 "https://bitcoincore.org/bin/bitcoin-core-$BITCOIND_VERSION/bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
+          curl -fsSLO --proto "=https" --tlsv1.2 "https://bitcoincore.org/bin/bitcoin-core-$BITCOIND_VERSION/SHA256SUMS"
+          sha256sum --ignore-missing --check SHA256SUMS
+          tar xzf "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
+          sudo install -m 0755 -t /usr/local/bin "bitcoin-$BITCOIND_VERSION"/bin/*
+          bitcoind --version
+          rm -rf SHA256SUMS "bitcoin-$BITCOIND_VERSION" "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
+
+      - name: Install Rust toolchain
+        env:
+          RUST_NIGHTLY: ${{ inputs.rust_nightly }}
+        run: |
+          rustup toolchain install "$RUST_NIGHTLY" --profile minimal --component llvm-tools-preview
+          rustup default "$RUST_NIGHTLY"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          cache-on-failure: true
+
+      # Separate instance scoped to the g16 checkout; distinct prefix-key so the
+      # two instances don't fight over save keys.
+      - name: Rust cache (g16)
+        if: inputs.mosaic_circuit == 'full'
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          workspaces: g16
+          prefix-key: v0-rust-g16
+          cache-on-failure: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          working-directory: functional-tests
+          activate-environment: true
+          enable-cache: true
+          cache-suffix: "functional-tests"
+
+      - name: Install libclang for bindgen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev
+
+      - name: Setup FoundationDB client
+        uses: ./.github/actions/setup-foundationdb
+
+      - name: Setup FoundationDB server
+        uses: ./.github/actions/setup-foundationdb-server
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+
+      - name: Install SP1 toolchain
+        run: |
+          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash
+          ~/.sp1/bin/sp1up --version "$SP1_VERSION"
+          echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
+
+      - name: Verify SP1 toolchain
+        run: cargo prove --version
+
+      # Ports + creds match functional-tests/sp1-env.bash.sample so run_test.sh /
+      # gen_asm_params_external.py pick them up without overrides.
+      - name: Start regtest bitcoind
+        run: |
+          mkdir -p "$RUNNER_TEMP/btcdata"
+          bitcoind -regtest -daemon -server=1 -txindex=1 -acceptnonstdtxn=0 \
+            -fallbackfee=0.00001 -datadir="$RUNNER_TEMP/btcdata" \
+            -rpcbind=127.0.0.1 -rpcallowip=127.0.0.1/32 \
+            -rpcuser=user -rpcpassword=password -rpcport=18443 \
+            -zmqpubhashblock=tcp://127.0.0.1:28332 \
+            -zmqpubhashtx=tcp://127.0.0.1:28333 \
+            -zmqpubrawblock=tcp://127.0.0.1:28334 \
+            -zmqpubrawtx=tcp://127.0.0.1:28335 \
+            -zmqpubsequence=tcp://127.0.0.1:28336
+          for _ in $(seq 60); do
+            if bitcoin-cli -regtest -rpcuser=user -rpcpassword=password getblockcount 2>/dev/null; then
+              echo "bitcoind ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "bitcoind did not become ready within 60s" >&2
+          exit 1
+
+      # Activate the SP1 opt-in branch in run_test.sh by materializing sp1-env.bash
+      # from the sample, then delegate. `-t <path>` bypasses entry.py's
+      # SKIP_GROUPS_BY_DEFAULT filter on `proofs/`.
+      - name: Run ${{ matrix.test }}
+        id: funcTestsRun
+        continue-on-error: true
+        env:
+          RUST_LOG: ${{ inputs.rust_log }}
+          NO_COLOR: "1"
+          LOG_LEVEL: "info"
+          PYTHON_VERSION: "3.12"
+          NETWORK_PRIVATE_KEY: ${{ secrets.NETWORK_PRIVATE_KEY }}
+          TEST_FILE: ${{ matrix.test }}
+          # MOSAIC_CIRCUIT_MODE comes from the job env.
+          G16_DIR: ${{ github.workspace }}/g16 # only read in full mode
+        run: |
+          cp functional-tests/sp1-env.bash.sample functional-tests/sp1-env.bash
+          ./functional-tests/run_test.sh -t "functional-tests/tests/proofs/${TEST_FILE}.py"
+
+      # Surface the raw sp1_sdk::network::prover request block (cycle limit,
+      # gas limit, explorer URL, ...) on the run's summary page, pass or fail.
+      - name: Render SP1 proof request summary
+        env:
+          TEST_FILE: ${{ matrix.test }}
+          SP1_LOG_SERVICES: ${{ matrix.sp1-log-services }}
+        run: python3 .github/scripts/render_sp1_proof_summary.py
+
+      - name: Zip log files on failure
+        if: steps.funcTestsRun.outcome == 'failure'
+        # Create a zip archive (logs.zip) that includes only service.log files,
+        # preserving the folder structure starting from functional-tests/_dd
+        run: |
+          find functional-tests/_dd -type f -name "service.log" | zip -@ logs.zip
+          zip -r logs.zip functional-tests/_dd -i '*/logs/*.log'
+
+      - name: Upload logs as build artifact on failure
+        if: steps.funcTestsRun.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # Mode suffix: the mock and full phases of one run must not collide.
+          name: fntest_dd-${{ matrix.test }}-${{ inputs.mosaic_circuit }}
+          path: logs.zip
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 0 # already compressed
+
+      # Always upload the circuit-generation log in full mode so timing data
+      # survives green runs too.
+      - name: Upload g16 generation log
+        if: always() && inputs.mosaic_circuit == 'full'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: g16-gen-log-${{ matrix.test }}
+          path: functional-tests/_dd/.g16-runs/g16-gen.log
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Stop bitcoind
+        if: always()
+        run: bitcoin-cli -regtest -rpcuser=user -rpcpassword=password stop || true
+
+      - name: Fail job if test failed
+        if: steps.funcTestsRun.outcome == 'failure'
+        run: |
+          echo "Functional test ${{ matrix.test }} failed"
+          exit 1
