@@ -98,21 +98,11 @@ fn verify_asm_params(params: &Params, asm: &AsmParams) -> Result<()> {
         bridge.recovery_delay,
     )?;
 
-    // The protocol allows the ASM anchor at or below the bridge genesis; a bridge genesis
-    // below the anchor would have the bridge processing blocks the ASM has never seen.
-    let anchor_height = u64::from(asm.anchor.block.height());
-    if params.genesis_height < anchor_height {
-        anyhow::bail!(
-            "genesis_height: bridge genesis_height {} precedes ASM anchor height {anchor_height}",
-            params.genesis_height
-        );
-    } else if params.genesis_height > anchor_height {
-        warn!(
-            bridge = params.genesis_height,
-            asm = anchor_height,
-            "bridge genesis_height is ahead of the ASM anchor height"
-        );
-    }
+    ensure_eq(
+        "genesis_height",
+        params.genesis_height,
+        u64::from(asm.anchor.block.height()),
+    )?;
 
     // The operator lists must match in content and order: assignments route by operator
     // index, so a reordering is as consensus-breaking as a different key set.
@@ -266,6 +256,7 @@ mod tests {
             ("recovery_delay", |asm| {
                 bridge_cfg_mut(asm).recovery_delay += 1
             }),
+            ("genesis_height", |asm| asm.anchor.block.height += 1),
             // Same key set, different order: still a consensus split.
             ("operators", |asm| bridge_cfg_mut(asm).operators.reverse()),
         ];
@@ -291,26 +282,5 @@ mod tests {
 
         let err = verify_asm_params(&params, &asm).unwrap_err().to_string();
         assert!(err.contains("no bridge-v1 subprotocol"), "got: {err}");
-    }
-
-    #[test]
-    fn bridge_genesis_at_or_after_asm_anchor_passes() {
-        let mut params = test_params();
-        let asm = matching_asm(&params);
-        params.genesis_height = u64::from(asm.anchor.block.height()) + 1;
-
-        verify_asm_params(&params, &asm)
-            .expect("bridge genesis at or after the ASM anchor must not be fatal");
-    }
-
-    #[test]
-    fn bridge_genesis_below_asm_anchor_fails() {
-        let mut params = test_params();
-        let mut asm = matching_asm(&params);
-        asm.anchor.block.height = 100;
-        params.genesis_height = 99;
-
-        let err = verify_asm_params(&params, &asm).unwrap_err().to_string();
-        assert!(err.starts_with("genesis_height"), "got: {err}");
     }
 }
