@@ -16,7 +16,7 @@
 
 use std::{fmt, marker::PhantomData, sync::Arc};
 
-use algebra::retry::{Strategy, retry_with};
+use algebra::retry::retry_with;
 use bitcoin::BlockHash;
 use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
@@ -227,7 +227,7 @@ async fn run_assignments_state_fetcher(
             continue;
         }
 
-        let strategy = retry_strategy(&cfg);
+        let strategy = cfg.retry_strategy();
         let timeout = cfg.request_timeout;
         let client_handle = client.clone();
 
@@ -276,15 +276,6 @@ async fn run_assignments_state_fetcher(
             }
         }
     }
-}
-
-fn retry_strategy(cfg: &AsmRpcConfig) -> Strategy<FetchError> {
-    Strategy::exponential_backoff(
-        cfg.retry_initial_delay,
-        cfg.retry_max_delay,
-        cfg.retry_multiplier as f64,
-    )
-    .with_max_retries(cfg.max_retries)
 }
 
 async fn fetch_assignments(
