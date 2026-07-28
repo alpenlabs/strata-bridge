@@ -286,18 +286,15 @@ pub(crate) struct MetricsConfig {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_serde_toml() {
-        let config = r#"
+pub(crate) fn test_config() -> Config {
+    toml::from_str(
+        r#"
             num_threads = 4
             thread_stack_size = 8_388_608 # 8 * 1024 * 1024
             is_faulty = false
             nag_interval = { secs = 60, nanos = 0 }
             retry_interval = { secs = 21600, nanos = 0 } # 6 hours
-            min_withdrawal_fulfillment_window = 144
+            min_withdrawal_fulfillment_window = 143
             shutdown_timeout = { secs = 15, nanos = 0 }
             cooperative_payout_timeout = 144 # ~24 hours
             max_fee_rate = 10 # sats/vbyte
@@ -373,16 +370,18 @@ mod tests {
 
             [metrics]
             prometheus_listener_addr = "127.0.0.1:9615"
-        "#;
+        "#,
+    )
+    .expect("valid test config")
+}
 
-        let config = toml::from_str::<Config>(config);
-        assert!(
-            config.is_ok(),
-            "must be able to deserialize config from toml but got: {}",
-            config.unwrap_err()
-        );
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        let config = config.unwrap();
+    #[test]
+    fn test_config_serde_toml() {
+        let config = test_config();
         let serialized = toml::to_string(&config).unwrap();
         let reparsed = toml::from_str::<Config>(&serialized).unwrap();
         let reserialized = toml::to_string(&reparsed).unwrap();
