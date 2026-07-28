@@ -1,14 +1,9 @@
 use std::sync::Arc;
 
-use bitcoin::Transaction;
-use musig2::secp256k1::schnorr::Signature;
-use strata_bridge_primitives::proof::verify_bridge_proof;
 use strata_bridge_tx_graph::{
-    game_graph::{DepositParams, GameConnectors},
-    musig_functor::GameFunctor,
+    game_graph::GameConnectors,
     transactions::prelude::{CounterproofNackData, CounterproofNackTx},
 };
-use zkaleido::ProofReceipt;
 
 use crate::graph::{
     config::GraphSMCfg,
@@ -124,15 +119,16 @@ impl GraphSM {
                 proof,
                 bridge_proof_tx,
                 ..
-            } if self.context().operator_idx() != self.context().operator_table().pov_idx()
-                && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof) =>
-            {
-                vec![self.generate_counterproof_duty(
+            } if self.context().operator_idx() != self.context().operator_table().pov_idx() => {
+                // Re-emit the potential counterproof; the executor verifies the proof and
+                // decides whether to publish.
+                vec![self.potential_counterproof_duty(
                     &cfg,
                     graph_data,
                     signatures,
                     proof,
                     bridge_proof_tx,
+                    RetryTickEvent.into(),
                 )?]
             }
             GraphState::CounterProofPosted {
@@ -196,19 +192,19 @@ impl GraphSM {
 
                     duties
                 } else {
-                    // PoV operator is NOT the graph owner: retry counterproof when an
-                    // invalid bridge proof exists and PoV operator's counterproof has not
+                    // PoV operator is NOT the graph owner: re-emit the potential counterproof
+                    // while a bridge proof exists and the PoV operator's counterproof has not
                     // appeared on chain yet.
                     if let Some((bridge_proof_tx, proof)) = refuted_bridge_proof
-                        && !verify_bridge_proof(&cfg.bridge_proof_predicate, proof)
                         && !counterproofs_and_confs.contains_key(&pov_idx)
                     {
-                        vec![self.generate_counterproof_duty(
+                        vec![self.potential_counterproof_duty(
                             &cfg,
                             graph_data,
                             signatures,
                             proof,
                             bridge_proof_tx,
+                            RetryTickEvent.into(),
                         )?]
                     } else {
                         Vec::new()
@@ -219,50 +215,5 @@ impl GraphSM {
         };
 
         Ok(GSMOutput::with_duties(duties).mark_unchanged())
-    }
-
-    fn generate_counterproof_duty(
-        &self,
-        cfg: &GraphSMCfg,
-        graph_data: &DepositParams,
-        signatures: &[Signature],
-        proof: &ProofReceipt,
-        bridge_proof_tx: &Transaction,
-    ) -> GSMResult<GraphDuty> {
-        let game_graph = generate_game_graph(cfg, self.context(), graph_data);
-        let watchtower_idx = watchtower_slot_for_operator(
-            self.context().operator_idx(),
-            self.context().operator_table().pov_idx(),
-        )
-        .expect("watchtower slot must exist for non-pov operator");
-
-        let counterproof_graph = game_graph
-            .counterproofs
-            .get(watchtower_idx)
-            .ok_or_else(|| {
-                GSMError::rejected(
-                    self.state().clone(),
-                    RetryTickEvent.into(),
-                    format!("missing counterproof graph for watchtower {watchtower_idx}"),
-                )
-            })?;
-
-        let n_of_n_signature = GameFunctor::unpack(
-            signatures.to_vec(),
-            self.context().watchtower_pubkeys().len(),
-        )
-        .expect("failed to unpack graph signatures for counterproof N/N signature")
-        .watchtowers[watchtower_idx]
-            .counterproof[0];
-
-        Ok(GraphDuty::GenerateAndPublishCounterProof {
-            graph_idx: self.context().graph_idx(),
-            game_index: graph_data.game_index,
-            counterproof_tx: counterproof_graph.counterproof.clone(),
-            n_of_n_signature,
-            proof: proof.clone(),
-            bridge_proof_tx: bridge_proof_tx.clone(),
-            operator_table: self.context().operator_table().clone(),
-        })
     }
 }

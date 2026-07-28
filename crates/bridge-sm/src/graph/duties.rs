@@ -246,8 +246,8 @@ pub enum GraphDuty {
         signed_timeout_tx: Transaction,
     },
 
-    /// Generate and publish a counterproof on-chain to challenge a bridge proof.
-    GenerateAndPublishCounterProof {
+    /// Evaluate a bridge proof and, if warranted, generate and publish a counterproof.
+    PotentialCounterProof {
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
 
@@ -260,7 +260,7 @@ pub enum GraphDuty {
         /// Pre-computed aggregated N-of-N signature for the counterproof input.
         n_of_n_signature: Signature,
 
-        /// The bridge proof to counter.
+        /// The bridge proof to evaluate and potentially counter.
         proof: ProofReceipt,
 
         /// The on-chain bridge proof transaction to refute.
@@ -325,7 +325,7 @@ impl std::fmt::Display for GraphDuty {
                 "GenerateAndPublishBridgeProof".to_string()
             }
             GraphDuty::PublishBridgeProofTimeout { .. } => "PublishBridgeProofTimeout".to_string(),
-            GraphDuty::GenerateAndPublishCounterProof { .. } => "PublishCounterProof".to_string(),
+            GraphDuty::PotentialCounterProof { .. } => "PotentialCounterProof".to_string(),
             GraphDuty::PublishCounterProofAck { .. } => "PublishCounterProofAck".to_string(),
             GraphDuty::PublishCounterProofNack { .. } => "PublishCounterProofNack".to_string(),
             GraphDuty::PublishSlash { .. } => "PublishSlash".to_string(),

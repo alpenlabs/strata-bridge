@@ -1,11 +1,8 @@
 use std::sync::Arc;
 
 use bitcoin::Transaction;
-use strata_bridge_primitives::{proof::verify_bridge_proof, types::OperatorIdx};
-use strata_bridge_tx_graph::{
-    game_graph::{GameConnectors, GameGraphSummary},
-    musig_functor::GameFunctor,
-};
+use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_tx_graph::game_graph::{GameConnectors, GameGraphSummary};
 
 use crate::{
     graph::{
@@ -16,7 +13,7 @@ use crate::{
             BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent,
             CounterProofAckConfirmedEvent, CounterProofNackConfirmedEvent, StakeSpentEvent,
         },
-        machine::{GSMOutput, GraphSM, generate_game_graph},
+        machine::{GSMOutput, GraphSM},
         state::{AbortReason, GraphState},
         watchtower::watchtower_slot_for_operator,
     },
@@ -99,9 +96,8 @@ impl GraphSM {
     /// Processes the event where a bridge proof transaction has been confirmed on-chain.
     ///
     /// Only valid from the `Contested` state, transitions to `BridgeProofPosted`.
-    /// If the current operator is a watchtower, verifies the bridge proof using the
-    /// configured predicate and emits a [`GraphDuty::PublishCounterProof`] duty if
-    /// verification fails.
+    /// If the current operator is a watchtower, emits a [`GraphDuty::PotentialCounterProof`]
+    /// duty; the executor verifies the proof and decides whether to publish a counterproof.
     pub(crate) fn process_bridge_proof(
         &mut self,
         cfg: Arc<GraphSMCfg>,
@@ -131,50 +127,20 @@ impl GraphSM {
 
                 let is_watchtower =
                     self.context().operator_idx() != self.context().operator_table().pov_idx();
-                let is_proof_valid =
-                    verify_bridge_proof(&cfg.bridge_proof_predicate, &bridge_proof);
 
                 let mut duties = Vec::new();
 
-                // Watchtower challenges an invalid bridge proof by publishing a counterproof
-                if is_watchtower && !is_proof_valid {
-                    let game_graph = generate_game_graph(&cfg, self.context(), &graph_data);
-                    let watchtower_idx = watchtower_slot_for_operator(
-                        self.context().operator_idx(),
-                        self.context().operator_table().pov_idx(),
-                    )
-                    .expect("graph owner has no watchtower index");
-
-                    let counterproof_graph = game_graph
-                        .counterproofs
-                        .get(watchtower_idx)
-                        .ok_or_else(|| {
-                            GSMError::rejected(
-                                self.state.clone(),
-                                event.clone().into(),
-                                format!(
-                                    "missing counterproof graph for watchtower {watchtower_idx}"
-                                ),
-                            )
-                        })?;
-
-                    let n_of_n_signature = GameFunctor::unpack(
-                        signatures.clone(),
-                        self.context().watchtower_pubkeys().len(),
-                    )
-                    .expect("Failed to unpack graph signatures for counterproof N/N signature")
-                    .watchtowers[watchtower_idx]
-                        .counterproof[0];
-
-                    duties.push(GraphDuty::GenerateAndPublishCounterProof {
-                        graph_idx: self.context().graph_idx(),
-                        game_index: graph_data.game_index,
-                        counterproof_tx: counterproof_graph.counterproof.clone(),
-                        n_of_n_signature,
-                        proof: bridge_proof.clone(),
-                        bridge_proof_tx: event.tx.clone(),
-                        operator_table: self.context().operator_table().clone(),
-                    });
+                // Watchtowers flag every observed bridge proof; the executor verifies it and
+                // decides whether a counterproof is warranted.
+                if is_watchtower {
+                    duties.push(self.potential_counterproof_duty(
+                        &cfg,
+                        &graph_data,
+                        &signatures,
+                        &bridge_proof,
+                        &event.tx,
+                        event.clone().into(),
+                    )?);
                 }
 
                 self.state = GraphState::BridgeProofPosted {
@@ -222,39 +188,19 @@ impl GraphSM {
                 let bridge_proof = event.proof.clone();
                 let pov_idx = self.context().operator_table().pov_idx();
                 let is_watchtower = self.context().operator_idx() != pov_idx;
-                let is_proof_valid =
-                    verify_bridge_proof(&cfg.bridge_proof_predicate, &bridge_proof);
                 let counterproof_exists = counterproofs_and_confs.contains_key(&pov_idx);
 
                 let mut duties = Vec::new();
 
-                if is_watchtower && !is_proof_valid && !counterproof_exists {
-                    let game_graph = generate_game_graph(&cfg, self.context(), &graph_data);
-                    let watchtower_idx =
-                        watchtower_slot_for_operator(self.context().operator_idx(), pov_idx)
-                            .expect("watchtower slot must be present for non-pov operator");
-
-                    let counterproof_graph = game_graph.counterproofs.get(watchtower_idx).expect(
-                        "counterproof graph must be present in state for watchtower operator",
-                    );
-
-                    let n_of_n_signature = GameFunctor::unpack(
-                        signatures.clone(),
-                        self.context().watchtower_pubkeys().len(),
-                    )
-                    .expect("Failed to unpack graph signatures for counterproof N/N signature")
-                    .watchtowers[watchtower_idx]
-                        .counterproof[0];
-
-                    duties.push(GraphDuty::GenerateAndPublishCounterProof {
-                        graph_idx: self.context().graph_idx(),
-                        game_index: graph_data.game_index,
-                        counterproof_tx: counterproof_graph.counterproof.clone(),
-                        n_of_n_signature,
-                        proof: bridge_proof.clone(),
-                        bridge_proof_tx: event.tx.clone(),
-                        operator_table: self.context().operator_table().clone(),
-                    });
+                if is_watchtower && !counterproof_exists {
+                    duties.push(self.potential_counterproof_duty(
+                        &cfg,
+                        &graph_data,
+                        &signatures,
+                        &bridge_proof,
+                        &event.tx,
+                        event.clone().into(),
+                    )?);
                 }
 
                 self.state = GraphState::CounterProofPosted {

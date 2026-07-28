@@ -7,19 +7,29 @@ use bitcoind_async_client::{error::ClientError, traits::Reader};
 use btc_tracker::event::TxStatus;
 use metrics::counter;
 use musig2::secp256k1::schnorr::Signature;
+use ssz::Decode;
+use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
+use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_asm_rpc::traits::AsmProofApiClient;
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
     BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
-    RawBitcoinTx,
+    HeavierChainProof, RawBitcoinTx,
 };
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
+    proof::verify_bridge_proof,
     types::{DepositIdx, OperatorIdx},
+};
+use strata_bridge_proof::{
+    BridgeProofOutput, MerkleProofB32, MohoRecursiveOutput, MohoState, RecursiveMohoProof,
 };
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
+use strata_crypto::hash;
 use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Role};
 use tracing::{info, warn};
+use zkaleido::ProofReceipt;
 #[cfg(feature = "sp1")]
 use zkaleido_sp1_groth16_verifier::Sp1Groth16Proof;
 
@@ -28,11 +38,64 @@ use crate::{
     output_handles::OutputHandles,
 };
 
+/// Handles a [`GraphDuty::PotentialCounterProof`]: verifies the observed bridge proof and publishes
+/// a counterproof if there are grounds to challenge it, either because the proof is invalid or
+/// because our heavier canonical chain contradicts its claim.
+#[expect(clippy::too_many_arguments)]
+pub(super) async fn evaluate_and_publish_counterproof(
+    cfg: &ExecutionConfig,
+    output_handles: &OutputHandles,
+    counterproof_tx: CounterproofTx,
+    operator_idx: OperatorIdx,
+    deposit_idx: DepositIdx,
+    game_index: NonZero<u32>,
+    n_of_n_signature: Signature,
+    proof: ProofReceipt,
+    bridge_proof_tx: Transaction,
+    operator_table: &OperatorTable,
+) -> Result<(), ExecutorError> {
+    info!(%deposit_idx, %operator_idx, %game_index, "evaluating potential counterproof for graph");
+
+    let mode = if verify_bridge_proof(&cfg.graph_sm_cfg.bridge_proof_predicate, &proof) {
+        let Some(heavier_chain_proof) =
+            detect_heavier_chain(output_handles, deposit_idx, operator_idx, &proof).await?
+        else {
+            info!(
+                %deposit_idx,
+                %operator_idx,
+                %game_index,
+                "proof valid and no heavier contradicting chain; skipping counterproof",
+            );
+            return Ok(());
+        };
+        info!(%deposit_idx, %operator_idx, %game_index, "heavier contradicting chain detected; publishing counterproof");
+        CounterproofMode::HeavierChain(heavier_chain_proof)
+    } else {
+        // Invalid proof: challenge it outright.
+        info!(%deposit_idx, %operator_idx, %game_index, "bridge proof failed verification; publishing counterproof");
+        CounterproofMode::InvalidBridgeProof
+    };
+
+    generate_and_publish_counterproof(
+        cfg,
+        output_handles,
+        counterproof_tx,
+        operator_idx,
+        deposit_idx,
+        game_index,
+        n_of_n_signature,
+        bridge_proof_tx,
+        operator_table,
+        mode,
+    )
+    .await
+}
+
 /// Generates the counterproof or reuses already-completed adaptor signatures, assembles the
 /// witness with the pre-computed N-of-N signature, and publishes the counterproof transaction to
 /// Bitcoin.
 #[expect(clippy::too_many_arguments)]
-pub(super) async fn generate_and_publish_counterproof(
+async fn generate_and_publish_counterproof(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     counterproof_tx: CounterproofTx,
@@ -42,6 +105,7 @@ pub(super) async fn generate_and_publish_counterproof(
     n_of_n_signature: Signature,
     bridge_proof_tx: Transaction,
     operator_table: &OperatorTable,
+    mode: CounterproofMode,
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "generating and publishing counterproof for graph");
 
@@ -88,7 +152,8 @@ pub(super) async fn generate_and_publish_counterproof(
             operator_idx,
             game_index,
             bridge_proof_tx,
-            operator_table
+            operator_table,
+            mode,
         )
         .await?;
 
@@ -110,7 +175,6 @@ pub(super) async fn generate_and_publish_counterproof(
 
     info!(%deposit_idx, %game_index, %operator_idx, "signing and publishing counterproof tx for graph");
 
-    // Assemble witness and finalize.
     let witness = ContestCounterproofWitness {
         n_of_n_signature,
         operator_signatures,
@@ -132,6 +196,7 @@ pub(super) async fn generate_and_publish_counterproof(
 /// Under the SP1 host, the receipt's SP1-wrapped Groth16 proof is unwrapped
 /// and gnark-compressed into a [`G16ProofRaw`]. Under the native host a zero-filled [`G16ProofRaw`]
 /// is returned as a stand-in.
+#[expect(clippy::too_many_arguments)]
 async fn generate_counterproof(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
@@ -140,6 +205,7 @@ async fn generate_counterproof(
     game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
     operator_table: &OperatorTable,
+    mode: CounterproofMode,
 ) -> Result<G16ProofRaw, ExecutorError> {
     counter!("strata_bridge_counterproof_generation_attempts").increment(1);
 
@@ -151,6 +217,7 @@ async fn generate_counterproof(
         game_index,
         bridge_proof_tx,
         operator_table,
+        mode,
     )
     .await?;
 
@@ -182,6 +249,7 @@ async fn generate_counterproof(
 
 /// Fetches the inputs needed for counterproof generation and assembles them
 /// into a [`CounterproofInput`] ready to feed into the counterproof program.
+#[expect(clippy::too_many_arguments)]
 async fn fetch_counterproof_input(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
@@ -190,6 +258,7 @@ async fn fetch_counterproof_input(
     game_index: NonZero<u32>,
     bridge_proof_tx: Transaction,
     operator_table: &OperatorTable,
+    mode: CounterproofMode,
 ) -> Result<CounterproofInput, ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "fetching counterproof inputs for graph");
 
@@ -253,8 +322,132 @@ async fn fetch_counterproof_input(
         bridge_proof_tx: RawBitcoinTx::from_raw_bytes(consensus::serialize(&bridge_proof_tx)),
         bridge_proof_tx_prevouts,
         bridge_proof_tx_input_idx,
-        mode: CounterproofMode::InvalidBridgeProof,
+        mode,
     })
+}
+
+/// Checks whether our canonical ASM view is a strictly heavier chain that contradicts the
+/// operator's bridge proof, returning the [`HeavierChainProof`] witness to counter with, or
+/// `None` when there is nothing to challenge.
+async fn detect_heavier_chain(
+    output_handles: &OutputHandles,
+    deposit_idx: DepositIdx,
+    operator_idx: OperatorIdx,
+    proof: &ProofReceipt,
+) -> Result<Option<HeavierChainProof>, ExecutorError> {
+    let operator_commitment = BridgeProofOutput::from_ssz_bytes(proof.public_values().as_bytes())
+        .map_err(|e| {
+        ExecutorError::InvalidTxStructure(format!("decode bridge proof output ssz: {e:?}"))
+    })?;
+
+    let (tip_hash, moho_state) = fetch_canonical_moho_state(output_handles).await?;
+
+    let container = moho_state
+        .export_state()
+        .containers()
+        .iter()
+        .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+        .ok_or_else(|| {
+            ExecutorError::AsmRpcErr("moho state missing bridge-v1 export container".to_string())
+        })?;
+
+    // The operator's claim is consistent with our view; nothing to challenge.
+    if is_claim_in_canonical_chain(output_handles, tip_hash, &operator_commitment).await? {
+        return Ok(None);
+    }
+
+    let is_heavier = gt_little_endian(container.extra_data(), &operator_commitment.total_pow);
+    if !is_heavier {
+        warn!(
+            %deposit_idx,
+            %operator_idx,
+            "operator claim unlock not in our chain but our chain is not heavier; cannot challenge",
+        );
+        return Ok(None);
+    }
+
+    let moho_proof = fetch_moho_proof(output_handles, tip_hash).await?;
+    Ok(Some(HeavierChainProof::new(
+        moho_state,
+        moho_proof,
+        OperatorClaimUnlock::new(deposit_idx, operator_idx),
+        MerkleProofB32::new_zero(),
+    )))
+}
+
+/// Resolves our current Bitcoin tip and fetches the decoded [`MohoState`] the ASM derived at it.
+async fn fetch_canonical_moho_state(
+    output_handles: &OutputHandles,
+) -> Result<(bitcoin::BlockHash, MohoState), ExecutorError> {
+    let tip_height = output_handles.bitcoind_rpc_client.get_block_count().await?;
+    let tip_hash = output_handles
+        .bitcoind_rpc_client
+        .get_block_hash(tip_height)
+        .await?;
+
+    let moho_state_bytes = output_handles
+        .asm_rpc_client
+        .get_moho_state(tip_hash)
+        .await
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_state: {e}")))?
+        .ok_or_else(|| ExecutorError::AsmRpcErr(format!("moho state unavailable at {tip_hash}")))?;
+    let moho_state = MohoState::from_ssz_bytes(&moho_state_bytes)
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("decode moho_state ssz: {e:?}")))?;
+
+    Ok((tip_hash, moho_state))
+}
+
+/// Checks whether the operator's committed claim unlock is included in our canonical chain at
+/// the committed MMR index, i.e. the operator's claim is consistent with our view.
+async fn is_claim_in_canonical_chain(
+    output_handles: &OutputHandles,
+    tip_hash: bitcoin::BlockHash,
+    operator_commitment: &BridgeProofOutput,
+) -> Result<bool, ExecutorError> {
+    let claim_leaf = hash::raw(&operator_commitment.claim_unlock).0;
+    // `None` means the leaf is not in our chain at all.
+    let Some(inclusion_bytes) = output_handles
+        .asm_rpc_client
+        .get_export_entry_mmr_proof(tip_hash, BRIDGE_V1_SUBPROTOCOL_ID, claim_leaf.to_vec())
+        .await
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_export_entry_mmr_proof: {e}")))?
+    else {
+        return Ok(false);
+    };
+
+    let inclusion_proof = MerkleProofB32::from_ssz_bytes(&inclusion_bytes)
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("decode mmr proof ssz: {e:?}")))?;
+    Ok(inclusion_proof.index() == operator_commitment.mmr_idx)
+}
+
+/// Fetches the recursive Moho proof for `block_hash` from the ASM and rebuilds the
+/// [`RecursiveMohoProof`] the same way the bridge proof assembles its input.
+async fn fetch_moho_proof(
+    output_handles: &OutputHandles,
+    block_hash: bitcoin::BlockHash,
+) -> Result<RecursiveMohoProof, ExecutorError> {
+    let raw_moho_proof = output_handles
+        .asm_rpc_client
+        .get_moho_proof(block_hash)
+        .await
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_proof: {e}")))?
+        .ok_or_else(|| {
+            ExecutorError::AsmRpcErr(format!("moho proof unavailable at {block_hash}"))
+        })?;
+    let receipt = raw_moho_proof.0.receipt();
+    let moho_output = MohoRecursiveOutput::from_ssz_bytes(receipt.public_values().as_bytes())
+        .map_err(|e| {
+            ExecutorError::AsmRpcErr(format!("decode moho recursive output ssz: {e:?}"))
+        })?;
+    Ok(RecursiveMohoProof::new(
+        moho_output.attestation().clone(),
+        receipt.proof().as_bytes().to_vec(),
+    ))
+}
+
+/// Returns `true` if `lhs > rhs` for 32-byte little-endian integers (accumulated Bitcoin PoW).
+fn gt_little_endian(lhs: &[u8; 32], rhs: &[u8; 32]) -> bool {
+    lhs.iter().rev().cmp(rhs.iter().rev()).is_gt()
 }
 
 fn counterproof_operator_keys(
@@ -276,7 +469,29 @@ fn counterproof_operator_keys(
 mod tests {
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
 
-    use super::counterproof_operator_keys;
+    use super::{counterproof_operator_keys, gt_little_endian};
+
+    #[test]
+    fn gt_little_endian_compares_pow_as_little_endian_integers() {
+        let zero = [0u8; 32];
+        let mut one = [0u8; 32];
+        one[0] = 1; // little-endian 1
+
+        let mut big = [0u8; 32];
+        big[31] = 1; // little-endian 2^248, far larger than `one`
+
+        assert!(gt_little_endian(&one, &zero), "1 > 0");
+        assert!(!gt_little_endian(&zero, &one), "0 is not > 1");
+        assert!(
+            !gt_little_endian(&one, &one),
+            "equal is not strictly greater"
+        );
+        assert!(gt_little_endian(&big, &one), "high-order byte dominates");
+        assert!(
+            !gt_little_endian(&one, &big),
+            "low-order byte does not dominate"
+        );
+    }
 
     #[test]
     fn counterproof_keys_use_supplied_operator_table_snapshot() {
