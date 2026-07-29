@@ -317,14 +317,16 @@ fn bridge_proof_event(tx: &Transaction, height: BitcoinBlockHeight) -> GraphEven
         }
     });
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2679>
-    // Define the binary encoding of proof and public values, then parse
-    // `proof_and_public_values` into a `ProofReceipt` and the public values
-    // needed for the state transition.
-    let proof_receipt = ProofReceipt::new(
-        Proof::new(proof_and_public_values.clone()),
-        PublicValues::new(vec![]),
-    );
+    // The operator embeds a borsh-encoded `ProofReceipt` in the OP_RETURN payload (the same
+    // encoding the counterproof guest parses). A payload that fails to decode still classifies
+    // as a bridge proof event so it can be challenged as an invalid proof.
+    let proof_receipt =
+        borsh::from_slice::<ProofReceipt>(&proof_and_public_values).unwrap_or_else(|_| {
+            ProofReceipt::new(
+                Proof::new(proof_and_public_values.clone()),
+                PublicValues::new(vec![]),
+            )
+        });
 
     GraphEvent::BridgeProofConfirmed(BridgeProofConfirmedEvent {
         bridge_proof_block_height: height,
