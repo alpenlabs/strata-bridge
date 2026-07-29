@@ -231,6 +231,12 @@ const COOPERATIVE_PAYOUT_VSIZE: u64 = 111;
 /// Structure: 1 input (CounterproofConnector script-path) + 1 P2TR output.
 const COUNTERPROOF_NACK_VSIZE: u64 = 111;
 
+/// Predicted vsize of [`crate::transactions::sweep::SweepTx`].
+///
+/// Structure: 1 input (deposit NOfN key path) + 2 P2TR outputs (safe-harbour payout + cpfp
+/// anchor).
+const SWEEP_VSIZE: u64 = 154;
+
 /// Deterministic x-only pubkey for the given seed. The tap tree's merkle structure is
 /// determined by the leaves' `TapLeafHash`es, so distinct watchtower pubkeys are required to
 /// reproduce the production tree shape — duplicate scripts would coalesce in the lookup.
@@ -363,6 +369,40 @@ pub const fn counterproof_nack_fee() -> Amount {
     fee_for_vsize(COUNTERPROOF_NACK_VSIZE)
 }
 
+/// Fee for [`crate::transactions::sweep::SweepTx`].
+///
+/// Unlike the presigned-tx fees, the sweep is built at sweep time from the
+/// `sweep_fee_rate` protocol param, not from [`FEE_RATE_SAT_PER_VB`]. `None` on overflow.
+pub(crate) fn sweep_fee(fee_rate: FeeRate) -> Option<Amount> {
+    fee_rate.fee_vb(SWEEP_VSIZE)
+}
+
+/// Value for the sweep tx's cpfp anchor.
+///
+/// Same relay-policy rule as [`anchor_dust_value`], but conditioned on the sweep's own fee
+/// rather than [`FEE_RATE_SAT_PER_VB`]: a zero-fee TRUC parent may carry a zero-value anchor
+/// (relying on CPFP only), while a fee-paying one must meet the dust floor.
+pub(crate) fn sweep_anchor_value(fee: Amount) -> Amount {
+    if fee == Amount::ZERO {
+        Amount::ZERO
+    } else {
+        PLACEHOLDER_P2TR_SCRIPT_PUBKEY.minimal_non_dust()
+    }
+}
+
+/// Value of the sweep tx's safe-harbour payout output: the deposit minus [`sweep_fee`] and
+/// [`sweep_anchor_value`].
+///
+/// `None` when `fee_rate` leaves no payout at or above the P2TR dust floor, letting callers
+/// validate `sweep_fee_rate` at load time.
+pub fn sweep_payout_value(fee_rate: FeeRate, deposit_amount: Amount) -> Option<Amount> {
+    let fee = sweep_fee(fee_rate)?;
+    let payout = deposit_amount
+        .checked_sub(fee)?
+        .checked_sub(sweep_anchor_value(fee))?;
+    (payout >= PLACEHOLDER_P2TR_SCRIPT_PUBKEY.minimal_non_dust()).then_some(payout)
+}
+
 // -------------------------------------------------------------------------------------------------
 // Connector surcharges. These are added to a connector's base value so the downstream
 // transaction's input arrives with the fee already included. Used for transactions whose
@@ -437,7 +477,7 @@ mod tests {
         },
         transactions::prelude::{
             CooperativePayoutData, CooperativePayoutTx, CounterproofNackData, CounterproofNackTx,
-            DepositData, DepositTx,
+            DepositData, DepositTx, SweepData, SweepTx,
         },
     };
 
@@ -818,6 +858,31 @@ mod tests {
             COOPERATIVE_PAYOUT_VSIZE,
             "cooperative_payout",
         );
+    }
+
+    #[test]
+    fn pin_sweep_vsize() {
+        let signer = TestSigner::generate(3);
+        let n_of_n = signer.n_of_n.x_only_public_key().0;
+        let operator_xonly = signer.operator.x_only_public_key().0;
+        let descriptor = Descriptor::new_p2tr(&operator_xonly.serialize()).unwrap();
+        let operator_pubkeys = signer
+            .watchtowers
+            .iter()
+            .map(|k| k.x_only_public_key().0)
+            .collect();
+        let deposit_connector = NOfNConnector::new(Network::Regtest, n_of_n, DEPOSIT_AMOUNT);
+        let signed = SweepTx::new(
+            SweepData {
+                deposit_outpoint: OutPoint::null(),
+            },
+            deposit_connector,
+            descriptor,
+            operator_pubkeys,
+            FeeRate::from_sat_per_vb_unchecked(2),
+        )
+        .finalize(dummy_sig());
+        pin(signed.weight().to_vbytes_ceil(), SWEEP_VSIZE, "sweep");
     }
 
     #[test]
