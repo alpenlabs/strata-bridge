@@ -20,3 +20,6 @@ _asm_params/
 
 # asm repo checkout (pinned rev) used to build the ASM/Moho SP1 guest ELFs
 .asm-src/
+
+# g16 repo checkout (pinned ref) used to generate the full mosaic circuit
+.g16-src/

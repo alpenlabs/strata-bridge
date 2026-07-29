@@ -38,6 +38,13 @@ class SP1BridgeProofTest(StrataTestBase):
 
     BURY_DEPTH = 1
 
+    # Full-circuit garbling of the stake/deposit graphs is hours of work (7
+    # connector instances x 44 GiB garbled tables per operator), so the waits
+    # scale up when MOSAIC_CIRCUIT_MODE=full.
+    FULL_MOSAIC = os.environ.get("MOSAIC_CIRCUIT_MODE") == "full"
+    STAKE_TIMEOUT = 36_000 if FULL_MOSAIC else 14_400
+    DEPOSIT_TIMEOUT = 36_000 if FULL_MOSAIC else 7200
+
     def __init__(self, ctx: flexitest.InitContext):
         # Single source of truth: the asm-params baked by gen_asm_params_external.py
         # determines how many operator key sets the bridge subprotocol covers, so the
@@ -70,7 +77,7 @@ class SP1BridgeProofTest(StrataTestBase):
 
     def main(self, ctx: flexitest.RunContext):
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(
-            ctx, num_operators=self.num_operators, stake_timeout=14400
+            ctx, num_operators=self.num_operators, stake_timeout=self.STAKE_TIMEOUT
         )
         bridge_rpc = bridge_rpcs[0]
 
@@ -97,7 +104,7 @@ class SP1BridgeProofTest(StrataTestBase):
         self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")
 
         deposit_info = wait_until_deposit_status(
-            bridge_rpc, deposit_id, RpcDepositStatusComplete, timeout=7200
+            bridge_rpc, deposit_id, RpcDepositStatusComplete, timeout=self.DEPOSIT_TIMEOUT
         )
         assert deposit_info is not None, "Deposit did not complete"
         self.logger.info("Deposit completed")
