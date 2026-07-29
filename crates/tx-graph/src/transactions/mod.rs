@@ -15,6 +15,7 @@ pub mod not_presigned;
 pub mod prelude;
 pub mod slash;
 pub mod stake;
+pub mod sweep;
 pub mod uncontested_payout;
 pub mod unstaking;
 pub mod unstaking_intent;
