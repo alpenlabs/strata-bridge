@@ -78,9 +78,9 @@ class HeavierChainCounterproofTest(StrataTestBase):
             proof_timelock=100,  # ensure no proof timeout fires during fork surgery
             nack_timelock=5,
             contested_payout_timelock=25,
-            # NOTE: the default (native Schnorr) bridge proof predicate is required — the
-            # proof must VERIFY so the counterproof can only come from the heavier-chain
-            # path.
+            # NOTE: (@MdTeach) the default (native Schnorr) bridge proof predicate is
+            # required — the proof must VERIFY so the counterproof can only come from
+            # the heavier-chain path.
         )
         ctx.set_env(
             BridgeNetworkEnv(
