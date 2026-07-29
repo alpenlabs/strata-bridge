@@ -59,8 +59,8 @@ claim_funding_pool_size = 32
 
 [mosaic]
 rpc_url = "http://mosaic-1:8000"
-retry_delay = { secs = 2, nanos = 0 }
-max_retries = 5
+retry_delay = { secs = 3, nanos = 0 }
+max_retries = 15
 poll_interval = { secs = 5, nanos = 0 }
 peer_ids = [
   "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
