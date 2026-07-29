@@ -42,15 +42,34 @@ class SP1BridgeProofTest(StrataTestBase):
     # connector instances x 44 GiB garbled tables per operator), so the waits
     # scale up when MOSAIC_CIRCUIT_MODE=full.
     #
-    # They must still fit the job's 6h cap, which the full phase already spends
-    # ~2h15m of on in-run g16 generation plus the builds — leaving ~3h45m for
-    # the test. A wait longer than the remaining budget can never fire: the cap
-    # kills the job first, and a *cancelled* step is not a *failed* one, so the
-    # _dd log upload is skipped and the run yields no diagnostics at all. Keep
-    # the waits summing under the budget so a stall fails loudly, with logs.
+    # They must still fit the job's 6h cap. A wait longer than the remaining
+    # budget can never fire: the cap kills the job first, and a *cancelled*
+    # step is not a *failed* one, so the _dd log upload is skipped and the run
+    # yields no diagnostics at all.
+    #
+    # Sized from run 30441442112, the first full run to fail on its own terms.
+    # The stake chain sits behind all of mosaic setup — bootstrap() awaits
+    # run_mosaic_setup before init_orchestrator, so no stake SM exists, and
+    # get_stake_status returns [], until setup returns. That run measured, per
+    # operator: polynomial commitments (164) 80s, shares (182) 22s, then table
+    # commitments landing 8 per 4m34s without drift — ~105m for all 181. It was
+    # killed at 152/181, phase 4 of a 9-phase setup, evaluator still at
+    # WaitingForCommit 0/164. The phases that carry the bulk (164 commit
+    # chunks, 174 challenge-response chunks, 7 garbled-table transfers) never
+    # started, so setup is only bounded below: >105m, true cost unknown.
+    #
+    # Budget: 360m cap, less the ~114m the full phase burns on in-run g16
+    # generation and builds before the test starts (worst of that run's two
+    # jobs), less ~10m variance margin, leaves ~236m of waits. Nearly all of it
+    # goes to the stake wait — until setup completes even once there is no
+    # measurement to size anything else against.
+    #
+    # This deliberately leaves no room for the ~46m of SP1 proving that follows
+    # the deposit (measured in mock run 30378188334), so a full run reaching
+    # that point still fails — one phase later, with the setup cost in hand.
     FULL_MOSAIC = os.environ.get("MOSAIC_CIRCUIT_MODE") == "full"
-    STAKE_TIMEOUT = 5_400 if FULL_MOSAIC else 14_400
-    DEPOSIT_TIMEOUT = 5_400 if FULL_MOSAIC else 7200
+    STAKE_TIMEOUT = 13_200 if FULL_MOSAIC else 14_400
+    DEPOSIT_TIMEOUT = 900 if FULL_MOSAIC else 7200
 
     def __init__(self, ctx: flexitest.InitContext):
         # Single source of truth: the asm-params baked by gen_asm_params_external.py
