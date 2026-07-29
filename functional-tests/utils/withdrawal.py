@@ -1,8 +1,14 @@
 import logging
 from dataclasses import dataclass
 
+from constants import (
+    CONTEST_PAYOUT_VOUT,
+    CONTEST_WATCHTOWER_0_VOUT,
+    COUNTERPROOF_ACK_NACK_VOUT,
+)
 from rpc.types import RpcClaimPhase, RpcPendingWithdrawalInfo
-from utils.utils import wait_until
+from utils.deposit import wait_until_utxo_spent
+from utils.utils import find_utxo_spender_txid, wait_until
 
 
 @dataclass
@@ -149,6 +155,54 @@ def wait_until_counter_proof_posted(
         step=1,
         error_msg=f"Claim phase for deposit {deposit_idx} did not advance to counter_proof_posted",
     )
+
+
+def wait_until_counterproof_ack(bitcoin_rpc, contest_txid: str, timeout=600) -> str:
+    """Wait until the contest payout output is spent, verify the spender has the
+    counterproof-ACK shape, and return its txid.
+
+    An ACK has exactly two inputs: the contest payout output and a counterproof's
+    ACK_NACK output, where the counterproof is itself a single-input tx spending one of
+    the contest's per-watchtower outputs. Backtracking through the inputs rules out
+    false positives where another tx (e.g. `contested_payout`) spends the contest
+    payout output.
+    """
+    wait_until_utxo_spent(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT, timeout=timeout)
+    ack_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT)
+
+    ack_tx = bitcoin_rpc.proxy.getrawtransaction(ack_txid, True)
+    ack_inputs = [(vin["txid"], vin["vout"]) for vin in ack_tx.get("vin", [])]
+    assert len(ack_inputs) == 2, (
+        f"ACK candidate {ack_txid} must have 2 inputs, got {len(ack_inputs)}: {ack_inputs}"
+    )
+    contest_input = (contest_txid, CONTEST_PAYOUT_VOUT)
+    assert contest_input in ack_inputs, (
+        f"ACK candidate {ack_txid} does not spend contest payout {contest_input}"
+    )
+    ((counterproof_txid, counterproof_vout),) = [inp for inp in ack_inputs if inp != contest_input]
+    assert counterproof_vout == COUNTERPROOF_ACK_NACK_VOUT, (
+        f"ACK candidate's other input is {counterproof_txid}:{counterproof_vout}, "
+        f"expected vout {COUNTERPROOF_ACK_NACK_VOUT}"
+    )
+
+    counterproof_tx = bitcoin_rpc.proxy.getrawtransaction(counterproof_txid, True)
+    cp_inputs = counterproof_tx.get("vin", [])
+    assert len(cp_inputs) == 1, (
+        f"counterproof candidate {counterproof_txid} must have 1 input, got {len(cp_inputs)}"
+    )
+    cp_in_txid = cp_inputs[0].get("txid")
+    cp_in_vout = cp_inputs[0].get("vout")
+    assert cp_in_txid == contest_txid and cp_in_vout >= CONTEST_WATCHTOWER_0_VOUT, (
+        f"counterproof candidate {counterproof_txid} spends {cp_in_txid}:{cp_in_vout}, "
+        f"expected contest:{CONTEST_WATCHTOWER_0_VOUT}+"
+    )
+
+    logging.info(
+        f"Counterproof ACK {ack_txid} spends counterproof:{COUNTERPROOF_ACK_NACK_VOUT}="
+        f"{counterproof_txid}:{counterproof_vout} + contest:{CONTEST_PAYOUT_VOUT}; "
+        f"counterproof spends contest:{cp_in_vout}"
+    )
+    return ack_txid
 
 
 def wait_until_bridge_proof_timedout(

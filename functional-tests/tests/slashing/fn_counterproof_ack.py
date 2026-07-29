@@ -1,11 +1,6 @@
 import flexitest
 
-from constants import (
-    CONTEST_PAYOUT_VOUT,
-    CONTEST_WATCHTOWER_0_VOUT,
-    COUNTERPROOF_ACK_NACK_VOUT,
-    STAKE_VOUT,
-)
+from constants import STAKE_VOUT
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
@@ -15,7 +10,6 @@ from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
     wait_until_drt_recognized,
-    wait_until_utxo_spent,
 )
 from utils.dev_cli import DevCli
 from utils.stake import (
@@ -24,7 +18,6 @@ from utils.stake import (
     wait_until_operator_slashed,
 )
 from utils.utils import (
-    find_utxo_spender_txid,
     read_operator_key,
     wait_for_tx_confirmation,
     wait_until,
@@ -32,6 +25,7 @@ from utils.utils import (
 from utils.withdrawal import (
     wait_until_active_valid_claim,
     wait_until_bridge_proof_posted,
+    wait_until_counterproof_ack,
 )
 
 
@@ -176,53 +170,10 @@ class CounterproofAckTest(StrataTestBase):
         bridge_nodes[assigned_idx].stop()
         self.logger.info(f"Stopped op-{assigned_idx} so no counterproof NACK is published")
 
-        # 6. Wait for the contest payout output to be spent. The ACK candidate is the spender.
-        wait_until_utxo_spent(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT, timeout=600)
-        ack_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT)
-
-        # The ACK has exactly two inputs: the contest payout output and a counterproof's
-        # ACK_NACK output.
-        ack_tx = bitcoin_rpc.proxy.getrawtransaction(ack_txid, True)
-        ack_inputs = [(vin["txid"], vin["vout"]) for vin in ack_tx.get("vin", [])]
-        assert len(ack_inputs) == 2, (
-            f"ACK candidate {ack_txid} must have 2 inputs, got {len(ack_inputs)}: {ack_inputs}"
-        )
-        contest_input = (contest_txid, CONTEST_PAYOUT_VOUT)
-        assert contest_input in ack_inputs, (
-            f"ACK candidate {ack_txid} does not spend contest payout {contest_input}"
-        )
-        ((counterproof_input_txid, counterproof_input_vout),) = [
-            inp for inp in ack_inputs if inp != contest_input
-        ]
-        assert counterproof_input_vout == COUNTERPROOF_ACK_NACK_VOUT, (
-            f"ACK candidate's other input is "
-            f"{counterproof_input_txid}:{counterproof_input_vout}, "
-            f"expected vout {COUNTERPROOF_ACK_NACK_VOUT}"
-        )
-
-        # Backtrack: the other input must itself be a counterproof tx, i.e. a single-input
-        # tx spending one of the contest's per-watchtower outputs (vout >=
-        # WATCHTOWER_0_VOUT). This rules out other shapes (e.g. `contested_payout`) that
-        # might also spend the contest payout output.
-        counterproof_candidate = bitcoin_rpc.proxy.getrawtransaction(counterproof_input_txid, True)
-        cp_inputs = counterproof_candidate.get("vin", [])
-        assert len(cp_inputs) == 1, (
-            f"counterproof candidate {counterproof_input_txid} must have 1 input, "
-            f"got {len(cp_inputs)}"
-        )
-        cp_in_txid = cp_inputs[0].get("txid")
-        cp_in_vout = cp_inputs[0].get("vout")
-        assert cp_in_txid == contest_txid and cp_in_vout >= CONTEST_WATCHTOWER_0_VOUT, (
-            f"counterproof candidate {counterproof_input_txid} spends "
-            f"{cp_in_txid}:{cp_in_vout}, expected contest:{CONTEST_WATCHTOWER_0_VOUT}+"
-        )
-
-        self.logger.info(
-            f"Counterproof ACK {ack_txid} confirmed "
-            f"(spends counterproof:{COUNTERPROOF_ACK_NACK_VOUT}="
-            f"{counterproof_input_txid}:{counterproof_input_vout} + "
-            f"contest:{CONTEST_PAYOUT_VOUT}; counterproof spends contest:{cp_in_vout})"
-        )
+        # 6. Wait for the contest payout output to be spent and verify the spender has
+        # the counterproof-ACK shape.
+        ack_txid = wait_until_counterproof_ack(bitcoin_rpc, contest_txid)
+        self.logger.info(f"Counterproof ACK {ack_txid} confirmed")
 
         slashed_stake = wait_until_operator_slashed(monitor_rpc, assigned_idx)
         assert slashed_stake.slash_txid is not None
