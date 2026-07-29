@@ -41,9 +41,16 @@ class SP1BridgeProofTest(StrataTestBase):
     # Full-circuit garbling of the stake/deposit graphs is hours of work (7
     # connector instances x 44 GiB garbled tables per operator), so the waits
     # scale up when MOSAIC_CIRCUIT_MODE=full.
+    #
+    # They must still fit the job's 6h cap, which the full phase already spends
+    # ~2h15m of on in-run g16 generation plus the builds — leaving ~3h45m for
+    # the test. A wait longer than the remaining budget can never fire: the cap
+    # kills the job first, and a *cancelled* step is not a *failed* one, so the
+    # _dd log upload is skipped and the run yields no diagnostics at all. Keep
+    # the waits summing under the budget so a stall fails loudly, with logs.
     FULL_MOSAIC = os.environ.get("MOSAIC_CIRCUIT_MODE") == "full"
-    STAKE_TIMEOUT = 36_000 if FULL_MOSAIC else 14_400
-    DEPOSIT_TIMEOUT = 36_000 if FULL_MOSAIC else 7200
+    STAKE_TIMEOUT = 5_400 if FULL_MOSAIC else 14_400
+    DEPOSIT_TIMEOUT = 5_400 if FULL_MOSAIC else 7200
 
     def __init__(self, ctx: flexitest.InitContext):
         # Single source of truth: the asm-params baked by gen_asm_params_external.py
