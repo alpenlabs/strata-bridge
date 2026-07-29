@@ -340,7 +340,7 @@ async fn detect_heavier_chain(
         ExecutorError::InvalidTxStructure(format!("decode bridge proof output ssz: {e:?}"))
     })?;
 
-    let (tip_hash, moho_state) = fetch_canonical_moho_state(output_handles).await?;
+    let (anchor_hash, moho_state) = fetch_canonical_moho_state(output_handles).await?;
 
     let container = moho_state
         .export_state()
@@ -352,7 +352,7 @@ async fn detect_heavier_chain(
         })?;
 
     // The operator's claim is consistent with our view; nothing to challenge.
-    if is_claim_in_canonical_chain(output_handles, tip_hash, &operator_commitment).await? {
+    if is_claim_in_canonical_chain(output_handles, anchor_hash, &operator_commitment).await? {
         return Ok(None);
     }
 
@@ -366,7 +366,7 @@ async fn detect_heavier_chain(
         return Ok(None);
     }
 
-    let moho_proof = fetch_moho_proof(output_handles, tip_hash).await?;
+    let moho_proof = fetch_moho_proof(output_handles, anchor_hash).await?;
     Ok(Some(HeavierChainProof::new(
         moho_state,
         moho_proof,
@@ -375,40 +375,64 @@ async fn detect_heavier_chain(
     )))
 }
 
-/// Resolves our current Bitcoin tip and fetches the decoded [`MohoState`] the ASM derived at it.
+/// How far below our Bitcoin tip to search for a block the ASM has already proven.
+const PROVEN_ANCHOR_LOOKBACK: u64 = 24;
+
+/// Resolves the newest canonical block the ASM has both derived and proven, walking back from
+/// our current Bitcoin tip, and fetches the decoded [`MohoState`] at it.
+///
+/// The proof orchestrator lags the tip, so the tip itself usually has no Moho proof yet; the
+/// heavier-chain witness needs a block with both.
 async fn fetch_canonical_moho_state(
     output_handles: &OutputHandles,
 ) -> Result<(bitcoin::BlockHash, MohoState), ExecutorError> {
     let tip_height = output_handles.bitcoind_rpc_client.get_block_count().await?;
-    let tip_hash = output_handles
-        .bitcoind_rpc_client
-        .get_block_hash(tip_height)
-        .await?;
+    let asm = &output_handles.asm_rpc_client;
 
-    let moho_state_bytes = output_handles
-        .asm_rpc_client
-        .get_moho_state(tip_hash)
-        .await
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_state: {e}")))?
-        .ok_or_else(|| ExecutorError::AsmRpcErr(format!("moho state unavailable at {tip_hash}")))?;
-    let moho_state = MohoState::from_ssz_bytes(&moho_state_bytes)
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("decode moho_state ssz: {e:?}")))?;
+    for height in (tip_height.saturating_sub(PROVEN_ANCHOR_LOOKBACK)..=tip_height).rev() {
+        let block_hash = output_handles
+            .bitcoind_rpc_client
+            .get_block_hash(height)
+            .await?;
+        let proven = asm
+            .get_moho_proof(block_hash)
+            .await
+            .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_proof: {e}")))?
+            .is_some();
+        if !proven {
+            continue;
+        }
 
-    Ok((tip_hash, moho_state))
+        let moho_state_bytes = asm
+            .get_moho_state(block_hash)
+            .await
+            .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_state: {e}")))?
+            .ok_or_else(|| {
+                ExecutorError::AsmRpcErr(format!("moho state unavailable at {block_hash}"))
+            })?;
+        let moho_state = MohoState::from_ssz_bytes(&moho_state_bytes)
+            .map_err(|e| ExecutorError::AsmRpcErr(format!("decode moho_state ssz: {e:?}")))?;
+
+        return Ok((block_hash, moho_state));
+    }
+
+    Err(ExecutorError::AsmRpcErr(format!(
+        "no proven moho state within {PROVEN_ANCHOR_LOOKBACK} blocks of tip {tip_height}"
+    )))
 }
 
 /// Checks whether the operator's committed claim unlock is included in our canonical chain at
 /// the committed MMR index, i.e. the operator's claim is consistent with our view.
 async fn is_claim_in_canonical_chain(
     output_handles: &OutputHandles,
-    tip_hash: bitcoin::BlockHash,
+    anchor_hash: bitcoin::BlockHash,
     operator_commitment: &BridgeProofOutput,
 ) -> Result<bool, ExecutorError> {
     let claim_leaf = hash::raw(&operator_commitment.claim_unlock).0;
     // `None` means the leaf is not in our chain at all.
     let Some(inclusion_bytes) = output_handles
         .asm_rpc_client
-        .get_export_entry_mmr_proof(tip_hash, BRIDGE_V1_SUBPROTOCOL_ID, claim_leaf.to_vec())
+        .get_export_entry_mmr_proof(anchor_hash, BRIDGE_V1_SUBPROTOCOL_ID, claim_leaf.to_vec())
         .await
         .map_err(|e| ExecutorError::AsmRpcErr(format!("get_export_entry_mmr_proof: {e}")))?
     else {
