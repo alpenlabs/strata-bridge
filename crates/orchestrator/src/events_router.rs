@@ -71,6 +71,7 @@ fn route_gossipsub_msg(
         UnsignedGossipsubMsg::Musig2NoncesExchange(musig2_nonce) => match musig2_nonce {
             MuSig2Nonce::Deposit { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Nonce::Payout { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
+            MuSig2Nonce::Sweep { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Nonce::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
             MuSig2Nonce::Unstake { operator_idx, .. } => {
                 debug!(%operator_idx, "routing MuSig2Nonce::Unstake to stake SM");
@@ -80,6 +81,7 @@ fn route_gossipsub_msg(
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => match musig2_partial {
             MuSig2Partial::Deposit { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Partial::Payout { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
+            MuSig2Partial::Sweep { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Partial::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
             MuSig2Partial::Unstake { operator_idx, .. } => {
                 debug!(%operator_idx, "routing MuSig2Partial::Unstake to stake SM");
@@ -137,10 +139,13 @@ fn route_mosaic_event(registry: &SMRegistry, evt: &MosaicEvent) -> Vec<SMId> {
 #[cfg(test)]
 mod tests {
     use strata_asm_proto_bridge::AssignmentEntry;
-    use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, PayoutDescriptor, PubNonce};
+    use strata_bridge_p2p_types::{
+        NagRequest, NagRequestPayload, PartialSignature, PayoutDescriptor, PubNonce,
+    };
     use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
     use strata_bridge_test_utils::{
-        arbitrary_generator::ArbitraryGenerator, musig2::generate_pubnonce,
+        arbitrary_generator::ArbitraryGenerator,
+        musig2::{generate_partial_signature, generate_pubnonce},
     };
 
     use super::*;
@@ -160,6 +165,19 @@ mod tests {
         UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Graph {
             graph_idx: GraphIdx { deposit, operator },
             nonces: vec![nonce],
+        })
+    }
+
+    fn make_sweep_nonce(deposit_idx: u32) -> UnsignedGossipsubMsg {
+        let nonce: PubNonce = generate_pubnonce().into();
+        UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Sweep { deposit_idx, nonce })
+    }
+
+    fn make_sweep_partial(deposit_idx: u32) -> UnsignedGossipsubMsg {
+        let partial: PartialSignature = generate_partial_signature().into();
+        UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Sweep {
+            deposit_idx,
+            partial,
         })
     }
 
@@ -233,6 +251,33 @@ mod tests {
 
         let routed = route_gossipsub_msg(&registry, &msg);
         assert!(routed.is_empty());
+    }
+
+    #[test]
+    fn route_gossip_sweep_nonce_known() {
+        let registry = test_populated_registry(1);
+        let msg = make_sweep_nonce(0);
+
+        let routed = route_gossipsub_msg(&registry, &msg);
+        assert_eq!(routed, vec![SMId::Deposit(0)]);
+    }
+
+    #[test]
+    fn route_gossip_sweep_nonce_unknown() {
+        let registry = test_populated_registry(1);
+        let msg = make_sweep_nonce(99);
+
+        let routed = route_gossipsub_msg(&registry, &msg);
+        assert!(routed.is_empty());
+    }
+
+    #[test]
+    fn route_gossip_sweep_partial_known() {
+        let registry = test_populated_registry(1);
+        let msg = make_sweep_partial(0);
+
+        let routed = route_gossipsub_msg(&registry, &msg);
+        assert_eq!(routed, vec![SMId::Deposit(0)]);
     }
 
     #[test]

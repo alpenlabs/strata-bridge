@@ -335,6 +335,12 @@ pub(crate) fn classify_unsigned_gossip(
                     )
                 })
                 .collect(),
+
+            // TODO(STR-3937): classify into the deposit SM's sweep event once it exists.
+            MuSig2Nonce::Sweep { deposit_idx, .. } => {
+                warn!(%deposit_idx, "sweep nonces are not supported yet, discarding message");
+                Vec::new()
+            }
         },
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => {
             match musig2_partial {
@@ -456,6 +462,12 @@ pub(crate) fn classify_unsigned_gossip(
                         )
                     })
                     .collect(),
+
+                // TODO(STR-3937): classify into the deposit SM's sweep event once it exists.
+                MuSig2Partial::Sweep { deposit_idx, .. } => {
+                    warn!(%deposit_idx, "sweep partials are not supported yet, discarding message");
+                    Vec::new()
+                }
             }
         }
 
