@@ -159,7 +159,39 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     })
     .await?;
 
-    // 9. Nag request
+    // 9. Sweep nonce
+    for op in operators.iter_mut() {
+        op.handler
+            .send_sweep_nonce(deposit_idx, mock_nonce(), None)
+            .await;
+    }
+    verify_dispatch(&mut operators, OPERATORS_NUM, "sweep_nonce", |msg| {
+        matches!(
+            msg,
+            UnsignedGossipsubMsg::Musig2NoncesExchange(
+                strata_bridge_p2p_types::MuSig2Nonce::Sweep { .. }
+            )
+        )
+    })
+    .await?;
+
+    // 10. Sweep partial
+    for op in operators.iter_mut() {
+        op.handler
+            .send_sweep_partial(deposit_idx, mock_partial(), None)
+            .await;
+    }
+    verify_dispatch(&mut operators, OPERATORS_NUM, "sweep_partial", |msg| {
+        matches!(
+            msg,
+            UnsignedGossipsubMsg::Musig2SignaturesExchange(
+                strata_bridge_p2p_types::MuSig2Partial::Sweep { .. }
+            )
+        )
+    })
+    .await?;
+
+    // 11. Nag request
     for op in operators.iter_mut() {
         op.handler
             .send_nag_request(

@@ -26,6 +26,8 @@ enum SigningContext {
     Graph = 0x02,
     /// Unstaking graph signing.
     Unstake = 0x03,
+    /// Safe-harbour sweep signing.
+    Sweep = 0x04,
 }
 
 /// Gossipsub message kind discriminator for cryptographic domain separation.
@@ -107,6 +109,13 @@ pub enum MuSig2Nonce {
         /// One nonce per transaction input in the unstaking graph.
         nonces: Vec<PubNonce>,
     },
+    /// Single nonce for safe-harbour sweep signing.
+    Sweep {
+        /// The deposit index for identifying the sweep transaction.
+        deposit_idx: DepositIdx,
+        /// The public nonce.
+        nonce: PubNonce,
+    },
 }
 
 impl MuSig2Nonce {
@@ -145,6 +154,11 @@ impl MuSig2Nonce {
                     buf.extend(nonce.to_bytes());
                 }
             }
+            Self::Sweep { deposit_idx, nonce } => {
+                buf.push(SigningContext::Sweep as u8);
+                buf.extend(deposit_idx.to_le_bytes());
+                buf.extend(nonce.to_bytes());
+            }
         }
         buf
     }
@@ -178,6 +192,9 @@ impl fmt::Debug for MuSig2Nonce {
                     operator_idx,
                     nonces.len()
                 )
+            }
+            Self::Sweep { deposit_idx, .. } => {
+                write!(f, "MuSig2Nonce::Sweep(deposit_idx: {deposit_idx})")
             }
         }
     }
@@ -213,6 +230,13 @@ pub enum MuSig2Partial {
         operator_idx: OperatorIdx,
         /// One partial signature per transaction input in the unstaking graph.
         partials: Vec<PartialSignature>,
+    },
+    /// Single partial for safe-harbour sweep signing.
+    Sweep {
+        /// The deposit index for identifying the sweep transaction.
+        deposit_idx: DepositIdx,
+        /// The partial signature.
+        partial: PartialSignature,
     },
 }
 
@@ -261,6 +285,14 @@ impl MuSig2Partial {
                     buf.extend(partial.to_bytes());
                 }
             }
+            Self::Sweep {
+                deposit_idx,
+                partial,
+            } => {
+                buf.push(SigningContext::Sweep as u8);
+                buf.extend(deposit_idx.to_le_bytes());
+                buf.extend(partial.to_bytes());
+            }
         }
         buf
     }
@@ -297,6 +329,9 @@ impl fmt::Debug for MuSig2Partial {
                     operator_idx,
                     partials.len()
                 )
+            }
+            Self::Sweep { deposit_idx, .. } => {
+                write!(f, "MuSig2Partial::Sweep(deposit_idx: {deposit_idx})")
             }
         }
     }
@@ -834,6 +869,14 @@ mod tests {
                 },
                 SigningContext::Unstake as u8,
             ),
+            (
+                "Sweep",
+                MuSig2Nonce::Sweep {
+                    deposit_idx: 44,
+                    nonce: test_pubnonce(),
+                },
+                SigningContext::Sweep as u8,
+            ),
         ];
 
         for (name, nonce, expected_prefix) in cases {
@@ -884,6 +927,14 @@ mod tests {
                     partials: vec![test_partial_signature()],
                 },
                 SigningContext::Unstake as u8,
+            ),
+            (
+                "Sweep",
+                MuSig2Partial::Sweep {
+                    deposit_idx: 44,
+                    partial: test_partial_signature(),
+                },
+                SigningContext::Sweep as u8,
             ),
         ];
 
@@ -1396,6 +1447,50 @@ mod tests {
             &content[1..5],
             &5u32.to_le_bytes(),
             "operator_idx should be serialized as little-endian u32"
+        );
+    }
+
+    // Verifies MuSig2Nonce::Sweep serializes with correct byte layout.
+    #[test]
+    fn musig2_nonce_sweep_serializes_correctly() {
+        let nonce = MuSig2Nonce::Sweep {
+            deposit_idx: 42,
+            nonce: test_pubnonce(),
+        };
+        let content = nonce.content_bytes();
+
+        assert_eq!(
+            content.len(),
+            1 + 4 + 66,
+            "Sweep content should be 71 bytes: discriminator (1) + deposit_idx (4) + nonce (66)"
+        );
+        assert_eq!(content[0], 0x04, "Sweep discriminator should be 0x04");
+        assert_eq!(
+            &content[1..5],
+            &42u32.to_le_bytes(),
+            "deposit_idx should be serialized as little-endian u32"
+        );
+    }
+
+    // Verifies MuSig2Partial::Sweep serializes with correct byte layout.
+    #[test]
+    fn musig2_partial_sweep_serializes_correctly() {
+        let partial = MuSig2Partial::Sweep {
+            deposit_idx: 42,
+            partial: test_partial_signature(),
+        };
+        let content = partial.content_bytes();
+
+        assert_eq!(
+            content.len(),
+            1 + 4 + 32,
+            "Sweep partial content should be 37 bytes: discriminator (1) + deposit_idx (4) + partial (32)"
+        );
+        assert_eq!(content[0], 0x04, "Sweep discriminator should be 0x04");
+        assert_eq!(
+            &content[1..5],
+            &42u32.to_le_bytes(),
+            "deposit_idx should be serialized as little-endian u32"
         );
     }
 

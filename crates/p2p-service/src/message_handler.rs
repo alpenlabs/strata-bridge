@@ -145,6 +145,38 @@ impl MessageHandler {
         self.dispatch(msg, peer, "payout partial").await;
     }
 
+    /// Sends a sweep nonce for safe-harbour sweep signing.
+    ///
+    /// If `peer` is `Some`, sends directly to that peer. If `None`, broadcasts to all.
+    pub async fn send_sweep_nonce(
+        &mut self,
+        deposit_idx: DepositIdx,
+        nonce: PubNonce,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
+    ) {
+        let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Sweep {
+            deposit_idx,
+            nonce: nonce.into(),
+        });
+        self.dispatch(msg, peer, "sweep nonce").await;
+    }
+
+    /// Sends a sweep partial signature for safe-harbour sweep signing.
+    ///
+    /// If `peer` is `Some`, sends directly to that peer. If `None`, broadcasts to all.
+    pub async fn send_sweep_partial(
+        &mut self,
+        deposit_idx: DepositIdx,
+        partial: PartialSignature,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
+    ) {
+        let msg = UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Sweep {
+            deposit_idx,
+            partial: partial.into(),
+        });
+        self.dispatch(msg, peer, "sweep partial").await;
+    }
+
     /// Sends a nag request for missing data.
     ///
     /// If `peer` is `Some`, sends directly to that peer. If `None`, broadcasts to all.
