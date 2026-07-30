@@ -37,6 +37,7 @@ class BridgeProtocolParams:
     deposit_amount: int = 1_000_000_000
     stake_amount: int = 100_000_000
     operator_fee: int = 10_000_000
+    sweep_fee_rate: int = 10
     recovery_delay: int = 1_008
     contest_timelock: int = 45
     proof_timelock: int = 15

@@ -4,7 +4,7 @@
 //! result in a consensus failure among the bridge nodes.
 use std::{fs, path::Path, str::FromStr};
 
-use bitcoin::{hex::DisplayHex, Amount, Network};
+use bitcoin::{hex::DisplayHex, Amount, FeeRate, Network};
 use bitcoin_bosd::{Descriptor, DescriptorType};
 use libp2p::identity::ed25519::PublicKey as Libp2pKey;
 use secp256k1::XOnlyPublicKey;
@@ -72,6 +72,14 @@ pub struct ProtocolParams {
 
     /// The fee amount that the operator charges for fronting a user.
     pub operator_fee: Amount,
+
+    /// The fee rate (in sat/vb) that the safe-harbour sweep transaction pays.
+    ///
+    /// Every operator must build the identical sweep transaction for its MuSig2 partials to
+    /// aggregate, so the fee comes from this shared rate rather than per-node fee estimation.
+    #[serde(serialize_with = "serialize_fee_rate_sat_per_vb")]
+    #[serde(deserialize_with = "deserialize_fee_rate_sat_per_vb")]
+    pub sweep_fee_rate: FeeRate,
 
     /// The number of blocks after the deposit request after which the user can take back their
     /// deposit request.
@@ -284,6 +292,24 @@ where
     Ok(KeyParams { admin, covenant })
 }
 
+/// Serialize a [`FeeRate`] as a bare sat/vb integer (the TOML-facing unit).
+fn serialize_fee_rate_sat_per_vb<S>(fee_rate: &FeeRate, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_u64(fee_rate.to_sat_per_vb_ceil())
+}
+
+/// Deserialize a [`FeeRate`] from a bare sat/vb integer.
+fn deserialize_fee_rate_sat_per_vb<'de, D>(deserializer: D) -> Result<FeeRate, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let sat_per_vb = u64::deserialize(deserializer)?;
+    FeeRate::from_sat_per_vb(sat_per_vb)
+        .ok_or_else(|| serde::de::Error::custom("fee rate in sat/vb overflows"))
+}
+
 fn serialize_magic_bytes<S>(magic_bytes: &MagicBytes, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -302,7 +328,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::Amount;
+    use bitcoin::{Amount, FeeRate};
 
     use super::*;
 
@@ -343,6 +369,12 @@ mod tests {
         );
 
         assert_eq!(params.protocol.bury_depth, 6, "bury depth must round-trip");
+
+        assert_eq!(
+            FeeRate::from_sat_per_vb_unchecked(10),
+            params.protocol.sweep_fee_rate,
+            "sweep fee rate must round-trip"
+        );
 
         assert_eq!(
             params.keys.admin.threshold, 2,
@@ -479,6 +511,7 @@ mod tests {
             deposit_amount = {deposit_amount}
             stake_amount = 100_000_000
             operator_fee = 1_000_000
+            sweep_fee_rate = 10
             recovery_delay = 1_008
             contest_timelock = 144
             proof_timelock = 144
