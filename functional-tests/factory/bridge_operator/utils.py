@@ -75,7 +75,7 @@ def generate_config_toml(
         shutdown_timeout=Duration(secs=30, nanos=0),
         cooperative_payout_timeout=bridge_config_params.cooperative_payout_timeout,
         max_fee_rate=bridge_config_params.max_fee_rate,
-        dev=bridge_config_params.dev,
+        dev=bridge_config_params.dev or _dev_mode_from_env(),
         secret_service_client=SecretServiceClientConfig(
             server_addr=f"127.0.0.1:{s2_props.get('s2_port')}",
             server_hostname="secret-service",
@@ -163,6 +163,17 @@ def generate_config_toml(
         # Fix the 'pass_' field name back to 'pass' for TOML
         config_dict["btc_client"]["pass"] = config_dict["btc_client"].pop("pass_")
         toml.dump(config_dict, f)
+
+
+def _dev_mode_from_env() -> bool:
+    """Env-wide opt-out of the bridge's startup consistency checks.
+
+    Set by the SP1 proof workflow: the checked-in Mosaic circuit fixture pins an all-zero
+    counterproof vkey, which never matches the freshly built SP1 counterproof ELF, so the
+    startup check aborts every bridge before the proof tests can run. Remove once STR-3889
+    supplies a circuit generated with the run's counterproof vkey.
+    """
+    return os.environ.get("BRIDGE_DEV_MODE") == "1"
 
 
 def _build_bridge_proof_config() -> ProofBackendConfig:
