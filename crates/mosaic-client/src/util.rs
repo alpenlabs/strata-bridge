@@ -38,6 +38,7 @@ mod rankvm_compat_test_dependencies {
     use ark_ff as _;
     use ark_secp256k1 as _;
     use bitcoin as _;
+    use bn as _;
     use hex as _;
     use mosaic_adaptor_sigs as _;
     use rand as _;
