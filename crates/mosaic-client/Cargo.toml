@@ -23,6 +23,7 @@ ark-ec = "0.6.0"
 ark-ff = "0.6.0"
 ark-secp256k1 = "0.6.0"
 bitcoin.workspace = true
+bn = { package = "substrate-bn", version = "0.6.0" }
 hex.workspace = true
 mosaic-adaptor-sigs = { git = "https://github.com/alpenlabs/mosaic", tag = "v0.3.0-rc.2" }
 rand.workspace = true
