@@ -1,0 +1,48 @@
+name: RankVM algebraic kernel helper
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: true
+          ref: ${{ github.head_ref }}
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install nightly-2026-05-01 --profile minimal --component rustfmt
+          rustup default nightly-2026-05-01
+
+      - name: Format new algebraic test
+        run: cargo fmt --all
+
+      - name: Resolve and run both compatibility tests
+        run: |
+          cargo test -p strata-mosaic-client \
+            --test rankvm_sp1_compat \
+            --test rankvm_sp1_algebraic -- --nocapture
+
+      - name: Commit generated files
+        env:
+          TARGET_BRANCH: ${{ github.head_ref }}
+        run: |
+          if git diff --quiet -- Cargo.lock crates/mosaic-client/tests/rankvm_sp1_algebraic.rs; then
+            echo "Generated files are already committed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/mosaic-client/tests/rankvm_sp1_algebraic.rs
+          git commit -m "test(mosaic-client): record algebraic kernel test outputs"
+          git push origin "HEAD:${TARGET_BRANCH}"
