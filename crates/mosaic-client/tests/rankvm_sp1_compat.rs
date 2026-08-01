@@ -155,7 +155,7 @@ fn evaluator_keypair() -> (Fr, Projective, XOnlyPublicKey) {
     let mut public = Projective::generator() * secret;
 
     // Mosaic's adaptor implementation requires the canonical even-y BIP340 representative.
-    if public.clone().into_affine().y.into_bigint().is_odd() {
+    if public.into_affine().y.into_bigint().is_odd() {
         secret.neg_in_place();
         public.neg_in_place();
     }
