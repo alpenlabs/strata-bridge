@@ -19,14 +19,13 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+ark-ec = "0.6.0"
+ark-ff = "0.6.0"
+ark-secp256k1 = "0.6.0"
 bitcoin.workspace = true
-blake3.workspace = true
-bn = { package = "substrate-bn", version = "0.6.0" }
 hex.workspace = true
+mosaic-adaptor-sigs = { git = "https://github.com/alpenlabs/mosaic", tag = "v0.3.0-rc.2" }
+rand.workspace = true
 sha2.workspace = true
-ssz.workspace = true
-strata-bridge-counterproof.workspace = true
 sp1-verifier.workspace = true
-thiserror.workspace = true
-zkaleido.workspace = true
 zkaleido-sp1-groth16-verifier.workspace = true
