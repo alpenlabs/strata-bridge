@@ -12050,13 +12050,23 @@ name = "strata-mosaic-client"
 version = "0.1.0"
 dependencies = [
  "algebra",
+ "ark-ec",
+ "ark-ff 0.6.0",
+ "ark-secp256k1",
  "async-trait",
+ "bitcoin",
+ "hex",
+ "mosaic-adaptor-sigs",
  "mosaic-rpc-api",
  "mosaic-rpc-types",
+ "rand 0.8.5",
+ "sha2 0.10.9",
+ "sp1-verifier",
  "strata-bridge-primitives",
  "strata-mosaic-client-api",
  "tokio",
  "tracing",
+ "zkaleido-sp1-groth16-verifier",
 ]
 
 [[package]]

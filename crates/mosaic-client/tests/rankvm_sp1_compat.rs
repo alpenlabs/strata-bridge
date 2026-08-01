@@ -20,10 +20,10 @@ use ark_ec::{CurveGroup, PrimeGroup};
 use ark_ff::{AdditiveGroup, BigInteger, PrimeField};
 use ark_secp256k1::{Fr, Projective};
 use bitcoin::secp256k1::{
-    schnorr::Signature as BitcoinSignature, Keypair, Message, Scalar, SecretKey, XOnlyPublicKey,
-    SECP256K1,
+    Keypair, Message, SECP256K1, Scalar, SecretKey, XOnlyPublicKey,
+    schnorr::Signature as BitcoinSignature,
 };
-use mosaic_adaptor_sigs::{serialize_field, Adaptor, Signature as CompletedAdaptorSignature};
+use mosaic_adaptor_sigs::{Adaptor, Signature as CompletedAdaptorSignature, serialize_field};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use sp1_verifier::{GROTH16_VK_BYTES, VK_ROOT_BYTES};
@@ -48,8 +48,7 @@ const FULL_SP1_PROOF_HEX: &str = concat!(
     "3e22e464f75f4a21d29091a021f92428c9f5090b",
 );
 
-const PROGRAM_ID_HEX: &str =
-    "00de0b076134b5f87a6b27086d654ea12ea3465c09e092d93744ecc2a0efef4a";
+const PROGRAM_ID_HEX: &str = "00de0b076134b5f87a6b27086d654ea12ea3465c09e092d93744ecc2a0efef4a";
 const PUBLIC_VALUES: [u8; N_DEPOSIT_INPUTS] = [5, 0, 0, 0];
 
 #[derive(Clone)]
@@ -313,8 +312,7 @@ fn real_sp1_proof_drives_mosaic_compatible_fault_signing() {
     assert_eq!(recovered_public_values, PUBLIC_VALUES);
     assert_eq!(recovered_proof, compressed_proof);
 
-    let nack_digest: [u8; 32] =
-        Sha256::digest(b"strata/rankvm-sp1-compat/nack/v1").into();
+    let nack_digest: [u8; 32] = Sha256::digest(b"strata/rankvm-sp1-compat/nack/v1").into();
 
     // A valid counterproof must not unlock the fault key.
     assert!(
@@ -358,9 +356,7 @@ fn real_sp1_proof_drives_mosaic_compatible_fault_signing() {
     assert!(
         SECP256K1
             .verify_schnorr(
-                &kernel
-                    .fault_lock
-                    .evaluator_only_signature(&nack_digest),
+                &kernel.fault_lock.evaluator_only_signature(&nack_digest),
                 &nack_message,
                 &kernel.fault_lock.public_key(),
             )
