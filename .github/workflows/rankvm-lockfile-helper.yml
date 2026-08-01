@@ -8,7 +8,8 @@ on:
     branches:
       - experiment/rankvm-compat-demo
 
-permissions: {}
+permissions:
+  contents: write
 
 jobs:
   generate:
@@ -18,7 +19,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Install Rust toolchain
         run: |
@@ -30,6 +31,19 @@ jobs:
 
       - name: Resolve and compile the compatibility test
         run: cargo check -p strata-mosaic-client --tests
+
+      - name: Commit generated files to the experiment branch
+        if: github.event_name == 'push'
+        run: |
+          if git diff --quiet -- Cargo.lock crates/mosaic-client/tests/rankvm_sp1_compat.rs; then
+            echo "Generated files are already committed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/mosaic-client/tests/rankvm_sp1_compat.rs
+          git commit -m "test(mosaic-client): record generated SP1 compatibility files"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Upload generated files
         if: always()
