@@ -47,7 +47,7 @@ jobs:
           rustup default "$RUST_NIGHTLY"
 
       - name: Install cargo-hack
-        uses: taiki-e/install-action@b550161ef8a7bc4f2a671c0b03a18ac9ccedea1e # cargo-hack v2.79.1
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # cargo-hack v2.83.4
         with:
           tool: cargo-hack
 
