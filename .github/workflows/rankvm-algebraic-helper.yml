@@ -24,6 +24,26 @@ jobs:
           rustup toolchain install nightly-2026-05-01 --profile minimal --component rustfmt
           rustup default nightly-2026-05-01
 
+      - name: Apply compile-only fixes to the extracted kernel
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/mosaic-client/tests/rankvm_sp1_algebraic.rs")
+          source = path.read_text()
+          source = source.replace(
+              "use bn::{AffineG1, AffineG2, Fq, Fq2, Fr, G1, G2, Group, Gt, pairing_batch};",
+              "use bn::{AffineG1, AffineG2, Fq, Fq2, Fr, G1, G2, Gt, pairing_batch};",
+          )
+          source = source.replace("#[derive(Debug)]\nstruct AlgebraicVk", "struct AlgebraicVk")
+          source = source.replace("#[derive(Debug)]\nstruct AlgebraicProof", "struct AlgebraicProof")
+          source = source.replace(
+              "#[derive(Debug)]\nstruct RankVmSp1AlgebraicKernel",
+              "struct RankVmSp1AlgebraicKernel",
+          )
+          path.write_text(source)
+          PY
+
       - name: Format new algebraic test
         run: cargo fmt --all
 
