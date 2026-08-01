@@ -22,16 +22,22 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install nightly-2026-05-01 --profile minimal
+          rustup toolchain install nightly-2026-05-01 --profile minimal --component rustfmt
           rustup default nightly-2026-05-01
+
+      - name: Format compatibility test
+        run: cargo fmt --all
 
       - name: Resolve and compile the compatibility test
         run: cargo check -p strata-mosaic-client --tests
 
-      - name: Upload generated lockfile
+      - name: Upload generated files
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rankvm-generated-lockfile
-          path: Cargo.lock
+          name: rankvm-generated-files
+          path: |
+            Cargo.lock
+            crates/mosaic-client/tests/rankvm_sp1_compat.rs
           retention-days: 1
           if-no-files-found: error
