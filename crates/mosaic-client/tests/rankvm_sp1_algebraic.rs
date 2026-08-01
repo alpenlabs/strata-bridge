@@ -5,11 +5,11 @@
 //! Differential test for the high-level algebraic kernel that a RankVM compiler must implement.
 //!
 //! This independently parses the verifier and proof from their public byte encodings, rebuilds the
-//! dynamic G1 MSM, and evaluates the four-term BN254 pairing-product equation. It intentionally uses
-//! native `substrate-bn` group operations for now: this isolates the exact semantic target for the
-//! future `LIN/TENSOR` backend without pretending the pairings are already garbled.
+//! dynamic G1 MSM, and evaluates the four-term BN254 pairing-product equation. It intentionally
+//! uses native `substrate-bn` group operations for now: this isolates the exact semantic target for
+//! the future `LIN/TENSOR` backend without pretending the pairings are already garbled.
 
-use bn::{AffineG1, AffineG2, Fq, Fq2, Fr, G1, G2, Group, Gt, pairing_batch};
+use bn::{AffineG1, AffineG2, Fq, Fq2, Fr, G1, G2, Gt, pairing_batch};
 use sha2::{Digest, Sha256};
 use sp1_verifier::{GROTH16_VK_BYTES, VK_ROOT_BYTES};
 use zkaleido_sp1_groth16_verifier::{SP1Groth16Verifier, Sp1Groth16Proof};
@@ -34,7 +34,6 @@ const FULL_SP1_PROOF_HEX: &str = concat!(
 const PROGRAM_ID_HEX: &str = "00de0b076134b5f87a6b27086d654ea12ea3465c09e092d93744ecc2a0efef4a";
 const PUBLIC_VALUES: [u8; 4] = [5, 0, 0, 0];
 
-#[derive(Debug)]
 struct AlgebraicVk {
     alpha: AffineG1,
     beta: AffineG2,
@@ -43,7 +42,6 @@ struct AlgebraicVk {
     k: Vec<AffineG1>,
 }
 
-#[derive(Debug)]
 struct AlgebraicProof {
     a: AffineG1,
     b: AffineG2,
@@ -57,7 +55,6 @@ struct KernelTrace {
     pairing_terms: usize,
 }
 
-#[derive(Debug)]
 struct RankVmSp1AlgebraicKernel {
     vk: AlgebraicVk,
     pinned_vk_root: [u8; 32],
@@ -135,7 +132,10 @@ impl RankVmSp1AlgebraicKernel {
             (-Into::<G1>::into(proof.a), Into::<G2>::into(proof.b)),
             (prepared_input, Into::<G2>::into(self.vk.gamma)),
             (Into::<G1>::into(proof.c), Into::<G2>::into(self.vk.delta)),
-            (Into::<G1>::into(self.vk.alpha), Into::<G2>::into(self.vk.beta)),
+            (
+                Into::<G1>::into(self.vk.alpha),
+                Into::<G2>::into(self.vk.beta),
+            ),
         ]);
 
         (
@@ -207,16 +207,17 @@ fn extracted_algebraic_kernel_matches_native_sp1_verifier() {
     let proof_uncompressed = parsed.proof.to_uncompressed_bytes();
     let public_inputs = kernel.public_inputs(&parsed, &PUBLIC_VALUES);
     let (valid, trace) = kernel.verify(&proof_uncompressed, &public_inputs);
-    assert!(valid, "extracted algebraic kernel must accept the real proof");
+    assert!(
+        valid,
+        "extracted algebraic kernel must accept the real proof"
+    );
     assert_eq!(trace.dynamic_public_scalars, 4);
     assert_eq!(trace.pairing_terms, 4);
 
     // Swap the two valid G1 proof points. The bytes remain parseable curve points, but the
     // Groth16 equation must fail in both the native verifier and the extracted kernel.
     let mut invalid_proof = proof_uncompressed;
-    let a: [u8; G1_BYTES] = invalid_proof[..G1_BYTES]
-        .try_into()
-        .expect("A bytes");
+    let a: [u8; G1_BYTES] = invalid_proof[..G1_BYTES].try_into().expect("A bytes");
     let c: [u8; G1_BYTES] = invalid_proof[G1_BYTES + G2_BYTES..]
         .try_into()
         .expect("C bytes");

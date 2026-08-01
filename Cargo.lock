@@ -12066,6 +12066,7 @@ dependencies = [
  "sp1-verifier",
  "strata-bridge-primitives",
  "strata-mosaic-client-api",
+ "substrate-bn",
  "tokio",
  "tracing",
  "zkaleido-sp1-groth16-verifier",
