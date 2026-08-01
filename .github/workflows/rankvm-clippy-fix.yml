@@ -1,0 +1,40 @@
+name: RankVM Clippy fix helper
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: true
+          ref: ${{ github.head_ref }}
+
+      - name: Remove redundant clone
+        run: |
+          sed -i 's/public\.clone()\.into_affine()/public.into_affine()/' \
+            crates/mosaic-client/tests/rankvm_sp1_compat.rs
+          grep -n 'into_affine().y' crates/mosaic-client/tests/rankvm_sp1_compat.rs
+
+      - name: Commit the lint fix
+        env:
+          TARGET_BRANCH: ${{ github.head_ref }}
+        run: |
+          if git diff --quiet -- crates/mosaic-client/tests/rankvm_sp1_compat.rs; then
+            echo "Clippy fix is already committed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/mosaic-client/tests/rankvm_sp1_compat.rs
+          git commit -m "test(mosaic-client): remove redundant curve-point clone"
+          git push origin "HEAD:${TARGET_BRANCH}"
