@@ -17,3 +17,16 @@ mosaic-rpc-types.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+bitcoin.workspace = true
+blake3.workspace = true
+bn = { package = "substrate-bn", version = "0.6.0" }
+hex.workspace = true
+sha2.workspace = true
+ssz.workspace = true
+strata-bridge-counterproof.workspace = true
+sp1-verifier.workspace = true
+thiserror.workspace = true
+zkaleido.workspace = true
+zkaleido-sp1-groth16-verifier.workspace = true
