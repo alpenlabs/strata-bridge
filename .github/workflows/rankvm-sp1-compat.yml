@@ -1,5 +1,5 @@
-# Focused proof-of-concept check for the real SP1 verifier at Mosaic's current
-# 132-signature compatibility boundary.
+# Focused proof-of-concept checks for the real SP1 verifier at Mosaic's current
+# 132-signature compatibility boundary and the extracted algebraic kernel.
 name: RankVM SP1 compatibility
 
 on:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   test:
-    name: Real SP1 proof and Mosaic adaptor flow
+    name: Real SP1 proof, algebraic kernel, and Mosaic adaptor flow
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -32,7 +32,8 @@ jobs:
           rustup toolchain install nightly-2026-05-01 --profile minimal
           rustup default nightly-2026-05-01
 
-      - name: Run compatibility proof
+      - name: Run compatibility proofs
         run: |
           cargo test --locked -p strata-mosaic-client \
-            --test rankvm_sp1_compat -- --nocapture
+            --test rankvm_sp1_compat \
+            --test rankvm_sp1_algebraic -- --nocapture
