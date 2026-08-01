@@ -28,3 +28,20 @@ pub(crate) fn make_setup_config(
         instance_id: DEFAULT_INSTANCE.into(),
     }
 }
+
+// Cargo compiles the library itself as a test target when `--tests` is used. Keep the
+// integration-test-only dependencies visible to that target so the workspace-wide
+// `unused_crate_dependencies` deny lint does not reject the compatibility test package.
+#[cfg(test)]
+mod rankvm_compat_test_dependencies {
+    use ark_ec as _;
+    use ark_ff as _;
+    use ark_secp256k1 as _;
+    use bitcoin as _;
+    use hex as _;
+    use mosaic_adaptor_sigs as _;
+    use rand as _;
+    use sha2 as _;
+    use sp1_verifier as _;
+    use zkaleido_sp1_groth16_verifier as _;
+}
