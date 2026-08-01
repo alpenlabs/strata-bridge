@@ -1,6 +1,9 @@
 name: RankVM lockfile helper
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - experiment/rankvm-compat-demo
