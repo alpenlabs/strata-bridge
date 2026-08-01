@@ -16,10 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout repository
+      - name: Checkout experiment branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: true
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Install Rust toolchain
         run: |
@@ -33,7 +34,8 @@ jobs:
         run: cargo check -p strata-mosaic-client --tests
 
       - name: Commit generated files to the experiment branch
-        if: github.event_name == 'push'
+        env:
+          TARGET_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
           if git diff --quiet -- Cargo.lock crates/mosaic-client/tests/rankvm_sp1_compat.rs; then
             echo "Generated files are already committed"
@@ -43,7 +45,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Cargo.lock crates/mosaic-client/tests/rankvm_sp1_compat.rs
           git commit -m "test(mosaic-client): record generated SP1 compatibility files"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "HEAD:${TARGET_BRANCH}"
 
       - name: Upload generated files
         if: always()
