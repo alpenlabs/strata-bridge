@@ -14,7 +14,7 @@ use strata_asm_rpc::traits::AsmProofApiClient;
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
     BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
-    HeavierChainProof, RawBitcoinTx,
+    HeavierChainProof, RawBitcoinTx, statements::pow_gt,
 };
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -356,7 +356,7 @@ async fn detect_heavier_chain(
         return Ok(None);
     }
 
-    let is_heavier = gt_little_endian(container.extra_data(), &operator_commitment.total_pow);
+    let is_heavier = pow_gt(container.extra_data(), &operator_commitment.total_pow);
     if !is_heavier {
         warn!(
             %deposit_idx,
@@ -469,11 +469,6 @@ async fn fetch_moho_proof(
     ))
 }
 
-/// Returns `true` if `lhs > rhs` for 32-byte little-endian integers (accumulated Bitcoin PoW).
-fn gt_little_endian(lhs: &[u8; 32], rhs: &[u8; 32]) -> bool {
-    lhs.iter().rev().cmp(rhs.iter().rev()).is_gt()
-}
-
 fn counterproof_operator_keys(
     operator_table: &OperatorTable,
     operator_idx: OperatorIdx,
@@ -493,29 +488,7 @@ fn counterproof_operator_keys(
 mod tests {
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
 
-    use super::{counterproof_operator_keys, gt_little_endian};
-
-    #[test]
-    fn gt_little_endian_compares_pow_as_little_endian_integers() {
-        let zero = [0u8; 32];
-        let mut one = [0u8; 32];
-        one[0] = 1; // little-endian 1
-
-        let mut big = [0u8; 32];
-        big[31] = 1; // little-endian 2^248, far larger than `one`
-
-        assert!(gt_little_endian(&one, &zero), "1 > 0");
-        assert!(!gt_little_endian(&zero, &one), "0 is not > 1");
-        assert!(
-            !gt_little_endian(&one, &one),
-            "equal is not strictly greater"
-        );
-        assert!(gt_little_endian(&big, &one), "high-order byte dominates");
-        assert!(
-            !gt_little_endian(&one, &big),
-            "low-order byte does not dominate"
-        );
-    }
+    use super::counterproof_operator_keys;
 
     #[test]
     fn counterproof_keys_use_supplied_operator_table_snapshot() {
