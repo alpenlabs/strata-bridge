@@ -136,7 +136,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 .expect("moho_state must contain a bridge-v1 export container");
 
             // Fail if pow(heavier_chain) <= pow(operator_chain)
-            if leq_little_endian(heavier_bridge_container.extra_data(), &total_pow) {
+            if !pow_gt(heavier_bridge_container.extra_data(), &total_pow) {
                 panic!("invalid heavier chain: not enough proof of work");
             }
 
@@ -300,9 +300,10 @@ fn extract_op_return_payload(script_pubkey: &Script) -> Option<&[u8]> {
     Some(bytes.as_bytes())
 }
 
-/// Returns `true` if `lhs <= rhs` for byte arrays in little-endian format.
-fn leq_little_endian(lhs: &[u8; 32], rhs: &[u8; 32]) -> bool {
-    lhs.iter().rev().cmp(rhs.iter().rev()).is_le()
+/// Returns `true` if `lhs > rhs`, interpreting both as 256-bit little-endian
+/// integers (accumulated Bitcoin PoW).
+pub fn pow_gt(lhs: &[u8; 32], rhs: &[u8; 32]) -> bool {
+    lhs.iter().rev().cmp(rhs.iter().rev()).is_gt()
 }
 
 #[cfg(test)]
@@ -453,37 +454,19 @@ mod tests {
     }
 
     #[test]
-    fn leq_little_endian_correct() {
-        assert!(!leq_little_endian(
-            &[
-                0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0,
-            ],
-            &[
-                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0,
-            ],
-        ));
-        assert!(leq_little_endian(
-            &[
-                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0,
-            ],
-            &[
-                0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0,
-            ],
-        ));
-        assert!(leq_little_endian(
-            &[
-                0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0,
-            ],
-            &[
-                0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0,
-            ],
-        ));
+    fn pow_gt_compares_pow_as_little_endian_integers() {
+        let zero = [0u8; 32];
+        let mut one = [0u8; 32];
+        one[0] = 1; // little-endian 1
+
+        let mut big = [0u8; 32];
+        big[31] = 1; // little-endian 2^248, far larger than `one`
+
+        assert!(pow_gt(&one, &zero), "1 > 0");
+        assert!(!pow_gt(&zero, &one), "0 is not > 1");
+        assert!(!pow_gt(&one, &one), "equal is not strictly greater");
+        assert!(pow_gt(&big, &one), "high-order byte dominates");
+        assert!(!pow_gt(&one, &big), "low-order byte does not dominate");
     }
 
     #[test]
