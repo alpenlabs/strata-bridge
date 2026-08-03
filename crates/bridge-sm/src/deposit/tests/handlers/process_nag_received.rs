@@ -689,4 +689,143 @@ mod tests {
             });
         }
     }
+
+    // ===== Sweep nag tests =====
+
+    #[test]
+    fn test_nag_received_sweep_nonce_in_sweep_states_emits_publish_sweep_nonce() {
+        let sweep_tx = test_sweep_txn(random_p2tr_desc());
+        let sweep_sighash = sweep_tx
+            .signing_info()
+            .first()
+            .expect("sweep transaction must have signing info")
+            .sighash;
+        let ordered_pubkeys: Vec<_> = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX)
+            .btc_keys()
+            .into_iter()
+            .map(|pk| pk.x_only_public_key().0)
+            .collect();
+
+        let expected_duty = DepositDuty::PublishSweepNonce {
+            deposit_idx: TEST_DEPOSIT_IDX,
+            deposit_outpoint: test_deposit_outpoint(),
+            ordered_pubkeys,
+            tweak: TaprootTweak::Key { tweak: None },
+            sweep_sighash,
+        };
+
+        let sweep_states = [
+            DepositState::SweepNoncesPending {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: sweep_tx.clone(),
+                sweep_nonces: BTreeMap::new(),
+            },
+            DepositState::SweepNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx,
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
+            },
+        ];
+
+        for state in sweep_states {
+            test_handler_output(DepositHandlerOutput {
+                state,
+                event: DepositEvent::NagReceived(create_nag_event(NagRequestPayload::SweepNonce {
+                    deposit_idx: TEST_DEPOSIT_IDX,
+                })),
+                expected_duties: vec![expected_duty.clone()],
+            });
+        }
+    }
+
+    /// Unlike the payout partial nag, the POV operator always answers: the sweep round is
+    /// symmetric and no partial is withheld.
+    #[test]
+    fn test_nag_received_sweep_partial_in_sweep_nonces_collected_emits_publish_sweep_partial() {
+        let sweep_tx = test_sweep_txn(random_p2tr_desc());
+        let sweep_sighash = sweep_tx
+            .signing_info()
+            .first()
+            .expect("sweep transaction must have signing info")
+            .sighash;
+        let sweep_agg_nonce = generate_agg_nonce();
+        let ordered_pubkeys: Vec<_> = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX)
+            .btc_keys()
+            .into_iter()
+            .map(|pk| pk.x_only_public_key().0)
+            .collect();
+
+        let expected_duty = DepositDuty::PublishSweepPartial {
+            deposit_idx: TEST_DEPOSIT_IDX,
+            deposit_outpoint: test_deposit_outpoint(),
+            sweep_sighash,
+            agg_nonce: sweep_agg_nonce.clone(),
+            ordered_pubkeys,
+        };
+
+        test_handler_output(DepositHandlerOutput {
+            state: DepositState::SweepNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx,
+                sweep_agg_nonce,
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
+            },
+            event: DepositEvent::NagReceived(create_nag_event(NagRequestPayload::SweepPartial {
+                deposit_idx: TEST_DEPOSIT_IDX,
+            })),
+            expected_duties: vec![expected_duty],
+        });
+    }
+
+    #[test]
+    fn test_nag_received_sweep_nags_rejected_in_non_sweep_states() {
+        let non_sweep_states = [
+            DepositState::Deposited {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Spent {
+                fulfillment_txid: None,
+                assignee: None,
+            },
+            DepositState::Aborted,
+        ];
+
+        for state in non_sweep_states {
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state.clone(),
+                event: DepositEvent::NagReceived(create_nag_event(NagRequestPayload::SweepNonce {
+                    deposit_idx: TEST_DEPOSIT_IDX,
+                })),
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            });
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::NagReceived(create_nag_event(
+                    NagRequestPayload::SweepPartial {
+                        deposit_idx: TEST_DEPOSIT_IDX,
+                    },
+                )),
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+            });
+        }
+    }
+
+    /// A sweep partial nag while nonces are still pending is rejected (no agg nonce yet).
+    #[test]
+    fn test_nag_received_sweep_partial_rejected_in_sweep_nonces_pending() {
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: DepositState::SweepNoncesPending {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_nonces: BTreeMap::new(),
+            },
+            event: DepositEvent::NagReceived(create_nag_event(NagRequestPayload::SweepPartial {
+                deposit_idx: TEST_DEPOSIT_IDX,
+            })),
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
+    }
 }

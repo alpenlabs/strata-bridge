@@ -42,7 +42,9 @@ impl StakeSM {
             NagRequestPayload::DepositNonce { .. }
             | NagRequestPayload::DepositPartial { .. }
             | NagRequestPayload::PayoutNonce { .. }
-            | NagRequestPayload::PayoutPartial { .. } => {
+            | NagRequestPayload::PayoutPartial { .. }
+            | NagRequestPayload::SweepNonce { .. }
+            | NagRequestPayload::SweepPartial { .. } => {
                 Err(self.reject_nag(&event, "Deposit-domain nag is not applicable to StakeSM"))
             }
         }?;

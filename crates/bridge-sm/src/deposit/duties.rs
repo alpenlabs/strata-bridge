@@ -52,6 +52,24 @@ pub enum NagDuty {
         /// The P2P public key of the operator to nag.
         operator_pubkey: P2POperatorPubKey,
     },
+    /// Nag an operator for their missing sweep nonce.
+    NagSweepNonce {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
+        /// The index of the operator to nag.
+        operator_idx: OperatorIdx,
+        /// The P2P public key of the operator to nag.
+        operator_pubkey: P2POperatorPubKey,
+    },
+    /// Nag an operator for their missing sweep partial signature.
+    NagSweepPartial {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
+        /// The index of the operator to nag.
+        operator_idx: OperatorIdx,
+        /// The P2P public key of the operator to nag.
+        operator_pubkey: P2POperatorPubKey,
+    },
 }
 
 impl std::fmt::Display for NagDuty {
@@ -91,6 +109,24 @@ impl std::fmt::Display for NagDuty {
             } => write!(
                 f,
                 "NagPayoutPartial (deposit_idx: {}, operator_idx: {})",
+                deposit_idx, operator_idx
+            ),
+            NagDuty::NagSweepNonce {
+                deposit_idx,
+                operator_idx,
+                ..
+            } => write!(
+                f,
+                "NagSweepNonce (deposit_idx: {}, operator_idx: {})",
+                deposit_idx, operator_idx
+            ),
+            NagDuty::NagSweepPartial {
+                deposit_idx,
+                operator_idx,
+                ..
+            } => write!(
+                f,
+                "NagSweepPartial (deposit_idx: {}, operator_idx: {})",
                 deposit_idx, operator_idx
             ),
         }

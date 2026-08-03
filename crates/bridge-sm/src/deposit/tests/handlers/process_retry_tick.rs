@@ -302,4 +302,70 @@ mod tests {
             });
         }
     }
+
+    // ===== Sweep state tests (PublishSweep re-emission) =====
+
+    /// Every operator re-emits PublishSweep until the spend is observed on chain.
+    #[test]
+    fn test_retry_tick_emits_publish_sweep_when_all_partials_collected() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let sweep_tx = test_sweep_txn(random_p2tr_desc());
+        let sweep_agg_nonce = generate_agg_nonce();
+        let sweep_partials: BTreeMap<_, _> = operator_table
+            .operator_idxs()
+            .iter()
+            .map(|&idx| (idx, generate_partial_signature()))
+            .collect();
+        let ordered_pubkeys: Vec<_> = operator_table
+            .btc_keys()
+            .into_iter()
+            .map(|pk| pk.x_only_public_key().0)
+            .collect();
+
+        let expected_duty = DepositDuty::PublishSweep {
+            deposit_outpoint: test_deposit_outpoint(),
+            agg_nonce: sweep_agg_nonce.clone(),
+            collected_partials: sweep_partials.clone(),
+            sweep_tx: Box::new(sweep_tx.clone()),
+            ordered_pubkeys,
+        };
+
+        test_handler_output(DepositHandlerOutput {
+            state: DepositState::SweepNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx,
+                sweep_agg_nonce,
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials,
+            },
+            event: DepositEvent::RetryTick(RetryTickEvent),
+            expected_duties: vec![expected_duty],
+        });
+    }
+
+    #[test]
+    fn test_retry_tick_noop_in_sweep_states_when_partials_incomplete() {
+        let sweep_states = [
+            DepositState::SweepNoncesPending {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_nonces: BTreeMap::new(),
+            },
+            DepositState::SweepNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
+            },
+        ];
+
+        for state in sweep_states {
+            test_handler_output(DepositHandlerOutput {
+                state,
+                event: DepositEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![],
+            });
+        }
+    }
 }

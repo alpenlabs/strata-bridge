@@ -515,7 +515,9 @@ pub(crate) fn classify_unsigned_gossip(
                 NagRequestPayload::DepositNonce { deposit_idx }
                 | NagRequestPayload::DepositPartial { deposit_idx }
                 | NagRequestPayload::PayoutNonce { deposit_idx }
-                | NagRequestPayload::PayoutPartial { deposit_idx } => SMId::Deposit(*deposit_idx),
+                | NagRequestPayload::PayoutPartial { deposit_idx }
+                | NagRequestPayload::SweepNonce { deposit_idx }
+                | NagRequestPayload::SweepPartial { deposit_idx } => SMId::Deposit(*deposit_idx),
                 NagRequestPayload::GraphData { graph_idx }
                 | NagRequestPayload::GraphNonces { graph_idx }
                 | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
@@ -584,7 +586,9 @@ pub(crate) fn classify_unsigned_gossip(
                 NagRequestPayload::DepositNonce { .. }
                 | NagRequestPayload::DepositPartial { .. }
                 | NagRequestPayload::PayoutNonce { .. }
-                | NagRequestPayload::PayoutPartial { .. } => {
+                | NagRequestPayload::PayoutPartial { .. }
+                | NagRequestPayload::SweepNonce { .. }
+                | NagRequestPayload::SweepPartial { .. } => {
                     DepositEvent::NagReceived(DepositEvents::NagReceivedEvent {
                         payload: nag_request.payload.clone(),
                         sender_operator_idx,
@@ -1327,6 +1331,45 @@ mod tests {
                     other => panic!("Expected NagReceived, got {other}"),
                 },
                 _ => panic!("Expected Deposit event"),
+            }
+        }
+
+        /// Sweep nags are deposit-scoped and map to the deposit SM's NagReceived event.
+        #[test]
+        fn classify_sweep_nag_request_addressed_to_pov_creates_event() {
+            let mut registry = test_empty_registry();
+            let deposit_idx = 42u32;
+            insert_deposit_with_graphs(&mut registry, deposit_idx);
+
+            let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+            let pov_p2p_key: P2POperatorPubKey = operator_table.pov_p2p_key().clone();
+            let sender_idx = TEST_NONPOV;
+            let sender_p2p_key = operator_table.idx_to_p2p_key(&sender_idx).unwrap().clone();
+
+            for payload in [
+                NagRequestPayload::SweepNonce { deposit_idx },
+                NagRequestPayload::SweepPartial { deposit_idx },
+            ] {
+                let nag_request = NagRequest {
+                    recipient: pov_p2p_key.clone(),
+                    payload: payload.clone(),
+                };
+
+                let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
+                let result =
+                    classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_p2p_key), &msg);
+
+                assert_eq!(result.len(), 1, "Should create exactly one event");
+                match &result[0] {
+                    SMEvent::Deposit(boxed) => match boxed.as_ref() {
+                        DepositEvent::NagReceived(evt) => {
+                            assert_eq!(evt.payload, payload);
+                            assert_eq!(evt.sender_operator_idx, sender_idx);
+                        }
+                        other => panic!("Expected NagReceived, got {other}"),
+                    },
+                    _ => panic!("Expected Deposit event"),
+                }
             }
         }
 
