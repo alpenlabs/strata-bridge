@@ -83,6 +83,7 @@ fn watchtower_emits_potential_counterproof_when_proof_valid() {
         &cfg,
         &sm,
         &signatures,
+        BRIDGE_PROOF_BLOCK_HEIGHT,
         &dummy_proof_receipt(),
         &event.tx,
     );
@@ -124,6 +125,7 @@ fn watchtower_emits_potential_counterproof_even_when_proof_invalid() {
         &cfg,
         &sm,
         &signatures,
+        BRIDGE_PROOF_BLOCK_HEIGHT,
         &dummy_proof_receipt(),
         &event.tx,
     );
@@ -166,6 +168,7 @@ fn accepts_bridge_proof_posted_after_counterproof() {
         &cfg,
         &sm,
         &signatures,
+        BRIDGE_PROOF_BLOCK_HEIGHT,
         &dummy_proof_receipt(),
         &event_tx,
     );
@@ -209,6 +212,7 @@ fn watchtower_emits_potential_counterproof_on_late_proof_even_when_invalid() {
         &cfg,
         &sm,
         &signatures,
+        BRIDGE_PROOF_BLOCK_HEIGHT,
         &dummy_proof_receipt(),
         &event.tx,
     );

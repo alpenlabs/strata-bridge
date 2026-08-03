@@ -251,6 +251,9 @@ pub enum GraphDuty {
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
 
+        /// The last Bitcoin block height seen by the graph state.
+        last_block_height: BitcoinBlockHeight,
+
         /// The game index for operator key tweaking.
         game_index: NonZero<u32>,
 

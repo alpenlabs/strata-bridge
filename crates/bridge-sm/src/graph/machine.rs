@@ -178,11 +178,13 @@ impl GraphSM {
     /// The GSM emits this for every observed proof without inspecting it: verification needs
     /// network access (ASM state, heavier-chain checks) that the GSM doesn't have, so the
     /// executor verifies the proof and decides whether a counterproof actually goes on chain.
+    #[expect(clippy::too_many_arguments)]
     pub(super) fn potential_counterproof_duty(
         &self,
         cfg: &GraphSMCfg,
         graph_data: &DepositParams,
         signatures: &[Signature],
+        last_block_height: BitcoinBlockHeight,
         proof: &ProofReceipt,
         bridge_proof_tx: &Transaction,
         event: GraphEvent,
@@ -209,6 +211,7 @@ impl GraphSM {
 
         Ok(GraphDuty::PotentialCounterProof {
             graph_idx: self.context().graph_idx(),
+            last_block_height,
             game_index: graph_data.game_index,
             counterproof_tx,
             n_of_n_signature: sigs.watchtowers[watchtower_idx].counterproof[0],
