@@ -1,6 +1,6 @@
 //! Configuration shared across all deposit state machines.
 
-use bitcoin::{Amount, Network};
+use bitcoin::{Amount, FeeRate, Network};
 use strata_l1_txfmt::MagicBytes;
 
 /// Bridge-wide configuration shared across all deposit state machines.
@@ -23,6 +23,8 @@ pub struct DepositSMCfg {
     pub magic_bytes: MagicBytes,
     /// The number of blocks after which the user can take back their deposit request.
     pub recovery_delay: u16,
+    /// The fee rate that the safe-harbour sweep transaction pays.
+    pub sweep_fee_rate: FeeRate,
 }
 
 impl DepositSMCfg {
@@ -49,5 +51,10 @@ impl DepositSMCfg {
     /// Returns the magic bytes used in the OP_RETURN of relevant transactions.
     pub const fn magic_bytes(&self) -> MagicBytes {
         self.magic_bytes
+    }
+
+    /// Returns the fee rate that the safe-harbour sweep transaction pays.
+    pub const fn sweep_fee_rate(&self) -> FeeRate {
+        self.sweep_fee_rate
     }
 }

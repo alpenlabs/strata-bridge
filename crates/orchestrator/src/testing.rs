@@ -37,7 +37,9 @@ pub(crate) use strata_bridge_test_utils::bridge_fixtures::{
     test_operator_table,
 };
 use strata_bridge_test_utils::{
-    bitcoin::generate_xonly_pubkey, bridge_fixtures::TEST_RECOVERY_DELAY, prelude::generate_txid,
+    bitcoin::generate_xonly_pubkey,
+    bridge_fixtures::{TEST_RECOVERY_DELAY, TEST_SWEEP_FEE_RATE},
+    prelude::generate_txid,
 };
 use strata_bridge_tx_graph::{
     game_graph::{AdminMultisig, ProtocolParams as GameProtocolParams},
@@ -69,6 +71,7 @@ pub(crate) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
         operator_fee: TEST_OPERATOR_FEE,
         magic_bytes: TEST_MAGIC_BYTES.into(),
         recovery_delay: TEST_RECOVERY_DELAY,
+        sweep_fee_rate: TEST_SWEEP_FEE_RATE,
     })
 }
 

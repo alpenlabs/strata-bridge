@@ -34,6 +34,17 @@ impl TxClassifier for DepositSM {
             }));
         }
 
+        // Any tx spending a live deposit outpoint is terminal for the deposit — a cooperative
+        // payout, a unilateral payout, or the safe-harbour sweep; `process_payout_confirmed`
+        // sorts out which.
+        if self.state().has_live_deposit_utxo()
+            && is_deposit_spend(self.context().deposit_outpoint, tx)
+        {
+            return Some(DepositEvent::PayoutConfirmed(PayoutConfirmedEvent {
+                tx: tx.clone(),
+            }));
+        }
+
         match self.state() {
             // initial states expect DRT spend but that is handled above.
             DepositState::Created { .. } => None,
@@ -48,8 +59,8 @@ impl TxClassifier for DepositSM {
                     deposit_transaction: tx.clone(),
                 }))
             }
-
-            DepositState::Deposited { .. } => None, // does not expect any txs
+            DepositState::DepositNoncesCollected { .. }
+            | DepositState::DepositPartialsCollected { .. } => None,
 
             // expects fulfillment
             DepositState::Assigned { recipient_desc, .. }
@@ -69,25 +80,21 @@ impl TxClassifier for DepositSM {
                     },
                 ))
             }
+            DepositState::Assigned { .. } => None,
 
             DepositState::Fulfilled { .. } => None, // does not expect any txs
             DepositState::PayoutDescriptorReceived { .. } => None, // does not expect any txs
 
-            // expect payout
-            DepositState::PayoutNoncesCollected { .. }
+            // deposit-outpoint spends are handled by the hoisted check above
+            DepositState::Deposited { .. }
+            | DepositState::PayoutNoncesCollected { .. }
             | DepositState::CooperativePathFailed { .. }
-                if is_deposit_spend(self.context().deposit_outpoint, tx) =>
-            {
-                Some(DepositEvent::PayoutConfirmed(PayoutConfirmedEvent {
-                    tx: tx.clone(),
-                }))
-            }
+            | DepositState::SweepNoncesPending { .. }
+            | DepositState::SweepNoncesCollected { .. } => None,
 
             // terminal states expect no txs
             DepositState::Spent { .. } => None,
             DepositState::Aborted => None,
-
-            _ => None,
         }
     }
 }

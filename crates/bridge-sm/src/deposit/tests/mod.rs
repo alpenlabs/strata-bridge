@@ -7,6 +7,7 @@ mod deposit;
 mod handlers;
 mod payout;
 mod prop_tests;
+mod sweep;
 mod test_new_blocks;
 mod test_timeout_sequence;
 mod tx_classifier;
@@ -33,7 +34,7 @@ use strata_bridge_test_utils::{
 use strata_bridge_tx_graph::transactions::{
     PresignedTx,
     prelude::{
-        CooperativePayoutData, CooperativePayoutTx, DepositData, DepositTx,
+        CooperativePayoutData, CooperativePayoutTx, DepositData, DepositTx, SweepData, SweepTx,
         WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
     },
 };
@@ -48,7 +49,9 @@ use crate::{
         events::{
             DepositConfirmedEvent, DepositEvent, FulfillmentConfirmedEvent, NagTickEvent,
             NewBlockEvent, NonceReceivedEvent, PayoutConfirmedEvent, PayoutNonceReceivedEvent,
-            PayoutPartialReceivedEvent, RetryTickEvent, UserTakeBackEvent, WithdrawalAssignedEvent,
+            PayoutPartialReceivedEvent, RetryTickEvent, SweepNonceReceivedEvent,
+            SweepPartialReceivedEvent, SweepRequestedEvent, UserTakeBackEvent,
+            WithdrawalAssignedEvent,
         },
         machine::DepositSM,
         state::DepositState,
@@ -57,9 +60,9 @@ use crate::{
     testing::{
         fixtures::{
             LATER_BLOCK_HEIGHT, TEST_ASSIGNEE, TEST_DEPOSIT_AMOUNT, TEST_DEPOSIT_IDX,
-            TEST_MAGIC_BYTES, TEST_OPERATOR_FEE, TEST_POV_IDX, random_p2tr_desc,
-            test_fulfillment_tx, test_operator_table, test_payout_tx, test_recipient_desc,
-            test_takeback_tx,
+            TEST_MAGIC_BYTES, TEST_OPERATOR_FEE, TEST_POV_IDX, TEST_SWEEP_FEE_RATE,
+            random_p2tr_desc, test_fulfillment_tx, test_operator_table, test_payout_tx,
+            test_recipient_desc, test_takeback_tx,
         },
         signer::TestMusigSigner,
         transition::{InvalidTransition, Transition, test_invalid_transition, test_transition},
@@ -108,6 +111,7 @@ pub(super) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
         operator_fee: TEST_OPERATOR_FEE,
         magic_bytes,
         recovery_delay: TEST_RECOVERY_DELAY,
+        sweep_fee_rate: TEST_SWEEP_FEE_RATE,
     })
 }
 
@@ -235,6 +239,43 @@ pub(super) fn get_payout_signing_info(
     let key_agg_ctx = create_agg_ctx(btc_keys, &TaprootTweak::Key { tweak: None })
         .expect("must create key agg context");
     let message = payout_tx.signing_info()[0].sighash;
+    (key_agg_ctx, message)
+}
+
+// ===== Sweep Transaction Helpers =====
+
+/// Creates a test sweep transaction with deterministic values.
+pub(super) fn test_sweep_txn(safe_harbour_desc: Descriptor) -> SweepTx {
+    let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+    let n_of_n_pubkey = get_aggregated_pubkey(operator_table.btc_keys());
+    let deposit_connector =
+        NOfNConnector::new(Network::Regtest, n_of_n_pubkey, TEST_DEPOSIT_AMOUNT);
+    let operator_pubkeys = operator_table
+        .btc_keys()
+        .into_iter()
+        .map(|pk| pk.x_only_public_key().0)
+        .collect();
+
+    SweepTx::new(
+        SweepData {
+            deposit_outpoint: test_deposit_outpoint(),
+        },
+        deposit_connector,
+        safe_harbour_desc,
+        operator_pubkeys,
+        TEST_SWEEP_FEE_RATE,
+    )
+}
+
+/// Retrieves the key aggregation context and message for signing a sweep transaction.
+pub(super) fn get_sweep_signing_info(
+    sweep_tx: &SweepTx,
+    operator_signers: &[TestMusigSigner],
+) -> (KeyAggContext, musig2::secp256k1::Message) {
+    let btc_keys: Vec<_> = operator_signers.iter().map(|s| s.pubkey()).collect();
+    let key_agg_ctx = create_agg_ctx(btc_keys, &TaprootTweak::Key { tweak: None })
+        .expect("must create key agg context");
+    let message = sweep_tx.signing_info()[0].sighash;
     (key_agg_ctx, message)
 }
 
@@ -406,6 +447,27 @@ impl Arbitrary for DepositState {
                     payout_partial_signatures: BTreeMap::new(),
                 }
             }),
+            block_height.clone().prop_map(|height| {
+                DepositState::SweepNoncesPending {
+                    last_block_height: height,
+                    sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                    sweep_nonces: BTreeMap::new(),
+                }
+            }),
+            block_height.clone().prop_map(move |height| {
+                // SweepNoncesCollected requires all nonces to be present
+                let nonces: BTreeMap<_, _> = (0..num_operators)
+                    .map(|idx| (idx, generate_pubnonce()))
+                    .collect();
+                let agg_nonce = musig2::AggNonce::sum(nonces.values().cloned());
+                DepositState::SweepNoncesCollected {
+                    last_block_height: height,
+                    sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                    sweep_agg_nonce: agg_nonce,
+                    sweep_nonces: nonces,
+                    sweep_partials: BTreeMap::new(),
+                }
+            }),
             block_height.prop_map(|height| DepositState::CooperativePathFailed {
                 last_block_height: height,
                 assignee: TEST_ASSIGNEE,
@@ -480,6 +542,21 @@ impl Arbitrary for DepositEvent {
             Just(DepositEvent::PayoutConfirmed(PayoutConfirmedEvent {
                 tx: test_payout_tx(OutPoint::default())
             })),
+            Just(DepositEvent::SweepRequested(SweepRequestedEvent {
+                safe_harbour_desc: random_p2tr_desc(),
+            })),
+            operator_idx.clone().prop_map(|idx| {
+                DepositEvent::SweepNonceReceived(SweepNonceReceivedEvent {
+                    sweep_nonce: generate_pubnonce(),
+                    operator_idx: idx,
+                })
+            }),
+            operator_idx.clone().prop_map(|idx| {
+                DepositEvent::SweepPartialReceived(SweepPartialReceivedEvent {
+                    partial_signature: generate_partial_signature(),
+                    operator_idx: idx,
+                })
+            }),
             block_height.prop_map(|height| DepositEvent::NewBlock(NewBlockEvent {
                 block_height: height
             })),
@@ -562,6 +639,21 @@ pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
         )),
         (0..num_operators).prop_map(|idx| DepositEvent::PayoutPartialReceived(
             PayoutPartialReceivedEvent {
+                partial_signature: generate_partial_signature(),
+                operator_idx: idx,
+            }
+        )),
+        Just(DepositEvent::SweepRequested(SweepRequestedEvent {
+            safe_harbour_desc: random_p2tr_desc(),
+        })),
+        (0..num_operators).prop_map(|idx| DepositEvent::SweepNonceReceived(
+            SweepNonceReceivedEvent {
+                sweep_nonce: generate_pubnonce(),
+                operator_idx: idx,
+            }
+        )),
+        (0..num_operators).prop_map(|idx| DepositEvent::SweepPartialReceived(
+            SweepPartialReceivedEvent {
                 partial_signature: generate_partial_signature(),
                 operator_idx: idx,
             }

@@ -11,7 +11,7 @@ use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx, P2POperatorPubKey},
 };
-use strata_bridge_tx_graph::transactions::prelude::CooperativePayoutTx;
+use strata_bridge_tx_graph::transactions::prelude::{CooperativePayoutTx, SweepTx};
 
 /// The nag duties that can be emitted to remind operators of missing data.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,6 +199,51 @@ pub enum DepositDuty {
         /// The index of the point-of-view operator (the assignee).
         pov_operator_idx: OperatorIdx,
     },
+    /// Publish the nonce for sweeping the deposit UTXO to the safe-harbour descriptor.
+    PublishSweepNonce {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
+        /// Outpoint referencing the deposit UTXO.
+        deposit_outpoint: OutPoint,
+        /// Ordered public keys of all operators for MuSig2 signing.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
+        /// The taproot tweak for the deposit output.
+        tweak: TaprootTweak,
+        /// Sighash for the sweep input. Used to bind the MuSig2 nonce to the message.
+        sweep_sighash: Message,
+    },
+    /// Publish the partial signature for the sweep transaction.
+    ///
+    /// Unlike the cooperative payout, *every* operator publishes its sweep partial: there is
+    /// no assignee to protect from a payout-hostage attack.
+    PublishSweepPartial {
+        /// The index of the deposit.
+        deposit_idx: DepositIdx,
+        /// Outpoint referencing the deposit UTXO.
+        deposit_outpoint: OutPoint,
+        /// Sighash to be signed for the sweep transaction.
+        sweep_sighash: Message,
+        /// Aggregated nonce for the sweep transaction signing.
+        agg_nonce: AggNonce,
+        /// Ordered public keys of all operators for MuSig2 signing.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
+    },
+    /// Finalize and broadcast the sweep transaction to the Bitcoin network.
+    ///
+    /// Every operator receives this duty: all partials are collected via gossip, so each
+    /// operator aggregates and broadcasts the identical deterministic transaction.
+    PublishSweep {
+        /// Outpoint referencing the deposit UTXO.
+        deposit_outpoint: OutPoint,
+        /// Aggregated nonce for signature aggregation.
+        agg_nonce: AggNonce,
+        /// Partial signatures collected from all operators.
+        collected_partials: BTreeMap<OperatorIdx, PartialSignature>,
+        /// The sweep transaction for finalization.
+        sweep_tx: Box<SweepTx>,
+        /// Ordered public keys of all operators for MuSig2 signing.
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
+    },
     /// Nag other operators for missing information.
     Nag {
         /// The specific nag duty to perform.
@@ -235,6 +280,9 @@ impl std::fmt::Display for DepositDuty {
             DepositDuty::PublishPayoutNonce { .. } => "PublishPayoutNonce".to_string(),
             DepositDuty::PublishPayoutPartial { .. } => "PublishPayoutPartial".to_string(),
             DepositDuty::PublishPayout { .. } => "PublishPayout".to_string(),
+            DepositDuty::PublishSweepNonce { .. } => "PublishSweepNonce".to_string(),
+            DepositDuty::PublishSweepPartial { .. } => "PublishSweepPartial".to_string(),
+            DepositDuty::PublishSweep { .. } => "PublishSweep".to_string(),
             DepositDuty::Nag { duty } => format!("Nag({})", duty),
         };
         write!(f, "{}", display_str)

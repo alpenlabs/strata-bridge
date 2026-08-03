@@ -38,6 +38,12 @@ impl DepositSM {
             }
             | DepositState::CooperativePathFailed {
                 last_block_height, ..
+            }
+            | DepositState::SweepNoncesPending {
+                last_block_height, ..
+            }
+            | DepositState::SweepNoncesCollected {
+                last_block_height, ..
             } => {
                 *last_block_height = new_block.block_height;
 

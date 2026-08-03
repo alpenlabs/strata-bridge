@@ -83,6 +83,39 @@ mod tests {
         });
     }
 
+    /// Tests correct transition from the sweep states to Spent with unknown fulfillment txid:
+    /// either the sweep itself or a racing payout spent the deposit outpoint.
+    #[test]
+    fn test_payout_confirmed_from_sweep_states_records_unknown_fulfillment_txid() {
+        let sweep_states = [
+            DepositState::SweepNoncesPending {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_nonces: BTreeMap::new(),
+            },
+            DepositState::SweepNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
+            },
+        ];
+
+        for state in sweep_states {
+            test_deposit_transition(DepositTransition {
+                from_state: state,
+                event: payout_confirmed_event(test_deposit_outpoint()),
+                expected_state: DepositState::Spent {
+                    fulfillment_txid: None,
+                    assignee: None,
+                },
+                expected_duties: vec![],
+                expected_signals: vec![],
+            });
+        }
+    }
+
     /// Tests that PayoutConfirmed is rejected if the payout tx does not spend the deposit outpoint.
     #[test]
     fn test_payout_confirmed_rejected_for_wrong_outpoint_from_valid_states() {
@@ -111,6 +144,18 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
+            },
+            DepositState::SweepNoncesPending {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_nonces: BTreeMap::new(),
+            },
+            DepositState::SweepNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
             },
         ];
 

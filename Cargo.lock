@@ -11584,6 +11584,7 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde",
  "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
+ "strata-bridge-connectors",
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-test-utils",

@@ -569,8 +569,11 @@ impl DepositSM {
         payout_confirmed: &PayoutConfirmedEvent,
     ) -> DSMResult<DSMOutput> {
         let (fulfillment_txid, assignee) = match self.state() {
-            // It must be the sweep transaction in case of a hard upgrade
-            DepositState::Deposited { .. } => (None, None),
+            // It must be the sweep transaction in case of a hard upgrade. The sweep states
+            // observe either their own sweep transaction or a racing payout confirming.
+            DepositState::Deposited { .. }
+            | DepositState::SweepNoncesPending { .. }
+            | DepositState::SweepNoncesCollected { .. } => (None, None),
             // It must be a cooperative payout transaction.
             // The assignee withholds their own partial and broadcasts the payout tx themselves,
             // In this case, we still want other nodes' state machines to transition from
