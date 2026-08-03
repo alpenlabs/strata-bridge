@@ -4,6 +4,7 @@
 //! the DepositSM across multiple state transition functions.
 
 mod deposit;
+mod duties;
 mod handlers;
 mod payout;
 mod prop_tests;
