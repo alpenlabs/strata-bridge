@@ -146,12 +146,40 @@ mod tests {
         ]
     }
 
+    /// States between fulfillment and the payout signing round.
+    fn fulfillment_progress_states() -> Vec<DepositState> {
+        let h = LATER_BLOCK_HEIGHT;
+        vec![
+            DepositState::Fulfilled {
+                last_block_height: h,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
+                fulfillment_height: h,
+                cooperative_payout_deadline: h + 1008,
+            },
+            DepositState::PayoutDescriptorReceived {
+                last_block_height: h,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
+                cooperative_payment_deadline: h + 1008,
+                cooperative_payout_tx: test_cooperative_payout_txn(
+                    Descriptor::new_op_return(&[0u8; 32]).unwrap(),
+                ),
+                payout_nonces: BTreeMap::new(),
+            },
+        ]
+    }
+
     /// States in which a deposit-outpoint spend must classify as `PayoutConfirmed`, i.e. the
     /// states where `has_live_deposit_utxo()` holds.
     fn live_deposit_utxo_states() -> Vec<DepositState> {
-        let mut states = vec![DepositState::Deposited {
-            last_block_height: LATER_BLOCK_HEIGHT,
-        }];
+        let mut states = vec![
+            DepositState::Deposited {
+                last_block_height: LATER_BLOCK_HEIGHT,
+            },
+            assigned_state(),
+        ];
+        states.extend(fulfillment_progress_states());
         states.extend(payout_pending_states());
         states.extend(sweep_states());
         states
@@ -165,23 +193,7 @@ mod tests {
             last_block_height: h,
         });
         states.push(assigned_state());
-        states.push(DepositState::Fulfilled {
-            last_block_height: h,
-            assignee: TEST_ASSIGNEE,
-            fulfillment_txid: generate_txid(),
-            fulfillment_height: h,
-            cooperative_payout_deadline: h + 1008,
-        });
-        states.push(DepositState::PayoutDescriptorReceived {
-            last_block_height: h,
-            assignee: TEST_ASSIGNEE,
-            fulfillment_txid: generate_txid(),
-            cooperative_payment_deadline: h + 1008,
-            cooperative_payout_tx: test_cooperative_payout_txn(
-                Descriptor::new_op_return(&[0u8; 32]).unwrap(),
-            ),
-            payout_nonces: BTreeMap::new(),
-        });
+        states.extend(fulfillment_progress_states());
         states.extend(payout_pending_states());
         states.extend(sweep_states());
         states.push(DepositState::Spent {
