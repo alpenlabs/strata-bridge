@@ -642,6 +642,19 @@ fn reimbursement_operator_uses_terminal_spent_assignee_without_marking_it_pendin
 
     assert_eq!(get_reimbursement_operator(&state), Some(OPERATOR_IDX));
     assert_eq!(get_pending_assigned_operator(&state), None);
+
+    // A deposit swept out of `Assigned` terminates with an assignee but no fulfillment; the
+    // assignee still backs the reimbursement view without being marked pending.
+    let swept_from_assigned = DepositState::Spent {
+        fulfillment_txid: None,
+        assignee: Some(OPERATOR_IDX),
+    };
+
+    assert_eq!(
+        get_reimbursement_operator(&swept_from_assigned),
+        Some(OPERATOR_IDX)
+    );
+    assert_eq!(get_pending_assigned_operator(&swept_from_assigned), None);
 }
 
 #[test]
@@ -756,6 +769,13 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+            },
+        ),
+        (
+            "SpentSweptFromAssigned",
+            DepositState::Spent {
+                fulfillment_txid: None,
+                assignee: Some(OPERATOR_IDX),
             },
         ),
         ("Aborted", DepositState::Aborted),
