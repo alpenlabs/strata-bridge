@@ -563,7 +563,11 @@ impl DepositSM {
     ///   uncontested.
     /// - A contested payout transaction, if the assignee published a claim that was contested but
     ///   not successfully.
-    /// - A sweep transaction in the event of a hard upgrade (migration) of deposited UTXOs.
+    /// - A sweep transaction under safe harbour.
+    ///
+    /// The spend is terminal from every state holding a live deposit UTXO, regardless of which
+    /// of these transactions won; assignee/fulfillment info is preserved where the source state
+    /// carries it, for monitoring only.
     pub(crate) fn process_payout_confirmed(
         &mut self,
         payout_confirmed: &PayoutConfirmedEvent,
@@ -574,11 +578,25 @@ impl DepositSM {
             DepositState::Deposited { .. }
             | DepositState::SweepNoncesPending { .. }
             | DepositState::SweepNoncesCollected { .. } => (None, None),
+            // No fulfillment has happened yet; only a sweep (or a rogue pre-signed payout)
+            // can have spent the outpoint here.
+            DepositState::Assigned { assignee, .. } => (None, Some(*assignee)),
+            // The user has been fronted; a sweep or a racing payout spent the outpoint.
+            DepositState::Fulfilled {
+                fulfillment_txid,
+                assignee,
+                ..
+            }
+            | DepositState::PayoutDescriptorReceived {
+                fulfillment_txid,
+                assignee,
+                ..
+            }
             // It must be a cooperative payout transaction.
             // The assignee withholds their own partial and broadcasts the payout tx themselves,
             // In this case, we still want other nodes' state machines to transition from
             // `PayoutNoncesCollected` to `Spent`. This can also happen if there are network delays.
-            DepositState::PayoutNoncesCollected {
+            | DepositState::PayoutNoncesCollected {
                 fulfillment_txid,
                 assignee,
                 ..
@@ -598,7 +616,11 @@ impl DepositSM {
                     payout_confirmed.clone().into(),
                 ));
             }
-            _ => {
+            DepositState::Created { .. }
+            | DepositState::GraphGenerated { .. }
+            | DepositState::DepositNoncesCollected { .. }
+            | DepositState::DepositPartialsCollected { .. }
+            | DepositState::Aborted => {
                 return Err(DSMError::invalid_event(
                     self.state().clone(),
                     payout_confirmed.clone().into(),

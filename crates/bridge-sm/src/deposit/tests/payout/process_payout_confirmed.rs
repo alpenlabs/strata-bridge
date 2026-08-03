@@ -62,6 +62,76 @@ mod tests {
         });
     }
 
+    /// Tests correct transition from Assigned to Spent: the assignee is preserved but no
+    /// fulfillment has happened, so the fulfillment txid is unknown.
+    #[test]
+    fn test_payout_confirmed_from_assigned_preserves_assignee_only() {
+        test_deposit_transition(DepositTransition {
+            from_state: DepositState::Assigned {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: random_p2tr_desc(),
+            },
+            event: payout_confirmed_event(test_deposit_outpoint()),
+            expected_state: DepositState::Spent {
+                fulfillment_txid: None,
+                assignee: Some(TEST_ASSIGNEE),
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
+    /// Tests correct transition from Fulfilled to Spent preserving assignee and fulfillment txid.
+    #[test]
+    fn test_payout_confirmed_from_fulfilled_preserves_fulfillment_txid() {
+        let fulfillment_txid = generate_txid();
+
+        test_deposit_transition(DepositTransition {
+            from_state: DepositState::Fulfilled {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
+                fulfillment_height: LATER_BLOCK_HEIGHT,
+                cooperative_payout_deadline: LATER_BLOCK_HEIGHT
+                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
+            },
+            event: payout_confirmed_event(test_deposit_outpoint()),
+            expected_state: DepositState::Spent {
+                fulfillment_txid: Some(fulfillment_txid),
+                assignee: Some(TEST_ASSIGNEE),
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
+    /// Tests correct transition from PayoutDescriptorReceived to Spent preserving assignee and
+    /// fulfillment txid.
+    #[test]
+    fn test_payout_confirmed_from_payout_descriptor_received_preserves_fulfillment_txid() {
+        let fulfillment_txid = generate_txid();
+
+        test_deposit_transition(DepositTransition {
+            from_state: DepositState::PayoutDescriptorReceived {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                cooperative_payout_tx: test_cooperative_payout_txn(random_p2tr_desc()),
+                payout_nonces: BTreeMap::new(),
+            },
+            event: payout_confirmed_event(test_deposit_outpoint()),
+            expected_state: DepositState::Spent {
+                fulfillment_txid: Some(fulfillment_txid),
+                assignee: Some(TEST_ASSIGNEE),
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
+    }
+
     /// Tests correct transition from CooperativePathFailed to Spent with known fulfillment txid.
     #[test]
     fn test_payout_confirmed_from_cooperative_path_failed_preserves_fulfillment_txid() {
@@ -130,6 +200,28 @@ mod tests {
             DepositState::Deposited {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
             },
+            DepositState::Assigned {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: random_p2tr_desc(),
+            },
+            DepositState::Fulfilled {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
+                fulfillment_height: LATER_BLOCK_HEIGHT,
+                cooperative_payout_deadline: LATER_BLOCK_HEIGHT
+                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
+            },
+            DepositState::PayoutDescriptorReceived {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
+                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
+                payout_nonces: BTreeMap::new(),
+            },
             DepositState::PayoutNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
@@ -191,12 +283,10 @@ mod tests {
         }
     }
 
-    /// Tests that all states apart from Deposited, PayoutNoncesCollected,
-    /// CooperativePathFailed, and Spent should NOT accept the PayoutConfirmed event.
+    /// Tests that the pre-deposit states and Aborted (the states with no live deposit UTXO)
+    /// should NOT accept the PayoutConfirmed event.
     #[test]
     fn test_payout_confirmed_invalid_from_other_states() {
-        let desc = random_p2tr_desc();
-
         let invalid_states = [
             DepositState::Created {
                 deposit_transaction: test_deposit_txn(),
@@ -220,28 +310,6 @@ mod tests {
             DepositState::DepositPartialsCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 deposit_transaction: test_deposit_txn().as_ref().clone(),
-            },
-            DepositState::Assigned {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                assignee: TEST_ASSIGNEE,
-                deadline: LATER_BLOCK_HEIGHT,
-                recipient_desc: desc.clone(),
-            },
-            DepositState::Fulfilled {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                assignee: TEST_ASSIGNEE,
-                fulfillment_txid: generate_txid(),
-                fulfillment_height: LATER_BLOCK_HEIGHT,
-                cooperative_payout_deadline: LATER_BLOCK_HEIGHT
-                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
-            },
-            DepositState::PayoutDescriptorReceived {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                assignee: TEST_ASSIGNEE,
-                fulfillment_txid: generate_txid(),
-                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                cooperative_payout_tx: test_cooperative_payout_txn(desc),
-                payout_nonces: BTreeMap::new(),
             },
             DepositState::Aborted,
         ];
