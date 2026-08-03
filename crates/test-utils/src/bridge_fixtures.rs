@@ -4,7 +4,7 @@
 //! (bridge-sm, orchestrator, etc.) need for testing. SM-specific config construction stays
 //! local to each consumer crate.
 
-use bitcoin::Amount;
+use bitcoin::{Amount, FeeRate};
 use bitcoin_bosd::Descriptor;
 use secp256k1::{SecretKey, SECP256K1};
 use strata_bridge_primitives::{
@@ -31,6 +31,9 @@ pub const TEST_OPERATOR_FEE: Amount = Amount::from_sat(10_000);
 
 /// Recovery delay (in blocks) used in tests.
 pub const TEST_RECOVERY_DELAY: u16 = 1008;
+
+/// Safe-harbour sweep fee rate used in tests.
+pub const TEST_SWEEP_FEE_RATE: FeeRate = FeeRate::from_sat_per_vb_unchecked(10);
 
 // ===== Shared Test Helpers =====
 

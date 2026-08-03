@@ -145,7 +145,9 @@ pub(super) const fn withdrawal_status(deposit_state: &DepositState) -> Option<Rp
         | DepositState::GraphGenerated { .. }
         | DepositState::DepositNoncesCollected { .. }
         | DepositState::DepositPartialsCollected { .. }
-        | DepositState::Deposited { .. } => None,
+        | DepositState::Deposited { .. }
+        | DepositState::SweepNoncesPending { .. }
+        | DepositState::SweepNoncesCollected { .. } => None,
 
         // Withdrawal in progress states
         DepositState::Assigned { .. } => Some(RpcWithdrawalStatus::InProgress),

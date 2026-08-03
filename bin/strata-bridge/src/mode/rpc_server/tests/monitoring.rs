@@ -32,7 +32,7 @@ use strata_bridge_test_utils::{
     bitcoin::{generate_tx, generate_xonly_pubkey},
     bridge_fixtures::{
         TEST_DEPOSIT_AMOUNT, TEST_MAGIC_BYTES, TEST_OPERATOR_FEE, TEST_POV_IDX,
-        TEST_RECOVERY_DELAY, random_p2tr_desc, test_operator_table,
+        TEST_RECOVERY_DELAY, TEST_SWEEP_FEE_RATE, random_p2tr_desc, test_operator_table,
     },
     musig2::{generate_agg_nonce, generate_partial_signature, generate_pubnonce},
     prelude::generate_txid,
@@ -43,6 +43,7 @@ use strata_bridge_tx_graph::{
     transactions::{
         cooperative_payout::{CooperativePayoutData, CooperativePayoutTx},
         deposit::{DepositData, DepositTx},
+        sweep::{SweepData, SweepTx},
     },
 };
 use strata_predicate::PredicateKey;
@@ -148,6 +149,24 @@ fn test_cooperative_payout_tx() -> CooperativePayoutTx {
     )
 }
 
+fn test_sweep_tx() -> SweepTx {
+    let deposit_connector = NOfNConnector::new(
+        Network::Regtest,
+        generate_xonly_pubkey(),
+        TEST_DEPOSIT_AMOUNT,
+    );
+
+    SweepTx::new(
+        SweepData {
+            deposit_outpoint: OutPoint::new(Txid::all_zeros(), 1),
+        },
+        deposit_connector,
+        random_p2tr_desc(),
+        vec![generate_xonly_pubkey()],
+        TEST_SWEEP_FEE_RATE,
+    )
+}
+
 fn test_sm_config() -> SMConfig {
     SMConfig {
         deposit: Arc::new(DepositSMCfg {
@@ -157,6 +176,7 @@ fn test_sm_config() -> SMConfig {
             operator_fee: TEST_OPERATOR_FEE,
             magic_bytes: TEST_MAGIC_BYTES.into(),
             recovery_delay: TEST_RECOVERY_DELAY,
+            sweep_fee_rate: TEST_SWEEP_FEE_RATE,
         }),
         graph: Arc::new(test_graph_cfg()),
         stake: Arc::new(StakeSMCfg {
@@ -487,7 +507,27 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
             },
             no_duties.clone(),
         ),
-        ("Aborted", DepositState::Aborted, no_duties),
+        ("Aborted", DepositState::Aborted, no_duties.clone()),
+        (
+            "SweepNoncesPending",
+            DepositState::SweepNoncesPending {
+                last_block_height: 100,
+                sweep_tx: test_sweep_tx(),
+                sweep_nonces: BTreeMap::new(),
+            },
+            no_duties.clone(),
+        ),
+        (
+            "SweepNoncesCollected",
+            DepositState::SweepNoncesCollected {
+                last_block_height: 100,
+                sweep_tx: test_sweep_tx(),
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
+            },
+            no_duties,
+        ),
     ];
 
     for (state_name, state, expected_duties) in cases {
@@ -719,6 +759,24 @@ fn withdrawal_status_reports_each_deposit_state() {
             },
         ),
         ("Aborted", DepositState::Aborted),
+        (
+            "SweepNoncesPending",
+            DepositState::SweepNoncesPending {
+                last_block_height: 100,
+                sweep_tx: test_sweep_tx(),
+                sweep_nonces: BTreeMap::new(),
+            },
+        ),
+        (
+            "SweepNoncesCollected",
+            DepositState::SweepNoncesCollected {
+                last_block_height: 100,
+                sweep_tx: test_sweep_tx(),
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
+            },
+        ),
     ];
 
     for (state_name, state) in cases {

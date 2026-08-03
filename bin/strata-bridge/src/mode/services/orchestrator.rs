@@ -251,6 +251,10 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
     let deposit_amount = params.protocol.deposit_amount;
     let operator_fee = params.protocol.operator_fee;
 
+    // Fail fast on a mis-set sweep_fee_rate instead of panicking at sweep time.
+    strata_bridge_tx_graph::fee::sweep_payout_value(params.protocol.sweep_fee_rate, deposit_amount)
+        .expect("sweep_fee_rate must leave a sweep payout above dust");
+
     let deposit_config = DepositSMCfg {
         network,
         cooperative_payout_timeout_blocks: config.cooperative_payout_timeout as u64,
@@ -258,6 +262,7 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         operator_fee,
         magic_bytes,
         recovery_delay: params.protocol.recovery_delay,
+        sweep_fee_rate: params.protocol.sweep_fee_rate,
     };
 
     let game_graph_params = TxGraphProtocolParams {

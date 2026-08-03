@@ -128,6 +128,35 @@ mod tests {
         ]
     }
 
+    /// Sweep signing states.
+    fn sweep_states() -> Vec<DepositState> {
+        vec![
+            DepositState::SweepNoncesPending {
+                last_block_height: LATER_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_nonces: BTreeMap::new(),
+            },
+            DepositState::SweepNoncesCollected {
+                last_block_height: LATER_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
+            },
+        ]
+    }
+
+    /// States in which a deposit-outpoint spend must classify as `PayoutConfirmed`, i.e. the
+    /// states where `has_live_deposit_utxo()` holds.
+    fn live_deposit_utxo_states() -> Vec<DepositState> {
+        let mut states = vec![DepositState::Deposited {
+            last_block_height: LATER_BLOCK_HEIGHT,
+        }];
+        states.extend(payout_pending_states());
+        states.extend(sweep_states());
+        states
+    }
+
     /// One representative of every state variant.
     fn all_state_variants() -> Vec<DepositState> {
         let h = LATER_BLOCK_HEIGHT;
@@ -154,6 +183,7 @@ mod tests {
             payout_nonces: BTreeMap::new(),
         });
         states.extend(payout_pending_states());
+        states.extend(sweep_states());
         states.push(DepositState::Spent {
             fulfillment_txid: Some(generate_txid()),
             assignee: Some(TEST_ASSIGNEE),
@@ -219,9 +249,9 @@ mod tests {
     }
 
     #[test]
-    fn classify_tx_recognizes_payout_in_all_payout_pending_states() {
+    fn classify_tx_recognizes_deposit_spend_in_all_live_utxo_states() {
         let cfg = test_deposit_sm_cfg();
-        for state in payout_pending_states() {
+        for state in live_deposit_utxo_states() {
             let sm = create_sm(state);
             let payout_tx = test_payout_tx(sm.context().deposit_outpoint());
             let result = sm.classify_tx(&cfg, &payout_tx, LATER_BLOCK_HEIGHT);
@@ -322,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_tx_ignores_non_spending_tx_in_payout_states() {
+    fn classify_tx_ignores_non_spending_tx_in_live_utxo_states() {
         let cfg = test_deposit_sm_cfg();
         let random_outpoint = OutPoint {
             txid: generate_txid(),
@@ -330,7 +360,7 @@ mod tests {
         };
         let non_spending_tx = generate_spending_tx(random_outpoint, &[]);
 
-        for state in payout_pending_states() {
+        for state in live_deposit_utxo_states() {
             let sm = create_sm(state);
             let result = sm.classify_tx(&cfg, &non_spending_tx, LATER_BLOCK_HEIGHT);
             assert!(result.is_none(), "expected None but got {:?}", result);

@@ -27,7 +27,7 @@ use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
 use strata_bridge_tx_graph::{
     fee,
     transactions::prelude::{
-        CooperativePayoutTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
+        CooperativePayoutTx, SweepTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
     },
 };
 use tracing::{error, info, warn};
@@ -166,6 +166,57 @@ pub async fn execute_deposit_duty(
                 payout_coop_tx.clone(),
                 ordered_pubkeys,
                 *pov_operator_idx,
+            )
+            .await
+        }
+        DepositDuty::PublishSweepNonce {
+            deposit_idx,
+            deposit_outpoint,
+            ordered_pubkeys,
+            tweak,
+            sweep_sighash,
+        } => {
+            publish_sweep_nonce(
+                &output_handles,
+                *deposit_idx,
+                *deposit_outpoint,
+                ordered_pubkeys,
+                *tweak,
+                *sweep_sighash,
+            )
+            .await
+        }
+        DepositDuty::PublishSweepPartial {
+            deposit_idx,
+            deposit_outpoint,
+            sweep_sighash,
+            agg_nonce,
+            ordered_pubkeys,
+        } => {
+            publish_sweep_partial(
+                &output_handles,
+                *deposit_idx,
+                *deposit_outpoint,
+                *sweep_sighash,
+                agg_nonce.clone(),
+                ordered_pubkeys,
+            )
+            .await
+        }
+        DepositDuty::PublishSweep {
+            deposit_outpoint,
+            agg_nonce,
+            collected_partials,
+            sweep_tx,
+            ordered_pubkeys,
+        } => {
+            publish_sweep(
+                &output_handles,
+                *deposit_outpoint,
+                agg_nonce.clone(),
+                collected_partials.clone(),
+                sweep_tx.clone(),
+                ordered_pubkeys,
             )
             .await
         }
@@ -827,5 +878,152 @@ async fn publish_payout(
     .await?;
 
     info!(%txid, "cooperative payout transaction confirmed");
+    Ok(())
+}
+
+/// Publishes the operator's nonce for the safe-harbour sweep signing session.
+async fn publish_sweep_nonce(
+    output_handles: &OutputHandles,
+    deposit_idx: DepositIdx,
+    deposit_outpoint: OutPoint,
+    ordered_pubkeys: &[XOnlyPublicKey],
+    tweak: TaprootTweak,
+    sweep_sighash: Message,
+) -> Result<(), ExecutorError> {
+    info!(%deposit_outpoint, "generating sweep nonce");
+
+    // Create Musig2Params for key-path spend (n-of-n)
+    let params = Musig2Params {
+        ordered_pubkeys: ordered_pubkeys.to_vec(),
+        tweak,
+        sighash: *sweep_sighash.as_ref(),
+    };
+
+    // Generate nonce via secret service
+    let nonce: PubNonce = output_handles
+        .s2_client
+        .musig2_signer()
+        .get_pub_nonce(params)
+        .await?
+        .map_err(|_| ExecutorError::OurPubKeyNotInParams)?;
+
+    info!(%deposit_outpoint, %deposit_idx, "publishing sweep nonce");
+
+    // Broadcast via MessageHandler
+    output_handles
+        .msg_handler
+        .write()
+        .await
+        .send_sweep_nonce(deposit_idx, nonce, None)
+        .await;
+
+    info!(%deposit_outpoint, %deposit_idx, "published sweep nonce");
+    Ok(())
+}
+
+/// Publishes the operator's partial signature for the safe-harbour sweep signing session.
+///
+/// Unlike the cooperative payout, every operator executes this duty: the sweep round is
+/// symmetric, so no partial is withheld.
+async fn publish_sweep_partial(
+    output_handles: &OutputHandles,
+    deposit_idx: DepositIdx,
+    deposit_outpoint: OutPoint,
+    sweep_sighash: Message,
+    sweep_agg_nonce: AggNonce,
+    ordered_pubkeys: &[XOnlyPublicKey],
+) -> Result<(), ExecutorError> {
+    info!(%deposit_outpoint, "generating sweep partial");
+
+    // Create Musig2Params for key-path spend (n-of-n)
+    // Same params as nonce generation for deterministic nonce recovery
+    let params = Musig2Params {
+        ordered_pubkeys: ordered_pubkeys.to_vec(),
+        tweak: TaprootTweak::Key { tweak: None },
+        sighash: *sweep_sighash.as_ref(),
+    };
+
+    // Generate partial signature via secret service
+    let partial_sig: PartialSignature = output_handles
+        .s2_client
+        .musig2_signer()
+        .get_our_partial_sig(params, sweep_agg_nonce)
+        .await?
+        .map_err(|e| match e.to_enum() {
+            terrors::E2::A(_) => ExecutorError::OurPubKeyNotInParams,
+            terrors::E2::B(_) => ExecutorError::SelfVerifyFailed,
+        })?;
+
+    info!(%deposit_outpoint, %deposit_idx, "publishing sweep partial");
+
+    // Broadcast via MessageHandler
+    output_handles
+        .msg_handler
+        .write()
+        .await
+        .send_sweep_partial(deposit_idx, partial_sig, None)
+        .await;
+
+    info!(%deposit_outpoint, %deposit_idx, "published sweep partial");
+    Ok(())
+}
+
+/// Finalizes and broadcasts the safe-harbour sweep transaction to the Bitcoin network.
+///
+/// Every operator executes this duty with the full set of gossiped partials, so no further
+/// signing is needed: each operator aggregates and broadcasts the identical deterministic
+/// transaction, and duplicates are rejected as already-known by the network.
+async fn publish_sweep(
+    output_handles: &OutputHandles,
+    deposit_outpoint: OutPoint,
+    sweep_agg_nonce: AggNonce,
+    collected_partials: BTreeMap<OperatorIdx, PartialSignature>,
+    sweep_tx: Box<SweepTx>,
+    ordered_pubkeys: &[XOnlyPublicKey],
+) -> Result<(), ExecutorError> {
+    let txid = (*sweep_tx).as_ref().compute_txid();
+    info!(%deposit_outpoint, %txid, "signing sweep");
+
+    // Derive the sighash from the sweep transaction
+    let sweep_sighash = sweep_tx
+        .signing_info()
+        .first()
+        .expect("sweep transaction must have signing info")
+        .sighash;
+
+    // Extract partials in operator index order for deterministic aggregation
+    let ordered_partials: Vec<PartialSignature> = collected_partials.into_values().collect();
+
+    // Create key aggregation context with taproot tweak
+    let btc_keys: Vec<PublicKey> = ordered_pubkeys
+        .iter()
+        .map(|xonly| xonly.public_key(bitcoin::secp256k1::Parity::Even))
+        .collect();
+    let key_agg_ctx = create_agg_ctx(btc_keys, &TaprootTweak::Key { tweak: None })
+        .map_err(|e| ExecutorError::SignatureAggregationFailed(format!("key agg failed: {e}")))?;
+
+    // Aggregate all partial signatures into final Schnorr signature
+    let agg_signature: schnorr::Signature = aggregate_partial_signatures(
+        &key_agg_ctx,
+        &sweep_agg_nonce,
+        ordered_partials,
+        sweep_sighash.as_ref(),
+    )
+    .map_err(|e| ExecutorError::SignatureAggregationFailed(format!("{e}")))?;
+
+    // Finalize the transaction using SweepTx.finalize()
+    let finalized_tx = (*sweep_tx).finalize(agg_signature);
+
+    info!(%txid, "broadcasting sweep transaction");
+
+    publish_signed_transaction(
+        &output_handles.tx_driver,
+        &finalized_tx,
+        "sweep",
+        TxStatus::is_buried,
+    )
+    .await?;
+
+    info!(%txid, "sweep transaction confirmed");
     Ok(())
 }

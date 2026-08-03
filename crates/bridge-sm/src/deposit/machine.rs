@@ -85,6 +85,19 @@ impl StateMachine for DepositSM {
             DepositEvent::PayoutConfirmed(payout_confirmed) => {
                 self.process_payout_confirmed(&payout_confirmed)
             }
+            DepositEvent::SweepRequested(sweep_request) => {
+                self.process_sweep_request(cfg, sweep_request)
+            }
+            DepositEvent::SweepNonceReceived(sweep_nonce) => {
+                let event = DepositEvent::SweepNonceReceived(sweep_nonce.clone());
+                self.process_sweep_nonce_received(sweep_nonce)
+                    .map_err(|err| soften_peer_event_error(event, err))
+            }
+            DepositEvent::SweepPartialReceived(sweep_partial) => {
+                let event = DepositEvent::SweepPartialReceived(sweep_partial.clone());
+                self.process_sweep_partial_received(sweep_partial)
+                    .map_err(|err| soften_peer_event_error(event, err))
+            }
             DepositEvent::NewBlock(new_block) => self.process_new_block(new_block),
             DepositEvent::RetryTick(_) => self.process_retry_tick(cfg),
             DepositEvent::NagTick(_) => self.process_nag_tick(cfg),

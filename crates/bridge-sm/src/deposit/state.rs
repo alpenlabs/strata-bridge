@@ -11,7 +11,10 @@ use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
-use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CooperativePayoutTx};
+use strata_bridge_tx_graph::transactions::{
+    deposit::DepositTx,
+    prelude::{CooperativePayoutTx, SweepTx},
+};
 
 /// The state of a Deposit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +175,30 @@ pub enum DepositState {
         /// The height of the latest block that this state machine is aware of.
         last_block_height: u64,
     },
+    /// This state represents the phase where the safe-harbour sweep has been initiated and the
+    /// sweep pubnonces are being collected.
+    SweepNoncesPending {
+        /// The last block height observed by this state machine.
+        last_block_height: BitcoinBlockHeight,
+        /// The sweep transaction paying the frozen safe-harbour descriptor.
+        sweep_tx: SweepTx,
+        /// The pubnonces, indexed by operator, required to sign the sweep transaction.
+        sweep_nonces: BTreeMap<OperatorIdx, PubNonce>,
+    },
+    /// This state indicates that all pubnonces required for the sweep have been collected and
+    /// partial signatures are being collected from *every* operator.
+    SweepNoncesCollected {
+        /// The last block height observed by this state machine.
+        last_block_height: BitcoinBlockHeight,
+        /// The sweep transaction paying the frozen safe-harbour descriptor.
+        sweep_tx: SweepTx,
+        /// The aggregated nonce for signing the sweep transaction.
+        sweep_agg_nonce: AggNonce,
+        /// The pubnonces, indexed by operator, required to sign the sweep transaction.
+        sweep_nonces: BTreeMap<OperatorIdx, PubNonce>,
+        /// The partial signatures, indexed by operator, for signing the sweep transaction.
+        sweep_partials: BTreeMap<OperatorIdx, PartialSignature>,
+    },
     /// This represents the terminal state where the deposit has been spent.
     Spent {
         /// The txid of the fulfillment transaction, if known.
@@ -199,6 +226,8 @@ impl Display for DepositState {
             DepositState::PayoutDescriptorReceived { .. } => "PayoutDescriptorReceived".to_string(),
             DepositState::PayoutNoncesCollected { .. } => "PayoutNoncesCollected".to_string(),
             DepositState::CooperativePathFailed { .. } => "CooperativePathFailed".to_string(),
+            DepositState::SweepNoncesPending { .. } => "SweepNoncesPending".to_string(),
+            DepositState::SweepNoncesCollected { .. } => "SweepNoncesCollected".to_string(),
             DepositState::Spent { .. } => "Spent".to_string(),
             DepositState::Aborted => "Aborted".to_string(),
         };
@@ -261,11 +290,35 @@ impl DepositState {
             | DepositState::CooperativePathFailed {
                 last_block_height: block_height,
                 ..
+            }
+            | DepositState::SweepNoncesPending {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::SweepNoncesCollected {
+                last_block_height: block_height,
+                ..
             } => Some(block_height),
             DepositState::Spent { .. } | DepositState::Aborted => {
                 // Terminal states do not track block height
                 None
             }
         }
+    }
+
+    /// Whether the deposit outpoint is confirmed on chain and still unspent from this state
+    /// machine's perspective, i.e. the states in which a transaction spending it may be observed.
+    ///
+    /// NOTE: `Assigned`, `Fulfilled` and `PayoutDescriptorReceived` also hold a live deposit
+    /// UTXO but are excluded until the sweep of assigned deposits is implemented.
+    pub const fn has_live_deposit_utxo(&self) -> bool {
+        matches!(
+            self,
+            DepositState::Deposited { .. }
+                | DepositState::PayoutNoncesCollected { .. }
+                | DepositState::CooperativePathFailed { .. }
+                | DepositState::SweepNoncesPending { .. }
+                | DepositState::SweepNoncesCollected { .. }
+        )
     }
 }

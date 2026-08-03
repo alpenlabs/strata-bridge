@@ -412,7 +412,7 @@ mod tests {
     use std::{collections::BTreeMap, num::NonZero, sync::OnceLock};
 
     use bitcoin::{
-        TapSighashType,
+        Network, TapSighashType,
         hashes::{Hash, sha256},
         taproot,
     };
@@ -421,6 +421,7 @@ mod tests {
         Keypair, Message, SECP256K1,
         rand::{random, thread_rng},
     };
+    use strata_bridge_connectors::n_of_n::NOfNConnector;
     use strata_bridge_primitives::{
         operator_table::{OperatorTable, prop_test_generators::arb_operator_table},
         types::{DepositIdx, OperatorIdx},
@@ -436,10 +437,12 @@ mod tests {
     use strata_bridge_test_utils::{
         arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid},
         bitcoin::{generate_tx, generate_xonly_pubkey},
+        bridge_fixtures::{TEST_DEPOSIT_AMOUNT, TEST_SWEEP_FEE_RATE, random_p2tr_desc},
         prelude::generate_txid,
     };
-    use strata_bridge_tx_graph::game_graph::{
-        CounterproofGraphSummary, DepositParams, GameGraphSummary,
+    use strata_bridge_tx_graph::{
+        game_graph::{CounterproofGraphSummary, DepositParams, GameGraphSummary},
+        transactions::sweep::{SweepData, SweepTx},
     };
 
     use super::*;
@@ -509,6 +512,22 @@ mod tests {
             },
             state,
         }
+    }
+
+    /// Builds a [`SweepTx`] for exercising the round-trip of the Psbt-carrying sweep states.
+    fn make_sweep_tx(deposit_outpoint: OutPoint) -> SweepTx {
+        let deposit_connector = NOfNConnector::new(
+            Network::Regtest,
+            generate_xonly_pubkey(),
+            TEST_DEPOSIT_AMOUNT,
+        );
+        SweepTx::new(
+            SweepData { deposit_outpoint },
+            deposit_connector,
+            random_p2tr_desc(),
+            vec![generate_xonly_pubkey()],
+            TEST_SWEEP_FEE_RATE,
+        )
     }
 
     /// Builds a [`StakeSM`] for the given operator from the operator table and state.
@@ -604,7 +623,7 @@ mod tests {
         fn deposit_state_roundtrip(
             deposit_idx in any::<DepositIdx>(),
             last_block_height in any::<u64>(),
-            variant_selector in 0u8..4,
+            variant_selector in 0u8..5,
             outpoint in arb_outpoint(),
             operator_table in arb_operator_table(),
         ) {
@@ -617,6 +636,12 @@ mod tests {
                 2 => DepositState::Spent {
                     fulfillment_txid: Some(generate_txid()),
                     assignee: Some(0),
+                },
+                // exercises the postcard round-trip of a Psbt-carrying variant
+                3 => DepositState::SweepNoncesPending {
+                    last_block_height,
+                    sweep_tx: make_sweep_tx(outpoint),
+                    sweep_nonces: BTreeMap::new(),
                 },
                 _ => DepositState::Aborted,
             };

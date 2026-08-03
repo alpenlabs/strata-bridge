@@ -23,6 +23,7 @@ default = ["fdb"]
 fdb = ["foundationdb", "serde"]
 
 [dev-dependencies]
+strata-bridge-connectors.workspace = true
 strata-bridge-test-utils.workspace = true
 strata-bridge-tx-graph.workspace = true
 

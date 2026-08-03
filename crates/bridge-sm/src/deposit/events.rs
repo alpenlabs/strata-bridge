@@ -103,6 +103,33 @@ pub struct PayoutConfirmedEvent {
     pub tx: Transaction,
 }
 
+/// Event requesting that this deposit be swept to the frozen safe-harbour descriptor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SweepRequestedEvent {
+    /// The frozen safe-harbour descriptor that the sweep pays out to.
+    pub safe_harbour_desc: Descriptor,
+}
+
+/// Event notifying that a pubnonce from some operator for the sweep transaction has been
+/// received.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SweepNonceReceivedEvent {
+    /// The pubnonce for the sweep transaction that was received.
+    pub sweep_nonce: PubNonce,
+    /// The operator who sent the pubnonce.
+    pub operator_idx: OperatorIdx,
+}
+
+/// Event notifying that a partial signature from some operator for the sweep transaction has
+/// been received.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SweepPartialReceivedEvent {
+    /// The partial signature for the sweep transaction that was received.
+    pub partial_signature: PartialSignature,
+    /// The operator who sent the partial signature.
+    pub operator_idx: OperatorIdx,
+}
+
 /// Event signalling that a new block has been observed on chain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewBlockEvent {
@@ -157,6 +184,14 @@ pub enum DepositEvent {
     PayoutPartialReceived(PayoutPartialReceivedEvent),
     /// This event notifies that a payout has been confirmed.
     PayoutConfirmed(PayoutConfirmedEvent),
+    /// This event requests that this deposit be swept to the frozen safe-harbour descriptor.
+    SweepRequested(SweepRequestedEvent),
+    /// This event notifies that a pubnonce from some operator for the sweep transaction has been
+    /// received.
+    SweepNonceReceived(SweepNonceReceivedEvent),
+    /// This event notifies that a partial signature from some operator for the sweep transaction
+    /// has been received.
+    SweepPartialReceived(SweepPartialReceivedEvent),
     /// Event signalling that a new block has been observed on chain.
     ///
     /// This is required to deal with timelocks in various states and to track the last observed
@@ -184,6 +219,9 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::PayoutNonceReceived(event) => write!(f, "{}", event),
             DepositEvent::PayoutPartialReceived(event) => write!(f, "{}", event),
             DepositEvent::PayoutConfirmed(event) => write!(f, "{}", event),
+            DepositEvent::SweepRequested(event) => write!(f, "{}", event),
+            DepositEvent::SweepNonceReceived(event) => write!(f, "{}", event),
+            DepositEvent::SweepPartialReceived(event) => write!(f, "{}", event),
             DepositEvent::NewBlock(event) => write!(f, "{}", event),
             DepositEvent::RetryTick(event) => write!(f, "{}", event),
             DepositEvent::NagTick(event) => write!(f, "{}", event),
@@ -256,6 +294,32 @@ impl std::fmt::Display for PayoutConfirmedEvent {
     }
 }
 
+impl std::fmt::Display for SweepRequestedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SweepRequested")
+    }
+}
+
+impl std::fmt::Display for SweepNonceReceivedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SweepNonceReceived from operator_idx: {}",
+            self.operator_idx
+        )
+    }
+}
+
+impl std::fmt::Display for SweepPartialReceivedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SweepPartialReceived from operator_idx: {}",
+            self.operator_idx
+        )
+    }
+}
+
 impl std::fmt::Display for NewBlockEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "NewBlock at height {}", self.block_height)
@@ -310,6 +374,9 @@ impl_into_deposit_event!(PayoutDescriptorReceivedEvent, PayoutDescriptorReceived
 impl_into_deposit_event!(PayoutNonceReceivedEvent, PayoutNonceReceived);
 impl_into_deposit_event!(PayoutPartialReceivedEvent, PayoutPartialReceived);
 impl_into_deposit_event!(PayoutConfirmedEvent, PayoutConfirmed);
+impl_into_deposit_event!(SweepRequestedEvent, SweepRequested);
+impl_into_deposit_event!(SweepNonceReceivedEvent, SweepNonceReceived);
+impl_into_deposit_event!(SweepPartialReceivedEvent, SweepPartialReceived);
 impl_into_deposit_event!(NewBlockEvent, NewBlock);
 impl_into_deposit_event!(RetryTickEvent, RetryTick);
 impl_into_deposit_event!(NagTickEvent, NagTick);
