@@ -12,8 +12,39 @@ permissions:
   contents: read
 
 jobs:
-  supply-chain:
+  cargo-audit-setup:
+    name: Install cargo-audit
     runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@b550161ef8a7bc4f2a671c0b03a18ac9ccedea1e # v2.79.1
+        with:
+          tool: cargo-audit@0.22.2
+
+      - name: Stage cargo-audit binary
+        run: cp "$(command -v cargo-audit)" "${RUNNER_TEMP}/cargo-audit"
+
+      - name: Upload cargo-audit binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cargo-audit
+          path: ${{ runner.temp }}/cargo-audit
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
+
+  supply-chain:
+    name: RustSec audit (${{ matrix.lockfile }})
+    needs: cargo-audit-setup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lockfile:
+          - Cargo.lock
+          - guest-builder/sp1/guest-bridge-proof/Cargo.lock
+          - guest-builder/sp1/guest-counterproof/Cargo.lock
     permissions:
       checks: write
       contents: read
@@ -23,13 +54,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install cargo-audit
-        uses: taiki-e/install-action@b550161ef8a7bc4f2a671c0b03a18ac9ccedea1e # v2.79.1
+      - name: Download cargo-audit binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          tool: cargo-audit@0.22.2
+          name: cargo-audit
+          path: ${{ runner.temp }}/cargo-audit
 
-      - name: Run security audit
-        run: cargo audit --no-yanked
+      - name: Audit lockfile
+        run: |
+          chmod +x "${CARGO_AUDIT_BIN}"
+          "${CARGO_AUDIT_BIN}" audit --no-yanked --file "${LOCKFILE}"
+        env:
+          CARGO_AUDIT_BIN: ${{ runner.temp }}/cargo-audit/cargo-audit
+          LOCKFILE: ${{ matrix.lockfile }}
 
   trivy-cargo:
     name: Trivy Cargo.lock scan
