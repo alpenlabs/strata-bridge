@@ -176,6 +176,7 @@ pub async fn execute_graph_duty(
         }
         GraphDuty::PotentialCounterProof {
             graph_idx,
+            last_block_height,
             game_index,
             counterproof_tx,
             n_of_n_signature,
@@ -190,6 +191,7 @@ pub async fn execute_graph_duty(
                 graph_idx.operator,
                 graph_idx.deposit,
                 *game_index,
+                *last_block_height,
                 *n_of_n_signature,
                 proof.clone(),
                 bridge_proof_tx.clone(),

@@ -114,6 +114,7 @@ impl GraphSM {
                 }]
             }
             GraphState::BridgeProofPosted {
+                last_block_height,
                 graph_data,
                 signatures,
                 proof,
@@ -126,6 +127,7 @@ impl GraphSM {
                     &cfg,
                     graph_data,
                     signatures,
+                    *last_block_height,
                     proof,
                     bridge_proof_tx,
                     RetryTickEvent.into(),
@@ -202,6 +204,7 @@ impl GraphSM {
                             &cfg,
                             graph_data,
                             signatures,
+                            *last_block_height,
                             proof,
                             bridge_proof_tx,
                             RetryTickEvent.into(),

@@ -26,7 +26,7 @@ use musig2::secp256k1::schnorr::Signature;
 use secp256k1::SecretKey;
 use strata_bridge_primitives::{
     secp::EvenSecretKey,
-    types::{GraphIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, GraphIdx, OperatorIdx},
 };
 use strata_bridge_test_utils::{
     bitcoin::{generate_spending_tx, generate_xonly_pubkey},
@@ -464,6 +464,7 @@ pub(super) fn expected_potential_counterproof_duty(
     cfg: &GraphSMCfg,
     sm: &GraphSM,
     signatures: &[Signature],
+    last_block_height: BitcoinBlockHeight,
     proof: &ProofReceipt,
     bridge_proof_tx: &Transaction,
 ) -> GraphDuty {
@@ -482,6 +483,7 @@ pub(super) fn expected_potential_counterproof_duty(
 
     GraphDuty::PotentialCounterProof {
         graph_idx: sm.context().graph_idx(),
+        last_block_height,
         game_index: graph_data.game_index,
         counterproof_tx: game_graph.counterproofs[watchtower_idx]
             .counterproof

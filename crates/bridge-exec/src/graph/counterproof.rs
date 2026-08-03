@@ -19,7 +19,7 @@ use strata_bridge_counterproof::{
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     proof::verify_bridge_proof,
-    types::{DepositIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_proof::{
     BridgeProofOutput, MerkleProofB32, MohoRecursiveOutput, MohoState, RecursiveMohoProof,
@@ -49,6 +49,7 @@ pub(super) async fn evaluate_and_publish_counterproof(
     operator_idx: OperatorIdx,
     deposit_idx: DepositIdx,
     game_index: NonZero<u32>,
+    last_block_height: BitcoinBlockHeight,
     n_of_n_signature: Signature,
     proof: ProofReceipt,
     bridge_proof_tx: Transaction,
@@ -57,8 +58,14 @@ pub(super) async fn evaluate_and_publish_counterproof(
     info!(%deposit_idx, %operator_idx, %game_index, "evaluating potential counterproof for graph");
 
     let mode = if verify_bridge_proof(&cfg.graph_sm_cfg.bridge_proof_predicate, &proof) {
-        let Some(heavier_chain_proof) =
-            detect_heavier_chain(output_handles, deposit_idx, operator_idx, &proof).await?
+        let Some(heavier_chain_proof) = detect_heavier_chain(
+            output_handles,
+            deposit_idx,
+            operator_idx,
+            last_block_height,
+            &proof,
+        )
+        .await?
         else {
             info!(
                 %deposit_idx,
@@ -333,6 +340,7 @@ async fn detect_heavier_chain(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
+    last_block_height: BitcoinBlockHeight,
     proof: &ProofReceipt,
 ) -> Result<Option<HeavierChainProof>, ExecutorError> {
     let operator_commitment = BridgeProofOutput::from_ssz_bytes(proof.public_values().as_bytes())
@@ -340,7 +348,8 @@ async fn detect_heavier_chain(
         ExecutorError::InvalidTxStructure(format!("decode bridge proof output ssz: {e:?}"))
     })?;
 
-    let (anchor_hash, moho_state) = fetch_canonical_moho_state(output_handles).await?;
+    let (anchor_hash, moho_state) =
+        fetch_canonical_moho_state(output_handles, last_block_height).await?;
 
     let container = moho_state
         .export_state()
@@ -351,97 +360,96 @@ async fn detect_heavier_chain(
             ExecutorError::AsmRpcErr("moho state missing bridge-v1 export container".to_string())
         })?;
 
-    // The operator's claim is consistent with our view; nothing to challenge.
-    if is_claim_in_canonical_chain(output_handles, anchor_hash, &operator_commitment).await? {
-        return Ok(None);
-    }
-
-    let is_heavier = pow_gt(container.extra_data(), &operator_commitment.total_pow);
-    if !is_heavier {
+    // Skip the challenge if the canonical chain has less PoW than the claimant's chain.
+    if !pow_gt(container.extra_data(), &operator_commitment.total_pow) {
         warn!(
             %deposit_idx,
             %operator_idx,
-            "operator claim unlock not in our chain but our chain is not heavier; cannot challenge",
+            "canonical chain is not heavier than the operator chain; cannot challenge",
         );
         return Ok(None);
     }
+
+    let claim_unlock = OperatorClaimUnlock::new(deposit_idx, operator_idx);
+    let inclusion_proof = if container.entries_mmr().num_entries() <= operator_commitment.mmr_idx {
+        // The guest ignores the claim unlock and its inclusion proof when the
+        // operator's committed index is out of bounds on the canonical chain.
+        MerkleProofB32::new_zero()
+    } else {
+        let inclusion_proof =
+            fetch_canonical_inclusion_proof(output_handles, anchor_hash, &claim_unlock)
+                .await?
+                .filter(|proof| proof.index() == operator_commitment.mmr_idx);
+        let Some(inclusion_proof) = inclusion_proof else {
+            return Err(ExecutorError::AsmRpcErr(format!(
+                "canonical MMR entry unavailable at index {} (deposit {deposit_idx}, operator {operator_idx})",
+                operator_commitment.mmr_idx
+            )));
+        };
+
+        // The canonical chain agrees with the operator's commitment; nothing to challenge.
+        if claim_unlock.compute_hash() == hash::raw(&operator_commitment.claim_unlock).0 {
+            return Ok(None);
+        }
+
+        inclusion_proof
+    };
 
     let moho_proof = fetch_moho_proof(output_handles, anchor_hash).await?;
     Ok(Some(HeavierChainProof::new(
         moho_state,
         moho_proof,
-        OperatorClaimUnlock::new(deposit_idx, operator_idx),
-        MerkleProofB32::new_zero(),
+        claim_unlock,
+        inclusion_proof,
     )))
 }
 
-/// How far below our Bitcoin tip to search for a block the ASM has already proven.
-const PROVEN_ANCHOR_LOOKBACK: u64 = 24;
-
-/// Resolves the newest canonical block the ASM has both derived and proven, walking back from
-/// our current Bitcoin tip, and fetches the decoded [`MohoState`] at it.
-///
-/// The proof orchestrator lags the tip, so the tip itself usually has no Moho proof yet; the
-/// heavier-chain witness needs a block with both.
+/// Resolves the canonical block hash at the given anchor height and fetches the decoded
+/// [`MohoState`] at it.
 async fn fetch_canonical_moho_state(
     output_handles: &OutputHandles,
+    last_block_height: BitcoinBlockHeight,
 ) -> Result<(bitcoin::BlockHash, MohoState), ExecutorError> {
-    let tip_height = output_handles.bitcoind_rpc_client.get_block_count().await?;
-    let asm = &output_handles.asm_rpc_client;
+    let block_hash = output_handles
+        .bitcoind_rpc_client
+        .get_block_hash(last_block_height)
+        .await?;
+    let moho_state_bytes = output_handles
+        .asm_rpc_client
+        .get_moho_state(block_hash)
+        .await
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_state: {e}")))?
+        .ok_or_else(|| {
+            ExecutorError::AsmRpcErr(format!("moho state unavailable at {block_hash}"))
+        })?;
+    let moho_state = MohoState::from_ssz_bytes(&moho_state_bytes)
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("decode moho_state ssz: {e:?}")))?;
 
-    for height in (tip_height.saturating_sub(PROVEN_ANCHOR_LOOKBACK)..=tip_height).rev() {
-        let block_hash = output_handles
-            .bitcoind_rpc_client
-            .get_block_hash(height)
-            .await?;
-        let proven = asm
-            .get_moho_proof(block_hash)
-            .await
-            .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_proof: {e}")))?
-            .is_some();
-        if !proven {
-            continue;
-        }
-
-        let moho_state_bytes = asm
-            .get_moho_state(block_hash)
-            .await
-            .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_state: {e}")))?
-            .ok_or_else(|| {
-                ExecutorError::AsmRpcErr(format!("moho state unavailable at {block_hash}"))
-            })?;
-        let moho_state = MohoState::from_ssz_bytes(&moho_state_bytes)
-            .map_err(|e| ExecutorError::AsmRpcErr(format!("decode moho_state ssz: {e:?}")))?;
-
-        return Ok((block_hash, moho_state));
-    }
-
-    Err(ExecutorError::AsmRpcErr(format!(
-        "no proven moho state within {PROVEN_ANCHOR_LOOKBACK} blocks of tip {tip_height}"
-    )))
+    Ok((block_hash, moho_state))
 }
 
-/// Checks whether the operator's committed claim unlock is included in our canonical chain at
-/// the committed MMR index, i.e. the operator's claim is consistent with our view.
-async fn is_claim_in_canonical_chain(
+/// Fetches the inclusion proof for the given claim unlock in the canonical export MMR.
+async fn fetch_canonical_inclusion_proof(
     output_handles: &OutputHandles,
     anchor_hash: bitcoin::BlockHash,
-    operator_commitment: &BridgeProofOutput,
-) -> Result<bool, ExecutorError> {
-    let claim_leaf = hash::raw(&operator_commitment.claim_unlock).0;
-    // `None` means the leaf is not in our chain at all.
-    let Some(inclusion_bytes) = output_handles
+    claim_unlock: &OperatorClaimUnlock,
+) -> Result<Option<MerkleProofB32>, ExecutorError> {
+    let inclusion_bytes = output_handles
         .asm_rpc_client
-        .get_export_entry_mmr_proof(anchor_hash, BRIDGE_V1_SUBPROTOCOL_ID, claim_leaf.to_vec())
+        .get_export_entry_mmr_proof(
+            anchor_hash,
+            BRIDGE_V1_SUBPROTOCOL_ID,
+            claim_unlock.compute_hash().to_vec(),
+        )
         .await
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_export_entry_mmr_proof: {e}")))?
-    else {
-        return Ok(false);
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_export_entry_mmr_proof: {e}")))?;
+    let Some(inclusion_bytes) = inclusion_bytes else {
+        return Ok(None);
     };
 
     let inclusion_proof = MerkleProofB32::from_ssz_bytes(&inclusion_bytes)
         .map_err(|e| ExecutorError::AsmRpcErr(format!("decode mmr proof ssz: {e:?}")))?;
-    Ok(inclusion_proof.index() == operator_commitment.mmr_idx)
+    Ok(Some(inclusion_proof))
 }
 
 /// Fetches the recursive Moho proof for `block_hash` from the ASM and rebuilds the
@@ -487,8 +495,9 @@ fn counterproof_operator_keys(
 #[cfg(test)]
 mod tests {
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
+    use strata_codec::encode_to_vec;
 
-    use super::counterproof_operator_keys;
+    use super::*;
 
     #[test]
     fn counterproof_keys_use_supplied_operator_table_snapshot() {
@@ -507,5 +516,12 @@ mod tests {
             historical_aggregate_key, later_aggregate_key,
             "aggregate key must come from the supplied table snapshot"
         );
+    }
+
+    #[test]
+    fn claim_unlock_compute_hash_matches_raw_hash_of_codec_encoding() {
+        let claim_unlock = OperatorClaimUnlock::new(7, 2);
+        let committed_bytes = encode_to_vec(&claim_unlock).expect("claim unlock must encode");
+        assert_eq!(claim_unlock.compute_hash(), hash::raw(&committed_bytes).0);
     }
 }

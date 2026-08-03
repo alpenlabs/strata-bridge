@@ -106,10 +106,6 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 claim_unlock_inclusion_proof: heavier_inclusion_proof,
             } = heavier_chain_proof;
 
-            let heavier_claim_unlock =
-                decode_buf_exact::<OperatorClaimUnlock>(&heavier_claim_unlock)
-                    .expect("invalid heavier chain: invalid claim unlock encoding");
-
             let (total_pow, bridge_proof_claim_unlock, mmr_idx) = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
                 .ok()
                 .and_then(|output| {
@@ -147,23 +143,20 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
             // than the operator chain, which means that there are fake
             // claim unlocks on the operator chain.
             //
-            // In this case, `heavier_claim_unlock` is unrestricted,
-            // because membership in the heavier chain is not checked.
-            // For example, if the heavier chain has no claim unlocks,
-            // then we can use a dummy value.
+            // The claim unlock and its inclusion proof are ignored in this case.
             if heavier_bridge_container.entries_mmr().num_entries() <= mmr_idx {
                 break 'heavier_chain;
             }
+
+            let heavier_claim_unlock =
+                decode_buf_exact::<OperatorClaimUnlock>(&heavier_claim_unlock)
+                    .expect("invalid heavier chain: invalid claim unlock encoding");
 
             // Fail if `heavier_claim_unlock` is not at index `mmr_idx`.
             if heavier_inclusion_proof.index != mmr_idx {
                 panic!("invalid heavier chain: claim unlock index must match bridge proof")
             }
 
-            // Fail if `heavier_claim_unlock` is not included in `heavier_moho_state`.
-            //
-            // This has to be done after `mmr_idx` is checked for bounds.
-            // If `mmr_idx` is out of bounds, then ANY `heavier_inclusion_proof` is accepted.
             verify_claim_unlock_inclusion(
                 &heavier_claim_unlock,
                 heavier_bridge_container,
@@ -944,7 +937,6 @@ mod tests {
                 heavier_moho_state,
                 heavier_moho_proof,
                 HEAVIER_CHAIN_CLAIM_UNLOCK.clone(),
-                // dummy inclusion proof: don't care
                 MerkleProofB32::new_zero(),
             ));
 

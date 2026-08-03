@@ -437,24 +437,33 @@ mod tests {
         sm: &GraphSM,
         state: &GraphState,
     ) -> GraphDuty {
-        let (signatures, proof, bridge_proof_tx) = match state {
+        let (signatures, last_block_height, proof, bridge_proof_tx) = match state {
             GraphState::BridgeProofPosted {
+                last_block_height,
                 signatures,
                 proof,
                 bridge_proof_tx,
                 ..
-            } => (signatures, proof, bridge_proof_tx),
+            } => (signatures, *last_block_height, proof, bridge_proof_tx),
             GraphState::CounterProofPosted {
+                last_block_height,
                 signatures,
                 refuted_bridge_proof: Some((bridge_proof_tx, proof)),
                 ..
-            } => (signatures, proof, bridge_proof_tx),
+            } => (signatures, *last_block_height, proof, bridge_proof_tx),
             _ => panic!(
                 "expected BridgeProofPosted or CounterProofPosted with refuted_bridge_proof present"
             ),
         };
 
-        expected_potential_counterproof_duty(cfg, sm, signatures, proof, bridge_proof_tx)
+        expected_potential_counterproof_duty(
+            cfg,
+            sm,
+            signatures,
+            last_block_height,
+            proof,
+            bridge_proof_tx,
+        )
     }
 
     fn expected_counterproof_nack_duty(
