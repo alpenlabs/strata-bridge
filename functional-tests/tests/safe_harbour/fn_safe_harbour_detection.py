@@ -22,6 +22,7 @@ import flexitest
 
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
+from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.common.asm_params import DEFAULT_SAFE_HARBOUR_ADDRESS
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.dev_cli import DevCli
@@ -33,7 +34,11 @@ class SafeHarbourDetectionTest(StrataTestBase):
     """Every operator must latch a safe-harbour activation and recover it across restarts."""
 
     def __init__(self, ctx: flexitest.InitContext):
-        ctx.set_env(BridgeNetworkEnv())
+        # Dev mode: non-dev startup runs consistency checks that fetch ASM params
+        # before the RPC server comes up, so the restart-with-ASM-down phase below
+        # would block the operator from booting. Those checks are orthogonal to
+        # safe-harbour detection.
+        ctx.set_env(BridgeNetworkEnv(bridge_config_params=BridgeConfigParams(dev=True)))
 
     def main(self, ctx: flexitest.RunContext):
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
