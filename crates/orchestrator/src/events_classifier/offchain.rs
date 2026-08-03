@@ -336,11 +336,29 @@ pub(crate) fn classify_unsigned_gossip(
                 })
                 .collect(),
 
-            // TODO(STR-3937): classify into the deposit SM's sweep event once it exists.
-            MuSig2Nonce::Sweep { deposit_idx, .. } => {
-                warn!(%deposit_idx, "sweep nonces are not supported yet, discarding message");
-                Vec::new()
-            }
+            MuSig2Nonce::Sweep { deposit_idx, nonce } => sm_registry
+                .lookup_operator(&SMId::Deposit(*deposit_idx), key)
+                .into_iter()
+                .filter_map(|op_idx| {
+                    PubNonce::try_from(*nonce)
+                        .inspect_err(|_| {
+                            warn!(
+                                %deposit_idx, %op_idx,
+                                "Received invalid sweep nonce, discarding message"
+                            )
+                        })
+                        .ok()
+                        .map(|pubnonce| {
+                            DepositEvent::SweepNonceReceived(
+                                DepositEvents::SweepNonceReceivedEvent {
+                                    sweep_nonce: pubnonce,
+                                    operator_idx: op_idx,
+                                },
+                            )
+                            .into()
+                        })
+                })
+                .collect(),
         },
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => {
             match musig2_partial {
@@ -463,11 +481,32 @@ pub(crate) fn classify_unsigned_gossip(
                     })
                     .collect(),
 
-                // TODO(STR-3937): classify into the deposit SM's sweep event once it exists.
-                MuSig2Partial::Sweep { deposit_idx, .. } => {
-                    warn!(%deposit_idx, "sweep partials are not supported yet, discarding message");
-                    Vec::new()
-                }
+                MuSig2Partial::Sweep {
+                    deposit_idx,
+                    partial,
+                } => sm_registry
+                    .lookup_operator(&SMId::Deposit(*deposit_idx), key)
+                    .into_iter()
+                    .filter_map(|op_idx| {
+                        PartialSignature::try_from(*partial)
+                            .inspect_err(|_| {
+                                warn!(
+                                    %deposit_idx, %op_idx,
+                                    "Received invalid sweep partial signature, discarding message"
+                                )
+                            })
+                            .ok()
+                            .map(|partial_sig| {
+                                DepositEvent::SweepPartialReceived(
+                                    DepositEvents::SweepPartialReceivedEvent {
+                                        partial_signature: partial_sig,
+                                        operator_idx: op_idx,
+                                    },
+                                )
+                                .into()
+                            })
+                    })
+                    .collect(),
             }
         }
 
@@ -662,11 +701,15 @@ mod tests {
     use strata_bridge_primitives::types::{
         BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey,
     };
-    use strata_bridge_test_utils::bitcoin::generate_xonly_pubkey;
+    use strata_bridge_test_utils::{
+        bitcoin::generate_xonly_pubkey,
+        musig2::{generate_partial_signature, generate_pubnonce},
+    };
 
     use super::*;
     use crate::testing::{
-        insert_deposit_with_graphs, random_p2tr_desc, test_empty_registry, test_populated_registry,
+        TEST_POV_IDX, insert_deposit_with_graphs, random_p2tr_desc, test_empty_registry,
+        test_populated_registry,
     };
 
     // ===== classify_assignment tests =====
@@ -970,6 +1013,144 @@ mod tests {
         assert!(
             events.is_empty(),
             "should reject payout descriptor with sender/operator mismatch"
+        );
+    }
+
+    // ===== sweep nonce/partial classification tests =====
+
+    fn sweep_nonce_msg(deposit_idx: DepositIdx) -> UnsignedGossipsubMsg {
+        UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Sweep {
+            deposit_idx,
+            nonce: generate_pubnonce().into(),
+        })
+    }
+
+    fn sweep_partial_msg(deposit_idx: DepositIdx) -> UnsignedGossipsubMsg {
+        UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Sweep {
+            deposit_idx,
+            partial: generate_partial_signature().into(),
+        })
+    }
+
+    /// Helper: the P2P key of the given operator in the populated test registry.
+    fn p2p_key_of(registry: &SMRegistry, operator_idx: OperatorIdx) -> P2POperatorPubKey {
+        registry
+            .get_deposit(&0)
+            .expect("deposit exists")
+            .context()
+            .operator_table()
+            .idx_to_p2p_key(&operator_idx)
+            .expect("operator exists")
+            .clone()
+    }
+
+    #[test]
+    fn classify_sweep_nonce_accepts_known_peer() {
+        let registry = test_populated_registry(1);
+        const OPERATOR_IDX: OperatorIdx = 1;
+        let sender_key = p2p_key_of(&registry, OPERATOR_IDX);
+
+        let events = classify_unsigned_gossip(
+            &registry,
+            &OperatorKey::Peer(&sender_key),
+            &sweep_nonce_msg(0),
+        );
+        assert!(matches!(
+            events.as_slice(),
+            [SMEvent::Deposit(event)]
+                if matches!(**event, DepositEvent::SweepNonceReceived(ref evt)
+                    if evt.operator_idx == OPERATOR_IDX)
+        ));
+    }
+
+    #[test]
+    fn classify_sweep_nonce_rejects_unknown_sender() {
+        let registry = test_populated_registry(1);
+        let unknown_key = P2POperatorPubKey::from(vec![0xAA; 32]);
+
+        let events = classify_unsigned_gossip(
+            &registry,
+            &OperatorKey::Peer(&unknown_key),
+            &sweep_nonce_msg(0),
+        );
+        assert!(
+            events.is_empty(),
+            "should reject sweep nonce from unknown sender"
+        );
+    }
+
+    /// The symmetric sweep round hinges on self-published messages (ouroboros loopback)
+    /// classifying with the POV operator index.
+    #[test]
+    fn classify_sweep_nonce_accepts_pov_loopback() {
+        let registry = test_populated_registry(1);
+
+        let events = classify_unsigned_gossip(&registry, &OperatorKey::Pov, &sweep_nonce_msg(0));
+        assert!(matches!(
+            events.as_slice(),
+            [SMEvent::Deposit(event)]
+                if matches!(**event, DepositEvent::SweepNonceReceived(ref evt)
+                    if evt.operator_idx == TEST_POV_IDX)
+        ));
+    }
+
+    #[test]
+    fn classify_sweep_partial_accepts_known_peer() {
+        let registry = test_populated_registry(1);
+        const OPERATOR_IDX: OperatorIdx = 1;
+        let sender_key = p2p_key_of(&registry, OPERATOR_IDX);
+
+        let events = classify_unsigned_gossip(
+            &registry,
+            &OperatorKey::Peer(&sender_key),
+            &sweep_partial_msg(0),
+        );
+        assert!(matches!(
+            events.as_slice(),
+            [SMEvent::Deposit(event)]
+                if matches!(**event, DepositEvent::SweepPartialReceived(ref evt)
+                    if evt.operator_idx == OPERATOR_IDX)
+        ));
+    }
+
+    #[test]
+    fn classify_sweep_partial_rejects_unknown_sender() {
+        let registry = test_populated_registry(1);
+        let unknown_key = P2POperatorPubKey::from(vec![0xAA; 32]);
+
+        let events = classify_unsigned_gossip(
+            &registry,
+            &OperatorKey::Peer(&unknown_key),
+            &sweep_partial_msg(0),
+        );
+        assert!(
+            events.is_empty(),
+            "should reject sweep partial from unknown sender"
+        );
+    }
+
+    #[test]
+    fn classify_sweep_partial_accepts_pov_loopback() {
+        let registry = test_populated_registry(1);
+
+        let events = classify_unsigned_gossip(&registry, &OperatorKey::Pov, &sweep_partial_msg(0));
+        assert!(matches!(
+            events.as_slice(),
+            [SMEvent::Deposit(event)]
+                if matches!(**event, DepositEvent::SweepPartialReceived(ref evt)
+                    if evt.operator_idx == TEST_POV_IDX)
+        ));
+    }
+
+    /// A sweep message for an unknown deposit produces no events.
+    #[test]
+    fn classify_sweep_nonce_unknown_deposit_returns_empty() {
+        let registry = test_populated_registry(1);
+
+        let events = classify_unsigned_gossip(&registry, &OperatorKey::Pov, &sweep_nonce_msg(99));
+        assert!(
+            events.is_empty(),
+            "should drop sweep nonce for unknown deposit"
         );
     }
 
