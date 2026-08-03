@@ -24,6 +24,11 @@ use crate::deposit::{
 impl DepositSM {
     /// Processes the event requesting that this deposit be swept to the safe-harbour descriptor.
     ///
+    /// Valid from every state holding a live deposit UTXO: the deposit outpoint is a fixed
+    /// N-of-N key-path output that withdrawal progress never touches, so the sweep transaction
+    /// is built identically from any source state and whatever withdrawal-progress the source
+    /// carried (assignee, fulfillment txid, in-flight payout session) is discarded.
+    ///
     /// Builds the sweep transaction and transitions to [`DepositState::SweepNoncesPending`],
     /// emitting a [`DepositDuty::PublishSweepNonce`] duty for every operator.
     pub(crate) fn process_sweep_request(
@@ -43,62 +48,83 @@ impl DepositSM {
             .map(|pk| pk.x_only_public_key().0)
             .collect();
 
-        match self.state() {
-            DepositState::Deposited { last_block_height } => {
-                let last_block_height = *last_block_height;
-
-                // Build the sweep transaction to the frozen safe-harbour descriptor
-                let deposit_connector =
-                    NOfNConnector::new(cfg.network(), n_of_n_pubkey, cfg.deposit_amount());
-                let sweep_tx = SweepTx::new(
-                    SweepData { deposit_outpoint },
-                    deposit_connector,
-                    sweep_request.safe_harbour_desc,
-                    ordered_pubkeys.clone(),
-                    cfg.sweep_fee_rate(),
-                );
-
-                let sweep_sighash = sweep_tx
-                    .signing_info()
-                    .first()
-                    .expect("sweep transaction must have signing info")
-                    .sighash;
-
-                // Transition to the SweepNoncesPending state
-                self.state = DepositState::SweepNoncesPending {
-                    last_block_height,
-                    sweep_tx,
-                    sweep_nonces: BTreeMap::new(),
-                };
-
-                // Dispatch the duty to publish the sweep nonce
-                Ok(DSMOutput::with_duties(vec![
-                    DepositDuty::PublishSweepNonce {
-                        deposit_idx,
-                        deposit_outpoint,
-                        ordered_pubkeys,
-                        // NOfNConnector uses key-path spend with no script tree
-                        tweak: TaprootTweak::Key { tweak: None },
-                        sweep_sighash,
-                    },
-                ]))
+        let last_block_height = match self.state() {
+            DepositState::Deposited { last_block_height }
+            | DepositState::Assigned {
+                last_block_height, ..
             }
+            | DepositState::Fulfilled {
+                last_block_height, ..
+            }
+            | DepositState::PayoutDescriptorReceived {
+                last_block_height, ..
+            }
+            | DepositState::PayoutNoncesCollected {
+                last_block_height, ..
+            }
+            | DepositState::CooperativePathFailed {
+                last_block_height, ..
+            } => *last_block_height,
 
-            // The per-block scan re-emits SweepRequested until the deposit leaves `Deposited`,
-            // so a sweep already in progress (or completed) is a duplicate, not an error.
+            // The per-block scan re-emits SweepRequested until the deposit leaves the live-UTXO
+            // states, so a sweep already in progress (or completed) is a duplicate, not an error.
             DepositState::SweepNoncesPending { .. }
             | DepositState::SweepNoncesCollected { .. }
-            | DepositState::Spent { .. } => Err(DSMError::duplicate(
-                self.state().clone(),
-                sweep_request.into(),
-            )),
+            | DepositState::Spent { .. } => {
+                return Err(DSMError::duplicate(
+                    self.state().clone(),
+                    sweep_request.into(),
+                ));
+            }
 
-            _ => Err(DSMError::invalid_event(
-                self.state().clone(),
-                sweep_request.into(),
-                None,
-            )),
-        }
+            DepositState::Created { .. }
+            | DepositState::GraphGenerated { .. }
+            | DepositState::DepositNoncesCollected { .. }
+            | DepositState::DepositPartialsCollected { .. }
+            | DepositState::Aborted => {
+                return Err(DSMError::invalid_event(
+                    self.state().clone(),
+                    sweep_request.into(),
+                    None,
+                ));
+            }
+        };
+
+        // Build the sweep transaction to the frozen safe-harbour descriptor
+        let deposit_connector =
+            NOfNConnector::new(cfg.network(), n_of_n_pubkey, cfg.deposit_amount());
+        let sweep_tx = SweepTx::new(
+            SweepData { deposit_outpoint },
+            deposit_connector,
+            sweep_request.safe_harbour_desc,
+            ordered_pubkeys.clone(),
+            cfg.sweep_fee_rate(),
+        );
+
+        let sweep_sighash = sweep_tx
+            .signing_info()
+            .first()
+            .expect("sweep transaction must have signing info")
+            .sighash;
+
+        // Transition to the SweepNoncesPending state
+        self.state = DepositState::SweepNoncesPending {
+            last_block_height,
+            sweep_tx,
+            sweep_nonces: BTreeMap::new(),
+        };
+
+        // Dispatch the duty to publish the sweep nonce
+        Ok(DSMOutput::with_duties(vec![
+            DepositDuty::PublishSweepNonce {
+                deposit_idx,
+                deposit_outpoint,
+                ordered_pubkeys,
+                // NOfNConnector uses key-path spend with no script tree
+                tweak: TaprootTweak::Key { tweak: None },
+                sweep_sighash,
+            },
+        ]))
     }
 
     /// Processes the event where an operator's sweep nonce is received.

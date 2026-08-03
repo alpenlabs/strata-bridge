@@ -82,11 +82,10 @@ impl TxClassifier for DepositSM {
             }
             DepositState::Assigned { .. } => None,
 
-            DepositState::Fulfilled { .. } => None, // does not expect any txs
-            DepositState::PayoutDescriptorReceived { .. } => None, // does not expect any txs
-
             // deposit-outpoint spends are handled by the hoisted check above
             DepositState::Deposited { .. }
+            | DepositState::Fulfilled { .. }
+            | DepositState::PayoutDescriptorReceived { .. }
             | DepositState::PayoutNoncesCollected { .. }
             | DepositState::CooperativePathFailed { .. }
             | DepositState::SweepNoncesPending { .. }

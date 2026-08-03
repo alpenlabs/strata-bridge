@@ -309,12 +309,15 @@ impl DepositState {
     /// Whether the deposit outpoint is confirmed on chain and still unspent from this state
     /// machine's perspective, i.e. the states in which a transaction spending it may be observed.
     ///
-    /// NOTE: `Assigned`, `Fulfilled` and `PayoutDescriptorReceived` also hold a live deposit
-    /// UTXO but are excluded until the sweep of assigned deposits is implemented.
+    /// Withdrawal progress never touches the deposit outpoint (the assignee fronts the user from
+    /// its own wallet), so every post-`Deposited` non-terminal state holds a live deposit UTXO.
     pub const fn has_live_deposit_utxo(&self) -> bool {
         matches!(
             self,
             DepositState::Deposited { .. }
+                | DepositState::Assigned { .. }
+                | DepositState::Fulfilled { .. }
+                | DepositState::PayoutDescriptorReceived { .. }
                 | DepositState::PayoutNoncesCollected { .. }
                 | DepositState::CooperativePathFailed { .. }
                 | DepositState::SweepNoncesPending { .. }
