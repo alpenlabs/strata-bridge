@@ -112,6 +112,47 @@ impl DepositSM {
                     })
                     .collect()
             }
+            DepositState::SweepNoncesPending { sweep_nonces, .. } => {
+                let expected_ids = &all_operator_ids;
+                let present_ids: BTreeSet<_> = sweep_nonces.keys().copied().collect();
+                expected_ids
+                    .difference(&present_ids)
+                    .map(|&operator_idx| {
+                        let operator_pubkey = operator_table
+                            .idx_to_p2p_key(&operator_idx)
+                            .expect("operator idx from table must exist")
+                            .clone();
+                        DepositDuty::Nag {
+                            duty: NagDuty::NagSweepNonce {
+                                deposit_idx,
+                                operator_idx,
+                                operator_pubkey,
+                            },
+                        }
+                    })
+                    .collect()
+            }
+            // The sweep round is symmetric: every operator's partial is expected.
+            DepositState::SweepNoncesCollected { sweep_partials, .. } => {
+                let expected_ids = &all_operator_ids;
+                let present_ids: BTreeSet<_> = sweep_partials.keys().copied().collect();
+                expected_ids
+                    .difference(&present_ids)
+                    .map(|&operator_idx| {
+                        let operator_pubkey = operator_table
+                            .idx_to_p2p_key(&operator_idx)
+                            .expect("operator idx from table must exist")
+                            .clone();
+                        DepositDuty::Nag {
+                            duty: NagDuty::NagSweepPartial {
+                                deposit_idx,
+                                operator_idx,
+                                operator_pubkey,
+                            },
+                        }
+                    })
+                    .collect()
+            }
             _ => Vec::new(),
         };
 
@@ -127,6 +168,8 @@ impl DepositSM {
             NagRequestPayload::DepositPartial { .. } => self.process_deposit_partial_nag(&event),
             NagRequestPayload::PayoutNonce { .. } => self.process_payout_nonce_nag(&event),
             NagRequestPayload::PayoutPartial { .. } => self.process_payout_partial_nag(&event),
+            NagRequestPayload::SweepNonce { .. } => self.process_sweep_nonce_nag(&event),
+            NagRequestPayload::SweepPartial { .. } => self.process_sweep_partial_nag(&event),
             NagRequestPayload::GraphData { .. }
             | NagRequestPayload::GraphNonces { .. }
             | NagRequestPayload::GraphPartials { .. } => {
@@ -343,6 +386,87 @@ impl DepositSM {
                 Err(self.reject_nag(
                     event,
                     "Inapplicable PayoutPartial nag; expected state(s): PayoutNoncesCollected with POV != assignee",
+                ))
+            }
+        }
+    }
+
+    fn process_sweep_nonce_nag(&self, event: &NagReceivedEvent) -> DSMResult<Vec<DepositDuty>> {
+        let deposit_idx = self.context().deposit_idx();
+        match self.state() {
+            DepositState::SweepNoncesPending { sweep_tx, .. }
+            | DepositState::SweepNoncesCollected { sweep_tx, .. } => {
+                let sweep_sighash = sweep_tx
+                    .signing_info()
+                    .first()
+                    .expect("sweep transaction must have signing info")
+                    .sighash;
+                let ordered_pubkeys = self
+                    .context()
+                    .operator_table()
+                    .btc_keys()
+                    .into_iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect();
+                Ok(vec![DepositDuty::PublishSweepNonce {
+                    deposit_idx,
+                    deposit_outpoint: self.context().deposit_outpoint(),
+                    ordered_pubkeys,
+                    // NOfNConnector uses key-path spend with no script tree
+                    tweak: TaprootTweak::Key { tweak: None },
+                    sweep_sighash,
+                }])
+            }
+            _ => {
+                tracing::debug!(
+                    "Rejecting inapplicable nag SweepNonce in state {}",
+                    self.state()
+                );
+                Err(self.reject_nag(
+                    event,
+                    "Inapplicable SweepNonce nag; expected state(s): SweepNoncesPending | SweepNoncesCollected",
+                ))
+            }
+        }
+    }
+
+    fn process_sweep_partial_nag(&self, event: &NagReceivedEvent) -> DSMResult<Vec<DepositDuty>> {
+        let deposit_idx = self.context().deposit_idx();
+        match self.state() {
+            // The sweep round is symmetric: every operator (re-)publishes its partial.
+            DepositState::SweepNoncesCollected {
+                sweep_tx,
+                sweep_agg_nonce,
+                ..
+            } => {
+                let sweep_sighash = sweep_tx
+                    .signing_info()
+                    .first()
+                    .expect("sweep transaction must have signing info")
+                    .sighash;
+                let ordered_pubkeys = self
+                    .context()
+                    .operator_table()
+                    .btc_keys()
+                    .into_iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect();
+                Ok(vec![DepositDuty::PublishSweepPartial {
+                    deposit_idx,
+                    deposit_outpoint: self.context().deposit_outpoint(),
+                    sweep_sighash,
+                    agg_nonce: sweep_agg_nonce.clone(),
+                    ordered_pubkeys,
+                }])
+            }
+            _ => {
+                tracing::debug!(
+                    "Rejecting inapplicable nag SweepPartial in state {}",
+                    self.state()
+                );
+                Err(self.reject_nag(
+                    event,
+                    "Inapplicable SweepPartial nag; expected state(s): SweepNoncesCollected",
                 ))
             }
         }

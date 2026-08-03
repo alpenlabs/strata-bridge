@@ -92,7 +92,9 @@ fn route_gossipsub_msg(
             NagRequestPayload::DepositNonce { deposit_idx }
             | NagRequestPayload::DepositPartial { deposit_idx }
             | NagRequestPayload::PayoutNonce { deposit_idx }
-            | NagRequestPayload::PayoutPartial { deposit_idx } => SMId::Deposit(*deposit_idx),
+            | NagRequestPayload::PayoutPartial { deposit_idx }
+            | NagRequestPayload::SweepNonce { deposit_idx }
+            | NagRequestPayload::SweepPartial { deposit_idx } => SMId::Deposit(*deposit_idx),
             NagRequestPayload::GraphData { graph_idx }
             | NagRequestPayload::GraphNonces { graph_idx }
             | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
@@ -202,6 +204,13 @@ mod tests {
             payload: NagRequestPayload::GraphNonces {
                 graph_idx: GraphIdx { deposit, operator },
             },
+        })
+    }
+
+    fn make_sweep_nag(deposit_idx: u32) -> UnsignedGossipsubMsg {
+        UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+            recipient: P2POperatorPubKey::from(vec![0u8; 32]),
+            payload: NagRequestPayload::SweepNonce { deposit_idx },
         })
     }
 
@@ -317,6 +326,15 @@ mod tests {
     fn route_gossip_deposit_nag_known() {
         let registry = test_populated_registry(1);
         let msg = make_deposit_nag(0);
+
+        let routed = route_gossipsub_msg(&registry, &msg);
+        assert_eq!(routed, vec![SMId::Deposit(0)]);
+    }
+
+    #[test]
+    fn route_gossip_sweep_nag_known() {
+        let registry = test_populated_registry(1);
+        let msg = make_sweep_nag(0);
 
         let routed = route_gossipsub_msg(&registry, &msg);
         assert_eq!(routed, vec![SMId::Deposit(0)]);

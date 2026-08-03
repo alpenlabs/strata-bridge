@@ -278,6 +278,34 @@ pub async fn execute_deposit_duty(
                         },
                     },
                 ),
+                NagDuty::NagSweepNonce {
+                    deposit_idx,
+                    operator_idx,
+                    operator_pubkey,
+                } => (
+                    *deposit_idx,
+                    *operator_idx,
+                    NagRequest {
+                        recipient: operator_pubkey.clone(),
+                        payload: NagRequestPayload::SweepNonce {
+                            deposit_idx: *deposit_idx,
+                        },
+                    },
+                ),
+                NagDuty::NagSweepPartial {
+                    deposit_idx,
+                    operator_idx,
+                    operator_pubkey,
+                } => (
+                    *deposit_idx,
+                    *operator_idx,
+                    NagRequest {
+                        recipient: operator_pubkey.clone(),
+                        payload: NagRequestPayload::SweepPartial {
+                            deposit_idx: *deposit_idx,
+                        },
+                    },
+                ),
             };
 
             info!(%deposit_idx, %operator_idx, payload = ?nag_request.payload, "nagging peer for missing data");

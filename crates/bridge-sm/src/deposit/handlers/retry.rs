@@ -88,6 +88,30 @@ impl DepositSM {
                     pov_operator_idx: self.context().operator_table().pov_idx(),
                 }]
             }
+            // Re-broadcast the sweep until the spend is observed on chain. Every operator
+            // retries: the transaction is deterministic, so duplicates are harmless.
+            DepositState::SweepNoncesCollected {
+                sweep_tx,
+                sweep_agg_nonce,
+                sweep_partials,
+                ..
+            } if operator_table_cardinality == sweep_partials.len() => {
+                let ordered_pubkeys = self
+                    .context()
+                    .operator_table()
+                    .btc_keys()
+                    .into_iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect();
+
+                vec![DepositDuty::PublishSweep {
+                    deposit_outpoint: self.context().deposit_outpoint(),
+                    agg_nonce: sweep_agg_nonce.clone(),
+                    collected_partials: sweep_partials.clone(),
+                    sweep_tx: Box::new(sweep_tx.clone()),
+                    ordered_pubkeys,
+                }]
+            }
             _ => Vec::new(),
         };
 

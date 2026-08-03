@@ -478,4 +478,94 @@ mod tests {
             });
         }
     }
+
+    // ===== Sweep state tests (NagSweepNonce / NagSweepPartial) =====
+
+    #[test]
+    fn test_nag_tick_emits_nag_sweep_nonce_for_missing_operators() {
+        // Only one operator has submitted their sweep nonce
+        let mut sweep_nonces = BTreeMap::new();
+        sweep_nonces.insert(TEST_ARBITRARY_OPERATOR_IDX, generate_pubnonce());
+
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let expected = operator_table.operator_idxs();
+        let present: BTreeSet<_> = sweep_nonces.keys().copied().collect();
+        let expected_duties: Vec<DepositDuty> = expected
+            .difference(&present)
+            .map(|&op_idx| {
+                let operator_pubkey = operator_table.idx_to_p2p_key(&op_idx).unwrap().clone();
+                DepositDuty::Nag {
+                    duty: NagDuty::NagSweepNonce {
+                        deposit_idx: TEST_DEPOSIT_IDX,
+                        operator_idx: op_idx,
+                        operator_pubkey,
+                    },
+                }
+            })
+            .collect();
+
+        test_handler_output(DepositHandlerOutput {
+            state: DepositState::SweepNoncesPending {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_nonces,
+            },
+            event: DepositEvent::NagTick(NagTickEvent),
+            expected_duties,
+        });
+    }
+
+    /// Unlike the payout partial nag, no operator is excluded: the sweep round is symmetric.
+    #[test]
+    fn test_nag_tick_emits_nag_sweep_partial_for_all_missing_operators() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let expected_duties: Vec<DepositDuty> = operator_table
+            .operator_idxs()
+            .iter()
+            .map(|&op_idx| {
+                let operator_pubkey = operator_table.idx_to_p2p_key(&op_idx).unwrap().clone();
+                DepositDuty::Nag {
+                    duty: NagDuty::NagSweepPartial {
+                        deposit_idx: TEST_DEPOSIT_IDX,
+                        operator_idx: op_idx,
+                        operator_pubkey,
+                    },
+                }
+            })
+            .collect();
+
+        test_handler_output(DepositHandlerOutput {
+            state: DepositState::SweepNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
+            },
+            event: DepositEvent::NagTick(NagTickEvent),
+            expected_duties,
+        });
+    }
+
+    #[test]
+    fn test_nag_tick_noop_when_all_sweep_partials_collected() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let sweep_partials: BTreeMap<_, _> = operator_table
+            .operator_idxs()
+            .iter()
+            .map(|&idx| (idx, generate_partial_signature()))
+            .collect();
+
+        test_handler_output(DepositHandlerOutput {
+            state: DepositState::SweepNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials,
+            },
+            event: DepositEvent::NagTick(NagTickEvent),
+            expected_duties: vec![],
+        });
+    }
 }

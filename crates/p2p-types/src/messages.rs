@@ -76,6 +76,10 @@ enum NagPayloadKind {
     UnstakingNonces = 0x08,
     /// Request missing unstaking graph partial signatures.
     UnstakingPartials = 0x09,
+    /// Request missing sweep nonce.
+    SweepNonce = 0x0A,
+    /// Request missing sweep partial signature.
+    SweepPartial = 0x0B,
 }
 
 /// MuSig2 nonce variants for different signing contexts.
@@ -390,6 +394,16 @@ pub enum NagRequestPayload {
         /// The index of the staking operator whose unstaking graph partial signatures are missing.
         operator_idx: OperatorIdx,
     },
+    /// Request missing sweep nonce.
+    SweepNonce {
+        /// The deposit index for identifying the sweep.
+        deposit_idx: DepositIdx,
+    },
+    /// Request missing sweep partial signature.
+    SweepPartial {
+        /// The deposit index for identifying the sweep.
+        deposit_idx: DepositIdx,
+    },
 }
 
 impl NagRequestPayload {
@@ -442,6 +456,14 @@ impl NagRequestPayload {
             Self::UnstakingPartials { operator_idx } => {
                 buf.push(NagPayloadKind::UnstakingPartials as u8);
                 buf.extend(operator_idx.to_le_bytes());
+            }
+            Self::SweepNonce { deposit_idx } => {
+                buf.push(NagPayloadKind::SweepNonce as u8);
+                buf.extend(deposit_idx.to_le_bytes());
+            }
+            Self::SweepPartial { deposit_idx } => {
+                buf.push(NagPayloadKind::SweepPartial as u8);
+                buf.extend(deposit_idx.to_le_bytes());
             }
         }
         buf
@@ -515,6 +537,18 @@ impl fmt::Debug for NagRequestPayload {
                     f,
                     "NagRequestPayload::UnstakingPartials(operator_idx: {})",
                     operator_idx
+                )
+            }
+            Self::SweepNonce { deposit_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::SweepNonce(deposit_idx: {deposit_idx})"
+                )
+            }
+            Self::SweepPartial { deposit_idx } => {
+                write!(
+                    f,
+                    "NagRequestPayload::SweepPartial(deposit_idx: {deposit_idx})"
                 )
             }
         }
@@ -1093,6 +1127,16 @@ mod tests {
                 "UnstakingPartials",
                 NagRequestPayload::UnstakingPartials { operator_idx: 13 },
                 NagPayloadKind::UnstakingPartials as u8,
+            ),
+            (
+                "SweepNonce",
+                NagRequestPayload::SweepNonce { deposit_idx: 14 },
+                NagPayloadKind::SweepNonce as u8,
+            ),
+            (
+                "SweepPartial",
+                NagRequestPayload::SweepPartial { deposit_idx: 15 },
+                NagPayloadKind::SweepPartial as u8,
             ),
         ];
 
