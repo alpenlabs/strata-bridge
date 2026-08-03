@@ -72,6 +72,21 @@ pub enum NagDuty {
     },
 }
 
+impl NagDuty {
+    /// Whether this nag solicits progress on the cooperative payout signing session.
+    ///
+    /// See [`DepositDuty::is_withdrawal_path`].
+    pub const fn is_withdrawal_path(&self) -> bool {
+        match self {
+            NagDuty::NagPayoutNonce { .. } | NagDuty::NagPayoutPartial { .. } => true,
+            NagDuty::NagDepositNonce { .. }
+            | NagDuty::NagDepositPartial { .. }
+            | NagDuty::NagSweepNonce { .. }
+            | NagDuty::NagSweepPartial { .. } => false,
+        }
+    }
+}
+
 impl std::fmt::Display for NagDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -285,6 +300,31 @@ pub enum DepositDuty {
         /// The specific nag duty to perform.
         duty: NagDuty,
     },
+}
+
+impl DepositDuty {
+    /// Whether this duty fronts a user or advances the cooperative payout towards spending the
+    /// deposit UTXO.
+    ///
+    /// Under safe harbour these duties are suppressed at dispatch so no withdrawal advances
+    /// while deposits are being swept. Everything else — deposit setup (in-flight deposits must
+    /// finish before they can be swept) and the sweep duties themselves — is never suppressed.
+    pub const fn is_withdrawal_path(&self) -> bool {
+        match self {
+            DepositDuty::FulfillWithdrawalRequest { .. }
+            | DepositDuty::RequestPayoutNonces { .. }
+            | DepositDuty::PublishPayoutNonce { .. }
+            | DepositDuty::PublishPayoutPartial { .. }
+            | DepositDuty::PublishPayout { .. } => true,
+            DepositDuty::Nag { duty } => duty.is_withdrawal_path(),
+            DepositDuty::PublishDepositNonce { .. }
+            | DepositDuty::PublishDepositPartial { .. }
+            | DepositDuty::PublishDeposit { .. }
+            | DepositDuty::PublishSweepNonce { .. }
+            | DepositDuty::PublishSweepPartial { .. }
+            | DepositDuty::PublishSweep { .. } => false,
+        }
+    }
 }
 
 impl std::fmt::Display for DepositDuty {

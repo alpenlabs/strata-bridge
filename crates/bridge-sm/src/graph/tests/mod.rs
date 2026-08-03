@@ -6,6 +6,7 @@ mod uncontested;
 pub(super) mod utils;
 
 mod deposit_signal;
+mod duties;
 mod notify_new_block;
 mod post_processor;
 mod process_payout;

@@ -317,6 +317,38 @@ pub enum GraphDuty {
     },
 }
 
+impl GraphDuty {
+    /// Whether this duty advances the graph owner's claim towards a payout spending the deposit
+    /// UTXO.
+    ///
+    /// Under safe harbour these duties are suppressed at dispatch so no claim advances while
+    /// deposits are being swept. The defensive duties — contest, counterproof, slash, and
+    /// unstaking burn — challenge or punish a claim rather than pursue one and are **never**
+    /// suppressed: they are the only funds defense when a rogue operator stalls the sweep and
+    /// fires its pre-signed claim path. Graph setup duties are also never suppressed, since
+    /// in-flight deposits must finish before they can be swept.
+    pub const fn is_withdrawal_path(&self) -> bool {
+        match self {
+            GraphDuty::PublishClaim { .. }
+            | GraphDuty::PublishUncontestedPayout { .. }
+            | GraphDuty::PublishContestedPayout { .. }
+            | GraphDuty::GenerateAndPublishBridgeProof { .. } => true,
+            GraphDuty::GenerateGraphData { .. }
+            | GraphDuty::VerifyAdaptors { .. }
+            | GraphDuty::PublishGraphNonces { .. }
+            | GraphDuty::PublishGraphPartials { .. }
+            | GraphDuty::PublishUnstakingBurn { .. }
+            | GraphDuty::PublishContest { .. }
+            | GraphDuty::PublishBridgeProofTimeout { .. }
+            | GraphDuty::GenerateAndPublishCounterProof { .. }
+            | GraphDuty::PublishCounterProofAck { .. }
+            | GraphDuty::PublishCounterProofNack { .. }
+            | GraphDuty::PublishSlash { .. }
+            | GraphDuty::Nag { .. } => false,
+        }
+    }
+}
+
 impl std::fmt::Display for GraphDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
