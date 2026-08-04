@@ -23,7 +23,6 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_sm::graph::{context::GraphSMCtx, machine::generate_game_graph};
 use strata_bridge_tx_graph::{
-    fee,
     game_graph::{DepositParams, GameGraph},
     transactions::claim::ClaimTx,
 };
@@ -38,6 +37,7 @@ use crate::{
     chain::{self, CpfpKind, is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
+    fees::wallet_tx_fee_rate,
     output_handles::{AnyWallet, OutputHandles},
 };
 
@@ -232,7 +232,10 @@ async fn ensure_claim_funding_outpoint(
                     // fresh sync makes the wallet view authoritative.
                     let refill = wallet
                         .create_reserved_utxos(
-                            fee::FEE_RATE,
+                            // Wallet-funded tx: track the live fee source rather than the
+                            // presigned-graph floor, so a refill issued into a busy mempool
+                            // actually confirms.
+                            wallet_tx_fee_rate(&cfg.fee_source, cfg.maximum_fee_rate)?,
                             value,
                             cfg.funding_uxto_pool_size,
                             GeneralUtxoPolicy::BuriedOnly {
