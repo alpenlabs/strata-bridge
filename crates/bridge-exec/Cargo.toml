@@ -56,6 +56,7 @@ strata-crypto.workspace = true
 bdk_bitcoind_rpc.workspace = true
 corepc-node.workspace = true
 operator-wallet = { workspace = true, features = ["test-utils"] }
+serial_test.workspace = true
 tempfile.workspace = true
 
 [features]

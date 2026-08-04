@@ -131,6 +131,7 @@ mod tests {
             (
                 GraphDuty::PublishBridgeProofTimeout {
                     signed_timeout_tx: TestGraphTxKind::BridgeProofTimeout.into(),
+                    cpfp_anchor: None,
                 },
                 false,
             ),

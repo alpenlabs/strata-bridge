@@ -15,10 +15,12 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+bdk_wallet = { workspace = true, features = ["test-utils"] }
 corepc-node.workspace = true
 operator-wallet = { path = ".", features = ["test-utils"] }
 serial_test.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [features]
 test-utils = []

@@ -4,7 +4,11 @@
 //! positions of the graph's other members in operator-index order. Indices can have gaps once
 //! members leave, so slots are resolved through the graph's own operator table.
 
+use bitcoin::taproot::LeafVersion;
+use strata_bridge_connectors::{Connector, ParentTx, prelude::MultiAnchor};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
+
+use crate::graph::duties::MultiAnchorSpend;
 
 /// Maps a zero-based watchtower slot to the member of `operator_table` that occupies it,
 /// excluding the graph owner. Returns `None` for slots beyond the graph's watchtowers.
@@ -39,6 +43,36 @@ fn watchtower_idxs<Pov>(
         .operator_idxs()
         .into_iter()
         .filter(move |&idx| idx != graph_owner_idx)
+}
+
+/// Resolves the [`MultiAnchorSpend`] this operator may use to bump `tx`.
+///
+/// Returns `None` when the point-of-view operator owns the graph or sits outside its
+/// `operator_table`. An operator is never a watchtower of its own graph, so it holds no leaf and
+/// cannot bump these transactions at all. Callers must treat that as "publish without CPFP"
+/// rather than as an error: it is a legitimate protocol position, reached whenever the owner
+/// publishes its own bridge-proof timeout.
+pub(crate) fn multi_anchor_spend_for_pov<T, Pov>(
+    tx: &T,
+    operator_table: &OperatorTable<Pov>,
+    graph_owner_idx: OperatorIdx,
+    pov_idx: OperatorIdx,
+) -> Option<MultiAnchorSpend>
+where
+    T: ParentTx<CpfpConnector = MultiAnchor>,
+{
+    let leaf_index = watchtower_slot_for_operator(operator_table, graph_owner_idx, pov_idx)?;
+    let anchor = tx.cpfp_connector();
+    let leaf_script = anchor.leaf_scripts().into_iter().nth(leaf_index)?;
+    let control_block = anchor
+        .spend_info()
+        .control_block(&(leaf_script.clone(), LeafVersion::TapScript))?;
+
+    Some(MultiAnchorSpend {
+        anchor_vout: tx.cpfp_outpoint().vout,
+        leaf_script,
+        control_block,
+    })
 }
 
 #[cfg(test)]

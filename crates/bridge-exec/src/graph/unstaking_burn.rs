@@ -14,7 +14,7 @@ use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnTx;
 use tracing::{debug, info, warn};
 
 use crate::{
-    chain::publish_signed_transaction,
+    chain::{CpfpKind, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::{NativeWallet, OutputHandles},
@@ -113,11 +113,17 @@ pub(super) async fn publish_unstaking_burn(
     };
 
     info!(%graph_idx, txid = %signed_tx.compute_txid(), "publishing unstaking burn transaction");
+    // Preserve this executor's pre-CPFP behaviour: the burn tx is already wallet-funded at the
+    // estimated market fee rate, so it broadcasts without a CPFP child. `parent_fee` is the
+    // exact fee the plan paid (unused while `cpfp` is `None`, but kept accurate so flipping to
+    // a CPFP strategy later is a one-line change).
     let publish_result = publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "unstaking burn",
         TxStatus::is_buried,
+        plan.fee,
+        CpfpKind::None,
     )
     .await;
 
