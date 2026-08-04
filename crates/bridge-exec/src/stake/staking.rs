@@ -9,7 +9,6 @@ use bitcoin::{
     secp256k1::{Message, XOnlyPublicKey},
     sighash::{Prevouts, SighashCache},
 };
-use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PubNonce};
@@ -32,6 +31,7 @@ use crate::{
     chain::{self, CpfpKind, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
+    fees::wallet_tx_fee_rate,
     output_handles::OutputHandles,
     stake::utils::get_preimage,
 };
@@ -211,7 +211,7 @@ async fn read_or_create_stake_funding(
     }
 
     info!(%operator_idx, "no persisted stake funding reservation; creating a new funding tx");
-    let fee_rate = estimate_funding_fee_rate(cfg, output_handles).await?;
+    let fee_rate = estimate_funding_fee_rate(cfg)?;
 
     info!(%fee_rate, %funding_amount, "creating stake funding transaction");
     // Stake funding is one reserved-wallet UTXO of `funding_amount`. The reserved-utxo API
@@ -270,32 +270,9 @@ async fn read_or_create_stake_funding(
     }
 }
 
-async fn estimate_funding_fee_rate(
-    cfg: &ExecutionConfig,
-    output_handles: &OutputHandles,
-) -> Result<FeeRate, ExecutorError> {
-    info!("fetching fee rate from bitcoind");
-    let smart_fee = output_handles
-        .bitcoind_rpc_client
-        .estimate_smart_fee(1)
-        .await?;
-    info!(?smart_fee, "fetched fee rate from bitcoind");
-
-    // Bound the rate from below by `fee::FEE_RATE` so this v3 (TRUC) funding transaction
-    // always meets the bridge's hardcoded minimum, even on networks like signet where
-    // `estimatesmartfee` may return a value below `minrelaytxfee`.
-    let fee_rate = smart_fee
-        .fee_rate
-        .unwrap_or(fee::FEE_RATE)
-        .max(fee::FEE_RATE);
-
-    if fee_rate > cfg.maximum_fee_rate {
-        return Err(ExecutorError::FeeRateTooHigh {
-            fee_rate,
-            max: cfg.maximum_fee_rate,
-        });
-    }
-
+fn estimate_funding_fee_rate(cfg: &ExecutionConfig) -> Result<FeeRate, ExecutorError> {
+    let fee_rate = wallet_tx_fee_rate(&cfg.fee_source, cfg.maximum_fee_rate)?;
+    info!(%fee_rate, "fee rate for stake funding");
     Ok(fee_rate)
 }
 
