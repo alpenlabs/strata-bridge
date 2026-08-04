@@ -1,0 +1,161 @@
+name: AI Security Review
+
+# AI security review of pull requests, using Claude via anthropics/claude-code-action.
+# Model: Opus 5 for code changes; Sonnet 5 when a PR only touches docs/assets (cost lever).
+# Setup: add a repo or org secret CLAUDE_CODE_OAUTH_TOKEN (Claude Pro/Max subscription token from
+#        `claude setup-token`) OR ANTHROPIC_API_KEY. Without a secret the job errors out (no review).
+# On `pull_request`, GitHub withholds secrets from EXTERNAL fork PRs, so this covers same-repo
+# branches; external-fork PRs are not reviewed. Do NOT switch to `pull_request_target` without
+# a security re-review — that trigger hands secrets + a writable token to untrusted PR content.
+# Pass/fail contract: the job is green iff the review comment was posted. Claude exiting non-zero
+# (typically `--max-turns` on a very large diff, which fires *after* it has already commented) is
+# downgraded to a warning; a run that posts nothing still fails.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+        type: number
+
+# Cancel a stale review when new commits land on the same PR (cost + no duplicate comments).
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # to post the review comment
+
+jobs:
+  security-review:
+    # Skip drafts (wasteful) and dependabot (secrets are withheld, so it would only fail).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.draft == false && github.actor != 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    # Headroom for the raised turn budget: ~12s/turn observed, so 60 turns is ~13min worst case.
+    timeout-minutes: 30
+    steps:
+      # Manual runs have access to secrets, so keep the automatic trigger's fork/dependabot boundary.
+      - name: Validate manually selected PR
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          is_cross_repository=$(gh pr view "$PR" --repo "$REPO" --json isCrossRepository --jq '.isCrossRepository')
+          author=$(gh pr view "$PR" --repo "$REPO" --json author --jq '.author.login')
+          if [ "$is_cross_repository" = true ] || [ "$author" = 'dependabot' ]; then
+            echo "::error::Manual reviews are limited to non-Dependabot PRs from this repository."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr_number) }}
+          fetch-depth: 1
+          persist-credentials: false # don't write GITHUB_TOKEN into .git/config (zizmor: artipacked)
+
+      - name: Pick model (Sonnet 5 for docs-only PRs, Opus 5 otherwise)
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # A file is "docs/asset-like" if it matches this; if ANY changed file is not, use Opus 5.
+          DOCS='\.(md|mdx|markdown|txt|rst|adoc|png|jpe?g|gif|svg|webp|ico)$|(^|/)(LICENSE|NOTICE|AUTHORS|CHANGELOG|README|CODEOWNERS)([.-][^/]*)?$|^docs/'
+          files=$(gh pr diff "$PR" --repo "$REPO" --name-only)
+          if [ -z "$files" ] || printf '%s\n' "$files" | grep -qvE "$DOCS"; then
+            model=claude-opus-5
+          else
+            model=claude-sonnet-5
+          fi
+          echo "model=$model" >> "$GITHUB_OUTPUT"
+          { echo "### AI review model: \`$model\`"; echo '```'; printf '%s\n' "$files"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      # Anything the review posts must be newer than this, so a stale comment from an earlier run
+      # can't satisfy the gate below. One minute of slack absorbs runner/API clock skew.
+      - name: Record review start time
+        id: started
+        run: echo "at=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: anthropics/claude-code-action@3553f84341b92da26052e28acf1aa898f9511f32 # v1.0.177
+        id: review
+        # Never fail the job here — the "Require review comment" step below decides the outcome.
+        continue-on-error: true
+        with:
+          # Subscription first; fall back to the API key only when no OAuth token is configured.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN == '' && secrets.ANTHROPIC_API_KEY || '' }}
+          github_token: ${{ github.token }}
+          use_sticky_comment: true
+          prompt: |
+            Perform a security review of pull request #${{ github.event.pull_request.number || inputs.pr_number }} in ${{ github.repository }}.
+            Run `gh pr diff ${{ github.event.pull_request.number || inputs.pr_number }}` for the changes; read surrounding code for context.
+
+            Analyze thoroughly for real, exploitable vulnerabilities introduced or exposed by this diff:
+            injection (SQL/command/template), unsafe deserialization, path traversal, SSRF, broken authn/authz,
+            IDOR, cryptographic misuse, secret/credential exposure, memory safety / overflow/underflow /
+            panics on untrusted input (watch Rust `unsafe`), input-validation gaps, unsafe error handling,
+            resource exhaustion / DoS. Favor precision over recall.
+
+            TOOLS — this is the complete set you have. Every call outside it is denied and burns a
+            turn for nothing, so do not guess or retry with a different command:
+            - Read, Grep, Glob — use these for ALL file reading and searching. Grep replaces `rg`,
+              Read with offset/limit replaces `sed -n '10,40p'`, Glob replaces `find`.
+            - Bash, and only these commands: `gh pr diff`, `gh pr view`, `gh pr comment`, `cat`,
+              `ls`, `grep`, `head`, `tail`, `git diff`, `git log`, `git show`.
+            Notably unavailable: `sed`, `awk`, `find`, `rg`, `wc`, `sort`, `gh api`, `python`, and
+            anything that writes or executes. There is no way to request more; work within this set.
+
+            Then post EXACTLY ONE PR comment via
+            `gh pr comment ${{ github.event.pull_request.number || inputs.pr_number }} --repo ${{ github.repository }} --body "<markdown>"`,
+            following these OUTPUT RULES strictly (a human reads this — keep it tight):
+            - Always start with the heading "## 🔒 AI Security Review (${{ steps.pick.outputs.model }})".
+            - If you found NO real issues: the ENTIRE body is that heading plus one line — "✅ No security issues found."
+              Do NOT add a "scope reviewed" list, a "what I checked / cleared" section, or any reasoning. Reviewers do not want it.
+            - If you found real issues: list them most-severe-first. For each: a bold one-line title with the severity,
+              then `file:line`, a 1–2 sentence exploit scenario, and a concrete fix. Be concise and actionable —
+              no style/formatting/speculative nits, no "what I cleared" prose.
+            Posting this comment is required and must be your final action.
+          # Read-only allowlist: no `sed` (s///e exec), no blanket `git` (`-c alias=!cmd` exec), no `gh api` (write API).
+          claude_args: |
+            --model ${{ steps.pick.outputs.model }}
+            --max-turns 60
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(cat:*),Bash(ls:*),Bash(grep:*),Bash(head:*),Bash(tail:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Read,Grep,Glob"
+
+      # The deliverable is the comment, not Claude's exit code. Hitting --max-turns generally means
+      # it commented on its last turn and had none left to sign off, which is a pass. Nothing posted
+      # (auth failure, crash, silent stop) is a real failure and still goes red.
+      - name: Require review comment
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || inputs.pr_number }}
+          REPO: ${{ github.repository }}
+          SINCE: ${{ steps.started.outputs.at }}
+          OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          set -euo pipefail
+          posted=$(gh pr view "$PR" --repo "$REPO" --json comments | jq --arg since "$SINCE" '
+            [ .comments[]
+              | select(.author.login == "github-actions")
+              | select(.createdAt >= $since)
+              | select(.body | startswith("## 🔒 AI Security Review"))
+            ] | length')
+          if [ "$posted" -eq 0 ]; then
+            echo "::error::No AI security review comment was posted (claude-code-action outcome: $OUTCOME)."
+            exit 1
+          fi
+          if [ "$OUTCOME" != success ]; then
+            echo "::warning::claude-code-action ended as '$OUTCOME' (most likely --max-turns), but the review was posted — passing. If this recurs, raise --max-turns."
+          fi
+          echo "Review comment posted; claude-code-action outcome: $OUTCOME."
