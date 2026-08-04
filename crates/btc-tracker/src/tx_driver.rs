@@ -1,12 +1,15 @@
 //! This module implements a system that will accept signed transactions and ensure they are posted
 //! to the blockchain within a reasonable time.
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use algebra::{
     monoid::{self, Monoid},
     semigroup::Semigroup,
 };
-use bitcoin::{Amount, Transaction, Txid};
+use bitcoin::{Amount, FeeRate, Transaction, Txid};
 use bitcoind_async_client::{
     error::ClientError,
     traits::{Broadcaster, Reader},
@@ -18,14 +21,21 @@ use strata_bridge_primitives::subscription::Subscription;
 use thiserror::Error;
 use tokio::{
     select,
-    sync::mpsc::{unbounded_channel, UnboundedSender},
+    sync::{
+        mpsc::{unbounded_channel, UnboundedSender},
+        Mutex,
+    },
     task::JoinHandle,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     client::{BtcNotifyClient, Connected},
+    cpfp::{
+        self, BumpReason, CpfpContext, CpfpDisabled, CpfpFeeSource, CpfpHandle,
+        CpfpPackageSubmitter, CpfpStrategy, CpfpWallet,
+    },
     event::{TxEvent, TxStatus},
 };
 
@@ -51,6 +61,11 @@ struct TxDriveJob {
 
     /// The channel that we should publish on when the job is done.
     respond_on: oneshot::Sender<Result<(), DriveErr>>,
+
+    /// Optional CPFP strategy. When present, the driver builds (and replaces on each new
+    /// block / mempool eviction) a CPFP child to lift the package fee rate toward the fee
+    /// source's target. Disabled for non-CPFP txs.
+    cpfp: Option<CpfpStrategy>,
 }
 
 impl TxDriveJob {
@@ -101,7 +116,8 @@ impl Monoid for TxJobHeap {
 }
 
 impl From<TxDriveJob> for TxJobHeap {
-    /// Converts a TxDriveJob into a TxJobHeap with a single job in it.
+    /// Converts a TxDriveJob into a TxJobHeap with a single job in it. Discards `cpfp` —
+    /// CPFP-specific state lives in a parallel map keyed on the parent txid.
     fn from(job: TxDriveJob) -> Self {
         let mut heap = BTreeMap::new();
         heap.insert(job.tx.compute_txid(), vec![(job.condition, job.respond_on)]);
@@ -121,6 +137,239 @@ fn broadcast_options(tx: &Transaction) -> Option<BroadcastOptions> {
         max_burn_amount: Some(max_burn_amount),
         ..Default::default()
     })
+}
+
+/// Sentinel bump-tick interval used by [`TxDriver::new`] (no-CPFP path). The bump arm
+/// inside the driver's select loop fires on this cadence but immediately short-circuits
+/// when `cpfp_ctx` is `None`, so a long interval keeps the no-CPFP path effectively idle.
+const NO_CPFP_BUMP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Default bridge protocol-floor fee rate used by [`TxDriver::new`] (no-CPFP path). MUST
+/// equal `strata_bridge_tx_graph::fee::FEE_RATE_SAT_PER_VB` — but `btc-tracker` cannot
+/// depend on `tx-graph` (layering), so the value is duplicated here with a grep-anchorable
+/// const name. If `FEE_RATE_SAT_PER_VB` ever changes, search for `DEFAULT_PROTOCOL_FLOOR`
+/// to find and update this. Production (CPFP-enabled) calls [`TxDriver::with_cpfp`] and
+/// passes `fee::FEE_RATE` directly, so this only affects the legacy no-CPFP constructor.
+const DEFAULT_PROTOCOL_FLOOR: FeeRate = FeeRate::from_sat_per_vb_unchecked(2);
+
+/// Per-parent CPFP state. Keyed on parent txid in the shared `CpfpEntries` map.
+///
+/// Holds the parent transaction (needed for re-building children on bump), its strategy, and
+/// the [`CpfpHandle`] tracking the most recent child's funding inputs and package rate.
+#[derive(Clone)]
+struct CpfpEntry {
+    parent: Transaction,
+    strategy: CpfpStrategy,
+    handle: CpfpHandle,
+}
+
+/// Shared CPFP state across the driver task and the spawned bump tasks. `Arc<Mutex>` so
+/// reactive bump tasks (new block, timer tick) can run concurrently with the driver loop —
+/// the driver task isn't blocked waiting on N×submitpackage RPCs.
+type CpfpEntries = Arc<Mutex<HashMap<Txid, CpfpEntry>>>;
+
+/// Walks every entry in `entries` and runs one `perform_bump` per entry under `reason`.
+///
+/// **Lock discipline.** Snapshots the keys + each entry (cloning parent/strategy/handle)
+/// under a brief lock so the slow `perform_bump` call runs WITHOUT the entries mutex held.
+/// On completion, re-acquires the lock to write back the updated handle, IF the entry still
+/// exists (it may have been removed in the meantime, e.g. the parent confirmed). This means
+/// new-job insertions and confirm-removals are never blocked by an in-flight bump batch.
+///
+/// Spawned as a separate tokio task by the driver's block/tick select! arms so the driver
+/// returns to its select! immediately. Within this task, bumps are serial — they share the
+/// wallet's `RwLock::write()` anyway, so additional intra-batch concurrency wouldn't help.
+async fn bump_all_entries<W, F, P>(
+    ctx: Arc<CpfpContext<W, F, P>>,
+    entries: CpfpEntries,
+    bridge_protocol_floor: FeeRate,
+    reason: cpfp::BumpReason,
+) where
+    W: CpfpWallet + 'static,
+    F: CpfpFeeSource + 'static,
+    P: CpfpPackageSubmitter + 'static,
+{
+    let txids: Vec<Txid> = entries.lock().await.keys().copied().collect();
+    for parent_txid in txids {
+        bump_one_entry(
+            ctx.as_ref(),
+            &entries,
+            parent_txid,
+            bridge_protocol_floor,
+            reason,
+        )
+        .await;
+    }
+}
+
+/// Fallback for a parent whose bare broadcast was rejected: register a CPFP entry and try to
+/// carry the parent into the mempool inside a `[parent, child]` package. Returns whether the
+/// package was actually submitted.
+///
+/// On any non-submission outcome the just-registered entry is removed again. The caller is
+/// about to fail the job and drop its subscription, so the confirm-removal path in the event
+/// arm could never fire for this txid — an orphaned entry would be bumped on every block and
+/// tick forever, churning wallet leases for a parent that never reached the mempool.
+async fn fallback_package_submit<W, F, P>(
+    ctx: &CpfpContext<W, F, P>,
+    entries: &CpfpEntries,
+    parent: Transaction,
+    strategy: CpfpStrategy,
+    bridge_protocol_floor: FeeRate,
+) -> bool
+where
+    W: CpfpWallet + 'static,
+    F: CpfpFeeSource + 'static,
+    P: CpfpPackageSubmitter + 'static,
+{
+    let txid = parent.compute_txid();
+    let submitted =
+        match register_cpfp_entry_and_bump(ctx, entries, parent, strategy, bridge_protocol_floor)
+            .await
+        {
+            Ok(submitted) => submitted,
+            Err(e) => {
+                warn!(%txid, error = %e, "CPFP fallback after bare-broadcast failure also failed");
+                false
+            }
+        };
+    if !submitted {
+        entries.lock().await.remove(&txid);
+    }
+    submitted
+}
+
+/// Bare (non-package) resubmission of an evicted transaction, preserving the pre-CPFP
+/// driver behaviour for parents without a CPFP entry and as the fallback when a bump
+/// declines to submit.
+async fn resubmit_bare(rpc_client: &BitcoinClient, rawtx: &Transaction, evicted_txid: Txid) {
+    let options = broadcast_options(rawtx);
+    match rpc_client.send_raw_transaction(rawtx, options).await {
+        Ok(txid) => {
+            info!(%txid, "resubmitted transaction successfully");
+        }
+        Err(err) => {
+            error!(%evicted_txid, %err, "could not resubmit transaction");
+            // TODO: <https://alpenlabs.atlassian.net/browse/STR-2690>
+            // Analyze the reported error and classify the submission
+            // failure mode.
+            //
+            // 1. It failed because one or more of the inputs is double
+            // spent.
+            // 2. It failed because the fee didn't exceed the purge
+            // rate.
+            // 3. If failed because the transaction has already
+            // re-entered the mempool automatically upon reorg.
+        }
+    }
+}
+
+/// Runs one `perform_bump` for the entry at `parent_txid`, writing the updated handle back
+/// if the entry still exists. Returns whether a `[parent, child]` package was actually
+/// submitted. No-op returning `false` when the entry has vanished (parent confirmed and was
+/// removed between the caller's look-up and ours).
+///
+/// The handle is written back **even when the bump fails**: `perform_bump` records the
+/// child's funding inputs as soon as the wallet leases them, and dropping that update on
+/// the floor would strand the leases (see the lease-recording note on
+/// [`cpfp::perform_bump`]).
+///
+/// Shared by the batch walker above and the eviction arm of the driver loop, so both paths
+/// bump with identical snapshot / write-back discipline. Callers serialize through the
+/// driver's single `active_bump_task` slot — two concurrent bumps of the same entry would
+/// snapshot the same handle and the later write-back would clobber the earlier one's
+/// `last_child_inputs`.
+async fn bump_one_entry<W, F, P>(
+    ctx: &CpfpContext<W, F, P>,
+    entries: &CpfpEntries,
+    parent_txid: Txid,
+    bridge_protocol_floor: FeeRate,
+    reason: cpfp::BumpReason,
+) -> bool
+where
+    W: CpfpWallet + 'static,
+    F: CpfpFeeSource + 'static,
+    P: CpfpPackageSubmitter + 'static,
+{
+    // Snapshot under a brief lock; the slow bump runs without the entries mutex held.
+    let snapshot = entries
+        .lock()
+        .await
+        .get(&parent_txid)
+        .map(|e| (e.parent.clone(), e.strategy.clone(), e.handle.clone()));
+    let Some((parent, strategy, mut handle)) = snapshot else {
+        return false; // entry confirmed / removed since the caller looked
+    };
+    let result = cpfp::perform_bump(
+        ctx,
+        &parent,
+        strategy,
+        &mut handle,
+        bridge_protocol_floor,
+        reason,
+    )
+    .await;
+    // Write back the updated handle if the entry still exists.
+    if let Some(entry) = entries.lock().await.get_mut(&parent_txid) {
+        entry.handle = handle;
+    }
+    match result {
+        Ok(true) => {
+            debug!(%parent_txid, ?reason, "CPFP bump submitted");
+            true
+        }
+        Ok(false) => {
+            // Target at or below floor; expected in a quiet mempool.
+            false
+        }
+        Err(e) => {
+            warn!(%parent_txid, error = %e, ?reason, "CPFP bump failed; will retry on next trigger");
+            false
+        }
+    }
+}
+
+/// Inserts a [`CpfpEntry`] for `parent` into the shared entries map and runs one initial
+/// `NewJob` bump. Used by the new-job arm in three places: after a successful bare
+/// broadcast, when the parent is already in the mempool at job arrival, and as a
+/// fallback when bare broadcast fails (so a properly-priced child can carry an
+/// underpriced parent in via `submitpackage`).
+///
+/// Returns the bump outcome: `Ok(true)` means a `[parent, child]` package was actually
+/// submitted (relevant for the fallback caller — the parent is now in the mempool);
+/// `Ok(false)` means the bump was skipped (one of [`perform_bump`]'s skip conditions:
+/// target at or below the floor, parent fee already at target, or — for eager bumps —
+/// target not above the last submitted rate); `Err` is a build/sign/submit failure. The
+/// entry is inserted regardless, so reactive bumps on block / tick / eviction will retry.
+async fn register_cpfp_entry_and_bump<W, F, P>(
+    ctx: &CpfpContext<W, F, P>,
+    entries: &CpfpEntries,
+    parent: Transaction,
+    strategy: CpfpStrategy,
+    bridge_protocol_floor: FeeRate,
+) -> Result<bool, cpfp::CpfpError>
+where
+    W: CpfpWallet + 'static,
+    F: CpfpFeeSource + 'static,
+    P: CpfpPackageSubmitter + 'static,
+{
+    let txid = parent.compute_txid();
+    let mut entry = CpfpEntry {
+        parent,
+        strategy,
+        handle: CpfpHandle::default(),
+    };
+    let result = cpfp::perform_bump(
+        ctx,
+        &entry.parent,
+        entry.strategy.clone(),
+        &mut entry.handle,
+        bridge_protocol_floor,
+        BumpReason::NewJob,
+    )
+    .await;
+    entries.lock().await.insert(txid, entry);
+    result
 }
 
 /// System for driving a signed transaction to confirmation.
@@ -144,16 +393,89 @@ impl TxDriverHealthHandle {
 }
 
 impl TxDriver {
-    /// Initializes the TxDriver.
+    /// Initializes the TxDriver without CPFP fee-bumping. Behaves identically to the original
+    /// driver: broadcasts transactions, watches for confirmation, no aggressive bump on
+    /// eviction or new blocks. The bump-tick interval is set to a long sentinel duration
+    /// (one hour) since no CPFP context is configured — the timer arm fires but the inner
+    /// `cpfp_ctx` check short-circuits.
     pub async fn new(zmq_client: BtcNotifyClient<Connected>, rpc_client: BitcoinClient) -> Self {
+        Self::with_cpfp::<CpfpDisabled, CpfpDisabled, CpfpDisabled>(
+            zmq_client,
+            rpc_client,
+            None,
+            DEFAULT_PROTOCOL_FLOOR,
+            NO_CPFP_BUMP_INTERVAL,
+        )
+        .await
+    }
+
+    /// Initializes the TxDriver with CPFP fee-bumping enabled. When `cpfp_ctx` is `Some`, jobs
+    /// submitted via [`Self::drive_with_cpfp`] carry a [`CpfpStrategy`], and the driver:
+    ///
+    /// * On mempool eviction (per-tx ZMQ `Unknown` event): re-queries the fee source, rebuilds the
+    ///   child via the wallet, RBF-submits `[parent, child]` as a package.
+    /// * On each new block (block-event branch): walks every active CPFP parent that hasn't
+    ///   confirmed and runs the same bump path.
+    ///
+    /// `bridge_protocol_floor` is the bridge presigned-tx fee rate (typically 2 sat/vB). When
+    /// the fee source target is at or below this floor, the bump is a no-op — the presigned
+    /// parent's own fee already meets the network's needs.
+    ///
+    /// `bump_check_interval` is the cadence at which the driver polls its cached fee rate
+    /// and bumps any active CPFP parent whose package rate is below the new target. The
+    /// fee source itself is refreshed in the background by [`crate::cpfp::CachedFeeSource`]
+    /// at its own cadence; this knob controls how often the driver consumes that cache.
+    /// Defaults to 30 seconds in practice.
+    pub async fn with_cpfp<W, F, P>(
+        zmq_client: BtcNotifyClient<Connected>,
+        rpc_client: BitcoinClient,
+        cpfp_ctx: Option<CpfpContext<W, F, P>>,
+        bridge_protocol_floor: FeeRate,
+        bump_check_interval: std::time::Duration,
+    ) -> Self
+    where
+        W: CpfpWallet + 'static,
+        F: CpfpFeeSource + 'static,
+        P: CpfpPackageSubmitter + 'static,
+    {
         let new_jobs = unbounded_channel::<TxDriveJob>();
         let new_jobs_sender = new_jobs.0;
         let mut block_subscription = zmq_client.subscribe_blocks().await;
+
+        // The CPFP context is shared via `Arc` so block/tick spawned tasks can capture it
+        // by value without forcing `CpfpContext` itself to be Clone-friendly across an
+        // ever-cloning hot path.
+        let cpfp_ctx = cpfp_ctx.map(Arc::new);
 
         let driver = tokio::task::spawn(async move {
             let mut new_jobs_receiver_stream = UnboundedReceiverStream::new(new_jobs.1);
             let mut active_tx_subs = SelectAll::<Subscription<TxEvent>>::new();
             let mut active_jobs = TxJobHeap::empty();
+            // CPFP state for active parents, keyed on parent txid. Populated when a job
+            // arrives with `Some(cpfp_strategy)`, cleared when the parent confirms (the
+            // mined/buried branch below). `Arc<Mutex<>>` so spawned bump tasks can take
+            // a brief lock without blocking the driver loop on long bump RPCs (S1 fix —
+            // see `bump_all_entries` for the lock discipline).
+            let cpfp_entries: CpfpEntries = Arc::new(Mutex::new(HashMap::new()));
+            // Handle of the currently in-flight `bump_all_entries` task, if any. New
+            // block/tick triggers skip spawning if the previous batch hasn't finished —
+            // prevents fan-out pile-up under sustained slowness (slow RPC, contended wallet
+            // lock) which would otherwise queue stale-snapshot tasks behind each other and
+            // re-trigger benign-but-noisy `release(prior)` warnings. The next tick will
+            // pick up freshly-evolved state once the previous task drains.
+            let mut active_bump_task: Option<JoinHandle<()>> = None;
+            // Timer that fires every `bump_check_interval`. Note the cost model: tick is a
+            // reactive `BumpReason`, so entries whose target sits ABOVE the protocol floor
+            // are fully rebuilt every tick (wallet build + sign + submitpackage that either
+            // dedups against the live child or bounces off the BIP-125 incremental-fee rule)
+            // — deliberate, because a silently-evicted child is invisible and the tick is
+            // what revives it. The walk is only cheap in the quiet-mempool steady state,
+            // where the floor / parent-fee baseline skips return `Ok(false)` before any
+            // wallet call.
+            let mut bump_tick = tokio::time::interval(bump_check_interval);
+            // `Interval::tick` fires immediately on first call. Burn it so the first effective
+            // bump tick is one full interval after construction.
+            bump_tick.tick().await;
             loop {
                 select! {
                     Some(job) = new_jobs_receiver_stream.next().fuse() => {
@@ -200,7 +522,29 @@ impl TxDriver {
                                 // Handle the race where the relevant event may already have
                                 // happened before the subscription is established.
                                 active_tx_subs.push(tx_sub);
+                                let job_parent = job.tx.clone();
+                                let job_cpfp = job.cpfp.clone();
                                 active_jobs = active_jobs.merge(job.into());
+
+                                // Register CPFP for an already-resident parent. Without
+                                // this, parents broadcast in a prior incarnation that are
+                                // still in the mempool when the driver comes back up would
+                                // never be re-bumped on block / tick / eviction events.
+                                // The first bump runs here too so a deeply-underpriced
+                                // resident parent gets a fresh package immediately.
+                                if let (Some(ctx), Some(strategy)) = (cpfp_ctx.as_ref(), job_cpfp) {
+                                    if let Err(e) = register_cpfp_entry_and_bump(
+                                        ctx.as_ref(),
+                                        &cpfp_entries,
+                                        job_parent,
+                                        strategy,
+                                        bridge_protocol_floor,
+                                    )
+                                    .await
+                                    {
+                                        warn!(%txid, error = %e, "initial CPFP bump for already-known parent failed; will retry on next trigger");
+                                    }
+                                }
                             }
 
                             continue;
@@ -216,49 +560,126 @@ impl TxDriver {
                                 // is to add the subscription at the top and then remove them if the submission errors
                                 // but removing a subscription from a `SelectAll` is not straightforward.
                                 active_tx_subs.push(tx_sub);
+                                let job_parent = job.tx.clone();
+                                let job_cpfp = job.cpfp.clone();
                                 active_jobs = active_jobs.merge(job.into());
+
+                                // Eager initial bump: if CPFP is configured and the fee
+                                // source's target is above the protocol floor, build and
+                                // submit a CPFP child as a package right now. Targets at or
+                                // below the floor mean the presigned parent's own rate is
+                                // sufficient; the helper's `perform_bump` skips internally.
+                                if let (Some(ctx), Some(strategy)) = (cpfp_ctx.as_ref(), job_cpfp) {
+                                    if let Err(e) = register_cpfp_entry_and_bump(
+                                        ctx.as_ref(),
+                                        &cpfp_entries,
+                                        job_parent,
+                                        strategy,
+                                        bridge_protocol_floor,
+                                    )
+                                    .await
+                                    {
+                                        warn!(%txid, error = %e, "initial CPFP bump failed; will retry on next trigger");
+                                    }
+                                }
                             },
                             Err(err) => {
-                                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2688>
-                                // If we have not hit the mempool purge rate, CPFP using the
-                                // anchor from the start and retry as a package.
-                                //
+                                // Bare broadcast failed. Most commonly the parent's own fee
+                                // rate is below the mempool's minimum and a CPFP child can
+                                // carry it in via `submitpackage` (package validation is
+                                // more lenient than single-tx acceptance). If CPFP is
+                                // configured, try that fallback before surfacing the error.
                                 // TODO: <https://alpenlabs.atlassian.net/browse/STR-2689>
-                                // Distinguish invalid transactions and notify the job submitter
-                                // instead of treating them like fee-bumping work.
-                                // For now, we just inform the caller until we add fee-bumping
-                                // support.
-                                error!(%txid, tx=?rawtx_rpc_client, %err, "could not submit transaction");
-                                // send feedback to the job submitter
-                                if job.respond_on.send(Err(DriveErr::PublishFailed(err))).is_err() {
-                                    error!("could not send error response to job submitter");
+                                // Distinguish invalid transactions and notify the job
+                                // submitter directly instead of attempting fee bumping.
+                                let job_parent = job.tx.clone();
+                                let job_cpfp = job.cpfp.clone();
+                                let pkg_submitted = if let (Some(ctx), Some(strategy)) =
+                                    (cpfp_ctx.as_ref(), job_cpfp)
+                                {
+                                    warn!(%txid, %err, "bare broadcast failed; attempting CPFP package fallback");
+                                    fallback_package_submit(
+                                        ctx.as_ref(),
+                                        &cpfp_entries,
+                                        job_parent,
+                                        strategy,
+                                        bridge_protocol_floor,
+                                    )
+                                    .await
+                                } else {
+                                    false
+                                };
+
+                                if pkg_submitted {
+                                    info!(%txid, "parent reached mempool via CPFP package fallback");
+                                    active_tx_subs.push(tx_sub);
+                                    active_jobs = active_jobs.merge(job.into());
+                                } else {
+                                    // `fallback_package_submit` has already removed any entry
+                                    // it registered — nothing here can observe this parent
+                                    // confirming once the job is failed.
+                                    error!(%txid, tx=?rawtx_rpc_client, %err, "could not submit transaction");
+                                    // send feedback to the job submitter
+                                    if job.respond_on.send(Err(DriveErr::PublishFailed(err))).is_err() {
+                                        error!("could not send error response to job submitter");
+                                    }
                                 }
                             }
                         }
                     }
                     Some(event) = active_tx_subs.next().fuse() => {
+                        let evicted_txid = event.rawtx.compute_txid();
                         match event.status {
                             TxStatus::Unknown => {
-                                // Transaction has been evicted, resubmit and see what happens
-                                let options = broadcast_options(&event.rawtx);
-                                match rpc_client.send_raw_transaction(&event.rawtx, options).await {
-                                    Ok(txid) => {
-                                        /* NOOP, we good fam */
-                                        info!(%txid, "resubmitted transaction successfully");
+                                // Transaction has been evicted. If this parent has CPFP
+                                // enabled, rebuild the child at the current fee target and
+                                // re-submit as a package — that's the canonical bump path on
+                                // mempool eviction. Otherwise fall back to bare resubmission
+                                // (legacy behaviour preserved for non-CPFP callers).
+                                let has_cpfp_entry = cpfp_ctx.is_some()
+                                    && cpfp_entries.lock().await.contains_key(&evicted_txid);
+                                if let (Some(ctx), true) = (cpfp_ctx.as_ref(), has_cpfp_entry) {
+                                    // The eviction bump shares the block/tick arms' single
+                                    // in-flight slot. Two concurrent bumps of one entry would
+                                    // snapshot the same handle and the later write-back would
+                                    // clobber the earlier one's `last_child_inputs`,
+                                    // stranding the loser's wallet leases — the exact failure
+                                    // `perform_bump`'s eager lease recording exists to
+                                    // prevent. Spawning (rather than bumping inline) also
+                                    // keeps the driver select loop responsive through the
+                                    // build + sign + submitpackage round-trip.
+                                    if active_bump_task.as_ref().is_some_and(|h| !h.is_finished()) {
+                                        // Safe to skip entirely: the in-flight batch calls
+                                        // `submitpackage([parent, child])` for this entry,
+                                        // which reintroduces the evicted parent by
+                                        // construction; failing that, the next block or tick
+                                        // retries.
+                                        debug!(%evicted_txid, "skipping eviction bump: in-flight bump batch will resubmit the package");
+                                    } else {
+                                        let ctx = ctx.clone();
+                                        let entries = cpfp_entries.clone();
+                                        let floor = bridge_protocol_floor;
+                                        let rawtx = event.rawtx.clone();
+                                        let rpc_client = rpc_client.clone();
+                                        active_bump_task = Some(tokio::spawn(async move {
+                                            let submitted = bump_one_entry(
+                                                ctx.as_ref(),
+                                                &entries,
+                                                evicted_txid,
+                                                floor,
+                                                BumpReason::ParentEvicted,
+                                            )
+                                            .await;
+                                            if !submitted {
+                                                // Bump declined (target at floor) or failed;
+                                                // keep the legacy behaviour of at least
+                                                // putting the bare parent back.
+                                                resubmit_bare(&rpc_client, &rawtx, evicted_txid).await;
+                                            }
+                                        }));
                                     }
-                                    Err(err) => {
-                                        error!(txid=%event.rawtx.compute_txid(), %err, "could not resubmit transaction");
-                                        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2690>
-                                        // Analyze the reported error and classify the submission
-                                        // failure mode.
-                                        //
-                                        // 1. It failed because one or more of the inputs is double
-                                        // spent.
-                                        // 2. It failed because the fee didn't exceed the purge
-                                        // rate.
-                                        // 3. If failed because the transaction has already
-                                        // re-entered the mempool automatically upon reorg.
-                                    }
+                                } else {
+                                    resubmit_bare(&rpc_client, &event.rawtx, evicted_txid).await;
                                 }
                             }
                             _ => {
@@ -282,13 +703,51 @@ impl TxDriver {
                                         }
                                     }));
                                 active_jobs = active_jobs.merge(leftovers);
+                                // If this event represents confirmation (mined/buried), the
+                                // parent has landed on chain — drop its CPFP state so we stop
+                                // bumping. Mempool events leave the entry alone.
+                                if matches!(event.status, TxStatus::Mined { .. } | TxStatus::Buried { .. }) {
+                                    cpfp_entries.lock().await.remove(&txid);
+                                }
                             }
                         }
 
                     }
                     _block = block_subscription.next().fuse() => {
-                        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2691>
-                        // Compare against deadlines and CPFP using the anchor where needed.
+                        // On each new block, spawn a task that walks every CPFP parent and
+                        // runs a bump. Spawned (not inline) so the driver returns to its
+                        // select! immediately — new jobs and ZMQ events aren't blocked even
+                        // if there are many entries or the bumps stall on a slow RPC. See
+                        // `bump_all_entries` for the lock-discipline details, and
+                        // `active_bump_task` above for the fan-out guard rationale.
+                        if let Some(ctx) = cpfp_ctx.as_ref() {
+                            if active_bump_task.as_ref().is_some_and(|h| !h.is_finished()) {
+                                debug!("skipping new-block bump: previous bump batch still running");
+                            } else {
+                                let ctx = ctx.clone();
+                                let entries = cpfp_entries.clone();
+                                let floor = bridge_protocol_floor;
+                                active_bump_task = Some(tokio::spawn(async move {
+                                    bump_all_entries(ctx, entries, floor, BumpReason::NewBlock).await;
+                                }));
+                            }
+                        }
+                    }
+                    _ = bump_tick.tick().fuse() => {
+                        // Periodic timer-driven bump — same shape as the new-block arm, with
+                        // the same in-flight guard.
+                        if let Some(ctx) = cpfp_ctx.as_ref() {
+                            if active_bump_task.as_ref().is_some_and(|h| !h.is_finished()) {
+                                debug!("skipping tick bump: previous bump batch still running");
+                            } else {
+                                let ctx = ctx.clone();
+                                let entries = cpfp_entries.clone();
+                                let floor = bridge_protocol_floor;
+                                active_bump_task = Some(tokio::spawn(async move {
+                                    bump_all_entries(ctx, entries, floor, BumpReason::Tick).await;
+                                }));
+                            }
+                        }
                     }
                 }
             }
@@ -300,11 +759,38 @@ impl TxDriver {
         }
     }
 
-    /// Instructs the TxDriver to drive a new transaction to confirmation.
+    /// Instructs the TxDriver to drive a new transaction to confirmation without CPFP.
     pub async fn drive(
         &self,
         tx: Transaction,
         condition: impl Fn(&TxStatus) -> bool + Send + 'static,
+    ) -> Result<(), DriveErr> {
+        self.drive_inner(tx, condition, None).await
+    }
+
+    /// Instructs the TxDriver to drive a new transaction to confirmation with CPFP
+    /// fee-bumping. The driver builds the initial child immediately (unless the fee source
+    /// reports at or below the bridge protocol floor), then RBFs the child on each new block
+    /// or mempool eviction until the parent confirms or the operator's `max_fee_rate` cap is
+    /// reached.
+    ///
+    /// Requires the driver to have been initialized via [`Self::with_cpfp`] with a non-`None`
+    /// [`CpfpContext`]. If CPFP wasn't configured at construction time, this method behaves
+    /// the same as [`Self::drive`].
+    pub async fn drive_with_cpfp(
+        &self,
+        tx: Transaction,
+        cpfp: CpfpStrategy,
+        condition: impl Fn(&TxStatus) -> bool + Send + 'static,
+    ) -> Result<(), DriveErr> {
+        self.drive_inner(tx, condition, Some(cpfp)).await
+    }
+
+    async fn drive_inner(
+        &self,
+        tx: Transaction,
+        condition: impl Fn(&TxStatus) -> bool + Send + 'static,
+        cpfp: Option<CpfpStrategy>,
     ) -> Result<(), DriveErr> {
         let (sender, receiver) = oneshot::channel();
         self.new_jobs_sender
@@ -312,6 +798,7 @@ impl TxDriver {
                 tx,
                 condition: Box::new(condition),
                 respond_on: sender,
+                cpfp,
             })
             .map_err(|_| DriveErr::DriverAborted)?;
         receiver
@@ -329,6 +816,17 @@ impl TxDriver {
 }
 
 impl Drop for TxDriver {
+    /// Aborts the main driver task. Note that any in-flight `bump_all_entries` task spawned
+    /// by the block / tick arms is **detached** — its `JoinHandle` was stored in the driver
+    /// task's local `active_bump_task` slot, which is dropped (not awaited) along with the
+    /// driver task itself. The detached bump task continues running on the runtime until it
+    /// finishes its current pass over `cpfp_entries`. At process shutdown the runtime tears
+    /// the task down regardless; for graceful in-process restart of `TxDriver`, a brief race
+    /// with the previous instance's bump task is possible (each call holds the wallet lock
+    /// per-bump, releases between, and the entries map is per-`TxDriver` so the old task
+    /// operates on its own snapshot). Acceptable for current call patterns; if mid-process
+    /// `TxDriver` lifecycle ever becomes load-bearing, expose a `shutdown(self)` that awaits
+    /// the active bump task before aborting the driver task.
     fn drop(&mut self) {
         self.driver.abort();
     }
@@ -682,5 +1180,179 @@ mod e2e_tests {
         info!("OP_RETURN burn transaction appeared in mempool");
 
         Ok(())
+    }
+}
+
+/// Unit tests for the driver's CPFP entry-lifecycle plumbing, using the shared fakes from
+/// [`crate::cpfp::tests`]. The full driver loop needs a live bitcoind (see `e2e_tests`); these
+/// pin the helpers the loop is built from, which is where the audit found the lifecycle gaps.
+#[cfg(test)]
+mod cpfp_lifecycle_tests {
+    use std::collections::HashMap;
+
+    use bitcoin::{Amount, OutPoint};
+
+    use super::*;
+    use crate::cpfp::{
+        tests::{
+            anchor_strategy, fake_input_signer_ok, synthetic_child_psbt, synthetic_parent,
+            test_keypair_and_xonly, FakeFeeSource, FakeSubmitter, FakeWallet, PROTOCOL_FLOOR,
+        },
+        CpfpContext,
+    };
+
+    fn test_ctx(
+        wallet: FakeWallet,
+        submitter: FakeSubmitter,
+    ) -> CpfpContext<FakeWallet, FakeFeeSource, FakeSubmitter> {
+        CpfpContext {
+            wallet: Arc::new(wallet),
+            fee_source: Arc::new(FakeFeeSource::returning(
+                FeeRate::from_sat_per_vb(10).unwrap(),
+            )),
+            anchor_input_signer: fake_input_signer_ok(),
+            multi_anchor_signer: fake_input_signer_ok(),
+            wallet_input_signer: fake_input_signer_ok(),
+            max_fee_rate: FeeRate::from_sat_per_vb(20).unwrap(),
+            package_submitter: Arc::new(submitter),
+        }
+    }
+
+    /// Even a failed bump must land its handle back in the entries map: `perform_bump` records
+    /// the freshly-leased funding inputs on the handle as soon as the wallet returns, and the
+    /// next bump can only release them if that update survives into the map.
+    #[tokio::test]
+    async fn bump_one_entry_writes_handle_back_on_submit_failure() {
+        let (_, key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(key, Amount::from_sat(330));
+        let parent_txid = parent.compute_txid();
+        let funding = vec![OutPoint {
+            txid: parent_txid,
+            vout: 7,
+        }];
+        let psbt = synthetic_child_psbt(&parent, 0, key);
+        let ctx = test_ctx(
+            FakeWallet::returning(psbt, funding.clone()),
+            FakeSubmitter::failing("package-not-valid"),
+        );
+        let entries: CpfpEntries = Arc::new(Mutex::new(HashMap::from([(
+            parent_txid,
+            CpfpEntry {
+                parent: parent.clone(),
+                strategy: anchor_strategy(key),
+                handle: CpfpHandle::default(),
+            },
+        )])));
+
+        let submitted = bump_one_entry(
+            &ctx,
+            &entries,
+            parent_txid,
+            PROTOCOL_FLOOR,
+            BumpReason::Tick,
+        )
+        .await;
+
+        assert!(!submitted, "rejected package must not report submission");
+        let map = entries.lock().await;
+        assert_eq!(
+            map[&parent_txid].handle.last_child_inputs, funding,
+            "leased funding inputs must be written back even though submission failed"
+        );
+        assert!(
+            map[&parent_txid].handle.last_child_txid.is_none(),
+            "nothing reached the mempool, so the child txid must not advance"
+        );
+    }
+
+    /// A vanished entry (parent confirmed between look-up and bump) is a quiet no-op — in
+    /// particular the wallet must never be asked to fund a child for it.
+    #[tokio::test]
+    async fn bump_one_entry_is_noop_when_entry_vanished() {
+        let (_, key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(key, Amount::from_sat(330));
+        let ctx = test_ctx(
+            FakeWallet::failing("wallet must not be called for a vanished entry"),
+            FakeSubmitter::failing("submitter must not be called either"),
+        );
+        let entries: CpfpEntries = Arc::new(Mutex::new(HashMap::new()));
+
+        let submitted = bump_one_entry(
+            &ctx,
+            &entries,
+            parent.compute_txid(),
+            PROTOCOL_FLOOR,
+            BumpReason::NewBlock,
+        )
+        .await;
+
+        assert!(!submitted);
+        assert!(entries.lock().await.is_empty());
+    }
+
+    /// The bare-broadcast fallback must not leave an orphaned entry behind when the package
+    /// submission fails too: the caller is about to fail the job and drop its subscription, so
+    /// nothing could ever remove the entry, and it would be re-bumped forever.
+    #[tokio::test]
+    async fn failed_fallback_leaves_no_orphan_entry() {
+        let (_, key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(key, Amount::from_sat(330));
+        let psbt = synthetic_child_psbt(&parent, 0, key);
+        let ctx = test_ctx(
+            FakeWallet::returning(
+                psbt,
+                vec![OutPoint {
+                    txid: parent.compute_txid(),
+                    vout: 7,
+                }],
+            ),
+            FakeSubmitter::failing("package-not-valid"),
+        );
+        let entries: CpfpEntries = Arc::new(Mutex::new(HashMap::new()));
+
+        let submitted = fallback_package_submit(
+            &ctx,
+            &entries,
+            parent.clone(),
+            anchor_strategy(key),
+            PROTOCOL_FLOOR,
+        )
+        .await;
+
+        assert!(!submitted);
+        assert!(
+            entries.lock().await.is_empty(),
+            "failed fallback must remove the entry it registered"
+        );
+    }
+
+    /// The successful fallback keeps its entry — the job survives, its subscription is pushed,
+    /// and the confirm-removal path owns the entry from here.
+    #[tokio::test]
+    async fn successful_fallback_keeps_entry_for_future_bumps() {
+        let (_, key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(key, Amount::from_sat(330));
+        let parent_txid = parent.compute_txid();
+        let funding = vec![OutPoint {
+            txid: parent_txid,
+            vout: 7,
+        }];
+        let psbt = synthetic_child_psbt(&parent, 0, key);
+        let ctx = test_ctx(
+            FakeWallet::returning(psbt, funding.clone()),
+            FakeSubmitter::ok(),
+        );
+        let entries: CpfpEntries = Arc::new(Mutex::new(HashMap::new()));
+
+        let submitted =
+            fallback_package_submit(&ctx, &entries, parent, anchor_strategy(key), PROTOCOL_FLOOR)
+                .await;
+
+        assert!(submitted);
+        let map = entries.lock().await;
+        assert_eq!(
+            map[&parent_txid].handle.last_child_inputs, funding,
+            "the surviving entry must carry the bump's lease state"
+        );
     }
 }
