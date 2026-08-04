@@ -173,8 +173,12 @@ pub async fn execute_graph_duty(
             )
             .await
         }
-        GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx } => {
-            publish_bridge_proof_timeout(&output_handles, signed_timeout_tx).await
+        GraphDuty::PublishBridgeProofTimeout {
+            signed_timeout_tx,
+            cpfp_anchor,
+        } => {
+            publish_bridge_proof_timeout(&output_handles, signed_timeout_tx, cpfp_anchor.as_ref())
+                .await
         }
         GraphDuty::PotentialCounterProof {
             graph_idx,

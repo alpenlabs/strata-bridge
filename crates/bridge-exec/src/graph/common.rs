@@ -34,7 +34,7 @@ use tracing::{error, info, warn};
 
 use super::utils::sign_claim_funding_tx;
 use crate::{
-    chain::{is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
+    chain::{self, CpfpKind, is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::OutputHandles,
@@ -722,11 +722,14 @@ pub(super) async fn publish_claim(
             .push(signature.serialize());
     }
 
+    let parent_fee = chain::parent_fee_for_floor_tx(&signed_claim_tx);
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_claim_tx,
         "claim",
         TxStatus::is_buried,
+        parent_fee,
+        CpfpKind::InferAnchor,
     )
     .await
 }
@@ -787,7 +790,8 @@ mod tests {
         async fn build_cpfp_child(
             &mut self,
             _parent: &Transaction,
-            _anchor_vout: u32,
+            _parent_fee: bitcoin::Amount,
+            _anchor: operator_wallet::AnchorInfo,
             _target_pkg_fee_rate: FeeRate,
             _exclude: &[OutPoint],
         ) -> Result<FundedPsbt, Self::Error> {

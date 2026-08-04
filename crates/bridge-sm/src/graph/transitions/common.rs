@@ -12,7 +12,7 @@ use crate::graph::{
     events::NewBlockEvent,
     machine::{GSMOutput, GraphSM, unpack_game},
     state::GraphState,
-    watchtower::watchtower_slot_for_operator,
+    watchtower::{multi_anchor_spend_for_pov, watchtower_slot_for_operator},
 };
 
 impl GraphSM {
@@ -138,12 +138,24 @@ impl GraphSM {
                 // narrowing.
                 if new_block_event.block_height > *contest_block_height + proof_timelock {
                     let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
+                    // Resolve our watchtower leaf on the timeout's `MultiAnchor` before
+                    // finalizing. `None` here is legitimate: an operator is never a watchtower of
+                    // its own graph, so when the owner publishes its own timeout there is no leaf
+                    // to satisfy and the transaction goes out without CPFP.
+                    let cpfp_anchor = multi_anchor_spend_for_pov(
+                        &game_graph.bridge_proof_timeout,
+                        graph_ctx.operator_idx(),
+                        graph_ctx.operator_table().pov_idx(),
+                    );
                     let signed_timeout_tx = game_graph
                         .bridge_proof_timeout
                         .finalize(sigs.bridge_proof_timeout);
 
                     return Ok(GSMOutput::with_duties(vec![
-                        GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx },
+                        GraphDuty::PublishBridgeProofTimeout {
+                            signed_timeout_tx,
+                            cpfp_anchor,
+                        },
                     ]));
                 }
 
@@ -255,12 +267,24 @@ impl GraphSM {
                     && new_block_event.block_height > *contest_block_height + proof_timelock
                 {
                     let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
+                    // Resolve our watchtower leaf on the timeout's `MultiAnchor` before
+                    // finalizing. `None` here is legitimate: an operator is never a watchtower of
+                    // its own graph, so when the owner publishes its own timeout there is no leaf
+                    // to satisfy and the transaction goes out without CPFP.
+                    let cpfp_anchor = multi_anchor_spend_for_pov(
+                        &game_graph.bridge_proof_timeout,
+                        graph_ctx.operator_idx(),
+                        graph_ctx.operator_table().pov_idx(),
+                    );
                     let signed_timeout_tx = game_graph
                         .bridge_proof_timeout
                         .finalize(sigs.bridge_proof_timeout);
 
                     return Ok(GSMOutput::with_duties(vec![
-                        GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx },
+                        GraphDuty::PublishBridgeProofTimeout {
+                            signed_timeout_tx,
+                            cpfp_anchor,
+                        },
                     ]));
                 }
 

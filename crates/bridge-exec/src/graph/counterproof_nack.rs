@@ -1,6 +1,6 @@
 //! Executor for the counterproof NACK transaction.
 
-use bitcoin::{TxOut, hashes::Hash};
+use bitcoin::{OutPoint, TxOut, hashes::Hash};
 use btc_tracker::event::TxStatus;
 use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
@@ -11,7 +11,9 @@ use strata_mosaic_client_api::types::{CompletedSignatures, Sighash, Tweak};
 use tracing::{info, warn};
 
 use crate::{
-    chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
+    chain::{self, CpfpKind, publish_signed_transaction},
+    errors::ExecutorError,
+    output_handles::OutputHandles,
 };
 
 /// Signs and publishes the counterproof NACK transaction to reject an invalid counterproof.
@@ -102,11 +104,20 @@ async fn sign_and_broadcast_nack(
     let signed_tx = nack_tx.finalize_partial(wt_fault_signature);
 
     info!(%deposit_idx, %game_index, %counterprover_idx, "publishing counterproof nack transaction");
+    // Counterproof-nack has a single output: a P2TR to the operator's general wallet at
+    // vout 0 (see the `push_output` call in `publish_counterproof_nack`). Use
+    // ParentTxCombined so a CPFP child can spend that output under fee pressure.
+    let payout_outpoint = OutPoint {
+        txid: signed_tx.compute_txid(),
+        vout: 0,
+    };
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "counterproof nack",
         TxStatus::is_buried,
+        chain::parent_fee_for_floor_tx(&signed_tx),
+        CpfpKind::PayoutCombined { payout_outpoint },
     )
     .await
 }
