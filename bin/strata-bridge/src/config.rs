@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
 pub(crate) use strata_bridge_counterproof::ProofBackendConfig as CounterproofBackendConfig;
 use strata_bridge_db::fdb::cfg::Config as FdbConfig;
+use strata_bridge_exec::fees::FeeSourceConfig;
 use strata_bridge_p2p_service::GossipsubScoringPreset;
 pub(crate) use strata_bridge_proof::ProofBackendConfig;
 
@@ -74,6 +75,12 @@ pub(crate) struct Config {
     /// reaction to fee-market moves between blocks.
     #[serde(default = "default_cpfp_bump_check_interval")]
     pub cpfp_bump_check_interval: Duration,
+
+    /// Source of fee-rate estimates for bridge transactions. Defaults to Bitcoin Core with
+    /// `conf_target = 1`; operators on networks where `estimatesmartfee` is unreliable should
+    /// configure the mempool-explorer variant.
+    #[serde(default)]
+    pub fee_source: FeeSourceConfig,
 
     /// Configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,

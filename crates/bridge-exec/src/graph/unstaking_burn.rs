@@ -6,7 +6,6 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot,
 };
-use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use operator_wallet::{AnyOperatorWallet, Lease, LeaseOwner};
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
@@ -18,6 +17,7 @@ use crate::{
     chain::{CpfpKind, ParentFee, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
+    fees::MIN_WALLET_TX_FEE_RATE,
     output_handles::OutputHandles,
 };
 
@@ -61,7 +61,13 @@ pub(super) async fn publish_unstaking_burn(
 ) -> Result<(), ExecutorError> {
     info!(%graph_idx, "preparing unstaking burn transaction");
 
-    let fee_rate = burn_fee_rate(output_handles).await?;
+    // Read the shared cached fee source rather than a live `estimatesmartfee` round-trip:
+    // this was the one duty-path caller left bypassing `cfg.fee_source` after STR-3438, which
+    // meant an operator's configured fee policy (e.g. mempool-explorer) was honoured for
+    // deposits and stake funding but silently ignored here — and a bitcoind hiccup failed the
+    // burn duty where the other paths ride it out on the cache. Floor at the same
+    // wallet-funded minimum the other v3 paths use.
+    let fee_rate = cfg.fee_source.current().max(MIN_WALLET_TX_FEE_RATE);
     debug!(%graph_idx, %fee_rate, "selected fee rate for unstaking burn transaction");
     if fee_rate > cfg.maximum_fee_rate {
         warn!(
@@ -142,33 +148,6 @@ pub(super) async fn publish_unstaking_burn(
             Err(e)
         }
     }
-}
-
-/// Returns the fee rate used for an unstaking burn attempt.
-///
-/// The executor asks Bitcoin Core for a one-block estimate and floors missing or low estimates at
-/// the network broadcast minimum so the constructed transaction remains relayable.
-async fn burn_fee_rate(output_handles: &OutputHandles) -> Result<FeeRate, ExecutorError> {
-    let smart_fee = output_handles
-        .bitcoind_rpc_client
-        .estimate_smart_fee(1)
-        .await
-        .map_err(|e| {
-            warn!(
-                ?e,
-                "failed to estimate fee rate for unstaking burn transaction"
-            );
-            ExecutorError::WalletErr(format!("failed to estimate fee: {e}"))
-        })?;
-
-    let fee_rate = smart_fee
-        .fee_rate
-        .unwrap_or(FeeRate::BROADCAST_MIN)
-        .max(FeeRate::BROADCAST_MIN);
-
-    debug!(%fee_rate, "computed unstaking burn fee rate");
-
-    Ok(fee_rate)
 }
 
 /// Selects and leases a general-wallet UTXO that can pay for the burn transaction.
