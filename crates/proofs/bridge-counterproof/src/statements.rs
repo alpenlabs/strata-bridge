@@ -83,6 +83,17 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 break 'invalid_bridge_proof;
             };
 
+            // Immediately succeed if the bridge proof commits to a different game
+            if BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
+                .ok()
+                .and_then(|output| {
+                    decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock).ok()
+                })
+                .is_some_and(|claim_unlock| claim_unlock.deposit_idx + 1 != game_idx)
+            {
+                break 'invalid_bridge_proof;
+            }
+
             assert!(
                 genesis
                     .bridge_proof_vk
@@ -345,9 +356,9 @@ mod tests {
     });
     static PREVOUTS: LazyLock<[TxOut; 1]> = LazyLock::new(|| [CONTEST_PROOF_CONNECTOR.tx_out()]);
     static BRIDGE_PROOF_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
-        LazyLock::new(|| OperatorClaimUnlock::new(0, 0));
+        LazyLock::new(|| OperatorClaimUnlock::new(GAME_IDX.get() - 1, 0));
     static HEAVIER_CHAIN_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
-        LazyLock::new(|| OperatorClaimUnlock::new(0, 1));
+        LazyLock::new(|| OperatorClaimUnlock::new(GAME_IDX.get() - 1, 1));
     const BRIDGE_PROOF_POW: [u8; 32] = [
         0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0,
@@ -418,6 +429,34 @@ mod tests {
 
         tx.finalize_partial(signing_info.sign(&tweaked_operator_key))
     });
+
+    /// Returns a signed bridge proof transaction whose receipt commits to `claim_unlock`.
+    fn signed_bridge_proof_tx(claim_unlock: &OperatorClaimUnlock) -> Transaction {
+        let bridge_proof_output = BridgeProofOutput {
+            total_pow: BRIDGE_PROOF_POW,
+            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(claim_unlock).unwrap(),
+            mmr_idx: 0,
+        };
+        let receipt = ProofReceipt::new(
+            Proof::new(vec![]),
+            PublicValues::new(bridge_proof_output.as_ssz_bytes()),
+        );
+        let data = BridgeProofData {
+            contest_txid: Txid::all_zeros(),
+            proof_bytes: borsh::to_vec(&receipt).unwrap(),
+            game_index: GAME_IDX,
+        };
+        let tx = BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR);
+        let signing_info = tx.signing_info_partial();
+        let tweaked_operator_key = OPERATOR_KEYPAIR
+            .add_xonly_tweak(
+                SECP256K1,
+                &ContestProofConnector::operator_key_tweak(GAME_IDX),
+            )
+            .expect("game-idx tweak is valid");
+
+        tx.finalize_partial(signing_info.sign(&tweaked_operator_key))
+    }
 
     fn op_return_script(data: Vec<u8>) -> ScriptBuf {
         let payload = PushBytesBuf::try_from(data).unwrap();
@@ -775,6 +814,24 @@ mod tests {
             let output = run_counterproof(RuntimeArgs {
                 input,
                 bridge_proof_vk: PredicateKey::never_accept(),
+                moho_vk: PredicateKey::never_accept(),
+            });
+            assert_eq!(output.game_idx, GAME_IDX.get());
+            assert_eq!(output.operator_pubkey, (*OPERATOR_PUBKEY).into());
+        }
+
+        #[test]
+        fn counterproof_valid_if_bridge_proof_commits_to_wrong_game() {
+            let wrong_game_claim_unlock = OperatorClaimUnlock::new(GAME_IDX.get(), 0);
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.bridge_proof_tx =
+                RawBitcoinTx::from(signed_bridge_proof_tx(&wrong_game_claim_unlock));
+
+            // The bridge proof is valid (`always_accept` vk), so without the
+            // wrong-game check this counterproof would be invalid.
+            let output = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
                 moho_vk: PredicateKey::never_accept(),
             });
             assert_eq!(output.game_idx, GAME_IDX.get());
