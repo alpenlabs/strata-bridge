@@ -41,6 +41,62 @@ pub struct SMConfig {
     pub stake: Arc<StakeSMCfg>,
 }
 
+/// A field that the deposit and graph configurations both encode but disagree on.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("deposit and graph configs disagree on {field}: {deposit} vs {graph}")]
+pub struct SMConfigMismatch {
+    /// Name of the field that disagrees.
+    pub field: &'static str,
+    /// Value held by the deposit configuration.
+    pub deposit: String,
+    /// Value held by the graph configuration.
+    pub graph: String,
+}
+
+impl SMConfig {
+    /// Checks that the deposit and graph configurations agree on every field they both encode.
+    ///
+    /// A deposit and its game graph are two views of the same protocol constants. If they drift,
+    /// the deposit transaction and the graph built on top of it are constructed against different
+    /// values, which surfaces much later as a peer disagreeing about a txid.
+    pub fn validate_consistency(&self) -> Result<(), SMConfigMismatch> {
+        let graph_protocol = &self.graph.game_graph_params;
+
+        check_field("network", self.deposit.network, graph_protocol.network)?;
+        check_field(
+            "deposit_amount",
+            self.deposit.deposit_amount,
+            graph_protocol.deposit_amount,
+        )?;
+        check_field(
+            "operator_fee",
+            self.deposit.operator_fee,
+            self.graph.operator_fee,
+        )?;
+        check_field(
+            "magic_bytes",
+            self.deposit.magic_bytes,
+            graph_protocol.magic_bytes,
+        )
+    }
+}
+
+fn check_field<T: PartialEq + Debug>(
+    field: &'static str,
+    deposit: T,
+    graph: T,
+) -> Result<(), SMConfigMismatch> {
+    if deposit == graph {
+        return Ok(());
+    }
+
+    Err(SMConfigMismatch {
+        field,
+        deposit: format!("{deposit:?}"),
+        graph: format!("{graph:?}"),
+    })
+}
+
 /// The registry that holds all the active state machines in `strata-bridge`.
 #[derive(Debug, Clone)]
 pub struct SMRegistry {
@@ -542,7 +598,7 @@ where
 mod tests {
     use std::num::NonZero;
 
-    use bitcoin::{OutPoint, hashes::Hash, key::rand};
+    use bitcoin::{Amount, OutPoint, hashes::Hash, key::rand};
     use strata_bridge_p2p_types::NagRequestPayload;
     use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
     use strata_bridge_sm::{
@@ -567,6 +623,43 @@ mod tests {
             test_populated_registry,
         },
     };
+
+    // ===== Config consistency tests =====
+
+    #[test]
+    fn consistent_config_validates() {
+        assert_eq!(
+            crate::testing::test_sm_config().validate_consistency(),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn config_mismatch_is_reported_per_field() {
+        let base = crate::testing::test_sm_config();
+
+        let mut deposit = (*base.deposit).clone();
+        deposit.operator_fee = base.graph.operator_fee + Amount::from_sat(1);
+        let cfg = SMConfig {
+            deposit: Arc::new(deposit),
+            ..base.clone()
+        };
+        assert_eq!(
+            cfg.validate_consistency().unwrap_err().field,
+            "operator_fee"
+        );
+
+        let mut graph = (*base.graph).clone();
+        graph.game_graph_params.deposit_amount = base.deposit.deposit_amount + Amount::from_sat(1);
+        let cfg = SMConfig {
+            graph: Arc::new(graph),
+            ..base
+        };
+        assert_eq!(
+            cfg.validate_consistency().unwrap_err().field,
+            "deposit_amount"
+        );
+    }
 
     // ===== Basic CRUD tests =====
 

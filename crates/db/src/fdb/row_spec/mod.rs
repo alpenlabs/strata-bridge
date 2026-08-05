@@ -5,4 +5,5 @@ pub mod funds;
 pub mod graphs;
 pub mod kv;
 pub mod signatures;
+pub mod sm_params;
 pub mod stakes;

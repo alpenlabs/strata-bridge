@@ -121,7 +121,7 @@ pub struct AdminMultisig {
 /// Parameters that are inherent from the protocol.
 ///
 /// These parameters don't need to be actively shared.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProtocolParams {
     /// Used bitcoin network.
     pub network: Network,
@@ -145,6 +145,76 @@ pub struct ProtocolParams {
     pub deposit_amount: Amount,
     /// Stake amount.
     pub stake_amount: Amount,
+}
+
+/// Everything the claim transaction's two connectors depend on.
+///
+/// A strict subset of [`KeyData`]: it deliberately excludes the adaptor and fault pubkeys, which
+/// only exist once mosaic has been consulted at deposit time. That is what lets
+/// [`claim_funds_required`] be answered when a graph is created, before its deposit params exist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClaimKeys<'a> {
+    /// N/N key.
+    pub n_of_n_pubkey: XOnlyPublicKey,
+    /// For each watchtower, a key to authorize the contest.
+    pub watchtower_pubkeys: &'a [XOnlyPublicKey],
+    /// Admin multisig used to block payouts.
+    pub admin: &'a AdminMultisig,
+    /// Unstaking hash image.
+    pub unstaking_image: sha256::Hash,
+}
+
+impl<'a> From<&'a KeyData> for ClaimKeys<'a> {
+    fn from(keys: &'a KeyData) -> Self {
+        Self {
+            n_of_n_pubkey: keys.n_of_n_pubkey,
+            watchtower_pubkeys: &keys.watchtower_pubkeys,
+            admin: &keys.admin,
+            unstaking_image: keys.unstaking_image,
+        }
+    }
+}
+
+/// Builds the two connectors that the claim transaction pays for.
+///
+/// The sole construction site: [`GameGraph::new`] uses the connectors themselves, and
+/// [`claim_funds_required`] uses only their value. Keeping it that way is what guarantees the
+/// wallet reserves a UTXO of exactly the denomination the claim transaction will spend.
+fn claim_connectors(
+    protocol: &ProtocolParams,
+    keys: ClaimKeys<'_>,
+) -> (ClaimContestConnector, ClaimPayoutConnector) {
+    // cast safety: one watchtower per operator, far below u32::MAX.
+    let n_watchtowers = keys.watchtower_pubkeys.len() as u32;
+
+    let claim_contest = ClaimContestConnector::new(
+        protocol.network,
+        keys.n_of_n_pubkey,
+        keys.watchtower_pubkeys.to_vec(),
+        protocol.contest_timelock,
+        crate::fee::claim_contest_surcharge(n_watchtowers, protocol.counterproof_n_data),
+    );
+    let claim_payout = ClaimPayoutConnector::new(
+        protocol.network,
+        keys.n_of_n_pubkey,
+        keys.admin.pubkeys.clone(),
+        keys.admin.threshold,
+        keys.unstaking_image,
+    );
+
+    (claim_contest, claim_payout)
+}
+
+/// Value of the wallet UTXO that funds the claim transaction of the game graph these params
+/// describe.
+///
+/// The operator reserves claim-funding UTXOs by exact value, so this must track
+/// [`GameGraph::new`] exactly — it depends on the protocol timelocks, the admin multisig and the
+/// number of watchtowers, all of which can differ between deposits.
+pub fn claim_funds_required(protocol: &ProtocolParams, keys: ClaimKeys<'_>) -> Amount {
+    let (claim_contest, claim_payout) = claim_connectors(protocol, keys);
+
+    ClaimTx::claim_funds_required(&claim_contest, &claim_payout)
 }
 
 /// Collection of the transactions of a game.
@@ -545,24 +615,9 @@ impl GameConnectors {
             "too many watchtowers"
         );
 
-        // cast safety: asserted above that len(watchtowers) <= u32::MAX
-        let n_watchtowers = keys.watchtower_pubkeys.len() as u32;
         let n_data = protocol.counterproof_n_data;
 
-        let claim_contest = ClaimContestConnector::new(
-            protocol.network,
-            keys.n_of_n_pubkey,
-            keys.watchtower_pubkeys.clone(),
-            protocol.contest_timelock,
-            crate::fee::claim_contest_surcharge(n_watchtowers, n_data),
-        );
-        let claim_payout = ClaimPayoutConnector::new(
-            protocol.network,
-            keys.n_of_n_pubkey,
-            keys.admin.pubkeys.clone(),
-            keys.admin.threshold,
-            keys.unstaking_image,
-        );
+        let (claim_contest, claim_payout) = claim_connectors(protocol, keys.into());
         let deposit = NOfNConnector::new(
             protocol.network,
             keys.n_of_n_pubkey,

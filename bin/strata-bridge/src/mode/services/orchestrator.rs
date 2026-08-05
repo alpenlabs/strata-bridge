@@ -77,7 +77,7 @@ where
     M: MosaicClientApi + 'static,
 {
     let persister = Persister::new(fdb_client.clone());
-    let sm_config = build_sm_config(config, params);
+    let sm_config = build_sm_config(config, params)?;
     let registry = persister
         .recover_registry(sm_config.clone())
         .await
@@ -236,7 +236,10 @@ fn orchestrator_stale_after(config: &Config) -> Duration {
     base_interval.checked_mul(2).unwrap_or(base_interval)
 }
 
-pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
+pub(in crate::mode) fn build_sm_config(
+    config: &Config,
+    params: &Params,
+) -> anyhow::Result<SMConfig> {
     // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2665>
     // Import this from the counterproof module once it exists.
     const COUNTERPROOF_N_DATA: usize = 128 + 4; // proof bytes (groth16) + deposit_idx (4 bytes)
@@ -296,11 +299,21 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         },
     };
 
-    SMConfig {
+    let sm_config = SMConfig {
         deposit: Arc::new(deposit_config),
         graph: Arc::new(graph_config),
         stake: Arc::new(stake_config),
-    }
+    };
+
+    // Both configs are derived from the same `Params` above, so a mismatch means this function
+    // has drifted rather than that the operator misconfigured anything. Check it anyway: the
+    // failure mode it guards against is a deposit whose graph is built against different
+    // constants, which is invisible locally and only shows up as a peer disagreeing on a txid.
+    sm_config
+        .validate_consistency()
+        .map_err(|err| anyhow!("inconsistent state machine config: {err}"))?;
+
+    Ok(sm_config)
 }
 
 fn build_exec_config(

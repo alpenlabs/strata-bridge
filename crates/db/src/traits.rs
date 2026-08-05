@@ -6,7 +6,9 @@ use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
-    deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
+    deposit::{config::DepositSMCfg, machine::DepositSM},
+    graph::{config::GraphSMCfg, machine::GraphSM},
+    stake::machine::StakeSM,
 };
 
 use crate::types::{FundingAssignment, StakeFundingReservation, WriteBatch};
@@ -113,6 +115,37 @@ pub trait BridgeDb {
         &self,
         operator_idx: OperatorIdx,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    // ── SM Params ────────────────────────────────────────────────────
+    //
+    // The params a state machine was created under, stored beside its state under the same key.
+    // A missing row means the state machine predates per-SM params; recovery falls back to the
+    // node's current params for it, which is how it has been behaving all along.
+    //
+    // There is deliberately no setter here: params are written only through `persist_batch`, so
+    // no caller can write a params row without the state machine it describes.
+
+    /// Gets, if present, the params the deposit at [`DepositIdx`] was created under.
+    fn get_deposit_params(
+        &self,
+        deposit_idx: DepositIdx,
+    ) -> impl Future<Output = Result<Option<DepositSMCfg>, Self::Error>> + Send;
+
+    /// Returns the params of every deposit that has them, as `(DepositIdx, DepositSMCfg)` pairs.
+    fn get_all_deposit_params(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(DepositIdx, DepositSMCfg)>, Self::Error>> + Send;
+
+    /// Gets, if present, the params the graph at [`GraphIdx`] was created under.
+    fn get_graph_params(
+        &self,
+        graph_idx: GraphIdx,
+    ) -> impl Future<Output = Result<Option<GraphSMCfg>, Self::Error>> + Send;
+
+    /// Returns the params of every graph that has them, as `(GraphIdx, GraphSMCfg)` pairs.
+    fn get_all_graph_params(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(GraphIdx, GraphSMCfg)>, Self::Error>> + Send;
 
     // ── Funds ─────────────────────────────────────────────────────────
 
