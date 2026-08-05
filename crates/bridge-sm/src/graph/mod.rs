@@ -6,6 +6,7 @@ pub mod errors;
 pub mod events;
 mod handlers;
 pub mod machine;
+pub mod params;
 mod post_processor;
 pub mod state;
 pub mod transitions;
