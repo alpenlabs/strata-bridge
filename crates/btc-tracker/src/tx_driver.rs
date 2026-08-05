@@ -33,8 +33,8 @@ use tracing::{debug, error, info, warn};
 use crate::{
     client::{BtcNotifyClient, Connected},
     cpfp::{
-        self, BumpReason, CpfpContext, CpfpDisabled, CpfpFeeSource, CpfpHandle,
-        CpfpPackageSubmitter, CpfpStrategy, CpfpWallet,
+        self, BumpReason, CpfpContext, CpfpDisabled, CpfpFeeSource, CpfpHandle, CpfpMempool,
+        CpfpStrategy, CpfpWallet,
     },
     event::{TxEvent, TxStatus},
 };
@@ -187,7 +187,7 @@ async fn bump_all_entries<W, F, P>(
 ) where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
-    P: CpfpPackageSubmitter + 'static,
+    P: CpfpMempool + 'static,
 {
     let txids: Vec<Txid> = entries.lock().await.keys().copied().collect();
     for parent_txid in txids {
@@ -220,7 +220,7 @@ async fn fallback_package_submit<W, F, P>(
 where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
-    P: CpfpPackageSubmitter + 'static,
+    P: CpfpMempool + 'static,
 {
     let txid = parent.compute_txid();
     let submitted =
@@ -289,7 +289,7 @@ async fn bump_one_entry<W, F, P>(
 where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
-    P: CpfpPackageSubmitter + 'static,
+    P: CpfpMempool + 'static,
 {
     // Snapshot under a brief lock; the slow bump runs without the entries mutex held.
     let snapshot = entries
@@ -322,6 +322,12 @@ where
             // Target at or below floor; expected in a quiet mempool.
             false
         }
+        Err(e) if e.is_replacement_contention() => {
+            // Another watchtower holds this shared anchor and our child does not pay enough
+            // more to displace it. Expected on every trigger until the parent confirms.
+            debug!(%parent_txid, ?reason, "CPFP bump lost the race for a shared anchor");
+            false
+        }
         Err(e) => {
             warn!(%parent_txid, error = %e, ?reason, "CPFP bump failed; will retry on next trigger");
             false
@@ -351,7 +357,7 @@ async fn register_cpfp_entry_and_bump<W, F, P>(
 where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
-    P: CpfpPackageSubmitter + 'static,
+    P: CpfpMempool + 'static,
 {
     let txid = parent.compute_txid();
     let mut entry = CpfpEntry {
@@ -436,7 +442,7 @@ impl TxDriver {
     where
         W: CpfpWallet + 'static,
         F: CpfpFeeSource + 'static,
-        P: CpfpPackageSubmitter + 'static,
+        P: CpfpMempool + 'static,
     {
         let new_jobs = unbounded_channel::<TxDriveJob>();
         let new_jobs_sender = new_jobs.0;
@@ -1214,7 +1220,7 @@ mod cpfp_lifecycle_tests {
             multi_anchor_signer: fake_input_signer_ok(),
             wallet_input_signer: fake_input_signer_ok(),
             max_fee_rate: FeeRate::from_sat_per_vb(20).unwrap(),
-            package_submitter: Arc::new(submitter),
+            mempool: Arc::new(submitter),
         }
     }
 

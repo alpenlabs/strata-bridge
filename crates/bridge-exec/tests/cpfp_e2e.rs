@@ -43,7 +43,7 @@ use btc_tracker::cpfp::{self, BumpReason, CpfpContext, CpfpHandle, CpfpStrategy,
 use operator_wallet::{NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend};
 use serial_test::serial;
 use strata_bridge_connectors::{Connector, multi_anchor::MultiAnchor};
-use strata_bridge_exec::cpfp_adapters::{BitcoindCpfpPackageSubmitter, OperatorWalletCpfpAdapter};
+use strata_bridge_exec::cpfp_adapters::{BitcoindCpfpMempool, OperatorWalletCpfpAdapter};
 use tokio::sync::RwLock;
 
 /// Test fee target: well above the bridge protocol floor so the bump path fires.
@@ -334,7 +334,7 @@ async fn cpfp_e2e_against_bitcoind() {
         wallet.clone(),
         operator_pubkey,
     ));
-    let cpfp_submitter = Arc::new(BitcoindCpfpPackageSubmitter::new(async_client.clone()));
+    let cpfp_submitter = Arc::new(BitcoindCpfpMempool::new(async_client.clone()));
     let fee_source = Arc::new(FixedFeeSource(
         FeeRate::from_sat_per_vb(TEST_FEE_TARGET).unwrap(),
     ));
@@ -351,7 +351,7 @@ async fn cpfp_e2e_against_bitcoind() {
         anchor_input_signer,
         wallet_input_signer,
         max_fee_rate,
-        package_submitter: cpfp_submitter,
+        mempool: cpfp_submitter,
     };
 
     // ── 4. perform_bump → submits [parent, child] package ──────────────────
@@ -512,7 +512,7 @@ async fn cpfp_e2e_parent_tx_combined_against_bitcoind() {
         wallet.clone(),
         operator_pubkey,
     ));
-    let cpfp_submitter = Arc::new(BitcoindCpfpPackageSubmitter::new(async_client.clone()));
+    let cpfp_submitter = Arc::new(BitcoindCpfpMempool::new(async_client.clone()));
     let fee_source = Arc::new(FixedFeeSource(
         FeeRate::from_sat_per_vb(TEST_FEE_TARGET).unwrap(),
     ));
@@ -529,7 +529,7 @@ async fn cpfp_e2e_parent_tx_combined_against_bitcoind() {
         anchor_input_signer,
         wallet_input_signer,
         max_fee_rate,
-        package_submitter: cpfp_submitter,
+        mempool: cpfp_submitter,
     };
 
     let strategy = CpfpStrategy::ParentTxCombined {
@@ -717,7 +717,7 @@ async fn cpfp_e2e_infer_general_payout_against_bitcoind() {
         wallet.clone(),
         operator_pubkey,
     ));
-    let cpfp_submitter = Arc::new(BitcoindCpfpPackageSubmitter::new(async_client.clone()));
+    let cpfp_submitter = Arc::new(BitcoindCpfpMempool::new(async_client.clone()));
     let fee_source = Arc::new(FixedFeeSource(
         FeeRate::from_sat_per_vb(TEST_FEE_TARGET).unwrap(),
     ));
@@ -733,7 +733,7 @@ async fn cpfp_e2e_infer_general_payout_against_bitcoind() {
         anchor_input_signer,
         wallet_input_signer,
         max_fee_rate,
-        package_submitter: cpfp_submitter,
+        mempool: cpfp_submitter,
     };
 
     let strategy = CpfpStrategy::ParentTxCombined {
@@ -927,7 +927,7 @@ async fn cpfp_e2e_multi_anchor_against_bitcoind() {
         anchor_input_signer,
         wallet_input_signer: test_input_signer(operator_keypair),
         max_fee_rate: FeeRate::from_sat_per_vb(TEST_FEE_CAP).unwrap(),
-        package_submitter: Arc::new(BitcoindCpfpPackageSubmitter::new(async_client.clone())),
+        mempool: Arc::new(BitcoindCpfpMempool::new(async_client.clone())),
     };
 
     // ── 5. perform_bump → [parent, child] package via the script path ──────
@@ -988,4 +988,187 @@ async fn cpfp_e2e_multi_anchor_against_bitcoind() {
         confirmed_txids.contains(&child_txid),
         "multi-anchor child must confirm in the same block as the parent"
     );
+}
+
+/// Two watchtowers bump the same `MultiAnchor`, as they do in production.
+///
+/// The first one wins the anchor. The second one must then skip quietly rather than pay to
+/// lose: it reads the spend state of the anchor, sees a package already at target, and returns
+/// without building or signing. Every watchtower of a graph holds a leaf on the same anchor, so
+/// without this the losers rebuild and resubmit on every trigger until the parent confirms.
+///
+/// The test also pins the rejection that bitcoind produces when the check is bypassed. That
+/// string is what `SubmitPackageError::is_replacement_contention` matches, and matching on a
+/// message is only safe while a test holds it against a live node.
+#[tokio::test]
+#[serial]
+async fn cpfp_e2e_multi_anchor_contention_is_quiet() {
+    let (bitcoind, async_client) = setup_bitcoind();
+    let async_client = Arc::new(async_client);
+    let secp = Secp256k1::new();
+    let operator_secret = SecretKey::from_slice(&[7u8; 32]).expect("valid 32-byte scalar");
+    let operator_keypair = Keypair::from_secret_key(&secp, &operator_secret);
+    let (operator_pubkey, _) = operator_keypair.x_only_public_key();
+
+    const N_WATCHTOWERS: u8 = 3;
+    let wt_keypairs: Vec<Keypair> = (0..N_WATCHTOWERS)
+        .map(|i| {
+            let secret = SecretKey::from_slice(&[11 + i; 32]).expect("valid 32-byte scalar");
+            Keypair::from_secret_key(&secp, &secret)
+        })
+        .collect();
+    let wt_pubkeys: Vec<XOnlyPublicKey> = wt_keypairs
+        .iter()
+        .map(|kp| kp.x_only_public_key().0)
+        .collect();
+    let anchor = MultiAnchor::new(Network::Regtest, wt_pubkeys, Amount::from_sat(330));
+
+    let wallet = build_operator_wallet(
+        &bitcoind,
+        operator_pubkey,
+        6,
+        Amount::from_btc(0.5).unwrap(),
+    )
+    .await;
+    let parent_fee_rate = FeeRate::from_sat_per_vb(PARENT_FEE_RATE_SAT_PER_VB).unwrap();
+    let parent =
+        build_v3_multi_anchor_parent(&wallet, operator_keypair, &anchor, parent_fee_rate).await;
+    let anchor_vout = parent
+        .output
+        .iter()
+        .position(|o| o.script_pubkey == anchor.script_pubkey())
+        .expect("multi-anchor output must exist") as u32;
+    let parent_fee = parent_fee_rate
+        .fee_vb(parent.vsize() as u64)
+        .expect("parent fee fits in Amount");
+
+    // One context per watchtower, each signing with its own leaf.
+    let context_for = |slot: usize| {
+        let leaf_script = anchor.leaf_scripts()[slot].clone();
+        let control_block = anchor
+            .spend_info()
+            .control_block(&(leaf_script.clone(), taproot::LeafVersion::TapScript))
+            .expect("control block for the leaf of this watchtower");
+        let ctx = CpfpContext {
+            wallet: Arc::new(OperatorWalletCpfpAdapter::new(
+                wallet.clone(),
+                operator_pubkey,
+            )),
+            multi_anchor_signer: test_untweaked_input_signer(wt_keypairs[slot]),
+            fee_source: Arc::new(FixedFeeSource(
+                FeeRate::from_sat_per_vb(TEST_FEE_TARGET).unwrap(),
+            )),
+            anchor_input_signer: test_input_signer(operator_keypair),
+            wallet_input_signer: test_input_signer(operator_keypair),
+            max_fee_rate: FeeRate::from_sat_per_vb(TEST_FEE_CAP).unwrap(),
+            mempool: Arc::new(BitcoindCpfpMempool::new(async_client.clone())),
+        };
+        let strategy = CpfpStrategy::MultiAnchorBearing {
+            anchor_vout,
+            leaf_script,
+            control_block,
+            parent_fee,
+        };
+        (ctx, strategy)
+    };
+
+    // Watchtower 0 takes the anchor.
+    let (ctx0, strategy0) = context_for(0);
+    let mut handle0 = CpfpHandle::default();
+    let bumped = cpfp::perform_bump(
+        &ctx0,
+        &parent,
+        strategy0,
+        &mut handle0,
+        FeeRate::from_sat_per_vb(TEST_FLOOR).unwrap(),
+        BumpReason::NewJob,
+    )
+    .await
+    .expect("the first watchtower must win the anchor");
+    assert!(bumped, "the first bump must submit a package");
+
+    // Watchtower 1 now sees the anchor taken at target, and skips.
+    let (ctx1, strategy1) = context_for(1);
+    let mut handle1 = CpfpHandle::default();
+    let bumped = cpfp::perform_bump(
+        &ctx1,
+        &parent,
+        strategy1,
+        &mut handle1,
+        FeeRate::from_sat_per_vb(TEST_FLOOR).unwrap(),
+        BumpReason::NewBlock,
+    )
+    .await
+    .expect("a lost anchor is not an error");
+    assert!(
+        !bumped,
+        "the second watchtower must skip, not submit a package that cannot win"
+    );
+    assert!(
+        handle1.last_child_txid.is_none(),
+        "a skipping watchtower must not build or sign a child"
+    );
+
+    // Pin the rejection that the skip avoids.
+    //
+    // The skip works, so no watchtower reaches the submission any more. Reproduce what one
+    // without the check meets by reporting the anchor as unspent while leaving the submission
+    // real. This is the only way to hold the bitcoind message that
+    // `is_replacement_contention` matches against a live node.
+    let (ctx2, strategy2) = context_for(2);
+    let ctx2 = CpfpContext {
+        wallet: ctx2.wallet,
+        multi_anchor_signer: ctx2.multi_anchor_signer,
+        fee_source: ctx2.fee_source,
+        anchor_input_signer: ctx2.anchor_input_signer,
+        wallet_input_signer: ctx2.wallet_input_signer,
+        max_fee_rate: ctx2.max_fee_rate,
+        mempool: Arc::new(BlindToSpends(BitcoindCpfpMempool::new(
+            async_client.clone(),
+        ))),
+    };
+    let mut handle2 = CpfpHandle::default();
+    let forced = cpfp::perform_bump(
+        &ctx2,
+        &parent,
+        strategy2,
+        &mut handle2,
+        FeeRate::from_sat_per_vb(TEST_FLOOR).unwrap(),
+        BumpReason::NewBlock,
+    )
+    .await;
+
+    let err = forced.expect_err("a same-target child cannot displace the winner");
+    assert!(
+        err.is_replacement_contention(),
+        "a lost race must classify as contention, not as a fault: {err}"
+    );
+}
+
+/// Wraps the real mempool adapter and reports every anchor as unspent.
+///
+/// Submission stays real. Only the pre-build check is blinded, so a bump proceeds to the point
+/// where bitcoind itself rejects it.
+#[derive(Debug)]
+struct BlindToSpends(BitcoindCpfpMempool);
+
+impl cpfp::CpfpMempool for BlindToSpends {
+    fn submit_package(
+        &self,
+        txs: &[Transaction],
+    ) -> impl std::future::Future<
+        Output = Result<
+            btc_tracker::submitpackage::SubmitPackageSummary,
+            btc_tracker::submitpackage::SubmitPackageError,
+        >,
+    > + Send {
+        self.0.submit_package(txs)
+    }
+
+    async fn anchor_spend_state(
+        &self,
+        _anchor: OutPoint,
+    ) -> Result<cpfp::AnchorSpendState, String> {
+        Ok(cpfp::AnchorSpendState::Unspent)
+    }
 }
