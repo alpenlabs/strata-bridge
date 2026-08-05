@@ -263,6 +263,7 @@ mod tests {
             nack_timelock = 144
             contested_payout_timelock = 1_008
             unstaking_timelock = 2_016
+            sweep_fee_rate = 10
             "#
         ))
         .expect("valid test params")
