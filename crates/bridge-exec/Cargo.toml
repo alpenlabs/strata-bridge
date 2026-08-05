@@ -45,6 +45,8 @@ futures.workspace = true
 jsonrpsee = { workspace = true, features = ["client"] }
 metrics.workspace = true
 musig2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 ssz.workspace = true
 terrors.workspace = true
 thiserror.workspace = true

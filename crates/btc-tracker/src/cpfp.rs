@@ -45,7 +45,7 @@ use bitcoin::{
 };
 use thiserror::Error;
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::submitpackage::{self, SubmitPackageError};
 
@@ -163,6 +163,16 @@ pub enum CpfpError {
     /// caller-provided signature (anchor) by the time we get here.
     #[error("psbt extract: {0}")]
     PsbtExtract(String),
+}
+
+impl CpfpError {
+    /// Whether this failure is a lost race for a shared anchor rather than a fault.
+    ///
+    /// See [`SubmitPackageError::is_replacement_contention`]. Callers use it to keep expected
+    /// contention out of the warning stream.
+    pub fn is_replacement_contention(&self) -> bool {
+        matches!(self, Self::SubmitPackage(e) if e.is_replacement_contention())
+    }
 }
 
 /// A funded PSBT returned by a wallet handle in [`CpfpContext`].
@@ -395,8 +405,23 @@ impl CpfpFeeSource for CachedFeeSource {
     }
 }
 
-/// Submits a `[parent, child]` package via the configured RPC.
-pub trait CpfpPackageSubmitter: Send + Sync + fmt::Debug {
+/// What already spends a CPFP anchor, if anything.
+///
+/// A `MultiAnchor` anchor is shared. Every watchtower of the graph holds a leaf on it, and
+/// every one of them bumps the same output. The bump loop reads this state before it builds,
+/// so that a watchtower which has already lost the anchor stops paying to lose it again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnchorSpendState {
+    /// Nothing spends the anchor. This operator can bump.
+    Unspent,
+    /// A mempool transaction spends the anchor, and its package pays this rate.
+    SpentInMempool(FeeRate),
+    /// A confirmed transaction spends the anchor. No child can improve the parent now.
+    Confirmed,
+}
+
+/// The bitcoind mempool operations that the bump loop needs.
+pub trait CpfpMempool: Send + Sync + fmt::Debug {
     /// Forwards to bitcoind's `submitpackage` RPC; returns the typed summary.
     fn submit_package(
         &self,
@@ -404,6 +429,16 @@ pub trait CpfpPackageSubmitter: Send + Sync + fmt::Debug {
     ) -> impl std::future::Future<
         Output = Result<submitpackage::SubmitPackageSummary, SubmitPackageError>,
     > + Send;
+
+    /// Reports what already spends `anchor`.
+    ///
+    /// The bump loop calls this only for a shared anchor, and treats an error as
+    /// [`AnchorSpendState::Unspent`]. A failed lookup must not stop a bump, because the
+    /// submission itself is the authority on whether the package is acceptable.
+    fn anchor_spend_state(
+        &self,
+        anchor: OutPoint,
+    ) -> impl std::future::Future<Output = Result<AnchorSpendState, String>> + Send;
 }
 
 /// Zero-sized placeholder that implements every CPFP trait but panics if any method is ever
@@ -441,7 +476,7 @@ impl CpfpFeeSource for CpfpDisabled {
 }
 
 #[expect(clippy::manual_async_fn, reason = "see CpfpWallet impl above")]
-impl CpfpPackageSubmitter for CpfpDisabled {
+impl CpfpMempool for CpfpDisabled {
     fn submit_package(
         &self,
         _txs: &[Transaction],
@@ -449,6 +484,13 @@ impl CpfpPackageSubmitter for CpfpDisabled {
         Output = Result<submitpackage::SubmitPackageSummary, SubmitPackageError>,
     > + Send {
         async { unreachable!("CpfpDisabled::submit_package should never be called") }
+    }
+
+    fn anchor_spend_state(
+        &self,
+        _anchor: OutPoint,
+    ) -> impl std::future::Future<Output = Result<AnchorSpendState, String>> + Send {
+        async { unreachable!("CpfpDisabled::anchor_spend_state should never be called") }
     }
 }
 
@@ -462,7 +504,7 @@ pub struct CpfpContext<W, F, P>
 where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
-    P: CpfpPackageSubmitter + 'static,
+    P: CpfpMempool + 'static,
 {
     /// Wallet that constructs the child PSBT. The PSBT comes back **unsigned**: bridge
     /// wallets are descriptor-only (no key material in the BDK wallet), so the funding
@@ -494,14 +536,14 @@ where
     pub max_fee_rate: FeeRate,
     /// Submits `[parent, child]` packages via bitcoind. Wrapper around the
     /// [`submitpackage::submit_package`] helper.
-    pub package_submitter: Arc<P>,
+    pub mempool: Arc<P>,
 }
 
 impl<W, F, P> Clone for CpfpContext<W, F, P>
 where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
-    P: CpfpPackageSubmitter + 'static,
+    P: CpfpMempool + 'static,
 {
     fn clone(&self) -> Self {
         Self {
@@ -511,7 +553,7 @@ where
             multi_anchor_signer: self.multi_anchor_signer.clone(),
             wallet_input_signer: self.wallet_input_signer.clone(),
             max_fee_rate: self.max_fee_rate,
-            package_submitter: self.package_submitter.clone(),
+            mempool: self.mempool.clone(),
         }
     }
 }
@@ -520,7 +562,7 @@ impl<W, F, P> Debug for CpfpContext<W, F, P>
 where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
-    P: CpfpPackageSubmitter + 'static,
+    P: CpfpMempool + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CpfpContext")
@@ -529,7 +571,7 @@ where
             .field("anchor_input_signer", &"<closure>")
             .field("wallet_input_signer", &"<closure>")
             .field("max_fee_rate", &self.max_fee_rate)
-            .field("package_submitter", &self.package_submitter)
+            .field("mempool", &self.mempool)
             .finish()
     }
 }
@@ -602,7 +644,7 @@ pub async fn perform_bump<W, F, P>(
 where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
-    P: CpfpPackageSubmitter + 'static,
+    P: CpfpMempool + 'static,
 {
     let parent_txid = parent.compute_txid();
 
@@ -677,6 +719,52 @@ where
                     "target ≤ last bump rate; no-op (avoiding wasted RBF)"
                 );
                 return Ok(false);
+            }
+        }
+    }
+
+    // ── 4.5 Skip when another watchtower already covers a shared anchor ─────
+    //
+    // Only `MultiAnchorBearing` reaches this check. Every other anchor belongs to one
+    // operator, so nobody else can spend it.
+    //
+    // A `MultiAnchor` output carries one leaf per watchtower, and every watchtower bumps the
+    // same output. Their children conflict, so one wins each round and the rest are rejected.
+    // Without this check the losers rebuild, re-sign, and resubmit on every trigger, for as
+    // long as the parent stays unconfirmed. Each of those attempts costs a signing round trip
+    // and leaves a warning in the log.
+    //
+    // The check is not a lock. Two watchtowers can read `Unspent` in the same instant and both
+    // build. That race is bounded to one round, because the loser observes the winner on the
+    // next trigger. The submission remains the authority, and `perform_bump` still handles a
+    // rejection.
+    if let CpfpStrategy::MultiAnchorBearing { anchor_vout, .. } = &strategy {
+        let anchor = OutPoint {
+            txid: parent_txid,
+            vout: *anchor_vout,
+        };
+        // An error here is not fatal. The lookup is an optimisation, so fall through to the
+        // build and let the submission decide.
+        match ctx.mempool.anchor_spend_state(anchor).await {
+            Ok(AnchorSpendState::SpentInMempool(existing)) if existing >= target => {
+                debug!(
+                    %parent_txid,
+                    ?target,
+                    ?existing,
+                    "another watchtower already bumped this anchor to the target; skipping"
+                );
+                return Ok(false);
+            }
+            Ok(AnchorSpendState::Confirmed) => {
+                debug!(
+                    %parent_txid,
+                    "anchor already spent by a confirmed transaction; skipping"
+                );
+                return Ok(false);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                debug!(%parent_txid, error = %e, "anchor spend lookup failed; building anyway");
             }
         }
     }
@@ -832,10 +920,7 @@ where
     let child_txid = child.compute_txid();
 
     // ── 8. submit_package([parent, child]) ──────────────────────────────────
-    let summary = ctx
-        .package_submitter
-        .submit_package(&[parent.clone(), child])
-        .await?;
+    let summary = ctx.mempool.submit_package(&[parent.clone(), child]).await?;
 
     info!(
         %parent_txid,
@@ -1027,7 +1112,7 @@ pub(crate) mod tests {
             }
         }
     }
-    impl CpfpPackageSubmitter for FakeSubmitter {
+    impl CpfpMempool for FakeSubmitter {
         fn submit_package(
             &self,
             txs: &[Transaction],
@@ -1048,6 +1133,12 @@ pub(crate) mod tests {
                     }),
                 }
             }
+        }
+
+        /// Reports every anchor as unspent, so unit tests exercise the build path. The
+        /// contention skip is covered end to end against a live bitcoind instead.
+        async fn anchor_spend_state(&self, _anchor: OutPoint) -> Result<AnchorSpendState, String> {
+            Ok(AnchorSpendState::Unspent)
         }
     }
 
@@ -1197,7 +1288,7 @@ pub(crate) mod tests {
     where
         F: CpfpFeeSource + 'static,
         W: CpfpWallet + 'static,
-        P: CpfpPackageSubmitter + 'static,
+        P: CpfpMempool + 'static,
     {
         CpfpContext {
             wallet,
@@ -1206,7 +1297,7 @@ pub(crate) mod tests {
             anchor_input_signer: anchor_signer,
             wallet_input_signer: wallet_signer,
             max_fee_rate,
-            package_submitter: submitter,
+            mempool: submitter,
         }
     }
 
@@ -2001,7 +2092,7 @@ pub(crate) mod tests {
             multi_anchor_signer: fake_input_signer_const(0xAA),
             wallet_input_signer: fake_input_signer_const(0xBB),
             max_fee_rate: FeeRate::from_sat_per_vb(20).unwrap(),
-            package_submitter: submitter.clone(),
+            mempool: submitter.clone(),
         };
         let strategy = CpfpStrategy::MultiAnchorBearing {
             anchor_vout: 0,

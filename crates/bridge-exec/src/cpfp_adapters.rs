@@ -1,6 +1,6 @@
 //! Bridge-side implementations of the [`btc_tracker::cpfp`] traits.
 //!
-//! `btc-tracker` defines [`CpfpWallet`], [`CpfpFeeSource`], and [`CpfpPackageSubmitter`] as
+//! `btc-tracker` defines [`CpfpWallet`], [`CpfpFeeSource`], and [`CpfpMempool`] as
 //! abstract interfaces so the crate stays at the bottom of the dependency graph. The concrete
 //! adapters that wire those traits to the bridge's actual wallet, fee source, and Bitcoin Core
 //! client live here.
@@ -15,8 +15,8 @@ use bitcoin::{
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::{
     cpfp::{
-        CpfpFeeSource, CpfpPackageSubmitter, CpfpStrategy, CpfpWallet, InputSignFut, InputSigner,
-        WalletFundedPsbt,
+        AnchorSpendState, CpfpFeeSource, CpfpMempool, CpfpStrategy, CpfpWallet, InputSignFut,
+        InputSigner, WalletFundedPsbt,
     },
     submitpackage::{self, SubmitPackageError, SubmitPackageSummary},
 };
@@ -174,21 +174,21 @@ impl CpfpFeeSource for BitcoindCpfpFeeSource {
     }
 }
 
-/// [`CpfpPackageSubmitter`] backed by the typed
+/// [`CpfpMempool`] backed by the typed
 /// [`btc_tracker::submitpackage::submit_package`] wrapper over [`BitcoinClient`].
 #[derive(Debug)]
-pub struct BitcoindCpfpPackageSubmitter {
+pub struct BitcoindCpfpMempool {
     client: Arc<BitcoinClient>,
 }
 
-impl BitcoindCpfpPackageSubmitter {
+impl BitcoindCpfpMempool {
     /// Constructs a submitter forwarding to the given Bitcoin Core client.
     pub const fn new(client: Arc<BitcoinClient>) -> Self {
         Self { client }
     }
 }
 
-impl CpfpPackageSubmitter for BitcoindCpfpPackageSubmitter {
+impl CpfpMempool for BitcoindCpfpMempool {
     fn submit_package(
         &self,
         txs: &[Transaction],
@@ -198,6 +198,73 @@ impl CpfpPackageSubmitter for BitcoindCpfpPackageSubmitter {
         let txs = txs.to_vec();
         async move { submitpackage::submit_package(client.as_ref(), &txs).await }
     }
+
+    fn anchor_spend_state(
+        &self,
+        anchor: OutPoint,
+    ) -> impl std::future::Future<Output = Result<AnchorSpendState, String>> + Send {
+        let client = self.client.clone();
+        async move {
+            // `gettxspendingprevout` reports the transaction that spends an outpoint, whether
+            // that transaction sits in the mempool or in a block. Core 24.0 added it, and the
+            // bridge already needs Core 24.0 for `submitpackage`. The typed surface of the
+            // client does not cover it, so call it raw.
+            let query =
+                serde_json::json!([{ "txid": anchor.txid.to_string(), "vout": anchor.vout }]);
+            let spends: Vec<PrevoutSpend> = client
+                .call_raw("gettxspendingprevout", &[query])
+                .await
+                .map_err(|e| format!("gettxspendingprevout: {e:?}"))?;
+
+            let Some(spending_txid) = spends.into_iter().find_map(|s| s.spending_txid) else {
+                return Ok(AnchorSpendState::Unspent);
+            };
+
+            // A spender exists. When the mempool holds it, its ancestor totals give the package
+            // rate that this operator competes against.
+            //
+            // When the mempool does not hold it, the spender is confirmed and no child can
+            // improve the parent. A transient RPC failure reads the same way here. The cost of
+            // that confusion is one skipped bump, and the next trigger retries.
+            let entry: Result<MempoolEntry, _> = client
+                .call_raw("getmempoolentry", &[serde_json::json!(spending_txid)])
+                .await;
+            let Ok(entry) = entry else {
+                return Ok(AnchorSpendState::Confirmed);
+            };
+
+            let ancestor_fee = Amount::from_btc(entry.fees.ancestor)
+                .map_err(|e| format!("ancestor fee is not a valid amount: {e}"))?;
+            let rate = ancestor_fee
+                .checked_div(entry.ancestor_size.max(1))
+                .map(|per_vb| FeeRate::from_sat_per_vb_unchecked(per_vb.to_sat()))
+                .ok_or_else(|| "ancestor fee rate overflowed".to_string())?;
+            Ok(AnchorSpendState::SpentInMempool(rate))
+        }
+    }
+}
+
+/// One entry of a `gettxspendingprevout` response.
+#[derive(Debug, serde::Deserialize)]
+struct PrevoutSpend {
+    /// Absent when nothing spends the outpoint.
+    #[serde(rename = "spendingtxid")]
+    spending_txid: Option<String>,
+}
+
+/// The subset of `getmempoolentry` that the bump loop reads.
+#[derive(Debug, serde::Deserialize)]
+struct MempoolEntry {
+    fees: MempoolEntryFees,
+    #[serde(rename = "ancestorsize")]
+    ancestor_size: u64,
+}
+
+/// Fee totals of a mempool entry, denominated in BTC as bitcoind reports them.
+#[derive(Debug, serde::Deserialize)]
+struct MempoolEntryFees {
+    /// Total fee of this transaction and its unconfirmed ancestors.
+    ancestor: f64,
 }
 
 /// Looks for a keyed-Taproot anchor on `parent.output` keyed to `anchor_pubkey`, and if

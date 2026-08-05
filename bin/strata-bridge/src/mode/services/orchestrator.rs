@@ -21,7 +21,7 @@ use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{
     config::ExecutionConfig,
     cpfp_adapters::{
-        BitcoindCpfpFeeSource, BitcoindCpfpPackageSubmitter, OperatorWalletCpfpAdapter,
+        BitcoindCpfpFeeSource, BitcoindCpfpMempool, OperatorWalletCpfpAdapter,
         build_anchor_input_signer, build_multi_anchor_signer, build_wallet_input_signer,
     },
     output_handles::{NativeWallet, OutputHandles},
@@ -243,7 +243,7 @@ where
         wallet.clone(),
         operator_general_pubkey,
     ));
-    let cpfp_submitter = Arc::new(BitcoindCpfpPackageSubmitter::new(btc_rpc_arc.clone()));
+    let cpfp_submitter = Arc::new(BitcoindCpfpMempool::new(btc_rpc_arc.clone()));
     // Two distinct signers, bound to two distinct keys:
     //   - anchor inputs use the musig2-signer pubkey (the bridge tx-graph keys every KeyedAnchor to
     //     this pubkey — see `bridge-sm::graph::context::generate_key_data`).
@@ -261,7 +261,7 @@ where
         multi_anchor_signer,
         wallet_input_signer,
         max_fee_rate: exec_cfg.maximum_fee_rate,
-        package_submitter: cpfp_submitter,
+        mempool: cpfp_submitter,
     };
     let tx_driver = TxDriver::with_cpfp(
         zmq_client,

@@ -79,6 +79,36 @@ pub enum SubmitPackageError {
     },
 }
 
+impl SubmitPackageError {
+    /// Whether this rejection means that a competing transaction already holds one of our
+    /// inputs, and our replacement does not pay enough more to displace it.
+    ///
+    /// A shared `MultiAnchor` produces this outcome by design. Every watchtower of the graph
+    /// bumps the same anchor, all of them target the same market rate, and only the first one
+    /// gets in. The rest read this error on every trigger for as long as the parent stays
+    /// unconfirmed. That is expected contention rather than a fault, so callers log it quietly
+    /// and keep a real failure visible.
+    ///
+    /// bitcoind reports it per transaction, in the form
+    /// `insufficient fee, rejecting replacement <txid>, not enough additional fees to relay`.
+    pub fn is_replacement_contention(&self) -> bool {
+        match self {
+            Self::Rejected { tx_errors, .. } => tx_errors
+                .iter()
+                .any(|(_, err)| err.contains(REPLACEMENT_CONTENTION_MARKER)),
+            Self::Rpc(_) => false,
+        }
+    }
+}
+
+/// Substring that bitcoind uses when it declines a replacement for paying too little.
+///
+/// Matching on a message is brittle in general. It is the only signal available here, because
+/// `submitpackage` reports per-transaction outcomes as free text. The e2e test
+/// `cpfp_e2e_multi_anchor_contention_is_quiet` pins the real string against a live bitcoind, so
+/// a change upstream fails a test rather than silently restoring the log noise.
+const REPLACEMENT_CONTENTION_MARKER: &str = "rejecting replacement";
+
 /// Computes the `maxburnamount` guard for a whole package submission.
 ///
 /// Mirrors the per-transaction logic the tx-driver applies to bare rebroadcasts, lifted to
@@ -134,15 +164,18 @@ pub async fn submit_package<B: Broadcaster + ?Sized>(
 
     if response.package_msg != PACKAGE_MSG_SUCCESS {
         let tx_errors = collect_tx_errors(&response);
-        warn!(
-            package_msg = %response.package_msg,
-            n_tx_errors = tx_errors.len(),
-            "submitpackage was rejected by bitcoind"
-        );
-        return Err(SubmitPackageError::Rejected {
+        let rejection = SubmitPackageError::Rejected {
             message: response.package_msg,
             tx_errors,
-        });
+        };
+        // Expected contention on a shared anchor is not a fault. Keep it out of the warning
+        // stream, so that a genuine rejection stays visible there.
+        if rejection.is_replacement_contention() {
+            debug!(error = %rejection, "submitpackage lost a race for a shared anchor");
+        } else {
+            warn!(error = %rejection, "submitpackage was rejected by bitcoind");
+        }
+        return Err(rejection);
     }
 
     Ok(summarize_success(response))
