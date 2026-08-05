@@ -11,15 +11,19 @@
 //! the `DepositMessage` family, ...) carry their own idempotency/abort
 //! semantics, have dedicated tests, and are out of scope here.
 
+use std::sync::LazyLock;
+
+use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_test_utils::prelude::generate_txid;
 
 use super::{
     ASSIGNMENT_DEADLINE, CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
     TEST_DEPOSIT_IDX, TEST_NONPOV_IDX, TEST_POV_IDX, create_sm, dummy_proof_receipt,
-    mock_states::{TEST_GRAPH_SUMMARY, all_state_variants},
+    mock_states::{TEST_GRAPH_SUMMARY, all_state_variants, test_nonce_context},
     test_bridge_proof_tx, test_counterproof_nack_tx, test_counterproof_tx, test_deposit_params,
     test_graph_sm_cfg, test_recipient_desc,
+    utils::{NonceContext, build_partial_signatures},
 };
 use crate::{
     graph::{
@@ -46,6 +50,24 @@ type TransitionCase = (&'static str, fn(&GraphState) -> bool, fn() -> GraphEvent
 // the canonical test txids, so that rejection is driven purely by the source
 // *state* rather than by malformed event content.
 
+/// The signing handlers validate payloads *inside* their accepting arms, so
+/// empty vectors would mask a widened source state behind a payload rejection.
+static SIGNING_FIXTURES: LazyLock<NonceContext> = LazyLock::new(|| test_nonce_context().2);
+
+static VALID_PUBNONCES: LazyLock<Vec<PubNonce>> =
+    LazyLock::new(|| SIGNING_FIXTURES.pubnonces[&TEST_NONPOV_IDX].clone());
+
+static VALID_PARTIAL_SIGS: LazyLock<Vec<PartialSignature>> = LazyLock::new(|| {
+    build_partial_signatures(
+        &SIGNING_FIXTURES.signers,
+        &SIGNING_FIXTURES.key_agg_ctxs,
+        &SIGNING_FIXTURES.agg_nonces,
+        &SIGNING_FIXTURES.signing_infos,
+        0,
+    )[&TEST_NONPOV_IDX]
+        .clone()
+});
+
 fn graph_data_produced_event() -> GraphEvent {
     let params = test_deposit_params();
     GraphDataGeneratedEvent {
@@ -67,7 +89,7 @@ fn adaptors_verified_event() -> GraphEvent {
 fn nonces_received_event() -> GraphEvent {
     GraphNoncesReceivedEvent {
         operator_idx: TEST_NONPOV_IDX,
-        pubnonces: Vec::new(),
+        pubnonces: VALID_PUBNONCES.clone(),
     }
     .into()
 }
@@ -75,7 +97,7 @@ fn nonces_received_event() -> GraphEvent {
 fn partials_received_event() -> GraphEvent {
     GraphPartialsReceivedEvent {
         operator_idx: TEST_NONPOV_IDX,
-        partial_signatures: Vec::new(),
+        partial_signatures: VALID_PARTIAL_SIGS.clone(),
     }
     .into()
 }
@@ -156,9 +178,21 @@ fn counterproof_nack_confirmed_event() -> GraphEvent {
     .into()
 }
 
-fn payout_confirmed_event() -> GraphEvent {
+// `process_payout` accepts the uncontested payout only from `Claimed` and the
+// contested payout only from the post-`Contested` states, so a single txid
+// would let a widened source state slip through on the txid check instead.
+// Both forms are therefore run against every invalid source state.
+
+fn uncontested_payout_confirmed_event() -> GraphEvent {
     PayoutConfirmedEvent {
         payout_txid: TEST_GRAPH_SUMMARY.uncontested_payout,
+    }
+    .into()
+}
+
+fn contested_payout_confirmed_event() -> GraphEvent {
+    PayoutConfirmedEvent {
+        payout_txid: TEST_GRAPH_SUMMARY.contested_payout,
     }
     .into()
 }
@@ -168,7 +202,7 @@ fn payout_confirmed_event() -> GraphEvent {
 #[test]
 fn every_transition_rejects_its_invalid_source_states() {
     #[rustfmt::skip]
-    let cases: [TransitionCase; 14] = [
+    let cases: [TransitionCase; 15] = [
         ("GraphDataProduced",           |s| matches!(s, GraphState::Created { .. }),                                                                                                                        graph_data_produced_event),
         ("AdaptorsVerified",            |s| matches!(s, GraphState::GraphGenerated { .. }),                                                                                                                 adaptors_verified_event),
         ("NoncesReceived",              |s| matches!(s, GraphState::AdaptorsVerified { .. }),                                                                                                               nonces_received_event),
@@ -182,7 +216,8 @@ fn every_transition_rejects_its_invalid_source_states() {
         ("CounterProofConfirmed",       |s| matches!(s, GraphState::Contested { .. } | GraphState::BridgeProofPosted { .. } | GraphState::CounterProofPosted { .. }),                                        counterproof_confirmed_event),
         ("CounterProofAckConfirmed",    |s| matches!(s, GraphState::CounterProofPosted { .. }),                                                                                                             counterproof_ack_confirmed_event),
         ("CounterProofNackConfirmed",   |s| matches!(s, GraphState::CounterProofPosted { .. }),                                                                                                             counterproof_nack_confirmed_event),
-        ("PayoutConfirmed",             |s| matches!(s, GraphState::Claimed { .. } | GraphState::Contested { .. } | GraphState::BridgeProofPosted { .. } | GraphState::CounterProofPosted { .. } | GraphState::AllNackd { .. }), payout_confirmed_event),
+        ("PayoutConfirmed/uncontested",  |s| matches!(s, GraphState::Claimed { .. } | GraphState::Contested { .. } | GraphState::BridgeProofPosted { .. } | GraphState::CounterProofPosted { .. } | GraphState::AllNackd { .. }), uncontested_payout_confirmed_event),
+        ("PayoutConfirmed/contested",    |s| matches!(s, GraphState::Claimed { .. } | GraphState::Contested { .. } | GraphState::BridgeProofPosted { .. } | GraphState::CounterProofPosted { .. } | GraphState::AllNackd { .. }), contested_payout_confirmed_event),
     ];
 
     let cfg = test_graph_sm_cfg();
