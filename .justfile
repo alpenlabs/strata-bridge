@@ -55,12 +55,24 @@ sec: audit trivy
 # Check for security advisories on any dependencies
 [group('test')]
 audit: ensure-cargo-audit
-    cargo audit
+    #!/usr/bin/env bash
+    set -euo pipefail
 
-# Scan `Cargo.lock` for HIGH/CRITICAL vulnerabilities (honours `.trivyignore.yaml`)
+    lockfiles=(
+        "Cargo.lock"
+        "guest-builder/sp1/guest-bridge-proof/Cargo.lock"
+        "guest-builder/sp1/guest-counterproof/Cargo.lock"
+    )
+
+    for lockfile in "${lockfiles[@]}"; do
+        echo "Auditing ${lockfile}"
+        cargo audit --file "${lockfile}"
+    done
+
+# Scan all `Cargo.lock` files for fixed HIGH/CRITICAL vulnerabilities (honours `.trivyignore.yaml`)
 [group('test')]
 trivy: ensure-trivy
-    trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --show-suppressed --ignorefile .trivyignore.yaml Cargo.lock
+    trivy fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --show-suppressed --ignorefile .trivyignore.yaml --skip-dirs functional-tests .
 
 # cargo clean
 [group('build')]
