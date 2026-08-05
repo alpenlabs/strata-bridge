@@ -56,6 +56,19 @@ pub struct Directories {
     /// Subspace for storing Stake SM states, keyed by `OperatorIdx`.
     pub stakes: DirectorySubspace,
 
+    /// Subspace for storing the params each Deposit SM was created under, keyed by `DepositIdx`
+    /// — the same key as [`Self::deposits`].
+    ///
+    /// Kept beside the state rather than inside it so that the Deposit SM's own encoding is
+    /// unchanged: rows written before per-SM params existed still decode, and simply have no
+    /// entry here.
+    pub deposit_params: DirectorySubspace,
+
+    /// Subspace for storing the params each Graph SM was created under, keyed by
+    /// `(DepositIdx, OperatorIdx)` — the same key as [`Self::graphs`]. See
+    /// [`Self::deposit_params`] for why these live beside the state.
+    pub graph_params: DirectorySubspace,
+
     /// Subspace for storing claim-funding outpoints, keyed by `(DepositIdx, OperatorIdx)`.
     pub claim_funds: DirectorySubspace,
 
@@ -83,6 +96,8 @@ impl Directories {
         let deposits = open_subdir(&root, txn, SubSpaceId::Deposits).await?;
         let graphs = open_subdir(&root, txn, SubSpaceId::Graphs).await?;
         let stakes = open_subdir(&root, txn, SubSpaceId::Stakes).await?;
+        let deposit_params = open_subdir(&root, txn, SubSpaceId::DepositParams).await?;
+        let graph_params = open_subdir(&root, txn, SubSpaceId::GraphParams).await?;
         let claim_funding_outpoints = open_subdir(&root, txn, SubSpaceId::ClaimFunds).await?;
         let stake_funding_reservations =
             open_subdir(&root, txn, SubSpaceId::StakeFundingReservations).await?;
@@ -95,6 +110,8 @@ impl Directories {
             deposits,
             graphs,
             stakes,
+            deposit_params,
+            graph_params,
             claim_funds: claim_funding_outpoints,
             stake_funding_reservations,
             fulfillment_funds: withdrawal_funding_outpoints,
@@ -136,6 +153,10 @@ pub enum SubSpaceId {
     Graphs,
     /// Subspace for storing Stake SM states, keyed by `OperatorIdx`.
     Stakes,
+    /// Subspace for storing per-deposit params, keyed by `DepositIdx`.
+    DepositParams,
+    /// Subspace for storing per-graph params, keyed by (`DepositIdx`, `OperatorIdx`).
+    GraphParams,
     /// Subspace for storing claim-funding outpoints.
     ClaimFunds,
     /// Subspace for storing stake-funding reservations, keyed by `OperatorIdx`.
@@ -151,6 +172,8 @@ impl From<SubSpaceId> for &'static str {
             SubSpaceId::Deposits => "deposits",
             SubSpaceId::Graphs => "graphs",
             SubSpaceId::Stakes => "stakes",
+            SubSpaceId::DepositParams => "deposit_params",
+            SubSpaceId::GraphParams => "graph_params",
             SubSpaceId::ClaimFunds => "claim_funds",
             SubSpaceId::StakeFundingReservations => "stake_funding_reservations",
             SubSpaceId::FulfillmentFunds => "fulfillment_funds",

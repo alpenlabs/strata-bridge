@@ -1,8 +1,11 @@
 //! Database types that are agnostic to the underlying database implementation.
 
 use bitcoin::{Transaction, TxOut};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
 use strata_bridge_sm::{
-    deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
+    deposit::{config::DepositSMCfg, machine::DepositSM},
+    graph::{config::GraphSMCfg, machine::GraphSM},
+    stake::machine::StakeSM,
 };
 
 /// A persisted plan for an operator's stake funding transaction.
@@ -59,6 +62,10 @@ pub struct WriteBatch {
     graphs: Vec<GraphSM>,
     /// Stake state machines to persist, keyed by operator index.
     stakes: Vec<StakeSM>,
+    /// Params of the deposits to persist, keyed by deposit index.
+    deposit_params: Vec<(DepositIdx, DepositSMCfg)>,
+    /// Params of the graphs to persist, keyed by graph index.
+    graph_params: Vec<(GraphIdx, GraphSMCfg)>,
 }
 
 impl WriteBatch {
@@ -68,6 +75,8 @@ impl WriteBatch {
             deposits: Vec::new(),
             graphs: Vec::new(),
             stakes: Vec::new(),
+            deposit_params: Vec::new(),
+            graph_params: Vec::new(),
         }
     }
 
@@ -86,6 +95,16 @@ impl WriteBatch {
         &self.stakes
     }
 
+    /// Returns the deposit params in the batch.
+    pub fn deposit_params(&self) -> &[(DepositIdx, DepositSMCfg)] {
+        &self.deposit_params
+    }
+
+    /// Returns the graph params in the batch.
+    pub fn graph_params(&self) -> &[(GraphIdx, GraphSMCfg)] {
+        &self.graph_params
+    }
+
     /// Adds a deposit state machine to the batch.
     pub fn add_deposit(&mut self, deposit_sm: DepositSM) {
         self.deposits.push(deposit_sm);
@@ -99,5 +118,15 @@ impl WriteBatch {
     /// Adds a stake state machine to the batch.
     pub fn add_stake(&mut self, stake_sm: StakeSM) {
         self.stakes.push(stake_sm);
+    }
+
+    /// Adds the params of a deposit to the batch.
+    pub fn add_deposit_params(&mut self, deposit_idx: DepositIdx, cfg: DepositSMCfg) {
+        self.deposit_params.push((deposit_idx, cfg));
+    }
+
+    /// Adds the params of a graph to the batch.
+    pub fn add_graph_params(&mut self, graph_idx: GraphIdx, cfg: GraphSMCfg) {
+        self.graph_params.push((graph_idx, cfg));
     }
 }

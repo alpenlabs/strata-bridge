@@ -5,7 +5,9 @@ use foundationdb::{FdbBindingError, options::TransactionOption};
 use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
-    deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
+    deposit::{config::DepositSMCfg, machine::DepositSM},
+    graph::{config::GraphSMCfg, machine::GraphSM},
+    stake::machine::StakeSM,
 };
 use terrors::OneOf;
 
@@ -23,6 +25,10 @@ use crate::{
             },
             graphs::GraphStateRowSpec,
             signatures::{SignatureKey, SignatureRowSpec},
+            sm_params::{
+                DepositParamsKey, DepositParamsRowSpec, GraphParamsRowSpec, PersistedDepositParams,
+                PersistedGraphParams,
+            },
             stakes::{StakeStateKey, StakeStateRowSpec},
         },
     },
@@ -122,6 +128,45 @@ impl BridgeDb for FdbClient {
     async fn delete_graph_state(&self, graph_idx: GraphIdx) -> Result<(), Self::Error> {
         self.basic_delete::<GraphStateRowSpec>(graph_idx.into())
             .await
+    }
+
+    // ── SM Params ────────────────────────────────────────────────────
+
+    async fn get_deposit_params(
+        &self,
+        deposit_idx: DepositIdx,
+    ) -> Result<Option<DepositSMCfg>, Self::Error> {
+        let row = self
+            .basic_get::<DepositParamsRowSpec>(DepositParamsKey { deposit_idx })
+            .await?;
+        Ok(row.map(|row| row.cfg))
+    }
+
+    async fn get_all_deposit_params(&self) -> Result<Vec<(DepositIdx, DepositSMCfg)>, Self::Error> {
+        let pairs = self
+            .basic_get_all::<DepositParamsRowSpec>(|dirs| &dirs.deposit_params)
+            .await?;
+        Ok(pairs
+            .into_iter()
+            .map(|(k, v)| (k.deposit_idx, v.cfg))
+            .collect())
+    }
+
+    async fn get_graph_params(
+        &self,
+        graph_idx: GraphIdx,
+    ) -> Result<Option<GraphSMCfg>, Self::Error> {
+        let row = self
+            .basic_get::<GraphParamsRowSpec>(graph_idx.into())
+            .await?;
+        Ok(row.map(|row| row.cfg))
+    }
+
+    async fn get_all_graph_params(&self) -> Result<Vec<(GraphIdx, GraphSMCfg)>, Self::Error> {
+        let pairs = self
+            .basic_get_all::<GraphParamsRowSpec>(|dirs| &dirs.graph_params)
+            .await?;
+        Ok(pairs.into_iter().map(|(k, v)| (k.into(), v.cfg)).collect())
     }
 
     // ── Stake States ─────────────────────────────────────────────────
@@ -366,6 +411,26 @@ impl BridgeDb for FdbClient {
                 )
                 .map_err(OneOf::new)?;
             }
+            // Written in the same transaction as the state above, so a state machine can never
+            // become durable without the params it was created under.
+            for (deposit_idx, cfg) in batch.deposit_params() {
+                self.basic_set_in::<DepositParamsRowSpec>(
+                    &trx,
+                    DepositParamsKey {
+                        deposit_idx: *deposit_idx,
+                    },
+                    PersistedDepositParams::from(cfg.clone()),
+                )
+                .map_err(OneOf::new)?;
+            }
+            for (graph_idx, cfg) in batch.graph_params() {
+                self.basic_set_in::<GraphParamsRowSpec>(
+                    &trx,
+                    (*graph_idx).into(),
+                    PersistedGraphParams::from(cfg.clone()),
+                )
+                .map_err(OneOf::new)?;
+            }
 
             match trx.commit().await {
                 Ok(_committed) => return Ok(()),
@@ -399,9 +464,9 @@ mod tests {
     use std::{collections::BTreeMap, num::NonZero, sync::OnceLock};
 
     use bitcoin::{
-        TapSighashType,
+        Amount, Network, TapSighashType,
         hashes::{Hash, sha256},
-        taproot,
+        relative, taproot,
     };
     use proptest::{prelude::*, strategy::ValueTree};
     use secp256k1::{
@@ -423,14 +488,17 @@ mod tests {
     use strata_bridge_test_utils::{
         arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid},
         bitcoin::{generate_tx, generate_xonly_pubkey},
+        bridge_fixtures::random_p2tr_desc,
         prelude::generate_txid,
     };
     use strata_bridge_tx_graph::game_graph::{
-        CounterproofGraphSummary, DepositParams, GameGraphSummary,
+        AdminMultisig, CounterproofGraphSummary, DepositParams, GameGraphSummary,
+        ProtocolParams as GameProtocolParams,
     };
+    use strata_predicate::PredicateKey;
 
     use super::*;
-    use crate::fdb::{cfg::Config, client::MustDrop};
+    use crate::fdb::{cfg::Config, client::MustDrop, row_spec::kv::SerializableValue};
 
     static TEST_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     static FDB_CLIENT: OnceLock<(FdbClient, MustDrop)> = OnceLock::new();
@@ -495,6 +563,46 @@ mod tests {
                 operator_table,
             },
             state,
+        }
+    }
+
+    /// Builds a [`DepositSMCfg`] whose `operator_fee` is `fee_sat`, so tests can tell two
+    /// params snapshots apart.
+    fn make_deposit_cfg(fee_sat: u64) -> DepositSMCfg {
+        DepositSMCfg {
+            network: Network::Regtest,
+            cooperative_payout_timeout_blocks: 144,
+            deposit_amount: Amount::from_sat(1_000_000_000),
+            operator_fee: Amount::from_sat(fee_sat),
+            magic_bytes: [0x54, 0x45, 0x53, 0x54].into(),
+            recovery_delay: 1_008,
+        }
+    }
+
+    /// Builds a [`GraphSMCfg`] whose `operator_fee` is `fee_sat`, so tests can tell two params
+    /// snapshots apart.
+    fn make_graph_cfg(fee_sat: u64) -> GraphSMCfg {
+        GraphSMCfg {
+            game_graph_params: GameProtocolParams {
+                network: Network::Regtest,
+                magic_bytes: [0x54, 0x45, 0x53, 0x54].into(),
+                contest_timelock: relative::Height::from_height(45),
+                proof_timelock: relative::Height::from_height(15),
+                ack_timelock: relative::Height::from_height(35),
+                nack_timelock: relative::Height::from_height(30),
+                contested_payout_timelock: relative::Height::from_height(60),
+                counterproof_n_data: NonZero::new(128 + 4).unwrap(),
+                deposit_amount: Amount::from_sat(1_000_000_000),
+                stake_amount: Amount::from_sat(100_000_000),
+            },
+            operator_fee: Amount::from_sat(fee_sat),
+            admin: AdminMultisig {
+                pubkeys: vec![generate_xonly_pubkey()],
+                threshold: 1,
+            },
+            payout_descs: vec![random_p2tr_desc()],
+            bridge_proof_predicate: PredicateKey::always_accept(),
+            counterproof_predicate: PredicateKey::always_accept(),
         }
     }
 
@@ -1933,6 +2041,281 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(Some(graph_sm), retrieved_graph);
+        });
+    }
+
+    // ── SM Params ────────────────────────────────────────────────────
+
+    /// The whole reason params live in their own subspace: the encoding of the state machines
+    /// themselves must not move, or every deposit persisted before this feature would fail to
+    /// decode and take the node's startup down with it.
+    ///
+    /// Pinned as literal bytes produced before the params rows existed rather than as a
+    /// round-trip, because a round-trip through the current code proves nothing about rows
+    /// written by an older binary.
+    #[test]
+    fn legacy_sm_rows_still_decode() {
+        // postcard encodings of a `DepositSM` and a `GraphSM` captured by running the
+        // pre-STR-3745 binary over `testdata/README.md`'s fixture. Regenerate only if the SM
+        // encoding is *intentionally* changed — which is a breaking change for every deployment
+        // that has in-flight deposits.
+        const LEGACY_DEPOSIT_SM: &[u8] = include_bytes!("testdata/legacy_deposit_sm.postcard");
+        const LEGACY_GRAPH_SM: &[u8] = include_bytes!("testdata/legacy_graph_sm.postcard");
+
+        let deposit = DepositSM::deserialize(LEGACY_DEPOSIT_SM)
+            .expect("a deposit row written before per-SM params must still decode");
+        let graph = GraphSM::deserialize(LEGACY_GRAPH_SM)
+            .expect("a graph row written before per-SM params must still decode");
+
+        assert_eq!(
+            deposit.serialize().unwrap(),
+            LEGACY_DEPOSIT_SM,
+            "re-encoding must reproduce the original bytes"
+        );
+        assert_eq!(
+            graph.serialize().unwrap(),
+            LEGACY_GRAPH_SM,
+            "re-encoding must reproduce the original bytes"
+        );
+    }
+
+    /// A state machine persisted before per-SM params has state but no params row. Recovery
+    /// relies on this returning `None` rather than erroring, so it can fall back to the node's
+    /// current params for that deposit.
+    #[test]
+    fn sm_row_without_params_row_reads_back_as_none() {
+        let deposit_idx = 8_100_001;
+        let graph_idx = GraphIdx {
+            deposit: deposit_idx,
+            operator: 0,
+        };
+        let outpoint = arb_outpoint()
+            .new_tree(&mut Default::default())
+            .unwrap()
+            .current();
+        let operator_table = arb_operator_table()
+            .new_tree(&mut Default::default())
+            .unwrap()
+            .current();
+
+        block_on(async {
+            let client = get_client();
+
+            let mut batch = WriteBatch::new();
+            batch.add_deposit(make_deposit_sm(
+                deposit_idx,
+                outpoint,
+                operator_table.clone(),
+                DepositState::Deposited {
+                    last_block_height: 1,
+                },
+            ));
+            batch.add_graph(make_graph_sm(
+                graph_idx,
+                outpoint,
+                operator_table,
+                GraphState::Created {
+                    last_block_height: 1,
+                },
+            ));
+            client.persist_batch(&batch).await.unwrap();
+
+            assert!(
+                client
+                    .get_deposit_state(deposit_idx)
+                    .await
+                    .unwrap()
+                    .is_some()
+            );
+            assert_eq!(client.get_deposit_params(deposit_idx).await.unwrap(), None);
+            assert!(client.get_graph_state(graph_idx).await.unwrap().is_some());
+            assert_eq!(client.get_graph_params(graph_idx).await.unwrap(), None);
+        });
+    }
+
+    /// Params must become durable in the same transaction as the state machine they describe, so
+    /// a state machine can never be recovered under params other than its own.
+    #[test]
+    fn persist_batch_writes_sm_and_params_together() {
+        let deposit_idx = 8_100_002;
+        let graph_idx = GraphIdx {
+            deposit: deposit_idx,
+            operator: 3,
+        };
+        let deposit_cfg = make_deposit_cfg(11_111);
+        let graph_cfg = make_graph_cfg(22_222);
+        let outpoint = arb_outpoint()
+            .new_tree(&mut Default::default())
+            .unwrap()
+            .current();
+        let operator_table = arb_operator_table()
+            .new_tree(&mut Default::default())
+            .unwrap()
+            .current();
+
+        block_on(async {
+            let client = get_client();
+
+            let mut batch = WriteBatch::new();
+            batch.add_deposit(make_deposit_sm(
+                deposit_idx,
+                outpoint,
+                operator_table.clone(),
+                DepositState::Deposited {
+                    last_block_height: 1,
+                },
+            ));
+            batch.add_graph(make_graph_sm(
+                graph_idx,
+                outpoint,
+                operator_table,
+                GraphState::Created {
+                    last_block_height: 1,
+                },
+            ));
+            batch.add_deposit_params(deposit_idx, deposit_cfg.clone());
+            batch.add_graph_params(graph_idx, graph_cfg.clone());
+
+            client.persist_batch(&batch).await.unwrap();
+
+            assert_eq!(
+                client.get_deposit_params(deposit_idx).await.unwrap(),
+                Some(deposit_cfg.clone())
+            );
+            assert_eq!(
+                client.get_graph_params(graph_idx).await.unwrap(),
+                Some(graph_cfg.clone())
+            );
+
+            let all_deposits = client.get_all_deposit_params().await.unwrap();
+            assert!(all_deposits.contains(&(deposit_idx, deposit_cfg)));
+            let all_graphs = client.get_all_graph_params().await.unwrap();
+            assert!(all_graphs.contains(&(graph_idx, graph_cfg)));
+        });
+    }
+
+    /// Two deposits persisted under different params must each read back their own, which is the
+    /// storage-level statement of the invariant this feature exists for.
+    #[test]
+    fn each_deposit_reads_back_its_own_params() {
+        let (idx_a, idx_b) = (8_100_003, 8_100_004);
+        let (cfg_a, cfg_b) = (make_deposit_cfg(1_000), make_deposit_cfg(2_000));
+        let outpoint = arb_outpoint()
+            .new_tree(&mut Default::default())
+            .unwrap()
+            .current();
+        let operator_table = arb_operator_table()
+            .new_tree(&mut Default::default())
+            .unwrap()
+            .current();
+
+        block_on(async {
+            let client = get_client();
+
+            let mut batch = WriteBatch::new();
+            for (idx, cfg) in [(idx_a, &cfg_a), (idx_b, &cfg_b)] {
+                batch.add_deposit(make_deposit_sm(
+                    idx,
+                    outpoint,
+                    operator_table.clone(),
+                    DepositState::Deposited {
+                        last_block_height: 1,
+                    },
+                ));
+                batch.add_deposit_params(idx, cfg.clone());
+            }
+            client.persist_batch(&batch).await.unwrap();
+
+            assert_eq!(client.get_deposit_params(idx_a).await.unwrap(), Some(cfg_a));
+            assert_eq!(client.get_deposit_params(idx_b).await.unwrap(), Some(cfg_b));
+        });
+    }
+
+    /// Deleting a deposit must not leave its params rows behind: the deposit index is reusable,
+    /// and a stale params row would silently attach the old deposit's params to a new one.
+    #[test]
+    fn delete_deposit_cascade_clears_params() {
+        let deposit_idx = 8_100_005;
+        let graph_idx = GraphIdx {
+            deposit: deposit_idx,
+            operator: 1,
+        };
+        let outpoint = arb_outpoint()
+            .new_tree(&mut Default::default())
+            .unwrap()
+            .current();
+        let operator_table = arb_operator_table()
+            .new_tree(&mut Default::default())
+            .unwrap()
+            .current();
+
+        block_on(async {
+            let client = get_client();
+
+            let mut batch = WriteBatch::new();
+            batch.add_deposit(make_deposit_sm(
+                deposit_idx,
+                outpoint,
+                operator_table.clone(),
+                DepositState::Deposited {
+                    last_block_height: 1,
+                },
+            ));
+            batch.add_graph(make_graph_sm(
+                graph_idx,
+                outpoint,
+                operator_table,
+                GraphState::Created {
+                    last_block_height: 1,
+                },
+            ));
+            batch.add_deposit_params(deposit_idx, make_deposit_cfg(3_000));
+            batch.add_graph_params(graph_idx, make_graph_cfg(3_000));
+            client.persist_batch(&batch).await.unwrap();
+
+            client.delete_deposit(deposit_idx).await.unwrap();
+
+            assert_eq!(client.get_deposit_params(deposit_idx).await.unwrap(), None);
+            assert_eq!(client.get_graph_params(graph_idx).await.unwrap(), None);
+        });
+    }
+
+    /// Removing an operator must clear its graph params along with its graph states.
+    #[test]
+    fn delete_operator_cascade_clears_graph_params() {
+        let operator_idx = 8_100_006;
+        let graph_idx = GraphIdx {
+            deposit: 8_100_007,
+            operator: operator_idx,
+        };
+        let outpoint = arb_outpoint()
+            .new_tree(&mut Default::default())
+            .unwrap()
+            .current();
+        let operator_table = arb_operator_table()
+            .new_tree(&mut Default::default())
+            .unwrap()
+            .current();
+
+        block_on(async {
+            let client = get_client();
+
+            let mut batch = WriteBatch::new();
+            batch.add_graph(make_graph_sm(
+                graph_idx,
+                outpoint,
+                operator_table,
+                GraphState::Created {
+                    last_block_height: 1,
+                },
+            ));
+            batch.add_graph_params(graph_idx, make_graph_cfg(4_000));
+            client.persist_batch(&batch).await.unwrap();
+
+            client.delete_operator(operator_idx).await.unwrap();
+
+            assert_eq!(client.get_graph_state(graph_idx).await.unwrap(), None);
+            assert_eq!(client.get_graph_params(graph_idx).await.unwrap(), None);
         });
     }
 }
