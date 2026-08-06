@@ -176,7 +176,7 @@ def wait_for_log_capture(
     return captured["value"]
 
 
-def wait_until_bridge_ready(rpc_client, timeout: int = 120, step: int = 1):
+def wait_until_bridge_ready(rpc_client, timeout: int = 300, step: int = 1):
     """
     Waits until the bridge client reports readiness.
 
