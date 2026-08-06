@@ -139,7 +139,7 @@ pub fn verify_claim_unlock_inclusion(
 }
 
 /// Verifies a recursive Moho proof against the supplied trusted genesis
-/// reference and verifier key.
+/// attestation and verifier key.
 ///
 /// # Panics
 ///
@@ -147,16 +147,16 @@ pub fn verify_claim_unlock_inclusion(
 pub fn verify_moho_proof(
     moho_state: &MohoState,
     moho_proof: &RecursiveMohoProof,
-    moho_genesis: &StateReference,
+    moho_genesis: &StateRefAttestation,
     moho_vk: PredicateKey,
     error_message: &str,
 ) {
     let attestation = moho_proof.attestation();
 
     assert_eq!(
-        attestation.genesis().reference(),
+        attestation.genesis(),
         moho_genesis,
-        "{error_message}: moho proof doesn't reference given genesis",
+        "{error_message}: moho proof doesn't build on given genesis",
     );
     assert_eq!(
         attestation.proven().commitment(),

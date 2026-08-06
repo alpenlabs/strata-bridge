@@ -45,7 +45,7 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
     verify_moho_proof(
         &moho_state,
         &moho_proof,
-        genesis.genesis_moho_state.reference(),
+        &genesis.genesis_moho_state,
         genesis.moho_vk.clone(),
         "invalid bridge proof: invalid moho proof",
     );
@@ -76,7 +76,10 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
 
 #[cfg(test)]
 mod tests {
-    use moho_types::{ExportContainer, MohoState};
+    use moho_types::{
+        ExportContainer, MohoState, MohoStateCommitment, RecursiveMohoAttestation,
+        RecursiveMohoProof, StateRefAttestation,
+    };
     use ssz::{Decode, Encode};
     use strata_bridge_proof_common::{MOHO_GENESIS_ATTESTATION, generate_moho_state};
     use strata_codec::encode_to_vec;
@@ -102,6 +105,17 @@ mod tests {
         machine.write_slice(input.as_ssz_bytes());
         process_bridge_proof_inner(&machine, genesis);
         BridgeProofOutput::from_ssz_bytes(&machine.state.borrow().output).unwrap()
+    }
+
+    // Re-anchors a Moho proof onto `genesis_state`, leaving the proven state untouched.
+    fn reanchor(
+        moho_proof: &RecursiveMohoProof,
+        genesis_state: StateRefAttestation,
+    ) -> RecursiveMohoProof {
+        RecursiveMohoProof::new(
+            RecursiveMohoAttestation::new(genesis_state, *moho_proof.attestation().proven()),
+            moho_proof.proof().to_vec(),
+        )
     }
 
     fn bridge_container(moho_state: &MohoState) -> &ExportContainer {
@@ -156,6 +170,29 @@ mod tests {
         assert_eq!(output.claim_unlock, encode_to_vec(&claim).unwrap());
         assert_eq!(output.mmr_idx, 0);
         assert_eq!(output.total_pow, [0u8; 32]);
+    }
+
+    #[test]
+    #[should_panic(expected = "moho proof doesn't build on given genesis")]
+    fn test_process_bridge_proof_inner_forged_genesis_state() {
+        let genesis = make_genesis();
+        let claim = OperatorClaimUnlock::new(42, 7);
+        let (moho_state, moho_proof, [inclusion_proof]) =
+            generate_moho_state([claim.clone()], [0u8; 32]);
+
+        // A genesis state of the operator's choosing, kept under the real genesis reference.
+        let forged_genesis_state = StateRefAttestation::new(
+            *MOHO_GENESIS_ATTESTATION.reference(),
+            MohoStateCommitment::new([0xab; 32]),
+        );
+        let input = BridgeProofInput {
+            moho_state,
+            moho_proof: reanchor(&moho_proof, forged_genesis_state),
+            claim_unlock: encode_to_vec(&claim).unwrap(),
+            claim_unlock_inclusion_proof: inclusion_proof,
+        };
+
+        let _ = run_bridge_proof(&genesis, input);
     }
 
     #[test]
