@@ -123,7 +123,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
             verify_moho_proof(
                 &heavier_moho_state,
                 &heavier_moho_proof,
-                genesis.genesis_moho_state.reference(),
+                &genesis.genesis_moho_state,
                 genesis.moho_vk.clone(),
                 "invalid heavier chain: invalid moho proof",
             );
@@ -835,9 +835,23 @@ mod tests {
 
     /// Unit tests for [`CounterproofMode::HeavierChain`].
     mod heavier_chain {
+        use moho_types::{
+            MohoStateCommitment, RecursiveMohoAttestation, RecursiveMohoProof, StateRefAttestation,
+        };
         use strata_merkle::MerkleProofB32;
 
         use super::*;
+
+        // Re-anchors a Moho proof onto `genesis_state`, leaving the proven state untouched.
+        fn reanchor(
+            moho_proof: &RecursiveMohoProof,
+            genesis_state: StateRefAttestation,
+        ) -> RecursiveMohoProof {
+            RecursiveMohoProof::new(
+                RecursiveMohoAttestation::new(genesis_state, *moho_proof.attestation().proven()),
+                moho_proof.proof().to_vec(),
+            )
+        }
 
         #[test]
         fn counterproof_valid_if_bridge_proof_tx_malformed() {
@@ -893,6 +907,27 @@ mod tests {
                 input,
                 bridge_proof_vk: PredicateKey::always_accept(),
                 moho_vk: PredicateKey::never_accept(),
+            });
+        }
+
+        #[test]
+        #[should_panic(expected = "moho proof doesn't build on given genesis")]
+        fn counterproof_invalid_if_heavier_genesis_state_forged() {
+            let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
+            // A genesis state of the watchtower's choosing, kept under the real genesis reference.
+            let forged_genesis_state = StateRefAttestation::new(
+                *MOHO_GENESIS_ATTESTATION.reference(),
+                MohoStateCommitment::new([0xab; 32]),
+            );
+            if let CounterproofMode::HeavierChain(ref mut heavier_chain) = input.mode {
+                heavier_chain.moho_proof =
+                    reanchor(&heavier_chain.moho_proof, forged_genesis_state);
+            }
+
+            let _ = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::always_accept(),
             });
         }
 
