@@ -18,6 +18,10 @@ export NETWORK_PRIVATE_KEY=${NETWORK_PRIVATE_KEY:-}   # required for SP1_PROVER=
 # Set 0 to fall back to native Schnorr attestations (Bip340Schnorr) for the ASM/Moho layer.
 export BRIDGE_PROOF_SP1_ASM=${BRIDGE_PROOF_SP1_ASM:-1}
 
+# The freshly built counterproof ELF never matches the Mosaic circuit fixture's zero
+# vkey, so skip the bridge startup checks (see _dev_mode_from_env, STR-3889).
+export BRIDGE_DEV_MODE=${BRIDGE_DEV_MODE:-1}
+
 # --- External regtest bitcoind (network-extbtc env) ---
 export BRIDGE_EXTERNAL_BITCOIN=${BRIDGE_EXTERNAL_BITCOIN:-1}
 export BITCOIN_RPC_URL=${BITCOIN_RPC_URL:-http://127.0.0.1:18443}
