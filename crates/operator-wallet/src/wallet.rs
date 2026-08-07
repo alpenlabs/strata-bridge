@@ -23,7 +23,7 @@
 //! Callers still take the exclusive outer lock for a multi-step critical section, such as a
 //! database lookup, then funding, then a write.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc, time::Instant};
 
 use bdk_wallet::{
     bitcoin::{
@@ -116,6 +116,14 @@ pub struct OperatorWallet<G: GeneralWallet> {
     /// paths take it as well, so that an await added to one of them later cannot open the gap
     /// without notice.
     funding: TokioMutex<()>,
+    /// Outcome and time of the most recent general-backend sync attempt. `None` before
+    /// the first attempt. Kept per-backend because the reserved wallet's chain tip
+    /// advances even while the general backend fails every sync (the two sync
+    /// independently inside [`Self::sync`]), so the tip alone cannot represent
+    /// general-backend health. The timestamp lets the probe report a stale verdict as
+    /// degraded: syncs are duty-driven, so an old success on an idle bridge is a weaker
+    /// signal than a fresh one.
+    last_general_sync: Option<(bool, Instant)>,
 }
 
 impl<G: GeneralWallet> OperatorWallet<G> {
@@ -150,6 +158,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
             config,
             leases: Arc::new(LeaseSet::with_committed(initial_leases)),
             funding: TokioMutex::new(()),
+            last_general_sync: None,
         }
     }
 
@@ -221,10 +230,22 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     ///
     /// This is a non-mutating, in-memory read: it neither contacts the backend nor takes any
     /// internal write path, so health probes can observe sync progress through a shared read
-    /// lock without serializing against wallet-dependent duties. Both the general and reserved
-    /// wallets advance together in [`sync`](Self::sync), so the reserved tip is representative.
+    /// lock without serializing against wallet-dependent duties. The tip covers the reserved
+    /// wallet only: the general backend syncs independently inside [`sync`](Self::sync) and
+    /// can fail while this tip advances — probe [`Self::last_general_sync`] for it.
     pub fn local_chain_tip_height(&self) -> u32 {
         self.reserved.latest_checkpoint().height()
+    }
+
+    /// Outcome and time of the most recent general-backend sync attempt, or `None` before
+    /// the first.
+    ///
+    /// The reserved tip ([`Self::local_chain_tip_height`]) keeps advancing while the general
+    /// backend fails, because the two backends sync independently. A health probe that reads
+    /// only the tip therefore reports a dead general backend (bad Fireblocks credentials, an
+    /// API outage) as healthy forever. This is the general backend's own signal.
+    pub const fn last_general_sync(&self) -> Option<(bool, Instant)> {
+        self.last_general_sync
     }
 
     // ── Reserved-wallet UTXO lookup ─────────────────────────────────────────
@@ -476,7 +497,9 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         let mut attempt = 0u32;
         loop {
             let mut err: Option<Error> = None;
-            if let Err(e) = self.general.sync().await {
+            let general_result = self.general.sync().await;
+            self.last_general_sync = Some((general_result.is_ok(), Instant::now()));
+            if let Err(e) = general_result {
                 err = Some(Error::from_general(e));
             }
             if let Err(e) = self

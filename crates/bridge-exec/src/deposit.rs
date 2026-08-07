@@ -765,6 +765,22 @@ async fn request_payout_nonces(
 ) -> Result<(), ExecutorError> {
     let payout_descriptor = match payout_descriptor {
         Some(descriptor) => {
+            // Reuse is load-bearing: peers have nonced against this exact descriptor, and a
+            // substitution here invalidates the collected nonces. When the wallet backend
+            // (or its vault address) changed after the session started, the payout lands on
+            // a script the current backend does not track — warn so the operator sees which
+            // deposits a backend switch stranded. The remedy is operational (drain in-flight
+            // payouts before a switch), not a substitution on retry.
+            let current = output_handles.wallet.read().await.payout_descriptor();
+            if current.to_script() != descriptor.to_script() {
+                warn!(
+                    %deposit_idx,
+                    session_descriptor = %descriptor,
+                    wallet_descriptor = %current,
+                    "reused payout descriptor differs from the current wallet backend; \
+                     this payout will land on a script the active backend does not track"
+                );
+            }
             info!(%deposit_idx, "reusing descriptor to request payout nonces");
             PayoutDescriptor::from(descriptor)
         }

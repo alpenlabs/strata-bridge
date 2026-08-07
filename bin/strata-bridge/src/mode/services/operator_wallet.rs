@@ -147,7 +147,7 @@ const INITIAL_SYNC_RETRY_INTERVAL: Duration = Duration::from_secs(30);
 /// are duty-driven after startup: without it, a bitcoind or backend outage at boot leaves
 /// the wallet empty, and every CPFP bump fails with `InsufficientFunding` until the first
 /// duty happens to call `sync()`. A failed attempt does not crash the node — it is logged
-/// and retried, and the health probe reads the outcome through `last_general_sync_ok`.
+/// and retried, and the health probe reads the outcome through `last_general_sync`.
 pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(
     wallet: Arc<RwLock<AnyOperatorWallet>>,
 ) {
