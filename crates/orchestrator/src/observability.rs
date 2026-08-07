@@ -5,22 +5,39 @@
 
 use std::time::Duration;
 
-use metrics::{Unit, counter, describe_counter, describe_histogram, histogram};
+use metrics::{
+    Unit, counter, describe_counter, describe_gauge, describe_histogram, gauge, histogram,
+};
+use strata_bridge_exec::errors::ExecutorError;
 use strata_bridge_sm::{
-    deposit::state::DepositState, graph::state::GraphState, stake::state::StakeState,
+    deposit::{
+        duties::{DepositDuty, NagDuty as DepositNagDuty},
+        state::DepositState,
+    },
+    graph::{
+        duties::{GraphDuty, NagDuty as GraphNagDuty},
+        state::GraphState,
+    },
+    stake::{
+        duties::{NagDuty as StakeNagDuty, StakeDuty},
+        state::StakeState,
+    },
 };
 
 use crate::{
     errors::{PipelineError, ProcessError},
     events_mux::UnifiedEvent,
     persister::PersistError,
-    sm_types::SMId,
+    sm_types::{SMId, UnifiedDuty},
 };
 
 const PIPELINE_EVENT_DURATION_SECONDS: &str = "strata_bridge_pipeline_event_duration_seconds";
 const PIPELINE_ROUTING_TOTAL: &str = "strata_bridge_pipeline_routing_total";
 const SM_TRANSITIONS_TOTAL: &str = "strata_bridge_sm_transitions_total";
 const SM_TRANSITION_DURATION_SECONDS: &str = "strata_bridge_sm_transition_duration_seconds";
+const DUTIES_TOTAL: &str = "strata_bridge_duties_total";
+const DUTIES_IN_FLIGHT: &str = "strata_bridge_duties_in_flight";
+const DUTY_DURATION_SECONDS: &str = "strata_bridge_duty_duration_seconds";
 const PERSISTENCE_DURATION_SECONDS: &str = "strata_bridge_persistence_duration_seconds";
 
 pub(crate) fn describe_metrics() {
@@ -42,6 +59,13 @@ pub(crate) fn describe_metrics() {
         Unit::Seconds,
         "State-machine event processing time"
     );
+    describe_counter!(DUTIES_TOTAL, "Duty dispatch and execution outcomes");
+    describe_gauge!(
+        DUTIES_IN_FLIGHT,
+        "Duties currently executing in detached tasks; resets on restart, so durable stuck-duty \
+         detection remains the duty tracker's job (STR-2698)"
+    );
+    describe_histogram!(DUTY_DURATION_SECONDS, Unit::Seconds, "Duty execution time");
     describe_histogram!(
         PERSISTENCE_DURATION_SECONDS,
         Unit::Seconds,
@@ -98,6 +122,43 @@ pub(crate) fn record_transition(
     .record(duration.as_secs_f64());
 }
 
+pub(crate) fn record_duty(
+    duty_kind: &'static str,
+    result: &'static str,
+    error_class: &'static str,
+) {
+    counter!(
+        DUTIES_TOTAL,
+        "duty_kind" => duty_kind,
+        "result" => result,
+        "error_class" => error_class
+    )
+    .increment(1);
+}
+
+/// Marks one duty as executing in a detached task.
+pub(crate) fn record_duty_started(duty_kind: &'static str) {
+    gauge!(DUTIES_IN_FLIGHT, "duty_kind" => duty_kind).increment(1.0);
+}
+
+/// Marks one detached duty task as settled (success, error, or panic).
+pub(crate) fn record_duty_settled(duty_kind: &'static str) {
+    gauge!(DUTIES_IN_FLIGHT, "duty_kind" => duty_kind).decrement(1.0);
+}
+
+pub(crate) fn record_duty_duration(
+    duty_kind: &'static str,
+    result: &'static str,
+    duration: Duration,
+) {
+    histogram!(
+        DUTY_DURATION_SECONDS,
+        "duty_kind" => duty_kind,
+        "result" => result
+    )
+    .record(duration.as_secs_f64());
+}
+
 pub(crate) fn record_persistence(
     result: &'static str,
     error_class: &'static str,
@@ -130,6 +191,74 @@ pub(crate) const fn sm_kind(id: &SMId) -> &'static str {
         SMId::Deposit(_) => "deposit",
         SMId::Graph(_) => "graph",
         SMId::Stake(_) => "stake",
+    }
+}
+
+pub(crate) const fn duty_kind(duty: &UnifiedDuty) -> &'static str {
+    match duty {
+        UnifiedDuty::Deposit(duty) => deposit_duty_kind(duty),
+        UnifiedDuty::Graph(duty) => graph_duty_kind(duty),
+        UnifiedDuty::Stake(duty) => stake_duty_kind(duty),
+    }
+}
+
+const fn deposit_duty_kind(duty: &DepositDuty) -> &'static str {
+    match duty {
+        DepositDuty::PublishDepositNonce { .. } => "publish_deposit_nonce",
+        DepositDuty::PublishDepositPartial { .. } => "publish_deposit_partial",
+        DepositDuty::PublishDeposit { .. } => "publish_deposit",
+        DepositDuty::FulfillWithdrawalRequest { .. } => "fulfill_withdrawal_request",
+        DepositDuty::RequestPayoutNonces { .. } => "request_payout_nonces",
+        DepositDuty::PublishPayoutNonce { .. } => "publish_payout_nonce",
+        DepositDuty::PublishPayoutPartial { .. } => "publish_payout_partial",
+        DepositDuty::PublishPayout { .. } => "publish_payout",
+        DepositDuty::Nag { duty } => match duty {
+            DepositNagDuty::NagDepositNonce { .. } => "nag_deposit_nonce",
+            DepositNagDuty::NagDepositPartial { .. } => "nag_deposit_partial",
+            DepositNagDuty::NagPayoutNonce { .. } => "nag_payout_nonce",
+            DepositNagDuty::NagPayoutPartial { .. } => "nag_payout_partial",
+        },
+    }
+}
+
+const fn graph_duty_kind(duty: &GraphDuty) -> &'static str {
+    match duty {
+        GraphDuty::GenerateGraphData { .. } => "generate_graph_data",
+        GraphDuty::VerifyAdaptors { .. } => "verify_adaptors",
+        GraphDuty::PublishGraphNonces { .. } => "publish_graph_nonces",
+        GraphDuty::PublishGraphPartials { .. } => "publish_graph_partials",
+        GraphDuty::PublishClaim { .. } => "publish_claim",
+        GraphDuty::PublishUncontestedPayout { .. } => "publish_uncontested_payout",
+        GraphDuty::PublishUnstakingBurn { .. } => "publish_unstaking_burn",
+        GraphDuty::PublishContest { .. } => "publish_contest",
+        GraphDuty::GenerateAndPublishBridgeProof { .. } => "generate_and_publish_bridge_proof",
+        GraphDuty::PublishBridgeProofTimeout { .. } => "publish_bridge_proof_timeout",
+        GraphDuty::GenerateAndPublishCounterProof { .. } => "generate_and_publish_counter_proof",
+        GraphDuty::PublishCounterProofAck { .. } => "publish_counter_proof_ack",
+        GraphDuty::PublishCounterProofNack { .. } => "publish_counter_proof_nack",
+        GraphDuty::PublishSlash { .. } => "publish_slash",
+        GraphDuty::PublishContestedPayout { .. } => "publish_contested_payout",
+        GraphDuty::Nag { duty } => match duty {
+            GraphNagDuty::NagGraphData { .. } => "nag_graph_data",
+            GraphNagDuty::NagGraphNonces { .. } => "nag_graph_nonces",
+            GraphNagDuty::NagGraphPartials { .. } => "nag_graph_partials",
+        },
+    }
+}
+
+const fn stake_duty_kind(duty: &StakeDuty) -> &'static str {
+    match duty {
+        StakeDuty::PublishStakeData { .. } => "publish_stake_data",
+        StakeDuty::PublishStake { .. } => "publish_stake",
+        StakeDuty::PublishUnstakingNonces { .. } => "publish_unstaking_nonces",
+        StakeDuty::PublishUnstakingPartials { .. } => "publish_unstaking_partials",
+        StakeDuty::PublishUnstakingIntent { .. } => "publish_unstaking_intent",
+        StakeDuty::PublishUnstakingTx { .. } => "publish_unstaking_tx",
+        StakeDuty::Nag(duty) => match duty {
+            StakeNagDuty::NagUnstakingData { .. } => "nag_unstaking_data",
+            StakeNagDuty::NagUnstakingNonces { .. } => "nag_unstaking_nonces",
+            StakeNagDuty::NagUnstakingPartials { .. } => "nag_unstaking_partials",
+        },
     }
 }
 
@@ -206,6 +335,28 @@ pub(crate) const fn persist_error_class(error: &PersistError) -> &'static str {
         PersistError::DbErr(_) => "database",
         PersistError::RegistryInvariant(_) => "registry_invariant",
         PersistError::MissingStateMachine(_) => "state_machine_not_found",
+    }
+}
+
+pub(crate) const fn executor_error_class(error: &ExecutorError) -> &'static str {
+    match error {
+        ExecutorError::SecretServiceErr(_) => "secret_service",
+        ExecutorError::TxDriverErr(_) => "transaction_driver",
+        ExecutorError::OurPubKeyNotInParams => "operator_configuration",
+        ExecutorError::SelfVerifyFailed => "signature_self_verification",
+        ExecutorError::MissingConfig(_) => "missing_configuration",
+        ExecutorError::WalletErr(_) => "wallet",
+        ExecutorError::PsbtErr(_) => "psbt",
+        ExecutorError::SignatureAggregationFailed(_) => "signature_aggregation",
+        ExecutorError::BitcoinRpcErr(_) => "bitcoin_rpc",
+        ExecutorError::ClaimTxAlreadyOnChain(_) => "claim_already_on_chain",
+        ExecutorError::StakeOutPointAlreadySpent(_) => "stake_already_spent",
+        ExecutorError::DatabaseErr(_) => "database",
+        ExecutorError::MosaicErr(_) => "mosaic",
+        ExecutorError::AsmRpcErr(_) => "asm_rpc",
+        ExecutorError::ProofErr(_) => "proof_generation",
+        ExecutorError::InvalidTxStructure(_) => "invalid_transaction_structure",
+        ExecutorError::FeeRateTooHigh { .. } => "fee_rate_too_high",
     }
 }
 

@@ -121,6 +121,16 @@ impl UnifiedDuty {
     }
 }
 
+impl Display for UnifiedDuty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Deposit(duty) => Display::fmt(duty, f),
+            Self::Graph(duty) => Display::fmt(duty, f),
+            Self::Stake(duty) => Display::fmt(duty, f),
+        }
+    }
+}
+
 impl From<DepositDuty> for UnifiedDuty {
     fn from(duty: DepositDuty) -> Self {
         UnifiedDuty::Deposit(duty)
