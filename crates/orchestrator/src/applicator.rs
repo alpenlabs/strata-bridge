@@ -12,13 +12,12 @@ use std::collections::VecDeque;
 
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
 use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
-use tracing::warn;
 
 use crate::{
     errors::PipelineError,
     persister::PersistenceTracker,
     signals_router,
-    sm_registry::{IgnoredEventReason, ProcessOutcome, RegistryInsertError, SMRegistry},
+    sm_registry::{ProcessOutcome, RegistryInsertError, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
@@ -160,17 +159,7 @@ impl<'a> Applicator<'a> {
 
                 Ok(())
             }
-            Ok(ProcessOutcome::Ignored { id, event, reason }) => {
-                match reason {
-                    IgnoredEventReason::Duplicate => {
-                        warn!(?id, %event, "duplicate event, skipping");
-                    }
-                    IgnoredEventReason::Rejected(rejected_reason) => {
-                        warn!(?id, %event, %rejected_reason, "event rejected by state machine, skipping");
-                    }
-                }
-                Ok(())
-            }
+            Ok(ProcessOutcome::Ignored { .. }) => Ok(()),
             Err(e) => Err(e.into()),
         }
     }
