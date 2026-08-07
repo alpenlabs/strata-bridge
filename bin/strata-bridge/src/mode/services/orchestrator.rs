@@ -221,7 +221,7 @@ where
     // definition itself via `_scheduled_operator_field_audit` (see
     // `crates/primitives/src/operator_set_schedule.rs`). That destructuring forces a compile
     // error if anyone adds a separate `watchtower` field, which is the cue to thread
-    // per-anchor keys through `CpfpKind::InferAnchor`.
+    // per-anchor keys through `CpfpKind::AnchorAt`.
     params
         .keys
         .operators

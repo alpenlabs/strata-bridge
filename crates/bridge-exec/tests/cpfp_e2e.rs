@@ -40,7 +40,10 @@ use bitcoin::{
 };
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::cpfp::{self, BumpReason, CpfpContext, CpfpHandle, CpfpStrategy, InputSigner};
-use operator_wallet::{NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend};
+use operator_wallet::{
+    NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend,
+    test_utils::MemoryStore,
+};
 use serial_test::serial;
 use strata_bridge_connectors::{Connector, multi_anchor::MultiAnchor};
 use strata_bridge_exec::cpfp_adapters::{BitcoindCpfpMempool, OperatorWalletCpfpAdapter};
@@ -132,6 +135,9 @@ fn assert_package_pays_target(bitcoind: &corepc_node::Node, child_txid: bitcoin:
     );
 }
 
+/// The wallet shape these tests drive: the native general wallet over in-memory stores.
+type TestOperatorWallet = OperatorWallet<NativeGeneralWallet<MemoryStore>, MemoryStore>;
+
 /// Constructs a `NativeGeneralWallet` keyed to `pubkey`, syncs it against `bitcoind`, and
 /// wraps it in an `OperatorWallet`. Sends `funding_utxos` separate UTXOs of `funding_per_utxo`
 /// each to the wallet's address so subsequent fundings (parent + child) draw from distinct
@@ -141,22 +147,29 @@ async fn build_operator_wallet(
     pubkey: XOnlyPublicKey,
     funding_utxos: usize,
     funding_per_utxo: Amount,
-) -> Arc<RwLock<OperatorWallet<NativeGeneralWallet>>> {
+) -> Arc<RwLock<TestOperatorWallet>> {
     let backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
     let backend_clone = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
-    let general_wallet = NativeGeneralWallet::new(pubkey, Network::Regtest, backend);
     let config = OperatorWalletConfig::new(Amount::from_sat(330), Network::Regtest);
+    let general_wallet =
+        NativeGeneralWallet::load_or_create(pubkey, &config, backend, MemoryStore::new(), None)
+            .await
+            .expect("general wallet init");
     let secp = Secp256k1::new();
     let reserved_secret = SecretKey::from_slice(&[0x42u8; 32]).expect("valid 32-byte scalar");
     let reserved_keypair = Keypair::from_secret_key(&secp, &reserved_secret);
     let (reserved_pubkey, _) = reserved_keypair.x_only_public_key();
-    let mut wallet = OperatorWallet::new(
+    let mut wallet = OperatorWallet::load_or_create(
         general_wallet,
         reserved_pubkey,
         config,
         backend_clone,
+        MemoryStore::new(),
+        None,
         BTreeSet::new(),
-    );
+    )
+    .await
+    .expect("operator wallet init");
 
     let address = Address::p2tr(&secp, pubkey, None, Network::Regtest);
 
@@ -180,7 +193,7 @@ async fn build_operator_wallet(
 /// keyed to `operator_pubkey`. Spends a wallet-selected UTXO; signed in-process with
 /// `operator_keypair`.
 async fn build_v3_parent(
-    wallet: &Arc<RwLock<OperatorWallet<NativeGeneralWallet>>>,
+    wallet: &Arc<RwLock<TestOperatorWallet>>,
     operator_keypair: Keypair,
     operator_pubkey: XOnlyPublicKey,
     parent_fee_rate: FeeRate,
@@ -200,7 +213,11 @@ async fn build_v3_parent(
     let funded = {
         let mut wallet = wallet.write().await;
         wallet
-            .fund_v3_transaction(unsigned_tx, parent_fee_rate)
+            .fund_v3_transaction(
+                unsigned_tx,
+                parent_fee_rate,
+                operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+            )
             .await
             .expect("fund_v3_transaction (parent)")
     };
@@ -425,7 +442,7 @@ async fn cpfp_e2e_against_bitcoind() {
 /// mirrors the shape of cooperative_payout / uncontested_payout / unstaking txs that use
 /// [`CpfpStrategy::ParentTxCombined`] in production.
 async fn build_v3_payout_parent(
-    wallet: &Arc<RwLock<OperatorWallet<NativeGeneralWallet>>>,
+    wallet: &Arc<RwLock<TestOperatorWallet>>,
     operator_keypair: Keypair,
     operator_pubkey: XOnlyPublicKey,
     parent_fee_rate: FeeRate,
@@ -446,7 +463,11 @@ async fn build_v3_payout_parent(
     let funded = {
         let mut wallet = wallet.write().await;
         wallet
-            .fund_v3_transaction(unsigned_tx, parent_fee_rate)
+            .fund_v3_transaction(
+                unsigned_tx,
+                parent_fee_rate,
+                operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+            )
             .await
             .expect("fund_v3_transaction (payout parent)")
     };
@@ -597,7 +618,7 @@ async fn cpfp_e2e_parent_tx_combined_against_bitcoind() {
 /// calling watchtower's slash share). The third one is the CPFP hook the production helper
 /// would discover via `CpfpKind::InferGeneralPayout`.
 async fn build_v3_mixed_parent(
-    wallet: &Arc<RwLock<OperatorWallet<NativeGeneralWallet>>>,
+    wallet: &Arc<RwLock<TestOperatorWallet>>,
     operator_keypair: Keypair,
     operator_pubkey: XOnlyPublicKey,
     other_pubkey: XOnlyPublicKey,
@@ -630,7 +651,11 @@ async fn build_v3_mixed_parent(
     let funded = {
         let mut wallet = wallet.write().await;
         wallet
-            .fund_v3_transaction(unsigned_tx, parent_fee_rate)
+            .fund_v3_transaction(
+                unsigned_tx,
+                parent_fee_rate,
+                operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+            )
             .await
             .expect("fund_v3_transaction (mixed parent)")
     };
@@ -797,7 +822,7 @@ async fn cpfp_e2e_infer_general_payout_against_bitcoind() {
 /// watchtower over an unspendable internal key, exactly as contest / bridge-proof-timeout
 /// transactions carry it in production.
 async fn build_v3_multi_anchor_parent(
-    wallet: &Arc<RwLock<OperatorWallet<NativeGeneralWallet>>>,
+    wallet: &Arc<RwLock<TestOperatorWallet>>,
     operator_keypair: Keypair,
     anchor: &MultiAnchor,
     parent_fee_rate: FeeRate,
@@ -811,7 +836,11 @@ async fn build_v3_multi_anchor_parent(
     let funded = {
         let mut wallet = wallet.write().await;
         wallet
-            .fund_v3_transaction(unsigned_tx, parent_fee_rate)
+            .fund_v3_transaction(
+                unsigned_tx,
+                parent_fee_rate,
+                operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+            )
             .await
             .expect("fund_v3_transaction (multi-anchor parent)")
     };

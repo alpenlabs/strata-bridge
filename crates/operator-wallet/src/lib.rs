@@ -38,7 +38,9 @@ use thiserror::Error;
 
 pub use crate::{
     config::{OperatorWalletConfig, DEFAULT_PERSIST_EVERY_BLOCKS},
-    general::{native::NativeGeneralWallet, AnchorInfo, FundedPsbt, GeneralWallet, UtxoInfo},
+    general::{
+        native::NativeGeneralWallet, AnchorInfo, FundedPsbt, GeneralWallet, ReplacedChild, UtxoInfo,
+    },
     persist::{
         load_or_create, BlockId, InitError, SqliteStore, SqliteStoreError, WalletKind, WalletStore,
     },

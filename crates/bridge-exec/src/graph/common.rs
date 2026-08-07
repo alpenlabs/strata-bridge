@@ -778,7 +778,9 @@ pub(super) async fn publish_claim(
         "claim",
         TxStatus::is_buried,
         parent_fee,
-        CpfpKind::InferAnchor,
+        CpfpKind::AnchorAt {
+            anchor_vout: ClaimTx::CPFP_VOUT,
+        },
     )
     .await
 }
@@ -852,6 +854,7 @@ mod tests {
             _anchor: operator_wallet::AnchorInfo,
             _target_pkg_fee_rate: FeeRate,
             _exclude: &[OutPoint],
+            _replaced: operator_wallet::ReplacedChild<'_>,
         ) -> Result<FundedPsbt, Self::Error> {
             unreachable!("reconciliation tests do not build CPFP transactions")
         }

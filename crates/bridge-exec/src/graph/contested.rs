@@ -6,7 +6,7 @@ use strata_bridge_connectors::ParentTx;
 use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_sm::graph::duties::MultiAnchorSpend;
 use strata_bridge_tx_graph::transactions::{
-    contested_payout::ContestedPayoutTx, prelude::ContestTx,
+    contested_payout::ContestedPayoutTx, counterproof_ack::CounterproofAckTx, prelude::ContestTx,
 };
 use tracing::{info, warn};
 
@@ -41,10 +41,10 @@ pub(super) async fn publish_contest(
             ExecutorError::SecretServiceErr(e)
         })?;
 
-    // Resolve the CPFP handle before finalizing: contest carries a `MultiAnchor`, so the child
-    // spends the leaf keyed to *our* watchtower slot — the same slot we just signed the contest
-    // input with. `infer_anchor_strategy` cannot find this: it only matches key-path anchors, so
-    // leaving this as `InferAnchor` silently published contests with no fee bumping at all.
+    // Resolve the CPFP data before finalization. The contest tx carries a `MultiAnchor`,
+    // and the child spends the leaf keyed to this operator's watchtower slot — the same
+    // slot that signed the contest input. A key-path anchor kind cannot describe a
+    // script-path spend, so the caller supplies the leaf and control block here.
     let cpfp =
         match multi_anchor_spend_material(contest_tx.cpfp_connector(), watchtower_index as usize) {
             Some((leaf_script, control_block)) => CpfpKind::MultiAnchor {
@@ -133,19 +133,22 @@ pub(super) async fn publish_counterproof_ack(
     output_handles: &OutputHandles,
     signed_counter_proof_ack_tx: &Transaction,
 ) -> Result<(), ExecutorError> {
-    // The counterproof-ack carries a keyed anchor — historically keyed to the watchtower
-    // pubkey (today equal to the musig2 pubkey per
-    // `bin/strata-bridge::operator_wallet`'s note that those sets coincide). The
-    // `InferAnchor` matcher looks at the musig2 pubkey, so this works as long as that
-    // identity holds; if the keys ever diverge, the orchestrator startup-time assertion
-    // would catch the regression.
+    // The counterproof-ack carries a keyed anchor at `CounterproofAckTx::CPFP_VOUT`. The
+    // anchor key is the watchtower pubkey, which equals the musig2 pubkey (see the
+    // watchtower-key note in `bin/strata-bridge::operator_wallet`; the compile-time
+    // `_covenant_keys_field_audit` in `crates/common::params` guards the identity). This
+    // anchor is not at the dust floor: `CounterproofAckTx` folds the residual of its input
+    // connectors into it (2 × dust). The publish-time check therefore accepts each value
+    // at or above dust.
     publish_signed_transaction(
         output_handles,
         signed_counter_proof_ack_tx,
         "counterproof ack",
         TxStatus::is_buried,
         chain::parent_fee_for_floor_tx(signed_counter_proof_ack_tx),
-        CpfpKind::InferAnchor,
+        CpfpKind::AnchorAt {
+            anchor_vout: CounterproofAckTx::CPFP_VOUT,
+        },
     )
     .await
 }

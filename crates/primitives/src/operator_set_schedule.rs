@@ -95,7 +95,7 @@ pub struct ScheduledOperator {
 }
 
 /// Forces a compile-error if [`ScheduledOperator`] grows or shrinks a field. The CPFP anchor
-/// inference path in `strata_bridge_exec::cpfp_adapters::infer_anchor_strategy` assumes
+/// validation path in `strata_bridge_exec::chain::checked_anchor_strategy` assumes
 /// `watchtower_pubkey == covenant_pubkey` for counterproof / counterproof_ack txs — an
 /// assumption made elsewhere too (see `bin/strata-bridge/src/mode/services/operator_wallet.rs`
 /// where `watchtower_keys` is sourced from `ScheduledOperator::covenant_key`).
@@ -103,7 +103,7 @@ pub struct ScheduledOperator {
 /// If anyone adds e.g. a `watchtower: XOnlyPublicKey` field to [`ScheduledOperator`] in the
 /// future, this destructuring will fail to compile with "missing field `watchtower`" — that's
 /// the trigger to audit the CPFP path. The right fix at that point is to thread the per-anchor
-/// key through `CpfpKind::InferAnchor` and add a watchtower signer to `CpfpContext`.
+/// key through `CpfpKind::AnchorAt` and add a watchtower signer to `CpfpContext`.
 #[allow(dead_code)]
 fn _scheduled_operator_field_audit(operator: ScheduledOperator) {
     let ScheduledOperator {
