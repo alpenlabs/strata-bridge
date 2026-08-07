@@ -44,8 +44,10 @@ pub struct ExecutionConfig {
     /// and static keys consistent across graph construction paths.
     pub graph_sm_cfg: Arc<GraphSMCfg>,
 
-    /// Background-refreshed fee-rate cache shared with the tx-driver's CPFP bump loop. Executors
-    /// read the current cached rate via [`CachedFeeSource::current`] per tx-build (no network I/O
-    /// on the hot path); the cache is refreshed by a background task at the configured interval.
+    /// Background-refreshed fee-rate cache shared with the tx-driver's CPFP bump loop.
+    /// Executors read the cached rate via [`CachedFeeSource::try_current`] per tx-build —
+    /// no network I/O on the hot path, and a stale cache aborts the duty, which retries
+    /// after the source recovers. A background task refreshes the cache at the configured
+    /// interval.
     pub fee_source: Arc<CachedFeeSource>,
 }

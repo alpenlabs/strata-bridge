@@ -193,7 +193,8 @@ where
     let btc_rpc_arc = Arc::new(btc_rpc_client.clone());
 
     // Build the configured fee source and wrap it once in a background-refreshed cache. That one
-    // cache is shared by the executors (per-tx-build estimates via `CachedFeeSource::current`) and
+    // cache is shared by the executors (per-tx-build estimates via `CachedFeeSource::try_current`,
+    // which aborts duty pricing when the cache is stale) and
     // the CPFP bump loop below, so neither hits the network on its hot path. Built up-front so a
     // misconfigured fee source fails fast at boot rather than on the first duty firing.
     let live_fee_source = config

@@ -365,6 +365,7 @@ pub(crate) const fn executor_error_class(error: &ExecutorError) -> &'static str 
         ExecutorError::InvalidTxStructure(_) => "invalid_transaction_structure",
         ExecutorError::FeeRateTooHigh { .. } => "fee_rate_too_high",
         ExecutorError::StakeFundingTxInMempool(_) => "stake_funding_tx_in_mempool",
+        ExecutorError::FeeSourceStale(_) => "fee_source_stale",
     }
 }
 

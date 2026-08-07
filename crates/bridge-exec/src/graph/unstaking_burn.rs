@@ -67,7 +67,7 @@ pub(super) async fn publish_unstaking_burn(
     // deposits and stake funding but silently ignored here — and a bitcoind hiccup failed the
     // burn duty where the other paths ride it out on the cache. Floor at the same
     // wallet-funded minimum the other v3 paths use.
-    let fee_rate = cfg.fee_source.current().max(MIN_WALLET_TX_FEE_RATE);
+    let fee_rate = cfg.fee_source.try_current()?.max(MIN_WALLET_TX_FEE_RATE);
     debug!(%graph_idx, %fee_rate, "selected fee rate for unstaking burn transaction");
     if fee_rate > cfg.maximum_fee_rate {
         warn!(
