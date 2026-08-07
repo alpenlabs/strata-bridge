@@ -3,6 +3,7 @@
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
+    time::Instant,
 };
 
 use strata_asm_bridge_types::SafeHarbourAddress;
@@ -11,6 +12,7 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::{
+    observability,
     sm_registry::{RegistryInsertError, SMConfig, SMRegistry},
     sm_types::SMId,
 };
@@ -125,18 +127,37 @@ impl Persister {
         batch: BTreeSet<SMId>,
         sm_registry: &SMRegistry,
     ) -> Result<(), PersistError> {
+        let started = Instant::now();
         let batch_size = batch.len();
-        let write_batch = build_write_batch(batch, sm_registry).inspect_err(|error| {
-            error!(%error, batch_size, "failed to build state-machine persistence batch");
-        })?;
+        let write_batch = match build_write_batch(batch, sm_registry) {
+            Ok(write_batch) => write_batch,
+            Err(error) => {
+                observability::record_persistence(
+                    "error",
+                    observability::persist_error_class(&error),
+                    started.elapsed(),
+                );
+                error!(%error, batch_size, "failed to build state-machine persistence batch");
+                return Err(error);
+            }
+        };
 
-        self.db
-            .persist_batch(&write_batch)
-            .await
-            .map_err(PersistError::DbErr)
-            .inspect_err(|error| {
+        match self.db.persist_batch(&write_batch).await {
+            Ok(()) => {
+                observability::record_persistence("success", "none", started.elapsed());
+                Ok(())
+            }
+            Err(source) => {
+                let error = PersistError::DbErr(source);
+                observability::record_persistence(
+                    "error",
+                    observability::persist_error_class(&error),
+                    started.elapsed(),
+                );
                 error!(%error, batch_size, "failed to persist state-machine batch");
-            })
+                Err(error)
+            }
+        }
     }
 
     /// Persists the frozen safe-harbour `address` to disk so the activation latch survives a
