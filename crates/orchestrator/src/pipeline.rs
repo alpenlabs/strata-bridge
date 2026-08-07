@@ -1,11 +1,11 @@
 //! The main event loop that wires all pipeline stages together:
 //! `EventsMux` → classify → `Applicator::apply_batch` → persist → dispatch.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, time::Instant};
 
 use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
 use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
-use tracing::{info, trace, warn};
+use tracing::{Instrument, debug, error, info, info_span, trace, warn};
 
 use crate::{
     applicator::Applicator,
@@ -13,7 +13,7 @@ use crate::{
     errors::{PipelineError, ProcessError},
     events_classifier::{offchain, onchain},
     events_mux::{EventsMux, SafeHarbourEvent, UnifiedEvent},
-    events_router,
+    events_router, observability,
     persister::{PersistenceTracker, Persister},
     safe_harbour_scan::safe_harbour_scan,
     sm_registry::SMRegistry,
@@ -80,8 +80,15 @@ impl Pipeline {
         start_height: BitcoinBlockHeight,
         mut on_event: impl FnMut(),
     ) -> Result<(), PipelineError> {
-        self.bootstrap_stake_sms(&initial_operator_table, start_height)
-            .await?;
+        observability::describe_metrics();
+        if let Err(error) = self
+            .bootstrap_stake_sms(&initial_operator_table, start_height)
+            .instrument(info_span!("bridge_stake_bootstrap"))
+            .await
+        {
+            error!(%error, "failed to bootstrap stake state machines");
+            return Err(error);
+        }
 
         // A recovered latch may cover deposits that were never scanned, and no buried block is
         // guaranteed to arrive to retry: seed sweeps and aborts once before the loop.
@@ -97,7 +104,6 @@ impl Pipeline {
         loop {
             // Stage 1: Multiplex event streams
             let event = self.event_mux.next().await;
-            trace!(?event, "received new event from multiplexer");
 
             // Handle non-routable events (consume `event` on early exit, rebind otherwise)
             let event = match event {
@@ -109,59 +115,132 @@ impl Pipeline {
                 // Routable events — pass through to the classification stage
                 routable => routable,
             };
+            let event_kind = observability::unified_event_kind(&event);
+            let started = Instant::now();
             on_event();
 
-            // Safe harbour is registry-level, not SM-scoped: latch and persist it before
-            // borrowing the registry for the applicator. Only a first latch proceeds to the
-            // scan below; replayed activations from the monotonic feed are skipped.
-            if let UnifiedEvent::SafeHarbour(safe_harbour) = &event
-                && !self.process_safe_harbour(safe_harbour.clone()).await?
-            {
-                continue;
-            }
+            let span = info_span!(
+                "bridge_event",
+                event_kind,
+                result = tracing::field::Empty,
+                error_class = tracing::field::Empty,
+            );
+            let outcome = async {
+                trace!(?event, "processing routable event");
 
-            // Stage 2+3: Classify and process through Applicator
-            let mut applicator = Applicator::new(&mut self.registry);
-
-            match &event {
-                // On first latch: sweep and abort immediately rather than waiting for the next
-                // buried block.
-                UnifiedEvent::SafeHarbour(_) => apply_safe_harbour_scan(&mut applicator)?,
-
-                UnifiedEvent::Block(block_event) => {
-                    onchain::process_block(&mut applicator, &initial_operator_table, block_event)?;
-
-                    // While safe harbour is active, drive sweeps and aborts from the post-block
-                    // deposit states; the per-block replay is the retry mechanism.
-                    apply_safe_harbour_scan(&mut applicator)?;
+                // Safe harbour is registry-level, not SM-scoped: latch and persist it before
+                // borrowing the registry for the applicator. Only a first latch proceeds to the
+                // scan below; replayed activations from the monotonic feed are skipped.
+                if let UnifiedEvent::SafeHarbour(safe_harbour) = &event
+                    && !self.process_safe_harbour(safe_harbour.clone()).await?
+                {
+                    return Ok::<(), PipelineError>(());
                 }
 
-                _ => {
-                    // P2P / assignment / ticks: route to SM ids, then classify each
-                    trace!(
-                        ?event,
-                        "classifying event and determining target state machines"
+                // Stage 2+3: Classify and process through Applicator.
+                let mut applicator = Applicator::new(&mut self.registry);
+
+                match &event {
+                    // On first latch: sweep and abort immediately rather than waiting for the next
+                    // buried block.
+                    UnifiedEvent::SafeHarbour(_) => apply_safe_harbour_scan(&mut applicator)?,
+
+                    UnifiedEvent::Block(block_event) => {
+                        onchain::process_block(
+                            &mut applicator,
+                            &initial_operator_table,
+                            block_event,
+                        )?;
+
+                        // While safe harbour is active, drive sweeps and aborts from the post-block
+                        // deposit states; the per-block replay is the retry mechanism.
+                        apply_safe_harbour_scan(&mut applicator)?;
+                    }
+                    _ => {
+                        trace!(
+                            ?event,
+                            "classifying event and determining target state machines"
+                        );
+                        let sm_ids = events_router::route(&event, applicator.registry());
+                        let target_count = sm_ids.len();
+                        let seed_events: Vec<_> = sm_ids
+                            .into_iter()
+                            .filter_map(|sm_id| {
+                                offchain::classify(&sm_id, &event, applicator.registry())
+                                    .map(|sm_event| (sm_id, sm_event))
+                            })
+                            .collect();
+                        let classified_count = seed_events.len();
+                        let routing_result = if target_count == 0 {
+                            "no_targets"
+                        } else if classified_count == 0 {
+                            "no_classification"
+                        } else {
+                            "classified"
+                        };
+                        observability::record_routing(event_kind, routing_result);
+
+                        if target_count == 0
+                            && !matches!(&event, UnifiedEvent::NagTick | UnifiedEvent::RetryTick)
+                        {
+                            debug!(event_kind, "event did not route to any state machine");
+                        } else if target_count > 0 && classified_count == 0 {
+                            warn!(
+                                event_kind,
+                                target_count,
+                                "event routed but did not classify into a state-machine event"
+                            );
+                        }
+
+                        applicator.apply_batch(seed_events)?;
+                    }
+                }
+
+                let (all_duties, tracker) = applicator.finish();
+
+                // Stage 4: Batch persistence.
+                self.persist_batches(tracker).await?;
+
+                // Stage 5: Dispatch duties after persistence, suppressing withdrawal-path duties
+                // while safe harbour is active.
+                self.dispatch_duties(all_duties);
+
+                Ok::<(), PipelineError>(())
+            }
+            .instrument(span.clone())
+            .await;
+
+            match outcome {
+                Ok(()) => {
+                    span.record("result", "success");
+                    span.record("error_class", "none");
+                    observability::record_pipeline_event_finished(
+                        event_kind,
+                        "success",
+                        "none",
+                        started.elapsed(),
                     );
-                    let sm_ids = events_router::route(&event, applicator.registry());
-                    let seed_events: Vec<_> = sm_ids
-                        .into_iter()
-                        .filter_map(|sm_id| {
-                            offchain::classify(&sm_id, &event, applicator.registry())
-                                .map(|sm_event| (sm_id, sm_event))
-                        })
-                        .collect();
-
-                    applicator.apply_batch(seed_events)?;
+                }
+                Err(processing_error) => {
+                    let error_class = observability::pipeline_error_class(&processing_error);
+                    span.record("result", "error");
+                    span.record("error_class", error_class);
+                    observability::record_pipeline_event_finished(
+                        event_kind,
+                        "error",
+                        error_class,
+                        started.elapsed(),
+                    );
+                    error!(
+                        parent: &span,
+                        error = %processing_error,
+                        error_class,
+                        event_kind,
+                        "bridge event processing failed"
+                    );
+                    return Err(processing_error);
                 }
             }
-
-            let (all_duties, tracker) = applicator.finish();
-
-            // Stage 4: Batch persistence.
-            self.persist_batches(tracker).await?;
-
-            // Stage 5: Dispatch duties.
-            self.dispatch_duties(all_duties);
         }
     }
 
