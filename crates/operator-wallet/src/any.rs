@@ -103,6 +103,11 @@ impl<P: WalletStore> AnyOperatorWallet<P> {
         delegate!(self, w => w.local_chain_tip_height())
     }
 
+    /// See [`OperatorWallet::last_general_sync`].
+    pub const fn last_general_sync(&self) -> Option<(bool, std::time::Instant)> {
+        delegate!(self, w => w.last_general_sync())
+    }
+
     /// Lists the general wallet's UTXOs.
     ///
     /// Delegates to `GeneralWallet::list_utxos` on whichever backend is active. Exposed on the

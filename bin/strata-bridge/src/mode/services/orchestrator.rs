@@ -210,11 +210,8 @@ where
         .await
         .map_err(|e| anyhow!("failed to fetch operator general wallet pubkey from s2: {e:?}"))?;
 
-    // Sanity check that our own musig2 pubkey is present in the covenant set. This is
-    // tautological by construction today (the operator table is built from
-    // `params.keys.operators.iter()` and `OperatorTable::select_btc_x_only(our_pubkey)`), but
-    // the explicit lookup catches configuration drift between secret-service and the static
-    // params file.
+    // Sanity check that our own musig2 pubkey is present in the registration schedule. The
+    // lookup catches configuration drift between secret-service and the static params file.
     //
     // The related invariant is `watchtower_pubkey == musig2_pubkey`. The operator table makes
     // it, from `ScheduledOperator::covenant_public_key`. A field change on `ScheduledOperator`
@@ -227,7 +224,7 @@ where
         .find(|operator| operator.covenant_key() == operator_musig2_pubkey)
         .ok_or_else(|| {
             anyhow!(
-                "operator musig2 pubkey {} is not in the configured covenant set",
+                "operator musig2 pubkey {} is not in the registration schedule",
                 operator_musig2_pubkey,
             )
         })?;
@@ -237,18 +234,58 @@ where
     // the wallet's own `payout_descriptor()`. These must resolve to the same script: on a
     // mismatch, graph payouts (uncontested/contested payout, counterproof nack) land on an
     // output this wallet neither tracks nor can sign — unspendable by this operator, and
-    // their CPFP bumps fail forever. Warn rather than abort: graphs presigned under older
-    // params can differ legitimately, and an operator mid-rotation must still start.
+    // their CPFP bumps fail forever. A registered payout descriptor cannot change, so a
+    // mismatch means that the wallet differs from the registration. This is a warning: the
+    // node still starts.
+    //
+    // The comparison is type-aware. Params validation pins every covenant payout descriptor
+    // to P2TR, and the Fireblocks backend derives its descriptor from a P2WPKH vault
+    // address, so on that backend the scripts can never match — a same-script check fires
+    // on every startup and reads as key drift, which it is not. The two cases carry
+    // different messages: a cross-type mismatch is structural (the backend class cannot
+    // receive presigned-graph payouts; the general key held by secret-service still can,
+    // out of band), while a same-type mismatch is the key-drift signal the check was built
+    // for.
     {
-        let wallet_payout_script = wallet.read().await.payout_descriptor().to_script();
+        let wallet_payout_descriptor = wallet.read().await.payout_descriptor();
+        let wallet_payout_script = wallet_payout_descriptor.to_script();
         let covenant_payout_script = own_covenant.payout_descriptor().to_script();
         if covenant_payout_script != wallet_payout_script {
-            warn!(
-                covenant_descriptor = %own_covenant.payout_descriptor(),
-                %wallet_payout_script,
-                "params covenant payout_descriptor does not match the wallet's payout script; \
-                 presigned-graph payouts will be unspendable and unbumpable by this operator"
-            );
+            if own_covenant.payout_descriptor().type_tag() == wallet_payout_descriptor.type_tag() {
+                warn!(
+                    covenant_descriptor = %own_covenant.payout_descriptor(),
+                    %wallet_payout_script,
+                    "params covenant payout_descriptor does not match the wallet's payout \
+                     script; presigned-graph payouts will be unspendable and unbumpable by \
+                     this operator"
+                );
+            } else {
+                // Only claim "recoverable via the secret-service general key" after
+                // checking it: the claim holds exactly when the covenant descriptor is the
+                // tap-tweaked P2TR of the s2 general key. On a mainnet-first deployment
+                // this line informs an operator's judgment about whether presigned-graph
+                // payouts are safe to leave unclaimed — it must not overstate.
+                let s2_general_script = bitcoin::Address::p2tr(
+                    bitcoin::secp256k1::SECP256K1,
+                    operator_general_pubkey,
+                    None,
+                    params.network,
+                )
+                .script_pubkey();
+                let recovery = if covenant_payout_script == s2_general_script {
+                    "those outputs stay recoverable through the secret-service general key"
+                } else {
+                    "those outputs are recoverable only by whoever controls the key behind \
+                     the params descriptor"
+                };
+                warn!(
+                    covenant_descriptor = %own_covenant.payout_descriptor(),
+                    wallet_descriptor = %wallet_payout_descriptor,
+                    "the general-wallet backend cannot receive presigned-graph payouts \
+                     (descriptor types differ); {recovery}, and this wallet will not track \
+                     or bump them"
+                );
+            }
         }
     }
 

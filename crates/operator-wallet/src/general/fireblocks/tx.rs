@@ -25,6 +25,10 @@ pub(super) struct FundingInput {
     pub prevout: TxOut,
 }
 
+/// BIP-431 caps a v3 transaction that has an unconfirmed v3 ancestor at this size. The CPFP
+/// child always has such an ancestor: the parent it exists to pay for.
+const TRUC_CHILD_MAX_VBYTES: u64 = 1000;
+
 /// Greedily selects P2WPKH funding inputs (largest first) to cover `recipient_total` plus the
 /// transaction fee at `fee_rate`, optionally appending a change output to `change_spk`.
 ///
@@ -246,18 +250,33 @@ pub(super) fn select_cpfp_funding(
         return Ok((Vec::new(), child_output));
     }
 
+    // Confirmed funding only. The child already has one unconfirmed parent (the CPFP
+    // parent itself), and TRUC caps a v3 child of an unconfirmed v3 parent at that one
+    // ancestor. A second unconfirmed input makes the whole package unrelayable. The native
+    // backend applies the same rule in `is_spendable_funding`.
+    //
     // Largest first, equal values tie-broken by outpoint: a CPFP rebuild after a re-sync
     // must select the same inputs in the same order so the resubmitted child deduplicates
     // by txid instead of surfacing as a same-fee BIP-125 replacement the mempool rejects.
     let mut eligible: Vec<&UtxoInfo> = candidates
         .iter()
-        .filter(|u| u.script_pubkey == *deposit_spk && !exclude.contains(&u.outpoint))
+        .filter(|u| {
+            u.script_pubkey == *deposit_spk && u.confirmations > 0 && !exclude.contains(&u.outpoint)
+        })
         .collect();
     eligible.sort_by_key(|u| (std::cmp::Reverse(u.amount), u.outpoint));
 
     let mut selected: Vec<FundingInput> = Vec::new();
     let mut funding_total = Amount::ZERO;
     for u in eligible {
+        // Stop before the child breaks the TRUC size limit. BIP-431 caps a v3 transaction
+        // with an unconfirmed v3 ancestor at 1000 vB. A child past that limit cannot enter
+        // any mempool, so a clean insufficient-funds error beats an unrelayable build. The
+        // native backend applies the same bound in `select_funding`.
+        let next_n_p2wpkh = selected.len() + 1 + usize::from(combined_is_p2wpkh);
+        if cpfp_child_vsize(next_n_p2wpkh, anchor, change_len) > TRUC_CHILD_MAX_VBYTES {
+            break;
+        }
         selected.push(FundingInput {
             outpoint: u.outpoint,
             prevout: TxOut {
@@ -410,6 +429,99 @@ mod tests {
             confirmations: 1,
             script_pubkey: spk.clone(),
         }
+    }
+
+    fn unconfirmed_utxo(spk: &ScriptBuf, sats: u64, seed: u8) -> UtxoInfo {
+        UtxoInfo {
+            confirmations: 0,
+            ..utxo(spk, sats, seed)
+        }
+    }
+
+    /// A wallet of dust cannot fund past the TRUC size limit. BIP-431 caps the child at
+    /// 1000 vB, which roughly 14 P2WPKH inputs exceed. The selection must stop with a
+    /// clean error instead of a child that no mempool accepts. A single large UTXO under
+    /// the same demand builds, so the size bound is the only difference under test.
+    #[test]
+    fn cpfp_funding_stops_at_the_truc_size_limit() {
+        let spk = deposit_spk();
+        let combined = Amount::from_sat(500);
+        // A high target that many small inputs cannot satisfy inside 1000 vB.
+        let target = FeeRate::from_sat_per_vb(500).unwrap();
+
+        let dust_wallet: Vec<UtxoInfo> = (0..40).map(|i| utxo(&spk, 3_000, i as u8)).collect();
+        let err = select_cpfp_funding(
+            &dust_wallet,
+            &HashSet::new(),
+            &spk,
+            combined,
+            None,
+            150,
+            Amount::ZERO,
+            target,
+            None,
+            &spk,
+        );
+        assert!(err.is_err(), "a dust wallet must stop at the size bound");
+
+        let single_large = vec![utxo(&spk, 10_000_000, 1)];
+        let ok = select_cpfp_funding(
+            &single_large,
+            &HashSet::new(),
+            &spk,
+            combined,
+            None,
+            150,
+            Amount::ZERO,
+            target,
+            None,
+            &spk,
+        );
+        assert!(
+            ok.is_ok(),
+            "one large input under the same demand must build"
+        );
+    }
+
+    /// CPFP funding must not select unconfirmed UTXOs. The child already has one
+    /// unconfirmed parent, and a second unconfirmed input breaks the TRUC one-parent-
+    /// one-child shape: bitcoind rejects the whole package. The confirmed twin of the
+    /// same candidate set builds, so the filter is the only difference under test.
+    #[test]
+    fn cpfp_funding_skips_unconfirmed_utxos() {
+        let spk = deposit_spk();
+        let combined = Amount::from_sat(500);
+        let target = FeeRate::from_sat_per_vb(20).unwrap();
+
+        let unconfirmed = vec![unconfirmed_utxo(&spk, 100_000, 1)];
+        let err = select_cpfp_funding(
+            &unconfirmed,
+            &HashSet::new(),
+            &spk,
+            combined,
+            None,
+            150,
+            Amount::ZERO,
+            target,
+            None,
+            &spk,
+        );
+        assert!(err.is_err(), "an unconfirmed-only wallet must not fund");
+
+        let confirmed = vec![utxo(&spk, 100_000, 1)];
+        let ok = select_cpfp_funding(
+            &confirmed,
+            &HashSet::new(),
+            &spk,
+            combined,
+            None,
+            150,
+            Amount::ZERO,
+            target,
+            None,
+            &spk,
+        );
+        assert!(ok.is_ok(), "the confirmed twin must fund");
     }
 
     #[test]

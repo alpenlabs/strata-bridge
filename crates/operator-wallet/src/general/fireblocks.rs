@@ -55,6 +55,11 @@ const SIGN_POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// signing latency depends on the workspace's Transaction Authorization Policy; an
 /// auto-approve rule keeps the wait well within budget.
 const SIGN_MAX_POLL_ATTEMPTS: u32 = 60;
+/// Wall-clock bound on one RAW-signing wait. The attempt cap alone does not bound time:
+/// each slow-but-successful poll can take up to [`HTTP_REQUEST_TIMEOUT`], so 60 attempts
+/// can hold the wallet lock for ~17 minutes. The deadline caps the wait whatever the
+/// per-poll latency is.
+const SIGN_MAX_DURATION: Duration = Duration::from_secs(180);
 /// Consecutive transient poll errors tolerated before abandoning a submitted RAW-signing
 /// transaction. The transaction already exists server-side, so a blip must not drop it on the
 /// first failure; only a sustained outage gives up (with the tx id, for operator reconciliation).
@@ -199,16 +204,30 @@ impl FireblocksGeneralWallet {
         // covering all non-mainnet networks. Require the exact asset id for the network so a
         // startup misconfig (wrong network, or a typo like `BTC_TES`/`ETH`) is caught here rather
         // than letting every signing request target the wrong asset server-side.
-        let expected_asset = if config.network == Network::Bitcoin {
-            "BTC"
-        } else {
-            "BTC_TEST"
-        };
-        if config.asset_id != expected_asset {
+        // Mainnet keeps the hard check: "BTC" is the one documented mainnet asset id, and
+        // a wrong id there points real funds at the wrong asset. Other networks only get a
+        // warning. Fireblocks does not document one fixed id per test network (signet in
+        // particular), the id feeds straight into the sync URL and the RAW-sign body, and
+        // a wrong id fails loudly on the first API call — so a hard check here blocks
+        // valid configurations without adding safety.
+        if config.network == Network::Bitcoin {
+            if config.asset_id != "BTC" {
+                return Err(FireblocksError::AssetMismatch(format!(
+                    "asset_id {:?} does not match network Bitcoin (expected \"BTC\")",
+                    config.asset_id
+                )));
+            }
+        } else if config.asset_id == "BTC" {
             return Err(FireblocksError::AssetMismatch(format!(
-                "asset_id {:?} does not match network {:?} (expected {expected_asset:?})",
-                config.asset_id, config.network
+                "asset_id \"BTC\" is the mainnet asset; network is {:?}",
+                config.network
             )));
+        } else if config.asset_id != "BTC_TEST" {
+            tracing::warn!(
+                asset_id = %config.asset_id,
+                network = ?config.network,
+                "asset_id is not \"BTC_TEST\"; the first API call validates it"
+            );
         }
 
         let address = config
@@ -381,7 +400,11 @@ impl FireblocksGeneralWallet {
 
         let subpath = format!("/transactions/{}", created.id);
         let mut consecutive_errors = 0u32;
+        let deadline = std::time::Instant::now() + SIGN_MAX_DURATION;
         for _ in 0..SIGN_MAX_POLL_ATTEMPTS {
+            if std::time::Instant::now() >= deadline {
+                break;
+            }
             match self
                 .signed_request::<dto::TransactionDetails>(Method::GET, &subpath, None)
                 .await
