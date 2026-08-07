@@ -484,6 +484,14 @@ pub struct CachedFeeSource {
     /// Anchor point for the `last_refresh_unix_ms` clock. Same instant for the duration
     /// of the [`CachedFeeSource`]'s lifetime.
     spawn_anchor: std::time::Instant,
+    /// Age past which the cached value stops being served to duty pricing
+    /// ([`Self::try_current`]). Ten refresh intervals: one or two missed refreshes are
+    /// normal for RPC transport, ten consecutive misses show the source is down.
+    max_staleness: Duration,
+    /// Latch for the bump-path stale warning: one warning per stale episode, reset by the
+    /// first fresh read. Without the latch, N tracked parents × the bump triggers repeat
+    /// the same warning hundreds of times per hour during one incident.
+    stale_warned: Arc<std::sync::atomic::AtomicBool>,
     task: JoinHandle<()>,
 }
 
@@ -496,6 +504,7 @@ impl Debug for CachedFeeSource {
                 "seconds_since_last_refresh",
                 &self.seconds_since_last_refresh(),
             )
+            .field("max_staleness", &self.max_staleness)
             .field("task_finished", &self.task.is_finished())
             .finish()
     }
@@ -555,6 +564,8 @@ impl CachedFeeSource {
             cached_sat_per_kwu,
             last_refresh_unix_ms,
             spawn_anchor,
+            max_staleness: refresh_interval.saturating_mul(STALENESS_REFRESH_MULTIPLE),
+            stale_warned: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             task,
         })
     }
@@ -564,11 +575,37 @@ impl CachedFeeSource {
         FeeRate::from_sat_per_kwu(self.cached_sat_per_kwu.load(Ordering::Relaxed))
     }
 
+    /// Returns the cached fee rate, or the cache age when the value is stale.
+    ///
+    /// Duty pricing must use this accessor. A frozen quote prices a transaction at the
+    /// market rate from before the source failed, with no signal. The error aborts the
+    /// duty, and the duty retries after the source recovers. The bump loop stays on the
+    /// infallible [`Self::current`]: a bump at a stale rate is better than no bump,
+    /// because the parent pays only the protocol floor without one.
+    pub fn try_current(&self) -> Result<FeeRate, StaleFeeRate> {
+        // Millisecond precision, not `seconds_since_last_refresh`: that accessor truncates
+        // to whole seconds, and a truncated age compares wrong against sub-second bounds.
+        let last_ms = self.last_refresh_unix_ms.load(Ordering::Relaxed);
+        let now_ms = self
+            .spawn_anchor
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+        let age = Duration::from_millis(now_ms.saturating_sub(last_ms));
+        if age > self.max_staleness {
+            return Err(StaleFeeRate {
+                age,
+                max_staleness: self.max_staleness,
+            });
+        }
+        Ok(self.current())
+    }
+
     /// Returns the number of seconds since the cache was last *successfully* refreshed.
-    /// Returns 0 for the initial refresh in [`Self::spawn`]. Lets callers decide how much
-    /// to trust the cached value — e.g., the bump loop could log a warning when the cache
-    /// is older than several refresh intervals (indicating the underlying source has been
-    /// failing).
+    /// Returns 0 for the initial refresh in [`Self::spawn`]. [`Self::try_current`] applies
+    /// the staleness bound for duty pricing, and the [`CpfpFeeSource`] impl logs a warning on
+    /// the bump path when the bound is exceeded; this accessor is the observability
+    /// surface behind both.
     pub fn seconds_since_last_refresh(&self) -> u64 {
         let last_ms = self.last_refresh_unix_ms.load(Ordering::Relaxed);
         let now_ms = self
@@ -582,17 +619,55 @@ impl CachedFeeSource {
 
 impl CpfpFeeSource for CachedFeeSource {
     /// Returns the cached value. Never returns `Err` — refresh failures are logged at the
-    /// background task and the prior value is retained.
+    /// background task and the prior value is retained. A stale cache logs one warning
+    /// per stale episode: on the bump path a stale rate is still worth acting on, and the
+    /// latch keeps one incident from repeating the warning on every bump trigger.
     fn estimate(
         &self,
     ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
+        match self.try_current() {
+            Err(stale) => {
+                if !self.stale_warned.swap(true, Ordering::Relaxed) {
+                    warn!(
+                        age_secs = stale.age.as_secs(),
+                        max_secs = stale.max_staleness.as_secs(),
+                        "fee cache is stale; the bump loop continues on the last known rate"
+                    );
+                }
+            }
+            Ok(_) => self.stale_warned.store(false, Ordering::Relaxed),
+        }
         let value = self.current();
         async move { Ok(value) }
     }
 }
 
+/// Multiple of the refresh interval past which the cache counts as stale.
+const STALENESS_REFRESH_MULTIPLE: u32 = 10;
+
+/// The fee cache has not refreshed inside its staleness bound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StaleFeeRate {
+    /// Time since the last successful refresh.
+    pub age: Duration,
+    /// The bound the age exceeded.
+    pub max_staleness: Duration,
+}
+
+impl fmt::Display for StaleFeeRate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "fee cache is stale: last successful refresh {}s ago exceeds the {}s bound",
+            self.age.as_secs(),
+            self.max_staleness.as_secs()
+        )
+    }
+}
+
+impl std::error::Error for StaleFeeRate {}
+
 /// What already spends the output a CPFP child would spend, if anything.
-///
 /// The bump loop probes this state before every build, for every strategy. The probed
 /// output is the anchor for the anchor-bearing strategies, and the payout output for
 /// `ParentTxCombined`.
@@ -2695,6 +2770,37 @@ pub(crate) mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         assert_eq!(cache.current(), FeeRate::from_sat_per_vb(30).unwrap());
+    }
+
+    /// `try_current` refuses a cache that has not refreshed inside its staleness bound,
+    /// while `current` keeps serving the last value for the bump path. The bound is ten
+    /// refresh intervals, so a source that dies after the initial estimate exceeds it.
+    #[tokio::test]
+    async fn a_stale_cache_fails_try_current_and_serves_current() {
+        let flippable = Arc::new(FlippableFeeSource {
+            inner: Mutex::new(Ok(FeeRate::from_sat_per_vb(5).unwrap())),
+        });
+        let cache = CachedFeeSource::spawn(flippable.clone(), Duration::from_millis(10))
+            .await
+            .unwrap();
+        assert!(
+            cache.try_current().is_ok(),
+            "a fresh cache serves duty pricing"
+        );
+
+        // Every later refresh fails; the bound is 10 × 10 ms = 100 ms.
+        *flippable.inner.lock().unwrap() = Err("source died".to_string());
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        let err = cache
+            .try_current()
+            .expect_err("a stale cache must refuse duty pricing");
+        assert!(err.age > err.max_staleness);
+        assert_eq!(
+            cache.current(),
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            "the bump path keeps the last known rate"
+        );
     }
 
     #[tokio::test]

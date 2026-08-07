@@ -80,6 +80,14 @@ pub enum FeeSourceError {
     /// The configured mempool explorer URL is malformed.
     #[error("invalid mempool explorer url: {0}")]
     InvalidConfig(String),
+    /// A configured confirmation target is outside Bitcoin Core's accepted `1..=1008` range.
+    #[error("{field} = {target} is outside Bitcoin Core's estimatesmartfee range (1..=1008)")]
+    InvalidConfTarget {
+        /// Which config field carried the bad value.
+        field: &'static str,
+        /// The rejected value.
+        target: u16,
+    },
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -99,6 +107,10 @@ pub struct BitcoindFeeSource<R> {
 
 impl<R: FeeRateRpc> BitcoindFeeSource<R> {
     /// Creates a new source that queries `estimatesmartfee(conf_target)` on `client`.
+    ///
+    /// `conf_target` must be in `1..=1008` (Bitcoin Core rejects everything else).
+    /// [`FeeSourceConfig::build`] validates before it constructs; a direct caller owns
+    /// that check itself.
     pub const fn new(client: Arc<R>, conf_target: u16) -> Self {
         Self {
             client,
@@ -349,6 +361,25 @@ pub enum FeeSourceConfig {
     },
 }
 
+/// Bitcoin Core rejects `estimatesmartfee` confirmation targets outside `1..=1008`.
+const MAX_CONF_TARGET: u16 = 1008;
+
+/// Rejects a confirmation target that Bitcoin Core's `estimatesmartfee` will refuse.
+///
+/// The two variants fail at very different times without this check. `BitcoinCore` fails at
+/// boot — the cached source's first synchronous refresh propagates the RPC error and the
+/// orchestrator aborts, with a cryptic message. `MempoolExplorer` is the dangerous one: a
+/// working explorer masks a broken `fallback_conf_target` entirely, every later refresh
+/// through the fallback fails, and the cache serves the last explorer quote forever — the
+/// misconfiguration surfaces on the day the fallback is first needed, which is the worst
+/// possible time to discover it.
+const fn validate_conf_target(target: u16, field: &'static str) -> Result<(), FeeSourceError> {
+    if target == 0 || target > MAX_CONF_TARGET {
+        return Err(FeeSourceError::InvalidConfTarget { field, target });
+    }
+    Ok(())
+}
+
 impl FeeSourceConfig {
     /// Constructs the configured [`CpfpFeeSource`] from this config + a Bitcoin Core RPC client.
     ///
@@ -359,14 +390,19 @@ impl FeeSourceConfig {
         R: FeeRateRpc + 'static,
     {
         match self {
-            Self::BitcoinCore { conf_target } => Ok(ConfiguredFeeSource::Bitcoind(
-                BitcoindFeeSource::new(bitcoind, conf_target),
-            )),
+            Self::BitcoinCore { conf_target } => {
+                validate_conf_target(conf_target, "conf_target")?;
+                Ok(ConfiguredFeeSource::Bitcoind(BitcoindFeeSource::new(
+                    bitcoind,
+                    conf_target,
+                )))
+            }
             Self::MempoolExplorer {
                 base_url,
                 policy,
                 fallback_conf_target,
             } => {
+                validate_conf_target(fallback_conf_target, "fallback_conf_target")?;
                 let fallback = BitcoindFeeSource::new(bitcoind, fallback_conf_target);
                 Ok(ConfiguredFeeSource::Mempool(MempoolExplorerFeeSource::new(
                     base_url, policy, fallback,
@@ -434,7 +470,10 @@ pub(crate) fn wallet_tx_fee_rate(
     fee_source: &CachedFeeSource,
     maximum_fee_rate: FeeRate,
 ) -> Result<FeeRate, ExecutorError> {
-    let fee_rate = fee_source.current().max(MIN_WALLET_TX_FEE_RATE);
+    // `try_current`, not `current`: a duty that prices from a frozen quote broadcasts at
+    // whatever the market was when the source died. The error aborts the duty, and the
+    // retry succeeds after the source recovers.
+    let fee_rate = fee_source.try_current()?.max(MIN_WALLET_TX_FEE_RATE);
     if fee_rate > maximum_fee_rate {
         return Err(ExecutorError::FeeRateTooHigh {
             fee_rate,
@@ -725,6 +764,66 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// An out-of-range `fallback_conf_target` must fail at build time, not on the day the
+    /// fallback is first exercised. A working explorer masks the broken fallback entirely:
+    /// every later refresh through it fails, the cache serves the last explorer quote
+    /// forever, and the operator learns about the typo during the outage the fallback
+    /// existed for.
+    #[test]
+    fn build_rejects_out_of_range_conf_targets() {
+        for bad in [0u16, 1009] {
+            let cfg = FeeSourceConfig::MempoolExplorer {
+                base_url: "https://mempool.space".parse().unwrap(),
+                policy: MempoolFeePolicy::Fastest,
+                fallback_conf_target: bad,
+            };
+            let err = cfg.build(Arc::new(MockFeeRateRpc::returning(1)));
+            assert!(
+                matches!(
+                    err,
+                    Err(FeeSourceError::InvalidConfTarget {
+                        field: "fallback_conf_target",
+                        target,
+                    }) if target == bad
+                ),
+                "fallback_conf_target = {bad} must be rejected at build"
+            );
+
+            let cfg = FeeSourceConfig::BitcoinCore { conf_target: bad };
+            let err = cfg.build(Arc::new(MockFeeRateRpc::returning(1)));
+            assert!(
+                matches!(
+                    err,
+                    Err(FeeSourceError::InvalidConfTarget {
+                        field: "conf_target",
+                        target,
+                    }) if target == bad
+                ),
+                "conf_target = {bad} must be rejected at build"
+            );
+        }
+
+        // The range boundaries themselves are valid, for both variants.
+        for good in [1u16, 1008] {
+            assert!(
+                FeeSourceConfig::BitcoinCore { conf_target: good }
+                    .build(Arc::new(MockFeeRateRpc::returning(1)))
+                    .is_ok(),
+                "conf_target = {good} must build"
+            );
+            assert!(
+                FeeSourceConfig::MempoolExplorer {
+                    base_url: "https://mempool.space".parse().unwrap(),
+                    policy: MempoolFeePolicy::Fastest,
+                    fallback_conf_target: good,
+                }
+                .build(Arc::new(MockFeeRateRpc::returning(1)))
+                .is_ok(),
+                "fallback_conf_target = {good} must build"
+            );
+        }
     }
 
     #[test]
