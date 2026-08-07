@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, btree_map::Entry},
     fmt::{Debug, Display},
     sync::Arc,
+    time::Instant,
 };
 
 use bitcoin::{OutPoint, hashes::sha256};
@@ -15,19 +16,20 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_sm::{
     cross_sm_context::CrossSmContext,
-    deposit::{config::DepositSMCfg, machine::DepositSM},
+    deposit::{config::DepositSMCfg, events::DepositEvent, machine::DepositSM},
     errors::BridgeSMError,
-    graph::{config::GraphSMCfg, machine::GraphSM},
+    graph::{config::GraphSMCfg, events::GraphEvent, machine::GraphSM},
     signals,
-    stake::{config::StakeSMCfg, machine::StakeSM, state::StakeState},
+    stake::{config::StakeSMCfg, events::StakeEvent, machine::StakeSM, state::StakeState},
     state_machine::{SMOutput, StateMachine},
 };
 use strata_bridge_tx_graph::transactions::stake::StakeTx;
 use thiserror::Error;
-use tracing::error;
+use tracing::{debug, error, info, info_span, warn};
 
 use crate::{
     errors::{ProcessError, ProcessOutput},
+    observability,
     sm_types::{OperatorKey, SMEvent, SMId, UnifiedDuty},
 };
 
@@ -442,6 +444,93 @@ impl SMRegistry {
         id: &SMId,
         event: SMEvent,
     ) -> Result<ProcessOutcome, ProcessError> {
+        let sm_kind = observability::sm_kind(id);
+        let is_periodic = is_periodic_event(&event);
+        let from_state = self.state_kind(id).unwrap_or("missing");
+        // Info-level so the transition span exists under the default INFO filter; span creation
+        // emits no log lines, and the per-tick log statements below stay at debug.
+        let span = info_span!(
+            "bridge_sm_transition",
+            sm_kind,
+            sm_id = %id,
+            event = %event,
+            from_state,
+            to_state = tracing::field::Empty,
+            result = tracing::field::Empty,
+        );
+        let _entered = span.enter();
+        let started = Instant::now();
+        let outcome = self.process_event_inner(id, event);
+        let to_state = self.state_kind(id).unwrap_or("missing");
+        let result = transition_result(&outcome);
+
+        span.record("to_state", to_state);
+        span.record("result", result);
+        observability::record_transition(sm_kind, from_state, to_state, result, started.elapsed());
+
+        match &outcome {
+            Ok(ProcessOutcome::Applied(output)) if output.did_mutate() && is_periodic => {
+                debug!(
+                    sm_kind,
+                    sm_id = %id,
+                    from_state,
+                    to_state,
+                    duty_count = output.duties.len(),
+                    signal_count = output.signals.len(),
+                    "periodic state-machine transition applied"
+                );
+            }
+            Ok(ProcessOutcome::Applied(output)) if output.did_mutate() => {
+                info!(
+                    sm_kind,
+                    sm_id = %id,
+                    from_state,
+                    to_state,
+                    duty_count = output.duties.len(),
+                    signal_count = output.signals.len(),
+                    "state-machine transition applied"
+                );
+            }
+            Ok(ProcessOutcome::Applied(_))
+            | Ok(ProcessOutcome::Ignored {
+                reason: IgnoredEventReason::Duplicate,
+                ..
+            }) => {}
+            Ok(ProcessOutcome::Ignored {
+                event,
+                reason: IgnoredEventReason::Rejected(reason),
+                ..
+            }) => {
+                warn!(
+                    sm_kind,
+                    sm_id = %id,
+                    from_state,
+                    to_state,
+                    event = %event,
+                    reason,
+                    "state-machine event rejected"
+                );
+            }
+            Err(error) => {
+                error!(
+                    %error,
+                    sm_kind,
+                    sm_id = %id,
+                    from_state,
+                    to_state,
+                    "state-machine event processing failed"
+                );
+            }
+        }
+
+        outcome
+    }
+
+    fn process_event_inner(
+        &mut self,
+        id: &SMId,
+        event: SMEvent,
+    ) -> Result<ProcessOutcome, ProcessError> {
         let cross_sm_context = self.resolve_cross_sm_context(id);
 
         match (id, event) {
@@ -497,6 +586,23 @@ impl SMRegistry {
         }
     }
 
+    fn state_kind(&self, id: &SMId) -> Option<&'static str> {
+        match id {
+            SMId::Deposit(idx) => self
+                .deposits
+                .get(idx)
+                .map(|sm| observability::deposit_state_kind(sm.state())),
+            SMId::Graph(idx) => self
+                .graphs
+                .get(idx)
+                .map(|sm| observability::graph_state_kind(sm.state())),
+            SMId::Stake(idx) => self
+                .stakes
+                .get(idx)
+                .map(|sm| observability::stake_state_kind(sm.state())),
+        }
+    }
+
     /// Resolves auxiliary state from sibling state machines for the destination `id`.
     ///
     /// This context is intentionally not routed as a signal: resolving it does not create a
@@ -521,6 +627,39 @@ impl SMRegistry {
                 CrossSmContext::default,
                 CrossSmContext::with_unstaking_preimage,
             )
+    }
+}
+
+const fn transition_result(outcome: &Result<ProcessOutcome, ProcessError>) -> &'static str {
+    match outcome {
+        Ok(ProcessOutcome::Applied(output)) if output.did_mutate() => "applied_mutated",
+        Ok(ProcessOutcome::Applied(_)) => "applied_unchanged",
+        Ok(ProcessOutcome::Ignored {
+            reason: IgnoredEventReason::Duplicate,
+            ..
+        }) => "duplicate",
+        Ok(ProcessOutcome::Ignored {
+            reason: IgnoredEventReason::Rejected(_),
+            ..
+        }) => "rejected",
+        Err(_) => "invalid",
+    }
+}
+
+fn is_periodic_event(event: &SMEvent) -> bool {
+    match event {
+        SMEvent::Deposit(event) => matches!(
+            event.as_ref(),
+            DepositEvent::NewBlock(_) | DepositEvent::RetryTick(_) | DepositEvent::NagTick(_)
+        ),
+        SMEvent::Graph(event) => matches!(
+            event.as_ref(),
+            GraphEvent::NewBlock(_) | GraphEvent::RetryTick(_) | GraphEvent::NagTick(_)
+        ),
+        SMEvent::Stake(event) => matches!(
+            event.as_ref(),
+            StakeEvent::NewBlock(_) | StakeEvent::RetryTick(_) | StakeEvent::NagTick(_)
+        ),
     }
 }
 
