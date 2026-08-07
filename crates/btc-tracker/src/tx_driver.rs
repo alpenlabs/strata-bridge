@@ -161,6 +161,11 @@ struct CpfpEntry {
     parent: Transaction,
     strategy: CpfpStrategy,
     handle: CpfpHandle,
+    /// True while the parent is mined but not yet buried. A dormant entry is not bumped —
+    /// a confirmed parent needs no child — but it is kept, because a reorg between mined
+    /// and buried puts the parent back in (or out of) the mempool, and bumping must resume
+    /// then. Removal happens only at burial, when the callers' own wait conditions resolve.
+    dormant: bool,
 }
 
 /// Shared CPFP state across the driver task and the spawned bump tasks. `Arc<Mutex>` so
@@ -222,19 +227,28 @@ where
     F: CpfpFeeSource + 'static,
     P: CpfpMempool + 'static,
 {
-    let txid = parent.compute_txid();
-    let submitted =
-        match register_cpfp_entry_and_bump(ctx, entries, parent, strategy, bridge_protocol_floor)
-            .await
-        {
-            Ok(submitted) => submitted,
-            Err(e) => {
-                warn!(%txid, error = %e, "CPFP fallback after bare-broadcast failure also failed");
-                false
+    let (txid, inserted) = upsert_cpfp_entry(entries, parent, strategy).await;
+    let submitted = bump_one_entry(
+        ctx,
+        entries,
+        txid,
+        bridge_protocol_floor,
+        BumpReason::NewJob,
+    )
+    .await;
+    if !submitted && inserted {
+        // The bump can lease funding inputs and then fail (funding succeeded, a later
+        // step did not). This removal deletes the last record of those leases, so release
+        // them here. The child never reached the mempool, the inputs stay live, and the
+        // sync prune keeps a lease on a live outpoint forever.
+        //
+        // Remove only an entry that this call inserted. A pre-existing entry belongs to
+        // an earlier job that still waits on it, and its reactive bumps continue.
+        if let Some(entry) = entries.lock().await.remove(&txid) {
+            if !entry.handle.last_child_inputs.is_empty() {
+                ctx.wallet.release(&entry.handle.last_child_inputs).await;
             }
-        };
-    if !submitted {
-        entries.lock().await.remove(&txid);
+        }
     }
     submitted
 }
@@ -249,7 +263,10 @@ async fn resubmit_bare(rpc_client: &BitcoinClient, rawtx: &Transaction, evicted_
             info!(%txid, "resubmitted transaction successfully");
         }
         Err(err) => {
-            error!(%evicted_txid, %err, "could not resubmit transaction");
+            // `warn`, not `error`: a floor-rate parent evicted under fee pressure is
+            // rejected here on each attempt by design, and the CPFP path (next block or
+            // tick) is what actually recovers it. An error level buries real faults.
+            warn!(%evicted_txid, %err, "could not resubmit transaction");
             // TODO: <https://alpenlabs.atlassian.net/browse/STR-2690>
             // Analyze the reported error and classify the submission
             // failure mode.
@@ -274,11 +291,12 @@ async fn resubmit_bare(rpc_client: &BitcoinClient, rawtx: &Transaction, evicted_
 /// the floor would strand the leases (see the lease-recording note on
 /// [`cpfp::perform_bump`]).
 ///
-/// Shared by the batch walker above and the eviction arm of the driver loop, so both paths
-/// bump with identical snapshot / write-back discipline. Callers serialize through the
-/// driver's single `active_bump_task` slot — two concurrent bumps of the same entry would
-/// snapshot the same handle and the later write-back would clobber the earlier one's
-/// `last_child_inputs`.
+/// Shared by the batch walker, the eviction arm, and the new-job registration, so every
+/// path bumps with identical snapshot / write-back discipline. The batch and eviction
+/// callers serialize through the driver's single `active_bump_task` slot. The new-job
+/// caller does not share that slot, so it gates itself on the slot's state before it
+/// bumps: two concurrent bumps of one entry snapshot the same handle, and the later
+/// write-back clobbers the earlier one's `last_child_inputs`.
 async fn bump_one_entry<W, F, P>(
     ctx: &CpfpContext<W, F, P>,
     entries: &CpfpEntries,
@@ -296,9 +314,10 @@ where
         .lock()
         .await
         .get(&parent_txid)
+        .filter(|e| !e.dormant)
         .map(|e| (e.parent.clone(), e.strategy.clone(), e.handle.clone()));
     let Some((parent, strategy, mut handle)) = snapshot else {
-        return false; // entry confirmed / removed since the caller looked
+        return false; // entry removed, or dormant (parent mined; awaiting burial)
     };
     let result = cpfp::perform_bump(
         ctx,
@@ -309,9 +328,32 @@ where
         reason,
     )
     .await;
-    // Write back the updated handle if the entry still exists.
-    if let Some(entry) = entries.lock().await.get_mut(&parent_txid) {
-        entry.handle = handle;
+    // Write the updated handle back if the entry still exists and is awake. Two other
+    // cases exist, and both mean an event arm settled this parent during the bump:
+    //
+    // - Entry gone: the parent was buried and the removal released the map handle.
+    // - Entry dormant: the parent was mined and the Mined arm took and released the map handle. A
+    //   write-back here re-records inputs that the Mined release already handed back, and the
+    //   burial release then strips them a second time — after a concurrent build has re-acquired
+    //   them.
+    //
+    // In both cases this local handle holds the only record of the inputs that this bump
+    // leased, so release them — but only when this bump leased. A bump that did not reach
+    // the build (floor skip, fee-source error, or a failed build, which restores its own
+    // lease state) leaves `last_child_inputs` with the pre-bump set, and the event arm
+    // released that set already from its own copy. A second release of the pre-bump set
+    // can strip a lease that a concurrent new-job build acquired in between.
+    let bump_leased = match &result {
+        Ok(submitted) => *submitted,
+        Err(e) => e.leased_funding(),
+    };
+    match entries.lock().await.get_mut(&parent_txid) {
+        Some(entry) if !entry.dormant => entry.handle = handle,
+        _ => {
+            if bump_leased && !handle.last_child_inputs.is_empty() {
+                ctx.wallet.release(&handle.last_child_inputs).await;
+            }
+        }
     }
     match result {
         Ok(true) => {
@@ -335,47 +377,77 @@ where
     }
 }
 
-/// Inserts a [`CpfpEntry`] for `parent` into the shared entries map and runs one initial
-/// `NewJob` bump. Used by the new-job arm in three places: after a successful bare
-/// broadcast, when the parent is already in the mempool at job arrival, and as a
-/// fallback when bare broadcast fails (so a properly-priced child can carry an
-/// underpriced parent in via `submitpackage`).
+/// Inserts (or refreshes) a [`CpfpEntry`] for `parent`, then runs one initial `NewJob` bump
+/// through [`bump_one_entry`], sharing its snapshot / write-back discipline. Used by the
+/// new-job arm in three places: after a successful bare broadcast, when the parent is
+/// already in the mempool at job arrival, and as a fallback when bare broadcast fails (so a
+/// properly-priced child can carry an underpriced parent in via `submitpackage`).
 ///
-/// Returns the bump outcome: `Ok(true)` means a `[parent, child]` package was actually
-/// submitted (relevant for the fallback caller — the parent is now in the mempool);
-/// `Ok(false)` means the bump was skipped (one of [`perform_bump`]'s skip conditions:
-/// target at or below the floor, parent fee already at target, or — for eager bumps —
-/// target not above the last submitted rate); `Err` is a build/sign/submit failure. The
-/// entry is inserted regardless, so reactive bumps on block / tick / eviction will retry.
+/// The insert is get-or-create. A duplicate drive job for a parent that already has an
+/// entry keeps the live handle and only refreshes the parent and strategy. The duty retry
+/// tick re-emits publishes while the SM waits for burial, and the handle's
+/// `last_child_inputs` is the only record of the wallet leases. The insert also runs
+/// *before* the bump. The reverse order (bump into a private entry, insert after) opens a
+/// write-back race: a concurrent batch bump of the same parent leases fresh funding and
+/// records it in the map, and a late insert then overwrites that record with a stale
+/// handle. The leases are lost.
+///
+/// Returns whether a `[parent, child]` package was actually submitted (relevant for the
+/// fallback caller — the parent is then in the mempool). Failures are logged inside
+/// [`bump_one_entry`]; reactive bumps on block / tick / eviction retry regardless.
 async fn register_cpfp_entry_and_bump<W, F, P>(
     ctx: &CpfpContext<W, F, P>,
     entries: &CpfpEntries,
     parent: Transaction,
     strategy: CpfpStrategy,
     bridge_protocol_floor: FeeRate,
-) -> Result<bool, cpfp::CpfpError>
+) -> bool
 where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
     P: CpfpMempool + 'static,
 {
-    let txid = parent.compute_txid();
-    let mut entry = CpfpEntry {
-        parent,
-        strategy,
-        handle: CpfpHandle::default(),
-    };
-    let result = cpfp::perform_bump(
+    let (txid, _) = upsert_cpfp_entry(entries, parent, strategy).await;
+    bump_one_entry(
         ctx,
-        &entry.parent,
-        entry.strategy.clone(),
-        &mut entry.handle,
+        entries,
+        txid,
         bridge_protocol_floor,
-        BumpReason::NewJob,
+        cpfp::BumpReason::NewJob,
     )
-    .await;
-    entries.lock().await.insert(txid, entry);
-    result
+    .await
+}
+
+/// Inserts a [`CpfpEntry`] for `parent`, or refreshes the parent and strategy of an
+/// existing entry while its handle (the lease record) stays live. Returns the parent txid
+/// and whether the call inserted a new entry.
+async fn upsert_cpfp_entry(
+    entries: &CpfpEntries,
+    parent: Transaction,
+    strategy: CpfpStrategy,
+) -> (Txid, bool) {
+    let txid = parent.compute_txid();
+    let mut entries = entries.lock().await;
+    let inserted = match entries.get_mut(&txid) {
+        Some(existing) => {
+            existing.parent = parent;
+            existing.strategy = strategy;
+            false
+        }
+        None => {
+            entries.insert(
+                txid,
+                CpfpEntry {
+                    parent,
+                    strategy,
+                    handle: CpfpHandle::default(),
+                    dormant: false,
+                },
+            );
+            true
+        }
+    };
+    (txid, inserted)
 }
 
 /// System for driving a signed transaction to confirmation.
@@ -539,16 +611,27 @@ impl TxDriver {
                                 // The first bump runs here too so a deeply-underpriced
                                 // resident parent gets a fresh package immediately.
                                 if let (Some(ctx), Some(strategy)) = (cpfp_ctx.as_ref(), job_cpfp) {
-                                    if let Err(e) = register_cpfp_entry_and_bump(
-                                        ctx.as_ref(),
-                                        &cpfp_entries,
-                                        job_parent,
-                                        strategy,
-                                        bridge_protocol_floor,
-                                    )
-                                    .await
-                                    {
-                                        warn!(%txid, error = %e, "initial CPFP bump for already-known parent failed; will retry on next trigger");
+                                    // The eager bump must not run next to an in-flight
+                                    // batch or eviction bump: two concurrent bumps of one
+                                    // entry snapshot the same handle, and the later
+                                    // write-back clobbers the earlier one's lease record.
+                                    // The entry registers either way; the next trigger
+                                    // bumps it. Failures are logged inside
+                                    // `bump_one_entry`.
+                                    if active_bump_task.as_ref().is_some_and(|h| !h.is_finished()) {
+                                        let (registered_txid, _) =
+                                            upsert_cpfp_entry(&cpfp_entries, job_parent, strategy)
+                                                .await;
+                                        debug!(%registered_txid, "bump slot busy; CPFP entry registered without an eager bump");
+                                    } else {
+                                        register_cpfp_entry_and_bump(
+                                            ctx.as_ref(),
+                                            &cpfp_entries,
+                                            job_parent,
+                                            strategy,
+                                            bridge_protocol_floor,
+                                        )
+                                        .await;
                                     }
                                 }
                             }
@@ -576,16 +659,27 @@ impl TxDriver {
                                 // below the floor mean the presigned parent's own rate is
                                 // sufficient; the helper's `perform_bump` skips internally.
                                 if let (Some(ctx), Some(strategy)) = (cpfp_ctx.as_ref(), job_cpfp) {
-                                    if let Err(e) = register_cpfp_entry_and_bump(
-                                        ctx.as_ref(),
-                                        &cpfp_entries,
-                                        job_parent,
-                                        strategy,
-                                        bridge_protocol_floor,
-                                    )
-                                    .await
-                                    {
-                                        warn!(%txid, error = %e, "initial CPFP bump failed; will retry on next trigger");
+                                    // The eager bump must not run next to an in-flight
+                                    // batch or eviction bump: two concurrent bumps of one
+                                    // entry snapshot the same handle, and the later
+                                    // write-back clobbers the earlier one's lease record.
+                                    // The entry registers either way; the next trigger
+                                    // bumps it. Failures are logged inside
+                                    // `bump_one_entry`.
+                                    if active_bump_task.as_ref().is_some_and(|h| !h.is_finished()) {
+                                        let (registered_txid, _) =
+                                            upsert_cpfp_entry(&cpfp_entries, job_parent, strategy)
+                                                .await;
+                                        debug!(%registered_txid, "bump slot busy; CPFP entry registered without an eager bump");
+                                    } else {
+                                        register_cpfp_entry_and_bump(
+                                            ctx.as_ref(),
+                                            &cpfp_entries,
+                                            job_parent,
+                                            strategy,
+                                            bridge_protocol_floor,
+                                        )
+                                        .await;
                                     }
                                 }
                             },
@@ -642,8 +736,24 @@ impl TxDriver {
                                 // re-submit as a package — that's the canonical bump path on
                                 // mempool eviction. Otherwise fall back to bare resubmission
                                 // (legacy behaviour preserved for non-CPFP callers).
-                                let has_cpfp_entry = cpfp_ctx.is_some()
-                                    && cpfp_entries.lock().await.contains_key(&evicted_txid);
+                                let has_cpfp_entry = cpfp_ctx.is_some() && {
+                                    let mut entries = cpfp_entries.lock().await;
+                                    match entries.get_mut(&evicted_txid) {
+                                        Some(entry) => {
+                                            // A dormant entry means the parent was mined. An
+                                            // eviction event for it means a reorg dropped
+                                            // the parent from its block and from the
+                                            // mempool. That is the situation the bumps
+                                            // exist for. Wake the entry.
+                                            if entry.dormant {
+                                                info!(%evicted_txid, "mined parent evicted after a reorg; resuming CPFP bumps");
+                                                entry.dormant = false;
+                                            }
+                                            true
+                                        }
+                                        None => false,
+                                    }
+                                };
                                 if let (Some(ctx), true) = (cpfp_ctx.as_ref(), has_cpfp_entry) {
                                     // The eviction bump shares the block/tick arms' single
                                     // in-flight slot. Two concurrent bumps of one entry would
@@ -655,12 +765,14 @@ impl TxDriver {
                                     // keeps the driver select loop responsive through the
                                     // build + sign + submitpackage round-trip.
                                     if active_bump_task.as_ref().is_some_and(|h| !h.is_finished()) {
-                                        // Safe to skip entirely: the in-flight batch calls
-                                        // `submitpackage([parent, child])` for this entry,
-                                        // which reintroduces the evicted parent by
-                                        // construction; failing that, the next block or tick
-                                        // retries.
-                                        debug!(%evicted_txid, "skipping eviction bump: in-flight bump batch will resubmit the package");
+                                        // The in-flight batch snapshotted its txid list at
+                                        // its start. It can miss this entry (registered
+                                        // after the snapshot) or it can have walked past
+                                        // this txid already. Neither case resubmits the
+                                        // evicted parent. Resubmit the bare parent now; the
+                                        // next block or tick rebuilds the child on top.
+                                        debug!(%evicted_txid, "bump slot busy; resubmitting evicted parent bare until the next trigger");
+                                        resubmit_bare(&rpc_client, &event.rawtx, evicted_txid).await;
                                     } else {
                                         let ctx = ctx.clone();
                                         let entries = cpfp_entries.clone();
@@ -709,11 +821,61 @@ impl TxDriver {
                                         }
                                     }));
                                 active_jobs = active_jobs.merge(leftovers);
-                                // If this event represents confirmation (mined/buried), the
-                                // parent has landed on chain — drop its CPFP state so we stop
-                                // bumping. Mempool events leave the entry alone.
-                                if matches!(event.status, TxStatus::Mined { .. } | TxStatus::Buried { .. }) {
-                                    cpfp_entries.lock().await.remove(&txid);
+                                // CPFP lifecycle against confirmation depth:
+                                //
+                                // - Mined: stop the bumps (a confirmed parent needs no
+                                //   child), release the child's funding leases, and keep
+                                //   the entry dormant. Each production caller waits for
+                                //   burial. A reorg between mined and buried returns the
+                                //   parent to the mempool (`Mempool`) or evicts it
+                                //   (`Unknown`), and the bumps must resume then. A removal
+                                //   here makes the parent unbumpable for the rest of the
+                                //   wait: the eviction arm falls back to a bare resubmit
+                                //   of a floor-rate parent, no mempool accepts it under
+                                //   fee pressure, and the duty never completes.
+                                // - Mempool: the reorg case. Wake the entry.
+                                // - Buried: final. Remove the entry.
+                                //
+                                // The lease release runs at mined time and again, without
+                                // effect, at burial. If the parent confirmed through a
+                                // competitor's child, the release frees our dead child's
+                                // funding. If our own child confirmed, its funding is
+                                // spent on-chain — see the release note in `perform_bump`
+                                // step 4.5 for the bounded side effect. A woken entry
+                                // starts from an empty handle and leases fresh funding on
+                                // its next bump.
+                                match event.status {
+                                    TxStatus::Mined { .. } => {
+                                        let released = {
+                                            let mut entries = cpfp_entries.lock().await;
+                                            entries.get_mut(&txid).map(|entry| {
+                                                entry.dormant = true;
+                                                std::mem::take(&mut entry.handle)
+                                            })
+                                        };
+                                        if let (Some(ctx), Some(handle)) = (cpfp_ctx.as_ref(), released) {
+                                            if !handle.last_child_inputs.is_empty() {
+                                                ctx.wallet.release(&handle.last_child_inputs).await;
+                                            }
+                                        }
+                                    }
+                                    TxStatus::Mempool => {
+                                        if let Some(entry) = cpfp_entries.lock().await.get_mut(&txid) {
+                                            if entry.dormant {
+                                                info!(%txid, "parent reorged back into the mempool; resuming CPFP bumps");
+                                                entry.dormant = false;
+                                            }
+                                        }
+                                    }
+                                    TxStatus::Buried { .. } => {
+                                        let removed = cpfp_entries.lock().await.remove(&txid);
+                                        if let (Some(ctx), Some(entry)) = (cpfp_ctx.as_ref(), removed) {
+                                            if !entry.handle.last_child_inputs.is_empty() {
+                                                ctx.wallet.release(&entry.handle.last_child_inputs).await;
+                                            }
+                                        }
+                                    }
+                                    TxStatus::Unknown => {}
                                 }
                             }
                         }
@@ -1224,6 +1386,62 @@ mod cpfp_lifecycle_tests {
         }
     }
 
+    /// A dormant entry (parent mined, burial pending) is not bumped. The wallet and the
+    /// mempool must not be called: a confirmed parent needs no child. The same entry with
+    /// `dormant = false` submits, so the skip is the only difference under test.
+    #[tokio::test]
+    async fn bump_one_entry_skips_dormant_entries() {
+        let (_, key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(key, Amount::from_sat(330));
+        let parent_txid = parent.compute_txid();
+        let funding = vec![OutPoint {
+            txid: parent_txid,
+            vout: 7,
+        }];
+        let make_entry = |dormant: bool| CpfpEntry {
+            parent: parent.clone(),
+            strategy: anchor_strategy(key),
+            handle: CpfpHandle::default(),
+            dormant,
+        };
+
+        for (dormant, expect_submit) in [(true, false), (false, true)] {
+            let submitter = Arc::new(FakeSubmitter::ok());
+            let ctx = CpfpContext {
+                wallet: Arc::new(FakeWallet::returning(
+                    synthetic_child_psbt(&parent, 0, key),
+                    funding.clone(),
+                )),
+                fee_source: Arc::new(FakeFeeSource::returning(
+                    FeeRate::from_sat_per_vb(10).unwrap(),
+                )),
+                anchor_input_signer: fake_input_signer_ok(),
+                multi_anchor_signer: fake_input_signer_ok(),
+                wallet_input_signer: fake_input_signer_ok(),
+                max_fee_rate: FeeRate::from_sat_per_vb(20).unwrap(),
+                mempool: submitter.clone(),
+            };
+            let entries: CpfpEntries = Arc::new(Mutex::new(HashMap::from([(
+                parent_txid,
+                make_entry(dormant),
+            )])));
+            let submitted = bump_one_entry(
+                &ctx,
+                &entries,
+                parent_txid,
+                crate::cpfp::tests::PROTOCOL_FLOOR,
+                BumpReason::Tick,
+            )
+            .await;
+            assert_eq!(submitted, expect_submit, "dormant = {dormant}");
+            assert_eq!(
+                submitter.captured.lock().unwrap().len(),
+                usize::from(expect_submit),
+                "dormant = {dormant}"
+            );
+        }
+    }
+
     /// Even a failed bump must land its handle back in the entries map: `perform_bump` records
     /// the freshly-leased funding inputs on the handle as soon as the wallet returns, and the
     /// next bump can only release them if that update survives into the map.
@@ -1247,6 +1465,7 @@ mod cpfp_lifecycle_tests {
                 parent: parent.clone(),
                 strategy: anchor_strategy(key),
                 handle: CpfpHandle::default(),
+                dormant: false,
             },
         )])));
 

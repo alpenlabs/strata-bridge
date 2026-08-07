@@ -77,7 +77,7 @@ pub struct OutputHandles {
     /// Every bridge tx that participates in CPFP carries a keyed-Taproot anchor keyed
     /// to this pubkey (see `KeyData::operator_pubkey` in `bridge-sm`, fed from
     /// `OperatorTable::idx_to_btc_key`). Cached at orchestrator startup so
-    /// [`crate::cpfp_adapters::infer_anchor_strategy`] can detect anchors without an RPC
+    /// `chain::checked_anchor_strategy` can validate a named anchor vout without an RPC
     /// hop. (Counterproof/ack txs key their anchors to the operator's watchtower key,
     /// which today equals the musig2 key per `bin/strata-bridge::operator_wallet`'s
     /// watchtower-key note; if those sets ever diverge this needs to grow.)

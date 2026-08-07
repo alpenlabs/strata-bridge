@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use bitcoin::{Amount, Transaction, Txid, Wtxid};
+use bitcoin::{Amount, FeeRate, Transaction, Txid, Wtxid};
 use bitcoind_async_client::{
     corepc_types::model::{SubmitPackage, SubmitPackageTxResult},
     error::ClientError,
@@ -117,19 +117,27 @@ const REPLACEMENT_CONTENTION_MARKER: &str = "rejecting replacement";
 /// SPS-50 header outputs, and any that hold value would otherwise trip bitcoind's burn guard
 /// and get the entire package rejected.
 ///
-/// Returns `None` when no transaction in the package has a valued `OP_RETURN`, which leaves
-/// bitcoind on its defaults.
+/// Always returns options: the fee-rate cap is disabled unconditionally, and
+/// `max_burn_amount` is set when some transaction in the package has a valued `OP_RETURN`.
+///
+/// The cap is disabled for a structural reason. bitcoind applies its default `maxfeerate`
+/// (0.10 BTC/kvB) to each transaction individually. A CPFP child concentrates the whole
+/// package's fee into its own few vbytes, so its individual rate is near `target ×
+/// package_vbytes / child_vbytes` — a large multiple of each target the bump loop sets. A
+/// per-transaction guard on the child alone rejects well-formed high-ratio packages. The
+/// bump loop already caps the package price: `max_fee_rate` clamps the target before the
+/// build. Zero turns the bitcoind check off.
 fn package_broadcast_options(txs: &[Transaction]) -> Option<BroadcastOptions> {
     let max_burn_amount = txs
         .iter()
         .flat_map(|tx| tx.output.iter())
         .filter(|output| output.value > Amount::ZERO && output.script_pubkey.is_op_return())
         .map(|output| output.value)
-        .max()?;
+        .max();
 
     Some(BroadcastOptions {
-        max_burn_amount: Some(max_burn_amount),
-        ..Default::default()
+        max_burn_amount,
+        max_fee_rate: Some(FeeRate::ZERO),
     })
 }
 
@@ -520,16 +528,24 @@ mod tests {
         submit_package(&client, &[burn_tx.clone(), plain_tx.clone()])
             .await
             .expect("mocked success");
-        let first_options = client.captured_options.lock().unwrap()[0].clone();
+        let first_options = client.captured_options.lock().unwrap()[0]
+            .clone()
+            .expect("options are always set");
         assert_eq!(
-            first_options
-                .expect("valued OP_RETURN must produce options")
-                .max_burn_amount,
+            first_options.max_burn_amount,
             Some(Amount::from_sat(1_000)),
             "guard must cover the largest valued OP_RETURN in the package"
         );
+        assert_eq!(
+            first_options.max_fee_rate,
+            Some(bitcoin::FeeRate::ZERO),
+            "the per-transaction fee cap must be disabled"
+        );
 
-        // And a package with no valued OP_RETURN must leave bitcoind on its defaults.
+        // A package with no valued OP_RETURN still disables the fee cap. A CPFP child
+        // concentrates the whole package's fee into its own few vbytes, and the default
+        // per-transaction `maxfeerate` rejects such well-formed high-ratio packages. Burn
+        // stays on its default.
         let other_plain = dummy_tx(9);
         let client = MockBroadcaster {
             response: Ok(success_response(&plain_tx, &other_plain)),
@@ -538,6 +554,10 @@ mod tests {
         submit_package(&client, &[plain_tx, other_plain])
             .await
             .expect("mocked success");
-        assert!(client.captured_options.lock().unwrap()[0].is_none());
+        let plain_options = client.captured_options.lock().unwrap()[0]
+            .clone()
+            .expect("options are always set");
+        assert_eq!(plain_options.max_burn_amount, None);
+        assert_eq!(plain_options.max_fee_rate, Some(bitcoin::FeeRate::ZERO));
     }
 }

@@ -33,14 +33,16 @@ pub(crate) async fn publish_unstaking_intent(
     let signed_unstaking_intent_tx = unstaking_intent_tx.finalize(&unstaking_intent_witness);
     let unstaking_intent_txid = signed_unstaking_intent_tx.compute_txid();
     info!(%unstaking_intent_txid, "publishing unstaking intent transaction");
-    // Unstaking intent carries a keyed anchor; CPFP via InferAnchor.
+    // The unstaking intent carries a keyed anchor at a fixed vout.
     publish_signed_transaction(
         output_handles,
         &signed_unstaking_intent_tx,
         "unstaking intent tx",
         TxStatus::is_buried,
         chain::parent_fee_for_floor_tx(&signed_unstaking_intent_tx),
-        CpfpKind::InferAnchor,
+        CpfpKind::AnchorAt {
+            anchor_vout: UnstakingIntentTx::CPFP_VOUT,
+        },
     )
     .await?;
     info!(%unstaking_intent_txid, "unstaking intent transaction confirmed on-chain");

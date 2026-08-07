@@ -200,7 +200,11 @@ async fn build_v3_parent(
     let funded = {
         let mut wallet = wallet.write().await;
         wallet
-            .fund_v3_transaction(unsigned_tx, parent_fee_rate)
+            .fund_v3_transaction(
+                unsigned_tx,
+                parent_fee_rate,
+                operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+            )
             .await
             .expect("fund_v3_transaction (parent)")
     };
@@ -446,7 +450,11 @@ async fn build_v3_payout_parent(
     let funded = {
         let mut wallet = wallet.write().await;
         wallet
-            .fund_v3_transaction(unsigned_tx, parent_fee_rate)
+            .fund_v3_transaction(
+                unsigned_tx,
+                parent_fee_rate,
+                operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+            )
             .await
             .expect("fund_v3_transaction (payout parent)")
     };
@@ -630,7 +638,11 @@ async fn build_v3_mixed_parent(
     let funded = {
         let mut wallet = wallet.write().await;
         wallet
-            .fund_v3_transaction(unsigned_tx, parent_fee_rate)
+            .fund_v3_transaction(
+                unsigned_tx,
+                parent_fee_rate,
+                operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+            )
             .await
             .expect("fund_v3_transaction (mixed parent)")
     };
@@ -811,7 +823,11 @@ async fn build_v3_multi_anchor_parent(
     let funded = {
         let mut wallet = wallet.write().await;
         wallet
-            .fund_v3_transaction(unsigned_tx, parent_fee_rate)
+            .fund_v3_transaction(
+                unsigned_tx,
+                parent_fee_rate,
+                operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+            )
             .await
             .expect("fund_v3_transaction (multi-anchor parent)")
     };

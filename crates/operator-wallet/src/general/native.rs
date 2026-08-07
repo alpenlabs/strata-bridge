@@ -21,7 +21,7 @@ use tracing::info;
 
 use crate::{
     general::{
-        local_output_to_utxo_info, AnchorInfo, FundedPsbt, GeneralWallet, UtxoInfo,
+        local_output_to_utxo_info, AnchorInfo, FundedPsbt, GeneralWallet, ReplacedChild, UtxoInfo,
         TAPROOT_KEY_PATH_SAT_WEIGHT,
     },
     sync::{Backend, SyncError},
@@ -145,6 +145,7 @@ impl GeneralWallet for NativeGeneralWallet {
         anchor: AnchorInfo,
         target_pkg_fee_rate: FeeRate,
         exclude: &[OutPoint],
+        replaced: ReplacedChild<'_>,
     ) -> Result<FundedPsbt, Self::Error> {
         build_cpfp_child_impl(
             &mut self.wallet,
@@ -153,6 +154,7 @@ impl GeneralWallet for NativeGeneralWallet {
             anchor,
             target_pkg_fee_rate,
             exclude,
+            replaced,
         )
     }
 }
@@ -188,6 +190,7 @@ fn build_cpfp_child_impl(
     anchor: AnchorInfo,
     target_pkg_fee_rate: FeeRate,
     exclude: &[OutPoint],
+    replaced: ReplacedChild<'_>,
 ) -> Result<FundedPsbt, NativeGeneralError> {
     let anchor_vout = anchor.vout();
     let anchor_outpoint = OutPoint {
@@ -219,10 +222,13 @@ fn build_cpfp_child_impl(
         .expect("tx.vsize() fits in u64 on every supported target");
     let fee_for = |child_vbytes: u64| -> u64 {
         let pkg_vbytes = parent_vbytes.saturating_add(child_vbytes);
+        // Round up. Truncating pays up to 1 sat under the target whenever the rate has
+        // sat/kwu granularity (fractional sat/vB — the common case from `estimatesmartfee`),
+        // and an underpaid package sits exactly at the node's acceptance boundary.
         let target_pkg_fee_sat = target_pkg_fee_rate
             .to_sat_per_kwu()
             .saturating_mul(pkg_vbytes.saturating_mul(4))
-            / 1000;
+            .div_ceil(1000);
         target_pkg_fee_sat.saturating_sub(parent_fee.to_sat())
     };
 
@@ -256,7 +262,23 @@ fn build_cpfp_child_impl(
         anchor_value_sat,
         &anchor,
         &fee_for,
+        replaced,
     )?;
+
+    // Resolve the witness data of any replaced funding inputs up front, before the builder
+    // takes its mutable borrow of the wallet. Once the wallet has observed the prior child
+    // (any sync between two bumps applies the mempool), these outpoints read as spent, so
+    // `add_utxo` refuses them and they must enter as foreign inputs instead — with a
+    // `witness_utxo`, which is all the downstream signer needs.
+    let replaced_txouts: Vec<(OutPoint, TxOut)> = replaced
+        .inputs
+        .iter()
+        .filter_map(|&outpoint| {
+            let wtx = wallet.get_tx(outpoint.txid)?;
+            let txout = wtx.tx_node.tx.output.get(outpoint.vout as usize)?.clone();
+            Some((outpoint, txout))
+        })
+        .collect();
 
     // Build the foreign UTXO PSBT input for the anchor. No signature — the caller signs
     // downstream, and for the script-path case it also assembles the final witness, so all
@@ -315,11 +337,33 @@ fn build_cpfp_child_impl(
     });
     // Funding inputs first, then the anchor. `add_foreign_utxo` rejects an outpoint that is
     // already present as a local input, so this order turns a duplicate into a loud error.
-    // The reverse order silently overwrites the foreign entry, and the anchor would lose the
-    // spend data that the downstream signer needs.
-    tx_builder
-        .add_utxos(&selection.funding)
-        .map_err(|e| NativeGeneralError::FundingUtxo(format!("{e:?}")))?;
+    // The reverse order overwrites the foreign entry without an error, and the anchor then
+    // loses the spend data that the downstream signer needs.
+    //
+    // A funding input that the wallet counts as spent enters as a foreign input. Only a
+    // `replacing` outpoint can be in that state: the prior child spends it in the wallet's
+    // view. The replacement child conflicts with the prior child by construction (both
+    // spend the anchor), so the re-spend is the intended RBF.
+    for outpoint in &selection.funding {
+        match tx_builder.add_utxo(*outpoint) {
+            Ok(_) => {}
+            Err(e) => {
+                let Some((_, txout)) = replaced_txouts.iter().find(|(op, _)| op == outpoint) else {
+                    return Err(NativeGeneralError::FundingUtxo(format!("{e:?}")));
+                };
+                tx_builder
+                    .add_foreign_utxo(
+                        *outpoint,
+                        PsbtInput {
+                            witness_utxo: Some(txout.clone()),
+                            ..Default::default()
+                        },
+                        bdk_wallet::bitcoin::Weight::from_wu(TAPROOT_KEY_PATH_SAT_WEIGHT as u64),
+                    )
+                    .map_err(|e| NativeGeneralError::FundingUtxo(format!("{e:?}")))?;
+            }
+        }
+    }
     tx_builder
         .add_foreign_utxo(
             anchor_outpoint,
@@ -377,13 +421,22 @@ fn select_funding(
     anchor_value_sat: u64,
     anchor: &AnchorInfo,
     fee_for: &impl Fn(u64) -> u64,
+    replaced: ReplacedChild<'_>,
 ) -> Result<FundingSelection, NativeGeneralError> {
     // The fee must also keep the child relayable on its own: at least 1 sat/vB over its own
     // vbytes. That is Core's default `minrelaytxfee`, a generic policy floor rather than a
     // BIP-431 rule. TRUC contributes topology limits and sibling eviction, not this floor.
     let fee_at = |n_funding: u64| -> u64 {
         let vbytes = child_vbytes_for(anchor, n_funding);
-        fee_for(vbytes).max(vbytes)
+        // Three floors apply to the child fee. The target-rate fee prices the package. The
+        // vbytes floor keeps the child relayable on its own (1 sat/vB, Core's default
+        // `minrelaytxfee`). The replacement floor is BIP-125 rule 4: the new child must pay
+        // the replaced child's fee plus the incremental relay fee over its own size, or
+        // bitcoind rejects the replacement.
+        let rbf_floor = replaced
+            .fee
+            .map_or(0, |prior| prior.to_sat().saturating_add(vbytes));
+        fee_for(vbytes).max(vbytes).max(rbf_floor)
     };
 
     // Does the anchor alone cover its own fee and leave a spendable drain output?
@@ -411,6 +464,48 @@ fn select_funding(
         })
         .map(|utxo| (utxo.outpoint, utxo.txout.value.to_sat()))
         .collect();
+    // Add the prior child's funding inputs to the candidates explicitly. They do not come
+    // through `list_unspent`: a sync between two bumps applies the mempool, and BDK then
+    // counts them as spent by the prior child. They are still correct funding for the
+    // replacement, because the new child conflicts with the prior one by construction
+    // (both spend the anchor). Without this step, each rebuild after a sync consumes a
+    // fresh funding set. A wallet with one suitable UTXO then deadlocks: the UTXO frees
+    // only when a conflicting child replaces the prior one, and no such child can be
+    // built without the UTXO.
+    //
+    // Each outpoint still has to satisfy what `is_spendable_funding` demands of ordinary
+    // candidates: known to the wallet, confirmed, and not an immature coinbase. Its own
+    // confirmation status comes from the funding transaction, not from the (unconfirmed)
+    // prior child spending it.
+    //
+    // Known gap, accepted: this checks the funding tx's confirmation, not whether some
+    // *other confirmed* tx already spent the outpoint. Such an outpoint produces a child
+    // that Core rejects with missing-inputs, retried on the next trigger. Reaching that
+    // state requires the lease bookkeeping to have failed first — normally a confirmed
+    // spend of our funding means our child confirmed, which means the parent confirmed
+    // and the driver dropped the entry.
+    for &outpoint in replaced.inputs {
+        if outpoint == anchor_outpoint
+            || exclude.contains(&outpoint)
+            || candidates.iter().any(|(op, _)| *op == outpoint)
+        {
+            continue;
+        }
+        let Some(wtx) = wallet.get_tx(outpoint.txid) else {
+            continue;
+        };
+        let Some(confirmation_height) = wtx.chain_position.confirmation_height_upper_bound() else {
+            continue;
+        };
+        let tx = &wtx.tx_node.tx;
+        if tx.is_coinbase() && tip.saturating_sub(confirmation_height) + 1 < COINBASE_MATURITY {
+            continue;
+        }
+        let Some(txout) = tx.output.get(outpoint.vout as usize) else {
+            continue;
+        };
+        candidates.push((outpoint, txout.value.to_sat()));
+    }
     // Largest first, then by outpoint so the choice is deterministic across calls. Determinism
     // matters for RBF: an unchanged fee target must rebuild the same child, not a random one.
     // Largest first also keeps the input count down, which matters for the size limit below.
@@ -682,6 +777,157 @@ pub(super) mod tests {
         }
     }
 
+    /// A replacement child must pay at least the replaced child's fee plus 1 sat/vB over
+    /// its own size (BIP-125 rule 4). At an unchanged target the rate-based fee equals the
+    /// prior fee, which rule 4 rejects. With `prior_child_fee` set, the builder lifts the
+    /// fee to the floor, and the increment equals the child's vbytes.
+    #[tokio::test]
+    async fn a_replacement_child_pays_the_rbf_floor() {
+        let (mut wallet, _) = get_funded_wallet_single(get_test_tr_single_sig());
+        let anchor_key = fake_anchor_key();
+        let parent = parent_with_anchor(anchor_key, 0, Amount::from_sat(330));
+        let anchor = AnchorInfo::KeyPath {
+            vout: 0,
+            internal_key: anchor_key,
+        };
+        let target = FeeRate::from_sat_per_vb(5).unwrap();
+
+        let first = build_cpfp_child_impl(
+            &mut wallet,
+            &parent,
+            Amount::from_sat(220),
+            anchor.clone(),
+            target,
+            &[],
+            ReplacedChild::default(),
+        )
+        .expect("first child must build");
+        let first_fee = first.psbt.fee().expect("witness_utxo on every input");
+        let child_vbytes = child_vbytes_for(&anchor, first.psbt.unsigned_tx.input.len() as u64 - 1);
+
+        let replacement = build_cpfp_child_impl(
+            &mut wallet,
+            &parent,
+            Amount::from_sat(220),
+            anchor,
+            target,
+            &[],
+            ReplacedChild {
+                inputs: &[],
+                fee: Some(first_fee),
+            },
+        )
+        .expect("replacement must build");
+        let replacement_fee = replacement.psbt.fee().expect("witness_utxo on every input");
+        assert_eq!(
+            replacement_fee,
+            first_fee + Amount::from_sat(child_vbytes),
+            "replacement fee must sit exactly on the BIP-125 floor"
+        );
+    }
+
+    /// A rebuild after the wallet has observed the prior child must be able to re-spend
+    /// that child's own funding inputs.
+    ///
+    /// Production syncs apply the mempool (`apply_unconfirmed_txs`), after which BDK counts
+    /// the prior child's funding as spent: `list_unspent` stops offering it and `add_utxo`
+    /// refuses it. The replacement child conflicts with the prior one by construction (both
+    /// spend the anchor), so re-spending that funding is plain RBF — without the `replacing`
+    /// override, every rebuild-after-sync burns a fresh UTXO, and a wallet whose only
+    /// suitable UTXO is tied up in the prior child deadlocks entirely. This test pins both
+    /// halves: the deadlock exists without `replacing`, and `replacing` resolves it onto
+    /// the exact same funding set.
+    #[tokio::test]
+    async fn a_rebuild_after_sync_reuses_the_prior_childs_funding() {
+        let (mut wallet, _) = get_funded_wallet_single(get_test_tr_single_sig());
+        let anchor_key = fake_anchor_key();
+        let parent = parent_with_anchor(anchor_key, 0, Amount::from_sat(330));
+        let anchor = AnchorInfo::KeyPath {
+            vout: 0,
+            internal_key: anchor_key,
+        };
+        let anchor_outpoint = OutPoint {
+            txid: parent.compute_txid(),
+            vout: 0,
+        };
+
+        let first = build_cpfp_child_impl(
+            &mut wallet,
+            &parent,
+            Amount::from_sat(220),
+            anchor.clone(),
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            &[],
+            ReplacedChild::default(),
+        )
+        .expect("first child must build");
+        let prior_funding: Vec<OutPoint> = first
+            .psbt
+            .unsigned_tx
+            .input
+            .iter()
+            .map(|i| i.previous_output)
+            .filter(|op| *op != anchor_outpoint)
+            .collect();
+        assert!(
+            !prior_funding.is_empty(),
+            "test needs a child that draws wallet funding"
+        );
+
+        // The sync between two bumps: the wallet observes its own unconfirmed child.
+        wallet.apply_unconfirmed_txs(vec![(first.psbt.unsigned_tx.clone(), 100u64)]);
+
+        // Without the override the funded wallet's only UTXO is gone and the rebuild
+        // deadlocks. This is the bug, pinned.
+        let starved = build_cpfp_child_impl(
+            &mut wallet,
+            &parent,
+            Amount::from_sat(220),
+            anchor.clone(),
+            FeeRate::from_sat_per_vb(8).unwrap(),
+            &[],
+            ReplacedChild::default(),
+        );
+        assert!(
+            matches!(starved, Err(NativeGeneralError::InsufficientFunding { .. })),
+            "without `replacing` the synced wallet must starve, got {starved:?}"
+        );
+
+        // With the override the rebuild re-spends exactly the prior funding set.
+        let rebuilt = build_cpfp_child_impl(
+            &mut wallet,
+            &parent,
+            Amount::from_sat(220),
+            anchor,
+            FeeRate::from_sat_per_vb(8).unwrap(),
+            &[],
+            ReplacedChild {
+                inputs: &prior_funding,
+                fee: None,
+            },
+        )
+        .expect("rebuild with `replacing` must succeed");
+        let rebuilt_funding: Vec<OutPoint> = rebuilt
+            .psbt
+            .unsigned_tx
+            .input
+            .iter()
+            .map(|i| i.previous_output)
+            .filter(|op| *op != anchor_outpoint)
+            .collect();
+        assert_eq!(
+            rebuilt_funding, prior_funding,
+            "the replacement must fund from the prior child's own inputs"
+        );
+        // The foreign-input route must still carry what the downstream signer needs.
+        for (i, input) in rebuilt.psbt.inputs.iter().enumerate() {
+            assert!(
+                input.witness_utxo.is_some(),
+                "psbt input {i} lacks witness_utxo"
+            );
+        }
+    }
+
     /// The payout-combined shape: the foreign "anchor" is a full-value payout output that
     /// can pay for the child on its own. Pins the two properties the e2e caught a
     /// regression in: (a) the no-funding arm is selected (single input — the payout), and
@@ -716,6 +962,7 @@ pub(super) mod tests {
             anchor.clone(),
             target,
             &[],
+            ReplacedChild::default(),
         )
         .expect("payout-combined child must build");
 
@@ -800,6 +1047,7 @@ pub(super) mod tests {
                 anchor.clone(),
                 target,
                 &[],
+                ReplacedChild::default(),
             )
             .unwrap_or_else(|e| {
                 panic!("target {target_sat_vb} sat/vB, anchor {anchor_value} sat: must build, got {e:?}")
@@ -844,6 +1092,7 @@ pub(super) mod tests {
                 anchor.clone(),
                 target,
                 &[],
+                ReplacedChild::default(),
             )
             .unwrap_or_else(|e| panic!("{n_watchtowers} watchtowers must build, got {e:?}"));
 
@@ -924,6 +1173,7 @@ pub(super) mod tests {
             anchor.clone(),
             FeeRate::from_sat_per_vb(10).unwrap(),
             &[big],
+            ReplacedChild::default(),
         );
 
         match result {
@@ -984,6 +1234,7 @@ pub(super) mod tests {
             anchor.clone(),
             FeeRate::from_sat_per_vb(target_sat_vb).unwrap(),
             &[big],
+            ReplacedChild::default(),
         )
         .expect("multi-input child must build");
 
@@ -1034,6 +1285,7 @@ pub(super) mod tests {
             anchor,
             FeeRate::from_sat_per_vb(10).unwrap(),
             &[],
+            ReplacedChild::default(),
         )
         .expect("happy-path build_cpfp_child must succeed");
 
@@ -1097,6 +1349,7 @@ pub(super) mod tests {
             anchor,
             FeeRate::from_sat_per_vb(10).unwrap(),
             &[],
+            ReplacedChild::default(),
         )
         .unwrap_err();
         assert!(matches!(
@@ -1122,6 +1375,7 @@ pub(super) mod tests {
             anchor,
             FeeRate::from_sat_per_vb(5).unwrap(),
             &[],
+            ReplacedChild::default(),
         )
         .expect("non-zero-vout anchor must work");
 
@@ -1148,7 +1402,7 @@ mod determinism {
     };
 
     use super::{build_cpfp_child_impl, tests::*};
-    use crate::general::AnchorInfo;
+    use crate::general::{AnchorInfo, ReplacedChild};
 
     /// The same request must always produce the same child.
     ///
@@ -1183,6 +1437,7 @@ mod determinism {
                 anchor.clone(),
                 FeeRate::from_sat_per_vb(20).unwrap(),
                 &[],
+                ReplacedChild::default(),
             )
             .expect("every build must succeed, not a random subset of them");
             seen.insert(funded.psbt.unsigned_tx.compute_txid());
@@ -1228,6 +1483,7 @@ mod determinism {
                 anchor.clone(),
                 FeeRate::from_sat_per_vb(20).unwrap(),
                 &[],
+                ReplacedChild::default(),
             )
             .expect("child must build")
             .psbt

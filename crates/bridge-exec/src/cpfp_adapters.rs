@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use bitcoin::{
-    Address, Amount, FeeRate, Network, OutPoint, ScriptBuf, Transaction, XOnlyPublicKey,
-    secp256k1::{Message, SECP256K1, schnorr::Signature},
+    Amount, FeeRate, OutPoint, ScriptBuf, Transaction, Txid, XOnlyPublicKey,
+    secp256k1::{Message, schnorr::Signature},
     taproot::{ControlBlock, LeafVersion},
 };
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
@@ -24,7 +24,6 @@ use operator_wallet::{AnchorInfo, GeneralWallet, OperatorWallet};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_connectors::{Connector, prelude::MultiAnchor};
-use strata_bridge_tx_graph::fee;
 use tokio::sync::RwLock;
 use tracing::warn;
 
@@ -77,12 +76,14 @@ impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWallet
         strategy: CpfpStrategy,
         target_pkg_fee_rate: FeeRate,
         replacing: Option<&[OutPoint]>,
+        prior_child_fee: Option<Amount>,
     ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send {
         // Clone what we need into the future so the returned future owns its captures.
         let wallet_arc = self.wallet.clone();
         let parent_owned = parent.clone();
         let replacing_owned: Option<Vec<OutPoint>> = replacing.map(<[OutPoint]>::to_vec);
         let operator_general_pubkey = self.operator_general_pubkey;
+        let combined_is_wallet_output = matches!(strategy, CpfpStrategy::ParentTxCombined { .. });
         async move {
             // Both strategies funnel through the same `build_cpfp_child` machinery — only
             // the foreign-UTXO descriptor (anchor vs. payout) differs.
@@ -113,6 +114,10 @@ impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWallet
                     control_block,
                 },
             };
+            let anchor_outpoint = OutPoint {
+                txid: parent_owned.compute_txid(),
+                vout: foreign.vout(),
+            };
             let mut wallet = wallet_arc.write().await;
             let funded = wallet
                 .build_cpfp_child(
@@ -121,14 +126,38 @@ impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWallet
                     foreign,
                     target_pkg_fee_rate,
                     replacing_owned.as_deref(),
+                    prior_child_fee,
                 )
                 .await
                 .map_err(|e| format!("{e}"))?;
-            let spent = funded.spent();
+            // `FundedPsbt::spent()` lists every input, foreign outpoint included. What
+            // enters the handle depends on the strategy:
+            //
+            // - Anchor strategies: drop the anchor outpoint. The anchor is keyed to the musig2 key,
+            //   so it is never a wallet UTXO. The first sync prunes its lease, and each later
+            //   release of a set that still contains it logs a warning on a correct path.
+            // - `ParentTxCombined`: keep the payout outpoint. The payout IS a wallet UTXO, so the
+            //   sync prune retains its lease while it is live, and only the handle's terminal
+            //   releases free it. A dropped record here leaves the full payout value leased until
+            //   process restart. Selection stays safe: the builder skips the foreign outpoint as a
+            //   funding candidate and admits it through `add_foreign_utxo` only.
+            let spent = funded
+                .spent()
+                .into_iter()
+                .filter(|op| combined_is_wallet_output || *op != anchor_outpoint)
+                .collect();
             Ok(WalletFundedPsbt {
                 psbt: funded.psbt,
                 spent,
             })
+        }
+    }
+
+    fn release(&self, outpoints: &[OutPoint]) -> impl std::future::Future<Output = ()> + Send {
+        let wallet_arc = self.wallet.clone();
+        let outpoints_owned = outpoints.to_vec();
+        async move {
+            wallet_arc.write().await.release(&outpoints_owned);
         }
     }
 }
@@ -219,6 +248,9 @@ impl CpfpMempool for BitcoindCpfpMempool {
             let Some(spending_txid) = spends.into_iter().find_map(|s| s.spending_txid) else {
                 return Ok(AnchorSpendState::Unspent);
             };
+            let spending_txid: Txid = spending_txid
+                .parse()
+                .map_err(|e| format!("gettxspendingprevout returned a bad txid: {e}"))?;
 
             // A spender exists. When the mempool holds it, its ancestor totals give the package
             // rate that this operator competes against.
@@ -239,7 +271,10 @@ impl CpfpMempool for BitcoindCpfpMempool {
                 .checked_div(entry.ancestor_size.max(1))
                 .map(|per_vb| FeeRate::from_sat_per_vb_unchecked(per_vb.to_sat()))
                 .ok_or_else(|| "ancestor fee rate overflowed".to_string())?;
-            Ok(AnchorSpendState::SpentInMempool(rate))
+            Ok(AnchorSpendState::SpentInMempool {
+                spender: spending_txid,
+                pkg_fee_rate: rate,
+            })
         }
     }
 }
@@ -265,53 +300,6 @@ struct MempoolEntry {
 struct MempoolEntryFees {
     /// Total fee of this transaction and its unconfirmed ancestors.
     ancestor: f64,
-}
-
-/// Looks for a keyed-Taproot anchor on `parent.output` keyed to `anchor_pubkey`, and if
-/// found returns the corresponding [`CpfpStrategy::AnchorBearing`].
-///
-/// `anchor_pubkey` must be the **musig2-signer** pubkey (the "btc key" from the operator
-/// table) — every bridge-graph tx (claim, stake, unstaking_intent, counterproof, ack)
-/// constructs its `KeyedAnchor` (from `strata_bridge_tx_graph::prelude`) with that
-/// key as the internal Taproot key. The dust value comes from [`fee::anchor_dust_value`] so
-/// the helper tracks any future change to the bridge's anchor sizing.
-///
-/// `parent_fee` must be provided by the caller; an accurate value is critical to the CPFP
-/// math (the child's vbytes-to-cover-the-package depends on what the parent already pays).
-pub fn infer_anchor_strategy(
-    parent: &Transaction,
-    anchor_pubkey: XOnlyPublicKey,
-    network: Network,
-    parent_fee: Amount,
-) -> Option<CpfpStrategy> {
-    let anchor_value = fee::anchor_dust_value();
-    let expected_script = Address::p2tr(SECP256K1, anchor_pubkey, None, network).script_pubkey();
-    let matches: Vec<u32> = parent
-        .output
-        .iter()
-        .enumerate()
-        .filter_map(|(vout, txout)| {
-            (txout.value == anchor_value && txout.script_pubkey == expected_script)
-                .then(|| u32::try_from(vout).ok())
-                .flatten()
-        })
-        .collect();
-    // Bridge txs are constructed with at most one operator-keyed anchor output. If a future
-    // refactor accidentally produces a tx with two outputs that both match (same script + same
-    // dust value), `find_map`-style "first match" would silently pick the wrong one — make
-    // the assumption explicit.
-    debug_assert!(
-        matches.len() <= 1,
-        "parent tx has {} outputs matching the operator-keyed anchor pattern; expected ≤ 1",
-        matches.len()
-    );
-    matches
-        .first()
-        .map(|&anchor_vout| CpfpStrategy::AnchorBearing {
-            anchor_vout,
-            anchor_internal_key: anchor_pubkey,
-            parent_fee,
-        })
 }
 
 /// Builds the script-path anchor signer used for `MultiAnchor` CPFP children.

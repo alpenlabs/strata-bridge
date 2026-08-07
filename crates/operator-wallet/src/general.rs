@@ -111,6 +111,25 @@ const fn compact_size_len(n: usize) -> usize {
 /// item count + 65 bytes for the Schnorr signature push.
 pub(crate) const TAPROOT_KEY_PATH_SAT_WEIGHT: usize = 66;
 
+/// The prior CPFP child that a rebuild replaces via RBF.
+///
+/// The backend has two obligations toward the replaced child:
+///
+/// * Selection: `inputs` must stay selectable even when the backend's own view shows them as spent.
+///   After the backend observes the prior child, they read as spent. Without this override, each
+///   rebuild consumes a fresh funding set until no funding remains.
+/// * Fee: when `fee` is known, the new child must pay at least `fee + 1 sat/vB × the new child's
+///   vbytes` (BIP-125 rule 4). Below that floor, bitcoind rejects the replacement.
+///
+/// [`ReplacedChild::default`] means there is no prior child.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ReplacedChild<'a> {
+    /// Funding outpoints of the prior child. Empty when there is no prior child.
+    pub inputs: &'a [OutPoint],
+    /// Absolute fee of the prior child, when known.
+    pub fee: Option<Amount>,
+}
+
 /// A backend that manages the operator's general-purpose Bitcoin funds.
 ///
 /// The trait is intentionally narrow: it covers UTXO discovery + signing + transaction
@@ -174,6 +193,8 @@ pub trait GeneralWallet: Send + Sync {
     /// * `target_pkg_fee_rate` — sat-per-vbyte target for the (parent, child) package as a whole.
     /// * `exclude` — fee-paying-input selection skips these outpoints. Used to avoid re-selecting
     ///   the funding input of a prior child being replaced via RBF.
+    /// * `replaced` — the prior child that this build supersedes ([`ReplacedChild`]). See the type
+    ///   documentation for the two obligations it carries.
     ///
     /// Per the trait-level signing contract, the anchor input is left unsigned with
     /// `witness_utxo` and `tap_internal_key` populated (the latter sourced from
@@ -185,6 +206,7 @@ pub trait GeneralWallet: Send + Sync {
         anchor: AnchorInfo,
         target_pkg_fee_rate: FeeRate,
         exclude: &[OutPoint],
+        replaced: ReplacedChild<'_>,
     ) -> impl std::future::Future<Output = Result<FundedPsbt, Self::Error>> + Send;
 }
 

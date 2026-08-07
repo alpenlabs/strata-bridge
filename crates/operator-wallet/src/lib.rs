@@ -28,7 +28,9 @@ use thiserror::Error;
 
 pub use crate::{
     config::OperatorWalletConfig,
-    general::{native::NativeGeneralWallet, AnchorInfo, FundedPsbt, GeneralWallet, UtxoInfo},
+    general::{
+        native::NativeGeneralWallet, AnchorInfo, FundedPsbt, GeneralWallet, ReplacedChild, UtxoInfo,
+    },
     sync::SyncError,
     wallet::{GeneralUtxoPolicy, OperatorWallet},
 };

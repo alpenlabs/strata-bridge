@@ -24,7 +24,9 @@ use tracing::{error, info, warn};
 
 use crate::{
     config::OperatorWalletConfig,
-    general::{local_output_to_utxo_info, AnchorInfo, FundedPsbt, GeneralWallet, UtxoInfo},
+    general::{
+        local_output_to_utxo_info, AnchorInfo, FundedPsbt, GeneralWallet, ReplacedChild, UtxoInfo,
+    },
     sync::Backend,
     Error,
 };
@@ -213,12 +215,20 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     /// Selects inputs from spendable general-wallet UTXOs (excluding anchors and currently-
     /// leased outpoints), signs them where the backend has key material, and returns a
     /// [`FundedPsbt`]. The consumed inputs are leased before return.
+    ///
+    /// Callers of v3 paths must pass [`GeneralUtxoPolicy::ConfirmedOnly`]. TRUC (BIP-431)
+    /// rejects a v3 transaction with an unconfirmed non-v3 ancestor, and it caps a v3
+    /// transaction with an unconfirmed v3 ancestor to one parent and one child. A funding
+    /// input from an unconfirmed UTXO therefore makes the transaction unrelayable in most
+    /// mempool states.
     pub async fn fund_v3_transaction(
         &mut self,
         unsigned_tx: Transaction,
         fee_rate: FeeRate,
+        general_utxo_policy: GeneralUtxoPolicy,
     ) -> Result<FundedPsbt, Error> {
-        let exclude = self.exclude_anchors_and_leases();
+        let mut exclude = self.exclude_anchors_and_leases();
+        self.apply_general_utxo_policy(general_utxo_policy, &mut exclude)?;
         let funded = self
             .general
             .fund_v3_transaction(unsigned_tx.output, None, fee_rate, &exclude)
@@ -262,6 +272,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         anchor: AnchorInfo,
         target_pkg_fee_rate: FeeRate,
         replacing: Option<&[OutPoint]>,
+        prior_child_fee: Option<Amount>,
     ) -> Result<FundedPsbt, Error> {
         if let Some(prior) = replacing {
             self.release(prior);
@@ -269,7 +280,17 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         let exclude = self.exclude_anchors_and_leases();
         match self
             .general
-            .build_cpfp_child(parent, parent_fee, anchor, target_pkg_fee_rate, &exclude)
+            .build_cpfp_child(
+                parent,
+                parent_fee,
+                anchor,
+                target_pkg_fee_rate,
+                &exclude,
+                ReplacedChild {
+                    inputs: replacing.unwrap_or(&[]),
+                    fee: prior_child_fee,
+                },
+            )
             .await
         {
             Ok(funded) => {
@@ -326,31 +347,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         let mut exclude = self.exclude_anchors_and_leases();
         exclude.extend(existing);
 
-        if general_utxo_policy == GeneralUtxoPolicy::ConfirmedOnly {
-            let excluded: BTreeSet<OutPoint> = exclude.iter().copied().collect();
-            let (confirmed, unconfirmed): (Vec<UtxoInfo>, Vec<UtxoInfo>) = self
-                .general
-                .list_utxos()
-                .into_iter()
-                .filter(|u| !excluded.contains(&u.outpoint))
-                .partition(|u| u.confirmations > 0);
-            if confirmed.is_empty() && !unconfirmed.is_empty() {
-                let unconfirmed_count = unconfirmed.len();
-                let unconfirmed_amount = unconfirmed
-                    .iter()
-                    .fold(Amount::ZERO, |total, u| total + u.amount);
-                warn!(
-                    unconfirmed_count,
-                    %unconfirmed_amount,
-                    "reserved-wallet funding has no confirmed general-wallet UTXOs available"
-                );
-                return Err(Error::NoConfirmedGeneralUtxos {
-                    unconfirmed_count,
-                    unconfirmed_amount,
-                });
-            }
-            exclude.extend(unconfirmed.into_iter().map(|u| u.outpoint));
-        }
+        self.apply_general_utxo_policy(general_utxo_policy, &mut exclude)?;
 
         let funded = self
             .general
@@ -409,6 +406,46 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     }
 
     // ── Internal helpers ───────────────────────────────────────────────────
+
+    /// Applies `policy` to a funding exclusion set.
+    ///
+    /// For [`GeneralUtxoPolicy::ConfirmedOnly`], this adds every unconfirmed general-wallet
+    /// UTXO to `exclude`. When that leaves no confirmed candidate at all, it returns
+    /// [`Error::NoConfirmedGeneralUtxos`] so the caller reports a clear cause instead of a
+    /// generic selection failure. [`GeneralUtxoPolicy::IncludeUnconfirmed`] changes nothing.
+    fn apply_general_utxo_policy(
+        &self,
+        policy: GeneralUtxoPolicy,
+        exclude: &mut Vec<OutPoint>,
+    ) -> Result<(), Error> {
+        if policy != GeneralUtxoPolicy::ConfirmedOnly {
+            return Ok(());
+        }
+        let excluded: BTreeSet<OutPoint> = exclude.iter().copied().collect();
+        let (confirmed, unconfirmed): (Vec<UtxoInfo>, Vec<UtxoInfo>) = self
+            .general
+            .list_utxos()
+            .into_iter()
+            .filter(|u| !excluded.contains(&u.outpoint))
+            .partition(|u| u.confirmations > 0);
+        if confirmed.is_empty() && !unconfirmed.is_empty() {
+            let unconfirmed_count = unconfirmed.len();
+            let unconfirmed_amount = unconfirmed
+                .iter()
+                .fold(Amount::ZERO, |total, u| total + u.amount);
+            warn!(
+                unconfirmed_count,
+                %unconfirmed_amount,
+                "no confirmed general-wallet UTXOs are available for funding"
+            );
+            return Err(Error::NoConfirmedGeneralUtxos {
+                unconfirmed_count,
+                unconfirmed_amount,
+            });
+        }
+        exclude.extend(unconfirmed.into_iter().map(|u| u.outpoint));
+        Ok(())
+    }
 
     /// Returns the set of general-wallet outpoints that should be excluded from input
     /// selection: CPFP anchors (zero-confirmation outputs at the configured anchor value)

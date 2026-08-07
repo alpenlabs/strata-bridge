@@ -480,7 +480,9 @@ pub(crate) async fn publish_stake(
         "stake tx",
         TxStatus::is_buried,
         chain::parent_fee_for_floor_tx(&signed_tx),
-        CpfpKind::InferAnchor,
+        CpfpKind::AnchorAt {
+            anchor_vout: StakeTx::CPFP_VOUT,
+        },
     )
     .await?;
     info!(%stake_txid, "stake transaction confirmed on-chain");

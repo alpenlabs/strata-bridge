@@ -225,7 +225,7 @@ where
     // for counterproof / counterproof_ack anchors — is anchored at the `CovenantKeys`
     // definition itself via `_covenant_keys_field_audit` (see `crates/common/src/params.rs`).
     // That destructuring forces a compile error if anyone adds a separate `watchtower` field,
-    // which is the cue to thread per-anchor keys through `CpfpKind::InferAnchor`.
+    // which is the cue to thread per-anchor keys through `CpfpKind::AnchorAt`.
     params
         .keys
         .covenant

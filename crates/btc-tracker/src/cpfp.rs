@@ -137,6 +137,13 @@ pub struct CpfpHandle {
     /// Txid of the child we last broadcast (for tracking / replacement). `None` before the
     /// first bump succeeds.
     pub last_child_txid: Option<Txid>,
+    /// Absolute fee that the most recent child pays. BIP-125 rule 4 requires a
+    /// replacement to pay the replaced fee plus the incremental relay fee over the
+    /// replacement's own size. The builder floors the next child's fee at this value plus
+    /// 1 sat/vB × the new child's vbytes. A small target rise then produces a valid
+    /// replacement. Without the floor, bitcoind rejects each replacement until the target
+    /// rises by a full package-rate step.
+    pub last_child_fee: Option<Amount>,
 }
 
 /// Errors produced by [`perform_bump`].
@@ -166,6 +173,23 @@ pub enum CpfpError {
 }
 
 impl CpfpError {
+    /// Whether the bump held new wallet funding leases when it failed.
+    ///
+    /// True for each failure after the wallet build: the wallet leases `funded.spent`
+    /// during the build, and `perform_bump` records the set in the handle before the step
+    /// that failed. False for failures at or before the build, because a failed build
+    /// restores the pre-bump lease state itself. The driver reads this to decide whether a
+    /// bump whose entry was removed during the bump must release the recorded inputs.
+    pub const fn leased_funding(&self) -> bool {
+        matches!(
+            self,
+            Self::AnchorSigner(_)
+                | Self::WalletSigner(_)
+                | Self::SubmitPackage(_)
+                | Self::PsbtExtract(_)
+        )
+    }
+
     /// Whether this failure is a lost race for a shared anchor rather than a fault.
     ///
     /// See [`SubmitPackageError::is_replacement_contention`]. Callers use it to keep expected
@@ -219,6 +243,11 @@ pub trait CpfpWallet: Send + Sync + fmt::Debug {
     /// Builds (or rebuilds via RBF) a CPFP child for `parent` under `strategy`, targeting
     /// `target_pkg_fee_rate` on the (parent, child) package.
     ///
+    /// `prior_child_fee` is the absolute fee of the child being replaced, when there is one.
+    /// The wallet must floor the new child's fee at `prior_child_fee + 1 sat/vB × the new
+    /// child's vbytes` (BIP-125 rule 4), or bitcoind rejects the replacement as paying
+    /// insufficient incremental fee.
+    ///
     /// `replacing` is the outpoints of any prior child this rebuild supersedes (released
     /// before re-selection so they can be re-picked or replaced).
     ///
@@ -230,7 +259,19 @@ pub trait CpfpWallet: Send + Sync + fmt::Debug {
         strategy: CpfpStrategy,
         target_pkg_fee_rate: FeeRate,
         replacing: Option<&[OutPoint]>,
+        prior_child_fee: Option<Amount>,
     ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send;
+
+    /// Hands `outpoints` back to the wallet's lease bookkeeping without a build.
+    ///
+    /// [`Self::build_cpfp_child`] releases and re-leases through its `replacing` parameter.
+    /// That path only exists while a next build for the same parent is possible. Each path
+    /// that stops the bumps for a parent must call this method instead: a lost shared
+    /// anchor, a parent confirmed through a competitor, a dropped driver entry. Without
+    /// the call, the last child's funding UTXOs stay leased for the process lifetime and
+    /// the spendable balance shrinks. The method must accept outpoints that are not
+    /// currently leased.
+    fn release(&self, outpoints: &[OutPoint]) -> impl std::future::Future<Output = ()> + Send;
 }
 
 /// Source of fee-rate estimates used to drive the package target. Defined in this crate
@@ -415,7 +456,16 @@ pub enum AnchorSpendState {
     /// Nothing spends the anchor. This operator can bump.
     Unspent,
     /// A mempool transaction spends the anchor, and its package pays this rate.
-    SpentInMempool(FeeRate),
+    SpentInMempool {
+        /// Txid of the spending child. The bump loop compares it against its own last
+        /// child. A foreign spender means this operator's child lost the anchor, and the
+        /// bump loop must release the child's funding leases. Our own spender means the
+        /// leases must stay: a release lets a concurrent build double-spend the live
+        /// child's funding and evict it.
+        spender: Txid,
+        /// Package fee rate the spending child's ancestor set pays.
+        pkg_fee_rate: FeeRate,
+    },
     /// A confirmed transaction spends the anchor. No child can improve the parent now.
     Confirmed,
 }
@@ -463,8 +513,13 @@ impl CpfpWallet for CpfpDisabled {
         _strategy: CpfpStrategy,
         _target_pkg_fee_rate: FeeRate,
         _replacing: Option<&[OutPoint]>,
+        _prior_child_fee: Option<Amount>,
     ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send {
         async { unreachable!("CpfpDisabled::build_cpfp_child should never be called") }
+    }
+
+    fn release(&self, _outpoints: &[OutPoint]) -> impl std::future::Future<Output = ()> + Send {
+        async { unreachable!("CpfpDisabled::release should never be called") }
     }
 }
 
@@ -746,16 +801,43 @@ where
         // An error here is not fatal. The lookup is an optimisation, so fall through to the
         // build and let the submission decide.
         match ctx.mempool.anchor_spend_state(anchor).await {
-            Ok(AnchorSpendState::SpentInMempool(existing)) if existing >= target => {
+            Ok(AnchorSpendState::SpentInMempool {
+                spender,
+                pkg_fee_rate: existing,
+            }) if existing >= target => {
+                // This skip ends the bump sequence, so the `replacing` hand-over of the
+                // next build never runs. Release the last child's funding leases here
+                // instead — but only when the winning child is not ours. When our own
+                // child holds the anchor at the target, its funding must stay leased. A
+                // release at that point lets a concurrent build double-spend the funding
+                // and evict our own child.
+                if handle.last_child_txid != Some(spender) && !handle.last_child_inputs.is_empty() {
+                    ctx.wallet.release(&handle.last_child_inputs).await;
+                    handle.last_child_inputs.clear();
+                    handle.last_child_txid = None;
+                    handle.last_child_fee = None;
+                }
                 debug!(
                     %parent_txid,
                     ?target,
                     ?existing,
-                    "another watchtower already bumped this anchor to the target; skipping"
+                    %spender,
+                    "anchor already bumped to the target; skipping"
                 );
                 return Ok(false);
             }
             Ok(AnchorSpendState::Confirmed) => {
+                // The parent is confirmed. If a competitor's child won, this release
+                // frees our dead child's funding. If our child won, its funding is spent
+                // on-chain and the release has one bounded side effect: until the next
+                // sync, `list_unspent` still lists those outpoints, so builds can select
+                // a spent input and be rejected. A sync ends the window.
+                if !handle.last_child_inputs.is_empty() {
+                    ctx.wallet.release(&handle.last_child_inputs).await;
+                    handle.last_child_inputs.clear();
+                    handle.last_child_txid = None;
+                    handle.last_child_fee = None;
+                }
                 debug!(
                     %parent_txid,
                     "anchor already spent by a confirmed transaction; skipping"
@@ -772,9 +854,16 @@ where
     // ── 5. Build the child via the wallet ───────────────────────────────────
     let replacing: Option<&[OutPoint]> =
         (!handle.last_child_inputs.is_empty()).then_some(handle.last_child_inputs.as_slice());
+    // The RBF floor only applies while there is a live child to replace. A prior child
+    // recorded but since evicted (lost anchor race, confirmed competitor) clears the handle
+    // through the release paths, so `last_child_fee` here always describes the mempool
+    // incumbent we are replacing.
+    let prior_child_fee = handle
+        .last_child_fee
+        .filter(|_| handle.last_child_txid.is_some());
     let funded = ctx
         .wallet
-        .build_cpfp_child(parent, strategy.clone(), target, replacing)
+        .build_cpfp_child(parent, strategy.clone(), target, replacing, prior_child_fee)
         .await
         .map_err(CpfpError::Wallet)?;
 
@@ -790,7 +879,13 @@ where
     // Writing it here is safe against the retry path too: `OperatorWallet::build_cpfp_child`
     // releases `replacing` up front and, if selection then fails, re-leases it — so the
     // recorded set is always either currently leased or deliberately handed back.
+    //
+    // Record the fee together with the inputs. The fee is the floor for the next
+    // replacement (BIP-125 rule 4). If submission fails below, the prior child stays in
+    // the mempool and pays less than the recorded fee. The floor is then conservative,
+    // which is safe: the next child pays slightly more than the rule requires.
     handle.last_child_inputs = funded.spent.clone();
+    handle.last_child_fee = funded.psbt.fee().ok();
 
     // ── 6. Sign each input still lacking final_script_witness ─────────────
     //
@@ -834,8 +929,10 @@ where
     if !matches!(strategy, CpfpStrategy::ParentTxCombined { .. }) {
         // The wallet promised to add the anchor as a foreign UTXO; sanity-check that the
         // PSBT actually contains it before signing.
+        // `PsbtExtract`, not `Wallet`: this check runs after the build, so the wallet has
+        // leased the funding inputs, and `CpfpError::leased_funding` must report true.
         let anchor_idx = anchor_input_idx.ok_or_else(|| {
-            CpfpError::Wallet(format!(
+            CpfpError::PsbtExtract(format!(
                 "wallet-built child does not contain expected anchor outpoint for parent {parent_txid}"
             ))
         })?;
@@ -1012,7 +1109,9 @@ pub(crate) mod tests {
     use bitcoin::{
         absolute,
         hashes::Hash,
+        opcodes, script,
         secp256k1::{Keypair, SECP256K1},
+        taproot::{LeafVersion, TaprootBuilder},
         transaction::Version,
         Address, Network, TxIn, XOnlyPublicKey,
     };
@@ -1050,6 +1149,8 @@ pub(crate) mod tests {
         psbt_template: Mutex<Option<Psbt>>,
         spent_template: Vec<OutPoint>,
         error: Option<String>,
+        /// Every outpoint handed back through [`CpfpWallet::release`], in call order.
+        pub(crate) released: Mutex<Vec<OutPoint>>,
     }
     impl FakeWallet {
         pub(crate) fn returning(psbt: Psbt, spent: Vec<OutPoint>) -> Self {
@@ -1057,6 +1158,7 @@ pub(crate) mod tests {
                 psbt_template: Mutex::new(Some(psbt)),
                 spent_template: spent,
                 error: None,
+                released: Mutex::new(Vec::new()),
             }
         }
         pub(crate) fn failing(msg: &str) -> Self {
@@ -1064,6 +1166,7 @@ pub(crate) mod tests {
                 psbt_template: Mutex::new(None),
                 spent_template: Vec::new(),
                 error: Some(msg.to_string()),
+                released: Mutex::new(Vec::new()),
             }
         }
     }
@@ -1074,6 +1177,7 @@ pub(crate) mod tests {
             _strategy: CpfpStrategy,
             _target_pkg_fee_rate: FeeRate,
             _replacing: Option<&[OutPoint]>,
+            _prior_child_fee: Option<Amount>,
         ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send {
             let err = self.error.clone();
             let psbt = self.psbt_template.lock().unwrap().clone();
@@ -1088,12 +1192,18 @@ pub(crate) mod tests {
                 })
             }
         }
+
+        fn release(&self, outpoints: &[OutPoint]) -> impl std::future::Future<Output = ()> + Send {
+            self.released.lock().unwrap().extend_from_slice(outpoints);
+            async {}
+        }
     }
 
     #[derive(Debug)]
     pub(crate) struct FakeSubmitter {
         pub(crate) result: Mutex<Result<SubmitPackageSummary, String>>,
         pub(crate) captured: Mutex<Vec<Vec<Transaction>>>,
+        pub(crate) spend_state: Mutex<AnchorSpendState>,
     }
     impl FakeSubmitter {
         pub(crate) fn ok() -> Self {
@@ -1103,13 +1213,19 @@ pub(crate) mod tests {
                     replaced: Vec::new(),
                 })),
                 captured: Mutex::new(Vec::new()),
+                spend_state: Mutex::new(AnchorSpendState::Unspent),
             }
         }
         pub(crate) fn failing(reason: &str) -> Self {
             Self {
                 result: Mutex::new(Err(reason.to_string())),
                 captured: Mutex::new(Vec::new()),
+                spend_state: Mutex::new(AnchorSpendState::Unspent),
             }
+        }
+        pub(crate) fn with_spend_state(self, state: AnchorSpendState) -> Self {
+            *self.spend_state.lock().unwrap() = state;
+            self
         }
     }
     impl CpfpMempool for FakeSubmitter {
@@ -1135,10 +1251,12 @@ pub(crate) mod tests {
             }
         }
 
-        /// Reports every anchor as unspent, so unit tests exercise the build path. The
-        /// contention skip is covered end to end against a live bitcoind instead.
+        /// Reports the configured spend state (default: unspent, so tests exercise the
+        /// build path). The full contention flow is covered end to end against a live
+        /// bitcoind; the unit tests use [`FakeSubmitter::with_spend_state`] to pin the
+        /// lease bookkeeping on the skip paths.
         async fn anchor_spend_state(&self, _anchor: OutPoint) -> Result<AnchorSpendState, String> {
-            Ok(AnchorSpendState::Unspent)
+            Ok(*self.spend_state.lock().unwrap())
         }
     }
 
@@ -1311,6 +1429,160 @@ pub(crate) mod tests {
             anchor_internal_key: anchor_key,
             parent_fee: Amount::from_sat(220),
         }
+    }
+
+    /// A minimal one-leaf `MultiAnchorBearing` strategy. The step-4.5 contention skip is
+    /// gated on this variant, so the lease-release tests need a structurally valid leaf +
+    /// control block even though the skip never spends the anchor.
+    fn multi_anchor_strategy(anchor_key: XOnlyPublicKey) -> CpfpStrategy {
+        let leaf = script::Builder::new()
+            .push_slice(anchor_key.serialize())
+            .push_opcode(opcodes::all::OP_CHECKSIG)
+            .into_script();
+        let spend_info = TaprootBuilder::new()
+            .add_leaf(0, leaf.clone())
+            .expect("depth 0 leaf is always valid")
+            .finalize(SECP256K1, anchor_key)
+            .expect("single-leaf tree finalizes");
+        let control_block = spend_info
+            .control_block(&(leaf.clone(), LeafVersion::TapScript))
+            .expect("control block for the only leaf");
+        CpfpStrategy::MultiAnchorBearing {
+            anchor_vout: 0,
+            leaf_script: leaf,
+            control_block,
+            parent_fee: Amount::from_sat(220),
+        }
+    }
+
+    fn seeded_handle(inputs: &[OutPoint], our_child: Txid) -> CpfpHandle {
+        CpfpHandle {
+            last_child_inputs: inputs.to_vec(),
+            last_pkg_fee_rate: Some(FeeRate::from_sat_per_vb_unchecked(3)),
+            last_child_txid: Some(our_child),
+            last_child_fee: Some(Amount::from_sat(500)),
+        }
+    }
+
+    fn contention_context(
+        wallet: Arc<FakeWallet>,
+        submitter: Arc<FakeSubmitter>,
+    ) -> CpfpContext<FakeWallet, FakeFeeSource, FakeSubmitter> {
+        context(
+            Arc::new(FakeFeeSource::returning(
+                FeeRate::from_sat_per_vb(8).unwrap(),
+            )),
+            wallet,
+            submitter,
+            fake_input_signer_ok(),
+            fake_input_signer_ok(),
+            FeeRate::from_sat_per_vb(20).unwrap(),
+        )
+    }
+
+    /// A competitor's child covers the shared anchor at (or above) our target: we stand
+    /// down, and standing down must hand the last child's funding leases back — the next
+    /// build for this parent may never come, and nothing else records those outpoints.
+    #[tokio::test]
+    async fn losing_a_shared_anchor_releases_the_last_childs_funding() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        let ours = Txid::from_byte_array([0xAA; 32]);
+        let theirs = Txid::from_byte_array([0xBB; 32]);
+        let inputs = [
+            OutPoint::new(Txid::from_byte_array([1; 32]), 0),
+            OutPoint::new(Txid::from_byte_array([2; 32]), 1),
+        ];
+        let wallet = Arc::new(FakeWallet::failing("skip must not build"));
+        let submitter = Arc::new(
+            FakeSubmitter::failing("skip must not submit").with_spend_state(
+                AnchorSpendState::SpentInMempool {
+                    spender: theirs,
+                    pkg_fee_rate: FeeRate::from_sat_per_vb_unchecked(10),
+                },
+            ),
+        );
+        let ctx = contention_context(wallet.clone(), submitter);
+        let mut handle = seeded_handle(&inputs, ours);
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            multi_anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::Tick,
+        )
+        .await
+        .expect("losing the anchor is a skip, not an error");
+        assert!(!bumped);
+        assert_eq!(*wallet.released.lock().unwrap(), inputs.to_vec());
+        assert!(handle.last_child_inputs.is_empty());
+    }
+
+    /// Our own child holds the anchor at the target. This is the normal state. The leases
+    /// must stay: a release lets a concurrent build double-spend the live child's funding
+    /// and evict our own child.
+    #[tokio::test]
+    async fn our_own_winning_child_keeps_its_funding_leases() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        let ours = Txid::from_byte_array([0xAA; 32]);
+        let inputs = [OutPoint::new(Txid::from_byte_array([1; 32]), 0)];
+        let wallet = Arc::new(FakeWallet::failing("skip must not build"));
+        let submitter = Arc::new(
+            FakeSubmitter::failing("skip must not submit").with_spend_state(
+                AnchorSpendState::SpentInMempool {
+                    spender: ours,
+                    pkg_fee_rate: FeeRate::from_sat_per_vb_unchecked(10),
+                },
+            ),
+        );
+        let ctx = contention_context(wallet.clone(), submitter);
+        let mut handle = seeded_handle(&inputs, ours);
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            multi_anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::Tick,
+        )
+        .await
+        .expect("holding the anchor is a skip, not an error");
+        assert!(!bumped);
+        assert!(wallet.released.lock().unwrap().is_empty());
+        assert_eq!(handle.last_child_inputs, inputs.to_vec());
+    }
+
+    /// The anchor is spent by a confirmed transaction: bumping is over for this parent,
+    /// whoever won. Standing down releases the leases; if our own child won, its funding is
+    /// spent on-chain and the release is a harmless no-op ahead of the sync prune.
+    #[tokio::test]
+    async fn a_confirmed_anchor_spend_releases_the_last_childs_funding() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        let ours = Txid::from_byte_array([0xAA; 32]);
+        let inputs = [OutPoint::new(Txid::from_byte_array([1; 32]), 0)];
+        let wallet = Arc::new(FakeWallet::failing("skip must not build"));
+        let submitter = Arc::new(
+            FakeSubmitter::failing("skip must not submit")
+                .with_spend_state(AnchorSpendState::Confirmed),
+        );
+        let ctx = contention_context(wallet.clone(), submitter);
+        let mut handle = seeded_handle(&inputs, ours);
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            multi_anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::Tick,
+        )
+        .await
+        .expect("a confirmed spend is a skip, not an error");
+        assert!(!bumped);
+        assert_eq!(*wallet.released.lock().unwrap(), inputs.to_vec());
+        assert!(handle.last_child_inputs.is_empty());
     }
 
     #[tokio::test]

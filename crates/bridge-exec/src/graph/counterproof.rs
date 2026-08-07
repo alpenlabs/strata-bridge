@@ -202,15 +202,17 @@ async fn generate_and_publish_counterproof(
     };
     let signed_tx = counterproof_tx.finalize(&witness);
 
-    // Counterproof carries a keyed anchor — see note on `publish_counterproof_ack` for the
-    // watchtower-vs-musig2 key identity assumption.
+    // The counterproof carries a keyed anchor at a fixed vout. See the note on
+    // `publish_counterproof_ack` for the watchtower-vs-musig2 key identity.
     publish_signed_transaction(
         output_handles,
         &signed_tx,
         "counterproof",
         TxStatus::is_buried,
         chain::parent_fee_for_floor_tx(&signed_tx),
-        CpfpKind::InferAnchor,
+        CpfpKind::AnchorAt {
+            anchor_vout: CounterproofTx::CPFP_VOUT,
+        },
     )
     .await
 }
