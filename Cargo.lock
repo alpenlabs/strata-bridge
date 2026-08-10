@@ -787,7 +787,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 1.8.3",
  "alloy-sol-types",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -808,7 +808,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 2.0.4",
  "alloy-sol-types",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -1048,7 +1048,7 @@ checksum = "eed3ed3300a998f88639ed619fdbbd88bd82865e00c6a8ecb796c99eb12358f6"
 dependencies = [
  "alloy-json-rpc 2.0.4",
  "alloy-transport",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "reqwest 0.13.2",
  "serde_json",
  "tower 0.5.2",
@@ -3125,7 +3125,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3666,7 +3666,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 2.0.117",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -4169,7 +4169,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5899,7 +5899,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if 1.0.4",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -6795,7 +6795,22 @@ dependencies = [
  "ark-ff 0.6.0",
  "ark-secp256k1",
  "ark-serialize 0.6.0",
- "mosaic-common",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "rand 0.8.5",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "mosaic-adaptor-sigs"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3#36053013656363d2858c2f3649b1c36ac37806a1"
+dependencies = [
+ "ark-ec",
+ "ark-ff 0.6.0",
+ "ark-secp256k1",
+ "ark-serialize 0.6.0",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
  "rand 0.8.5",
  "sha2 0.11.0",
  "thiserror 2.0.18",
@@ -6813,11 +6828,32 @@ dependencies = [
  "fasm",
  "futures",
  "hex",
- "mosaic-adaptor-sigs",
- "mosaic-common",
- "mosaic-heap-array",
- "mosaic-net-svc-api",
- "mosaic-vs3",
+ "mosaic-adaptor-sigs 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-heap-array 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-net-svc-api 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-vs3 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "rand 0.8.5",
+ "serde",
+]
+
+[[package]]
+name = "mosaic-cac-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3#36053013656363d2858c2f3649b1c36ac37806a1"
+dependencies = [
+ "ark-ec",
+ "ark-ff 0.6.0",
+ "ark-secp256k1",
+ "ark-serialize 0.6.0",
+ "fasm",
+ "futures",
+ "hex",
+ "mosaic-adaptor-sigs 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
+ "mosaic-heap-array 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
+ "mosaic-net-svc-api 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
+ "mosaic-vs3 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
  "rand 0.8.5",
  "serde",
 ]
@@ -6832,9 +6868,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaic-common"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3#36053013656363d2858c2f3649b1c36ac37806a1"
+dependencies = [
+ "ark-serialize 0.6.0",
+ "serde",
+]
+
+[[package]]
 name = "mosaic-heap-array"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2#27d619b91cb4d9a19f6f27608e85d57b9c40217e"
+dependencies = [
+ "ark-serialize 0.6.0",
+ "serde",
+]
+
+[[package]]
+name = "mosaic-heap-array"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3#36053013656363d2858c2f3649b1c36ac37806a1"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -6853,13 +6907,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaic-net-svc-api"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3#36053013656363d2858c2f3649b1c36ac37806a1"
+dependencies = [
+ "ark-serialize 0.6.0",
+ "ed25519-dalek",
+ "hex",
+ "kanal",
+ "serde",
+]
+
+[[package]]
 name = "mosaic-rpc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2#27d619b91cb4d9a19f6f27608e85d57b9c40217e"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3#36053013656363d2858c2f3649b1c36ac37806a1"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
- "mosaic-rpc-types",
+ "mosaic-rpc-types 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
 ]
 
 [[package]]
@@ -6871,9 +6937,26 @@ dependencies = [
  "ckt-fmtv5-types",
  "hex",
  "jsonrpsee-types",
- "mosaic-cac-types",
- "mosaic-common",
- "mosaic-net-svc-api",
+ "mosaic-cac-types 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "mosaic-net-svc-api 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "serde",
+ "serde_with",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "mosaic-rpc-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3#36053013656363d2858c2f3649b1c36ac37806a1"
+dependencies = [
+ "bitcoin",
+ "ckt-fmtv5-types",
+ "hex",
+ "jsonrpsee-types",
+ "mosaic-cac-types 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
+ "mosaic-net-svc-api 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
  "serde",
  "serde_with",
  "thiserror 2.0.18",
@@ -6890,7 +6973,23 @@ dependencies = [
  "ark-serialize 0.6.0",
  "blake3",
  "ckt-gobble",
- "mosaic-common",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
+ "rand_chacha 0.3.1",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "mosaic-vs3"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3#36053013656363d2858c2f3649b1c36ac37806a1"
+dependencies = [
+ "ark-ec",
+ "ark-ff 0.6.0",
+ "ark-secp256k1",
+ "ark-serialize 0.6.0",
+ "blake3",
+ "ckt-gobble",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.3)",
  "rand_chacha 0.3.1",
  "thiserror 2.0.18",
 ]
@@ -8434,7 +8533,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9033,7 +9132,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9101,7 +9200,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9122,7 +9221,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -11404,7 +11503,7 @@ dependencies = [
  "memory_pprof",
  "metrics",
  "mosaic-rpc-api",
- "mosaic-rpc-types",
+ "mosaic-rpc-types 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "operator-wallet",
  "rustls-pemfile",
  "secp256k1 0.29.1",
@@ -12086,7 +12185,7 @@ dependencies = [
  "algebra",
  "async-trait",
  "mosaic-rpc-api",
- "mosaic-rpc-types",
+ "mosaic-rpc-types 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "strata-bridge-primitives",
  "strata-mosaic-client-api",
  "tokio",
@@ -12099,7 +12198,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bitcoin",
- "mosaic-common",
+ "mosaic-common 0.1.0 (git+https://github.com/alpenlabs/mosaic?tag=v0.3.0-rc.2)",
  "strata-bridge-primitives",
  "thiserror 2.0.18",
 ]
@@ -12476,7 +12575,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13614,7 +13713,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
