@@ -48,7 +48,7 @@ x-base-bridge-node: &base-bridge-node
 
 x-base-mosaic: &base-mosaic
   build:
-    context: https://github.com/alpenlabs/mosaic.git#v0.3.0-rc.2
+    context: https://github.com/alpenlabs/mosaic.git#758492b4af94f56c86b1db4ff2fa74f8c4464f57
     dockerfile: docker/Dockerfile
   depends_on:
     foundationdb:
