@@ -14,7 +14,7 @@ use strata_asm_rpc::traits::AsmProofApiClient;
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
     BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
-    HeavierChainProof, RawBitcoinTx, statements::pow_gt,
+    HeavierChainProof, RawBitcoinTx, statements::leq_little_endian,
 };
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -361,7 +361,7 @@ async fn detect_heavier_chain(
         })?;
 
     // Skip the challenge if the canonical chain has less PoW than the claimant's chain.
-    if !pow_gt(container.extra_data(), &operator_commitment.total_pow) {
+    if leq_little_endian(container.extra_data(), &operator_commitment.total_pow) {
         warn!(
             %deposit_idx,
             %operator_idx,
