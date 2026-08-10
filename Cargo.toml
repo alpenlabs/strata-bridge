@@ -240,7 +240,7 @@ serde_json = { version = "1.0", default-features = false, features = [
   "alloc",
   "raw_value",
 ] }
-serial_test = "3.4.0"
+serial_test = "4.0.1"
 sha2 = "0.10"
 sled = "0.34.7"
 sp1-sdk = "6.2.0"
