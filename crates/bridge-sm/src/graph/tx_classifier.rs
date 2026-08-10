@@ -2,7 +2,7 @@
 
 use bitcoin::{Transaction, script::Instruction};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
-use zkaleido::{Proof, ProofReceipt, PublicValues};
+use zkaleido::ProofReceipt;
 
 use crate::{
     graph::{
@@ -321,12 +321,7 @@ fn bridge_proof_event(tx: &Transaction, height: BitcoinBlockHeight) -> GraphEven
     // encoding the counterproof guest parses). A payload that fails to decode still classifies
     // as a bridge proof event so it can be challenged as an invalid proof.
     let proof_receipt =
-        borsh::from_slice::<ProofReceipt>(&proof_and_public_values).unwrap_or_else(|_| {
-            ProofReceipt::new(
-                Proof::new(proof_and_public_values.clone()),
-                PublicValues::new(vec![]),
-            )
-        });
+        borsh::from_slice::<ProofReceipt>(&proof_and_public_values).unwrap_or_default();
 
     GraphEvent::BridgeProofConfirmed(BridgeProofConfirmedEvent {
         bridge_proof_block_height: height,
