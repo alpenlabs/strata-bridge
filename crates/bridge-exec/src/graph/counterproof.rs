@@ -336,6 +336,10 @@ async fn fetch_counterproof_input(
 /// Checks whether our canonical ASM view is a strictly heavier chain that contradicts the
 /// operator's bridge proof, returning the [`HeavierChainProof`] witness to counter with, or
 /// `None` when there is nothing to challenge.
+///
+/// The ASM prover builds the Moho state and proof asynchronously, so neither is guaranteed to
+/// exist at `last_block_height` yet. That's fine: a missing one just errors out, and the duty
+/// keeps getting re-emitted on retry ticks until the ASM catches up.
 async fn detect_heavier_chain(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
