@@ -83,6 +83,17 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 break 'invalid_bridge_proof;
             };
 
+            // Immediately succeed if the bridge proof commits to a different game
+            if BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
+                .ok()
+                .and_then(|output| {
+                    decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock).ok()
+                })
+                .is_some_and(|claim_unlock| claim_unlock.deposit_idx + 1 != game_idx)
+            {
+                break 'invalid_bridge_proof;
+            }
+
             assert!(
                 genesis
                     .bridge_proof_vk
@@ -324,6 +335,8 @@ mod tests {
     use crate::{BitcoinTxOut, CounterproofMode, RawBitcoinTx};
 
     const GAME_IDX: NonZero<u32> = NonZero::new(7).unwrap();
+    const CONTESTED_DEPOSIT_IDX: u32 = GAME_IDX.get() - 1;
+    const DIFFERENT_GAME_DEPOSIT_IDX: u32 = CONTESTED_DEPOSIT_IDX + 1;
     const PROOF_TIMELOCK: relative::Height = relative::Height::from_height(100);
     const TXIN_IDX: u32 = 0;
 
@@ -345,7 +358,7 @@ mod tests {
     });
     static PREVOUTS: LazyLock<[TxOut; 1]> = LazyLock::new(|| [CONTEST_PROOF_CONNECTOR.tx_out()]);
     static BRIDGE_PROOF_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
-        LazyLock::new(|| OperatorClaimUnlock::new(0, 0));
+        LazyLock::new(|| OperatorClaimUnlock::new(CONTESTED_DEPOSIT_IDX, 0));
     static HEAVIER_CHAIN_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
         LazyLock::new(|| OperatorClaimUnlock::new(0, 1));
     const BRIDGE_PROOF_POW: [u8; 32] = [
@@ -356,27 +369,27 @@ mod tests {
         1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0,
     ];
-    static BRIDGE_PROOF_TX_UNSIGNED: LazyLock<BridgeProofTx> = LazyLock::new(|| {
+
+    fn bridge_proof_tx(claim_unlock: &OperatorClaimUnlock) -> BridgeProofTx {
         let bridge_proof_output = BridgeProofOutput {
             total_pow: BRIDGE_PROOF_POW,
-            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(&BRIDGE_PROOF_CLAIM_UNLOCK).unwrap(),
+            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(claim_unlock).unwrap(),
             mmr_idx: 0,
         };
         let receipt = ProofReceipt::new(
             Proof::new(vec![]),
             PublicValues::new(bridge_proof_output.as_ssz_bytes()),
         );
-        let proof_bytes = borsh::to_vec(&receipt).unwrap();
         let data = BridgeProofData {
             contest_txid: Txid::all_zeros(),
-            proof_bytes,
+            proof_bytes: borsh::to_vec(&receipt).unwrap(),
             game_index: GAME_IDX,
         };
 
         BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR)
-    });
-    static BRIDGE_PROOF_TX_SIGNED: LazyLock<Transaction> = LazyLock::new(|| {
-        let tx = BRIDGE_PROOF_TX_UNSIGNED.clone();
+    }
+
+    fn sign_bridge_proof_tx(tx: BridgeProofTx) -> Transaction {
         let signing_info = tx.signing_info_partial();
         let tweaked_operator_key = OPERATOR_KEYPAIR
             .add_xonly_tweak(
@@ -386,19 +399,16 @@ mod tests {
             .expect("game-idx tweak is valid");
 
         tx.finalize_partial(signing_info.sign(&tweaked_operator_key))
-    });
+    }
+
+    static BRIDGE_PROOF_TX_UNSIGNED: LazyLock<BridgeProofTx> =
+        LazyLock::new(|| bridge_proof_tx(&BRIDGE_PROOF_CLAIM_UNLOCK));
+    static BRIDGE_PROOF_TX_SIGNED: LazyLock<Transaction> =
+        LazyLock::new(|| sign_bridge_proof_tx(BRIDGE_PROOF_TX_UNSIGNED.clone()));
     static BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_FORMAT: LazyLock<Transaction> = LazyLock::new(|| {
         let mut tx = BRIDGE_PROOF_TX_UNSIGNED.clone();
         tx.as_mut().output[0].script_pubkey = ScriptBuf::new();
-        let signing_info = tx.signing_info_partial();
-        let tweaked_operator_key = OPERATOR_KEYPAIR
-            .add_xonly_tweak(
-                SECP256K1,
-                &ContestProofConnector::operator_key_tweak(GAME_IDX),
-            )
-            .expect("game-idx tweak is valid");
-
-        tx.finalize_partial(signing_info.sign(&tweaked_operator_key))
+        sign_bridge_proof_tx(tx)
     });
     static BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_PROOF: LazyLock<Transaction> = LazyLock::new(|| {
         let receipt = ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]));
@@ -407,16 +417,13 @@ mod tests {
             proof_bytes: borsh::to_vec(&receipt).unwrap(),
             game_index: GAME_IDX,
         };
-        let tx = BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR);
-        let signing_info = tx.signing_info_partial();
-        let tweaked_operator_key = OPERATOR_KEYPAIR
-            .add_xonly_tweak(
-                SECP256K1,
-                &ContestProofConnector::operator_key_tweak(GAME_IDX),
-            )
-            .expect("game-idx tweak is valid");
-
-        tx.finalize_partial(signing_info.sign(&tweaked_operator_key))
+        sign_bridge_proof_tx(BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR))
+    });
+    static BRIDGE_PROOF_TX_SIGNED_DIFFERENT_GAME: LazyLock<Transaction> = LazyLock::new(|| {
+        sign_bridge_proof_tx(bridge_proof_tx(&OperatorClaimUnlock::new(
+            DIFFERENT_GAME_DEPOSIT_IDX,
+            0,
+        )))
     });
 
     fn op_return_script(data: Vec<u8>) -> ScriptBuf {
@@ -757,6 +764,29 @@ mod tests {
                 moho_vk: PredicateKey::never_accept(),
             });
             assert_eq!(output.game_idx, GAME_IDX.get());
+        }
+
+        #[test]
+        fn counterproof_valid_if_bridge_proof_commits_to_different_game() {
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.bridge_proof_tx =
+                RawBitcoinTx::from(BRIDGE_PROOF_TX_SIGNED_DIFFERENT_GAME.clone());
+            // Guard: the tx is well-formed, so a valid output can only come from the
+            // different-game short-circuit, not from an unparsable bridge proof receipt.
+            assert!(
+                extract_bridge_proof(&BRIDGE_PROOF_TX_SIGNED_DIFFERENT_GAME, TXIN_IDX).is_some()
+            );
+
+            // `always_accept` would otherwise trigger the "bridge proof is valid" panic;
+            // the counterproof still succeeds because the bridge proof commits to a
+            // different game.
+            let output = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::never_accept(),
+            });
+            assert_eq!(output.game_idx, GAME_IDX.get());
+            assert_eq!(output.operator_pubkey, (*OPERATOR_PUBKEY).into());
         }
 
         #[test]
