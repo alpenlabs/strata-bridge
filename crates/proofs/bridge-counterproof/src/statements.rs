@@ -309,7 +309,7 @@ pub fn commits_to_different_game(bridge_proof_receipt: &ProofReceipt, game_idx: 
     BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
         .ok()
         .and_then(|output| decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock).ok())
-        .is_some_and(|claim_unlock| claim_unlock.deposit_idx + 1 != game_idx)
+        .is_some_and(|claim_unlock| claim_unlock.deposit_idx != game_idx - 1)
 }
 
 #[cfg(test)]
@@ -495,6 +495,22 @@ mod tests {
             &receipt(DIFFERENT_GAME_DEPOSIT_IDX),
             GAME_IDX.get()
         ));
+    }
+
+    #[test]
+    fn commits_to_different_game_does_not_overflow_on_max_deposit_idx() {
+        // A `u32::MAX` deposit index is operator-controlled and must not overflow
+        // (`deposit_idx + 1` would panic in overflow-checked builds before verification).
+        let output = BridgeProofOutput {
+            total_pow: BRIDGE_PROOF_POW,
+            claim_unlock: encode_to_vec(&OperatorClaimUnlock::new(u32::MAX, 0)).unwrap(),
+            mmr_idx: 0,
+        };
+        let receipt =
+            ProofReceipt::new(Proof::new(vec![]), PublicValues::new(output.as_ssz_bytes()));
+
+        // `u32::MAX != GAME_IDX - 1`, so this is a different game.
+        assert!(commits_to_different_game(&receipt, GAME_IDX.get()));
     }
 
     #[test]
