@@ -14,7 +14,8 @@ use strata_asm_rpc::traits::AsmProofApiClient;
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
     BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
-    HeavierChainProof, RawBitcoinTx, statements::leq_little_endian,
+    HeavierChainProof, RawBitcoinTx,
+    statements::{commits_to_different_game, leq_little_endian},
 };
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -57,7 +58,13 @@ pub(super) async fn evaluate_and_publish_counterproof(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "evaluating potential counterproof for graph");
 
-    let mode = if verify_bridge_proof(&cfg.graph_sm_cfg.bridge_proof_predicate, &proof) {
+    let mode = if commits_to_different_game(&proof, game_index.get()) {
+        info!(%deposit_idx, %operator_idx, %game_index, "bridge proof commits to a different game; publishing counterproof");
+        CounterproofMode::InvalidBridgeProof
+    } else if !verify_bridge_proof(&cfg.graph_sm_cfg.bridge_proof_predicate, &proof) {
+        info!(%deposit_idx, %operator_idx, %game_index, "bridge proof failed verification; publishing counterproof");
+        CounterproofMode::InvalidBridgeProof
+    } else {
         let Some(heavier_chain_proof) = detect_heavier_chain(
             output_handles,
             deposit_idx,
@@ -77,10 +84,6 @@ pub(super) async fn evaluate_and_publish_counterproof(
         };
         info!(%deposit_idx, %operator_idx, %game_index, "heavier contradicting chain detected; publishing counterproof");
         CounterproofMode::HeavierChain(heavier_chain_proof)
-    } else {
-        // Invalid proof: challenge it outright.
-        info!(%deposit_idx, %operator_idx, %game_index, "bridge proof failed verification; publishing counterproof");
-        CounterproofMode::InvalidBridgeProof
     };
 
     generate_and_publish_counterproof(

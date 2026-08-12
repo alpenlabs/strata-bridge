@@ -84,13 +84,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
             };
 
             // Immediately succeed if the bridge proof commits to a different game
-            if BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
-                .ok()
-                .and_then(|output| {
-                    decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock).ok()
-                })
-                .is_some_and(|claim_unlock| claim_unlock.deposit_idx + 1 != game_idx)
-            {
+            if commits_to_different_game(bridge_proof_receipt, game_idx) {
                 break 'invalid_bridge_proof;
             }
 
@@ -310,6 +304,14 @@ pub fn leq_little_endian(lhs: &[u8; 32], rhs: &[u8; 32]) -> bool {
     lhs.iter().rev().cmp(rhs.iter().rev()).is_le()
 }
 
+/// Returns `true` if the bridge proof is for a different game than `game_idx`
+pub fn commits_to_different_game(bridge_proof_receipt: &ProofReceipt, game_idx: u32) -> bool {
+    BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
+        .ok()
+        .and_then(|output| decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock).ok())
+        .is_some_and(|claim_unlock| claim_unlock.deposit_idx + 1 != game_idx)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -470,6 +472,37 @@ mod tests {
             "low-order byte does not dominate"
         );
         assert!(!leq_little_endian(&big, &one), "high-order byte dominates");
+    }
+
+    #[test]
+    fn commits_to_different_game_flags_mismatched_deposit() {
+        let receipt = |deposit_idx: u32| {
+            let output = BridgeProofOutput {
+                total_pow: BRIDGE_PROOF_POW,
+                claim_unlock: encode_to_vec(&OperatorClaimUnlock::new(deposit_idx, 0)).unwrap(),
+                mmr_idx: 0,
+            };
+            ProofReceipt::new(Proof::new(vec![]), PublicValues::new(output.as_ssz_bytes()))
+        };
+
+        // deposit_idx + 1 == game_idx: the proof backs the contested game.
+        assert!(!commits_to_different_game(
+            &receipt(CONTESTED_DEPOSIT_IDX),
+            GAME_IDX.get()
+        ));
+        // deposit_idx + 1 != game_idx: the proof commits to a different game.
+        assert!(commits_to_different_game(
+            &receipt(DIFFERENT_GAME_DEPOSIT_IDX),
+            GAME_IDX.get()
+        ));
+    }
+
+    #[test]
+    fn commits_to_different_game_is_false_for_undecodable_output() {
+        // An output that cannot be decoded is left to the normal verification path, not treated
+        // as a different-game commitment.
+        let receipt = ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]));
+        assert!(!commits_to_different_game(&receipt, GAME_IDX.get()));
     }
 
     #[test]
