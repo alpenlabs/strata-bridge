@@ -105,7 +105,7 @@ uv run python entry.py
 
 > A few groups are deliberately skipped by the no-arg run because they're
 > too expensive to drag into a default regression sweep. Today that's just
-> `proofs/` (the SP1 end-to-end bridge-proof test). They still run when you
+> `proofs/` (the SP1 end-to-end proof tests). They still run when you
 > pick them by path (`-t …`) or by group (`-g proofs`). The list lives in
 > `SKIP_GROUPS_BY_DEFAULT` in [`entry.py`](entry.py).
 
@@ -134,6 +134,10 @@ regtest `bitcoind` (the `network-extbtc` environment).
 
    ```bash
    ./run_test.sh -t tests/proofs/fn_counterproof.py
+   ```
+
+   ```bash
+   ./run_test.sh -t tests/proofs/fn_sp1_heavier_chain_counterproof.py
    ```
 
    `run_test.sh` mines the external L1 to the genesis height, generates `asm-params.json`
