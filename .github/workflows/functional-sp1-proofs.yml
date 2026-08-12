@@ -52,11 +52,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: [fn_bridge_proof, fn_counterproof]
+        test: [fn_bridge_proof, fn_counterproof, fn_sp1_heavier_chain_counterproof]
         include:
           - test: fn_bridge_proof
             sp1-log-services: operator-0
           - test: fn_counterproof
+            sp1-log-services: operator-1
+          - test: fn_sp1_heavier_chain_counterproof
             sp1-log-services: operator-1
     env:
       OPENSSL_VERSION: "3.5.0"

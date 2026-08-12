@@ -46,8 +46,6 @@ from utils.withdrawal import (
 )
 
 HEAVIER_CHAIN_LOG_MARKER = "heavier contradicting chain detected"
-# First log line of a counterproof-duty evaluation: proves op-1's block-driven ASM pipeline
-# has processed fork B and created the duty, which is then retried on op-1's ~120s timer.
 COUNTERPROOF_EVAL_MARKER = "evaluating potential counterproof"
 
 
