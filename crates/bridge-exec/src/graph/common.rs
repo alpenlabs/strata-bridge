@@ -1,7 +1,5 @@
 //! Executors for uncontested payout graph duties.
 
-use std::collections::BTreeSet;
-
 use algebra::predicate;
 use bitcoin::{
     Amount, OutPoint, TapSighashType, TxOut, Txid, XOnlyPublicKey,
@@ -10,7 +8,9 @@ use bitcoin::{
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
-use operator_wallet::{GeneralUtxoPolicy, GeneralWallet, OperatorWallet, WalletStore};
+use operator_wallet::{
+    GeneralUtxoPolicy, GeneralWallet, Lease, LeaseOwner, OperatorWallet, WalletStore,
+};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_db::{
     traits::BridgeDb,
@@ -132,7 +132,7 @@ async fn reserve_synced_claim_funding<G: GeneralWallet, P: WalletStore>(
     wallet: &mut OperatorWallet<G, P>,
     value: Amount,
     bury_depth: u32,
-) -> Result<Option<OutPoint>, ExecutorError> {
+) -> Result<Option<(OutPoint, Lease)>, ExecutorError> {
     wallet.sync().await.map_err(|e| {
         ExecutorError::WalletErr(format!(
             "wallet sync failed before selecting claim funding: {e:?}"
@@ -140,7 +140,7 @@ async fn reserve_synced_claim_funding<G: GeneralWallet, P: WalletStore>(
     })?;
     let settled = wallet.settled(bury_depth);
     Ok(wallet
-        .reserve_utxo_with_value(value, predicate::not(settled))
+        .reserve_utxo_with_value(value, LeaseOwner::ClaimFunding, predicate::not(settled))
         .0)
 }
 
@@ -188,94 +188,128 @@ async fn ensure_claim_funding_outpoint(
     }
 
     info!(?graph_idx, %value, "fetching funding outpoint from wallet");
-    let reservation = {
+    let (reservation, funding_lease) = {
         let mut wallet = output_handles.wallet.write().await;
         let script_pubkey = wallet.reserved_script_pubkey();
 
-        let outpoint = match reserve_synced_claim_funding(&mut *wallet, value, cfg.bury_depth)
-            .await?
-        {
-            Some(outpoint) => outpoint,
-            None => {
-                warn!("could not acquire claim funding utxo. attempting refill...");
-                // The reservation above found no unleased, settled member, so the shortfall
-                // is the whole target. The wallet stays denomination-agnostic; the batch is
-                // sized here.
-                let funded = wallet
-                    .create_reserved_utxos(
-                        fee::FEE_RATE,
-                        value,
-                        cfg.funding_uxto_pool_size,
-                        GeneralUtxoPolicy::BuriedOnly {
-                            bury_depth: cfg.bury_depth,
-                        },
-                    )
-                    .await
-                    .map_err(|e| ExecutorError::WalletErr(format!("refill failed: {e}")))?;
-                let spent = funded.spent();
-                let tx = match sign_claim_funding_tx(&output_handles.s2_client, funded.psbt).await {
-                    Ok(tx) => tx,
-                    Err(err) => {
-                        wallet.release(&spent);
-                        warn!(
-                            ?err,
-                            ?spent,
-                            "claim-funding refill signing failed; released inputs"
-                        );
-
-                        return Err(err);
+        let (outpoint, funding_lease) =
+            match reserve_synced_claim_funding(&mut *wallet, value, cfg.bury_depth).await? {
+                Some(reserved) => reserved,
+                None => {
+                    warn!("could not acquire claim funding utxo. attempting refill...");
+                    // The reservation above found no unleased, settled member, so the shortfall
+                    // is the whole target. The wallet stays denomination-agnostic; the batch is
+                    // sized here.
+                    //
+                    // `refill` holds the general-wallet inputs of the refill transaction. A path
+                    // that ends before the transaction reaches a mempool drops it, which returns
+                    // those inputs to the pool. A path that cannot tell drops it only after a
+                    // fresh sync makes the wallet view authoritative.
+                    let refill = wallet
+                        .create_reserved_utxos(
+                            fee::FEE_RATE,
+                            value,
+                            cfg.funding_uxto_pool_size,
+                            GeneralUtxoPolicy::BuriedOnly {
+                                bury_depth: cfg.bury_depth,
+                            },
+                            LeaseOwner::ClaimFundingRefill,
+                        )
+                        .await
+                        .map_err(|e| ExecutorError::WalletErr(format!("refill failed: {e}")))?;
+                    let (refill_psbt, refill_lease) = refill.into_parts();
+                    let tx = sign_claim_funding_tx(&output_handles.s2_client, refill_psbt).await?;
+                    let txid = tx.compute_txid();
+                    info!(%txid, "submitting claim funding tx to the tx driver");
+                    if let Err(err) = output_handles
+                        .tx_driver
+                        .drive(tx, predicate::eq(TxStatus::Mempool))
+                        .await
+                    {
+                        // A driver failure does not say whether the transaction reached the
+                        // network. `drive` broadcasts first and reports a failure of the wait
+                        // that follows, so the inputs can already be spent.
+                        //
+                        // Sync, then decide. A successful sync makes the wallet view
+                        // authoritative: the wallet no longer holds the inputs of a broadcast
+                        // transaction, and dropping the lease returns only the inputs that no
+                        // transaction spends. The inputs are buried, so only a deep reorg can
+                        // leave an input held but outside the spendable set; this path releases
+                        // that input too. A failed sync leaves the view stale, and a release
+                        // against stale data hands a live transaction's inputs to the next duty,
+                        // which then broadcasts a conflicting spend. Hold them instead and let a
+                        // later sync prune them.
+                        match wallet.sync().await {
+                            Ok(()) => warn!(
+                                ?err,
+                                inputs = ?refill_lease.outpoints(),
+                                "claim-funding tx driver failed; releasing the refill inputs"
+                            ),
+                            Err(sync_err) => {
+                                warn!(
+                                    ?err,
+                                    ?sync_err,
+                                    inputs = ?refill_lease.outpoints(),
+                                    "claim-funding tx driver failed and the wallet sync failed; \
+                                     holding the refill inputs"
+                                );
+                                refill_lease.commit();
+                            }
+                        }
+                        return Err(err.into());
                     }
-                };
-                let txid = tx.compute_txid();
-                info!(%txid, "submitting claim funding tx to the tx driver");
-                if let Err(err) = output_handles
-                    .tx_driver
-                    .drive(tx, predicate::eq(TxStatus::Mempool))
-                    .await
-                {
-                    warn!(
-                        ?err,
-                        ?spent,
-                        "claim-funding tx driver failed; syncing wallet before reconciling input leases"
-                    );
-                    reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &spent).await;
-
-                    return Err(err.into());
-                }
-                info!(%txid, "claim funding tx detected in mempool");
-
-                wallet.sync().await.map_err(|e| {
-                    error!(?e, "could not sync wallet after refilling funding utxos");
-                    ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
-                })?;
-                // The refilled pool members are unconfirmed, so they are only visible while the
-                // funding transaction is in the node's mempool. An eviction between the
-                // tx-driver's check and this sync leaves nothing to reserve; the inputs go back
-                // to the wallet and the duty retries.
-                // Rebuilt: the predicate snapshots the wallet's own funding txids, and the
-                // refill just registered one.
-                let settled = wallet.settled(cfg.bury_depth);
-                match wallet
-                    .reserve_utxo_with_value(value, predicate::not(settled))
-                    .0
-                {
-                    Some(outpoint) => outpoint,
-                    None => {
-                        release_unspent_claim_funding_inputs(&mut wallet, &spent);
-                        return Err(ExecutorError::WalletErr(
-                            "no claim-funding utxo available after refill".to_string(),
-                        ));
+                    info!(%txid, "claim funding tx detected in mempool");
+                    // The transaction is in a mempool and spends these inputs. A failed sync below
+                    // leaves a stale wallet view, so the lease must outlive this duty, or the
+                    // inputs of a live transaction become selectable again.
+                    if let Err(e) = wallet.sync().await {
+                        error!(?e, "could not sync wallet after refilling funding utxos");
+                        refill_lease.commit();
+                        return Err(ExecutorError::WalletErr(format!(
+                            "wallet sync failed after refill: {e:?}"
+                        )));
+                    }
+                    // The refilled pool members are unconfirmed, so they are only visible while the
+                    // funding transaction is in the node's mempool. An eviction between the
+                    // tx-driver's check and the sync above leaves nothing to reserve. The lease
+                    // then drops: the sync pruned every input that a transaction spends, so the
+                    // inputs that remain go back to the wallet and the duty retries.
+                    // Rebuilt: the predicate snapshots the wallet's own funding txids, and the
+                    // refill just registered one.
+                    let settled = wallet.settled(cfg.bury_depth);
+                    match wallet
+                        .reserve_utxo_with_value(
+                            value,
+                            LeaseOwner::ClaimFunding,
+                            predicate::not(settled),
+                        )
+                        .0
+                    {
+                        Some(reserved) => {
+                            refill_lease.commit();
+                            reserved
+                        }
+                        None => {
+                            // A deep reorg is the only way that a buried input leaves the spendable
+                            // set and stays held, so dropping the whole lease is safe here.
+                            drop(refill_lease);
+                            return Err(ExecutorError::WalletErr(
+                                "no claim-funding utxo available after refill".to_string(),
+                            ));
+                        }
                     }
                 }
-            }
-        };
-        ClaimFundingReservation {
-            outpoint,
-            txout: TxOut {
-                value,
-                script_pubkey,
+            };
+        (
+            ClaimFundingReservation {
+                outpoint,
+                txout: TxOut {
+                    value,
+                    script_pubkey,
+                },
             },
-        }
+            funding_lease,
+        )
     };
     let funding_outpoint = reservation.outpoint;
 
@@ -284,9 +318,13 @@ async fn ensure_claim_funding_outpoint(
         .get_or_set_claim_funding_reservation(covenant, graph_idx, reservation)
         .await;
 
+    // The database now owns the claim-funding outpoint of this graph, so the reservation
+    // outlives this duty. `commit` keeps it held after `funding_lease` drops. The two paths
+    // that do not commit drop the lease instead, which returns the outpoint to the pool.
     let assigned_outpoint = match assignment {
         Ok(FundingAssignment::Created(reservation)) => {
             info!(?graph_idx, outpoint = %reservation.outpoint, "saved funding outpoint to disk");
+            funding_lease.commit();
             reservation.outpoint
         }
         Ok(FundingAssignment::Existing(reservation)) => {
@@ -295,69 +333,15 @@ async fn ensure_claim_funding_outpoint(
                 outpoint = %reservation.outpoint,
                 "using existing funding outpoint saved by another duty"
             );
-            if reservation.outpoint != funding_outpoint {
-                let mut wallet = output_handles.wallet.write().await;
-                wallet.release(&[funding_outpoint]);
+            if reservation.outpoint == funding_outpoint {
+                funding_lease.commit();
             }
             check_claim_funding(&reservation, value)?
         }
-        Err(err) => {
-            let mut wallet = output_handles.wallet.write().await;
-            wallet.release(&[funding_outpoint]);
-            return Err(err.into());
-        }
+        Err(err) => return Err(err.into()),
     };
 
     Ok(assigned_outpoint)
-}
-
-async fn reconcile_claim_funding_leases_after_driver_failure<G: GeneralWallet, P: WalletStore>(
-    wallet: &mut OperatorWallet<G, P>,
-    spent: &[OutPoint],
-) {
-    if let Err(sync_err) = wallet.sync().await {
-        warn!(
-            ?sync_err,
-            ?spent,
-            "could not sync wallet after tx-driver failure; retaining claim-funding input leases"
-        );
-        return;
-    }
-    release_unspent_claim_funding_inputs(wallet, spent);
-}
-
-/// Releases the leases on those of `spent` the general wallet still holds; the rest were spent
-/// and the last sync pruned their leases.
-fn release_unspent_claim_funding_inputs<G: GeneralWallet, P: WalletStore>(
-    wallet: &mut OperatorWallet<G, P>,
-    spent: &[OutPoint],
-) {
-    let live_general_outpoints: BTreeSet<_> = wallet
-        .general()
-        .list_utxos()
-        .into_iter()
-        .map(|u| u.outpoint)
-        .collect();
-    let still_unspent: Vec<_> = spent
-        .iter()
-        .copied()
-        .filter(|outpoint| live_general_outpoints.contains(outpoint))
-        .collect();
-    let pruned_count = spent.len().saturating_sub(still_unspent.len());
-
-    if pruned_count > 0 {
-        info!(
-            pruned_count,
-            "wallet sync pruned claim-funding input leases no longer seen as spendable"
-        );
-    }
-    if !still_unspent.is_empty() {
-        wallet.release(&still_unspent);
-        warn!(
-            ?still_unspent,
-            "released claim-funding input leases after wallet sync showed they are still spendable"
-        );
-    }
 }
 
 /// Fetches the owner's adaptor pubkey and the per-watchtower fault pubkeys from mosaic.
@@ -804,8 +788,7 @@ mod tests {
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
 
     use super::{
-        ExecutorError, check_claim_funding, reconcile_claim_funding_leases_after_driver_failure,
-        reserve_synced_claim_funding, watchtower_idxs,
+        ExecutorError, check_claim_funding, reserve_synced_claim_funding, watchtower_idxs,
     };
 
     #[derive(Debug)]
@@ -976,7 +959,7 @@ mod tests {
             .expect("wallet syncs")
             .expect("a settled output of the larger amount exists");
         assert_eq!(
-            [first, second].map(|outpoint| wallet.reserved_utxo(outpoint).map(|u| u.amount)),
+            [first.0, second.0].map(|outpoint| wallet.reserved_utxo(outpoint).map(|u| u.amount)),
             [Some(smaller), Some(larger)],
             "each graph must be funded at its own amount"
         );
@@ -984,13 +967,13 @@ mod tests {
         let exhausted = reserve_synced_claim_funding(&mut wallet, larger, 2)
             .await
             .expect("wallet syncs");
-        assert_eq!(
-            exhausted, None,
+        assert!(
+            exhausted.is_none(),
             "no other output of the larger amount remains"
         );
         assert!(
-            wallet.leased_outpoints().contains(&first)
-                && wallet.leased_outpoints().contains(&second),
+            wallet.leased_outpoints().contains(&first.0)
+                && wallet.leased_outpoints().contains(&second.0),
             "an exhausted pool must leave reservations of every amount in place"
         );
     }
@@ -1033,8 +1016,11 @@ mod tests {
         assert_eq!(later_watchtowers, vec![1, 2, 3]);
     }
 
+    /// The claim-funding refill syncs the wallet before its lease drops, so that a
+    /// transaction that did reach the network removes its own inputs from selection. This
+    /// test covers the prune half of that sequence.
     #[tokio::test]
-    async fn reconciliation_prunes_spent_inputs_and_releases_live_inputs() {
+    async fn a_sync_prunes_leases_on_inputs_that_left_the_spendable_set() {
         let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
         let spent = OutPoint {
             txid: Txid::from_slice(&[1; 32]).expect("valid txid"),
@@ -1052,16 +1038,20 @@ mod tests {
         )
         .await;
 
-        reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &[spent, live]).await;
+        wallet.sync().await.expect("sync succeeds");
 
-        assert!(
-            wallet.leased_outpoints().is_empty(),
-            "sync should prune the spent input and reconciliation should release the live input"
+        assert_eq!(
+            wallet.leased_outpoints(),
+            BTreeSet::from([live]),
+            "the spent input loses its lease; the live one keeps it"
         );
     }
 
+    /// A failed sync must not prune. The refill path reads the sync outcome to decide whether
+    /// to release its inputs, and a prune on stale data frees inputs that a live transaction
+    /// still spends.
     #[tokio::test]
-    async fn reconciliation_retains_input_leases_when_sync_fails() {
+    async fn a_failed_sync_leaves_every_lease_in_place() {
         let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
         let input = OutPoint {
             txid: Txid::from_slice(&[3; 32]).expect("valid txid"),
@@ -1075,8 +1065,8 @@ mod tests {
         )
         .await;
 
-        reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &[input]).await;
+        wallet.sync().await.expect_err("sync fails");
 
-        assert_eq!(wallet.leased_outpoints(), &BTreeSet::from([input]));
+        assert_eq!(wallet.leased_outpoints(), BTreeSet::from([input]));
     }
 }

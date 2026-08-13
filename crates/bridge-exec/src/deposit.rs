@@ -14,6 +14,7 @@ use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
+use operator_wallet::LeaseOwner;
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors::SigningInfo;
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
@@ -567,66 +568,87 @@ async fn fulfill_withdrawal(
             .get_withdrawal_funding_outpoints(deposit_idx)
             .await?;
 
+        // Every path that ends with a funded PSBT commits its lease. The database row keeps
+        // the funding outpoints of a deposit across duties and across restarts, and the
+        // transaction that spends them is signed and published after this block releases the
+        // wallet lock. A sync frees the lease once the spend confirms.
+        //
+        // A commit here is not redundant with the row. The sync prune drops the committed
+        // lease as soon as the fulfillment transaction reaches a mempool, so a later eviction
+        // leaves the outpoints held by nothing while a retry still needs them. `commit` is
+        // idempotent: a retry whose outpoints are already held adds no second record.
         let funding_result = match persisted_funding_outpoints.as_deref() {
             Some(outpoints) => {
                 info!(%deposit_idx, "reusing persisted funding outpoints");
                 wallet
-                    .fund_v3_transaction_with_inputs(unfunded_tx, outpoints, fee_rate)
+                    .fund_v3_transaction_with_inputs(
+                        unfunded_tx,
+                        outpoints,
+                        fee_rate,
+                        LeaseOwner::WithdrawalFulfillment,
+                    )
                     .await
-                    .map(|funded| funded.psbt)
+                    .map(|funded| {
+                        let (psbt, lease) = funded.into_parts();
+                        lease.commit();
+                        psbt
+                    })
             }
             None => {
                 info!(%deposit_idx, "selecting new funding outpoints");
                 // Confirmed inputs only: the withdrawal fulfillment is v3, and TRUC rejects
                 // a v3 transaction with an unconfirmed ancestor outside the one-parent-
                 // one-child shape. An unconfirmed funding input makes it unrelayable.
-                let funded = wallet
+                let candidate = wallet
                     .fund_v3_transaction(
                         unfunded_tx.clone(),
                         fee_rate,
                         operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+                        LeaseOwner::WithdrawalFulfillment,
                     )
                     .await;
-                match funded {
-                    Ok(funded) => {
-                        let candidate_outpoints = funded.spent();
+                match candidate {
+                    Ok(candidate) => {
+                        let candidate_outpoints = candidate.lease().outpoints().to_vec();
                         let assignment = output_handles
                             .db
                             .get_or_set_withdrawal_funding_outpoints(
                                 deposit_idx,
-                                candidate_outpoints.clone(),
+                                candidate_outpoints,
                             )
                             .await;
 
                         match assignment {
                             Ok(FundingAssignment::Created(outpoints)) => {
                                 info!(%deposit_idx, ?outpoints, "persisted withdrawal funding outpoints");
-                                Ok(funded.psbt)
+                                let (psbt, lease) = candidate.into_parts();
+                                lease.commit();
+                                Ok(psbt)
                             }
                             Ok(FundingAssignment::Existing(outpoints)) => {
                                 info!(
                                     %deposit_idx,
                                     "using existing withdrawal funding outpoints saved by another duty"
                                 );
-                                let stale_candidate_outpoints: Vec<_> = candidate_outpoints
-                                    .iter()
-                                    .copied()
-                                    .filter(|outpoint| !outpoints.contains(outpoint))
-                                    .collect();
-                                wallet.release(&stale_candidate_outpoints);
+                                // Drop the whole candidate lease before the rebuild. The
+                                // wallet write lock is held across both calls, so no other
+                                // duty can take the outpoints in between.
+                                drop(candidate);
                                 wallet
                                     .fund_v3_transaction_with_inputs(
                                         unfunded_tx,
                                         &outpoints,
                                         fee_rate,
+                                        LeaseOwner::WithdrawalFulfillment,
                                     )
                                     .await
-                                    .map(|funded| funded.psbt)
+                                    .map(|funded| {
+                                        let (psbt, lease) = funded.into_parts();
+                                        lease.commit();
+                                        psbt
+                                    })
                             }
-                            Err(err) => {
-                                wallet.release(&candidate_outpoints);
-                                return Err(err.into());
-                            }
+                            Err(err) => return Err(err.into()),
                         }
                     }
                     Err(err) => Err(err),

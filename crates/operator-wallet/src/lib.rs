@@ -20,6 +20,7 @@
 
 pub mod config;
 pub mod general;
+pub mod leases;
 pub mod persist;
 pub mod sync;
 #[cfg(any(test, feature = "test-utils"))]
@@ -39,13 +40,15 @@ use thiserror::Error;
 pub use crate::{
     config::{OperatorWalletConfig, DEFAULT_PERSIST_EVERY_BLOCKS},
     general::{
-        native::NativeGeneralWallet, AnchorInfo, FundedPsbt, GeneralWallet, ReplacedChild, UtxoInfo,
+        native::NativeGeneralWallet, AnchorInfo, AnchorOwnership, FundedPsbt, GeneralWallet,
+        ReplacedChild, UtxoInfo,
     },
+    leases::{Lease, LeaseOwner, LeaseSet},
     persist::{
         load_or_create, BlockId, InitError, SqliteStore, SqliteStoreError, WalletKind, WalletStore,
     },
     sync::SyncError,
-    wallet::{GeneralUtxoPolicy, OperatorWallet},
+    wallet::{GeneralUtxoPolicy, LeasedPsbt, OperatorWallet},
 };
 
 /// Errors returned by [`OperatorWallet`] methods. Backend errors are boxed so call sites don't
