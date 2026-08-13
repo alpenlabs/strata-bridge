@@ -340,7 +340,7 @@ impl GraphDuty {
             | GraphDuty::PublishUnstakingBurn { .. }
             | GraphDuty::PublishContest { .. }
             | GraphDuty::PublishBridgeProofTimeout { .. }
-            | GraphDuty::GenerateAndPublishCounterProof { .. }
+            | GraphDuty::PotentialCounterProof { .. }
             | GraphDuty::PublishCounterProofAck { .. }
             | GraphDuty::PublishCounterProofNack { .. }
             | GraphDuty::PublishSlash { .. }
