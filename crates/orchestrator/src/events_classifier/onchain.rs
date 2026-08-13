@@ -36,7 +36,7 @@ use strata_bridge_sm::{
     tx_classifier::TxClassifier,
 };
 use strata_bridge_tx_graph::transactions::prelude::DepositData;
-use tracing::{Level, info, warn};
+use tracing::{Level, debug, info, warn};
 
 use super::drt;
 use crate::{
@@ -135,6 +135,13 @@ fn try_register_deposit(
     // envelope. Subsequent gates allocate (snapshot) or parse the full DRT, so we want to
     // avoid them on non-DRT traffic.
     if !drt::is_our_drt_envelope(tx, deposit_cfg) {
+        return Ok(Vec::new());
+    }
+
+    // Safe harbour halts new deposits. Best-effort: a DRT admitted before the latch is caught
+    // by the sweep once it reaches `Deposited`.
+    if applicator.registry().safe_harbour_active() {
+        debug!(txid=%tx.compute_txid(), "safe harbour active; refusing to admit new deposit");
         return Ok(Vec::new());
     }
 
@@ -318,6 +325,7 @@ mod tests {
         testing::{
             DrtBuilder, N_TEST_OPERATORS, TEST_POV_IDX, insert_confirmed_stake,
             test_deposit_sm_cfg, test_operator_table, test_populated_registry,
+            test_safe_harbour_address,
         },
     };
 
@@ -496,6 +504,38 @@ mod tests {
             registry.num_deposits(),
             0,
             "validate-rejected DRT must not register a DSM",
+        );
+    }
+
+    #[test]
+    fn try_register_deposit_silent_when_safe_harbour_active() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_populated_registry(0);
+        confirm_all_stakes(&mut registry, &operator_table);
+        registry.activate_safe_harbour(test_safe_harbour_address());
+
+        // An otherwise-admissible DRT: without the latch it would register a DSM.
+        let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
+
+        let mut applicator = Applicator::new(&mut registry);
+        let duties =
+            try_register_deposit(&cfg, &operator_table, &mut applicator, &tx, TEST_HEIGHT).unwrap();
+        let (_, tracker) = applicator.finish();
+
+        assert!(duties.is_empty(), "halt gate must not emit duties");
+        assert_eq!(
+            registry.num_deposits(),
+            0,
+            "halt gate must not register a DSM",
+        );
+        assert!(
+            registry.get_graph_ids().is_empty(),
+            "halt gate must not register GraphSMs",
+        );
+        assert!(
+            tracker.into_batches().is_empty(),
+            "halt gate must not record any SMs",
         );
     }
 
