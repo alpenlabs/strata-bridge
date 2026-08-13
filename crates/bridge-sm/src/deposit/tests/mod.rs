@@ -8,6 +8,7 @@ mod duties;
 mod handlers;
 mod payout;
 mod prop_tests;
+mod state;
 mod sweep;
 mod test_new_blocks;
 mod test_timeout_sequence;
