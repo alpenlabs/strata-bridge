@@ -133,8 +133,9 @@ mod tests {
                 false,
             ),
             (
-                GraphDuty::GenerateAndPublishCounterProof {
+                GraphDuty::PotentialCounterProof {
                     graph_idx,
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     game_index: deposit_params.game_index,
                     counterproof_tx: game_graph.counterproofs[0].counterproof.clone(),
                     n_of_n_signature: generate_signature(),
