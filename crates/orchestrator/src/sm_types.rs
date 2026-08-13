@@ -107,6 +107,20 @@ pub enum UnifiedDuty {
     Stake(StakeDuty),
 }
 
+impl UnifiedDuty {
+    /// Whether to suppress this duty at dispatch while the safe harbour is active: true for the
+    /// duties that front a user or advance a claim/payout towards spending the deposit UTXO. See
+    /// [`DepositDuty::should_suppress_under_safe_harbour`] and
+    /// [`GraphDuty::should_suppress_under_safe_harbour`].
+    pub const fn should_suppress_under_safe_harbour(&self) -> bool {
+        match self {
+            UnifiedDuty::Deposit(duty) => duty.should_suppress_under_safe_harbour(),
+            UnifiedDuty::Graph(duty) => duty.should_suppress_under_safe_harbour(),
+            UnifiedDuty::Stake(_) => false,
+        }
+    }
+}
+
 impl From<DepositDuty> for UnifiedDuty {
     fn from(duty: DepositDuty) -> Self {
         UnifiedDuty::Deposit(duty)
@@ -120,5 +134,55 @@ impl From<GraphDuty> for UnifiedDuty {
 impl From<StakeDuty> for UnifiedDuty {
     fn from(duty: StakeDuty) -> Self {
         UnifiedDuty::Stake(duty)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{Amount, Transaction, absolute, transaction};
+
+    use super::*;
+
+    fn dummy_tx() -> Transaction {
+        Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        }
+    }
+
+    /// The wrapper delegates to the per-domain taxonomies (pinned in bridge-sm's duty tests);
+    /// stake duties are never suppressed.
+    #[test]
+    fn should_suppress_under_safe_harbour_delegates_per_domain() {
+        use strata_bridge_test_utils::bridge_fixtures::random_p2tr_desc;
+
+        let fulfill: UnifiedDuty = DepositDuty::FulfillWithdrawalRequest {
+            deposit_idx: 0,
+            deadline: 100,
+            recipient_desc: random_p2tr_desc(),
+            deposit_amount: Amount::from_sat(1_000_000),
+        }
+        .into();
+        assert!(fulfill.should_suppress_under_safe_harbour());
+
+        let payout: UnifiedDuty = GraphDuty::PublishUncontestedPayout {
+            signed_uncontested_payout_tx: dummy_tx(),
+        }
+        .into();
+        assert!(payout.should_suppress_under_safe_harbour());
+
+        let slash: UnifiedDuty = GraphDuty::PublishSlash {
+            signed_slash_tx: dummy_tx(),
+        }
+        .into();
+        assert!(
+            !slash.should_suppress_under_safe_harbour(),
+            "defensive duties are never suppressed"
+        );
+
+        let stake: UnifiedDuty = StakeDuty::PublishStakeData { operator_idx: 0 }.into();
+        assert!(!stake.should_suppress_under_safe_harbour());
     }
 }

@@ -149,8 +149,19 @@ impl Pipeline {
                 self.persister.persist_batch(batch, &self.registry).await?;
             }
 
-            // Stage 5: Dispatch duties
+            // Stage 5: Dispatch duties. While safe harbour is active no withdrawal advances:
+            // the withdrawal-path duties are dropped here, which also covers the graph SMs and
+            // the switch-over window before a deposit enters the sweep flow. Defensive duties
+            // (contest, counterproof, slash, unstaking burn) always dispatch.
+            let safe_harbour_active = self.registry.safe_harbour_active();
             for duty in all_duties {
+                if safe_harbour_active && duty.should_suppress_under_safe_harbour() {
+                    info!(
+                        ?duty,
+                        "safe harbour active; suppressing withdrawal-path duty"
+                    );
+                    continue;
+                }
                 self.dispatcher.dispatch(duty);
             }
         }
