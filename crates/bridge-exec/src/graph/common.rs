@@ -720,7 +720,7 @@ pub(super) async fn publish_claim(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, io, sync::Arc, time::Duration};
+    use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
     use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client as CoreRpcClient};
     use bitcoin::{
@@ -742,12 +742,23 @@ mod tests {
         sync_fails: bool,
     }
 
+    /// Error of the reconciliation mock. Nothing in these tests reads the classification.
+    #[derive(Debug, thiserror::Error)]
+    #[error("{0}")]
+    struct MockError(String);
+
+    impl operator_wallet::ErrorPermanence for MockError {
+        fn is_permanent(&self) -> bool {
+            false
+        }
+    }
+
     impl GeneralWallet for ReconciliationGeneralWallet {
-        type Error = io::Error;
+        type Error = MockError;
 
         async fn sync(&mut self) -> Result<(), Self::Error> {
             if self.sync_fails {
-                Err(io::Error::other("test sync failure"))
+                Err(MockError("test sync failure".into()))
             } else {
                 Ok(())
             }

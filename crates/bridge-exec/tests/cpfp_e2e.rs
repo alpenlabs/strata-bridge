@@ -65,7 +65,9 @@ const PARENT_FEE_RATE_SAT_PER_VB: u64 = 5;
 struct FixedFeeSource(FeeRate);
 
 impl cpfp::CpfpFeeSource for FixedFeeSource {
-    fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
+    fn estimate(
+        &self,
+    ) -> impl std::future::Future<Output = Result<FeeRate, cpfp::FeeSourceError>> + Send {
         let rate = self.0;
         async move { Ok(rate) }
     }
@@ -964,7 +966,9 @@ async fn cpfp_e2e_multi_anchor_against_bitcoind() {
     // consult it, so any routing regression surfaces as a hard test failure here too.
     let anchor_input_signer: InputSigner = Arc::new(move |_msg: Message| {
         Box::pin(async move {
-            Err("anchor_input_signer must not be called for a MultiAnchorBearing bump".to_string())
+            Err(cpfp::SignerError(
+                "anchor_input_signer must not be called for a MultiAnchorBearing bump".into(),
+            ))
         })
     });
     let ctx = CpfpContext {
@@ -1230,7 +1234,7 @@ impl cpfp::CpfpMempool for BlindToSpends {
     async fn anchor_spend_state(
         &self,
         _anchor: OutPoint,
-    ) -> Result<cpfp::AnchorSpendState, String> {
+    ) -> Result<cpfp::AnchorSpendState, cpfp::MempoolError> {
         Ok(cpfp::AnchorSpendState::Unspent)
     }
 }

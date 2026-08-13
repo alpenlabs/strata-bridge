@@ -360,6 +360,15 @@ where
             }
             outcome
         }
+        Err(e) if e.is_unbumpable() => {
+            error!(
+                %parent_txid,
+                error = %e,
+                ?reason,
+                "parent cannot carry a CPFP child; stopping the bumps for it"
+            );
+            BumpOutcome::Unbumpable
+        }
         Err(e) if e.is_replacement_contention_for(&parent_txid) => {
             // The parent itself lost a replacement race: a transaction that conflicts with
             // the parent is in the mempool, and the parent is not. Nothing more is known.
@@ -585,6 +594,15 @@ async fn run_bump<W, F, P>(
     follow_up
         .apply(parents, parent_txid, outcome, Some(guard.mark()))
         .await;
+    if outcome == BumpOutcome::Unbumpable {
+        // Drop the CPFP state of a record that the follow-up left in place. Its listeners
+        // still wait on this transaction, and the eviction path still puts it back bare.
+        // The follow-up runs first, because a carried job proves its ownership of the
+        // record through the mark that lives in the CPFP state.
+        if let Some(record) = parents.lock().await.get_mut(&parent_txid) {
+            record.cpfp = None;
+        }
+    }
 }
 
 /// Spawns one task that bumps every parent that can take a bump, one after another.
@@ -1824,6 +1842,48 @@ mod cpfp_lifecycle_tests {
         );
     }
 
+    /// An unbumpable parent that entered through a failed bare broadcast must go completely.
+    /// The package was its only route into a mempool, so the record that its job created is
+    /// removed, and its caller hears the broadcast error.
+    #[tokio::test]
+    async fn an_unbumpable_carried_job_still_removes_its_record() {
+        let (_, key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(key, Amount::from_sat(330));
+        let parent_txid = parent.compute_txid();
+        let ctx = Arc::new(test_ctx(
+            FakeWallet::unbumpable("anchor vout 9 out of range"),
+            FakeSubmitter::failing("submitter must not be called"),
+        ));
+        let (parents, _mark) =
+            parents_with(parent_txid, test_record(parent, key, Stage::Unconfirmed));
+        let (listener, receiver) = never_listener();
+
+        let task = spawn_bump(
+            &ctx,
+            &parents,
+            parent_txid,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+            BumpFollowUp::CarryJob {
+                err: ClientError::Other("bare broadcast rejected".into()),
+                listener,
+                created: true,
+            },
+        )
+        .await
+        .expect("a bumpable record must spawn a bump");
+        task.await.expect("the bump task must not panic");
+
+        assert!(
+            parents.lock().await.is_empty(),
+            "the record must go with the job that created it"
+        );
+        assert!(
+            matches!(receiver.await, Ok(Err(DriveErr::PublishFailed(_)))),
+            "the caller must hear the broadcast error"
+        );
+    }
+
     /// The contention outcome depends on which package member lost the race. A rejection on
     /// the parent means a conflicting transaction is in the mempool and the parent is not.
     /// A rejection on the child means the incumbent spends an output of the parent, so the
@@ -1863,6 +1923,42 @@ mod cpfp_lifecycle_tests {
             .await;
             assert_eq!(outcome, expected, "rejected member = {rejected}");
         }
+    }
+
+    /// A parent whose anchor the wallet cannot spend never becomes bumpable. The driver drops
+    /// its CPFP state, so no later block or tick rebuilds, re-signs, and resubmits for it.
+    /// The record stays, because its callers still wait on the transaction.
+    #[tokio::test]
+    async fn an_unbumpable_parent_loses_its_cpfp_state() {
+        let (_, key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(key, Amount::from_sat(330));
+        let parent_txid = parent.compute_txid();
+        let ctx = Arc::new(test_ctx(
+            FakeWallet::unbumpable("anchor vout 9 out of range"),
+            FakeSubmitter::failing("submitter must not be called"),
+        ));
+        let (parents, _mark) =
+            parents_with(parent_txid, test_record(parent, key, Stage::Unconfirmed));
+
+        let task = spawn_bump(
+            &ctx,
+            &parents,
+            parent_txid,
+            PROTOCOL_FLOOR,
+            BumpReason::Tick,
+            BumpFollowUp::None,
+        )
+        .await
+        .expect("a bumpable record must spawn a bump");
+        task.await.expect("the bump task must not panic");
+
+        let map = parents.lock().await;
+        let record = map.get(&parent_txid).expect("the record must survive");
+        assert!(
+            record.cpfp.is_none(),
+            "an unbumpable parent must lose its CPFP state"
+        );
+        assert!(!record.is_bumpable(), "and it must not take another bump");
     }
 
     /// The per-parent mark stops a second trigger from bumping a parent whose bump is still

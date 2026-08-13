@@ -167,7 +167,10 @@ pub struct ReplacedChild<'a> {
 /// sign them downstream by whatever means it sees fit.
 pub trait GeneralWallet: Send + Sync {
     /// Backend-specific error type.
-    type Error: StdError + Send + Sync + 'static;
+    ///
+    /// [`crate::ErrorPermanence`] is required because the composer boxes this type, and a
+    /// caller that retries on a timer needs the classification that the box hides.
+    type Error: StdError + crate::ErrorPermanence + Send + Sync + 'static;
 
     /// Refreshes internal state from the underlying source. Idempotent.
     ///

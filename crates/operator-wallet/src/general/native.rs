@@ -118,6 +118,24 @@ pub enum NativeGeneralError {
     },
 }
 
+impl crate::ErrorPermanence for NativeGeneralError {
+    fn is_permanent(&self) -> bool {
+        match self {
+            // The output count of a signed parent never changes, and a script that BDK cannot
+            // read as a foreign UTXO stays unreadable. Every later attempt for this parent
+            // fails at the same step.
+            Self::AnchorVoutOutOfRange { .. } | Self::AnchorForeignUtxo(_) => true,
+            // Funds arrive, the chain moves, and selection picks a different set. Each of
+            // these passes on a later attempt.
+            Self::CreateTx(_)
+            | Self::Sync(_)
+            | Self::FundingUtxo(_)
+            | Self::UnexpectedInputCount { .. }
+            | Self::InsufficientFunding { .. } => false,
+        }
+    }
+}
+
 impl GeneralWallet for NativeGeneralWallet {
     type Error = NativeGeneralError;
 

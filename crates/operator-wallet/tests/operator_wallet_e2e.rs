@@ -475,8 +475,19 @@ struct YieldingGeneralWallet {
     utxos: Vec<operator_wallet::UtxoInfo>,
 }
 
+/// Error of the mock backend. Nothing in this test depends on the classification.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct MockError(String);
+
+impl operator_wallet::ErrorPermanence for MockError {
+    fn is_permanent(&self) -> bool {
+        false
+    }
+}
+
 impl GeneralWallet for YieldingGeneralWallet {
-    type Error = std::io::Error;
+    type Error = MockError;
 
     async fn sync(&mut self) -> Result<(), Self::Error> {
         Ok(())
@@ -503,7 +514,7 @@ impl GeneralWallet for YieldingGeneralWallet {
             .utxos
             .iter()
             .find(|u| !exclude.contains(&u.outpoint))
-            .ok_or_else(|| std::io::Error::other("no candidate"))?;
+            .ok_or_else(|| MockError("no candidate".into()))?;
         let tx = Transaction {
             version: bdk_wallet::bitcoin::transaction::Version::TWO,
             lock_time: bdk_wallet::bitcoin::absolute::LockTime::ZERO,

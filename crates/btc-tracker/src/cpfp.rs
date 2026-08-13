@@ -151,6 +151,47 @@ pub struct CpfpHandle {
     pub last_child_fee: Option<Amount>,
 }
 
+/// A fee source could not produce an estimate.
+///
+/// Every cause is transient: the network, the RPC, and the explorer all recover. The type
+/// names the boundary, so a call site cannot pass one boundary's error where another belongs.
+#[derive(Debug, Clone, Error)]
+#[error("fee source: {0}")]
+pub struct FeeSourceError(pub String);
+
+/// A mempool query could not complete.
+///
+/// The bump loop treats each cause the same and falls through to the build, so the type
+/// carries a message rather than a classification.
+#[derive(Debug, Clone, Error)]
+#[error("mempool: {0}")]
+pub struct MempoolError(pub String);
+
+/// An input signer could not produce a signature.
+///
+/// The bump skips and the next trigger retries. A secret-service fault does not escalate out
+/// of the bump loop.
+#[derive(Debug, Clone, Error)]
+#[error("{0}")]
+pub struct SignerError(pub String);
+
+/// Why a wallet could not build a CPFP child.
+///
+/// The two cases lead to different driver behaviour, so the boundary reports which one it is
+/// rather than one message that the driver has to read.
+#[derive(Debug, Error)]
+pub enum CpfpWalletError {
+    /// The parent cannot carry a child, whatever the wallet does. Its anchor is not where the
+    /// strategy says, or the wallet cannot spend it. A signed parent does not change shape, so
+    /// every later attempt fails at the same step.
+    #[error("parent cannot carry a child: {0}")]
+    Unbumpable(String),
+    /// The wallet could not fund a child now. Funds arrive, the chain moves, and a later
+    /// attempt can pass.
+    #[error("{0}")]
+    Transient(String),
+}
+
 /// What one call to [`perform_bump`] achieved.
 ///
 /// A caller that must decide the fate of a transaction needs more than "no package went
@@ -168,25 +209,28 @@ pub enum BumpOutcome {
     /// No package went out, and the bump observed nothing about where the parent is. The
     /// target sits at the protocol floor, or the parent's own fee already meets it.
     NoChildNeeded,
+    /// The parent cannot carry a child at all. Every later bump for it fails the same way, so
+    /// the driver stops bumping it and lets the bare paths carry it.
+    Unbumpable,
 }
 
 /// Errors produced by [`perform_bump`].
 #[derive(Debug, Error)]
 pub enum CpfpError {
     /// The fee source lookup failed. The bump is skipped; the next trigger will retry.
-    #[error("fee source: {0}")]
-    FeeSource(String),
-    /// The wallet rejected the child build (insufficient funds, anchor out of range, ...).
+    #[error("{0}")]
+    FeeSource(#[from] FeeSourceError),
+    /// The wallet rejected the child build.
     #[error("wallet build_cpfp_child: {0}")]
-    Wallet(String),
+    Wallet(#[from] CpfpWalletError),
     /// The anchor input signer returned an error. The bump is skipped; the next trigger
     /// will retry. Per design, secret-service hiccups don't escalate from the bump loop.
     #[error("anchor signer: {0}")]
-    AnchorSigner(String),
+    AnchorSigner(SignerError),
     /// A wallet funding-input signer returned an error. Treated the same as
     /// [`Self::AnchorSigner`] — skip + retry.
     #[error("wallet input signer: {0}")]
-    WalletSigner(String),
+    WalletSigner(SignerError),
     /// `submitpackage` returned a non-success outcome. Logged + bump skipped.
     #[error("submit_package: {0}")]
     SubmitPackage(#[from] SubmitPackageError),
@@ -197,6 +241,14 @@ pub enum CpfpError {
 }
 
 impl CpfpError {
+    /// Whether every later bump for this parent fails the same way.
+    ///
+    /// A parent whose anchor is not where the strategy says never becomes bumpable, so the
+    /// driver stops rather than rebuild, re-sign, and resubmit on every block and tick.
+    pub const fn is_unbumpable(&self) -> bool {
+        matches!(self, Self::Wallet(CpfpWalletError::Unbumpable(_)))
+    }
+
     /// Whether this failure is a lost race for a shared anchor rather than a fault.
     ///
     /// See [`SubmitPackageError::is_replacement_contention`]. Callers use it to keep expected
@@ -352,7 +404,7 @@ pub trait CpfpWallet: Send + Sync + fmt::Debug {
         target_pkg_fee_rate: FeeRate,
         replacing: Option<&dyn FundingLease>,
         prior_child_fee: Option<Amount>,
-    ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send;
+    ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, CpfpWalletError>> + Send;
 }
 
 /// Source of fee-rate estimates used to drive the package target. Defined in this crate
@@ -364,13 +416,14 @@ pub trait CpfpWallet: Send + Sync + fmt::Debug {
 /// it in the background on `refresh_interval`.
 pub trait CpfpFeeSource: Send + Sync + fmt::Debug {
     /// Returns the current sat/vB target for the next block.
-    fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send;
+    fn estimate(&self)
+        -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send;
 }
 
 /// Boxed future returned by an [`InputSigner`]; pinned + Send so it can fly across the
 /// driver's tokio task boundary.
 pub type InputSignFut =
-    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Signature, String>> + Send>>;
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Signature, SignerError>> + Send>>;
 
 /// Signs one BIP-341 key-path Taproot input by computing a Schnorr signature over the
 /// caller-supplied sighash. Used by [`perform_bump`] in two distinct roles:
@@ -452,7 +505,10 @@ impl CachedFeeSource {
     /// Performs one initial refresh from `underlying`, spawns a background task that re-polls
     /// every `refresh_interval`, and returns a `CachedFeeSource` whose `estimate()` reads from
     /// the cached atomic.
-    pub async fn spawn<U>(underlying: Arc<U>, refresh_interval: Duration) -> Result<Self, String>
+    pub async fn spawn<U>(
+        underlying: Arc<U>,
+        refresh_interval: Duration,
+    ) -> Result<Self, FeeSourceError>
     where
         U: CpfpFeeSource + 'static,
     {
@@ -521,7 +577,9 @@ impl CachedFeeSource {
 impl CpfpFeeSource for CachedFeeSource {
     /// Returns the cached value. Never returns `Err` — refresh failures are logged at the
     /// background task and the prior value is retained.
-    fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
+    fn estimate(
+        &self,
+    ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
         let value = self.current();
         async move { Ok(value) }
     }
@@ -569,7 +627,7 @@ pub trait CpfpMempool: Send + Sync + fmt::Debug {
     fn anchor_spend_state(
         &self,
         anchor: OutPoint,
-    ) -> impl std::future::Future<Output = Result<AnchorSpendState, String>> + Send;
+    ) -> impl std::future::Future<Output = Result<AnchorSpendState, MempoolError>> + Send;
 }
 
 /// Zero-sized placeholder that implements every CPFP trait but panics if any method is ever
@@ -595,14 +653,16 @@ impl CpfpWallet for CpfpDisabled {
         _target_pkg_fee_rate: FeeRate,
         _replacing: Option<&dyn FundingLease>,
         _prior_child_fee: Option<Amount>,
-    ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send {
+    ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, CpfpWalletError>> + Send {
         async { unreachable!("CpfpDisabled::build_cpfp_child should never be called") }
     }
 }
 
 #[expect(clippy::manual_async_fn, reason = "see CpfpWallet impl above")]
 impl CpfpFeeSource for CpfpDisabled {
-    fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
+    fn estimate(
+        &self,
+    ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
         async { unreachable!("CpfpDisabled::estimate should never be called") }
     }
 }
@@ -621,7 +681,7 @@ impl CpfpMempool for CpfpDisabled {
     fn anchor_spend_state(
         &self,
         _anchor: OutPoint,
-    ) -> impl std::future::Future<Output = Result<AnchorSpendState, String>> + Send {
+    ) -> impl std::future::Future<Output = Result<AnchorSpendState, MempoolError>> + Send {
         async { unreachable!("CpfpDisabled::anchor_spend_state should never be called") }
     }
 }
@@ -936,8 +996,7 @@ where
     let funded = ctx
         .wallet
         .build_cpfp_child(parent, strategy.clone(), target, replacing, prior_child_fee)
-        .await
-        .map_err(CpfpError::Wallet)?;
+        .await?;
 
     // Take the new lease into the handle NOW, before any of the fallible steps below.
     //
@@ -1196,7 +1255,7 @@ pub(crate) mod tests {
 
     #[derive(Debug)]
     pub(crate) struct FakeFeeSource {
-        rate: Mutex<Result<FeeRate, String>>,
+        rate: Mutex<Result<FeeRate, FeeSourceError>>,
     }
     impl FakeFeeSource {
         pub(crate) fn returning(rate: FeeRate) -> Self {
@@ -1206,12 +1265,14 @@ pub(crate) mod tests {
         }
         fn failing() -> Self {
             Self {
-                rate: Mutex::new(Err("fake fee source failure".to_string())),
+                rate: Mutex::new(Err(FeeSourceError("fake fee source failure".into()))),
             }
         }
     }
     impl CpfpFeeSource for FakeFeeSource {
-        fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
+        fn estimate(
+            &self,
+        ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
             let r = self.rate.lock().unwrap().clone();
             async move { r }
         }
@@ -1245,7 +1306,7 @@ pub(crate) mod tests {
     pub(crate) struct FakeWallet {
         psbt_template: Mutex<Option<Psbt>>,
         spent_template: Vec<OutPoint>,
-        error: Option<String>,
+        error: Option<CpfpWalletError>,
         /// Outpoints of every lease that has dropped, in drop order.
         pub(crate) released: Arc<Mutex<Vec<OutPoint>>>,
     }
@@ -1262,7 +1323,17 @@ pub(crate) mod tests {
             Self {
                 psbt_template: Mutex::new(None),
                 spent_template: Vec::new(),
-                error: Some(msg.to_string()),
+                error: Some(CpfpWalletError::Transient(msg.to_string())),
+                released: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        /// A wallet that reports a parent which can never carry a child.
+        pub(crate) fn unbumpable(msg: &str) -> Self {
+            Self {
+                psbt_template: Mutex::new(None),
+                spent_template: Vec::new(),
+                error: Some(CpfpWalletError::Unbumpable(msg.to_string())),
                 released: Arc::new(Mutex::new(Vec::new())),
             }
         }
@@ -1282,8 +1353,12 @@ pub(crate) mod tests {
             _target_pkg_fee_rate: FeeRate,
             _replacing: Option<&dyn FundingLease>,
             _prior_child_fee: Option<Amount>,
-        ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send {
-            let err = self.error.clone();
+        ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, CpfpWalletError>> + Send
+        {
+            let err = self.error.as_ref().map(|e| match e {
+                CpfpWalletError::Unbumpable(m) => CpfpWalletError::Unbumpable(m.clone()),
+                CpfpWalletError::Transient(m) => CpfpWalletError::Transient(m.clone()),
+            });
             let psbt = self.psbt_template.lock().unwrap().clone();
             let lease = self.lease(self.spent_template.clone());
             async move {
@@ -1365,7 +1440,10 @@ pub(crate) mod tests {
         /// build path). The full contention flow is covered end to end against a live
         /// bitcoind; the unit tests use [`FakeSubmitter::with_spend_state`] to pin the
         /// lease bookkeeping on the skip paths.
-        async fn anchor_spend_state(&self, _anchor: OutPoint) -> Result<AnchorSpendState, String> {
+        async fn anchor_spend_state(
+            &self,
+            _anchor: OutPoint,
+        ) -> Result<AnchorSpendState, MempoolError> {
             Ok(*self.spend_state.lock().unwrap())
         }
     }
@@ -1376,7 +1454,7 @@ pub(crate) mod tests {
                 // Schnorr signature is 64 bytes; bytes don't have to verify for unit tests of
                 // the bump-loop control flow.
                 let sig = Signature::from_slice(&[7u8; 64]).expect("64 bytes is a valid sig");
-                Ok::<_, String>(sig)
+                Ok::<_, SignerError>(sig)
             })
         })
     }
@@ -1384,7 +1462,7 @@ pub(crate) mod tests {
     pub(crate) fn fake_input_signer_failing(message: &'static str) -> InputSigner {
         Arc::new(move |_msg: Message| {
             let m = message.to_string();
-            Box::pin(async move { Err(m) })
+            Box::pin(async move { Err(SignerError(m)) })
         })
     }
 
@@ -2320,10 +2398,12 @@ pub(crate) mod tests {
     /// refresh loop of [`CachedFeeSource`].
     #[derive(Debug)]
     struct FlippableFeeSource {
-        inner: Mutex<Result<FeeRate, String>>,
+        inner: Mutex<Result<FeeRate, FeeSourceError>>,
     }
     impl CpfpFeeSource for FlippableFeeSource {
-        fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
+        fn estimate(
+            &self,
+        ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
             let r = self.inner.lock().unwrap().clone();
             async move { r }
         }
@@ -2343,7 +2423,7 @@ pub(crate) mod tests {
         assert_eq!(cache.current(), FeeRate::from_sat_per_vb(10).unwrap());
 
         // Flip underlying to failing.
-        *flippable.inner.lock().unwrap() = Err("transient blip".to_string());
+        *flippable.inner.lock().unwrap() = Err(FeeSourceError("transient blip".into()));
         // Wait long enough for a refresh attempt to complete.
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -2477,7 +2557,7 @@ pub(crate) mod tests {
     fn fake_input_signer_const(byte: u8) -> InputSigner {
         Arc::new(move |_msg: Message| {
             Box::pin(async move {
-                Ok::<_, String>(
+                Ok::<_, SignerError>(
                     Signature::from_slice(&[byte; 64]).expect("64 bytes is a valid sig"),
                 )
             })

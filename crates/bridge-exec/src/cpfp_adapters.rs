@@ -16,12 +16,14 @@ use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::{
     cpfp::{
         AnchorSpendState, ChildPsbt, CpfpFeeSource, CpfpMempool, CpfpStrategy, CpfpWallet,
-        FundingLease, InputSignFut, InputSigner, WalletFundedPsbt,
+        CpfpWalletError, FeeSourceError, FundingLease, InputSignFut, InputSigner, MempoolError,
+        SignerError, WalletFundedPsbt,
     },
     submitpackage::{self, SubmitPackageError, SubmitPackageSummary},
 };
 use operator_wallet::{
-    AnchorInfo, AnchorOwnership, GeneralWallet, Lease, OperatorWallet, ReplacedChild,
+    AnchorInfo, AnchorOwnership, ErrorPermanence, GeneralWallet, Lease, OperatorWallet,
+    ReplacedChild,
 };
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
@@ -95,7 +97,7 @@ impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWallet
         target_pkg_fee_rate: FeeRate,
         replacing: Option<&dyn FundingLease>,
         prior_child_fee: Option<Amount>,
-    ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send {
+    ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, CpfpWalletError>> + Send {
         // Clone what we need into the future so the returned future owns its captures.
         let wallet_arc = self.wallet.clone();
         let parent_owned = parent.clone();
@@ -158,11 +160,23 @@ impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWallet
                     },
                 )
                 .await
-                .map_err(|e| format!("{e}"))?;
+                // Classify at the boundary. The wallet knows which failures repeat for a
+                // signed parent, and the driver reads that to stop bumping one that cannot
+                // carry a child at all.
+                .map_err(|e| {
+                    let message = e.to_string();
+                    if e.is_permanent() {
+                        CpfpWalletError::Unbumpable(message)
+                    } else {
+                        CpfpWalletError::Transient(message)
+                    }
+                })?;
             let (psbt, lease) = funded.into_parts();
-            // The backend states its signing through the final fields, and each input
-            // carries its spent output. A violation fails here rather than on chain.
-            let psbt = ChildPsbt::new(psbt).map_err(|e| e.to_string())?;
+            // A contract violation is a fault of the backend build, not a property of the
+            // parent, and the offending input depends on which UTXOs selection picked. The
+            // next attempt selects again.
+            let psbt =
+                ChildPsbt::new(psbt).map_err(|e| CpfpWalletError::Transient(e.to_string()))?;
             Ok(WalletFundedPsbt {
                 psbt,
                 lease: Arc::new(WalletFundingLease(lease)),
@@ -194,14 +208,16 @@ impl BitcoindCpfpFeeSource {
 }
 
 impl CpfpFeeSource for BitcoindCpfpFeeSource {
-    fn estimate(&self) -> impl std::future::Future<Output = Result<FeeRate, String>> + Send {
+    fn estimate(
+        &self,
+    ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
         let client = self.client.clone();
         let conf_target = self.conf_target;
         async move {
             let smart_fee = client
                 .estimate_smart_fee(conf_target)
                 .await
-                .map_err(|e| format!("estimate_smart_fee: {e:?}"))?;
+                .map_err(|e| FeeSourceError(format!("estimate_smart_fee: {e:?}")))?;
             // `estimatesmartfee` reports no `fee_rate` when it has insufficient data (fresh
             // regtest, early signet); floor at 1 sat/vB in that case and whenever the node
             // reports something below it, so the bump loop never targets a rate that would
@@ -240,7 +256,7 @@ impl CpfpMempool for BitcoindCpfpMempool {
     fn anchor_spend_state(
         &self,
         anchor: OutPoint,
-    ) -> impl std::future::Future<Output = Result<AnchorSpendState, String>> + Send {
+    ) -> impl std::future::Future<Output = Result<AnchorSpendState, MempoolError>> + Send {
         let client = self.client.clone();
         async move {
             // `gettxspendingprevout` reports the transaction that spends an outpoint, whether
@@ -252,14 +268,14 @@ impl CpfpMempool for BitcoindCpfpMempool {
             let spends: Vec<PrevoutSpend> = client
                 .call_raw("gettxspendingprevout", &[query])
                 .await
-                .map_err(|e| format!("gettxspendingprevout: {e:?}"))?;
+                .map_err(|e| MempoolError(format!("gettxspendingprevout: {e:?}")))?;
 
             let Some(spending_txid) = spends.into_iter().find_map(|s| s.spending_txid) else {
                 return Ok(AnchorSpendState::Unspent);
             };
-            let spending_txid: Txid = spending_txid
-                .parse()
-                .map_err(|e| format!("gettxspendingprevout returned a bad txid: {e}"))?;
+            let spending_txid: Txid = spending_txid.parse().map_err(|e| {
+                MempoolError(format!("gettxspendingprevout returned a bad txid: {e}"))
+            })?;
 
             // A spender exists. When the mempool holds it, its ancestor totals give the package
             // rate that this operator competes against.
@@ -275,11 +291,11 @@ impl CpfpMempool for BitcoindCpfpMempool {
             };
 
             let ancestor_fee = Amount::from_btc(entry.fees.ancestor)
-                .map_err(|e| format!("ancestor fee is not a valid amount: {e}"))?;
+                .map_err(|e| MempoolError(format!("ancestor fee is not a valid amount: {e}")))?;
             let rate = ancestor_fee
                 .checked_div(entry.ancestor_size.max(1))
                 .map(|per_vb| FeeRate::from_sat_per_vb_unchecked(per_vb.to_sat()))
-                .ok_or_else(|| "ancestor fee rate overflowed".to_string())?;
+                .ok_or_else(|| MempoolError("ancestor fee rate overflowed".into()))?;
             Ok(AnchorSpendState::SpentInMempool {
                 spender: spending_txid,
                 pkg_fee_rate: rate,
@@ -330,9 +346,9 @@ pub fn build_multi_anchor_signer(s2_client: SecretServiceClient) -> InputSigner 
                 .await
                 .map_err(|e| {
                     warn!(?e, "secret-service multi-anchor (script-path) sign failed");
-                    format!("{e:?}")
+                    SignerError(format!("{e:?}"))
                 })?;
-            Ok::<Signature, String>(sig)
+            Ok::<Signature, SignerError>(sig)
         });
         fut
     });
@@ -355,9 +371,9 @@ pub fn build_anchor_input_signer(s2_client: SecretServiceClient) -> InputSigner 
             let digest: &[u8; 32] = msg.as_ref();
             let sig = s2.musig2_signer().sign(digest, None).await.map_err(|e| {
                 warn!(?e, "secret-service anchor sign failed");
-                format!("{e:?}")
+                SignerError(format!("{e:?}"))
             })?;
-            Ok::<Signature, String>(sig)
+            Ok::<Signature, SignerError>(sig)
         });
         fut
     });
@@ -383,9 +399,9 @@ pub fn build_wallet_input_signer(s2_client: SecretServiceClient) -> InputSigner 
                 .await
                 .map_err(|e| {
                     warn!(?e, "secret-service wallet-input sign failed");
-                    format!("{e:?}")
+                    SignerError(format!("{e:?}"))
                 })?;
-            Ok::<Signature, String>(sig)
+            Ok::<Signature, SignerError>(sig)
         });
         fut
     });
