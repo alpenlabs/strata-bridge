@@ -141,7 +141,10 @@ impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWallet
                     control_block,
                 },
             };
-            let mut wallet = wallet_arc.write().await;
+            // A shared lock: the composer serializes selection internally, so a bump does
+            // not need to exclude a health probe or a descriptor read for the length of a
+            // backend round trip.
+            let wallet = wallet_arc.read().await;
             let funded = wallet
                 .build_cpfp_child(
                     &parent_owned,

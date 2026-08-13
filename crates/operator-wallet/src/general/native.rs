@@ -5,7 +5,10 @@
 //! returns carries `witness_utxo` and `tap_internal_key` on its inputs but no signatures —
 //! the caller signs downstream.
 
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    sync::{Mutex, MutexGuard},
+};
 
 use bdk_wallet::{
     bitcoin::{
@@ -32,8 +35,24 @@ use crate::{
 pub struct NativeGeneralWallet {
     /// Cached at construction; the BDK descriptor doesn't change at runtime.
     script_pubkey: ScriptBuf,
-    wallet: Wallet,
+    /// The BDK wallet.
+    ///
+    /// BDK builds a transaction through `&mut Wallet`, and [`GeneralWallet`] builds through
+    /// `&self`. The lock closes that gap. Every critical section here is synchronous, so the
+    /// lock is never held across an await point.
+    wallet: Mutex<Wallet>,
     sync_backend: Backend,
+}
+
+/// Locks the BDK wallet and recovers from a poisoned lock.
+///
+/// A poisoned lock means a panic happened inside one of the critical sections of this file.
+/// Each one is a single BDK call, so the wallet state stays consistent, and one panic must
+/// not stop every later transaction that the operator builds.
+fn lock_wallet(wallet: &Mutex<Wallet>) -> MutexGuard<'_, Wallet> {
+    wallet
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl NativeGeneralWallet {
@@ -49,7 +68,7 @@ impl NativeGeneralWallet {
         let script_pubkey = address.script_pubkey();
         Self {
             script_pubkey,
-            wallet,
+            wallet: Mutex::new(wallet),
             sync_backend,
         }
     }
@@ -103,8 +122,14 @@ impl GeneralWallet for NativeGeneralWallet {
     type Error = NativeGeneralError;
 
     async fn sync(&mut self) -> Result<(), Self::Error> {
+        // `get_mut` and not a lock: `&mut self` already proves that nothing else holds the
+        // wallet, so the sync can await without a guard alive across it.
         self.sync_backend
-            .sync_wallet(&mut self.wallet)
+            .sync_wallet(
+                self.wallet
+                    .get_mut()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            )
             .await
             .map_err(NativeGeneralError::Sync)
     }
@@ -114,22 +139,23 @@ impl GeneralWallet for NativeGeneralWallet {
     }
 
     fn list_utxos(&self) -> Vec<UtxoInfo> {
-        let tip = self.wallet.latest_checkpoint().height();
-        self.wallet
+        let wallet = lock_wallet(&self.wallet);
+        let tip = wallet.latest_checkpoint().height();
+        wallet
             .list_unspent()
             .map(|lo| local_output_to_utxo_info(&lo, tip))
             .collect()
     }
 
     async fn fund_v3_transaction(
-        &mut self,
+        &self,
         outputs: Vec<TxOut>,
         explicit_inputs: Option<&[OutPoint]>,
         fee_rate: FeeRate,
         exclude: &[OutPoint],
     ) -> Result<FundedPsbt, Self::Error> {
         let psbt = build_v3_psbt(
-            &mut self.wallet,
+            &mut lock_wallet(&self.wallet),
             &outputs,
             explicit_inputs,
             fee_rate,
@@ -139,7 +165,7 @@ impl GeneralWallet for NativeGeneralWallet {
     }
 
     async fn build_cpfp_child(
-        &mut self,
+        &self,
         parent: &Transaction,
         parent_fee: Amount,
         anchor: AnchorInfo,
@@ -148,7 +174,7 @@ impl GeneralWallet for NativeGeneralWallet {
         replaced: ReplacedChild<'_>,
     ) -> Result<FundedPsbt, Self::Error> {
         build_cpfp_child_impl(
-            &mut self.wallet,
+            &mut lock_wallet(&self.wallet),
             parent,
             parent_fee,
             anchor,

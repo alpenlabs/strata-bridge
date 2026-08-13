@@ -163,14 +163,15 @@ async fn ensure_claim_funding_outpoint(
             ),
         }
 
-        match wallet
+        let reserved = wallet
             .reserve_utxo_with_value(
                 cfg.claim_funding_utxo_value,
                 LeaseOwner::ClaimFunding,
                 predicate::never::<UtxoInfo>,
             )
-            .0
-        {
+            .await
+            .0;
+        match reserved {
             Some(reserved) => reserved,
             None => {
                 warn!("could not acquire claim funding utxo. attempting refill...");
@@ -259,6 +260,7 @@ async fn ensure_claim_funding_outpoint(
                         LeaseOwner::ClaimFunding,
                         predicate::never::<UtxoInfo>,
                     )
+                    .await
                     .0
                     .expect("funding utxos must be available after refill")
             }
@@ -760,7 +762,7 @@ mod tests {
         }
 
         async fn fund_v3_transaction(
-            &mut self,
+            &self,
             _outputs: Vec<TxOut>,
             _explicit_inputs: Option<&[OutPoint]>,
             _fee_rate: FeeRate,
@@ -770,7 +772,7 @@ mod tests {
         }
 
         async fn build_cpfp_child(
-            &mut self,
+            &self,
             _parent: &Transaction,
             _parent_fee: bitcoin::Amount,
             _anchor: operator_wallet::AnchorInfo,

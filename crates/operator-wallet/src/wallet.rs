@@ -15,9 +15,13 @@
 //! call. A caller that records the outpoints in durable storage, or that broadcasts the
 //! spend, calls [`Lease::commit`] instead.
 //!
-//! Methods on [`OperatorWallet`] take `&mut self`. Callers serialize via an outer lock when
-//! they need a multi-step critical section, such as a database lookup, then funding, then a
-//! write.
+//! Only [`OperatorWallet::sync`] takes `&mut self`. Every other method takes `&self`, so a
+//! caller holds a shared outer lock to fund a transaction, and a read of the wallet does not
+//! queue behind a backend round trip that takes seconds. An internal lock serializes the
+//! paths that select UTXOs, so two of them cannot pick one outpoint twice.
+//!
+//! Callers still take the exclusive outer lock for a multi-step critical section, such as a
+//! database lookup, then funding, then a write.
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -28,7 +32,7 @@ use bdk_wallet::{
     descriptor, KeychainKind, Wallet,
 };
 use bitcoin_bosd::Descriptor;
-use tokio::time::sleep;
+use tokio::{sync::Mutex as TokioMutex, time::sleep};
 use tracing::{error, info, warn};
 
 use crate::{
@@ -96,6 +100,21 @@ pub struct OperatorWallet<G: GeneralWallet> {
     reserved_script_pubkey: ScriptBuf,
     config: OperatorWalletConfig,
     leases: Arc<LeaseSet>,
+    /// Serializes every path that selects UTXOs and then takes a lease on them.
+    ///
+    /// A selection reads the set of held outpoints, awaits the backend, and takes the lease
+    /// when the backend returns. Two selections that overlap read the same set, so they pick
+    /// one outpoint twice and build two transactions that conflict. This lock makes the read,
+    /// the selection, and the lease one step.
+    ///
+    /// It is a `tokio` mutex because the backend selection is a future. It replaces the
+    /// exclusive outer lock that callers held for the same reason, so a read of the wallet no
+    /// longer queues behind a backend round trip that takes seconds.
+    ///
+    /// A path with no await between the read and the lease is atomic without this lock. Those
+    /// paths take it as well, so that an await added to one of them later cannot open the gap
+    /// without notice.
+    funding: TokioMutex<()>,
 }
 
 impl<G: GeneralWallet> OperatorWallet<G> {
@@ -129,6 +148,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
             reserved_script_pubkey,
             config,
             leases: Arc::new(LeaseSet::with_committed(initial_leases)),
+            funding: TokioMutex::new(()),
         }
     }
 
@@ -169,7 +189,11 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     /// stake funding reservation that a duty reads back and reuses. A caller that still
     /// controls the lifetime of the outpoints takes a normal lease and keeps the value
     /// instead. [`Self::release_committed`] frees them again.
-    pub fn lease_committed(&self, outpoints: Vec<OutPoint>, owner: LeaseOwner) {
+    pub async fn lease_committed(&self, outpoints: Vec<OutPoint>, owner: LeaseOwner) {
+        // Under the funding lock: a selection that is awaiting its backend computed its
+        // exclusion set already, and a commit that lands between that read and the backend's
+        // return hands the same outpoints to two spenders.
+        let _funding = self.funding.lock().await;
         self.leases.take(outpoints, owner).commit();
     }
 
@@ -215,12 +239,13 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     ///
     /// Returns the selected UTXO with its lease, and the number of other matching free UTXOs
     /// left after the selection.
-    pub fn reserve_utxo_with_value(
+    pub async fn reserve_utxo_with_value(
         &self,
         value: Amount,
         owner: LeaseOwner,
         ignore: impl Fn(&UtxoInfo) -> bool,
     ) -> (Option<(OutPoint, Lease)>, u64) {
+        let _funding = self.funding.lock().await;
         let available = self.reserved_utxos_with_value(value);
         let leased = self.leases.held();
         let mut considered = available
@@ -244,11 +269,12 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     /// build a transaction around it. The unstaking-burn executor needs this, because its
     /// transaction has a fixed non-wallet first input that the outputs-only funding path
     /// cannot express.
-    pub fn select_general_utxo(
+    pub async fn select_general_utxo(
         &self,
         owner: LeaseOwner,
         predicate: impl Fn(&UtxoInfo) -> bool,
     ) -> Option<(UtxoInfo, Lease)> {
+        let _funding = self.funding.lock().await;
         let exclude: BTreeSet<OutPoint> =
             self.exclude_anchors_and_leases(&[]).into_iter().collect();
         let selected = self
@@ -272,12 +298,13 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     /// input from an unconfirmed UTXO therefore makes the transaction unrelayable in most
     /// mempool states.
     pub async fn fund_v3_transaction(
-        &mut self,
+        &self,
         unsigned_tx: Transaction,
         fee_rate: FeeRate,
         general_utxo_policy: GeneralUtxoPolicy,
         owner: LeaseOwner,
     ) -> Result<LeasedPsbt, Error> {
+        let _funding = self.funding.lock().await;
         let mut exclude = self.exclude_anchors_and_leases(&[]);
         self.apply_general_utxo_policy(general_utxo_policy, &mut exclude)?;
         let funded = self
@@ -291,12 +318,13 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     /// Funds an unsigned v3 transaction using `inputs` as the explicit input set, normally a
     /// stored funding plan that a retry replays.
     pub async fn fund_v3_transaction_with_inputs(
-        &mut self,
+        &self,
         unsigned_tx: Transaction,
         inputs: &[OutPoint],
         fee_rate: FeeRate,
         owner: LeaseOwner,
     ) -> Result<LeasedPsbt, Error> {
+        let _funding = self.funding.lock().await;
         let funded = self
             .general
             .fund_v3_transaction(unsigned_tx.output, Some(inputs), fee_rate, &[])
@@ -321,7 +349,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     /// wallet. The returned lease covers the funding inputs, and covers the parent output
     /// only for [`AnchorOwnership::Wallet`].
     pub async fn build_cpfp_child(
-        &mut self,
+        &self,
         parent: &Transaction,
         parent_fee: Amount,
         anchor: AnchorInfo,
@@ -329,6 +357,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         target_pkg_fee_rate: FeeRate,
         replaced: ReplacedChild<'_>,
     ) -> Result<LeasedPsbt, Error> {
+        let _funding = self.funding.lock().await;
         let anchor_outpoint = OutPoint {
             txid: parent.compute_txid(),
             vout: anchor.vout(),
@@ -377,7 +406,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     /// members back to themselves. `general_utxo_policy` controls whether unconfirmed
     /// general-wallet UTXOs may be selected.
     pub async fn create_reserved_utxos(
-        &mut self,
+        &self,
         fee_rate: FeeRate,
         utxo_value: Amount,
         quantity: usize,
@@ -386,6 +415,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     ) -> Result<LeasedPsbt, Error> {
         // Exclude already-existing reserved UTXOs of the same value from selection so the
         // composer doesn't accidentally spend pool members back to itself.
+        let _funding = self.funding.lock().await;
         let existing: BTreeSet<OutPoint> = self
             .reserved_utxos_with_value(utxo_value)
             .into_iter()

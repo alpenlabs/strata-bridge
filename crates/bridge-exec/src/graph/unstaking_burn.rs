@@ -241,39 +241,41 @@ async fn select_funding(
         "selecting wallet funding UTXO for unstaking burn"
     );
 
-    let funding = wallet.select_general_utxo(LeaseOwner::UnstakingBurn, |utxo| {
-        let output_value = match payout_connector_value
-            .checked_add(utxo.amount)
-            .and_then(|input_value| input_value.checked_sub(plan.fee))
-        {
-            Some(output_value) => output_value,
-            None => {
+    let funding = wallet
+        .select_general_utxo(LeaseOwner::UnstakingBurn, |utxo| {
+            let output_value = match payout_connector_value
+                .checked_add(utxo.amount)
+                .and_then(|input_value| input_value.checked_sub(plan.fee))
+            {
+                Some(output_value) => output_value,
+                None => {
+                    debug!(
+                        %graph_idx,
+                        outpoint = %utxo.outpoint,
+                        utxo_value = %utxo.amount,
+                        fee = %plan.fee,
+                        "wallet UTXO cannot cover unstaking burn fee"
+                    );
+                    return false;
+                }
+            };
+
+            if output_value < min_output_value {
                 debug!(
                     %graph_idx,
                     outpoint = %utxo.outpoint,
                     utxo_value = %utxo.amount,
+                    %output_value,
+                    %min_output_value,
                     fee = %plan.fee,
-                    "wallet UTXO cannot cover unstaking burn fee"
+                    "wallet UTXO cannot fund non-dust unstaking burn output"
                 );
                 return false;
             }
-        };
 
-        if output_value < min_output_value {
-            debug!(
-                %graph_idx,
-                outpoint = %utxo.outpoint,
-                utxo_value = %utxo.amount,
-                %output_value,
-                %min_output_value,
-                fee = %plan.fee,
-                "wallet UTXO cannot fund non-dust unstaking burn output"
-            );
-            return false;
-        }
-
-        true
-    });
+            true
+        })
+        .await;
 
     let Some((funding, lease)) = funding else {
         warn!(

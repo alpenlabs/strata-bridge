@@ -514,7 +514,7 @@ async fn take_bump_mark(parents: &Parents, parent_txid: Txid) -> Option<BumpGuar
 /// cannot take one still runs `follow_up`, so an evicted parent goes back into the mempool
 /// even when another trigger holds the mark.
 ///
-/// Spawning is not an optimisation. `perform_bump` takes the operator wallet's write lock,
+/// Spawning is not an optimisation. `perform_bump` takes the operator wallet's read lock,
 /// and a duty can hold that lock while it awaits `TxDriver::drive`. A bump awaited inside the
 /// driver's select loop therefore deadlocks: the driver waits for the wallet, the duty waits
 /// for a status event that only the driver can deliver, and neither side can proceed.
@@ -589,7 +589,7 @@ async fn run_bump<W, F, P>(
 
 /// Spawns one task that bumps every parent that can take a bump, one after another.
 ///
-/// The bumps run one at a time. Each one takes the operator wallet's write lock, so a
+/// The bumps run one at a time. Each one takes the operator wallet's lock, so a
 /// parallel fan-out puts every other user of the wallet behind the whole batch. Each parent
 /// keeps its own mark, so a parent that another trigger is already bumping is skipped and the
 /// rest of the batch continues.
@@ -986,8 +986,8 @@ impl TxDriver {
                         // On each new block, walk every tracked parent and spawn a bump for
                         // each one that can take it. Spawned (not inline) so the driver
                         // returns to its select! immediately, and because a bump takes the
-                        // operator wallet's write lock — see `spawn_bump` for why an inline
-                        // bump deadlocks.
+                        // operator wallet's lock — see `spawn_bump` for why an inline bump
+                        // deadlocks.
                         if let Some(ctx) = cpfp_ctx.as_ref() {
                             spawn_batch_bump(ctx, &parents, bridge_protocol_floor, BumpReason::NewBlock).await;
                         }

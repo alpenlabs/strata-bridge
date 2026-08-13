@@ -200,7 +200,7 @@ async fn build_v3_parent(
         }],
     };
     let funded = {
-        let mut wallet = wallet.write().await;
+        let wallet = wallet.read().await;
         wallet
             .fund_v3_transaction(
                 unsigned_tx,
@@ -458,7 +458,7 @@ async fn build_v3_payout_parent(
         }],
     };
     let funded = {
-        let mut wallet = wallet.write().await;
+        let wallet = wallet.read().await;
         wallet
             .fund_v3_transaction(
                 unsigned_tx,
@@ -654,7 +654,7 @@ async fn build_v3_mixed_parent(
         ],
     };
     let funded = {
-        let mut wallet = wallet.write().await;
+        let wallet = wallet.read().await;
         wallet
             .fund_v3_transaction(
                 unsigned_tx,
@@ -850,7 +850,7 @@ async fn build_v3_multi_anchor_parent(
         output: vec![anchor.tx_out()],
     };
     let funded = {
-        let mut wallet = wallet.write().await;
+        let wallet = wallet.read().await;
         wallet
             .fund_v3_transaction(
                 unsigned_tx,

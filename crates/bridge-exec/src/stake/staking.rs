@@ -143,7 +143,9 @@ async fn read_or_create_stake_funding(
         // The database row keeps this reservation across restarts, so the lease has no owning
         // value to drop. Startup rehydration holds the same outpoints. This call covers the
         // case where the row was written after startup read the funds.
-        wallet.lease_committed(inputs, LeaseOwner::StakeFunding);
+        wallet
+            .lease_committed(inputs, LeaseOwner::StakeFunding)
+            .await;
         return Ok(reservation);
     }
 
@@ -194,7 +196,9 @@ async fn read_or_create_stake_funding(
                 .iter()
                 .map(|txin| txin.previous_output)
                 .collect();
-            wallet.lease_committed(assigned_inputs, LeaseOwner::StakeFunding);
+            wallet
+                .lease_committed(assigned_inputs, LeaseOwner::StakeFunding)
+                .await;
             Ok(reservation)
         }
         Err(err) => Err(err.into()),

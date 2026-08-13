@@ -155,6 +155,11 @@ pub struct ReplacedChild<'a> {
 /// construction for the general wallet only. Lease bookkeeping, the reserved wallet, and
 /// anchor handling live on the composer.
 ///
+/// Every method except [`Self::sync`] takes `&self`, so a caller does not need an exclusive
+/// lock to build a transaction. A backend that must mutate to build one carries its own
+/// interior mutability. This keeps a read of the wallet, such as a health probe, off the
+/// queue behind a backend round trip that takes seconds.
+///
 /// # Signing contract
 ///
 /// A backend signs the inputs it has key material for. Inputs it leaves unsigned must
@@ -166,9 +171,8 @@ pub trait GeneralWallet: Send + Sync {
 
     /// Refreshes internal state from the underlying source. Idempotent.
     ///
-    /// Takes `&mut self` because the typical native impl needs to mutate its BDK wallet
-    /// state. Callers serialize via an outer lock; the trait doesn't impose interior
-    /// mutability.
+    /// This is the only method that takes `&mut self`. A backend replaces its whole view of
+    /// the chain here, and the composer's callers hold an exclusive outer lock for it.
     fn sync(&mut self) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
 
     /// Returns the receive script for this wallet. Stable across calls for native backends;
@@ -193,7 +197,7 @@ pub trait GeneralWallet: Send + Sync {
     /// carry `witness_utxo` and `tap_internal_key` (for Taproot) so the caller can sign
     /// downstream.
     fn fund_v3_transaction(
-        &mut self,
+        &self,
         outputs: Vec<TxOut>,
         explicit_inputs: Option<&[OutPoint]>,
         fee_rate: FeeRate,
@@ -219,7 +223,7 @@ pub trait GeneralWallet: Send + Sync {
     /// `witness_utxo` and `tap_internal_key` populated (the latter sourced from
     /// `anchor.internal_key`); inputs the backend holds key material for are signed.
     fn build_cpfp_child(
-        &mut self,
+        &self,
         parent: &Transaction,
         parent_fee: Amount,
         anchor: AnchorInfo,

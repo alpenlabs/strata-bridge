@@ -174,10 +174,14 @@ async fn committed_leases_survive_until_an_explicit_release() {
     };
 
     assert!(wallet.leased_outpoints().is_empty(), "starts empty");
-    wallet.lease_committed(vec![op_a, op_b], LeaseOwner::StakeFunding);
+    wallet
+        .lease_committed(vec![op_a, op_b], LeaseOwner::StakeFunding)
+        .await;
     assert_eq!(wallet.leased_outpoints().len(), 2, "two held");
     // A second committed lease on one of them does not change what is held.
-    wallet.lease_committed(vec![op_a], LeaseOwner::StakeFunding);
+    wallet
+        .lease_committed(vec![op_a], LeaseOwner::StakeFunding)
+        .await;
     assert_eq!(
         wallet.leased_outpoints().len(),
         2,
@@ -434,8 +438,9 @@ async fn reserve_utxo_with_value_picks_and_leases_one() {
     drop(seed_lease);
     assert!(wallet.leased_outpoints().is_empty(), "lease state cleared");
 
-    let (picked, remaining) =
-        wallet.reserve_utxo_with_value(utxo_value, LeaseOwner::ClaimFunding, |_| false);
+    let (picked, remaining) = wallet
+        .reserve_utxo_with_value(utxo_value, LeaseOwner::ClaimFunding, |_| false)
+        .await;
     let (picked, picked_lease) = picked.expect("must return one outpoint");
     assert_eq!(remaining, 2, "two more left in the pool");
     assert!(
@@ -444,8 +449,9 @@ async fn reserve_utxo_with_value_picks_and_leases_one() {
     );
 
     // A second pick skips the held outpoint and returns a different one.
-    let (picked_again, remaining_again) =
-        wallet.reserve_utxo_with_value(utxo_value, LeaseOwner::ClaimFunding, |_| false);
+    let (picked_again, remaining_again) = wallet
+        .reserve_utxo_with_value(utxo_value, LeaseOwner::ClaimFunding, |_| false)
+        .await;
     let (picked_again, _picked_again_lease) = picked_again.expect("must return another outpoint");
     assert_ne!(picked_again, picked, "must pick a different free UTXO");
     assert_eq!(remaining_again, 1, "one more left after second pick");
@@ -455,6 +461,133 @@ async fn reserve_utxo_with_value_picks_and_leases_one() {
     assert!(
         !wallet.leased_outpoints().contains(&picked),
         "a dropped lease must return its outpoint to the pool"
+    );
+}
+
+/// A general-wallet backend that yields before it selects.
+///
+/// The native backend builds a transaction without an await, so two funding calls on it never
+/// interleave whatever the composer does. A backend that reaches a remote custodian does
+/// await, and that is the shape which exposes the gap between reading the held outpoints and
+/// taking the lease. This mock reproduces that shape with `yield_now`.
+#[derive(Debug)]
+struct YieldingGeneralWallet {
+    utxos: Vec<operator_wallet::UtxoInfo>,
+}
+
+impl GeneralWallet for YieldingGeneralWallet {
+    type Error = std::io::Error;
+
+    async fn sync(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn script_pubkey(&self) -> bdk_wallet::bitcoin::ScriptBuf {
+        bdk_wallet::bitcoin::ScriptBuf::new()
+    }
+
+    fn list_utxos(&self) -> Vec<operator_wallet::UtxoInfo> {
+        self.utxos.clone()
+    }
+
+    async fn fund_v3_transaction(
+        &self,
+        _outputs: Vec<bdk_wallet::bitcoin::TxOut>,
+        _explicit_inputs: Option<&[OutPoint]>,
+        _fee_rate: FeeRate,
+        exclude: &[OutPoint],
+    ) -> Result<operator_wallet::FundedPsbt, Self::Error> {
+        // The await that a remote custodian performs.
+        tokio::task::yield_now().await;
+        let picked = self
+            .utxos
+            .iter()
+            .find(|u| !exclude.contains(&u.outpoint))
+            .ok_or_else(|| std::io::Error::other("no candidate"))?;
+        let tx = Transaction {
+            version: bdk_wallet::bitcoin::transaction::Version::TWO,
+            lock_time: bdk_wallet::bitcoin::absolute::LockTime::ZERO,
+            input: vec![bdk_wallet::bitcoin::TxIn {
+                previous_output: picked.outpoint,
+                ..Default::default()
+            }],
+            output: Vec::new(),
+        };
+        Ok(operator_wallet::FundedPsbt {
+            psbt: Psbt::from_unsigned_tx(tx).expect("unsigned tx"),
+        })
+    }
+
+    async fn build_cpfp_child(
+        &self,
+        _parent: &Transaction,
+        _parent_fee: Amount,
+        _anchor: operator_wallet::AnchorInfo,
+        _target_pkg_fee_rate: FeeRate,
+        _exclude: &[OutPoint],
+        _replaced: operator_wallet::ReplacedChild<'_>,
+    ) -> Result<operator_wallet::FundedPsbt, Self::Error> {
+        unreachable!("this test does not build CPFP children")
+    }
+}
+
+/// Two funding calls that run at the same time must not select one general-wallet UTXO twice.
+///
+/// A funding call reads the set of held outpoints, awaits the backend selection, and takes its
+/// lease when the backend returns. The read and the lease sit on either side of an await, so
+/// without a lock across both, two calls read the same set and pick the same outpoint. The two
+/// transactions that follow then conflict, and the chain accepts only one.
+#[tokio::test]
+#[serial]
+async fn concurrent_funding_never_selects_one_utxo_twice() {
+    let bitcoind = setup_bitcoind();
+    let (_reserved_kp, reserved_pubkey) = keypair_from_seed(16);
+    let utxos = (1u8..=4)
+        .map(|n| operator_wallet::UtxoInfo {
+            outpoint: OutPoint {
+                txid: bdk_wallet::bitcoin::Txid::from_slice(&[n; 32]).unwrap(),
+                vout: 0,
+            },
+            amount: Amount::from_btc(0.2).unwrap(),
+            confirmations: 3,
+            script_pubkey: bdk_wallet::bitcoin::ScriptBuf::new(),
+        })
+        .collect();
+    let wallet = Arc::new(OperatorWallet::new(
+        YieldingGeneralWallet { utxos },
+        reserved_pubkey,
+        OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest),
+        Backend::BitcoinCore(Arc::new(sync_rpc_client(&bitcoind))),
+        BTreeSet::new(),
+    ));
+
+    let utxo_value = Amount::from_btc(0.01).unwrap();
+    let fee_rate = FeeRate::from_sat_per_vb(5).unwrap();
+    let (first, second) = tokio::join!(
+        wallet.create_reserved_utxos(
+            fee_rate,
+            utxo_value,
+            1,
+            GeneralUtxoPolicy::IncludeUnconfirmed,
+            LeaseOwner::ClaimFundingRefill,
+        ),
+        wallet.create_reserved_utxos(
+            fee_rate,
+            utxo_value,
+            1,
+            GeneralUtxoPolicy::IncludeUnconfirmed,
+            LeaseOwner::ClaimFundingRefill,
+        ),
+    );
+    let first = first.expect("the first funding must succeed");
+    let second = second.expect("the second funding must succeed");
+
+    let first_inputs: BTreeSet<OutPoint> = first.lease().outpoints().iter().copied().collect();
+    let second_inputs: BTreeSet<OutPoint> = second.lease().outpoints().iter().copied().collect();
+    let shared: Vec<_> = first_inputs.intersection(&second_inputs).collect();
+    assert!(
+        shared.is_empty(),
+        "two funding calls that run at the same time selected the same input: {shared:?}"
     );
 }
 
@@ -527,7 +660,9 @@ async fn sync_prunes_leases_whose_outpoints_have_been_spent() {
         .map(|u| u.outpoint)
         .collect();
     let target_outpoint = general_utxos[0];
-    wallet.lease_committed(vec![target_outpoint], LeaseOwner::StakeFunding);
+    wallet
+        .lease_committed(vec![target_outpoint], LeaseOwner::StakeFunding)
+        .await;
     assert!(wallet.leased_outpoints().contains(&target_outpoint));
 
     // Spend `target_outpoint` directly via a manually-built tx, broadcast it, mine, sync.
