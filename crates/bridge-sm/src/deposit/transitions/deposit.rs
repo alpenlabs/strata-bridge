@@ -170,6 +170,15 @@ impl DepositSM {
 
                         Ok(DSMOutput::new())
                     }
+
+                    // An abort can pre-empt graph generation; drop late links rather than
+                    // escalate (GraphMessage is not softened).
+                    DepositState::Aborted => Err(DSMError::rejected(
+                        self.state().clone(),
+                        DepositEvent::GraphMessage(graph_msg),
+                        "deposit aborted; graph links are no longer collected",
+                    )),
+
                     _ => Err(DSMError::invalid_event(
                         self.state().clone(),
                         DepositEvent::GraphMessage(graph_msg),

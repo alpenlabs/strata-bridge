@@ -85,6 +85,7 @@ impl StateMachine for DepositSM {
             DepositEvent::PayoutConfirmed(payout_confirmed) => {
                 self.process_payout_confirmed(&payout_confirmed)
             }
+            DepositEvent::SafeHarbourAbort(abort) => self.process_safe_harbour_abort(abort),
             DepositEvent::SweepRequested(sweep_request) => {
                 self.process_sweep_request(cfg, sweep_request)
             }

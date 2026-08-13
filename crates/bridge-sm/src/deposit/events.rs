@@ -103,6 +103,11 @@ pub struct PayoutConfirmedEvent {
     pub tx: Transaction,
 }
 
+/// Event requesting that this deposit be aborted because the safe harbour activated while the
+/// deposit is still in the safe abort window (no partial signature gossiped yet).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SafeHarbourAbortEvent;
+
 /// Event requesting that this deposit be swept to the frozen safe-harbour descriptor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SweepRequestedEvent {
@@ -184,6 +189,9 @@ pub enum DepositEvent {
     PayoutPartialReceived(PayoutPartialReceivedEvent),
     /// This event notifies that a payout has been confirmed.
     PayoutConfirmed(PayoutConfirmedEvent),
+    /// This event requests that this deposit be aborted: safe harbour activated while the
+    /// deposit is still in the safe abort window.
+    SafeHarbourAbort(SafeHarbourAbortEvent),
     /// This event requests that this deposit be swept to the frozen safe-harbour descriptor.
     SweepRequested(SweepRequestedEvent),
     /// This event notifies that a pubnonce from some operator for the sweep transaction has been
@@ -219,6 +227,7 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::PayoutNonceReceived(event) => write!(f, "{}", event),
             DepositEvent::PayoutPartialReceived(event) => write!(f, "{}", event),
             DepositEvent::PayoutConfirmed(event) => write!(f, "{}", event),
+            DepositEvent::SafeHarbourAbort(event) => write!(f, "{}", event),
             DepositEvent::SweepRequested(event) => write!(f, "{}", event),
             DepositEvent::SweepNonceReceived(event) => write!(f, "{}", event),
             DepositEvent::SweepPartialReceived(event) => write!(f, "{}", event),
@@ -291,6 +300,12 @@ impl std::fmt::Display for PayoutPartialReceivedEvent {
 impl std::fmt::Display for PayoutConfirmedEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "PayoutConfirmed via {}", self.tx.compute_txid())
+    }
+}
+
+impl std::fmt::Display for SafeHarbourAbortEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SafeHarbourAbort")
     }
 }
 
@@ -374,6 +389,7 @@ impl_into_deposit_event!(PayoutDescriptorReceivedEvent, PayoutDescriptorReceived
 impl_into_deposit_event!(PayoutNonceReceivedEvent, PayoutNonceReceived);
 impl_into_deposit_event!(PayoutPartialReceivedEvent, PayoutPartialReceived);
 impl_into_deposit_event!(PayoutConfirmedEvent, PayoutConfirmed);
+impl_into_deposit_event!(SafeHarbourAbortEvent, SafeHarbourAbort);
 impl_into_deposit_event!(SweepRequestedEvent, SweepRequested);
 impl_into_deposit_event!(SweepNonceReceivedEvent, SweepNonceReceived);
 impl_into_deposit_event!(SweepPartialReceivedEvent, SweepPartialReceived);

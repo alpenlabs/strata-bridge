@@ -101,6 +101,21 @@ mod tests {
         }
     }
 
+    /// Tests that a GraphAvailable landing after an abort is dropped rather than fatal: an abort
+    /// can pre-empt graph generation, so the late link is a normal message.
+    #[test]
+    fn test_late_graph_available_after_abort_is_rejected() {
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: DepositState::Aborted,
+            event: DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
+                claim_txid: generate_txid(),
+                operator_idx: 0,
+                deposit_idx: TEST_DEPOSIT_IDX,
+            }),
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
+    }
+
     /// tests that a DepositConfirmed event with a deposit tx that doesn't spend the DRT outpoint
     /// is rejected from the DepositPartialsCollected state.
     #[test]

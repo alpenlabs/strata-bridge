@@ -51,9 +51,9 @@ use crate::{
         events::{
             DepositConfirmedEvent, DepositEvent, FulfillmentConfirmedEvent, NagTickEvent,
             NewBlockEvent, NonceReceivedEvent, PayoutConfirmedEvent, PayoutNonceReceivedEvent,
-            PayoutPartialReceivedEvent, RetryTickEvent, SweepNonceReceivedEvent,
-            SweepPartialReceivedEvent, SweepRequestedEvent, UserTakeBackEvent,
-            WithdrawalAssignedEvent,
+            PayoutPartialReceivedEvent, RetryTickEvent, SafeHarbourAbortEvent,
+            SweepNonceReceivedEvent, SweepPartialReceivedEvent, SweepRequestedEvent,
+            UserTakeBackEvent, WithdrawalAssignedEvent,
         },
         machine::DepositSM,
         state::DepositState,
@@ -544,6 +544,7 @@ impl Arbitrary for DepositEvent {
             Just(DepositEvent::PayoutConfirmed(PayoutConfirmedEvent {
                 tx: test_payout_tx(OutPoint::default())
             })),
+            Just(DepositEvent::SafeHarbourAbort(SafeHarbourAbortEvent)),
             Just(DepositEvent::SweepRequested(SweepRequestedEvent {
                 safe_harbour_desc: random_p2tr_desc(),
             })),
@@ -645,6 +646,7 @@ pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
                 operator_idx: idx,
             }
         )),
+        Just(DepositEvent::SafeHarbourAbort(SafeHarbourAbortEvent)),
         Just(DepositEvent::SweepRequested(SweepRequestedEvent {
             safe_harbour_desc: random_p2tr_desc(),
         })),
