@@ -17,6 +17,8 @@ use strata_bridge_tx_graph::transactions::{
 };
 
 /// The state of a Deposit.
+///
+/// Postcard encodes variants by declaration index: append new ones, never reorder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DepositState {
     /// This state represents the initial phase after deposit request confirmation.
@@ -175,6 +177,18 @@ pub enum DepositState {
         /// The height of the latest block that this state machine is aware of.
         last_block_height: u64,
     },
+    /// This represents the terminal state where the deposit has been spent.
+    Spent {
+        /// The txid of the fulfillment transaction, if known.
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        fulfillment_txid: Option<Txid>,
+
+        /// The operator assigned to fulfill the withdrawal, if known.
+        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
+        assignee: Option<OperatorIdx>,
+    },
+    /// This represents the terminal state where the deposit request has been spent elsewhere.
+    Aborted,
     /// This state represents the phase where the safe-harbour sweep has been initiated and the
     /// sweep pubnonces are being collected.
     SweepNoncesPending {
@@ -199,18 +213,6 @@ pub enum DepositState {
         /// The partial signatures, indexed by operator, for signing the sweep transaction.
         sweep_partials: BTreeMap<OperatorIdx, PartialSignature>,
     },
-    /// This represents the terminal state where the deposit has been spent.
-    Spent {
-        /// The txid of the fulfillment transaction, if known.
-        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
-        fulfillment_txid: Option<Txid>,
-
-        /// The operator assigned to fulfill the withdrawal, if known.
-        // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
-        assignee: Option<OperatorIdx>,
-    },
-    /// This represents the terminal state where the deposit request has been spent elsewhere.
-    Aborted,
 }
 
 impl Display for DepositState {
