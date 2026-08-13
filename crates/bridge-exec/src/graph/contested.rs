@@ -1,4 +1,4 @@
-use bitcoin::{OutPoint, Transaction};
+use bitcoin::{OutPoint, Transaction, XOnlyPublicKey};
 use btc_tracker::event::TxStatus;
 use musig2::secp256k1::schnorr::Signature;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
@@ -132,14 +132,13 @@ pub(super) async fn publish_contested_payout(
 pub(super) async fn publish_counterproof_ack(
     output_handles: &OutputHandles,
     signed_counter_proof_ack_tx: &Transaction,
+    anchor_key: XOnlyPublicKey,
 ) -> Result<(), ExecutorError> {
-    // The counterproof-ack carries a keyed anchor at `CounterproofAckTx::CPFP_VOUT`. The
-    // anchor key is the watchtower pubkey, which equals the musig2 pubkey (see the
-    // watchtower-key note in `bin/strata-bridge::operator_wallet`; the compile-time
-    // `_covenant_keys_field_audit` in `crates/common::params` guards the identity). This
-    // anchor is not at the dust floor: `CounterproofAckTx` folds the residual of its input
-    // connectors into it (2 × dust). The publish-time check therefore accepts each value
-    // at or above dust.
+    // The counterproof-ack carries a keyed anchor at `CounterproofAckTx::CPFP_VOUT`, keyed to
+    // the watchtower that the ACK is for. The state machine builds that anchor and reports
+    // its key with the duty. This anchor is not at the dust floor: `CounterproofAckTx` folds
+    // the residual of its input connectors into it (2 × dust). The publish-time check
+    // therefore accepts each value at or above dust.
     publish_signed_transaction(
         output_handles,
         signed_counter_proof_ack_tx,
@@ -148,6 +147,7 @@ pub(super) async fn publish_counterproof_ack(
         chain::parent_fee_for_floor_tx(signed_counter_proof_ack_tx),
         CpfpKind::AnchorAt {
             anchor_vout: CounterproofAckTx::CPFP_VOUT,
+            anchor_key,
         },
     )
     .await

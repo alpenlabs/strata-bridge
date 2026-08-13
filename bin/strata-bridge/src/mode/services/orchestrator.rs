@@ -216,12 +216,10 @@ where
     // the explicit lookup catches configuration drift between secret-service and the static
     // params file.
     //
-    // The OTHER invariant the CPFP path depends on — `watchtower_pubkey == musig2_pubkey`
-    // for counterproof / counterproof_ack anchors — is anchored at the `ScheduledOperator`
-    // definition itself via `_scheduled_operator_field_audit` (see
-    // `crates/primitives/src/operator_set_schedule.rs`). That destructuring forces a compile
-    // error if anyone adds a separate `watchtower` field, which is the cue to thread
-    // per-anchor keys through `CpfpKind::AnchorAt`.
+    // The related invariant is `watchtower_pubkey == musig2_pubkey`. The operator table makes
+    // it, from `ScheduledOperator::covenant_public_key`. A field change on `ScheduledOperator`
+    // breaks the compilation of `_scheduled_operator_field_audit` (see
+    // `crates/primitives/src/operator_set_schedule.rs`).
     params
         .keys
         .operators
@@ -229,8 +227,7 @@ where
         .find(|operator| operator.covenant_key() == operator_musig2_pubkey)
         .ok_or_else(|| {
             anyhow!(
-                "operator musig2 pubkey {} is not in the configured covenant set; \
-                 cannot establish watchtower-key = musig2-key invariant required by CPFP",
+                "operator musig2 pubkey {} is not in the configured covenant set",
                 operator_musig2_pubkey,
             )
         })?;

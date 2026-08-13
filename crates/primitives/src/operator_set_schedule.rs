@@ -94,16 +94,20 @@ pub struct ScheduledOperator {
     deactivation_height: Option<BitcoinBlockHeight>,
 }
 
-/// Forces a compile-error if [`ScheduledOperator`] grows or shrinks a field. The CPFP anchor
-/// validation path in `strata_bridge_exec::chain::checked_anchor_strategy` assumes
-/// `watchtower_pubkey == covenant_pubkey` for counterproof / counterproof_ack txs — an
-/// assumption made elsewhere too (see `bin/strata-bridge/src/mode/services/operator_wallet.rs`
-/// where `watchtower_keys` is sourced from `ScheduledOperator::covenant_key`).
+/// Forces a compile error if [`ScheduledOperator`] grows or shrinks a field.
 ///
-/// If anyone adds e.g. a `watchtower: XOnlyPublicKey` field to [`ScheduledOperator`] in the
-/// future, this destructuring will fail to compile with "missing field `watchtower`" — that's
-/// the trigger to audit the CPFP path. The right fix at that point is to thread the per-anchor
-/// key through `CpfpKind::AnchorAt` and add a watchtower signer to `CpfpContext`.
+/// The operator table holds one BTC key for each operator, from
+/// [`ScheduledOperator::covenant_public_key`] (see
+/// `bin/strata-bridge/src/mode/services/operator_table.rs`). `GraphSMCtx::watchtower_pubkeys`
+/// gives a graph its watchtower set from that table. For this reason,
+/// `watchtower_pubkey == covenant_pubkey` is a property of the whole graph, and not of one code
+/// path.
+///
+/// A new `watchtower: XOnlyPublicKey` field on [`ScheduledOperator`] makes this destructuring
+/// fail to compile with "missing field `watchtower`". That is the point to audit each reader of
+/// the watchtower key set. `bridge-sm`'s `operator_set/state.rs` also builds operator tables, so
+/// audit it too. `update_operator_table` compares registrations field by field, so a new field
+/// must be compared there as well; this guard does not enforce that comparison.
 #[allow(dead_code)]
 fn _scheduled_operator_field_audit(operator: ScheduledOperator) {
     let ScheduledOperator {

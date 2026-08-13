@@ -5,7 +5,7 @@
 
 use bitcoin::{OutPoint, Transaction, secp256k1::schnorr};
 use btc_tracker::event::TxStatus;
-use strata_bridge_connectors::prelude::UnstakingIntentWitness;
+use strata_bridge_connectors::{Connector, ParentTx, prelude::UnstakingIntentWitness};
 use strata_bridge_tx_graph::transactions::{prelude::UnstakingIntentTx, unstaking::UnstakingTx};
 use tracing::info;
 
@@ -30,6 +30,8 @@ pub(crate) async fn publish_unstaking_intent(
         unstaking_preimage: preimage,
     };
 
+    // Read the anchor key before `finalize` consumes the transaction.
+    let anchor_key = unstaking_intent_tx.cpfp_connector().internal_key();
     let signed_unstaking_intent_tx = unstaking_intent_tx.finalize(&unstaking_intent_witness);
     let unstaking_intent_txid = signed_unstaking_intent_tx.compute_txid();
     info!(%unstaking_intent_txid, "publishing unstaking intent transaction");
@@ -42,6 +44,7 @@ pub(crate) async fn publish_unstaking_intent(
         chain::parent_fee_for_floor_tx(&signed_unstaking_intent_tx),
         CpfpKind::AnchorAt {
             anchor_vout: UnstakingIntentTx::CPFP_VOUT,
+            anchor_key,
         },
     )
     .await?;

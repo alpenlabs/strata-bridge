@@ -12,6 +12,7 @@ use operator_wallet::{
     GeneralUtxoPolicy, GeneralWallet, Lease, LeaseOwner, OperatorWallet, WalletStore,
 };
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
+use strata_bridge_connectors::{Connector, ParentTx};
 use strata_bridge_db::{
     traits::BridgeDb,
     types::{ClaimFundingReservation, FundingAssignment},
@@ -764,6 +765,7 @@ pub(super) async fn publish_claim(
         parent_fee,
         CpfpKind::AnchorAt {
             anchor_vout: ClaimTx::CPFP_VOUT,
+            anchor_key: claim_tx.cpfp_connector().internal_key(),
         },
     )
     .await
