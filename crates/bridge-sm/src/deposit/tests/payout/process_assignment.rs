@@ -277,6 +277,19 @@ mod tests {
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
             },
+            // The ASM keeps re-listing the assignment for a deposit being swept.
+            DepositState::SweepNoncesPending {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(desc.clone()),
+                sweep_nonces: BTreeMap::new(),
+            },
+            DepositState::SweepNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(desc.clone()),
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
+            },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),

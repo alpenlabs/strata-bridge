@@ -66,11 +66,19 @@ impl DepositSM {
             | DepositState::PayoutDescriptorReceived { .. }
             | DepositState::PayoutNoncesCollected { .. }
             | DepositState::CooperativePathFailed { .. }
+            // ASM does not gate assignment creation on safe harbour.
+            | DepositState::SweepNoncesPending { .. }
+            | DepositState::SweepNoncesCollected { .. }
             | DepositState::Spent { .. } => {
                 return Err(DSMError::duplicate(self.state.clone(), assignment.into()));
             }
 
-            _ => {
+            // Exhaustive so a new state must be classified rather than inherit the fatal arm.
+            DepositState::Created { .. }
+            | DepositState::GraphGenerated { .. }
+            | DepositState::DepositNoncesCollected { .. }
+            | DepositState::DepositPartialsCollected { .. }
+            | DepositState::Aborted => {
                 return Err(DSMError::invalid_event(
                     self.state.clone(),
                     assignment.into(),
