@@ -18,8 +18,8 @@
 //!   [`submit_package`](crate::submitpackage::submit_package).
 //! - Termination is driven by the parent confirming (the existing mempool-event branch in
 //!   `TxDriver` notifies the wait-condition listener). The bump function itself is stateless per
-//!   call — it carries the last-attempted rate and last-child-funding-inputs through the
-//!   [`CpfpHandle`] state owned by the driver.
+//!   call — it carries the last-attempted rate and the lease on the last child's funding inputs
+//!   through the [`CpfpHandle`] state owned by the driver.
 //!
 //! ## What's intentionally NOT here
 //!
@@ -126,11 +126,16 @@ impl CpfpStrategy {
 /// Per-parent state the driver carries between bump attempts.
 #[derive(Debug, Default, Clone)]
 pub struct CpfpHandle {
-    /// Outpoints spent by the most recent child the driver broadcast (excluding the anchor
-    /// itself). Released back to the wallet before the next bump so the same outpoints can
-    /// be re-selected for the replacement child, then re-leased to whatever the new child
-    /// actually consumes.
-    pub last_child_inputs: Vec<OutPoint>,
+    /// Lease on the funding inputs of the most recent child that the wallet built.
+    ///
+    /// The wallet frees the inputs when the last clone of this value drops. Every path that
+    /// stops the bumps for a parent therefore frees the inputs by dropping the handle, and no
+    /// path needs an explicit release call.
+    ///
+    /// The value is an [`Arc`] because the driver clones the handle to run a bump without the
+    /// entries lock held. The clone keeps the lease alive for the length of the bump. The
+    /// write-back that replaces the handle then drops the last clone of the superseded lease.
+    pub last_child_lease: Option<Arc<dyn FundingLease>>,
     /// Package fee rate the driver last targeted. Used to skip noop bumps when the fee source
     /// hasn't moved upward.
     pub last_pkg_fee_rate: Option<FeeRate>,
@@ -173,23 +178,6 @@ pub enum CpfpError {
 }
 
 impl CpfpError {
-    /// Whether the bump held new wallet funding leases when it failed.
-    ///
-    /// True for each failure after the wallet build: the wallet leases `funded.spent`
-    /// during the build, and `perform_bump` records the set in the handle before the step
-    /// that failed. False for failures at or before the build, because a failed build
-    /// restores the pre-bump lease state itself. The driver reads this to decide whether a
-    /// bump whose entry was removed during the bump must release the recorded inputs.
-    pub const fn leased_funding(&self) -> bool {
-        matches!(
-            self,
-            Self::AnchorSigner(_)
-                | Self::WalletSigner(_)
-                | Self::SubmitPackage(_)
-                | Self::PsbtExtract(_)
-        )
-    }
-
     /// Whether this failure is a lost race for a shared anchor rather than a fault.
     ///
     /// See [`SubmitPackageError::is_replacement_contention`]. Callers use it to keep expected
@@ -197,6 +185,20 @@ impl CpfpError {
     pub fn is_replacement_contention(&self) -> bool {
         matches!(self, Self::SubmitPackage(e) if e.is_replacement_contention())
     }
+}
+
+/// Wallet outpoints that one CPFP child holds.
+///
+/// The wallet frees the outpoints when this value drops, so the driver keeps the value for
+/// as long as the child can still enter a mempool. This is what removes the release call from
+/// every path that stops the bumps for a parent.
+///
+/// The trait keeps `btc-tracker` free of a dependency on the wallet crate. The bridge
+/// implements it in `bridge-exec` over the lease type of `operator-wallet`.
+pub trait FundingLease: Send + Sync + Debug {
+    /// The outpoints that this lease holds. The anchor input is not one of them, unless the
+    /// output that the child spends belongs to the wallet.
+    fn outpoints(&self) -> &[OutPoint];
 }
 
 /// A funded PSBT returned by a wallet handle in [`CpfpContext`].
@@ -207,8 +209,8 @@ pub struct WalletFundedPsbt {
     /// carries `witness_utxo` plus `tap_internal_key` (key-path) or `tap_scripts`
     /// (script-path) describing what is being spent.
     pub psbt: Psbt,
-    /// Wallet outpoints consumed by the child (not including the anchor).
-    pub spent: Vec<OutPoint>,
+    /// Holds the wallet outpoints that the child consumes.
+    pub lease: Arc<dyn FundingLease>,
 }
 
 /// Trait the driver calls to build the next CPFP child.
@@ -248,8 +250,10 @@ pub trait CpfpWallet: Send + Sync + fmt::Debug {
     /// child's vbytes` (BIP-125 rule 4), or bitcoind rejects the replacement as paying
     /// insufficient incremental fee.
     ///
-    /// `replacing` is the outpoints of any prior child this rebuild supersedes (released
-    /// before re-selection so they can be re-picked or replaced).
+    /// `replacing` is the lease of a prior child that this rebuild supersedes. Input
+    /// selection must keep its outpoints available, so that the replacement can spend them
+    /// again. The lease stays valid across the call: a failed build leaves it with the same
+    /// outpoints, and the driver drops it once the new child supersedes the old one.
     ///
     /// See the trait-level "PSBT-signing contract" for what the returned PSBT must look
     /// like with respect to per-input `final_script_witness`.
@@ -258,20 +262,9 @@ pub trait CpfpWallet: Send + Sync + fmt::Debug {
         parent: &Transaction,
         strategy: CpfpStrategy,
         target_pkg_fee_rate: FeeRate,
-        replacing: Option<&[OutPoint]>,
+        replacing: Option<&dyn FundingLease>,
         prior_child_fee: Option<Amount>,
     ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send;
-
-    /// Hands `outpoints` back to the wallet's lease bookkeeping without a build.
-    ///
-    /// [`Self::build_cpfp_child`] releases and re-leases through its `replacing` parameter.
-    /// That path only exists while a next build for the same parent is possible. Each path
-    /// that stops the bumps for a parent must call this method instead: a lost shared
-    /// anchor, a parent confirmed through a competitor, a dropped driver entry. Without
-    /// the call, the last child's funding UTXOs stay leased for the process lifetime and
-    /// the spendable balance shrinks. The method must accept outpoints that are not
-    /// currently leased.
-    fn release(&self, outpoints: &[OutPoint]) -> impl std::future::Future<Output = ()> + Send;
 }
 
 /// Source of fee-rate estimates used to drive the package target. Defined in this crate
@@ -512,14 +505,10 @@ impl CpfpWallet for CpfpDisabled {
         _parent: &Transaction,
         _strategy: CpfpStrategy,
         _target_pkg_fee_rate: FeeRate,
-        _replacing: Option<&[OutPoint]>,
+        _replacing: Option<&dyn FundingLease>,
         _prior_child_fee: Option<Amount>,
     ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send {
         async { unreachable!("CpfpDisabled::build_cpfp_child should never be called") }
-    }
-
-    fn release(&self, _outpoints: &[OutPoint]) -> impl std::future::Future<Output = ()> + Send {
-        async { unreachable!("CpfpDisabled::release should never be called") }
     }
 }
 
@@ -667,10 +656,9 @@ impl BumpReason {
 /// (block/tick/eviction) rebuild the child even at an unchanged target, because a child
 /// evicted by a competing package is invisible to us — see step 4 below.
 ///
-/// `handle.last_child_inputs` is updated as soon as the wallet hands back a funded child —
-/// **not** only on success — because the wallet leases those inputs at that point and the next
-/// call is the only thing that can release them (it passes them back as `replacing`). Returning
-/// early from any later step without recording them would strand the leases permanently.
+/// `handle.last_child_lease` takes the new lease as soon as the wallet hands back a funded
+/// child, and not only on success. The handle must own the lease across the fallible steps
+/// that follow. A drop at one of those steps frees inputs that a live child still spends.
 /// `handle.last_pkg_fee_rate` and `handle.last_child_txid` describe what actually reached the
 /// mempool, so those advance only on success.
 ///
@@ -806,14 +794,13 @@ where
                 pkg_fee_rate: existing,
             }) if existing >= target => {
                 // This skip ends the bump sequence, so the `replacing` hand-over of the
-                // next build never runs. Release the last child's funding leases here
-                // instead — but only when the winning child is not ours. When our own
-                // child holds the anchor at the target, its funding must stay leased. A
-                // release at that point lets a concurrent build double-spend the funding
-                // and evict our own child.
-                if handle.last_child_txid != Some(spender) && !handle.last_child_inputs.is_empty() {
-                    ctx.wallet.release(&handle.last_child_inputs).await;
-                    handle.last_child_inputs.clear();
+                // next build never runs. Drop the lease of the last child here instead,
+                // but only when the winning child is not ours. When our own child holds
+                // the anchor at the target, its funding must stay held. A release at that
+                // point lets a concurrent build double-spend the funding and evict our own
+                // child.
+                if handle.last_child_txid != Some(spender) {
+                    handle.last_child_lease = None;
                     handle.last_child_txid = None;
                     handle.last_child_fee = None;
                 }
@@ -832,12 +819,9 @@ where
                 // on-chain and the release has one bounded side effect: until the next
                 // sync, `list_unspent` still lists those outpoints, so builds can select
                 // a spent input and be rejected. A sync ends the window.
-                if !handle.last_child_inputs.is_empty() {
-                    ctx.wallet.release(&handle.last_child_inputs).await;
-                    handle.last_child_inputs.clear();
-                    handle.last_child_txid = None;
-                    handle.last_child_fee = None;
-                }
+                handle.last_child_lease = None;
+                handle.last_child_txid = None;
+                handle.last_child_fee = None;
                 debug!(
                     %parent_txid,
                     "anchor already spent by a confirmed transaction; skipping"
@@ -852,8 +836,7 @@ where
     }
 
     // ── 5. Build the child via the wallet ───────────────────────────────────
-    let replacing: Option<&[OutPoint]> =
-        (!handle.last_child_inputs.is_empty()).then_some(handle.last_child_inputs.as_slice());
+    let replacing: Option<&dyn FundingLease> = handle.last_child_lease.as_deref();
     // The RBF floor only applies while there is a live child to replace. A prior child
     // recorded but since evicted (lost anchor race, confirmed competitor) clears the handle
     // through the release paths, so `last_child_fee` here always describes the mempool
@@ -867,24 +850,20 @@ where
         .await
         .map_err(CpfpError::Wallet)?;
 
-    // Record the newly-leased funding inputs NOW, before any of the fallible steps below.
+    // Take the new lease into the handle NOW, before any of the fallible steps below.
     //
-    // `build_cpfp_child` leases `funded.spent` on the way out. Every step between here and
-    // submission can fail (anchor signer, wallet signer, sighash, PSBT extraction, package
-    // rejection), and until this handle carries the inputs, the next bump computes
-    // `replacing = None` and the wallet is never told to let them go — so a single transient
-    // signer or RPC blip stranded those UTXOs for the lifetime of the process, and repeated
-    // failures progressively starved the general wallet of spendable inputs.
+    // The lease frees its outpoints when the last clone drops. Every step between here and
+    // submission can fail: the anchor signer, the wallet signer, the sighash, the PSBT
+    // extraction, and the package submission. The handle must own the lease across all of
+    // them, so that the caller's write-back keeps it and the next bump passes it as
+    // `replacing`. This assignment also drops the lease of the child that the new child
+    // supersedes, once the caller writes the handle back.
     //
-    // Writing it here is safe against the retry path too: `OperatorWallet::build_cpfp_child`
-    // releases `replacing` up front and, if selection then fails, re-leases it — so the
-    // recorded set is always either currently leased or deliberately handed back.
-    //
-    // Record the fee together with the inputs. The fee is the floor for the next
+    // Record the fee together with the lease. The fee is the floor for the next
     // replacement (BIP-125 rule 4). If submission fails below, the prior child stays in
     // the mempool and pays less than the recorded fee. The floor is then conservative,
     // which is safe: the next child pays slightly more than the rule requires.
-    handle.last_child_inputs = funded.spent.clone();
+    handle.last_child_lease = Some(funded.lease);
     handle.last_child_fee = funded.psbt.fee().ok();
 
     // ── 6. Sign each input still lacking final_script_witness ─────────────
@@ -929,8 +908,9 @@ where
     if !matches!(strategy, CpfpStrategy::ParentTxCombined { .. }) {
         // The wallet promised to add the anchor as a foreign UTXO; sanity-check that the
         // PSBT actually contains it before signing.
-        // `PsbtExtract`, not `Wallet`: this check runs after the build, so the wallet has
-        // leased the funding inputs, and `CpfpError::leased_funding` must report true.
+        // `PsbtExtract`, not `Wallet`: this check runs after the build, and the handle
+        // already owns the lease on the funding inputs. The caller's write-back keeps that
+        // lease, or drops it and frees the inputs.
         let anchor_idx = anchor_input_idx.ok_or_else(|| {
             CpfpError::PsbtExtract(format!(
                 "wallet-built child does not contain expected anchor outpoint for parent {parent_txid}"
@@ -1029,7 +1009,7 @@ where
 
     // ── 9. Update handle ────────────────────────────────────────────────────
     //
-    // `last_child_inputs` was already recorded right after funding (see above) so a failure
+    // The lease was already recorded right after funding (see above) so a failure
     // anywhere in between still hands the leases back on the next bump. The remaining two
     // fields describe what is actually in the mempool, so they only advance on success.
     handle.last_pkg_fee_rate = Some(target);
@@ -1144,13 +1124,37 @@ pub(crate) mod tests {
         }
     }
 
+    /// A lease that appends its outpoints to a shared log when it drops.
+    ///
+    /// The tests read that log to make sure that each path which stops the bumps returns the
+    /// funding inputs of the last child. A production lease returns them to the wallet. This
+    /// one records the same event.
+    #[derive(Debug)]
+    pub(crate) struct FakeLease {
+        outpoints: Vec<OutPoint>,
+        released: Arc<Mutex<Vec<OutPoint>>>,
+    }
+    impl FundingLease for FakeLease {
+        fn outpoints(&self) -> &[OutPoint] {
+            &self.outpoints
+        }
+    }
+    impl Drop for FakeLease {
+        fn drop(&mut self) {
+            self.released
+                .lock()
+                .unwrap()
+                .extend_from_slice(&self.outpoints);
+        }
+    }
+
     #[derive(Debug)]
     pub(crate) struct FakeWallet {
         psbt_template: Mutex<Option<Psbt>>,
         spent_template: Vec<OutPoint>,
         error: Option<String>,
-        /// Every outpoint handed back through [`CpfpWallet::release`], in call order.
-        pub(crate) released: Mutex<Vec<OutPoint>>,
+        /// Outpoints of every lease that has dropped, in drop order.
+        pub(crate) released: Arc<Mutex<Vec<OutPoint>>>,
     }
     impl FakeWallet {
         pub(crate) fn returning(psbt: Psbt, spent: Vec<OutPoint>) -> Self {
@@ -1158,7 +1162,7 @@ pub(crate) mod tests {
                 psbt_template: Mutex::new(Some(psbt)),
                 spent_template: spent,
                 error: None,
-                released: Mutex::new(Vec::new()),
+                released: Arc::new(Mutex::new(Vec::new())),
             }
         }
         pub(crate) fn failing(msg: &str) -> Self {
@@ -1166,8 +1170,15 @@ pub(crate) mod tests {
                 psbt_template: Mutex::new(None),
                 spent_template: Vec::new(),
                 error: Some(msg.to_string()),
-                released: Mutex::new(Vec::new()),
+                released: Arc::new(Mutex::new(Vec::new())),
             }
+        }
+        /// Builds a lease over `outpoints` that reports its own drop to this wallet.
+        pub(crate) fn lease(&self, outpoints: Vec<OutPoint>) -> Arc<dyn FundingLease> {
+            Arc::new(FakeLease {
+                outpoints,
+                released: Arc::clone(&self.released),
+            })
         }
     }
     impl CpfpWallet for FakeWallet {
@@ -1176,26 +1187,21 @@ pub(crate) mod tests {
             _parent: &Transaction,
             _strategy: CpfpStrategy,
             _target_pkg_fee_rate: FeeRate,
-            _replacing: Option<&[OutPoint]>,
+            _replacing: Option<&dyn FundingLease>,
             _prior_child_fee: Option<Amount>,
         ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send {
             let err = self.error.clone();
             let psbt = self.psbt_template.lock().unwrap().clone();
-            let spent = self.spent_template.clone();
+            let lease = self.lease(self.spent_template.clone());
             async move {
                 if let Some(e) = err {
                     return Err(e);
                 }
                 Ok(WalletFundedPsbt {
                     psbt: psbt.expect("test must seed a psbt template"),
-                    spent,
+                    lease,
                 })
             }
-        }
-
-        fn release(&self, outpoints: &[OutPoint]) -> impl std::future::Future<Output = ()> + Send {
-            self.released.lock().unwrap().extend_from_slice(outpoints);
-            async {}
         }
     }
 
@@ -1455,13 +1461,22 @@ pub(crate) mod tests {
         }
     }
 
-    fn seeded_handle(inputs: &[OutPoint], our_child: Txid) -> CpfpHandle {
+    fn seeded_handle(wallet: &FakeWallet, inputs: &[OutPoint], our_child: Txid) -> CpfpHandle {
         CpfpHandle {
-            last_child_inputs: inputs.to_vec(),
+            last_child_lease: Some(wallet.lease(inputs.to_vec())),
             last_pkg_fee_rate: Some(FeeRate::from_sat_per_vb_unchecked(3)),
             last_child_txid: Some(our_child),
             last_child_fee: Some(Amount::from_sat(500)),
         }
+    }
+
+    /// The outpoints that the handle's lease holds, or an empty vector when it holds none.
+    fn held_by(handle: &CpfpHandle) -> Vec<OutPoint> {
+        handle
+            .last_child_lease
+            .as_deref()
+            .map(|lease| lease.outpoints().to_vec())
+            .unwrap_or_default()
     }
 
     fn contention_context(
@@ -1503,7 +1518,7 @@ pub(crate) mod tests {
             ),
         );
         let ctx = contention_context(wallet.clone(), submitter);
-        let mut handle = seeded_handle(&inputs, ours);
+        let mut handle = seeded_handle(&wallet, &inputs, ours);
         let bumped = perform_bump(
             &ctx,
             &parent,
@@ -1516,7 +1531,7 @@ pub(crate) mod tests {
         .expect("losing the anchor is a skip, not an error");
         assert!(!bumped);
         assert_eq!(*wallet.released.lock().unwrap(), inputs.to_vec());
-        assert!(handle.last_child_inputs.is_empty());
+        assert!(handle.last_child_lease.is_none());
     }
 
     /// Our own child holds the anchor at the target. This is the normal state. The leases
@@ -1538,7 +1553,7 @@ pub(crate) mod tests {
             ),
         );
         let ctx = contention_context(wallet.clone(), submitter);
-        let mut handle = seeded_handle(&inputs, ours);
+        let mut handle = seeded_handle(&wallet, &inputs, ours);
         let bumped = perform_bump(
             &ctx,
             &parent,
@@ -1551,7 +1566,7 @@ pub(crate) mod tests {
         .expect("holding the anchor is a skip, not an error");
         assert!(!bumped);
         assert!(wallet.released.lock().unwrap().is_empty());
-        assert_eq!(handle.last_child_inputs, inputs.to_vec());
+        assert_eq!(held_by(&handle), inputs.to_vec());
     }
 
     /// The anchor is spent by a confirmed transaction: bumping is over for this parent,
@@ -1569,7 +1584,7 @@ pub(crate) mod tests {
                 .with_spend_state(AnchorSpendState::Confirmed),
         );
         let ctx = contention_context(wallet.clone(), submitter);
-        let mut handle = seeded_handle(&inputs, ours);
+        let mut handle = seeded_handle(&wallet, &inputs, ours);
         let bumped = perform_bump(
             &ctx,
             &parent,
@@ -1582,7 +1597,7 @@ pub(crate) mod tests {
         .expect("a confirmed spend is a skip, not an error");
         assert!(!bumped);
         assert_eq!(*wallet.released.lock().unwrap(), inputs.to_vec());
-        assert!(handle.last_child_inputs.is_empty());
+        assert!(handle.last_child_lease.is_none());
     }
 
     #[tokio::test]
@@ -1773,7 +1788,7 @@ pub(crate) mod tests {
             handle.last_pkg_fee_rate,
             Some(FeeRate::from_sat_per_vb(10).unwrap())
         );
-        assert_eq!(handle.last_child_inputs, wallet_funding);
+        assert_eq!(held_by(&handle), wallet_funding);
         assert!(handle.last_child_txid.is_some());
 
         // submitter received [parent, child]
@@ -2273,7 +2288,8 @@ pub(crate) mod tests {
             );
             // But the leased inputs must be recorded, so the next bump releases them.
             assert_eq!(
-                handle.last_child_inputs, wallet_funding,
+                held_by(&handle),
+                wallet_funding,
                 "{label}: leased funding inputs must be recorded for release"
             );
         }
@@ -2384,7 +2400,7 @@ pub(crate) mod tests {
         .await
         .expect("script-path bump must succeed");
         assert!(submitted);
-        assert_eq!(handle.last_child_inputs, wallet_funding);
+        assert_eq!(held_by(&handle), wallet_funding);
 
         let packages = submitter.captured.lock().unwrap();
         let child = &packages[0][1];

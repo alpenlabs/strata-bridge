@@ -15,12 +15,14 @@ use bitcoin::{
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::{
     cpfp::{
-        AnchorSpendState, CpfpFeeSource, CpfpMempool, CpfpStrategy, CpfpWallet, InputSignFut,
-        InputSigner, WalletFundedPsbt,
+        AnchorSpendState, CpfpFeeSource, CpfpMempool, CpfpStrategy, CpfpWallet, FundingLease,
+        InputSignFut, InputSigner, WalletFundedPsbt,
     },
     submitpackage::{self, SubmitPackageError, SubmitPackageSummary},
 };
-use operator_wallet::{AnchorInfo, GeneralWallet, OperatorWallet};
+use operator_wallet::{
+    AnchorInfo, AnchorOwnership, GeneralWallet, Lease, OperatorWallet, ReplacedChild,
+};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_connectors::{Connector, prelude::MultiAnchor};
@@ -69,21 +71,46 @@ impl<G: GeneralWallet + std::fmt::Debug + 'static> OperatorWalletCpfpAdapter<G> 
     }
 }
 
+/// Presents an [`operator_wallet::Lease`] through the [`FundingLease`] interface of
+/// `btc-tracker`.
+///
+/// The wrapper exists because the orphan rule blocks a direct implementation: the trait
+/// belongs to `btc-tracker`, the lease type belongs to `operator-wallet`, and neither is local
+/// to this crate. The wrapper adds no behaviour. Dropping it drops the lease, and that is what
+/// returns the outpoints to the spendable set.
+#[derive(Debug)]
+struct WalletFundingLease(Lease);
+
+impl FundingLease for WalletFundingLease {
+    fn outpoints(&self) -> &[OutPoint] {
+        self.0.outpoints()
+    }
+}
+
 impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWalletCpfpAdapter<G> {
     fn build_cpfp_child(
         &self,
         parent: &Transaction,
         strategy: CpfpStrategy,
         target_pkg_fee_rate: FeeRate,
-        replacing: Option<&[OutPoint]>,
+        replacing: Option<&dyn FundingLease>,
         prior_child_fee: Option<Amount>,
     ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, String>> + Send {
         // Clone what we need into the future so the returned future owns its captures.
         let wallet_arc = self.wallet.clone();
         let parent_owned = parent.clone();
-        let replacing_owned: Option<Vec<OutPoint>> = replacing.map(<[OutPoint]>::to_vec);
+        let replacing_owned: Option<Vec<OutPoint>> =
+            replacing.map(|lease| lease.outpoints().to_vec());
         let operator_general_pubkey = self.operator_general_pubkey;
-        let combined_is_wallet_output = matches!(strategy, CpfpStrategy::ParentTxCombined { .. });
+        // `ParentTxCombined` spends the operator's own payout output, so that output belongs
+        // in the lease. Every other strategy spends an anchor keyed to a protocol key, which
+        // the wallet can never select for another transaction.
+        let anchor_ownership = match strategy {
+            CpfpStrategy::ParentTxCombined { .. } => AnchorOwnership::Wallet,
+            CpfpStrategy::AnchorBearing { .. } | CpfpStrategy::MultiAnchorBearing { .. } => {
+                AnchorOwnership::Foreign
+            }
+        };
         async move {
             // Both strategies funnel through the same `build_cpfp_child` machinery — only
             // the foreign-UTXO descriptor (anchor vs. payout) differs.
@@ -114,50 +141,26 @@ impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWallet
                     control_block,
                 },
             };
-            let anchor_outpoint = OutPoint {
-                txid: parent_owned.compute_txid(),
-                vout: foreign.vout(),
-            };
             let mut wallet = wallet_arc.write().await;
             let funded = wallet
                 .build_cpfp_child(
                     &parent_owned,
                     parent_fee,
                     foreign,
+                    anchor_ownership,
                     target_pkg_fee_rate,
-                    replacing_owned.as_deref(),
-                    prior_child_fee,
+                    ReplacedChild {
+                        inputs: replacing_owned.as_deref().unwrap_or(&[]),
+                        fee: prior_child_fee,
+                    },
                 )
                 .await
                 .map_err(|e| format!("{e}"))?;
-            // `FundedPsbt::spent()` lists every input, foreign outpoint included. What
-            // enters the handle depends on the strategy:
-            //
-            // - Anchor strategies: drop the anchor outpoint. The anchor is keyed to the musig2 key,
-            //   so it is never a wallet UTXO. The first sync prunes its lease, and each later
-            //   release of a set that still contains it logs a warning on a correct path.
-            // - `ParentTxCombined`: keep the payout outpoint. The payout IS a wallet UTXO, so the
-            //   sync prune retains its lease while it is live, and only the handle's terminal
-            //   releases free it. A dropped record here leaves the full payout value leased until
-            //   process restart. Selection stays safe: the builder skips the foreign outpoint as a
-            //   funding candidate and admits it through `add_foreign_utxo` only.
-            let spent = funded
-                .spent()
-                .into_iter()
-                .filter(|op| combined_is_wallet_output || *op != anchor_outpoint)
-                .collect();
+            let (psbt, lease) = funded.into_parts();
             Ok(WalletFundedPsbt {
-                psbt: funded.psbt,
-                spent,
+                psbt,
+                lease: Arc::new(WalletFundingLease(lease)),
             })
-        }
-    }
-
-    fn release(&self, outpoints: &[OutPoint]) -> impl std::future::Future<Output = ()> + Send {
-        let wallet_arc = self.wallet.clone();
-        let outpoints_owned = outpoints.to_vec();
-        async move {
-            wallet_arc.write().await.release(&outpoints_owned);
         }
     }
 }

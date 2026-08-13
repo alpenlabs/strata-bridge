@@ -111,6 +111,25 @@ const fn compact_size_len(n: usize) -> usize {
 /// item count + 65 bytes for the Schnorr signature push.
 pub(crate) const TAPROOT_KEY_PATH_SAT_WEIGHT: usize = 66;
 
+/// Whether the parent output that a CPFP child spends belongs to this wallet.
+///
+/// A child always spends one output of its parent. For most parents that output is a CPFP
+/// anchor keyed to a protocol key, and the wallet can never select it for another
+/// transaction. For a parent that pays this operator, the child spends the payout output
+/// instead, and the wallet can select that output once the parent confirms.
+///
+/// The composer reads this value to decide what the lease of the child covers. A foreign
+/// output stays out of the lease, because a lease on an outpoint that the wallet does not own
+/// records a claim it cannot act on. A wallet output enters the lease, because a concurrent
+/// duty must not select an output that a live child already spends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnchorOwnership {
+    /// The output belongs to a protocol key. It stays out of the lease.
+    Foreign,
+    /// The output pays this wallet. It enters the lease.
+    Wallet,
+}
+
 /// The prior CPFP child that a rebuild replaces via RBF.
 ///
 /// The backend has two obligations toward the replaced child:

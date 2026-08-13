@@ -204,11 +204,18 @@ async fn build_v3_parent(
                 unsigned_tx,
                 parent_fee_rate,
                 operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+                operator_wallet::LeaseOwner::ClaimFundingRefill,
             )
             .await
             .expect("fund_v3_transaction (parent)")
     };
-    let mut psbt = funded.psbt;
+    // Commit the lease on the parent's funding inputs, exactly as every production executor
+    // does once it publishes a parent. The inputs stay held until a sync observes the spend.
+    // Without this, they return to the spendable set while the parent is still unbroadcast,
+    // the CPFP child can select one of them, and `submitpackage` rejects the package with
+    // "conflict-in-package".
+    let (mut psbt, funding_lease) = funded.into_parts();
+    funding_lease.commit();
     sign_funding_inputs(&mut psbt, operator_keypair, &[]).expect("sign parent funding inputs");
     finalize_to_tx(psbt)
 }
@@ -454,11 +461,18 @@ async fn build_v3_payout_parent(
                 unsigned_tx,
                 parent_fee_rate,
                 operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+                operator_wallet::LeaseOwner::ClaimFundingRefill,
             )
             .await
             .expect("fund_v3_transaction (payout parent)")
     };
-    let mut psbt = funded.psbt;
+    // Commit the lease on the parent's funding inputs, exactly as every production executor
+    // does once it publishes a parent. The inputs stay held until a sync observes the spend.
+    // Without this, they return to the spendable set while the parent is still unbroadcast,
+    // the CPFP child can select one of them, and `submitpackage` rejects the package with
+    // "conflict-in-package".
+    let (mut psbt, funding_lease) = funded.into_parts();
+    funding_lease.commit();
     sign_funding_inputs(&mut psbt, operator_keypair, &[])
         .expect("sign payout parent funding inputs");
     finalize_to_tx(psbt)
@@ -642,11 +656,18 @@ async fn build_v3_mixed_parent(
                 unsigned_tx,
                 parent_fee_rate,
                 operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+                operator_wallet::LeaseOwner::ClaimFundingRefill,
             )
             .await
             .expect("fund_v3_transaction (mixed parent)")
     };
-    let mut psbt = funded.psbt;
+    // Commit the lease on the parent's funding inputs, exactly as every production executor
+    // does once it publishes a parent. The inputs stay held until a sync observes the spend.
+    // Without this, they return to the spendable set while the parent is still unbroadcast,
+    // the CPFP child can select one of them, and `submitpackage` rejects the package with
+    // "conflict-in-package".
+    let (mut psbt, funding_lease) = funded.into_parts();
+    funding_lease.commit();
     sign_funding_inputs(&mut psbt, operator_keypair, &[])
         .expect("sign mixed parent funding inputs");
     finalize_to_tx(psbt)
@@ -827,11 +848,18 @@ async fn build_v3_multi_anchor_parent(
                 unsigned_tx,
                 parent_fee_rate,
                 operator_wallet::GeneralUtxoPolicy::ConfirmedOnly,
+                operator_wallet::LeaseOwner::ClaimFundingRefill,
             )
             .await
             .expect("fund_v3_transaction (multi-anchor parent)")
     };
-    let mut psbt = funded.psbt;
+    // Commit the lease on the parent's funding inputs, exactly as every production executor
+    // does once it publishes a parent. The inputs stay held until a sync observes the spend.
+    // Without this, they return to the spendable set while the parent is still unbroadcast,
+    // the CPFP child can select one of them, and `submitpackage` rejects the package with
+    // "conflict-in-package".
+    let (mut psbt, funding_lease) = funded.into_parts();
+    funding_lease.commit();
     sign_funding_inputs(&mut psbt, operator_keypair, &[])
         .expect("sign multi-anchor parent funding inputs");
     finalize_to_tx(psbt)

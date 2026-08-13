@@ -15,6 +15,7 @@
 
 pub mod config;
 pub mod general;
+pub mod leases;
 pub mod sync;
 pub mod wallet;
 
@@ -29,10 +30,12 @@ use thiserror::Error;
 pub use crate::{
     config::OperatorWalletConfig,
     general::{
-        native::NativeGeneralWallet, AnchorInfo, FundedPsbt, GeneralWallet, ReplacedChild, UtxoInfo,
+        native::NativeGeneralWallet, AnchorInfo, AnchorOwnership, FundedPsbt, GeneralWallet,
+        ReplacedChild, UtxoInfo,
     },
+    leases::{Lease, LeaseOwner, LeaseSet},
     sync::SyncError,
-    wallet::{GeneralUtxoPolicy, OperatorWallet},
+    wallet::{GeneralUtxoPolicy, LeasedPsbt, OperatorWallet},
 };
 
 /// Errors returned by [`OperatorWallet`] methods. Backend errors are boxed so call sites don't

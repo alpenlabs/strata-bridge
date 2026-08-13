@@ -237,18 +237,12 @@ where
     )
     .await;
     if !submitted && inserted {
-        // The bump can lease funding inputs and then fail (funding succeeded, a later
-        // step did not). This removal deletes the last record of those leases, so release
-        // them here. The child never reached the mempool, the inputs stay live, and the
-        // sync prune keeps a lease on a live outpoint forever.
+        // The removed entry drops the lease of its last child, which frees the funding
+        // inputs of a child that never reached a mempool.
         //
         // Remove only an entry that this call inserted. A pre-existing entry belongs to
         // an earlier job that still waits on it, and its reactive bumps continue.
-        if let Some(entry) = entries.lock().await.remove(&txid) {
-            if !entry.handle.last_child_inputs.is_empty() {
-                ctx.wallet.release(&entry.handle.last_child_inputs).await;
-            }
-        }
+        entries.lock().await.remove(&txid);
     }
     submitted
 }
@@ -296,7 +290,7 @@ async fn resubmit_bare(rpc_client: &BitcoinClient, rawtx: &Transaction, evicted_
 /// callers serialize through the driver's single `active_bump_task` slot. The new-job
 /// caller does not share that slot, so it gates itself on the slot's state before it
 /// bumps: two concurrent bumps of one entry snapshot the same handle, and the later
-/// write-back clobbers the earlier one's `last_child_inputs`.
+/// write-back clobbers the lease that the earlier one took.
 async fn bump_one_entry<W, F, P>(
     ctx: &CpfpContext<W, F, P>,
     entries: &CpfpEntries,
@@ -331,29 +325,16 @@ where
     // Write the updated handle back if the entry still exists and is awake. Two other
     // cases exist, and both mean an event arm settled this parent during the bump:
     //
-    // - Entry gone: the parent was buried and the removal released the map handle.
-    // - Entry dormant: the parent was mined and the Mined arm took and released the map handle. A
-    //   write-back here re-records inputs that the Mined release already handed back, and the
-    //   burial release then strips them a second time — after a concurrent build has re-acquired
-    //   them.
+    // - Entry gone: the parent was buried and the removal dropped the map handle.
+    // - Entry dormant: the parent was mined, and the Mined arm cleared the lease of the map handle.
     //
-    // In both cases this local handle holds the only record of the inputs that this bump
-    // leased, so release them — but only when this bump leased. A bump that did not reach
-    // the build (floor skip, fee-source error, or a failed build, which restores its own
-    // lease state) leaves `last_child_inputs` with the pre-bump set, and the event arm
-    // released that set already from its own copy. A second release of the pre-bump set
-    // can strip a lease that a concurrent new-job build acquired in between.
-    let bump_leased = match &result {
-        Ok(submitted) => *submitted,
-        Err(e) => e.leased_funding(),
-    };
+    // Neither case needs a release call. The local handle drops at the end of this function.
+    // When this bump built a child, the local handle owns the only clone of that lease, and
+    // the drop frees the inputs. When it did not, the local handle holds a clone of the
+    // lease that the map still owns, and the drop frees nothing.
     match entries.lock().await.get_mut(&parent_txid) {
         Some(entry) if !entry.dormant => entry.handle = handle,
-        _ => {
-            if bump_leased && !handle.last_child_inputs.is_empty() {
-                ctx.wallet.release(&handle.last_child_inputs).await;
-            }
-        }
+        _ => {}
     }
     match result {
         Ok(true) => {
@@ -386,7 +367,7 @@ where
 /// The insert is get-or-create. A duplicate drive job for a parent that already has an
 /// entry keeps the live handle and only refreshes the parent and strategy. The duty retry
 /// tick re-emits publishes while the SM waits for burial, and the handle's
-/// `last_child_inputs` is the only record of the wallet leases. The insert also runs
+/// `last_child_lease` is the only record of the wallet leases. The insert also runs
 /// *before* the bump. The reverse order (bump into a private entry, insert after) opens a
 /// write-back race: a concurrent batch bump of the same parent leases fresh funding and
 /// records it in the map, and a late insert then overwrites that record with a stale
@@ -758,7 +739,7 @@ impl TxDriver {
                                     // The eviction bump shares the block/tick arms' single
                                     // in-flight slot. Two concurrent bumps of one entry would
                                     // snapshot the same handle and the later write-back would
-                                    // clobber the earlier one's `last_child_inputs`,
+                                    // clobber the lease that the earlier one took,
                                     // stranding the loser's wallet leases — the exact failure
                                     // `perform_bump`'s eager lease recording exists to
                                     // prevent. Spawning (rather than bumping inline) also
@@ -824,8 +805,8 @@ impl TxDriver {
                                 // CPFP lifecycle against confirmation depth:
                                 //
                                 // - Mined: stop the bumps (a confirmed parent needs no
-                                //   child), release the child's funding leases, and keep
-                                //   the entry dormant. Each production caller waits for
+                                //   child), drop the lease of the child, and keep the
+                                //   entry dormant. Each production caller waits for
                                 //   burial. A reorg between mined and buried returns the
                                 //   parent to the mempool (`Mempool`) or evicts it
                                 //   (`Unknown`), and the bumps must resume then. A removal
@@ -834,29 +815,21 @@ impl TxDriver {
                                 //   of a floor-rate parent, no mempool accepts it under
                                 //   fee pressure, and the duty never completes.
                                 // - Mempool: the reorg case. Wake the entry.
-                                // - Buried: final. Remove the entry.
+                                // - Buried: final. Remove the entry, which drops any lease
+                                //   that the Mined arm did not already drop.
                                 //
-                                // The lease release runs at mined time and again, without
-                                // effect, at burial. If the parent confirmed through a
-                                // competitor's child, the release frees our dead child's
-                                // funding. If our own child confirmed, its funding is
-                                // spent on-chain — see the release note in `perform_bump`
-                                // step 4.5 for the bounded side effect. A woken entry
-                                // starts from an empty handle and leases fresh funding on
-                                // its next bump.
+                                // If the parent confirmed through a competitor's child,
+                                // the drop frees our dead child's funding. If our own
+                                // child confirmed, its funding is spent on chain — see the
+                                // release note in `perform_bump` step 4.5 for the bounded
+                                // side effect. A woken entry starts from an empty handle
+                                // and takes a fresh lease on its next bump.
                                 match event.status {
                                     TxStatus::Mined { .. } => {
-                                        let released = {
-                                            let mut entries = cpfp_entries.lock().await;
-                                            entries.get_mut(&txid).map(|entry| {
-                                                entry.dormant = true;
-                                                std::mem::take(&mut entry.handle)
-                                            })
-                                        };
-                                        if let (Some(ctx), Some(handle)) = (cpfp_ctx.as_ref(), released) {
-                                            if !handle.last_child_inputs.is_empty() {
-                                                ctx.wallet.release(&handle.last_child_inputs).await;
-                                            }
+                                        let mut entries = cpfp_entries.lock().await;
+                                        if let Some(entry) = entries.get_mut(&txid) {
+                                            entry.dormant = true;
+                                            entry.handle = CpfpHandle::default();
                                         }
                                     }
                                     TxStatus::Mempool => {
@@ -868,12 +841,7 @@ impl TxDriver {
                                         }
                                     }
                                     TxStatus::Buried { .. } => {
-                                        let removed = cpfp_entries.lock().await.remove(&txid);
-                                        if let (Some(ctx), Some(entry)) = (cpfp_ctx.as_ref(), removed) {
-                                            if !entry.handle.last_child_inputs.is_empty() {
-                                                ctx.wallet.release(&entry.handle.last_child_inputs).await;
-                                            }
-                                        }
+                                        cpfp_entries.lock().await.remove(&txid);
                                     }
                                     TxStatus::Unknown => {}
                                 }
@@ -1481,7 +1449,13 @@ mod cpfp_lifecycle_tests {
         assert!(!submitted, "rejected package must not report submission");
         let map = entries.lock().await;
         assert_eq!(
-            map[&parent_txid].handle.last_child_inputs, funding,
+            map[&parent_txid]
+                .handle
+                .last_child_lease
+                .as_deref()
+                .expect("the entry must hold a lease")
+                .outpoints(),
+            funding,
             "leased funding inputs must be written back even though submission failed"
         );
         assert!(
@@ -1576,7 +1550,13 @@ mod cpfp_lifecycle_tests {
         assert!(submitted);
         let map = entries.lock().await;
         assert_eq!(
-            map[&parent_txid].handle.last_child_inputs, funding,
+            map[&parent_txid]
+                .handle
+                .last_child_lease
+                .as_deref()
+                .expect("the entry must hold a lease")
+                .outpoints(),
+            funding,
             "the surviving entry must carry the bump's lease state"
         );
     }

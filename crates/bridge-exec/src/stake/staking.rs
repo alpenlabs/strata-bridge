@@ -13,7 +13,7 @@ use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PubNonce};
-use operator_wallet::GeneralUtxoPolicy;
+use operator_wallet::{GeneralUtxoPolicy, LeaseOwner};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors::prelude::UnstakingIntentOutput;
 use strata_bridge_db::{
@@ -140,7 +140,10 @@ async fn read_or_create_stake_funding(
             .iter()
             .map(|txin| txin.previous_output)
             .collect();
-        wallet.lease(&inputs);
+        // The database row keeps this reservation across restarts, so the lease has no owning
+        // value to drop. Startup rehydration holds the same outpoints. This call covers the
+        // case where the row was written after startup read the funds.
+        wallet.lease_committed(inputs, LeaseOwner::StakeFunding);
         return Ok(reservation);
     }
 
@@ -151,23 +154,20 @@ async fn read_or_create_stake_funding(
     // Stake funding is one reserved-wallet UTXO of `funding_amount`. The reserved-utxo API
     // takes denomination + quantity uniformly (claim-funding pool uses larger quantity
     // with a smaller per-UTXO value); for the stake-funding case it's always quantity 1.
-    let funded = wallet
+    // `candidate` holds the inputs that the wallet selected. Each path below that does not
+    // become the stored reservation drops it, which returns those inputs to the pool.
+    let candidate = wallet
         .create_reserved_utxos(
             fee_rate,
             funding_amount,
             1,
             GeneralUtxoPolicy::IncludeUnconfirmed,
+            LeaseOwner::StakeFunding,
         )
         .await
         .map_err(|e| ExecutorError::WalletErr(format!("stake funding failed: {e}")))?;
-    let reservation = reservation_from_psbt(&funded.psbt);
-
-    let candidate_inputs: Vec<OutPoint> = reservation
-        .unsigned_tx
-        .input
-        .iter()
-        .map(|txin| txin.previous_output)
-        .collect();
+    let (candidate_psbt, candidate_lease) = candidate.into_parts();
+    let reservation = reservation_from_psbt(&candidate_psbt);
 
     info!(%operator_idx, "persisting stake funding reservation");
     let assignment = output_handles
@@ -176,33 +176,28 @@ async fn read_or_create_stake_funding(
         .await;
 
     match assignment {
-        Ok(FundingAssignment::Created(reservation)) => Ok(reservation),
+        Ok(FundingAssignment::Created(reservation)) => {
+            candidate_lease.commit();
+            Ok(reservation)
+        }
         Ok(FundingAssignment::Existing(reservation)) => {
             info!(%operator_idx, "using existing stake funding reservation saved by another duty");
+            drop(candidate_lease);
+            validate_reservation(
+                &reservation,
+                &wallet.reserved_script_pubkey(),
+                funding_amount,
+            )?;
             let assigned_inputs: Vec<OutPoint> = reservation
                 .unsigned_tx
                 .input
                 .iter()
                 .map(|txin| txin.previous_output)
                 .collect();
-            let stale_candidate_inputs: Vec<_> = candidate_inputs
-                .iter()
-                .copied()
-                .filter(|outpoint| !assigned_inputs.contains(outpoint))
-                .collect();
-            wallet.release(&stale_candidate_inputs);
-            validate_reservation(
-                &reservation,
-                &wallet.reserved_script_pubkey(),
-                funding_amount,
-            )?;
-            wallet.lease(&assigned_inputs);
+            wallet.lease_committed(assigned_inputs, LeaseOwner::StakeFunding);
             Ok(reservation)
         }
-        Err(err) => {
-            wallet.release(&candidate_inputs);
-            Err(err.into())
-        }
+        Err(err) => Err(err.into()),
     }
 }
 

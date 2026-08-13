@@ -7,7 +7,7 @@
 //!
 //! These tests cover the load-bearing surface of [`OperatorWallet`]:
 //!
-//! - **Lease bookkeeping** is idempotent and additive (lease + release semantics).
+//! - **Lease bookkeeping**: a committed lease holds its outpoints until an explicit release.
 //! - **Reserved-UTXO creation** funds the reserved wallet with the requested denomination +
 //!   quantity, and the resulting UTXOs are discoverable via `reserved_utxos_with_value`.
 //! - **Pool refill** semantics: caller computes batch size from current count, requests only the
@@ -36,7 +36,7 @@ use bdk_wallet::bitcoin::{
 };
 use corepc_node::{Conf, Node};
 use operator_wallet::{
-    sync::Backend, Error as OperatorWalletError, GeneralUtxoPolicy, GeneralWallet,
+    sync::Backend, Error as OperatorWalletError, GeneralUtxoPolicy, GeneralWallet, LeaseOwner,
     NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
 };
 use serial_test::serial;
@@ -159,9 +159,9 @@ fn sign_and_finalize(mut psbt: Psbt, keypair: Keypair) -> Transaction {
 
 #[tokio::test]
 #[serial]
-async fn lease_release_are_idempotent_and_additive() {
+async fn committed_leases_survive_until_an_explicit_release() {
     let bitcoind = setup_bitcoind();
-    let (mut wallet, _kp, _pk) =
+    let (wallet, _kp, _pk) =
         build_operator_wallet(&bitcoind, 1, 2, 1, Amount::from_btc(0.5).unwrap()).await;
 
     let op_a = OutPoint {
@@ -174,22 +174,22 @@ async fn lease_release_are_idempotent_and_additive() {
     };
 
     assert!(wallet.leased_outpoints().is_empty(), "starts empty");
-    wallet.lease(&[op_a, op_b]);
-    assert_eq!(wallet.leased_outpoints().len(), 2, "two leased");
-    // Idempotent: re-leasing the same outpoints doesn't grow the set.
-    wallet.lease(&[op_a]);
+    wallet.lease_committed(vec![op_a, op_b], LeaseOwner::StakeFunding);
+    assert_eq!(wallet.leased_outpoints().len(), 2, "two held");
+    // A second committed lease on one of them does not change what is held.
+    wallet.lease_committed(vec![op_a], LeaseOwner::StakeFunding);
     assert_eq!(
         wallet.leased_outpoints().len(),
         2,
-        "still two after re-lease"
+        "still two after a repeat"
     );
 
-    wallet.release(&[op_a]);
-    assert_eq!(wallet.leased_outpoints().len(), 1, "one left after release");
-    // Release-of-unleased is safe (no panic; logs a warning we don't capture here).
-    wallet.release(&[op_a]);
+    wallet.release_committed(&[op_a]);
+    assert_eq!(wallet.leased_outpoints().len(), 1, "one left");
+    // A release of an outpoint that nothing holds logs a warning and changes nothing.
+    wallet.release_committed(&[op_a]);
     assert_eq!(wallet.leased_outpoints().len(), 1, "still one");
-    wallet.release(&[op_b]);
+    wallet.release_committed(&[op_b]);
     assert!(wallet.leased_outpoints().is_empty(), "empty again");
 }
 
@@ -211,28 +211,26 @@ async fn create_reserved_utxos_funds_pool_and_leases_inputs() {
             utxo_value,
             quantity,
             GeneralUtxoPolicy::IncludeUnconfirmed,
+            LeaseOwner::ClaimFundingRefill,
         )
         .await
         .expect("funding must succeed");
 
-    // The wallet should have leased the funding inputs (so concurrent duties don't double-
-    // pick them). The actual leased outpoints come from the funded PSBT's inputs.
+    // The returned lease must hold every funding input, so that a concurrent duty cannot
+    // select one of them.
     let leased = wallet.leased_outpoints();
-    assert!(
-        !leased.is_empty(),
-        "wallet must have leased the funding inputs"
-    );
-    for spent in funded.spent() {
+    assert!(!leased.is_empty(), "the lease must hold the funding inputs");
+    for spent in funded.lease().outpoints() {
         assert!(
-            leased.contains(&spent),
-            "every spent outpoint must be leased; missing {spent}"
+            leased.contains(spent),
+            "every spent outpoint must be held; missing {spent}"
         );
     }
 
     // The PSBT must carry the requested quantity of reserved-wallet outputs.
     let reserved_script = wallet.reserved_script_pubkey();
     let reserved_output_count = funded
-        .psbt
+        .psbt()
         .unsigned_tx
         .output
         .iter()
@@ -243,8 +241,9 @@ async fn create_reserved_utxos_funds_pool_and_leases_inputs() {
         "PSBT must contain {quantity} reserved-wallet outputs of {utxo_value}"
     );
 
-    // Sign + broadcast + confirm; resync; the reserved pool now contains the new UTXOs.
-    let signed = sign_and_finalize(funded.psbt, general_kp);
+    // Sign, broadcast, confirm, and resync. The reserved pool then holds the new UTXOs.
+    let (psbt, _funding_lease) = funded.into_parts();
+    let signed = sign_and_finalize(psbt, general_kp);
     bitcoind
         .client
         .send_raw_transaction(&signed)
@@ -296,6 +295,7 @@ async fn create_reserved_utxos_reports_only_unconfirmed_general_utxos() {
             Amount::from_btc(0.01).unwrap(),
             1,
             GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::ClaimFundingRefill,
         )
         .await
         .expect_err("unconfirmed general-wallet funds must not be selected");
@@ -338,12 +338,13 @@ async fn create_reserved_utxos_can_include_unconfirmed_general_utxos_when_allowe
             Amount::from_btc(0.01).unwrap(),
             1,
             GeneralUtxoPolicy::IncludeUnconfirmed,
+            LeaseOwner::ClaimFundingRefill,
         )
         .await
         .expect("unconfirmed general-wallet funds may be selected when allowed");
 
     assert!(
-        funded.spent().contains(&unconfirmed_outpoint),
+        funded.lease().outpoints().contains(&unconfirmed_outpoint),
         "funding transaction should spend the unconfirmed general-wallet UTXO"
     );
     assert!(
@@ -380,16 +381,17 @@ async fn create_reserved_utxos_excludes_unconfirmed_when_confirmed_funds_are_ava
             Amount::from_btc(0.01).unwrap(),
             1,
             GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::ClaimFundingRefill,
         )
         .await
         .expect("confirmed funds should fund reserved UTXOs");
 
     assert!(
-        funded.spent().contains(&confirmed_outpoint),
+        funded.lease().outpoints().contains(&confirmed_outpoint),
         "funding transaction should spend the confirmed UTXO"
     );
     assert!(
-        !funded.spent().contains(&unconfirmed_outpoint),
+        !funded.lease().outpoints().contains(&unconfirmed_outpoint),
         "funding transaction must exclude the unconfirmed UTXO"
     );
 }
@@ -409,10 +411,12 @@ async fn reserve_utxo_with_value_picks_and_leases_one() {
             utxo_value,
             3,
             GeneralUtxoPolicy::IncludeUnconfirmed,
+            LeaseOwner::ClaimFundingRefill,
         )
         .await
         .expect("seed funding");
-    let signed = sign_and_finalize(funded.psbt, general_kp);
+    let (seed_psbt, seed_lease) = funded.into_parts();
+    let signed = sign_and_finalize(seed_psbt, general_kp);
     bitcoind
         .client
         .send_raw_transaction(&signed)
@@ -424,25 +428,34 @@ async fn reserve_utxo_with_value_picks_and_leases_one() {
         .expect("mine");
     wallet.sync().await.expect("sync");
 
-    // Reset wallet's lease state — the funding-tx inputs were leased; the new reserved
-    // UTXOs themselves haven't been. We're testing reserve_utxo_with_value on the pool.
-    let funding_inputs: Vec<OutPoint> = wallet.leased_outpoints().iter().copied().collect();
-    wallet.release(&funding_inputs);
+    // Clear the lease state. The seed transaction's inputs are held by its lease, and the
+    // sync above already pruned them because the spend confirmed. The new reserved UTXOs are
+    // free. This test covers `reserve_utxo_with_value` against that pool.
+    drop(seed_lease);
     assert!(wallet.leased_outpoints().is_empty(), "lease state cleared");
 
-    let (picked, remaining) = wallet.reserve_utxo_with_value(utxo_value, |_| false);
-    let picked = picked.expect("must return one outpoint");
+    let (picked, remaining) =
+        wallet.reserve_utxo_with_value(utxo_value, LeaseOwner::ClaimFunding, |_| false);
+    let (picked, picked_lease) = picked.expect("must return one outpoint");
     assert_eq!(remaining, 2, "two more left in the pool");
     assert!(
         wallet.leased_outpoints().contains(&picked),
-        "picked outpoint must be leased"
+        "picked outpoint must be held"
     );
 
-    // Picking again skips the leased one; we get a different outpoint.
-    let (picked_again, remaining_again) = wallet.reserve_utxo_with_value(utxo_value, |_| false);
-    let picked_again = picked_again.expect("must return another outpoint");
-    assert_ne!(picked_again, picked, "must pick a different unleased UTXO");
+    // A second pick skips the held outpoint and returns a different one.
+    let (picked_again, remaining_again) =
+        wallet.reserve_utxo_with_value(utxo_value, LeaseOwner::ClaimFunding, |_| false);
+    let (picked_again, _picked_again_lease) = picked_again.expect("must return another outpoint");
+    assert_ne!(picked_again, picked, "must pick a different free UTXO");
     assert_eq!(remaining_again, 1, "one more left after second pick");
+
+    // Dropping the first lease returns its outpoint to the pool.
+    drop(picked_lease);
+    assert!(
+        !wallet.leased_outpoints().contains(&picked),
+        "a dropped lease must return its outpoint to the pool"
+    );
 }
 
 #[tokio::test]
@@ -462,10 +475,12 @@ async fn reserve_utxo_with_value_filters_by_value() {
                 value,
                 2,
                 GeneralUtxoPolicy::IncludeUnconfirmed,
+                LeaseOwner::ClaimFundingRefill,
             )
             .await
             .unwrap_or_else(|e| panic!("seed funding for {value} failed: {e}"));
-        let signed = sign_and_finalize(funded.psbt, general_kp);
+        let (psbt, _lease) = funded.into_parts();
+        let signed = sign_and_finalize(psbt, general_kp);
         bitcoind
             .client
             .send_raw_transaction(&signed)
@@ -512,7 +527,7 @@ async fn sync_prunes_leases_whose_outpoints_have_been_spent() {
         .map(|u| u.outpoint)
         .collect();
     let target_outpoint = general_utxos[0];
-    wallet.lease(&[target_outpoint]);
+    wallet.lease_committed(vec![target_outpoint], LeaseOwner::StakeFunding);
     assert!(wallet.leased_outpoints().contains(&target_outpoint));
 
     // Spend `target_outpoint` directly via a manually-built tx, broadcast it, mine, sync.
@@ -582,10 +597,12 @@ async fn refill_workflow_skips_existing_pool_members() {
             utxo_value,
             2,
             GeneralUtxoPolicy::IncludeUnconfirmed,
+            LeaseOwner::ClaimFundingRefill,
         )
         .await
         .expect("first seed");
-    let signed = sign_and_finalize(first.psbt, general_kp);
+    let (first_psbt, _first_lease) = first.into_parts();
+    let signed = sign_and_finalize(first_psbt, general_kp);
     bitcoind
         .client
         .send_raw_transaction(&signed)
@@ -609,16 +626,17 @@ async fn refill_workflow_skips_existing_pool_members() {
             utxo_value,
             2,
             GeneralUtxoPolicy::IncludeUnconfirmed,
+            LeaseOwner::ClaimFundingRefill,
         )
         .await
         .expect("refill");
-    for spent in refill.spent() {
+    for spent in refill.lease().outpoints() {
         assert!(
-            !pool_outpoints_first.contains(&spent),
+            !pool_outpoints_first.contains(spent),
             "refill must not spend an existing pool UTXO ({spent})"
         );
     }
-    let signed_refill = sign_and_finalize(refill.psbt, general_kp);
+    let signed_refill = sign_and_finalize(refill.psbt().clone(), general_kp);
     bitcoind
         .client
         .send_raw_transaction(&signed_refill)
