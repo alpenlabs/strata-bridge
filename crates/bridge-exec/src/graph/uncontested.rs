@@ -26,7 +26,7 @@ pub(super) async fn publish_uncontested_payout(
         signed_uncontested_payout_tx,
         "uncontested payout",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(signed_uncontested_payout_tx),
+        chain::ParentFee::Floor,
         CpfpKind::PayoutCombined { payout_outpoint },
     )
     .await

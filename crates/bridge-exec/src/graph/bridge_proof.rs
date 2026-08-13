@@ -103,7 +103,7 @@ pub(super) async fn generate_and_publish_bridge_proof(
         &signed_tx,
         "bridge proof",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(&signed_tx),
+        chain::ParentFee::Floor,
         CpfpKind::None,
     )
     .await

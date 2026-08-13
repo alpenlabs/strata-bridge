@@ -70,7 +70,7 @@ pub(crate) async fn publish_stake_data(
         &signed_tx,
         "stake funding tx",
         TxStatus::is_buried,
-        stake_funding_fee,
+        chain::ParentFee::Exact(stake_funding_fee),
         CpfpKind::InferGeneralPayout,
     )
     .await?;
@@ -475,7 +475,7 @@ pub(crate) async fn publish_stake(
         &signed_tx,
         "stake tx",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(&signed_tx),
+        chain::ParentFee::Floor,
         CpfpKind::AnchorAt {
             anchor_vout: StakeTx::CPFP_VOUT,
             anchor_key,

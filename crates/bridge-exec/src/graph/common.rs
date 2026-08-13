@@ -702,13 +702,12 @@ pub(super) async fn publish_claim(
             .push(signature.serialize());
     }
 
-    let parent_fee = chain::parent_fee_for_floor_tx(&signed_claim_tx);
     publish_signed_transaction(
         output_handles,
         &signed_claim_tx,
         "claim",
         TxStatus::is_buried,
-        parent_fee,
+        chain::ParentFee::Floor,
         CpfpKind::AnchorAt {
             anchor_vout: ClaimTx::CPFP_VOUT,
             anchor_key: claim_tx.cpfp_connector().internal_key(),

@@ -39,7 +39,9 @@ use bitcoin::{
     transaction::Version,
 };
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
-use btc_tracker::cpfp::{self, BumpReason, CpfpContext, CpfpHandle, CpfpStrategy, InputSigner};
+use btc_tracker::cpfp::{
+    self, BumpOutcome, BumpReason, CpfpContext, CpfpHandle, CpfpStrategy, InputSigner,
+};
 use operator_wallet::{NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend};
 use serial_test::serial;
 use strata_bridge_connectors::{Connector, multi_anchor::MultiAnchor};
@@ -382,8 +384,9 @@ async fn cpfp_e2e_against_bitcoind() {
     )
     .await
     .expect("perform_bump must succeed end-to-end");
-    assert!(
+    assert_eq!(
         bumped,
+        BumpOutcome::Submitted,
         "expected the bump to fire (target {TEST_FEE_TARGET} sat/vB > floor)"
     );
 
@@ -569,8 +572,9 @@ async fn cpfp_e2e_parent_tx_combined_against_bitcoind() {
     )
     .await
     .expect("perform_bump must succeed end-to-end for ParentTxCombined");
-    assert!(
+    assert_eq!(
         bumped,
+        BumpOutcome::Submitted,
         "expected the bump to fire (target {TEST_FEE_TARGET} sat/vB > floor)"
     );
 
@@ -784,7 +788,11 @@ async fn cpfp_e2e_infer_general_payout_against_bitcoind() {
     )
     .await
     .expect("perform_bump must succeed end-to-end for InferGeneralPayout shape");
-    assert!(bumped, "bump must fire at target above floor");
+    assert_eq!(
+        bumped,
+        BumpOutcome::Submitted,
+        "bump must fire at target above floor"
+    );
 
     let child_txid = handle.last_child_txid.expect("child txid populated");
     let _ = async_client
@@ -992,7 +1000,11 @@ async fn cpfp_e2e_multi_anchor_against_bitcoind() {
     )
     .await
     .expect("perform_bump must succeed end-to-end for MultiAnchorBearing");
-    assert!(bumped, "bump must fire at target above floor");
+    assert_eq!(
+        bumped,
+        BumpOutcome::Submitted,
+        "bump must fire at target above floor"
+    );
 
     // ── 6. Mempool + package feerate + confirmation ────────────────────────
     let child_txid = handle.last_child_txid.expect("child txid populated");
@@ -1129,7 +1141,11 @@ async fn cpfp_e2e_multi_anchor_contention_is_quiet() {
     )
     .await
     .expect("the first watchtower must win the anchor");
-    assert!(bumped, "the first bump must submit a package");
+    assert_eq!(
+        bumped,
+        BumpOutcome::Submitted,
+        "the first bump must submit a package"
+    );
 
     // Watchtower 1 now sees the anchor taken at target, and skips.
     let (ctx1, strategy1) = context_for(1);
@@ -1144,9 +1160,11 @@ async fn cpfp_e2e_multi_anchor_contention_is_quiet() {
     )
     .await
     .expect("a lost anchor is not an error");
-    assert!(
-        !bumped,
-        "the second watchtower must skip, not submit a package that cannot win"
+    assert_eq!(
+        bumped,
+        BumpOutcome::ParentIsLive,
+        "the second watchtower must stand down, and it must report that the first \
+         watchtower's child already carries the parent"
     );
     assert!(
         handle1.last_child_txid.is_none(),

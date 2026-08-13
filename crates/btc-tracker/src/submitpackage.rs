@@ -99,6 +99,21 @@ impl SubmitPackageError {
             Self::Rpc(_) => false,
         }
     }
+
+    /// Whether the package member `txid` itself lost a replacement race.
+    ///
+    /// The per-tx entries key on the members of the submitted package, so this reports which
+    /// of the package's own transactions bitcoind declined. A rejection on the child means a
+    /// transaction in the mempool spends one of the child's inputs. A rejection on the parent
+    /// means a conflict with the parent itself is in the mempool, and the parent is not.
+    pub fn is_replacement_contention_for(&self, txid: &Txid) -> bool {
+        match self {
+            Self::Rejected { tx_errors, .. } => tx_errors
+                .iter()
+                .any(|(t, err)| t == txid && err.contains(REPLACEMENT_CONTENTION_MARKER)),
+            Self::Rpc(_) => false,
+        }
+    }
 }
 
 /// Substring that bitcoind uses when it declines a replacement for paying too little.

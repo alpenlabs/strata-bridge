@@ -15,8 +15,8 @@ use bitcoin::{
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::{
     cpfp::{
-        AnchorSpendState, CpfpFeeSource, CpfpMempool, CpfpStrategy, CpfpWallet, FundingLease,
-        InputSignFut, InputSigner, WalletFundedPsbt,
+        AnchorSpendState, ChildPsbt, CpfpFeeSource, CpfpMempool, CpfpStrategy, CpfpWallet,
+        FundingLease, InputSignFut, InputSigner, WalletFundedPsbt,
     },
     submitpackage::{self, SubmitPackageError, SubmitPackageSummary},
 };
@@ -157,6 +157,9 @@ impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWallet
                 .await
                 .map_err(|e| format!("{e}"))?;
             let (psbt, lease) = funded.into_parts();
+            // The backend states its signing through the final fields, and each input
+            // carries its spent output. A violation fails here rather than on chain.
+            let psbt = ChildPsbt::new(psbt).map_err(|e| e.to_string())?;
             Ok(WalletFundedPsbt {
                 psbt,
                 lease: Arc::new(WalletFundingLease(lease)),

@@ -68,7 +68,7 @@ pub(super) async fn publish_contest(
         &signed_tx,
         "contest",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(&signed_tx),
+        chain::ParentFee::Floor,
         cpfp,
     )
     .await
@@ -101,7 +101,7 @@ pub(super) async fn publish_bridge_proof_timeout(
         signed_timeout_tx,
         "bridge proof timeout",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(signed_timeout_tx),
+        chain::ParentFee::Floor,
         cpfp,
     )
     .await
@@ -122,7 +122,7 @@ pub(super) async fn publish_contested_payout(
         signed_contested_payout_tx,
         "contested payout",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(signed_contested_payout_tx),
+        chain::ParentFee::Floor,
         CpfpKind::PayoutCombined { payout_outpoint },
     )
     .await
@@ -144,7 +144,7 @@ pub(super) async fn publish_counterproof_ack(
         signed_counter_proof_ack_tx,
         "counterproof ack",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(signed_counter_proof_ack_tx),
+        chain::ParentFee::Floor,
         CpfpKind::AnchorAt {
             anchor_vout: CounterproofAckTx::CPFP_VOUT,
             anchor_key,
@@ -170,7 +170,7 @@ pub(super) async fn publish_slash(
         signed_slash_tx,
         "slash",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(signed_slash_tx),
+        chain::ParentFee::Floor,
         CpfpKind::InferGeneralPayout,
     )
     .await

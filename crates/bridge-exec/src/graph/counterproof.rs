@@ -215,7 +215,7 @@ async fn generate_and_publish_counterproof(
         &signed_tx,
         "counterproof",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(&signed_tx),
+        chain::ParentFee::Floor,
         CpfpKind::AnchorAt {
             anchor_vout: CounterproofTx::CPFP_VOUT,
             anchor_key,
