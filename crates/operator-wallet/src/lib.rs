@@ -51,13 +51,28 @@ pub use crate::{
     wallet::{GeneralUtxoPolicy, LeasedPsbt, OperatorWallet},
 };
 
+/// Whether an error describes a condition that a later attempt can pass.
+///
+/// A caller that retries on a timer needs this. An error about the shape of a transaction
+/// that is already signed repeats on every attempt, and a caller that cannot tell the two
+/// apart retries that one for as long as the process runs.
+pub trait ErrorPermanence {
+    /// True when every later attempt against the same inputs fails the same way.
+    fn is_permanent(&self) -> bool;
+}
+
 /// Errors returned by [`OperatorWallet`] methods. Backend errors are boxed so call sites don't
 /// have to be generic over `G::Error`.
 #[derive(Debug, Error)]
 pub enum Error {
     /// The general wallet backend reported an error.
-    #[error("general wallet: {0}")]
-    General(Box<dyn std::error::Error + Send + Sync>),
+    #[error("general wallet: {source}")]
+    General {
+        /// The backend error.
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Read from the backend error before the box hid its type.
+        permanent: bool,
+    },
     /// Confirmed-only reserved-wallet funding can see only unconfirmed general-wallet funds.
     #[error(
         "no confirmed general-wallet UTXOs available for reserved-wallet funding \
@@ -93,7 +108,35 @@ pub enum Error {
 }
 
 impl Error {
-    pub(crate) fn from_general<E: std::error::Error + Send + Sync + 'static>(e: E) -> Self {
-        Self::General(Box::new(e))
+    pub(crate) fn from_general<E>(e: E) -> Self
+    where
+        E: std::error::Error + ErrorPermanence + Send + Sync + 'static,
+    {
+        // Read the classification here. The box that follows hides the concrete type, and no
+        // later caller can recover it.
+        let permanent = e.is_permanent();
+        Self::General {
+            source: Box::new(e),
+            permanent,
+        }
+    }
+}
+
+impl ErrorPermanence for Error {
+    fn is_permanent(&self) -> bool {
+        match self {
+            Self::General { permanent, .. } => *permanent,
+            // A missing confirmed or buried UTXO, a failed sync, and a rejected build all pass
+            // once the wallet or the chain moves on.
+            Self::NoConfirmedGeneralUtxos { .. }
+            | Self::NoBuriedGeneralUtxos { .. }
+            | Self::Reserved(_)
+            | Self::Sync(_) => false,
+            // A script that is not addressable, an address that is not a descriptor, and a
+            // reserved wallet that its store cannot supply, are properties of the configured
+            // wallet. The init failure only occurs while the wallet is built, before any
+            // engine boundary can see it.
+            Self::Address(_) | Self::Descriptor(_) | Self::ReservedInit(_) => true,
+        }
     }
 }
