@@ -151,6 +151,25 @@ pub struct CpfpHandle {
     pub last_child_fee: Option<Amount>,
 }
 
+/// What one call to [`perform_bump`] achieved.
+///
+/// A caller that must decide the fate of a transaction needs more than "no package went
+/// out". A bump that stands down because a competitor's child already covers a shared
+/// anchor proves that the parent is in a mempool, and a bump that skips because no child is
+/// needed proves nothing about the parent at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BumpOutcome {
+    /// A `[parent, child]` package reached the mempool.
+    Submitted,
+    /// No package went out, and the bump observed the parent in a mempool or in a block. A
+    /// competitor's child holds the shared anchor, or the anchor is spent by a confirmed
+    /// transaction.
+    ParentIsLive,
+    /// No package went out, and the bump observed nothing about where the parent is. The
+    /// target sits at the protocol floor, or the parent's own fee already meets it.
+    NoChildNeeded,
+}
+
 /// Errors produced by [`perform_bump`].
 #[derive(Debug, Error)]
 pub enum CpfpError {
@@ -185,6 +204,12 @@ impl CpfpError {
     pub fn is_replacement_contention(&self) -> bool {
         matches!(self, Self::SubmitPackage(e) if e.is_replacement_contention())
     }
+
+    /// Whether the transaction `txid` itself lost a replacement race. See
+    /// [`SubmitPackageError::is_replacement_contention_for`].
+    pub fn is_replacement_contention_for(&self, txid: &Txid) -> bool {
+        matches!(self, Self::SubmitPackage(e) if e.is_replacement_contention_for(txid))
+    }
 }
 
 /// Wallet outpoints that one CPFP child holds.
@@ -204,13 +229,77 @@ pub trait FundingLease: Send + Sync + Debug {
 /// A funded PSBT returned by a wallet handle in [`CpfpContext`].
 #[derive(Debug, Clone)]
 pub struct WalletFundedPsbt {
-    /// The funded child PSBT. Wallet inputs are signed or unsigned per the backend (see
-    /// the [`CpfpWallet`] PSBT-signing contract); the anchor input is always unsigned and
-    /// carries `witness_utxo` plus `tap_internal_key` (key-path) or `tap_scripts`
-    /// (script-path) describing what is being spent.
-    pub psbt: Psbt,
+    /// The funded child PSBT. Wallet inputs are signed or unsigned per the backend. The
+    /// anchor input is always unsigned and carries `witness_utxo` plus `tap_internal_key`
+    /// (key-path) or `tap_scripts` (script-path) describing what is being spent.
+    pub psbt: ChildPsbt,
     /// Holds the wallet outpoints that the child consumes.
     pub lease: Arc<dyn FundingLease>,
+}
+
+/// A PSBT input that breaks the signing contract of [`CpfpWallet`].
+#[derive(Debug, Error)]
+pub enum ChildPsbtError {
+    /// The input carries a signature that is not final. The bump loop signs each input that
+    /// has no final field, so a signature left outside one is lost to that pass.
+    #[error(
+        "input {input_index} carries a signature that is not final; \
+         a backend must finalize each input that it signs"
+    )]
+    UnfinalizedSignature {
+        /// Index of the offending input in the PSBT.
+        input_index: usize,
+    },
+    /// The input carries no spent-output data. The fee of the child, and the sighash of each
+    /// input that still needs a signature, both read the spent outputs.
+    #[error("input {input_index} carries no `witness_utxo` or `non_witness_utxo`")]
+    MissingSpendInfo {
+        /// Index of the offending input in the PSBT.
+        input_index: usize,
+    },
+}
+
+/// A child PSBT that meets the signing contract of [`CpfpWallet`].
+///
+/// [`perform_bump`] signs each input that has no final field (`final_script_witness` or
+/// `final_script_sig`), and it never overwrites a field that is already there. An input that
+/// holds a signature in `tap_key_sig` or `partial_sigs` without a final field therefore gets
+/// signed a second time, and the signature that the backend produced is lost.
+///
+/// The constructor rejects that shape, and it rejects an input without spent-output data:
+/// the fee of the child prices the next RBF floor, and the sighash of each unsigned input
+/// reads the spent outputs. The type carries the proof of both checks.
+#[derive(Debug, Clone)]
+pub struct ChildPsbt(Psbt);
+
+impl ChildPsbt {
+    /// Checks the signing contract and wraps `psbt`.
+    pub fn new(psbt: Psbt) -> Result<Self, ChildPsbtError> {
+        for (input_index, input) in psbt.inputs.iter().enumerate() {
+            if input.witness_utxo.is_none() && input.non_witness_utxo.is_none() {
+                return Err(ChildPsbtError::MissingSpendInfo { input_index });
+            }
+            let signed = input.tap_key_sig.is_some()
+                || !input.partial_sigs.is_empty()
+                || !input.tap_script_sigs.is_empty();
+            let finalized =
+                input.final_script_witness.is_some() || input.final_script_sig.is_some();
+            if signed && !finalized {
+                return Err(ChildPsbtError::UnfinalizedSignature { input_index });
+            }
+        }
+        Ok(Self(psbt))
+    }
+
+    /// The PSBT inside.
+    pub const fn as_psbt(&self) -> &Psbt {
+        &self.0
+    }
+
+    /// Takes the PSBT out for signing and extraction.
+    pub fn into_psbt(self) -> Psbt {
+        self.0
+    }
 }
 
 /// Trait the driver calls to build the next CPFP child.
@@ -236,11 +325,10 @@ pub struct WalletFundedPsbt {
 /// Either way the bump loop never overwrites an existing witness — that contract is what
 /// makes swapping the wallet backend a pure-trait-impl exercise.
 ///
-/// **Signed inputs must be finalized**: the skip check inspects `final_script_witness`,
-/// not `tap_key_sig` or `partial_sigs`. A backend that produces a partially-signed PSBT
-/// with sigs in `tap_key_sig` but no `final_script_witness` will see the bump loop sign
-/// over the top of those partials. Backends MUST finalize their signed inputs before
-/// returning (i.e. produce `final_script_witness` directly).
+/// **Signed inputs must be finalized.** The skip check inspects `final_script_witness`, and
+/// not `tap_key_sig` or `partial_sigs`. [`ChildPsbt::new`] enforces this, so a backend that
+/// leaves a signature outside `final_script_witness` fails at the boundary rather than
+/// losing that signature to a second signing pass.
 pub trait CpfpWallet: Send + Sync + fmt::Debug {
     /// Builds (or rebuilds via RBF) a CPFP child for `parent` under `strategy`, targeting
     /// `target_pkg_fee_rate` on the (parent, child) package.
@@ -649,8 +737,8 @@ impl BumpReason {
 
 /// Drives one CPFP bump attempt for `parent` under `strategy`.
 ///
-/// Returns `Ok(true)` if a package was submitted, `Ok(false)` if the bump was skipped
-/// (see the skip conditions below), and the error variants of [`CpfpError`] otherwise.
+/// Returns the [`BumpOutcome`] that the attempt achieved, or an error variant of
+/// [`CpfpError`].
 ///
 /// Same-rate calls are a no-op only for [`BumpReason::NewJob`]; reactive reasons
 /// (block/tick/eviction) rebuild the child even at an unchanged target, because a child
@@ -683,7 +771,7 @@ pub async fn perform_bump<W, F, P>(
     handle: &mut CpfpHandle,
     bridge_protocol_floor: FeeRate,
     reason: BumpReason,
-) -> Result<bool, CpfpError>
+) -> Result<BumpOutcome, CpfpError>
 where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
@@ -721,7 +809,7 @@ where
             ?reason,
             "fee source target at or below protocol floor; skipping CPFP child"
         );
-        return Ok(false);
+        return Ok(BumpOutcome::NoChildNeeded);
     }
     // If the parent's own fee already clears the target, a child can't improve the
     // package rate — it would only pay for its own vbytes. Skipping here also avoids a
@@ -738,7 +826,7 @@ where
                 ?reason,
                 "parent fee alone meets target; skipping CPFP child"
             );
-            return Ok(false);
+            return Ok(BumpOutcome::NoChildNeeded);
         }
     }
 
@@ -761,7 +849,7 @@ where
                     ?reason,
                     "target ≤ last bump rate; no-op (avoiding wasted RBF)"
                 );
-                return Ok(false);
+                return Ok(BumpOutcome::NoChildNeeded);
             }
         }
     }
@@ -811,7 +899,8 @@ where
                     %spender,
                     "anchor already bumped to the target; skipping"
                 );
-                return Ok(false);
+                // A child spends this parent's anchor, so the parent is in a mempool.
+                return Ok(BumpOutcome::ParentIsLive);
             }
             Ok(AnchorSpendState::Confirmed) => {
                 // The parent is confirmed. If a competitor's child won, this release
@@ -826,7 +915,7 @@ where
                     %parent_txid,
                     "anchor already spent by a confirmed transaction; skipping"
                 );
-                return Ok(false);
+                return Ok(BumpOutcome::NoChildNeeded);
             }
             Ok(_) => {}
             Err(e) => {
@@ -864,7 +953,7 @@ where
     // the mempool and pays less than the recorded fee. The floor is then conservative,
     // which is safe: the next child pays slightly more than the rule requires.
     handle.last_child_lease = Some(funded.lease);
-    handle.last_child_fee = funded.psbt.fee().ok();
+    handle.last_child_fee = funded.psbt.as_psbt().fee().ok();
 
     // ── 6. Sign each input still lacking final_script_witness ─────────────
     //
@@ -882,7 +971,7 @@ where
     // unsigned PSBTs and every input gets signed below; create-and-sign backends
     // (Fireblocks-style) return wallet funding inputs already signed and only the foreign
     // anchor input unsigned — the skip checks preserve the wallet's signatures.
-    let mut psbt = funded.psbt;
+    let mut psbt = funded.psbt.into_psbt();
     let anchor_outpoint_opt = match &strategy {
         CpfpStrategy::AnchorBearing { anchor_vout, .. }
         | CpfpStrategy::MultiAnchorBearing { anchor_vout, .. } => Some(OutPoint {
@@ -920,7 +1009,9 @@ where
         // backend that happens to hold the musig2 (anchor) key in addition to the general
         // key may pre-sign the anchor input as part of its create-and-sign API. Respect
         // that rather than overwriting.
-        if psbt.inputs[anchor_idx].final_script_witness.is_none() {
+        let anchor_finalized = psbt.inputs[anchor_idx].final_script_witness.is_some()
+            || psbt.inputs[anchor_idx].final_script_sig.is_some();
+        if !anchor_finalized {
             let witness = match &strategy {
                 // Key-path: sign the tweaked output key, witness is the bare signature.
                 CpfpStrategy::AnchorBearing { .. } => {
@@ -968,7 +1059,9 @@ where
     // [`CpfpWallet`] trait contract backend-agnostic: "return a PSBT where any input still
     // without a `final_script_witness` is signable via `wallet_input_signer`."
     for idx in wallet_input_idxs {
-        if psbt.inputs[idx].final_script_witness.is_some() {
+        if psbt.inputs[idx].final_script_witness.is_some()
+            || psbt.inputs[idx].final_script_sig.is_some()
+        {
             continue;
         }
         let sighash = compute_input_sighash(&psbt, idx).map_err(CpfpError::PsbtExtract)?;
@@ -985,9 +1078,9 @@ where
     // Defensive sanity check: every input must have `final_script_witness` set, otherwise
     // `extract_tx` produces a witness-less tx that bitcoind would reject downstream.
     for (i, input) in psbt.inputs.iter().enumerate() {
-        if input.final_script_witness.is_none() {
+        if input.final_script_witness.is_none() && input.final_script_sig.is_none() {
             return Err(CpfpError::PsbtExtract(format!(
-                "PSBT input {i} has no final_script_witness after signing; refusing to extract"
+                "PSBT input {i} is not finalized after signing; refusing to extract"
             )));
         }
     }
@@ -1015,7 +1108,7 @@ where
     handle.last_pkg_fee_rate = Some(target);
     handle.last_child_txid = Some(child_txid);
 
-    Ok(true)
+    Ok(BumpOutcome::Submitted)
 }
 
 /// Computes the BIP-341 **script-path** sighash for one input of a funded child PSBT.
@@ -1198,7 +1291,8 @@ pub(crate) mod tests {
                     return Err(e);
                 }
                 Ok(WalletFundedPsbt {
-                    psbt: psbt.expect("test must seed a psbt template"),
+                    psbt: ChildPsbt::new(psbt.expect("test must seed a psbt template"))
+                        .expect("test psbt must meet the signing contract"),
                     lease,
                 })
             }
@@ -1208,6 +1302,8 @@ pub(crate) mod tests {
     #[derive(Debug)]
     pub(crate) struct FakeSubmitter {
         pub(crate) result: Mutex<Result<SubmitPackageSummary, String>>,
+        /// Per-tx error strings attached to a rejection.
+        pub(crate) tx_errors: Mutex<Vec<(Txid, String)>>,
         pub(crate) captured: Mutex<Vec<Vec<Transaction>>>,
         pub(crate) spend_state: Mutex<AnchorSpendState>,
     }
@@ -1218,6 +1314,7 @@ pub(crate) mod tests {
                     tx_results: Default::default(),
                     replaced: Vec::new(),
                 })),
+                tx_errors: Mutex::new(Vec::new()),
                 captured: Mutex::new(Vec::new()),
                 spend_state: Mutex::new(AnchorSpendState::Unspent),
             }
@@ -1225,12 +1322,18 @@ pub(crate) mod tests {
         pub(crate) fn failing(reason: &str) -> Self {
             Self {
                 result: Mutex::new(Err(reason.to_string())),
+                tx_errors: Mutex::new(Vec::new()),
                 captured: Mutex::new(Vec::new()),
                 spend_state: Mutex::new(AnchorSpendState::Unspent),
             }
         }
         pub(crate) fn with_spend_state(self, state: AnchorSpendState) -> Self {
             *self.spend_state.lock().unwrap() = state;
+            self
+        }
+        /// Attaches a per-tx error string to the rejection that this fake reports.
+        pub(crate) fn with_tx_error(self, txid: Txid, err: &str) -> Self {
+            self.tx_errors.lock().unwrap().push((txid, err.to_string()));
             self
         }
     }
@@ -1246,12 +1349,13 @@ pub(crate) mod tests {
                 Ok(s) => Ok(s.clone()),
                 Err(e) => Err(e.clone()),
             };
+            let tx_errors = self.tx_errors.lock().unwrap().clone();
             async move {
                 match snapshot {
                     Ok(s) => Ok(s),
                     Err(msg) => Err(SubmitPackageError::Rejected {
                         message: msg,
-                        tx_errors: Vec::new(),
+                        tx_errors,
                     }),
                 }
             }
@@ -1461,6 +1565,65 @@ pub(crate) mod tests {
         }
     }
 
+    /// The bump loop signs each input that has no final witness. A backend that leaves a
+    /// signature anywhere else loses it to that second pass, so the boundary rejects the
+    /// shape rather than let the loss reach the chain.
+    #[test]
+    fn a_child_psbt_rejects_a_signature_that_is_not_final() {
+        let (keypair, key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(key, Amount::from_sat(330));
+        let base = synthetic_child_psbt(&parent, 0, key);
+
+        assert!(
+            ChildPsbt::new(base.clone()).is_ok(),
+            "an unsigned child meets the contract"
+        );
+
+        let mut partial = base.clone();
+        partial.inputs[0].tap_key_sig = Some(bitcoin::taproot::Signature {
+            signature: SECP256K1
+                .sign_schnorr_no_aux_rand(&Message::from_digest([7u8; 32]), &keypair),
+            sighash_type: bitcoin::TapSighashType::Default,
+        });
+        let err = ChildPsbt::new(partial).expect_err("a non-final signature must be rejected");
+        assert!(matches!(
+            err,
+            ChildPsbtError::UnfinalizedSignature { input_index: 0 }
+        ));
+
+        let mut finalized = base.clone();
+        finalized.inputs[0].tap_key_sig = Some(bitcoin::taproot::Signature {
+            signature: SECP256K1
+                .sign_schnorr_no_aux_rand(&Message::from_digest([7u8; 32]), &keypair),
+            sighash_type: bitcoin::TapSighashType::Default,
+        });
+        finalized.inputs[0].final_script_witness = Some(bitcoin::Witness::new());
+        assert!(
+            ChildPsbt::new(finalized).is_ok(),
+            "a signature that is final meets the contract"
+        );
+
+        // A legacy input finalizes through `final_script_sig`, with no witness. The bump
+        // loop skips a final field of either kind, so the contract accepts it.
+        let mut legacy = base.clone();
+        legacy.inputs[0].final_script_sig = Some(bitcoin::ScriptBuf::new());
+        assert!(
+            ChildPsbt::new(legacy).is_ok(),
+            "a `final_script_sig` finalization meets the contract"
+        );
+
+        // The fee of the child and the sighash of each unsigned input read the spent
+        // outputs, so an input without them cannot enter the bump loop.
+        let mut missing = base;
+        missing.inputs[0].witness_utxo = None;
+        missing.inputs[0].non_witness_utxo = None;
+        let err = ChildPsbt::new(missing).expect_err("an input without spend info is rejected");
+        assert!(matches!(
+            err,
+            ChildPsbtError::MissingSpendInfo { input_index: 0 }
+        ));
+    }
+
     fn seeded_handle(wallet: &FakeWallet, inputs: &[OutPoint], our_child: Txid) -> CpfpHandle {
         CpfpHandle {
             last_child_lease: Some(wallet.lease(inputs.to_vec())),
@@ -1529,7 +1692,11 @@ pub(crate) mod tests {
         )
         .await
         .expect("losing the anchor is a skip, not an error");
-        assert!(!bumped);
+        assert_eq!(
+            bumped,
+            BumpOutcome::ParentIsLive,
+            "a child that spends the anchor proves the parent reached the network"
+        );
         assert_eq!(*wallet.released.lock().unwrap(), inputs.to_vec());
         assert!(handle.last_child_lease.is_none());
     }
@@ -1564,7 +1731,11 @@ pub(crate) mod tests {
         )
         .await
         .expect("holding the anchor is a skip, not an error");
-        assert!(!bumped);
+        assert_eq!(
+            bumped,
+            BumpOutcome::ParentIsLive,
+            "a child that spends the anchor proves the parent reached the network"
+        );
         assert!(wallet.released.lock().unwrap().is_empty());
         assert_eq!(held_by(&handle), inputs.to_vec());
     }
@@ -1595,7 +1766,12 @@ pub(crate) mod tests {
         )
         .await
         .expect("a confirmed spend is a skip, not an error");
-        assert!(!bumped);
+        assert_eq!(
+            bumped,
+            BumpOutcome::NoChildNeeded,
+            "a spender that left the mempool between the two probe calls is not an \
+             observation of the parent"
+        );
         assert_eq!(*wallet.released.lock().unwrap(), inputs.to_vec());
         assert!(handle.last_child_lease.is_none());
     }
@@ -1627,7 +1803,7 @@ pub(crate) mod tests {
         )
         .await
         .expect("at-floor must succeed-skip");
-        assert!(!bumped);
+        assert_eq!(bumped, BumpOutcome::NoChildNeeded);
         assert!(handle.last_pkg_fee_rate.is_none());
     }
 
@@ -1667,7 +1843,7 @@ pub(crate) mod tests {
         )
         .await
         .expect("overpaying parent must succeed-skip");
-        assert!(!bumped);
+        assert_eq!(bumped, BumpOutcome::NoChildNeeded);
         assert!(handle.last_pkg_fee_rate.is_none());
     }
 
@@ -1699,7 +1875,7 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
-        assert!(!bumped);
+        assert_eq!(bumped, BumpOutcome::NoChildNeeded);
     }
 
     #[tokio::test]
@@ -1740,8 +1916,9 @@ pub(crate) mod tests {
             )
             .await
             .unwrap_or_else(|e| panic!("reactive bump ({reason:?}) must succeed: {e}"));
-            assert!(
+            assert_eq!(
                 bumped,
+                BumpOutcome::Submitted,
                 "reactive bump ({reason:?}) must rebuild at same rate"
             );
         }
@@ -1781,7 +1958,7 @@ pub(crate) mod tests {
         )
         .await
         .expect("happy path must submit");
-        assert!(bumped);
+        assert_eq!(bumped, BumpOutcome::Submitted);
 
         // handle is updated
         assert_eq!(
@@ -1825,7 +2002,7 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
-        assert!(bumped);
+        assert_eq!(bumped, BumpOutcome::Submitted);
         assert_eq!(
             handle.last_pkg_fee_rate,
             Some(FeeRate::from_sat_per_vb(20).unwrap())
@@ -1975,7 +2152,7 @@ pub(crate) mod tests {
         )
         .await
         .expect("presigned-wallet-input path must submit without invoking wallet signer");
-        assert!(bumped);
+        assert_eq!(bumped, BumpOutcome::Submitted);
 
         // The submitted child's funding-input witness must still be the sentinel — proves
         // perform_bump didn't overwrite it.
@@ -2027,7 +2204,7 @@ pub(crate) mod tests {
         )
         .await
         .expect("presigned-anchor path must submit without invoking anchor signer");
-        assert!(bumped);
+        assert_eq!(bumped, BumpOutcome::Submitted);
 
         let captured = submitter.captured.lock().unwrap();
         let child = &captured[0][1];
@@ -2103,7 +2280,7 @@ pub(crate) mod tests {
         )
         .await
         .expect("ParentTxCombined happy path must submit");
-        assert!(bumped);
+        assert_eq!(bumped, BumpOutcome::Submitted);
 
         assert_eq!(
             handle.last_pkg_fee_rate,
@@ -2399,7 +2576,7 @@ pub(crate) mod tests {
         )
         .await
         .expect("script-path bump must succeed");
-        assert!(submitted);
+        assert_eq!(submitted, BumpOutcome::Submitted);
         assert_eq!(held_by(&handle), wallet_funding);
 
         let packages = submitter.captured.lock().unwrap();

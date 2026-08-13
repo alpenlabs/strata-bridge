@@ -116,7 +116,7 @@ async fn sign_and_broadcast_nack(
         &signed_tx,
         "counterproof nack",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(&signed_tx),
+        chain::ParentFee::Floor,
         CpfpKind::PayoutCombined { payout_outpoint },
     )
     .await

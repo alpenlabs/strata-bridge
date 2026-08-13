@@ -11,16 +11,41 @@ use tracing::{debug, error, info, warn};
 
 use crate::{errors::ExecutorError, output_handles::OutputHandles};
 
+/// How the publish path learns the exact fee that a parent pays.
+///
+/// The CPFP child pays the difference between what the parent already paid and what the
+/// package target asks for, so a wrong value here makes the child overpay or underpay.
+///
+/// [`Self::Floor`] derives the fee from the transaction that it publishes. That removes the
+/// one mistake a caller-computed value allows: a fee derived from a different transaction
+/// than the one that reaches the network.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ParentFee {
+    /// The parent pays the bridge protocol floor rate, so its fee is `vsize × FEE_RATE` by
+    /// construction. Every presigned bridge transaction is in this class.
+    Floor,
+    /// The caller funded the parent and knows the fee that it paid. Wallet-funded
+    /// transactions are in this class, because a wallet funds at the market rate and not at
+    /// the protocol floor.
+    Exact(Amount),
+}
+
+impl ParentFee {
+    /// Resolves to the fee that `tx` pays.
+    fn resolve(self, tx: &Transaction) -> Amount {
+        match self {
+            Self::Floor => parent_fee_for_floor_tx(tx),
+            Self::Exact(fee) => fee,
+        }
+    }
+}
+
 /// Computes the fee paid by a tx that follows the bridge protocol floor rate
-/// ([`fee::FEE_RATE`] = 2 sat/vB). This is the right helper for presigned bridge txs
-/// (claim, stake, contest, counterproof, payout, slash, ack, etc.) — their fee is exactly
-/// `vsize × FEE_RATE` by construction. Wallet-funded txs (withdrawal fulfillment, stake
-/// funding, unstaking intent funding) use [`exact_fee_from_prevouts`] instead because they
-/// may be funded at a higher rate.
+/// ([`fee::FEE_RATE`] = 2 sat/vB).
 ///
 /// Cannot overflow in practice: `tx.vsize()` is bounded by the consensus 4 MWU limit, well
 /// inside `u64`.
-pub(crate) fn parent_fee_for_floor_tx(tx: &Transaction) -> Amount {
+fn parent_fee_for_floor_tx(tx: &Transaction) -> Amount {
     // `Transaction::vsize()` returns `usize`. Both supported targets (x86_64, aarch64) have
     // `usize == u64`, but use `try_into` to avoid a silent truncation hazard if a future
     // 32-bit target ever ships a tx larger than `u32::MAX` vB (impossible in practice but
@@ -278,22 +303,20 @@ pub(crate) enum CpfpKind {
 /// Publishes a signed transaction and waits for the configured status. The `cpfp` parameter
 /// drives strategy selection — see [`CpfpKind`].
 ///
-/// `parent_fee` must be the **exact fee** paid by `signed_tx` — passed in by the caller
-/// because computing it correctly requires either prevout lookups (expensive RPC) or
-/// information the funding step already had. For presigned bridge txs, callers use
-/// [`parent_fee_for_floor_tx`] (FEE_RATE × vsize). For wallet-funded txs they pass
-/// `Psbt::fee()` (BDK populates witness_utxo on every input) or
-/// [`exact_fee_from_prevouts`] (when the prevouts are known explicitly). An incorrect
-/// `parent_fee` makes the CPFP child either overpay (too low estimate) or underpay (too
-/// high estimate), so accuracy here matters.
+/// `parent_fee` states how to learn the exact fee that `signed_tx` pays — see [`ParentFee`].
+/// A presigned bridge transaction passes [`ParentFee::Floor`]. A wallet-funded transaction
+/// passes [`ParentFee::Exact`] with `Psbt::fee()`, which BDK fills because it populates
+/// `witness_utxo` on every input, or with [`exact_fee_from_prevouts`] when the prevouts are
+/// known explicitly.
 pub(crate) async fn publish_signed_transaction(
     output_handles: &OutputHandles,
     signed_tx: &Transaction,
     label: &str,
     wait_condition: fn(&TxStatus) -> bool,
-    parent_fee: Amount,
+    parent_fee: ParentFee,
     cpfp: CpfpKind,
 ) -> Result<(), ExecutorError> {
+    let parent_fee = parent_fee.resolve(signed_tx);
     let inference_based = matches!(cpfp, CpfpKind::InferGeneralPayout);
     let strategy = match cpfp {
         CpfpKind::AnchorAt {

@@ -462,7 +462,7 @@ async fn publish_deposit(
         &signed_deposit_transaction,
         "deposit",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(&signed_deposit_transaction),
+        chain::ParentFee::Floor,
         CpfpKind::None,
     )
     .await
@@ -728,7 +728,7 @@ async fn fulfill_withdrawal(
         &signed_tx,
         "withdrawal fulfillment",
         TxStatus::is_buried,
-        wft_fee,
+        chain::ParentFee::Exact(wft_fee),
         CpfpKind::InferGeneralPayout,
     )
     .await?;
@@ -956,7 +956,7 @@ async fn publish_payout(
         &finalized_tx,
         "cooperative payout",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(&finalized_tx),
+        chain::ParentFee::Floor,
         CpfpKind::PayoutCombined {
             payout_outpoint: coop_payout_outpoint,
         },

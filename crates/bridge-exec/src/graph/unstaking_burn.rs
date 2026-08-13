@@ -15,7 +15,7 @@ use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnTx;
 use tracing::{debug, info, warn};
 
 use crate::{
-    chain::{CpfpKind, publish_signed_transaction},
+    chain::{CpfpKind, ParentFee, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::{NativeWallet, OutputHandles},
@@ -120,7 +120,7 @@ pub(super) async fn publish_unstaking_burn(
         &signed_tx,
         "unstaking burn",
         TxStatus::is_buried,
-        plan.fee,
+        ParentFee::Exact(plan.fee),
         CpfpKind::None,
     )
     .await;

@@ -36,8 +36,8 @@ use tracing::{debug, error, info, warn};
 use crate::{
     client::{BtcNotifyClient, Connected},
     cpfp::{
-        self, BumpReason, CpfpContext, CpfpDisabled, CpfpFeeSource, CpfpHandle, CpfpMempool,
-        CpfpStrategy, CpfpWallet,
+        self, BumpOutcome, BumpReason, CpfpContext, CpfpDisabled, CpfpFeeSource, CpfpHandle,
+        CpfpMempool, CpfpStrategy, CpfpWallet,
     },
     event::{TxEvent, TxStatus},
 };
@@ -302,7 +302,7 @@ async fn bump_parent<W, F, P>(
     mark: &Arc<AtomicBool>,
     bridge_protocol_floor: FeeRate,
     reason: cpfp::BumpReason,
-) -> bool
+) -> BumpOutcome
 where
     W: CpfpWallet + 'static,
     F: CpfpFeeSource + 'static,
@@ -321,7 +321,7 @@ where
         ))
     });
     let Some((parent, strategy, mut handle)) = snapshot else {
-        return false;
+        return BumpOutcome::NoChildNeeded;
     };
     let result = cpfp::perform_bump(
         ctx,
@@ -354,21 +354,29 @@ where
     drop(guard);
 
     match result {
-        Ok(submitted) => {
-            if submitted {
+        Ok(outcome) => {
+            if outcome == BumpOutcome::Submitted {
                 debug!(%parent_txid, ?reason, "CPFP bump submitted");
             }
-            submitted
+            outcome
+        }
+        Err(e) if e.is_replacement_contention_for(&parent_txid) => {
+            // The parent itself lost a replacement race: a transaction that conflicts with
+            // the parent is in the mempool, and the parent is not. Nothing more is known.
+            debug!(%parent_txid, ?reason, "parent lost a replacement race to a conflicting transaction");
+            BumpOutcome::NoChildNeeded
         }
         Err(e) if e.is_replacement_contention() => {
-            // Another watchtower holds this shared anchor and our child does not pay enough
-            // more to displace it. Expected on every trigger until the parent confirms.
+            // The child lost the race. The usual incumbent is another watchtower's child on
+            // a shared anchor, or this operator's own prior child under BIP-125 rule 4.
+            // Both spend an output of this parent, so the parent is in a mempool. Expected
+            // on every trigger until the parent confirms.
             debug!(%parent_txid, ?reason, "CPFP bump lost the race for a shared anchor");
-            false
+            BumpOutcome::ParentIsLive
         }
         Err(e) => {
             warn!(%parent_txid, error = %e, ?reason, "CPFP bump failed; will retry on next trigger");
-            false
+            BumpOutcome::NoChildNeeded
         }
     }
 }
@@ -404,32 +412,38 @@ enum BumpFollowUp {
 }
 
 impl BumpFollowUp {
-    /// Runs the follow-up for a bump that submitted no package.
-    async fn on_declined(
+    /// Runs the follow-up for `outcome`.
+    ///
+    /// [`BumpOutcome::ParentIsLive`] counts as a success for every follow-up. No package went
+    /// out, and the parent is in a mempool or in a block, so a bare resubmission is waste and
+    /// a failure report to the carried job is wrong.
+    async fn apply(
         self,
         parents: &Parents,
         parent_txid: Txid,
+        outcome: BumpOutcome,
         mark: Option<&Arc<AtomicBool>>,
     ) {
+        let parent_reached_network =
+            matches!(outcome, BumpOutcome::Submitted | BumpOutcome::ParentIsLive);
         match self {
             Self::None => {}
             Self::ResubmitBare(rpc_client, rawtx) => {
-                resubmit_bare(&rpc_client, &rawtx, parent_txid).await;
+                if !parent_reached_network {
+                    resubmit_bare(&rpc_client, &rawtx, parent_txid).await;
+                }
             }
             Self::CarryJob {
                 err,
                 listener,
                 created,
             } => {
-                fail_carried_job(parents, parent_txid, &err, listener, created, mark).await;
+                if parent_reached_network {
+                    attach_listener(parents, parent_txid, listener).await;
+                } else {
+                    fail_carried_job(parents, parent_txid, &err, listener, created, mark).await;
+                }
             }
-        }
-    }
-
-    /// Runs the follow-up for a bump that put a package in the mempool.
-    async fn on_submitted(self, parents: &Parents, parent_txid: Txid) {
-        if let Self::CarryJob { listener, .. } = self {
-            attach_listener(parents, parent_txid, listener).await;
         }
     }
 }
@@ -521,7 +535,10 @@ where
     P: CpfpMempool + 'static,
 {
     let Some(guard) = take_bump_mark(parents, parent_txid).await else {
-        follow_up.on_declined(parents, parent_txid, None).await;
+        // No bump ran, so nothing was learned about the parent.
+        follow_up
+            .apply(parents, parent_txid, BumpOutcome::NoChildNeeded, None)
+            .await;
         return None;
     };
     Some(tokio::spawn({
@@ -556,7 +573,7 @@ async fn run_bump<W, F, P>(
     F: CpfpFeeSource + 'static,
     P: CpfpMempool + 'static,
 {
-    let submitted = bump_parent(
+    let outcome = bump_parent(
         ctx,
         parents,
         parent_txid,
@@ -565,13 +582,9 @@ async fn run_bump<W, F, P>(
         reason,
     )
     .await;
-    if submitted {
-        follow_up.on_submitted(parents, parent_txid).await;
-    } else {
-        follow_up
-            .on_declined(parents, parent_txid, Some(guard.mark()))
-            .await;
-    }
+    follow_up
+        .apply(parents, parent_txid, outcome, Some(guard.mark()))
+        .await;
 }
 
 /// Spawns one task that bumps every parent that can take a bump, one after another.
@@ -1517,7 +1530,11 @@ mod cpfp_lifecycle_tests {
             )
             .await;
 
-            assert_eq!(submitted, expect_submit, "stage = {stage:?}");
+            assert_eq!(
+                submitted == BumpOutcome::Submitted,
+                expect_submit,
+                "stage = {stage:?}"
+            );
             assert_eq!(
                 submitter.captured.lock().unwrap().len(),
                 usize::from(expect_submit),
@@ -1558,7 +1575,11 @@ mod cpfp_lifecycle_tests {
         )
         .await;
 
-        assert!(!submitted, "rejected package must not report submission");
+        assert_ne!(
+            submitted,
+            BumpOutcome::Submitted,
+            "rejected package must not report submission"
+        );
         let map = parents.lock().await;
         let cpfp = map[&parent_txid].cpfp.as_ref().expect("cpfp state");
         assert_eq!(
@@ -1598,7 +1619,7 @@ mod cpfp_lifecycle_tests {
         )
         .await;
 
-        assert!(!submitted);
+        assert_ne!(submitted, BumpOutcome::Submitted);
         assert!(parents.lock().await.is_empty());
     }
 
@@ -1801,6 +1822,47 @@ mod cpfp_lifecycle_tests {
             1,
             "the carried caller joins the record once the package lands"
         );
+    }
+
+    /// The contention outcome depends on which package member lost the race. A rejection on
+    /// the parent means a conflicting transaction is in the mempool and the parent is not.
+    /// A rejection on the child means the incumbent spends an output of the parent, so the
+    /// parent is in a mempool.
+    #[tokio::test]
+    async fn contention_on_the_parent_itself_is_not_proof_of_life() {
+        use bitcoin::hashes::Hash;
+        let (_, key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(key, Amount::from_sat(330));
+        let parent_txid = parent.compute_txid();
+        let funding = vec![OutPoint {
+            txid: parent_txid,
+            vout: 7,
+        }];
+        let marker = "insufficient fee, rejecting replacement";
+
+        for (rejected, expected) in [
+            (parent_txid, BumpOutcome::NoChildNeeded),
+            (Txid::from_byte_array([0xEE; 32]), BumpOutcome::ParentIsLive),
+        ] {
+            let ctx = test_ctx(
+                FakeWallet::returning(synthetic_child_psbt(&parent, 0, key), funding.clone()),
+                FakeSubmitter::failing("package rbf failure").with_tx_error(rejected, marker),
+            );
+            let (parents, mark) = parents_with(
+                parent_txid,
+                test_record(parent.clone(), key, Stage::Unconfirmed),
+            );
+            let outcome = bump_parent(
+                &ctx,
+                &parents,
+                parent_txid,
+                &mark,
+                PROTOCOL_FLOOR,
+                BumpReason::Tick,
+            )
+            .await;
+            assert_eq!(outcome, expected, "rejected member = {rejected}");
+        }
     }
 
     /// The per-parent mark stops a second trigger from bumping a parent whose bump is still

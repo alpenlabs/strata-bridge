@@ -41,7 +41,7 @@ pub(crate) async fn publish_unstaking_intent(
         &signed_unstaking_intent_tx,
         "unstaking intent tx",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(&signed_unstaking_intent_tx),
+        chain::ParentFee::Floor,
         CpfpKind::AnchorAt {
             anchor_vout: UnstakingIntentTx::CPFP_VOUT,
             anchor_key,
@@ -69,7 +69,7 @@ pub(crate) async fn publish_unstaking_tx(
         signed_tx,
         "unstaking tx",
         TxStatus::is_buried,
-        chain::parent_fee_for_floor_tx(signed_tx),
+        chain::ParentFee::Floor,
         CpfpKind::PayoutCombined { payout_outpoint },
     )
     .await?;
