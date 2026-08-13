@@ -66,13 +66,18 @@ pub(crate) fn first_general_payout_outpoint(
     )
 }
 
-/// Validates the caller-named anchor vout and returns the CPFP strategy for it.
+/// Validates the caller-named anchor and returns the CPFP strategy for it.
 ///
-/// The caller names the vout from its tx type's own constant, so a mismatch here is a code
+/// `anchor_key` comes from the anchor connector of the transaction that the caller published.
+/// A duty carries the key when the state machine builds the transaction. `signing_key` is the
+/// key that this operator can produce a signature for. A child of an anchor keyed to any other
+/// key carries a signature that no mempool accepts, so the two must match.
+///
+/// The caller names the vout from its tx type's own constant, so a mismatch there is a code
 /// defect: the constant and the builder disagree. The check compares the output's script
-/// against the operator-keyed anchor script and its value against the anchor dust floor.
-/// The value check is `>=`, not `==` — `CounterproofAckTx` folds its input connectors'
-/// residual into the anchor, so that anchor carries two times the dust value.
+/// against the anchor script and its value against the anchor dust floor. The value check is
+/// `>=`, not `==` — `CounterproofAckTx` folds its input connectors' residual into the anchor,
+/// so that anchor carries two times the dust value.
 ///
 /// On a mismatch this logs at error level and returns `None`. The transaction still
 /// publishes: it is signed and the protocol needs it on chain. Only the bump path is lost,
@@ -80,13 +85,25 @@ pub(crate) fn first_general_payout_outpoint(
 fn checked_anchor_strategy(
     tx: &Transaction,
     anchor_vout: u32,
-    anchor_pubkey: bitcoin::XOnlyPublicKey,
+    anchor_key: bitcoin::XOnlyPublicKey,
+    signing_key: bitcoin::XOnlyPublicKey,
     network: bitcoin::Network,
     parent_fee: Amount,
     label: &str,
 ) -> Option<CpfpStrategy> {
     let txid = tx.compute_txid();
-    let expected_script = Address::p2tr(SECP256K1, anchor_pubkey, None, network).script_pubkey();
+    if anchor_key != signing_key {
+        error!(
+            %txid,
+            %label,
+            anchor_vout,
+            %anchor_key,
+            %signing_key,
+            "anchor is keyed to a key this operator cannot sign with; publishing without CPFP"
+        );
+        return None;
+    }
+    let expected_script = Address::p2tr(SECP256K1, anchor_key, None, network).script_pubkey();
     let expected_value = fee::anchor_dust_value();
     let Some(output) = tx.output.get(anchor_vout as usize) else {
         error!(
@@ -106,13 +123,13 @@ fn checked_anchor_strategy(
             output_value = %output.value,
             expected_min_value = %expected_value,
             script_matches = output.script_pubkey == expected_script,
-            "named output is not an operator-keyed anchor; publishing without CPFP"
+            "named output is not the anchor that the caller named; publishing without CPFP"
         );
         return None;
     }
     Some(CpfpStrategy::AnchorBearing {
         anchor_vout,
-        anchor_internal_key: anchor_pubkey,
+        anchor_internal_key: anchor_key,
         parent_fee,
     })
 }
@@ -222,11 +239,17 @@ pub(crate) async fn is_outpoint_unspent(
 ///   bridge proof).
 #[derive(Debug, Clone)]
 pub(crate) enum CpfpKind {
-    /// The parent carries an operator-keyed Taproot anchor at this vout.
+    /// The parent carries a keyed Taproot anchor at this vout.
     AnchorAt {
         /// Index of the anchor output on the parent. Callers pass the tx type's own
         /// constant (for example `StakeTx::CPFP_VOUT`), not a discovered value.
         anchor_vout: u32,
+        /// Internal key of that anchor. Callers read it from the anchor connector of the
+        /// transaction, through
+        /// [`ParentTx::cpfp_connector`](strata_bridge_connectors::ParentTx::cpfp_connector).
+        /// The key that reaches the bump is therefore the key that built the output. A duty
+        /// whose transaction the state machine builds carries the key with it.
+        anchor_key: bitcoin::XOnlyPublicKey,
     },
     /// Build the child by spending the given operator-owned output of the parent.
     PayoutCombined { payout_outpoint: OutPoint },
@@ -273,9 +296,13 @@ pub(crate) async fn publish_signed_transaction(
 ) -> Result<(), ExecutorError> {
     let inference_based = matches!(cpfp, CpfpKind::InferGeneralPayout);
     let strategy = match cpfp {
-        CpfpKind::AnchorAt { anchor_vout } => checked_anchor_strategy(
+        CpfpKind::AnchorAt {
+            anchor_vout,
+            anchor_key,
+        } => checked_anchor_strategy(
             signed_tx,
             anchor_vout,
+            anchor_key,
             output_handles.operator_musig2_pubkey,
             output_handles.network,
             parent_fee,
@@ -416,7 +443,8 @@ mod tests {
         ]);
 
         // Correct vout resolves to the strategy.
-        let strategy = checked_anchor_strategy(&tx, 1, anchor_key, network, parent_fee, "t");
+        let strategy =
+            checked_anchor_strategy(&tx, 1, anchor_key, anchor_key, network, parent_fee, "t");
         assert!(matches!(
             strategy,
             Some(CpfpStrategy::AnchorBearing { anchor_vout: 1, .. })
@@ -428,19 +456,37 @@ mod tests {
             script_pubkey: anchor_script,
         }]);
         assert!(
-            checked_anchor_strategy(&ack_tx, 0, anchor_key, network, parent_fee, "t").is_some()
+            checked_anchor_strategy(&ack_tx, 0, anchor_key, anchor_key, network, parent_fee, "t")
+                .is_some()
         );
 
         // A vout that names a non-anchor output is rejected.
-        assert!(checked_anchor_strategy(&tx, 0, anchor_key, network, parent_fee, "t").is_none());
+        assert!(
+            checked_anchor_strategy(&tx, 0, anchor_key, anchor_key, network, parent_fee, "t")
+                .is_none()
+        );
         // A vout past the outputs is rejected.
-        assert!(checked_anchor_strategy(&tx, 9, anchor_key, network, parent_fee, "t").is_none());
+        assert!(
+            checked_anchor_strategy(&tx, 9, anchor_key, anchor_key, network, parent_fee, "t")
+                .is_none()
+        );
         // A value below dust is rejected even on the right script.
         let low = dummy_v3_tx(vec![TxOut {
             value: dust - Amount::from_sat(1),
             script_pubkey: Address::p2tr(SECP256K1, anchor_key, None, network).script_pubkey(),
         }]);
-        assert!(checked_anchor_strategy(&low, 0, anchor_key, network, parent_fee, "t").is_none());
+        assert!(
+            checked_anchor_strategy(&low, 0, anchor_key, anchor_key, network, parent_fee, "t")
+                .is_none()
+        );
+
+        // An anchor keyed to a key this operator cannot sign with disables the bump. A child
+        // of that anchor carries a signature that no mempool accepts.
+        assert!(
+            checked_anchor_strategy(&tx, 1, anchor_key, other_key, network, parent_fee, "t")
+                .is_none(),
+            "an anchor key that this operator cannot sign with must disable the bump"
+        );
     }
 
     #[test]

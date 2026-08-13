@@ -307,6 +307,10 @@ pub enum GraphDuty {
     PublishCounterProofAck {
         /// The signed counterproof ACK transaction to be published.
         signed_counter_proof_ack_tx: Transaction,
+        /// Internal key of the CPFP anchor of that transaction. It belongs to the watchtower
+        /// that this ACK is for. The executor cannot get it from the transaction, because the
+        /// output holds the tweaked key and not the internal key.
+        anchor_key: XOnlyPublicKey,
     },
 
     /// Publish a counterproof NACK on-chain to reject an invalid counterproof.

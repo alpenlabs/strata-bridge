@@ -431,6 +431,7 @@ pub(crate) async fn publish_stake(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     tx: &Transaction,
+    anchor_key: XOnlyPublicKey,
 ) -> Result<(), ExecutorError> {
     let stake_txid = tx.compute_txid();
     let funding_input = tx.input[0].previous_output;
@@ -477,6 +478,7 @@ pub(crate) async fn publish_stake(
         chain::parent_fee_for_floor_tx(&signed_tx),
         CpfpKind::AnchorAt {
             anchor_vout: StakeTx::CPFP_VOUT,
+            anchor_key,
         },
     )
     .await?;

@@ -221,11 +221,9 @@ where
     // and `OperatorTable::select_btc_x_only(our_pubkey)`), but the explicit lookup catches
     // configuration drift between secret-service and the static params file.
     //
-    // The OTHER invariant the CPFP path depends on — `watchtower_pubkey == musig2_pubkey`
-    // for counterproof / counterproof_ack anchors — is anchored at the `CovenantKeys`
-    // definition itself via `_covenant_keys_field_audit` (see `crates/common/src/params.rs`).
-    // That destructuring forces a compile error if anyone adds a separate `watchtower` field,
-    // which is the cue to thread per-anchor keys through `CpfpKind::AnchorAt`.
+    // The related invariant is `watchtower_pubkey == musig2_pubkey`. The operator table makes
+    // it, from `covenant[i].musig2`. A field change on `CovenantKeys` breaks the compilation
+    // of `_covenant_keys_field_audit` (see `crates/common/src/params.rs`).
     params
         .keys
         .covenant
@@ -233,8 +231,7 @@ where
         .find(|c| c.musig2 == operator_musig2_pubkey)
         .ok_or_else(|| {
             anyhow!(
-                "operator musig2 pubkey {} is not in the configured covenant set; \
-                 cannot establish watchtower-key = musig2-key invariant required by CPFP",
+                "operator musig2 pubkey {} is not in the configured covenant set",
                 operator_musig2_pubkey,
             )
         })?;

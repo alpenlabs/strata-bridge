@@ -11,7 +11,10 @@ use ssz::Decode;
 use strata_asm_proto_bridge::OperatorClaimUnlock;
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_asm_rpc::traits::{AsmMohoApiClient, AsmProofApiClient};
-use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
+use strata_bridge_connectors::{
+    Connector, ParentTx,
+    prelude::{ContestCounterproofWitness, ContestProofConnector},
+};
 use strata_bridge_counterproof::{
     BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
     HeavierChainProof, RawBitcoinTx,
@@ -200,10 +203,13 @@ async fn generate_and_publish_counterproof(
         n_of_n_signature,
         operator_signatures,
     };
+    // Read the anchor key before `finalize` consumes the transaction. The key belongs to the
+    // watchtower that this counterproof is for, and the publish path checks that this
+    // operator can sign with it.
+    let anchor_key = counterproof_tx.cpfp_connector().internal_key();
     let signed_tx = counterproof_tx.finalize(&witness);
 
-    // The counterproof carries a keyed anchor at a fixed vout. See the note on
-    // `publish_counterproof_ack` for the watchtower-vs-musig2 key identity.
+    // The counterproof carries a keyed anchor at a fixed vout.
     publish_signed_transaction(
         output_handles,
         &signed_tx,
@@ -212,6 +218,7 @@ async fn generate_and_publish_counterproof(
         chain::parent_fee_for_floor_tx(&signed_tx),
         CpfpKind::AnchorAt {
             anchor_vout: CounterproofTx::CPFP_VOUT,
+            anchor_key,
         },
     )
     .await

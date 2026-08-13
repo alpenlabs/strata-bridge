@@ -4,6 +4,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use musig2::secp256k1::schnorr::Signature;
+    use strata_bridge_connectors::{Connector, ParentTx};
     use strata_bridge_test_utils::bitcoin::generate_txid;
     use strata_bridge_tx_graph::musig_functor::GameFunctor;
 
@@ -866,6 +867,10 @@ mod tests {
         let signatures = mock_game_signatures(&game_graph);
         let sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures");
+        let anchor_key = game_graph.counterproofs[watchtower_slot]
+            .counterproof_ack
+            .cpfp_connector()
+            .internal_key();
         let signed_counter_proof_ack_tx = game_graph.counterproofs[watchtower_slot]
             .counterproof_ack
             .clone()
@@ -893,6 +898,7 @@ mod tests {
                 ),
                 expected_duties: vec![GraphDuty::PublishCounterProofAck {
                     signed_counter_proof_ack_tx,
+                    anchor_key,
                 }],
                 expected_signals: vec![],
             },

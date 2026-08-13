@@ -11,6 +11,7 @@ use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use operator_wallet::{GeneralUtxoPolicy, LeaseOwner, UtxoInfo};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
+use strata_bridge_connectors::{Connector, ParentTx};
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
 use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
 use strata_bridge_primitives::{
@@ -710,6 +711,7 @@ pub(super) async fn publish_claim(
         parent_fee,
         CpfpKind::AnchorAt {
             anchor_vout: ClaimTx::CPFP_VOUT,
+            anchor_key: claim_tx.cpfp_connector().internal_key(),
         },
     )
     .await

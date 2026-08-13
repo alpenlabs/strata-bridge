@@ -207,7 +207,11 @@ pub async fn execute_graph_duty(
         }
         GraphDuty::PublishCounterProofAck {
             signed_counter_proof_ack_tx,
-        } => publish_counterproof_ack(&output_handles, signed_counter_proof_ack_tx).await,
+            anchor_key,
+        } => {
+            publish_counterproof_ack(&output_handles, signed_counter_proof_ack_tx, *anchor_key)
+                .await
+        }
         GraphDuty::PublishCounterProofNack {
             deposit_idx,
             counterprover_idx,

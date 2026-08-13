@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use musig2::secp256k1::schnorr::Signature;
+use strata_bridge_connectors::{Connector, ParentTx};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph::game_graph::DepositParams;
 
@@ -337,6 +338,11 @@ impl GraphSM {
                     )
                 });
 
+                // The anchor key comes from the connector that built the anchor output.
+                let anchor_key = counterproof_graph
+                    .counterproof_ack
+                    .cpfp_connector()
+                    .internal_key();
                 let signed_counter_proof_ack_tx = counterproof_graph
                     .counterproof_ack
                     .clone()
@@ -345,6 +351,7 @@ impl GraphSM {
                 Ok(GSMOutput::with_duties(vec![
                     GraphDuty::PublishCounterProofAck {
                         signed_counter_proof_ack_tx,
+                        anchor_key,
                     },
                 ]))
             }
