@@ -13,6 +13,7 @@ use bitcoin::{
     secp256k1::XOnlyPublicKey,
     transaction,
 };
+use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_asm_proto_bridge_txs::{
     BRIDGE_SUBPROTOCOL_ID, constants::BridgeTxType,
     deposit_request::create_deposit_request_locking_script,
@@ -127,6 +128,16 @@ pub(crate) fn test_sm_config() -> SMConfig {
 /// Creates an empty `SMRegistry` with test config.
 pub(crate) fn test_empty_registry() -> SMRegistry {
     SMRegistry::new(test_sm_config())
+}
+
+/// Builds a P2TR [`SafeHarbourAddress`] from a fixed x-only pubkey payload.
+///
+/// `new_p2tr` rejects payloads that are not valid on-curve x-coordinates, so the fill must be
+/// one known to be valid ([2u8; 32] is; [3u8; 32] is not).
+pub(crate) fn test_safe_harbour_address() -> SafeHarbourAddress {
+    let descriptor =
+        bitcoin_bosd::Descriptor::new_p2tr(&[2u8; 32]).expect("valid x-only public key");
+    SafeHarbourAddress::try_from(descriptor).expect("p2tr descriptor accepted")
 }
 
 // ===== Registry population helpers =====
