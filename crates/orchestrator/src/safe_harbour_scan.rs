@@ -13,11 +13,12 @@ use crate::{
 /// Enumerates the registry's deposits and seeds sweep and abort events while the safe harbour
 /// is active. Returns nothing when the latch is not set.
 ///
-/// `Deposited` deposits get [`DepositEvent::SweepRequested`] carrying the frozen safe-harbour
-/// descriptor; safe-window deposits (`Created`/`GraphGenerated`) get
-/// [`DepositEvent::SafeHarbourAbort`]. Runs once per buried block, which is also the retry
-/// mechanism: the SM classifies replays as duplicates, so re-emission is idempotent until each
-/// deposit leaves its scanned state.
+/// Every state holding a live deposit UTXO — `Deposited` and the withdrawal states, whose
+/// progress never touches the fixed N-of-N outpoint — gets [`DepositEvent::SweepRequested`]
+/// carrying the frozen safe-harbour descriptor; safe-window deposits
+/// (`Created`/`GraphGenerated`) get [`DepositEvent::SafeHarbourAbort`]. Runs once per buried
+/// block, which is also the retry mechanism: the SM classifies replays as duplicates, so
+/// re-emission is idempotent until each deposit leaves its scanned state.
 pub fn safe_harbour_scan(registry: &SMRegistry) -> Vec<(SMId, SMEvent)> {
     let Some(address) = registry.safe_harbour_address() else {
         return Vec::new();
@@ -28,8 +29,14 @@ pub fn safe_harbour_scan(registry: &SMRegistry) -> Vec<(SMId, SMEvent)> {
         .deposits()
         .filter_map(|(&deposit_idx, sm)| {
             let event = match sm.state() {
-                // Unassigned live-UTXO deposit: sweep it.
-                DepositState::Deposited { .. } => {
+                // Live deposit UTXO: sweep it, abandoning any withdrawal progress. A racing
+                // payout is resolved on chain — whichever tx spends the outpoint first wins.
+                DepositState::Deposited { .. }
+                | DepositState::Assigned { .. }
+                | DepositState::Fulfilled { .. }
+                | DepositState::PayoutDescriptorReceived { .. }
+                | DepositState::PayoutNoncesCollected { .. }
+                | DepositState::CooperativePathFailed { .. } => {
                     DepositEvent::SweepRequested(SweepRequestedEvent {
                         safe_harbour_desc: safe_harbour_desc.clone(),
                     })
@@ -44,14 +51,6 @@ pub fn safe_harbour_scan(registry: &SMRegistry) -> Vec<(SMId, SMEvent)> {
                 // finish and become sweepable on reaching Deposited.
                 DepositState::DepositNoncesCollected { .. }
                 | DepositState::DepositPartialsCollected { .. } => return None,
-
-                // Withdrawal in progress: not swept. An Assigned deposit whose deadline lapses
-                // reverts to Deposited and becomes sweepable on its own.
-                DepositState::Assigned { .. }
-                | DepositState::Fulfilled { .. }
-                | DepositState::PayoutDescriptorReceived { .. }
-                | DepositState::PayoutNoncesCollected { .. }
-                | DepositState::CooperativePathFailed { .. } => return None,
 
                 // Already in the sweep flow or terminal.
                 DepositState::SweepNoncesPending { .. }
@@ -166,6 +165,55 @@ mod tests {
     }
 
     #[test]
+    fn scan_sweeps_withdrawal_states() {
+        let mut registry = test_empty_registry();
+        registry.activate_safe_harbour(test_safe_harbour_address());
+
+        insert_deposit_in_state(
+            &mut registry,
+            0,
+            DepositState::Assigned {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: 0,
+                deadline: INITIAL_BLOCK_HEIGHT + 100,
+                recipient_desc: random_p2tr_desc(),
+            },
+        );
+        insert_deposit_in_state(
+            &mut registry,
+            1,
+            DepositState::Fulfilled {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: 0,
+                fulfillment_txid: generate_txid(),
+                fulfillment_height: INITIAL_BLOCK_HEIGHT,
+                cooperative_payout_deadline: INITIAL_BLOCK_HEIGHT + 100,
+            },
+        );
+        insert_deposit_in_state(
+            &mut registry,
+            2,
+            DepositState::CooperativePathFailed {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: 0,
+                fulfillment_txid: generate_txid(),
+            },
+        );
+
+        let events = safe_harbour_scan(&registry);
+        assert_eq!(events.len(), 3);
+        for deposit_idx in 0..3 {
+            assert!(
+                matches!(
+                    scanned_event(&events, deposit_idx),
+                    Some(DepositEvent::SweepRequested(_))
+                ),
+                "deposit {deposit_idx}: every live-UTXO withdrawal state must be swept",
+            );
+        }
+    }
+
+    #[test]
     fn scan_skips_states_that_finish_or_are_settled() {
         let mut registry = test_empty_registry();
         registry.activate_safe_harbour(test_safe_harbour_address());
@@ -183,36 +231,16 @@ mod tests {
                 partial_signatures: BTreeMap::new(),
             },
         );
-        // Withdrawal in progress: not swept by this scan.
-        insert_deposit_in_state(
-            &mut registry,
-            1,
-            DepositState::Assigned {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                assignee: 0,
-                deadline: INITIAL_BLOCK_HEIGHT + 100,
-                recipient_desc: random_p2tr_desc(),
-            },
-        );
-        insert_deposit_in_state(
-            &mut registry,
-            2,
-            DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                assignee: 0,
-                fulfillment_txid: generate_txid(),
-            },
-        );
         // Terminal.
         insert_deposit_in_state(
             &mut registry,
-            3,
+            1,
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
             },
         );
-        insert_deposit_in_state(&mut registry, 4, DepositState::Aborted);
+        insert_deposit_in_state(&mut registry, 2, DepositState::Aborted);
 
         assert!(safe_harbour_scan(&registry).is_empty());
     }
