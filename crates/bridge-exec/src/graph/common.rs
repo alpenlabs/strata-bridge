@@ -142,6 +142,7 @@ async fn reserve_synced_claim_funding<G: GeneralWallet, P: WalletStore>(
     let settled = wallet.settled(bury_depth);
     Ok(wallet
         .reserve_utxo_with_value(value, LeaseOwner::ClaimFunding, predicate::not(settled))
+        .await
         .0)
 }
 
@@ -284,6 +285,7 @@ async fn ensure_claim_funding_outpoint(
                             LeaseOwner::ClaimFunding,
                             predicate::not(settled),
                         )
+                        .await
                         .0
                     {
                         Some(reserved) => {
@@ -822,7 +824,7 @@ mod tests {
         }
 
         async fn fund_v3_transaction(
-            &mut self,
+            &self,
             _outputs: Vec<TxOut>,
             _explicit_inputs: Option<&[OutPoint]>,
             _fee_rate: FeeRate,
@@ -832,7 +834,7 @@ mod tests {
         }
 
         async fn build_cpfp_child(
-            &mut self,
+            &self,
             _parent: &Transaction,
             _parent_fee: bitcoin::Amount,
             _anchor: operator_wallet::AnchorInfo,
