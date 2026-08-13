@@ -1,4 +1,5 @@
-//! Transitions for the safe-harbour sweep of the deposit UTXO.
+//! Transitions for the safe-harbour reaction: sweeping the deposit UTXO and aborting
+//! safe-window deposits.
 //!
 //! The sweep mirrors the cooperative payout signing round with two differences: the payout
 //! destination is the frozen safe-harbour descriptor injected via the seed event, and the
@@ -12,16 +13,74 @@ use strata_bridge_connectors::n_of_n::NOfNConnector;
 use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootTweak};
 use strata_bridge_tx_graph::transactions::prelude::{SweepData, SweepTx};
 
-use crate::deposit::{
-    config::DepositSMCfg,
-    duties::DepositDuty,
-    errors::{DSMError, DSMResult},
-    events::{SweepNonceReceivedEvent, SweepPartialReceivedEvent, SweepRequestedEvent},
-    machine::{DSMOutput, DepositSM},
-    state::DepositState,
+use crate::{
+    deposit::{
+        config::DepositSMCfg,
+        duties::DepositDuty,
+        errors::{DSMError, DSMResult},
+        events::{
+            SafeHarbourAbortEvent, SweepNonceReceivedEvent, SweepPartialReceivedEvent,
+            SweepRequestedEvent,
+        },
+        machine::{DSMOutput, DepositSM},
+        state::DepositState,
+    },
+    signals::{DepositSignal, DepositToGraph},
+    state_machine::{SMOutput, StateMutation},
 };
 
 impl DepositSM {
+    /// Processes the event aborting this deposit because the safe harbour activated.
+    ///
+    /// Valid only in the safe abort window ([`DepositState::Created`] and
+    /// [`DepositState::GraphGenerated`]), where no partial signature has been gossiped yet.
+    /// Later pre-`Deposited` states must finish and be swept instead. Mirrors
+    /// [`Self::process_drt_takeback`]: transitions to [`DepositState::Aborted`] and emits the
+    /// existing graph-teardown signal, carrying the deposit-request txid since no on-chain
+    /// takeback exists.
+    pub(crate) fn process_safe_harbour_abort(
+        &mut self,
+        abort: SafeHarbourAbortEvent,
+    ) -> DSMResult<DSMOutput> {
+        match self.state() {
+            DepositState::Created { .. } | DepositState::GraphGenerated { .. } => {
+                self.state = DepositState::Aborted;
+
+                Ok(SMOutput {
+                    duties: vec![],
+                    signals: vec![DepositSignal::ToGraph(
+                        DepositToGraph::DepositRequestTakenBack {
+                            deposit_idx: self.context().deposit_idx(),
+                            takeback_txid: self.context().deposit_request_outpoint().txid,
+                        },
+                    )],
+                    state_mutation: StateMutation::Mutated,
+                })
+            }
+
+            // The per-block scan re-emits the abort until the deposit leaves the safe window.
+            DepositState::Aborted => Err(DSMError::duplicate(self.state().clone(), abort.into())),
+
+            // The scan never emits an abort outside the safe window: a partial is gossiped from
+            // DepositNoncesCollected onward, and live-UTXO deposits are swept instead.
+            DepositState::DepositNoncesCollected { .. }
+            | DepositState::DepositPartialsCollected { .. }
+            | DepositState::Deposited { .. }
+            | DepositState::Assigned { .. }
+            | DepositState::Fulfilled { .. }
+            | DepositState::PayoutDescriptorReceived { .. }
+            | DepositState::PayoutNoncesCollected { .. }
+            | DepositState::CooperativePathFailed { .. }
+            | DepositState::SweepNoncesPending { .. }
+            | DepositState::SweepNoncesCollected { .. }
+            | DepositState::Spent { .. } => Err(DSMError::invalid_event(
+                self.state().clone(),
+                abort.into(),
+                None,
+            )),
+        }
+    }
+
     /// Processes the event requesting that this deposit be swept to the safe-harbour descriptor.
     ///
     /// Valid from every state holding a live deposit UTXO: the deposit outpoint is a fixed
