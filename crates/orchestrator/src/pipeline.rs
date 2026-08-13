@@ -15,6 +15,7 @@ use crate::{
     events_mux::{EventsMux, SafeHarbourEvent, UnifiedEvent},
     events_router,
     persister::Persister,
+    safe_harbour_scan::safe_harbour_scan,
     sm_registry::SMRegistry,
     sm_types::{SMId, UnifiedDuty},
 };
@@ -110,6 +111,14 @@ impl Pipeline {
             match &event {
                 UnifiedEvent::Block(block_event) => {
                     onchain::process_block(&mut applicator, &initial_operator_table, block_event)?;
+
+                    // While safe harbour is active, drive sweeps and aborts from the post-block
+                    // deposit states. The scan is a no-op while the latch is unset.
+                    let scan_events = safe_harbour_scan(applicator.registry());
+                    if !scan_events.is_empty() {
+                        info!(count = %scan_events.len(), "seeding safe-harbour sweep/abort events");
+                        applicator.apply_batch(scan_events)?;
+                    }
                 }
 
                 _ => {
