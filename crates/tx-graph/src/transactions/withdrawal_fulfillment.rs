@@ -2,7 +2,7 @@
 
 use bitcoin::{absolute, transaction::Version, Amount, ScriptBuf, Transaction, TxOut};
 use bitcoin_bosd::Descriptor;
-use strata_asm_proto_bridge_v1_txs::withdrawal_fulfillment::WithdrawalFulfillmentTxHeaderAux;
+use strata_asm_proto_bridge_txs::withdrawal_fulfillment::WithdrawalFulfillmentTxHeaderAux;
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 
 /// Data needed to construct an unfunded [`WithdrawalFulfillmentTx`].

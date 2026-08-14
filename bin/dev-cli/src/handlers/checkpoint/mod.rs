@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use ssz::Encode;
-use strata_asm_proto_checkpoint_types::CheckpointPayload;
+use strata_asm_checkpoint_types::CheckpointPayload;
 use strata_codec::{encode_to_vec, Varint};
 use strata_l1_txfmt::MagicBytes;
 use tracing::info;

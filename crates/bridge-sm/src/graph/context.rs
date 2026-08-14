@@ -43,6 +43,13 @@ impl GraphSMCtx {
         self.graph_idx.operator
     }
 
+    /// Returns the graph owner's BIP-340 x-only key.
+    pub fn owner_btc_x_only_key(&self) -> XOnlyPublicKey {
+        self.operator_table
+            .idx_to_btc_x_only_key(&self.operator_idx())
+            .expect("graph owner must be present in its own operator table snapshot")
+    }
+
     /// Returns the GraphID for this graph.
     pub const fn graph_idx(&self) -> GraphIdx {
         self.graph_idx

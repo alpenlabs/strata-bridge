@@ -3,7 +3,7 @@
 use moho_types::StateRefAttestation;
 pub use moho_types::{MohoState, RecursiveMohoProof};
 use ssz_derive::{Decode, Encode};
-pub use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
+pub use strata_asm_proto_bridge::OperatorClaimUnlock;
 pub use strata_merkle::MerkleProofB32;
 use strata_predicate::PredicateKey;
 

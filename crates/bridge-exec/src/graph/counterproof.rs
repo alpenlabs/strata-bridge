@@ -8,9 +8,9 @@ use btc_tracker::event::TxStatus;
 use metrics::counter;
 use musig2::secp256k1::schnorr::Signature;
 use ssz::Decode;
-use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
-use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_asm_rpc::traits::AsmProofApiClient;
+use strata_asm_proto_bridge::OperatorClaimUnlock;
+use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
+use strata_asm_rpc::traits::{AsmMohoApiClient, AsmProofApiClient};
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
     BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
@@ -28,6 +28,7 @@ use strata_bridge_proof::{
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
 use strata_crypto::hash;
+use strata_identifiers::Buf32;
 use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Role};
 use tracing::{info, warn};
 use zkaleido::ProofReceipt;
@@ -71,6 +72,7 @@ pub(super) async fn evaluate_and_publish_counterproof(
             operator_idx,
             last_block_height,
             &proof,
+            operator_table,
         )
         .await?
         else {
@@ -349,6 +351,7 @@ async fn detect_heavier_chain(
     operator_idx: OperatorIdx,
     last_block_height: BitcoinBlockHeight,
     proof: &ProofReceipt,
+    operator_table: &OperatorTable,
 ) -> Result<Option<HeavierChainProof>, ExecutorError> {
     let operator_commitment = BridgeProofOutput::from_ssz_bytes(proof.public_values().as_bytes())
         .map_err(|e| {
@@ -362,7 +365,7 @@ async fn detect_heavier_chain(
         .export_state()
         .containers()
         .iter()
-        .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+        .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
         .ok_or_else(|| {
             ExecutorError::AsmRpcErr("moho state missing bridge-v1 export container".to_string())
         })?;
@@ -377,7 +380,11 @@ async fn detect_heavier_chain(
         return Ok(None);
     }
 
-    let claim_unlock = OperatorClaimUnlock::new(deposit_idx, operator_idx);
+    let operator_pubkey = operator_table
+        .idx_to_btc_x_only_key(&operator_idx)
+        .expect("operator_idx must be present in the operator table");
+    let claim_unlock = OperatorClaimUnlock::new(deposit_idx, Buf32(operator_pubkey.serialize()));
+
     let inclusion_proof = if container.entries_mmr().num_entries() <= operator_commitment.mmr_idx {
         // The guest ignores the claim unlock and its inclusion proof when the
         // operator's committed index is out of bounds on the canonical chain.
@@ -421,7 +428,7 @@ async fn fetch_canonical_moho_state(
         .bitcoind_rpc_client
         .get_block_hash(last_block_height)
         .await?;
-    let moho_state_bytes = output_handles
+    let moho_state = output_handles
         .asm_rpc_client
         .get_moho_state(block_hash)
         .await
@@ -429,8 +436,6 @@ async fn fetch_canonical_moho_state(
         .ok_or_else(|| {
             ExecutorError::AsmRpcErr(format!("moho state unavailable at {block_hash}"))
         })?;
-    let moho_state = MohoState::from_ssz_bytes(&moho_state_bytes)
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("decode moho_state ssz: {e:?}")))?;
 
     Ok((block_hash, moho_state))
 }
@@ -445,7 +450,7 @@ async fn fetch_canonical_inclusion_proof(
         .asm_rpc_client
         .get_export_entry_mmr_proof(
             anchor_hash,
-            BRIDGE_V1_SUBPROTOCOL_ID,
+            BRIDGE_SUBPROTOCOL_ID,
             claim_unlock.compute_hash().to_vec(),
         )
         .await
@@ -527,8 +532,27 @@ mod tests {
 
     #[test]
     fn claim_unlock_compute_hash_matches_raw_hash_of_codec_encoding() {
-        let claim_unlock = OperatorClaimUnlock::new(7, 2);
+        let table = test_operator_table(3, 0);
+        let operator_pubkey = table.idx_to_btc_x_only_key(&2).unwrap();
+        let claim_unlock = OperatorClaimUnlock::new(7, Buf32(operator_pubkey.serialize()));
         let committed_bytes = encode_to_vec(&claim_unlock).expect("claim unlock must encode");
         assert_eq!(claim_unlock.compute_hash(), hash::raw(&committed_bytes).0);
+    }
+
+    #[test]
+    fn claim_unlock_identifies_the_operator_by_its_x_only_key() {
+        let table = test_operator_table(3, 0);
+        let operator_pubkey = table.idx_to_btc_x_only_key(&2).unwrap();
+        let claim_unlock = OperatorClaimUnlock::new(7, Buf32(operator_pubkey.serialize()));
+
+        let expected = table
+            .idx_to_btc_key(&2)
+            .expect("operator 2 is in the table")
+            .x_only_public_key()
+            .0
+            .serialize();
+
+        assert_eq!(claim_unlock.deposit_idx, 7);
+        assert_eq!(claim_unlock.operator_pubkey.0, expected);
     }
 }

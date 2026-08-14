@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,

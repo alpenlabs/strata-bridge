@@ -12,8 +12,8 @@ moho-recursive-proof.workspace = true
 moho-types.workspace = true
 ssz.workspace = true
 ssz_derive.workspace = true
-strata-asm-proto-bridge-v1.workspace = true
-strata-asm-proto-bridge-v1-txs.workspace = true
+strata-asm-proto-bridge.workspace = true
+strata-asm-proto-bridge-txs.workspace = true
 strata-bridge-proof-common.workspace = true
 strata-codec.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
@@ -29,6 +29,7 @@ strata-asm-proof-impl.workspace = true
 strata-asm-spec.workspace = true
 
 [dev-dependencies]
+strata-identifiers.workspace = true
 zkaleido-native-adapter.workspace = true
 
 [features]

@@ -2,7 +2,7 @@
 
 use bitcoin::PublicKey;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 
 use crate::types::{

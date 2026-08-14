@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use bitcoin::bip32::Xpriv;
 use bitcoincore_rpc::{Auth, Client};
 use ssz::Encode;
-use strata_asm_params::{AdminTxType, UpdateTxType};
+use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 use strata_asm_proto_admin_txs::{
     actions::{updates::Defcon1Update, MultisigAction, UpdateAction},
     constants::ADMINISTRATION_SUBPROTOCOL_ID,

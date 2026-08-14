@@ -8,7 +8,7 @@ use std::{
 };
 
 use bitcoin::{OutPoint, hashes::sha256};
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{DepositIdx, GraphIdx, OperatorIdx},
