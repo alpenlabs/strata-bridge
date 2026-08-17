@@ -233,7 +233,7 @@ const fn graph_duty_kind(duty: &GraphDuty) -> &'static str {
         GraphDuty::PublishContest { .. } => "publish_contest",
         GraphDuty::GenerateAndPublishBridgeProof { .. } => "generate_and_publish_bridge_proof",
         GraphDuty::PublishBridgeProofTimeout { .. } => "publish_bridge_proof_timeout",
-        GraphDuty::GenerateAndPublishCounterProof { .. } => "generate_and_publish_counter_proof",
+        GraphDuty::PotentialCounterProof { .. } => "potential_counter_proof",
         GraphDuty::PublishCounterProofAck { .. } => "publish_counter_proof_ack",
         GraphDuty::PublishCounterProofNack { .. } => "publish_counter_proof_nack",
         GraphDuty::PublishSlash { .. } => "publish_slash",
