@@ -15,7 +15,7 @@ use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProof
 use strata_bridge_counterproof::{
     BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
     HeavierChainProof, RawBitcoinTx,
-    statements::{commits_to_different_game, leq_little_endian},
+    statements::{commits_to_different_claim, leq_little_endian},
 };
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -59,7 +59,14 @@ pub(super) async fn evaluate_and_publish_counterproof(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %operator_idx, %game_index, "evaluating potential counterproof for graph");
 
-    let mode = if commits_to_different_game(&proof, game_index.get()) {
+    let operator_pubkey = Buf32(
+        operator_table
+            .idx_to_btc_x_only_key(&operator_idx)
+            .expect("operator_idx must be present in the operator table")
+            .serialize(),
+    );
+
+    let mode = if commits_to_different_claim(&proof, game_index, operator_pubkey) {
         info!(%deposit_idx, %operator_idx, %game_index, "bridge proof commits to a different game; publishing counterproof");
         CounterproofMode::InvalidBridgeProof
     } else if !verify_bridge_proof(&cfg.graph_sm_cfg.bridge_proof_predicate, &proof) {
@@ -72,7 +79,7 @@ pub(super) async fn evaluate_and_publish_counterproof(
             operator_idx,
             last_block_height,
             &proof,
-            operator_table,
+            operator_pubkey,
         )
         .await?
         else {
@@ -351,7 +358,7 @@ async fn detect_heavier_chain(
     operator_idx: OperatorIdx,
     last_block_height: BitcoinBlockHeight,
     proof: &ProofReceipt,
-    operator_table: &OperatorTable,
+    operator_pubkey: Buf32,
 ) -> Result<Option<HeavierChainProof>, ExecutorError> {
     let operator_commitment = BridgeProofOutput::from_ssz_bytes(proof.public_values().as_bytes())
         .map_err(|e| {
@@ -380,10 +387,7 @@ async fn detect_heavier_chain(
         return Ok(None);
     }
 
-    let operator_pubkey = operator_table
-        .idx_to_btc_x_only_key(&operator_idx)
-        .expect("operator_idx must be present in the operator table");
-    let claim_unlock = OperatorClaimUnlock::new(deposit_idx, Buf32(operator_pubkey.serialize()));
+    let claim_unlock = OperatorClaimUnlock::new(deposit_idx, operator_pubkey);
 
     let inclusion_proof = if container.entries_mmr().num_entries() <= operator_commitment.mmr_idx {
         // The guest ignores the claim unlock and its inclusion proof when the

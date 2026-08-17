@@ -2585,6 +2585,7 @@ dependencies = [
  "strata-bridge-proof-common",
  "strata-btc-types",
  "strata-codec",
+ "strata-identifiers",
  "strata-merkle",
  "strata-predicate",
  "zkaleido",
