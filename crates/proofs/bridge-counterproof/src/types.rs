@@ -2,7 +2,7 @@
 
 pub use moho_types::{MohoState, RecursiveMohoProof, StateRefAttestation};
 use ssz_derive::{Decode, Encode};
-pub use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
+pub use strata_asm_proto_bridge::OperatorClaimUnlock;
 pub use strata_btc_types::{BitcoinTxOut, BitcoinXOnlyPublicKey, RawBitcoinTx};
 use strata_codec::encode_to_vec;
 pub use strata_merkle::MerkleProofB32;

@@ -67,6 +67,7 @@ fn test_contest_from_claimed_pov_emits_duty() {
                 contest_txid: TEST_GRAPH_SUMMARY.contest,
                 game_index: deposit_params.game_index,
                 contest_proof_connector: connectors.contest_proof,
+                operator_pubkey: ctx.owner_btc_x_only_key(),
             }],
             expected_signals: vec![],
         },

@@ -13,8 +13,8 @@ use bitcoin::{
     secp256k1::XOnlyPublicKey,
     transaction,
 };
-use strata_asm_proto_bridge_v1_txs::{
-    BRIDGE_V1_SUBPROTOCOL_ID, constants::BridgeTxType,
+use strata_asm_proto_bridge_txs::{
+    BRIDGE_SUBPROTOCOL_ID, constants::BridgeTxType,
     deposit_request::create_deposit_request_locking_script,
 };
 use strata_bridge_primitives::{
@@ -287,7 +287,7 @@ impl DrtBuilder {
         let n_of_n = operator_table.aggregated_btc_key().x_only_public_key().0;
         Self {
             magic: cfg.magic_bytes,
-            subproto_id: BRIDGE_V1_SUBPROTOCOL_ID,
+            subproto_id: BRIDGE_SUBPROTOCOL_ID,
             tx_type: BridgeTxType::DepositRequest as u8,
             recovery_pk_in_aux: recovery_pk,
             n_of_n_in_script: n_of_n,

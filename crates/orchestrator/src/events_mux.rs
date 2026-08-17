@@ -6,8 +6,8 @@ use std::collections::VecDeque;
 use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
 use rkyv::rancor;
-use strata_asm_proto_bridge_v1::AssignmentEntry;
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_proto_bridge::AssignmentEntry;
 use strata_bridge_asm_events::event::AsmState;
 use strata_bridge_p2p_service::message_handler::OuroborosMessage;
 use strata_bridge_p2p_types::GossipsubMsg;
@@ -199,7 +199,7 @@ mod tests {
     use bitcoin::hashes::Hash;
     use libp2p_identity::ed25519::Keypair;
     use rkyv::{rancor::Error, to_bytes};
-    use strata_asm_proto_bridge_v1_types::{SafeHarbour, SafeHarbourAddress};
+    use strata_asm_bridge_types::{SafeHarbour, SafeHarbourAddress};
     use strata_bridge_p2p_types::{PayoutDescriptor, UnsignedGossipsubMsg};
 
     use super::{

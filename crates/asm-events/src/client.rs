@@ -21,8 +21,8 @@ use bitcoin::BlockHash;
 use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
 use jsonrpsee::http_client::HttpClient;
-use strata_asm_proto_bridge_v1::AssignmentEntry;
-use strata_asm_proto_bridge_v1_types::SafeHarbour;
+use strata_asm_bridge_types::SafeHarbour;
+use strata_asm_proto_bridge::AssignmentEntry;
 use strata_asm_rpc::traits::{AsmControlApiClient, AsmStateApiClient};
 use strata_bridge_primitives::subscription::Subscription;
 use strata_btc_types::L1BlockIdBitcoinExt;
@@ -411,11 +411,11 @@ mod tests {
         server::{ServerBuilder, ServerHandle},
         types::ErrorObjectOwned,
     };
+    use strata_asm_bridge_types::SafeHarbourAddress;
+    use strata_asm_checkpoint_types::CheckpointTip;
     use strata_asm_common::{AnchorState, AsmManifest};
     use strata_asm_params::AsmParams;
-    use strata_asm_proto_bridge_v1::DepositEntry;
-    use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
-    use strata_asm_proto_checkpoint_types::CheckpointTip;
+    use strata_asm_proto_bridge::DepositEntry;
     use strata_asm_rpc::traits::{AsmControlApiServer, AsmStateApiServer};
     use strata_asm_worker::AsmWorkerStatus;
     use strata_identifiers::{Buf32, L1BlockCommitment, L1BlockId};

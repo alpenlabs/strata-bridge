@@ -105,7 +105,7 @@ build-compose:
 # Clean docker volumes
 [group('docker')]
 clean:
-    rm -rf docker/vol/*/data
+    rm -rf docker/vol/*/data docker/vol/asm-runner/moho_data
 
 # Start FoundationDB container, wait for health, and initialize
 [group('docker')]

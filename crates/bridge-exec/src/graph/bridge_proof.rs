@@ -2,23 +2,25 @@
 
 use std::num::NonZero;
 
+use bitcoin::XOnlyPublicKey;
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use ssz::Decode;
-use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
-use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
-use strata_asm_rpc::traits::AsmProofApiClient;
+use strata_asm_proto_bridge::OperatorClaimUnlock;
+use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
+use strata_asm_rpc::traits::{AsmMohoApiClient, AsmProofApiClient};
 use strata_bridge_connectors::{Connector, prelude::ContestProofConnector};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, OperatorIdx};
 use strata_bridge_proof::{
     BridgeProofHost, BridgeProofInput, BridgeProofProgram, MerkleProofB32, MohoRecursiveOutput,
-    MohoState, RecursiveMohoProof,
+    RecursiveMohoProof,
 };
 use strata_bridge_proof_common::{ProofError, prove};
 use strata_bridge_tx_graph::transactions::bridge_proof::{BridgeProofData, BridgeProofTx};
 use strata_codec::encode_to_vec;
 use strata_crypto::hash;
+use strata_identifiers::Buf32;
 use tracing::{info, warn};
 use zkaleido::ZkVmError;
 
@@ -28,6 +30,7 @@ use crate::{
 
 /// Generates the bridge proof anchored at the given block height and publishes
 /// the resulting bridge proof transaction.
+#[expect(clippy::too_many_arguments)]
 pub(super) async fn generate_and_publish_bridge_proof(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
@@ -36,6 +39,7 @@ pub(super) async fn generate_and_publish_bridge_proof(
     contest_txid: bitcoin::Txid,
     game_index: NonZero<u32>,
     contest_proof_connector: ContestProofConnector,
+    operator_pubkey: XOnlyPublicKey,
 ) -> Result<(), ExecutorError> {
     info!(
         %deposit_idx,
@@ -49,8 +53,8 @@ pub(super) async fn generate_and_publish_bridge_proof(
     let proof_bytes = generate_bridge_proof(
         output_handles,
         deposit_idx,
-        operator_index,
         last_block_height,
+        operator_pubkey,
     )
     .await?;
 
@@ -103,14 +107,14 @@ pub(super) async fn generate_and_publish_bridge_proof(
 async fn generate_bridge_proof(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
-    operator_index: OperatorIdx,
     last_block_height: BitcoinBlockHeight,
+    operator_pubkey: XOnlyPublicKey,
 ) -> Result<Vec<u8>, ExecutorError> {
     let proof_input = fetch_bridge_proof_input(
         output_handles,
         deposit_idx,
-        operator_index,
         last_block_height,
+        operator_pubkey,
     )
     .await?;
 
@@ -138,8 +142,8 @@ async fn generate_bridge_proof(
 async fn fetch_bridge_proof_input(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
-    operator_index: OperatorIdx,
     last_block_height: BitcoinBlockHeight,
+    operator_pubkey: XOnlyPublicKey,
 ) -> Result<BridgeProofInput, ExecutorError> {
     info!(%last_block_height, "fetching bridge proof inputs");
     let fetch_start = std::time::Instant::now();
@@ -154,13 +158,14 @@ async fn fetch_bridge_proof_input(
         "resolved last-seen block hash for bridge proof anchor"
     );
 
-    let operator_claim_unlock = OperatorClaimUnlock::new(deposit_idx, operator_index);
+    let operator_claim_unlock =
+        OperatorClaimUnlock::new(deposit_idx, Buf32(operator_pubkey.serialize()));
     let claim_unlock = encode_to_vec(&operator_claim_unlock)
         .map_err(|e| ExecutorError::AsmRpcErr(format!("encode claim_unlock: {e}")))?;
     let leaf_hash = hash::raw(&claim_unlock).0;
 
     let asm = &output_handles.asm_rpc_client;
-    let moho_state_bytes = asm
+    let moho_state = asm
         .get_moho_state(recent_block_hash)
         .await
         .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_state: {e}")))?
@@ -175,11 +180,7 @@ async fn fetch_bridge_proof_input(
             ExecutorError::AsmRpcErr(format!("moho proof unavailable at {recent_block_hash}"))
         })?;
     let mmr_proof_bytes = asm
-        .get_export_entry_mmr_proof(
-            recent_block_hash,
-            BRIDGE_V1_SUBPROTOCOL_ID,
-            leaf_hash.to_vec(),
-        )
+        .get_export_entry_mmr_proof(recent_block_hash, BRIDGE_SUBPROTOCOL_ID, leaf_hash.to_vec())
         .await
         .map_err(|e| ExecutorError::AsmRpcErr(format!("get_export_entry_mmr_proof: {e}")))?
         .ok_or_else(|| {
@@ -188,13 +189,10 @@ async fn fetch_bridge_proof_input(
             ))
         })?;
     info!(
-        moho_state_len = moho_state_bytes.len(),
         mmr_proof_len = mmr_proof_bytes.len(),
         "fetched ASM proof inputs for bridge proof"
     );
 
-    let moho_state = MohoState::from_ssz_bytes(&moho_state_bytes)
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("decode moho_state ssz: {e:?}")))?;
     let mmr_proof = MerkleProofB32::from_ssz_bytes(&mmr_proof_bytes)
         .map_err(|e| ExecutorError::AsmRpcErr(format!("decode mmr_proof ssz: {e:?}")))?;
 

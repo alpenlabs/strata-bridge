@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use bitcoin::{OutPoint, Transaction};
 use btc_tracker::event::BlockEvent;
-use strata_asm_proto_bridge_v1_txs::deposit_request::DRT_OUTPUT_INDEX;
+use strata_asm_proto_bridge_txs::deposit_request::DRT_OUTPUT_INDEX;
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},

@@ -210,7 +210,7 @@ fn ensure_eq<T: PartialEq + Debug>(label: &str, bridge_value: T, peer_value: T) 
 mod tests {
     use bitcoin_bosd::Descriptor;
     use mosaic_rpc_types::{RpcByte32, RpcCircuitInfo};
-    use strata_asm_params::{BridgeV1InitConfig, SubprotocolInstance};
+    use strata_asm_params::{BridgeInitConfig, SubprotocolInstance};
     use strata_bridge_test_utils::arbitrary_generator::ArbitraryGenerator;
     use strata_l1_txfmt::MagicBytes;
 
@@ -290,7 +290,7 @@ mod tests {
         asm
     }
 
-    fn bridge_cfg_mut(asm: &mut AsmParams) -> &mut BridgeV1InitConfig {
+    fn bridge_cfg_mut(asm: &mut AsmParams) -> &mut BridgeInitConfig {
         asm.subprotocols
             .iter_mut()
             .find_map(|s| match s {

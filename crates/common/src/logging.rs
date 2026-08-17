@@ -4,7 +4,7 @@ use std::env;
 
 pub use strata_logging::{
     finalize, format_service_name, init_logging_from_config, FileLoggingConfig, LoggingInitConfig,
-    OtlpExportConfig, ResourceConfig, Rotation, StdoutConfig,
+    LoggingInitConfigRef, OtlpExportConfig, ResourceConfig, Rotation, StdoutConfig,
 };
 
 /// Environment variable names for configuring the logger.
@@ -19,12 +19,12 @@ pub const DEFAULT_EXTRA_FILTER_DIRECTIVES: &[&str] =
 /// Initializes local/test logging with bridge-standard service labels.
 ///
 /// This is intended for tests and small helpers. Production binaries should
-/// build [`LoggingInitConfig`] directly so observability options remain
+/// build [`LoggingInitConfigRef`] directly so observability options remain
 /// explicit. This intentionally does not read [`OTLP_URL_ENVVAR`].
 pub fn init_from_env(service_base_name: &str) {
     let service_label = get_service_label_from_env();
 
-    init_logging_from_config(LoggingInitConfig {
+    init_logging_from_config(LoggingInitConfigRef {
         service_base_name,
         service_label: service_label.as_deref(),
         otlp_url: None,

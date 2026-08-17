@@ -1,8 +1,8 @@
 //! Events emitted by the ASM state tracker.
 
 use bitcoin::BlockHash;
-use strata_asm_proto_bridge_v1::AssignmentEntry;
-use strata_asm_proto_bridge_v1_types::SafeHarbour;
+use strata_asm_bridge_types::SafeHarbour;
+use strata_asm_proto_bridge::AssignmentEntry;
 
 /// Snapshot of ASM-derived state fetched for a given buried Bitcoin block.
 ///

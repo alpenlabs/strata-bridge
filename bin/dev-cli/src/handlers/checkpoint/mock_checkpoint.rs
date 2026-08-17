@@ -5,7 +5,7 @@ use k256::{
 };
 use rand::{thread_rng, Rng};
 use ssz::Encode;
-use strata_asm_proto_checkpoint_types::{
+use strata_asm_checkpoint_types::{
     compute_asm_manifests_hash, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
     CheckpointTip, L2BlockRange, OLLog, SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
 };

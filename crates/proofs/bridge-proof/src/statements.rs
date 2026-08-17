@@ -1,7 +1,7 @@
 //! Bridge proof statements.
 
-use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
-use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_asm_proto_bridge::OperatorClaimUnlock;
+use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_bridge_proof_common::{verify_claim_unlock_inclusion, verify_moho_proof};
 use strata_codec::decode_buf_exact;
 use zkaleido::{ZkVmEnv, ZkVmEnvSsz};
@@ -55,7 +55,7 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
         .export_state()
         .containers()
         .iter()
-        .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+        .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
         .expect("invalid bridge proof: moho state doesn't contain bridge-v1 export container");
 
     // 3: Verify the operator claim is included in the bridge-v1 MMR.
@@ -83,10 +83,15 @@ mod tests {
     use ssz::{Decode, Encode};
     use strata_bridge_proof_common::{MOHO_GENESIS_ATTESTATION, generate_moho_state};
     use strata_codec::encode_to_vec;
+    use strata_identifiers::Buf32;
     use strata_predicate::PredicateKey;
     use zkaleido_native_adapter::NativeMachine;
 
     use super::*;
+
+    fn operator_key(n: u8) -> Buf32 {
+        Buf32([n; 32])
+    }
 
     // Builds a minimal genesis with always-accept predicates
     fn make_genesis() -> BridgeProofGenesis {
@@ -123,13 +128,13 @@ mod tests {
             .export_state()
             .containers()
             .iter()
-            .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+            .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
             .expect("moho_state must contain a bridge-v1 export container")
     }
 
     #[test]
     fn test_claim_unlock_inclusion_success() {
-        let claim = OperatorClaimUnlock::new(0, 0);
+        let claim = OperatorClaimUnlock::new(0, operator_key(0));
         let (moho_state, _, [proof]) = generate_moho_state([claim.clone()], [0u8; 32]);
         verify_claim_unlock_inclusion(
             &claim,
@@ -142,8 +147,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "invalid bridge proof: invalid inclusion proof for claim unlock")]
     fn test_claim_unlock_inclusion_wrong_claim() {
-        let claim = OperatorClaimUnlock::new(0, 0);
-        let other = OperatorClaimUnlock::new(1, 1);
+        let claim = OperatorClaimUnlock::new(0, operator_key(0));
+        let other = OperatorClaimUnlock::new(1, operator_key(1));
         let (moho_state, _, [proof]) = generate_moho_state([claim], [0u8; 32]);
         verify_claim_unlock_inclusion(
             &other,
@@ -156,7 +161,7 @@ mod tests {
     #[test]
     fn test_process_bridge_proof_inner_success() {
         let genesis = make_genesis();
-        let claim = OperatorClaimUnlock::new(42, 7);
+        let claim = OperatorClaimUnlock::new(42, operator_key(7));
         let (moho_state, moho_proof, [inclusion_proof]) =
             generate_moho_state([claim.clone()], [0u8; 32]);
         let input = BridgeProofInput {
@@ -176,7 +181,7 @@ mod tests {
     #[should_panic(expected = "moho proof doesn't build on given genesis")]
     fn test_process_bridge_proof_inner_forged_genesis_state() {
         let genesis = make_genesis();
-        let claim = OperatorClaimUnlock::new(42, 7);
+        let claim = OperatorClaimUnlock::new(42, operator_key(7));
         let (moho_state, moho_proof, [inclusion_proof]) =
             generate_moho_state([claim.clone()], [0u8; 32]);
 
@@ -199,8 +204,8 @@ mod tests {
     fn test_process_bridge_proof_inner_non_zero_mmr_idx() {
         let genesis = make_genesis();
         let claims = [
-            OperatorClaimUnlock::new(10, 0),
-            OperatorClaimUnlock::new(20, 1),
+            OperatorClaimUnlock::new(10, operator_key(0)),
+            OperatorClaimUnlock::new(20, operator_key(1)),
         ];
         let (moho_state, moho_proof, inclusion_proofs) =
             generate_moho_state(claims.clone(), [0u8; 32]);

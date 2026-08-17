@@ -27,7 +27,8 @@ pub fn sp1_groth16_predicate_key(vkey_hash: [u8; 32]) -> Result<PredicateKey> {
         .context("load SP1 Groth16 verifier")?;
     let condition = verifier.to_uncompressed_bytes();
 
-    Ok(PredicateKey::new(PredicateTypeId::Sp1Groth16, condition))
+    PredicateKey::try_new(PredicateTypeId::Sp1Groth16, condition)
+        .context("build SP1 Groth16 predicate key")
 }
 
 /// [`sp1_groth16_predicate_key`] for a given `elf`, rendered as `Sp1Groth16:<hex>` — the

@@ -81,6 +81,12 @@ impl OperatorTable {
         self.idx_key.get(idx).map(|x| x.1)
     }
 
+    /// Returns the bitcoin public key for the given index in BIP-340 x-only form.
+    pub fn idx_to_btc_x_only_key(&self, idx: &OperatorIdx) -> Option<XOnlyPublicKey> {
+        self.idx_to_btc_key(idx)
+            .map(|key| key.x_only_public_key().0)
+    }
+
     /// Returns the index for the given operator public key.
     pub fn p2p_key_to_idx(&self, op_key: &P2POperatorPubKey) -> Option<OperatorIdx> {
         self.p2p_key.get(op_key).map(|x| x.0)

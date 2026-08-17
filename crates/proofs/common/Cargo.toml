@@ -10,8 +10,8 @@ workspace = true
 moho-recursive-proof.workspace = true
 moho-types.workspace = true
 ssz.workspace = true
-strata-asm-proto-bridge-v1.workspace = true
-strata-asm-proto-bridge-v1-txs.workspace = true
+strata-asm-proto-bridge.workspace = true
+strata-asm-proto-bridge-txs.workspace = true
 strata-merkle = { workspace = true, features = ["ssz"] }
 strata-predicate.workspace = true
 
