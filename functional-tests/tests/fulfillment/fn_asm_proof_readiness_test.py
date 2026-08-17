@@ -28,10 +28,10 @@ BRIDGE_V1_CONTAINER_ID = 2
 NUM_FULFILLMENTS = 2
 
 
-def operator_claim_unlock_leaf(deposit_idx: int, operator_idx: int) -> bytes:
-    # `OperatorClaimUnlock` codec serialization is two big-endian u32s in
-    # declaration order; the leaf is sha256 over those 8 bytes.
-    buf = struct.pack(">II", deposit_idx, operator_idx)
+def operator_claim_unlock_leaf(deposit_idx: int, operator_xonly_pk: bytes) -> bytes:
+    # `OperatorClaimUnlock` codec serialization is a big-endian u32 deposit index
+    # followed by the operator's 32-byte x-only pubkey; the leaf is sha256 over it.
+    buf = struct.pack(">I", deposit_idx) + operator_xonly_pk
     return hashlib.sha256(buf).digest()
 
 
@@ -168,7 +168,9 @@ class AsmProofReadinessTest(StrataTestBase):
 
         # --- Compute expected leaves and query each proof ---
         leaves = {
-            d_idx: operator_claim_unlock_leaf(d_idx, op_idx)
+            d_idx: operator_claim_unlock_leaf(
+                d_idx, bytes.fromhex(operator_key_infos[op_idx].MUSIG2_KEY)
+            )
             for d_idx, op_idx in assignee_for.items()
         }
         for d_idx, leaf in leaves.items():
@@ -186,13 +188,14 @@ class AsmProofReadinessTest(StrataTestBase):
             self.logger.info(f"proof[d{d_idx}]: {len(proof_bytes)}B")
 
         # --- MohoState is produced for every processed block, query directly ---
-        moho_state_raw = asm_rpc.strata_asm_getMohoState(target_block_hash)
-        assert moho_state_raw is not None, (
+        moho_state = asm_rpc.strata_asm_getMohoState(target_block_hash)
+        assert moho_state is not None, (
             f"strata_asm_getMohoState returned None for {target_block_hash}"
         )
-        moho_state_bytes = bytes(moho_state_raw)
-        assert len(moho_state_bytes) > 0, f"empty MohoState payload at {target_block_hash}"
-        self.logger.info(f"MohoState: {len(moho_state_bytes)}B")
+        assert isinstance(moho_state, dict) and "inner_state" in moho_state, (
+            f"unexpected MohoState payload at {target_block_hash}: {moho_state!r}"
+        )
+        self.logger.info(f"MohoState present at {target_block_hash}")
 
         # --- MohoProof is recursive on top of the ASM proof; wait for it ---
         def moho_proof_ready():
