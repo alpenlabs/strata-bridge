@@ -212,7 +212,7 @@ libp2p = { version = "0.56.0", features = [
   "yamux",
   "identify",
 ] }
-libp2p-identity = { version = "0.2.12", features = ["ed25519"] }
+libp2p-identity = { version = "0.3.0", features = ["ed25519"] }
 metrics = "0.24"
 miniscript = "13.0.1"
 # NOTE: (@Rajil1213) Using an alpenlabs fork that bumps serdect 0.2 → 0.3 to fix a
