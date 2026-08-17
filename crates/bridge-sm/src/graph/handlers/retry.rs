@@ -111,6 +111,7 @@ impl GraphSM {
                     contest_txid: graph_summary.contest,
                     game_index: graph_data.game_index,
                     contest_proof_connector: connectors.contest_proof,
+                    operator_pubkey: self.context().owner_btc_x_only_key(),
                 }]
             }
             GraphState::BridgeProofPosted {
@@ -163,6 +164,7 @@ impl GraphSM {
                             contest_txid: graph_summary.contest,
                             game_index: graph_data.game_index,
                             contest_proof_connector: connectors.contest_proof,
+                            operator_pubkey: self.context().owner_btc_x_only_key(),
                         });
                     }
 

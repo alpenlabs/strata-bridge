@@ -14,7 +14,7 @@ use jsonrpsee::{
 use libp2p::{PeerId, identity::PublicKey as LibP2pPublicKey};
 use secp256k1::Parity;
 use serde::Serialize;
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_orchestrator::{

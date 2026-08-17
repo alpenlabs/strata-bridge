@@ -159,6 +159,7 @@ pub async fn execute_graph_duty(
             contest_txid,
             game_index,
             contest_proof_connector,
+            operator_pubkey,
         } => {
             generate_and_publish_bridge_proof(
                 &output_handles,
@@ -168,6 +169,7 @@ pub async fn execute_graph_duty(
                 *contest_txid,
                 *game_index,
                 *contest_proof_connector,
+                *operator_pubkey,
             )
             .await
         }

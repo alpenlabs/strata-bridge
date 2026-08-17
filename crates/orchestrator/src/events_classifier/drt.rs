@@ -2,8 +2,8 @@
 //! operator set.
 
 use bitcoin::{Amount, Transaction, hex::DisplayHex, secp256k1::XOnlyPublicKey};
-use strata_asm_proto_bridge_v1_txs::{
-    BRIDGE_V1_SUBPROTOCOL_ID,
+use strata_asm_proto_bridge_txs::{
+    BRIDGE_SUBPROTOCOL_ID,
     constants::BridgeTxType,
     deposit_request::{DRT_OUTPUT_INDEX, create_deposit_request_locking_script, parse_drt},
     errors::TxStructureError,
@@ -50,7 +50,7 @@ pub(super) fn is_our_drt_envelope(tx: &Transaction, cfg: &DepositSMCfg) -> bool 
         return false;
     };
     magic == cfg.magic_bytes
-        && tag.subproto_id() == BRIDGE_V1_SUBPROTOCOL_ID
+        && tag.subproto_id() == BRIDGE_SUBPROTOCOL_ID
         && tag.tx_type() == BridgeTxType::DepositRequest as u8
 }
 
@@ -179,7 +179,7 @@ mod tests {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
         let mut builder = DrtBuilder::aligned(&operator_table, &cfg);
-        builder.subproto_id = BRIDGE_V1_SUBPROTOCOL_ID.wrapping_add(1);
+        builder.subproto_id = BRIDGE_SUBPROTOCOL_ID.wrapping_add(1);
 
         assert!(
             !is_our_drt_envelope(&builder.build(), &cfg),
@@ -231,7 +231,7 @@ mod tests {
         // Aux below 32 bytes makes `parse_drt` fail with InvalidAuxiliaryData; envelope is
         // otherwise aligned for our bridge.
         let tag = TagData::new(
-            BRIDGE_V1_SUBPROTOCOL_ID,
+            BRIDGE_SUBPROTOCOL_ID,
             BridgeTxType::DepositRequest as u8,
             vec![0u8; 31],
         )

@@ -3,7 +3,7 @@
 use std::net::SocketAddr;
 
 use metrics::{describe_gauge, gauge};
-use strata_bridge_common::logging::{self, LoggingInitConfig, init_logging_from_config};
+use strata_bridge_common::logging::{self, LoggingInitConfigRef, init_logging_from_config};
 use strata_bridge_p2p_service::GossipsubScoringPreset;
 use strata_metrics::{MetricsConfig as ProcessMetricsConfig, MetricsInitConfig};
 use tokio::runtime::Handle;
@@ -29,7 +29,7 @@ pub(crate) fn init(config: &Config, mode: &str, network: &str, runtime_handle: &
         config.metrics.prometheus_listener_addr,
     );
 
-    init_logging_from_config(LoggingInitConfig {
+    init_logging_from_config(LoggingInitConfigRef {
         service_base_name: SERVICE_BASE_NAME,
         service_label: service_label.as_deref(),
         otlp_url: otlp_url.as_deref(),

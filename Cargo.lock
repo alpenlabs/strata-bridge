@@ -787,7 +787,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 1.8.3",
  "alloy-sol-types",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -808,7 +808,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 2.0.4",
  "alloy-sol-types",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -1048,7 +1048,7 @@ checksum = "eed3ed3300a998f88639ed619fdbbd88bd82865e00c6a8ecb796c99eb12358f6"
 dependencies = [
  "alloy-json-rpc 2.0.4",
  "alloy-transport",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "reqwest 0.13.2",
  "serde_json",
  "tower 0.5.2",
@@ -2498,23 +2498,11 @@ dependencies = [
 
 [[package]]
 name = "bitcoin-bosd"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94fb19ad225b5555a3c99796fe9c5d14b18eb0130eee5c39875bb642f173be6f"
-dependencies = [
- "bitcoin",
- "hex-conservative 0.2.2",
- "secp256k1 0.29.1",
-]
-
-[[package]]
-name = "bitcoin-bosd"
-version = "0.11.0"
-source = "git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.11.0#2fc97b87088059762ead689cb67d8f118aa86160"
+version = "0.12.0"
+source = "git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.12.0#499fd5d8940a9e40ae632d5a770a57a82a1f289f"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "borsh",
  "hex-conservative 0.2.2",
  "secp256k1 0.29.1",
  "serde",
@@ -3125,7 +3113,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -3666,7 +3654,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -3806,7 +3794,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "bitcoincore-rpc",
  "clap",
  "hex",
@@ -3819,11 +3807,11 @@ dependencies = [
  "secp256k1 0.29.1",
  "serde_json",
  "ssz",
- "strata-asm-params",
+ "strata-asm-admin-types",
+ "strata-asm-checkpoint-types",
  "strata-asm-proto-admin-txs",
- "strata-asm-proto-bridge-v1-txs",
+ "strata-asm-proto-bridge-txs",
  "strata-asm-proto-checkpoint-txs",
- "strata-asm-proto-checkpoint-types",
  "strata-bridge-common",
  "strata-bridge-connectors",
  "strata-bridge-key-deriv",
@@ -4169,7 +4157,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5553,6 +5541,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5899,7 +5896,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if 1.0.4",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -6679,7 +6676,7 @@ dependencies = [
 [[package]]
 name = "moho-recursive-proof"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.2#712b41e489bf1fac929073861b0e6509d41c27ed"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.4.0-rc.1#43ad98094855c100afd941aff3537fa5b31f1cdd"
 dependencies = [
  "moho-types",
  "ssz",
@@ -6695,7 +6692,7 @@ dependencies = [
 [[package]]
 name = "moho-runtime-impl"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.2#712b41e489bf1fac929073861b0e6509d41c27ed"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.4.0-rc.1#43ad98094855c100afd941aff3537fa5b31f1cdd"
 dependencies = [
  "moho-runtime-interface",
  "moho-types",
@@ -6706,7 +6703,7 @@ dependencies = [
 [[package]]
 name = "moho-runtime-interface"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.2#712b41e489bf1fac929073861b0e6509d41c27ed"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.4.0-rc.1#43ad98094855c100afd941aff3537fa5b31f1cdd"
 dependencies = [
  "moho-types",
  "ssz",
@@ -6716,9 +6713,11 @@ dependencies = [
 [[package]]
 name = "moho-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/moho?tag=v0.3.0-rc.2#712b41e489bf1fac929073861b0e6509d41c27ed"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.4.0-rc.1#43ad98094855c100afd941aff3537fa5b31f1cdd"
 dependencies = [
+ "const-hex",
  "hex",
+ "serde",
  "sha2 0.11.0",
  "ssz",
  "ssz_codegen",
@@ -7487,7 +7486,7 @@ version = "0.1.0"
 dependencies = [
  "bdk_bitcoind_rpc",
  "bdk_wallet",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "corepc-node",
  "serial_test",
  "thiserror 2.0.18",
@@ -8434,7 +8433,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9033,7 +9032,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9101,7 +9100,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9122,7 +9121,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9785,8 +9784,8 @@ checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
 name = "sizzle-parser"
-version = "0.16.0"
-source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.16.0#a43cb62e88b22a4626dddc158bcd09b298c103e7"
+version = "0.17.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.17.0#9e33fe8a5cafea88058c0e28dd7ef8b6716352bf"
 dependencies = [
  "thiserror 2.0.18",
 ]
@@ -10890,11 +10889,11 @@ dependencies = [
 
 [[package]]
 name = "ssz"
-version = "0.16.0"
-source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.16.0#a43cb62e88b22a4626dddc158bcd09b298c103e7"
+version = "0.17.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.17.0#9e33fe8a5cafea88058c0e28dd7ef8b6716352bf"
 dependencies = [
  "hex",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "serde",
  "smallvec",
  "ssz_primitives",
@@ -10903,8 +10902,8 @@ dependencies = [
 
 [[package]]
 name = "ssz_codegen"
-version = "0.16.0"
-source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.16.0#a43cb62e88b22a4626dddc158bcd09b298c103e7"
+version = "0.17.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.17.0#9e33fe8a5cafea88058c0e28dd7ef8b6716352bf"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -10923,8 +10922,8 @@ dependencies = [
 
 [[package]]
 name = "ssz_derive"
-version = "0.16.0"
-source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.16.0#a43cb62e88b22a4626dddc158bcd09b298c103e7"
+version = "0.17.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.17.0#9e33fe8a5cafea88058c0e28dd7ef8b6716352bf"
 dependencies = [
  "darling",
  "quote",
@@ -10933,8 +10932,8 @@ dependencies = [
 
 [[package]]
 name = "ssz_primitives"
-version = "0.16.0"
-source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.16.0#a43cb62e88b22a4626dddc158bcd09b298c103e7"
+version = "0.17.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.17.0#9e33fe8a5cafea88058c0e28dd7ef8b6716352bf"
 dependencies = [
  "hex",
  "rand 0.8.5",
@@ -10943,10 +10942,10 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "0.16.0"
-source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.16.0#a43cb62e88b22a4626dddc158bcd09b298c103e7"
+version = "0.17.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.17.0#9e33fe8a5cafea88058c0e28dd7ef8b6716352bf"
 dependencies = [
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "serde",
  "serde_derive",
  "ssz",
@@ -10980,9 +10979,81 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9091b6114800a5f2141aee1d1b9d6ca3592ac062dc5decb3764ec5895a47b4eb"
 
 [[package]]
+name = "strata-asm-admin-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
+dependencies = [
+ "arbitrary",
+ "serde",
+ "ssz",
+ "ssz_derive",
+ "strata-crypto",
+]
+
+[[package]]
+name = "strata-asm-bridge-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/asm?tag=v0.4.0-rc.2#7b248126e0a0d921508075cb0b2c51c7ffb43a10"
+dependencies = [
+ "arbitrary",
+ "bitcoin-bosd",
+ "bitvec",
+ "borsh",
+ "serde",
+ "ssz",
+ "ssz_derive",
+ "strata-btc-types",
+ "strata-crypto",
+ "strata-identifiers",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-bridge-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "bitcoin-bosd",
+ "bitvec",
+ "borsh",
+ "serde",
+ "ssz",
+ "ssz_derive",
+ "strata-btc-types",
+ "strata-codec",
+ "strata-crypto",
+ "strata-identifiers",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-checkpoint-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
+dependencies = [
+ "arbitrary",
+ "borsh",
+ "serde",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-asm-manifest-types",
+ "strata-identifiers",
+ "strata-ol-logs",
+ "strata-predicate",
+ "thiserror 2.0.18",
+ "tree_hash",
+ "tree_hash_derive",
+]
+
+[[package]]
 name = "strata-asm-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -11005,10 +11076,10 @@ dependencies = [
 [[package]]
 name = "strata-asm-logs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
- "strata-asm-proto-checkpoint-types",
  "strata-codec",
  "strata-codec-utils",
  "strata-identifiers",
@@ -11019,7 +11090,7 @@ dependencies = [
 [[package]]
 name = "strata-asm-manifest-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "borsh",
  "serde",
@@ -11040,26 +11111,23 @@ dependencies = [
 [[package]]
 name = "strata-asm-params"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "arbitrary",
  "bitcoin",
  "serde",
- "ssz",
- "ssz_derive",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
- "strata-btc-types",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
+ "strata-asm-checkpoint-types",
  "strata-btc-verification",
- "strata-crypto",
  "strata-identifiers",
  "strata-l1-txfmt",
- "strata-predicate",
 ]
 
 [[package]]
 name = "strata-asm-proof-impl"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "bitcoin",
  "moho-runtime-impl",
@@ -11081,17 +11149,19 @@ dependencies = [
 [[package]]
 name = "strata-asm-proto-admin"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "arbitrary",
  "ssz",
  "ssz_derive",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-params",
+ "strata-asm-proto-admin-msgs",
  "strata-asm-proto-admin-txs",
- "strata-asm-proto-bridge-v1-msgs",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
+ "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-checkpoint-msgs",
  "strata-crypto",
  "strata-identifiers",
@@ -11100,18 +11170,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-proto-admin-msgs"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
+dependencies = [
+ "strata-asm-common",
+ "strata-asm-proto-admin-txs",
+]
+
+[[package]]
 name = "strata-asm-proto-admin-txs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "arbitrary",
  "bitcoin",
  "hex",
  "ssz",
  "ssz_derive",
+ "strata-asm-admin-types",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
  "strata-asm-common",
- "strata-asm-params",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
  "strata-asm-proto-txs-test-utils",
  "strata-crypto",
  "strata-identifiers",
@@ -11122,9 +11201,40 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-bridge-v1"
+name = "strata-asm-proto-bridge"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
+dependencies = [
+ "bitcoin",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
+ "strata-asm-common",
+ "strata-asm-logs",
+ "strata-asm-proto-bridge-msgs",
+ "strata-asm-proto-bridge-state",
+ "strata-asm-proto-bridge-txs",
+ "strata-asm-proto-checkpoint-msgs",
+ "strata-btc-types",
+ "strata-identifiers",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "strata-asm-proto-bridge-msgs"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
+dependencies = [
+ "ssz",
+ "ssz_derive",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
+ "strata-asm-common",
+ "strata-asm-proto-bridge-txs",
+ "strata-crypto",
+]
+
+[[package]]
+name = "strata-asm-proto-bridge-state"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -11132,43 +11242,25 @@ dependencies = [
  "serde",
  "ssz",
  "ssz_derive",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
  "strata-asm-common",
- "strata-asm-logs",
- "strata-asm-params",
- "strata-asm-proto-bridge-v1-msgs",
- "strata-asm-proto-bridge-v1-txs",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
- "strata-asm-proto-checkpoint-msgs",
+ "strata-asm-proto-bridge-txs",
  "strata-btc-types",
- "strata-codec",
  "strata-crypto",
  "strata-identifiers",
  "thiserror 2.0.18",
 ]
 
 [[package]]
-name = "strata-asm-proto-bridge-v1-msgs"
+name = "strata-asm-proto-bridge-txs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
-dependencies = [
- "ssz",
- "ssz_derive",
- "strata-asm-common",
- "strata-asm-proto-bridge-v1-txs",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
- "strata-crypto",
-]
-
-[[package]]
-name = "strata-asm-proto-bridge-v1-txs"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
  "strata-asm-common",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
  "strata-btc-types",
  "strata-codec",
  "strata-crypto",
@@ -11177,52 +11269,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-bridge-v1-types"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?tag=v0.3.0-rc.2#45a1fa2f52289b483dd9767b4ec9c80545d5789b"
-dependencies = [
- "arbitrary",
- "bitcoin-bosd 0.11.0",
- "bitvec",
- "borsh",
- "serde",
- "ssz",
- "ssz_derive",
- "strata-btc-types",
- "strata-identifiers",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "strata-asm-proto-bridge-v1-types"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
-dependencies = [
- "arbitrary",
- "bitcoin",
- "bitcoin-bosd 0.11.0",
- "bitvec",
- "borsh",
- "serde",
- "ssz",
- "ssz_derive",
- "strata-btc-types",
- "strata-identifiers",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "strata-asm-proto-checkpoint"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-logs",
- "strata-asm-params",
- "strata-asm-proto-bridge-v1-msgs",
+ "strata-asm-proto-admin-msgs",
+ "strata-asm-proto-bridge-msgs",
  "strata-asm-proto-checkpoint-msgs",
  "strata-asm-proto-checkpoint-txs",
- "strata-asm-proto-checkpoint-types",
  "strata-checkpoint-verification",
  "strata-identifiers",
 ]
@@ -11230,10 +11287,11 @@ dependencies = [
 [[package]]
 name = "strata-asm-proto-checkpoint-msgs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "ssz",
  "ssz_derive",
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-proto-checkpoint-txs",
  "strata-btc-types",
@@ -11243,11 +11301,11 @@ dependencies = [
 [[package]]
 name = "strata-asm-proto-checkpoint-txs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "bitcoin",
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
- "strata-asm-proto-checkpoint-types",
  "strata-codec",
  "strata-codec-utils",
  "strata-l1-envelope-fmt",
@@ -11256,29 +11314,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-asm-proto-checkpoint-types"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
-dependencies = [
- "borsh",
- "serde",
- "ssz",
- "ssz_codegen",
- "ssz_derive",
- "ssz_primitives",
- "ssz_types",
- "strata-asm-manifest-types",
- "strata-identifiers",
- "strata-ol-logs",
- "thiserror 2.0.18",
- "tree_hash",
- "tree_hash_derive",
-]
-
-[[package]]
 name = "strata-asm-proto-txs-test-utils"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "bitcoin",
  "rand 0.8.5",
@@ -11290,7 +11328,7 @@ dependencies = [
 [[package]]
 name = "strata-asm-prover-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "borsh",
  "serde",
@@ -11301,15 +11339,16 @@ dependencies = [
 [[package]]
 name = "strata-asm-rpc"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
+ "moho-types",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-params",
- "strata-asm-proto-bridge-v1",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
- "strata-asm-proto-checkpoint-types",
+ "strata-asm-proto-bridge",
  "strata-asm-prover-types",
  "strata-asm-worker",
 ]
@@ -11317,19 +11356,19 @@ dependencies = [
 [[package]]
 name = "strata-asm-spec"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proto-admin",
- "strata-asm-proto-bridge-v1",
+ "strata-asm-proto-bridge",
  "strata-asm-proto-checkpoint",
 ]
 
 [[package]]
 name = "strata-asm-state"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "serde",
  "ssz",
@@ -11349,7 +11388,7 @@ dependencies = [
 [[package]]
 name = "strata-asm-stf"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "bitcoin",
  "ssz_types",
@@ -11362,7 +11401,7 @@ dependencies = [
 [[package]]
 name = "strata-asm-worker"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "anyhow",
  "bitcoin",
@@ -11390,7 +11429,7 @@ dependencies = [
  "async-trait",
  "bdk_bitcoind_rpc",
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "bitcoind-async-client",
  "btc-tracker",
  "chrono",
@@ -11412,8 +11451,8 @@ dependencies = [
  "secret-service-proto",
  "serde",
  "serde_json",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
  "strata-asm-params",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
  "strata-asm-rpc",
  "strata-bridge-asm-events",
  "strata-bridge-common",
@@ -11451,16 +11490,16 @@ dependencies = [
  "algebra",
  "async-trait",
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "btc-tracker",
  "futures",
  "jsonrpsee",
  "serde",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
+ "strata-asm-checkpoint-types",
  "strata-asm-common",
  "strata-asm-params",
- "strata-asm-proto-bridge-v1",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
- "strata-asm-proto-checkpoint-types",
+ "strata-asm-proto-bridge",
  "strata-asm-rpc",
  "strata-asm-worker",
  "strata-bridge-primitives",
@@ -11477,7 +11516,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "hex",
  "libp2p",
  "secp256k1 0.29.1",
@@ -11517,8 +11556,8 @@ dependencies = [
  "secp256k1 0.29.1",
  "ssz",
  "ssz_derive",
- "strata-asm-proto-bridge-v1",
- "strata-asm-proto-bridge-v1-txs",
+ "strata-asm-proto-bridge",
+ "strata-asm-proto-bridge-txs",
  "strata-bridge-connectors",
  "strata-bridge-proof",
  "strata-bridge-proof-common",
@@ -11526,6 +11565,7 @@ dependencies = [
  "strata-bridge-tx-graph",
  "strata-btc-types",
  "strata-codec",
+ "strata-identifiers",
  "strata-merkle",
  "strata-predicate",
  "zkaleido",
@@ -11537,13 +11577,13 @@ name = "strata-bridge-db"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "foundationdb",
  "postcard",
  "proptest",
  "secp256k1 0.29.1",
  "serde",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-test-utils",
@@ -11560,7 +11600,7 @@ dependencies = [
  "bdk_bitcoind_rpc",
  "bdk_wallet",
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "bitcoind-async-client",
  "borsh",
  "btc-tracker",
@@ -11574,8 +11614,8 @@ dependencies = [
  "secret-service-client",
  "secret-service-proto",
  "ssz",
- "strata-asm-proto-bridge-v1",
- "strata-asm-proto-bridge-v1-txs",
+ "strata-asm-proto-bridge",
+ "strata-asm-proto-bridge-txs",
  "strata-asm-rpc",
  "strata-bridge-connectors",
  "strata-bridge-counterproof",
@@ -11590,6 +11630,7 @@ dependencies = [
  "strata-bridge-tx-graph",
  "strata-codec",
  "strata-crypto",
+ "strata-identifiers",
  "strata-l1-txfmt",
  "strata-mosaic-client-api",
  "terrors",
@@ -11620,15 +11661,15 @@ name = "strata-bridge-orchestrator"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "btc-tracker",
  "futures",
  "libp2p-identity",
  "musig2",
  "rkyv",
- "strata-asm-proto-bridge-v1",
- "strata-asm-proto-bridge-v1-txs",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
+ "strata-asm-proto-bridge",
+ "strata-asm-proto-bridge-txs",
  "strata-bridge-asm-events",
  "strata-bridge-db",
  "strata-bridge-exec",
@@ -11675,7 +11716,7 @@ name = "strata-bridge-p2p-types"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "libp2p-identity",
  "musig2",
  "proptest",
@@ -11696,7 +11737,7 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "bitcoin-script",
  "futures",
  "hex",
@@ -11731,11 +11772,12 @@ dependencies = [
  "ssz_derive",
  "strata-asm-params",
  "strata-asm-proof-impl",
- "strata-asm-proto-bridge-v1",
- "strata-asm-proto-bridge-v1-txs",
+ "strata-asm-proto-bridge",
+ "strata-asm-proto-bridge-txs",
  "strata-asm-spec",
  "strata-bridge-proof-common",
  "strata-codec",
+ "strata-identifiers",
  "strata-merkle",
  "strata-predicate",
  "zkaleido",
@@ -11756,8 +11798,8 @@ dependencies = [
  "sp1-sdk",
  "sp1-verifier",
  "ssz",
- "strata-asm-proto-bridge-v1",
- "strata-asm-proto-bridge-v1-txs",
+ "strata-asm-proto-bridge",
+ "strata-asm-proto-bridge-txs",
  "strata-merkle",
  "strata-predicate",
  "thiserror 2.0.18",
@@ -11777,7 +11819,7 @@ dependencies = [
  "jsonrpsee",
  "secp256k1 0.29.1",
  "serde",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
  "strata-bridge-primitives",
  "strata-bridge-sm",
  "strata-bridge-tx-graph",
@@ -11788,7 +11830,7 @@ name = "strata-bridge-sm"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "borsh",
  "musig2",
  "proptest",
@@ -11796,7 +11838,7 @@ dependencies = [
  "serde",
  "serde-big-array",
  "strata-asm-common",
- "strata-asm-proto-bridge-v1-txs",
+ "strata-asm-proto-bridge-txs",
  "strata-bridge-connectors",
  "strata-bridge-p2p-types",
  "strata-bridge-primitives",
@@ -11828,7 +11870,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "bitcoind-async-client",
  "corepc-node",
  "hex",
@@ -11849,11 +11891,11 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "bitcoin",
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "futures",
  "secp256k1 0.29.1",
  "serde",
- "strata-asm-proto-bridge-v1-txs",
+ "strata-asm-proto-bridge-txs",
  "strata-bridge-connectors",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
@@ -11865,11 +11907,11 @@ dependencies = [
 [[package]]
 name = "strata-btc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd 0.9.0",
+ "bitcoin-bosd",
  "borsh",
  "serde",
  "ssz",
@@ -11887,7 +11929,7 @@ dependencies = [
 [[package]]
 name = "strata-btc-verification"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -11909,18 +11951,17 @@ dependencies = [
 [[package]]
 name = "strata-checkpoint-verification"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
- "bitcoin-bosd 0.11.0",
+ "bitcoin-bosd",
  "ssz",
  "ssz_codegen",
  "ssz_derive",
  "ssz_primitives",
  "ssz_types",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
+ "strata-asm-checkpoint-types",
  "strata-asm-manifest-types",
- "strata-asm-params",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c)",
- "strata-asm-proto-checkpoint-types",
  "strata-btc-types",
  "strata-crypto",
  "strata-identifiers",
@@ -11934,7 +11975,7 @@ dependencies = [
 [[package]]
 name = "strata-codec"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "strata-codec-derive",
  "thiserror 2.0.18",
@@ -11943,7 +11984,7 @@ dependencies = [
 [[package]]
 name = "strata-codec-derive"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "quote",
  "syn 2.0.117",
@@ -11952,7 +11993,7 @@ dependencies = [
 [[package]]
 name = "strata-codec-utils"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "borsh",
  "ssz",
@@ -11963,7 +12004,7 @@ dependencies = [
 [[package]]
 name = "strata-crypto"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -11989,7 +12030,7 @@ dependencies = [
 [[package]]
 name = "strata-identifiers"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "arbitrary",
  "borsh",
@@ -12010,7 +12051,7 @@ dependencies = [
 [[package]]
 name = "strata-l1-envelope-fmt"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "bitcoin",
  "thiserror 2.0.18",
@@ -12019,7 +12060,7 @@ dependencies = [
 [[package]]
 name = "strata-l1-txfmt"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -12031,11 +12072,12 @@ dependencies = [
 [[package]]
 name = "strata-logging"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "opentelemetry 0.31.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "serde",
  "tracing",
  "tracing-appender",
  "tracing-opentelemetry",
@@ -12045,7 +12087,7 @@ dependencies = [
 [[package]]
 name = "strata-merkle"
 version = "0.2.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "borsh",
  "digest 0.10.7",
@@ -12065,7 +12107,7 @@ dependencies = [
 [[package]]
 name = "strata-metrics"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "metrics",
  "metrics-exporter-otel",
@@ -12108,7 +12150,7 @@ dependencies = [
 [[package]]
 name = "strata-msg-fmt"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "thiserror 2.0.18",
 ]
@@ -12116,24 +12158,19 @@ dependencies = [
 [[package]]
 name = "strata-ol-bridge-types"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.3.0-rc.3#9e3d54471fda459001b2aad5d76f715982ac5d1a"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=e19023cd6b9e87eebb09005118a2ca291f2fe54f#e19023cd6b9e87eebb09005118a2ca291f2fe54f"
 dependencies = [
  "arbitrary",
- "borsh",
- "serde",
- "ssz",
- "ssz_derive",
- "strata-asm-proto-bridge-v1-types 0.1.0 (git+https://github.com/alpenlabs/asm?tag=v0.3.0-rc.2)",
+ "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?tag=v0.4.0-rc.2)",
  "strata-codec",
  "strata-identifiers",
- "strata-primitives",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "strata-ol-logs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "ssz",
  "ssz_codegen",
@@ -12167,7 +12204,7 @@ dependencies = [
 [[package]]
 name = "strata-predicate"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "arbitrary",
  "borsh",
@@ -12187,25 +12224,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-primitives"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.3.0-rc.3#9e3d54471fda459001b2aad5d76f715982ac5d1a"
-dependencies = [
- "bitcoin",
- "bitcoin-bosd 0.11.0",
- "borsh",
- "hex",
- "serde",
- "strata-btc-types",
- "strata-crypto",
- "strata-identifiers",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "strata-service"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "anyhow",
  "futures",
@@ -12221,7 +12242,7 @@ dependencies = [
 [[package]]
 name = "strata-tasks"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/strata-common?tag=v0.3.0-rc.2#c3698c0f26d8d3d16e56a478eb375e077d813775"
+source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.2#4e9dedf044e84e78cb3d2c9fbce262777735de09"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -12233,7 +12254,7 @@ dependencies = [
 [[package]]
 name = "strata-test-utils-arb"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/asm?rev=9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c#9d2eb77585ceb3ca414aa7a9113a1cb1b7f7307c"
+source = "git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb#93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb"
 dependencies = [
  "arbitrary",
  "rand_core 0.6.4",
@@ -12477,7 +12498,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -13103,8 +13124,8 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
-version = "0.16.0"
-source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.16.0#a43cb62e88b22a4626dddc158bcd09b298c103e7"
+version = "0.17.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.17.0#9e33fe8a5cafea88058c0e28dd7ef8b6716352bf"
 dependencies = [
  "digest 0.10.7",
  "sha2 0.10.9",
@@ -13116,8 +13137,8 @@ dependencies = [
 
 [[package]]
 name = "tree_hash_derive"
-version = "0.16.0"
-source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.16.0#a43cb62e88b22a4626dddc158bcd09b298c103e7"
+version = "0.17.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.17.0#9e33fe8a5cafea88058c0e28dd7ef8b6716352bf"
 dependencies = [
  "darling",
  "quote",
@@ -13615,7 +13636,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -14306,7 +14327,7 @@ dependencies = [
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1#b1c3a5a34ea713d6e35e792c497d4f8327feaf61"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0#8205a0543d4e60e7a7d8e73da483ffb83765c4e9"
 dependencies = [
  "async-trait",
  "bincode",
@@ -14319,7 +14340,7 @@ dependencies = [
 [[package]]
 name = "zkaleido-logging"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1#b1c3a5a34ea713d6e35e792c497d4f8327feaf61"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0#8205a0543d4e60e7a7d8e73da483ffb83765c4e9"
 dependencies = [
  "tracing",
 ]
@@ -14327,7 +14348,7 @@ dependencies = [
 [[package]]
 name = "zkaleido-native-adapter"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1#b1c3a5a34ea713d6e35e792c497d4f8327feaf61"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0#8205a0543d4e60e7a7d8e73da483ffb83765c4e9"
 dependencies = [
  "async-trait",
  "bincode",
@@ -14341,7 +14362,7 @@ dependencies = [
 [[package]]
 name = "zkaleido-sp1-groth16-verifier"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1#b1c3a5a34ea713d6e35e792c497d4f8327feaf61"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0#8205a0543d4e60e7a7d8e73da483ffb83765c4e9"
 dependencies = [
  "blake3",
  "borsh",
@@ -14356,7 +14377,7 @@ dependencies = [
 [[package]]
 name = "zkaleido-sp1-host"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1#b1c3a5a34ea713d6e35e792c497d4f8327feaf61"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0#8205a0543d4e60e7a7d8e73da483ffb83765c4e9"
 dependencies = [
  "async-trait",
  "bincode",

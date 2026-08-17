@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 
 use bitcoin::Network;
 use metrics::{describe_gauge, gauge};
-use strata_bridge_common::logging::{self, init_logging_from_config, LoggingInitConfig};
+use strata_bridge_common::logging::{self, init_logging_from_config, LoggingInitConfigRef};
 use strata_metrics::{MetricsConfig as ProcessMetricsConfig, MetricsInitConfig};
 use tokio::runtime::Handle;
 
@@ -29,7 +29,7 @@ pub(crate) fn init(
     let metrics_config =
         ProcessMetricsConfig::from_exporters(metrics_otlp_url, config.prometheus_listener_addr);
 
-    init_logging_from_config(LoggingInitConfig {
+    init_logging_from_config(LoggingInitConfigRef {
         service_base_name: SERVICE_BASE_NAME,
         service_label: service_label.as_deref(),
         otlp_url: otlp_url.as_deref(),

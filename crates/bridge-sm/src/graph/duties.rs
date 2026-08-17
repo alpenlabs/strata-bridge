@@ -238,6 +238,10 @@ pub enum GraphDuty {
 
         /// The contest proof connector needed for signing and finalization.
         contest_proof_connector: ContestProofConnector,
+
+        /// The graph owner's x-only key, used to identify the operator in the claim-unlock the
+        /// proof commits to.
+        operator_pubkey: XOnlyPublicKey,
     },
 
     /// Publish a bridge proof timeout transaction.

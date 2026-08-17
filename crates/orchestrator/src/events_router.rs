@@ -136,7 +136,7 @@ fn route_mosaic_event(registry: &SMRegistry, evt: &MosaicEvent) -> Vec<SMId> {
 
 #[cfg(test)]
 mod tests {
-    use strata_asm_proto_bridge_v1::AssignmentEntry;
+    use strata_asm_proto_bridge::AssignmentEntry;
     use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, PayoutDescriptor, PubNonce};
     use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
     use strata_bridge_test_utils::{

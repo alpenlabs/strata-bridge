@@ -10,8 +10,8 @@ use bitcoin::{
 };
 use secp256k1::{Message, SECP256K1};
 use ssz::Decode;
-use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
-use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_asm_proto_bridge::OperatorClaimUnlock;
+use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_bridge_proof::BridgeProofOutput;
 use strata_bridge_proof_common::{verify_claim_unlock_inclusion, verify_moho_proof};
@@ -133,7 +133,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 .export_state()
                 .containers()
                 .iter()
-                .find(|c| c.container_id() == BRIDGE_V1_SUBPROTOCOL_ID)
+                .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
                 .expect("moho_state must contain a bridge-v1 export container");
 
             // Fail if pow(heavier_chain) <= pow(operator_chain)
@@ -329,6 +329,7 @@ mod tests {
     use strata_bridge_test_utils::bitcoin::generate_keypair;
     use strata_bridge_tx_graph::transactions::prelude::{BridgeProofData, BridgeProofTx};
     use strata_codec::encode_to_vec;
+    use strata_identifiers::Buf32;
     use strata_predicate::PredicateKey;
     use zkaleido::{Proof, PublicValues};
     use zkaleido_native_adapter::NativeMachine;
@@ -341,6 +342,10 @@ mod tests {
     const DIFFERENT_GAME_DEPOSIT_IDX: u32 = CONTESTED_DEPOSIT_IDX + 1;
     const PROOF_TIMELOCK: relative::Height = relative::Height::from_height(100);
     const TXIN_IDX: u32 = 0;
+
+    fn operator_key(n: u8) -> Buf32 {
+        Buf32([n; 32])
+    }
 
     static OPERATOR_KEYPAIR: LazyLock<Keypair> = LazyLock::new(generate_keypair);
     static OPERATOR_PUBKEY: LazyLock<XOnlyPublicKey> =
@@ -360,9 +365,9 @@ mod tests {
     });
     static PREVOUTS: LazyLock<[TxOut; 1]> = LazyLock::new(|| [CONTEST_PROOF_CONNECTOR.tx_out()]);
     static BRIDGE_PROOF_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
-        LazyLock::new(|| OperatorClaimUnlock::new(CONTESTED_DEPOSIT_IDX, 0));
+        LazyLock::new(|| OperatorClaimUnlock::new(CONTESTED_DEPOSIT_IDX, operator_key(0)));
     static HEAVIER_CHAIN_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
-        LazyLock::new(|| OperatorClaimUnlock::new(0, 1));
+        LazyLock::new(|| OperatorClaimUnlock::new(0, operator_key(1)));
     const BRIDGE_PROOF_POW: [u8; 32] = [
         0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0,
@@ -424,7 +429,7 @@ mod tests {
     static BRIDGE_PROOF_TX_SIGNED_DIFFERENT_GAME: LazyLock<Transaction> = LazyLock::new(|| {
         sign_bridge_proof_tx(bridge_proof_tx(&OperatorClaimUnlock::new(
             DIFFERENT_GAME_DEPOSIT_IDX,
-            0,
+            operator_key(0),
         )))
     });
 
@@ -479,7 +484,11 @@ mod tests {
         let receipt = |deposit_idx: u32| {
             let output = BridgeProofOutput {
                 total_pow: BRIDGE_PROOF_POW,
-                claim_unlock: encode_to_vec(&OperatorClaimUnlock::new(deposit_idx, 0)).unwrap(),
+                claim_unlock: encode_to_vec(&OperatorClaimUnlock::new(
+                    deposit_idx,
+                    operator_key(0),
+                ))
+                .unwrap(),
                 mmr_idx: 0,
             };
             ProofReceipt::new(Proof::new(vec![]), PublicValues::new(output.as_ssz_bytes()))
@@ -503,7 +512,8 @@ mod tests {
         // (`deposit_idx + 1` would panic in overflow-checked builds before verification).
         let output = BridgeProofOutput {
             total_pow: BRIDGE_PROOF_POW,
-            claim_unlock: encode_to_vec(&OperatorClaimUnlock::new(u32::MAX, 0)).unwrap(),
+            claim_unlock: encode_to_vec(&OperatorClaimUnlock::new(u32::MAX, operator_key(0)))
+                .unwrap(),
             mmr_idx: 0,
         };
         let receipt =

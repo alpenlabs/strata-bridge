@@ -9,8 +9,8 @@ use moho_types::{
     RecursiveMohoProof, StateRefAttestation, StateReference,
 };
 use ssz::Encode;
-use strata_asm_proto_bridge_v1::OperatorClaimUnlock;
-use strata_asm_proto_bridge_v1_txs::BRIDGE_V1_SUBPROTOCOL_ID;
+use strata_asm_proto_bridge::OperatorClaimUnlock;
+use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
 use strata_predicate::PredicateKey;
 
@@ -83,7 +83,7 @@ pub fn generate_moho_state<const N: usize>(
     claim_unlocks: [OperatorClaimUnlock; N],
     pow: [u8; 32],
 ) -> (MohoState, RecursiveMohoProof, [MerkleProofB32; N]) {
-    let mut container = ExportContainer::new(BRIDGE_V1_SUBPROTOCOL_ID);
+    let mut container = ExportContainer::new(BRIDGE_SUBPROTOCOL_ID);
     container.extra_data = pow.into();
     let mut mmr = Mmr64B32::new_empty();
     let mut inclusion_proofs = std::array::from_fn(|_| MerkleProofB32::new_zero());

@@ -9,8 +9,8 @@ workspace = true
 [dependencies]
 algebra.workspace = true
 btc-tracker.workspace = true
-strata-asm-proto-bridge-v1.workspace = true
-strata-asm-proto-bridge-v1-types.workspace = true
+strata-asm-proto-bridge.workspace = true
+strata-asm-bridge-types.workspace = true
 strata-asm-rpc = { workspace = true, features = ["client"] }
 strata-bridge-primitives.workspace = true
 strata-btc-types.workspace = true
@@ -26,7 +26,7 @@ tracing.workspace = true
 [dev-dependencies]
 strata-asm-common.workspace = true
 strata-asm-params.workspace = true
-strata-asm-proto-checkpoint-types.workspace = true
+strata-asm-checkpoint-types.workspace = true
 strata-asm-worker.workspace = true
 strata-identifiers.workspace = true
 

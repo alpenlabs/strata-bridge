@@ -3,7 +3,7 @@
 
 use bitcoin_bosd::Descriptor;
 use musig2::{PartialSignature, PubNonce};
-use strata_asm_proto_bridge_v1::AssignmentEntry;
+use strata_asm_proto_bridge::AssignmentEntry;
 use strata_bridge_p2p_types::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };

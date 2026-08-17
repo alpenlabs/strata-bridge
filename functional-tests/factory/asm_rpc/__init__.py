@@ -65,6 +65,7 @@ class AsmRpcFactory(flexitest.Factory):
 
         # Database path
         db_path = str((envdd_path / SERVICE_NAME / "db").resolve())
+        moho_db_path = str((envdd_path / SERVICE_NAME / "moho_db").resolve())
 
         # Generate config file
         config_toml_path = str((envdd_path / SERVICE_NAME / "config.toml").resolve())
@@ -72,6 +73,7 @@ class AsmRpcFactory(flexitest.Factory):
             bitcoind_props=bitcoind_props,
             rpc_port=rpc_port,
             db_path=db_path,
+            moho_db_path=moho_db_path,
             output_path=config_toml_path,
             orchestrator_config=orchestrator_config,
         )
@@ -129,6 +131,7 @@ def generate_asm_rpc_config(
     bitcoind_props: dict,
     rpc_port: int,
     db_path: str,
+    moho_db_path: str,
     output_path: str,
     orchestrator_config: OrchestratorConfig | None = None,
 ):
@@ -137,7 +140,8 @@ def generate_asm_rpc_config(
     Args:
         bitcoind_props: Bitcoin service properties (rpc_port, zmq ports, etc.)
         rpc_port: Port for ASM RPC server to listen on
-        db_path: Path to the database directory
+        db_path: Path to the ASM stores database directory
+        moho_db_path: Path to the Moho stores database directory
         output_path: Path to write the config.toml file
         orchestrator_config: Optional proof orchestrator config; emitted as the
             `[orchestrator]` table when provided.
@@ -154,7 +158,8 @@ def generate_asm_rpc_config(
             port=rpc_port,
         ),
         database=DatabaseConfig(
-            path=db_path,
+            asm_path=db_path,
+            moho_path=moho_db_path,
             num_threads=4,
             retry_count=4,
             delay=Duration(secs=0, nanos=150_000_000),
@@ -166,8 +171,6 @@ def generate_asm_rpc_config(
             hashblock_connection_string=zmq_connection_string(
                 bitcoind_props["zmq_hashblock"], zmq_host
             ),
-            retry_count=3,
-            retry_interval=Duration(secs=1, nanos=0),
         ),
         orchestrator=orchestrator_config,
     )

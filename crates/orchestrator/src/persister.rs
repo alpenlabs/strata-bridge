@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
 use thiserror::Error;
 use tracing::error;

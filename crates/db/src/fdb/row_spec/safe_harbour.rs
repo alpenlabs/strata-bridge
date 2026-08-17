@@ -6,7 +6,7 @@
 //! observation of an activated safe harbour, and never clears it.
 
 use foundationdb::tuple::PackError;
-use strata_asm_proto_bridge_v1_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarbourAddress;
 
 use super::kv::{KVRowSpec, PackableKey, SerializableValue};
 use crate::fdb::dirs::Directories;

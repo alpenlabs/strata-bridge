@@ -18,9 +18,13 @@ class RpcConfig:
 
 @dataclass
 class DatabaseConfig:
-    """Database configuration."""
+    """Database configuration.
 
-    path: str
+    The ASM stores and Moho stores live in two separate sled DBs.
+    """
+
+    asm_path: str
+    moho_path: str
     num_threads: int | None = None
     retry_count: int | None = None
     delay: Duration | None = None
@@ -34,8 +38,6 @@ class BitcoinConfig:
     rpc_user: str
     rpc_password: str
     hashblock_connection_string: str
-    retry_count: int | None = None
-    retry_interval: Duration | None = None
 
 
 @dataclass
