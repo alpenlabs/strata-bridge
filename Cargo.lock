@@ -787,7 +787,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 1.8.3",
  "alloy-sol-types",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -808,7 +808,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 2.0.4",
  "alloy-sol-types",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -1048,7 +1048,7 @@ checksum = "eed3ed3300a998f88639ed619fdbbd88bd82865e00c6a8ecb796c99eb12358f6"
 dependencies = [
  "alloy-json-rpc 2.0.4",
  "alloy-transport",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "reqwest 0.13.2",
  "serde_json",
  "tower 0.5.2",
@@ -2451,7 +2451,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -3666,7 +3666,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -6688,7 +6688,7 @@ dependencies = [
  "strata-predicate",
  "thiserror 2.0.18",
  "tree_hash",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
  "zkaleido-native-adapter",
 ]
 
@@ -6730,7 +6730,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
 ]
 
 [[package]]
@@ -8258,7 +8258,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -8278,7 +8278,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -8291,7 +8291,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -11074,7 +11074,7 @@ dependencies = [
  "strata-btc-verification",
  "strata-predicate",
  "tree_hash",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
  "zkaleido-native-adapter",
 ]
 
@@ -11295,7 +11295,7 @@ dependencies = [
  "borsh",
  "serde",
  "strata-identifiers",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
 ]
 
 [[package]]
@@ -11441,7 +11441,7 @@ dependencies = [
  "toml 0.8.23",
  "tower 0.5.2",
  "tracing",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
 ]
 
 [[package]]
@@ -11528,7 +11528,7 @@ dependencies = [
  "strata-codec",
  "strata-merkle",
  "strata-predicate",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
  "zkaleido-native-adapter",
 ]
 
@@ -11596,8 +11596,8 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "zkaleido",
- "zkaleido-sp1-groth16-verifier",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0)",
 ]
 
 [[package]]
@@ -11714,7 +11714,7 @@ dependencies = [
  "strata-predicate",
  "thiserror 2.0.18",
  "tokio",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
 ]
 
 [[package]]
@@ -11738,7 +11738,7 @@ dependencies = [
  "strata-codec",
  "strata-merkle",
  "strata-predicate",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
  "zkaleido-native-adapter",
 ]
 
@@ -11763,9 +11763,9 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
  "zkaleido-native-adapter",
- "zkaleido-sp1-groth16-verifier",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0)",
  "zkaleido-sp1-host",
 ]
 
@@ -11807,7 +11807,7 @@ dependencies = [
  "strata-predicate",
  "thiserror 2.0.18",
  "tracing",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
 ]
 
 [[package]]
@@ -12183,7 +12183,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tree_hash",
  "tree_hash_derive",
- "zkaleido-sp1-groth16-verifier",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
 ]
 
 [[package]]
@@ -14306,6 +14306,17 @@ dependencies = [
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0#8205a0543d4e60e7a7d8e73da483ffb83765c4e9"
+dependencies = [
+ "bincode",
+ "borsh",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "zkaleido"
+version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1#b1c3a5a34ea713d6e35e792c497d4f8327feaf61"
 dependencies = [
  "async-trait",
@@ -14335,7 +14346,22 @@ dependencies = [
  "k256",
  "rand_core 0.6.4",
  "serde",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
+]
+
+[[package]]
+name = "zkaleido-sp1-groth16-verifier"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0#8205a0543d4e60e7a7d8e73da483ffb83765c4e9"
+dependencies = [
+ "blake3",
+ "borsh",
+ "hex",
+ "serde",
+ "sha2 0.10.9",
+ "substrate-bn",
+ "thiserror 2.0.18",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0)",
 ]
 
 [[package]]
@@ -14350,7 +14376,7 @@ dependencies = [
  "sha2 0.10.9",
  "substrate-bn",
  "thiserror 2.0.18",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
 ]
 
 [[package]]
@@ -14368,7 +14394,7 @@ dependencies = [
  "sp1-sdk",
  "sp1-verifier",
  "tokio",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.3.0-rc.1)",
 ]
 
 [[package]]
