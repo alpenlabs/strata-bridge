@@ -69,12 +69,13 @@ class SP1HeavierChainCounterproofTest(StrataTestBase):
        fulfillment's block is the fork point.
     3. dev-cli contests on behalf of a watchtower; op-0 posts a real SP1 bridge proof anchored
        in fork A, then op-0 is stopped (cannot NACK, never sees fork B).
-    4. Stop the miner and rebuild the chain from the fork point without the fulfillment, 3
-       blocks longer than fork A.
+    4. Stop the miner and rebuild the chain from the fork point without the fulfillment, one
+       block longer than fork A.
     5. Restart the watchtowers and mine (fulfillment excluded) only until each has created its
        counterproof duty, then freeze the tip: the proof verifies but its claim unlock is absent
        from their (heavier) canonical chain, so once the Moho prover catches up to the static
-       anchor each publishes a heavier-chain counterproof. Mining resumes to confirm it.
+       anchor each publishes a heavier-chain counterproof. Mining resumes once every counterproof
+       is broadcast.
     6. After the NACK timelock, a counterprover auto-publishes the ACK; verify the ACK's shape
        and that op-0 is slashed, with the fulfillment never re-confirmed.
     """
@@ -241,8 +242,8 @@ class SP1HeavierChainCounterproofTest(StrataTestBase):
         self.logger.info(f"Stopped op-{assigned_idx}; it cannot NACK and never sees fork B")
 
         # 4. Rebuild the chain without the fulfillment: fork B replays every fork-A tx at its
-        # original height except the fulfillment (and anything spending it), then extends 3
-        # blocks past fork A's tip so it is strictly heavier than the proof's committed PoW.
+        # original height except the fulfillment (and anything spending it), then extends one
+        # block past fork A's tip so it is strictly heavier than the proof's committed PoW.
         watchtower_log_offsets = {
             i: snapshot_log_offsets([bridge_nodes[i].props["logfile"]]) for i in watchtower_idxs
         }
@@ -272,8 +273,13 @@ class SP1HeavierChainCounterproofTest(StrataTestBase):
                 f"{name} tx {txid} descends from the fulfillment and was excluded from "
                 f"fork B; the game txs must not spend fulfillment change"
             )
-            assert "blockhash" in bitcoin_rpc.proxy.getrawtransaction(txid, True), (
-                f"{name} tx {txid} did not re-confirm on fork B"
+            # With -txindex an orphaned tx still resolves to its stale fork-A block, so require
+            # positive confirmations: 0 means off the active chain, absent means mempool-only.
+            tx_info = bitcoin_rpc.proxy.getrawtransaction(txid, True)
+            assert tx_info.get("confirmations", 0) > 0, (
+                f"{name} tx {txid} did not re-confirm on fork B "
+                f"(blockhash={tx_info.get('blockhash')}, "
+                f"confirmations={tx_info.get('confirmations')})"
             )
         self.logger.info("Claim, contest, and bridge proof all re-confirmed on fork B")
 
@@ -315,20 +321,21 @@ class SP1HeavierChainCounterproofTest(StrataTestBase):
             )
             self.logger.info(f"Watchtower {i} detected the heavier contradicting chain")
 
-        # Detection done and each counterproof built against the frozen anchor. Resume mining to
-        # confirm the counterproofs, mature the NACK timelock, and bury the ACK/slash.
+        # Tip stays frozen until SP1 counterproof proving completes, so it never races the
+        # contest's block-height deadlines.
+        for slot in range(len(watchtower_idxs)):
+            watchtower_vout = CONTEST_WATCHTOWER_0_VOUT + slot
+            wait_until_utxo_spent(bitcoin_rpc, contest_txid, watchtower_vout, timeout=7200)
+            self.logger.info(
+                f"Counterproof broadcast by watchtower slot {slot} (contest:{watchtower_vout})"
+            )
+
+        # Resume mining to confirm the counterproofs, mature the NACK timelock, and bury the
+        # ACK/slash.
         miner = generate_blocks_excluding(
             bitcoin_rpc, self.GAME_MINE_INTERVAL_SECS, mining_addr, {fulfillment_txid}
         )
         try:
-            for slot in range(len(watchtower_idxs)):
-                watchtower_vout = CONTEST_WATCHTOWER_0_VOUT + slot
-                wait_until_utxo_spent(bitcoin_rpc, contest_txid, watchtower_vout, timeout=7200)
-                self.logger.info(
-                    f"Counterproof posted by watchtower slot {slot} "
-                    f"(contest:{watchtower_vout} spent)"
-                )
-
             monitor_rpc = bridge_rpcs[contester_idx]
             wait_until_counter_proof_posted(monitor_rpc, deposit_idx, timeout=7200)
 
