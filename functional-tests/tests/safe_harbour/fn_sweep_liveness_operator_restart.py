@@ -58,7 +58,8 @@ class SafeHarbourSweepLivenessTest(StrataTestBase):
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
         deposit_info = wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
-        deposit_txid = deposit_info["status"]["deposit_txid"]
+        assert deposit_info is not None, "Deposit did not complete"
+        deposit_txid = deposit_info.get("status").get("deposit_txid")
 
         # --- Take one operator down, then activate ---
         offline = num_operators - 1

@@ -61,7 +61,8 @@ class SafeHarbourSweepUnassignedTest(StrataTestBase):
             deposit_info = wait_until_deposit_status(
                 bridge_rpc, deposit_id, RpcDepositStatusComplete
             )
-            deposit_txids.append(deposit_info["status"]["deposit_txid"])
+            assert deposit_info is not None, "Deposit did not complete"
+            deposit_txids.append(deposit_info.get("status").get("deposit_txid"))
         self.logger.info(f"Completed deposits: {deposit_txids}")
 
         # --- Activate the safe harbour ---
