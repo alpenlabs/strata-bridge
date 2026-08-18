@@ -7,17 +7,21 @@ on activation, and the assignee must never front the user:
 1. The assignee is held down when the assignment lands, so the deposit
    deterministically sits in Assigned with no fulfillment broadcast.
 2. Activation sweeps the deposit out of Assigned on the live operators; the
-   N-of-N round stalls until the assignee returns.
+   sweep is an N-of-N round, so the deposit UTXO must stay unspent while the
+   assignee is down.
 3. The restarted assignee latches before the replayed assignment reaches its
    deposit SM (the mux orders safe-harbour state first), so its fulfillment
-   duty is suppressed at dispatch: the sweep must confirm and the assignee's
-   log must show no fulfillment submission at all.
+   duty is suppressed at dispatch: it joins the stalled round via nagging,
+   the sweep must confirm, and the assignee's log must show no fulfillment
+   submission at all.
 """
 
 import re
+import time
 
 import flexitest
 
+from constants import DT_DEPOSIT_VOUT
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
@@ -36,6 +40,10 @@ from utils.utils import read_operator_key, wait_for_tx_confirmation, wait_until
 FULFILLMENT_SUBMIT_RE = re.compile(
     r"submitting withdrawal fulfillment transaction.*txid=([0-9a-f]{64})"
 )
+
+# How long the deposit UTXO must stay unspent while the assignee is down. Spans many buried
+# blocks (2s block interval), i.e. many scan replays and nag ticks.
+STALL_OBSERVATION_SECS = 30
 
 
 @flexitest.register
@@ -94,6 +102,17 @@ class SafeHarbourSweepAssignedTest(StrataTestBase):
         # --- Activate: the deposit is swept out of Assigned, never fulfilled ---
         activate_safe_harbour(ctx, live_rpcs)
 
+        # --- The sweep must stall: N-of-N cannot aggregate without the assignee ---
+        deadline = time.time() + STALL_OBSERVATION_SECS
+        while time.time() < deadline:
+            utxo = bitcoin_rpc.proxy.gettxout(deposit_txid, DT_DEPOSIT_VOUT)
+            assert utxo is not None, (
+                f"deposit {deposit_txid} was swept while operator {assignee} was down; "
+                "an N-of-N round must not complete without every operator"
+            )
+            time.sleep(2)
+
+        # --- Restart: latch recovery + nagging must complete the sweep ---
         self.logger.info(f"Restarting operator {assignee}")
         bridge_nodes[assignee].start()
 
