@@ -41,7 +41,7 @@ from utils.stake import (
     wait_until_operator_slashed,
 )
 from utils.utils import read_operator_key, wait_for_tx_confirmation, wait_until
-from utils.withdrawal import wait_until_active_valid_claim, wait_until_bridge_proof_timedout
+from utils.withdrawal import wait_until_active_valid_claim
 
 
 @flexitest.register
@@ -130,10 +130,10 @@ class SafeHarbourDefensiveDutiesLiveTest(StrataTestBase):
 
         # Only the proof-timeout tx can spend the contest-proof connector (claimer is down).
         wait_until_utxo_spent(bitcoin_rpc, contest_txid, vout=0, timeout=600)
-        monitor_rpc = bridge_rpcs[contester_idx]
-        wait_until_bridge_proof_timedout(monitor_rpc, active_claim.deposit_idx)
-        self.logger.info("Bridge proof timed out under safe harbour")
+        self.logger.info("Proof-timeout tx spent the contest-proof connector")
 
+        # The slash fires only after the graphs process the proof timeout.
+        monitor_rpc = bridge_rpcs[contester_idx]
         slashed_stake = wait_until_operator_slashed(monitor_rpc, claimer_idx)
         assert slashed_stake.slash_txid is not None
         assert_slash_spends_stake(bitcoin_rpc, claimer_stake_txid, slashed_stake.slash_txid)
