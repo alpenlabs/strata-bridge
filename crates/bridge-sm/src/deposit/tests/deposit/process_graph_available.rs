@@ -135,7 +135,7 @@ mod tests {
     }
 
     /// Tests that a GraphAvailable landing after an abort is dropped rather than fatal: an abort
-    /// can pre-empt graph generation, so the late link is a normal message.
+    /// can preempt graph generation, so the late link is a normal message.
     #[test]
     fn test_late_graph_available_after_abort_is_rejected() {
         test_deposit_invalid_transition(DepositInvalidTransition {
