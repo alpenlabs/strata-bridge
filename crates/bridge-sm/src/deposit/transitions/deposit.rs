@@ -171,7 +171,7 @@ impl DepositSM {
                         Ok(DSMOutput::new())
                     }
 
-                    // An abort can pre-empt graph generation; drop late links rather than
+                    // An abort can preempt graph generation; drop late links rather than
                     // escalate (GraphMessage is not softened).
                     DepositState::Aborted => Err(DSMError::rejected(
                         self.state().clone(),
