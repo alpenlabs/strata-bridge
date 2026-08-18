@@ -101,6 +101,39 @@ mod tests {
         }
     }
 
+    /// Tests that a GraphAvailable replayed after the graph set completed is a non-fatal
+    /// duplicate, whatever state the deposit has advanced to.
+    #[test]
+    fn test_late_graph_available_is_duplicate_after_created() {
+        let states = vec![
+            DepositState::GraphGenerated {
+                deposit_transaction: test_deposit_txn(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                claim_txids: BTreeMap::new(),
+                pubnonces: BTreeMap::new(),
+            },
+            DepositState::Deposited {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+            },
+            DepositState::Spent {
+                fulfillment_txid: None,
+                assignee: None,
+            },
+        ];
+
+        for state in states {
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
+                    claim_txid: generate_txid(),
+                    operator_idx: 0,
+                    deposit_idx: TEST_DEPOSIT_IDX,
+                }),
+                expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+            });
+        }
+    }
+
     /// Tests that a GraphAvailable landing after an abort is dropped rather than fatal: an abort
     /// can pre-empt graph generation, so the late link is a normal message.
     #[test]
