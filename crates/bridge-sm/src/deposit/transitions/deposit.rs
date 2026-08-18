@@ -179,10 +179,22 @@ impl DepositSM {
                         "deposit aborted; graph links are no longer collected",
                     )),
 
-                    _ => Err(DSMError::invalid_event(
+                    // The full graph set was collected on leaving `Created`, so a late
+                    // GraphAvailable here is a replayed signal.
+                    DepositState::GraphGenerated { .. }
+                    | DepositState::DepositNoncesCollected { .. }
+                    | DepositState::DepositPartialsCollected { .. }
+                    | DepositState::Deposited { .. }
+                    | DepositState::Assigned { .. }
+                    | DepositState::Fulfilled { .. }
+                    | DepositState::PayoutDescriptorReceived { .. }
+                    | DepositState::PayoutNoncesCollected { .. }
+                    | DepositState::CooperativePathFailed { .. }
+                    | DepositState::SweepNoncesPending { .. }
+                    | DepositState::SweepNoncesCollected { .. }
+                    | DepositState::Spent { .. } => Err(DSMError::duplicate(
                         self.state().clone(),
                         DepositEvent::GraphMessage(graph_msg),
-                        None,
                     )),
                 }
             }
