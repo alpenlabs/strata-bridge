@@ -491,11 +491,21 @@ impl SMRegistry {
                     "state-machine transition applied"
                 );
             }
-            Ok(ProcessOutcome::Applied(_))
-            | Ok(ProcessOutcome::Ignored {
+            Ok(ProcessOutcome::Applied(_)) => {}
+            Ok(ProcessOutcome::Ignored {
+                event,
                 reason: IgnoredEventReason::Duplicate,
                 ..
-            }) => {}
+            }) => {
+                debug!(
+                    sm_kind,
+                    sm_id = %id,
+                    from_state,
+                    to_state,
+                    event = %event,
+                    "duplicate state-machine event ignored"
+                );
+            }
             Ok(ProcessOutcome::Ignored {
                 event,
                 reason: IgnoredEventReason::Rejected(reason),

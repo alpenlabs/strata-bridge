@@ -130,8 +130,9 @@ impl<'a> Applicator<'a> {
 
     /// Processes a single event through the registry's STF.
     ///
-    /// On success, accumulates duties and enqueues any signal-derived events. Ignored outcomes
-    /// (duplicates, rejections) are non-fatal and logged. Fatal errors are propagated.
+    /// On success, accumulates duties and enqueues any signal-derived events. Ignored outcomes are
+    /// non-fatal: duplicates are debug-logged and rejections are warning-logged by the registry.
+    /// Fatal errors are propagated.
     ///
     /// Persistence tracking follows the state machine's own report: a transition that leaves state
     /// unchanged (e.g. a nag or retry tick) still has its duties accumulated and its signals
