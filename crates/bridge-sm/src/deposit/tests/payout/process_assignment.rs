@@ -277,19 +277,6 @@ mod tests {
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
             },
-            // The ASM keeps re-listing the assignment for a deposit being swept.
-            DepositState::SweepNoncesPending {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                sweep_tx: test_sweep_txn(desc.clone()),
-                sweep_nonces: BTreeMap::new(),
-            },
-            DepositState::SweepNoncesCollected {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                sweep_tx: test_sweep_txn(desc.clone()),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
-                sweep_partials: BTreeMap::new(),
-            },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
@@ -305,6 +292,41 @@ mod tests {
                     recipient_desc: desc.clone(),
                 }),
                 expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+            });
+        }
+    }
+
+    /// tests that assignments re-listed by the ASM for a deposit in the sweep flow are rejected
+    #[test]
+    fn test_assignment_rejected_from_sweep_states() {
+        let desc = random_p2tr_desc();
+
+        // The ASM does not gate assignment creation on safe harbour, so it keeps re-listing
+        // the assignment for a deposit being swept.
+        let sweep_states = [
+            DepositState::SweepNoncesPending {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(desc.clone()),
+                sweep_nonces: BTreeMap::new(),
+            },
+            DepositState::SweepNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                sweep_tx: test_sweep_txn(desc.clone()),
+                sweep_agg_nonce: generate_agg_nonce(),
+                sweep_nonces: BTreeMap::new(),
+                sweep_partials: BTreeMap::new(),
+            },
+        ];
+
+        for state in sweep_states {
+            test_deposit_invalid_transition(DepositInvalidTransition {
+                from_state: state,
+                event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                    assignee: TEST_ASSIGNEE,
+                    deadline: LATER_BLOCK_HEIGHT,
+                    recipient_desc: desc.clone(),
+                }),
+                expected_error: |e| matches!(e, DSMError::Rejected { .. }),
             });
         }
     }
