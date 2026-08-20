@@ -1,4 +1,4 @@
-//! Unit tests for the DepositDuty withdrawal-path taxonomy.
+//! Unit tests for the DepositDuty safe-harbour suppression taxonomy.
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -63,10 +63,10 @@ mod tests {
         ]
     }
 
-    /// Pins the withdrawal-path classification of every deposit duty: only the duties that front
-    /// a user or advance the cooperative payout are suppressible under safe harbour.
+    /// Pins the safe-harbour suppression classification of every deposit duty: only the duties that
+    /// front a user or advance the cooperative payout are suppressible under safe harbour.
     #[test]
-    fn test_is_withdrawal_path_per_deposit_duty() {
+    fn test_should_suppress_under_safe_harbour_per_deposit_duty() {
         let desc = random_p2tr_desc();
         let sweep_tx = test_sweep_txn(desc.clone());
         let sighash = sweep_tx.signing_info()[0].sighash;
@@ -187,28 +187,28 @@ mod tests {
 
         for (duty, expected) in cases {
             assert_eq!(
-                duty.is_withdrawal_path(),
+                duty.should_suppress_under_safe_harbour(),
                 expected,
-                "unexpected withdrawal-path classification for {duty}"
+                "unexpected safe-harbour suppression for {duty}"
             );
         }
     }
 
-    /// Pins the withdrawal-path classification of every nag duty, directly and wrapped in
+    /// Pins the safe-harbour suppression classification of every nag duty, directly and wrapped in
     /// [`DepositDuty::Nag`]: only the payout-session nags solicit withdrawal progress.
     #[test]
-    fn test_is_withdrawal_path_per_nag_duty() {
+    fn test_should_suppress_under_safe_harbour_per_nag_duty() {
         for (nag, expected) in nag_duties() {
             assert_eq!(
-                nag.is_withdrawal_path(),
+                nag.should_suppress_under_safe_harbour(),
                 expected,
-                "unexpected withdrawal-path classification for {nag}"
+                "unexpected safe-harbour suppression for {nag}"
             );
             let duty = DepositDuty::Nag { duty: nag };
             assert_eq!(
-                duty.is_withdrawal_path(),
+                duty.should_suppress_under_safe_harbour(),
                 expected,
-                "unexpected withdrawal-path classification for {duty}"
+                "unexpected safe-harbour suppression for {duty}"
             );
         }
     }
