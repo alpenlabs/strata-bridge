@@ -73,10 +73,11 @@ pub enum NagDuty {
 }
 
 impl NagDuty {
-    /// Whether this nag solicits progress on the cooperative payout signing session.
+    /// Whether to suppress this nag at dispatch while the safe harbour is active: true for the
+    /// nags soliciting progress on the cooperative payout signing session.
     ///
-    /// See [`DepositDuty::is_withdrawal_path`].
-    pub const fn is_withdrawal_path(&self) -> bool {
+    /// See [`DepositDuty::should_suppress_under_safe_harbour`].
+    pub const fn should_suppress_under_safe_harbour(&self) -> bool {
         match self {
             NagDuty::NagPayoutNonce { .. } | NagDuty::NagPayoutPartial { .. } => true,
             NagDuty::NagDepositNonce { .. }
@@ -303,20 +304,20 @@ pub enum DepositDuty {
 }
 
 impl DepositDuty {
-    /// Whether this duty fronts a user or advances the cooperative payout towards spending the
-    /// deposit UTXO.
+    /// Whether to suppress this duty at dispatch while the safe harbour is active: true for the
+    /// duties that front a user or advance the cooperative payout towards spending the deposit
+    /// UTXO, so no withdrawal advances while deposits are being swept.
     ///
-    /// Under safe harbour these duties are suppressed at dispatch so no withdrawal advances
-    /// while deposits are being swept. Everything else — deposit setup (in-flight deposits must
-    /// finish before they can be swept) and the sweep duties themselves — is never suppressed.
-    pub const fn is_withdrawal_path(&self) -> bool {
+    /// Everything else — deposit setup (in-flight deposits must finish before they can be swept)
+    /// and the sweep duties themselves — is never suppressed.
+    pub const fn should_suppress_under_safe_harbour(&self) -> bool {
         match self {
             DepositDuty::FulfillWithdrawalRequest { .. }
             | DepositDuty::RequestPayoutNonces { .. }
             | DepositDuty::PublishPayoutNonce { .. }
             | DepositDuty::PublishPayoutPartial { .. }
             | DepositDuty::PublishPayout { .. } => true,
-            DepositDuty::Nag { duty } => duty.is_withdrawal_path(),
+            DepositDuty::Nag { duty } => duty.should_suppress_under_safe_harbour(),
             DepositDuty::PublishDepositNonce { .. }
             | DepositDuty::PublishDepositPartial { .. }
             | DepositDuty::PublishDeposit { .. }

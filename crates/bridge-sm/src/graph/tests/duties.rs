@@ -1,4 +1,4 @@
-//! Unit tests for the GraphDuty withdrawal-path taxonomy.
+//! Unit tests for the GraphDuty safe-harbour suppression taxonomy.
 #[cfg(test)]
 mod tests {
     use bitcoin::hashes::{Hash, sha256};
@@ -19,13 +19,13 @@ mod tests {
         },
     };
 
-    /// Pins the withdrawal-path classification of every graph duty.
+    /// Pins the safe-harbour suppression classification of every graph duty.
     ///
     /// Only the duties advancing the owner's claim towards a payout are suppressible under safe
     /// harbour; the defensive duties (contest, counterproof, slash, unstaking burn) and the graph
     /// setup duties must never be.
     #[test]
-    fn test_is_withdrawal_path_per_graph_duty() {
+    fn test_should_suppress_under_safe_harbour_per_graph_duty() {
         let cfg = test_graph_sm_cfg();
         let ctx = test_graph_sm_ctx();
         let (deposit_params, game_graph) = test_graph_data(&cfg);
@@ -181,16 +181,16 @@ mod tests {
 
         for (duty, expected) in cases {
             assert_eq!(
-                duty.is_withdrawal_path(),
+                duty.should_suppress_under_safe_harbour(),
                 expected,
-                "unexpected withdrawal-path classification for {duty}"
+                "unexpected safe-harbour suppression for {duty}"
             );
         }
     }
 
     /// Graph nags solicit graph-setup progress, never withdrawal progress.
     #[test]
-    fn test_graph_nags_are_not_withdrawal_path() {
+    fn test_graph_nags_are_never_suppressed() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let operator_pubkey = operator_table
             .idx_to_p2p_key(&TEST_NONPOV_IDX)
@@ -219,8 +219,8 @@ mod tests {
         for nag in nags {
             let duty = GraphDuty::Nag { duty: nag };
             assert!(
-                !duty.is_withdrawal_path(),
-                "graph nag must not be withdrawal-path: {duty}"
+                !duty.should_suppress_under_safe_harbour(),
+                "graph nag must never be suppressed: {duty}"
             );
         }
     }

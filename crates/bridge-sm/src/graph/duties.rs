@@ -318,16 +318,16 @@ pub enum GraphDuty {
 }
 
 impl GraphDuty {
-    /// Whether this duty advances the graph owner's claim towards a payout spending the deposit
-    /// UTXO.
+    /// Whether to suppress this duty at dispatch while the safe harbour is active: true for the
+    /// duties advancing the graph owner's claim towards a payout spending the deposit UTXO, so
+    /// no claim advances while deposits are being swept.
     ///
-    /// Under safe harbour these duties are suppressed at dispatch so no claim advances while
-    /// deposits are being swept. The defensive duties — contest, counterproof, slash, and
+    /// The defensive duties — contest, counterproof, slash, and
     /// unstaking burn — challenge or punish a claim rather than pursue one and are **never**
     /// suppressed: they are the only funds defense when a rogue operator stalls the sweep and
     /// fires its pre-signed claim path. Graph setup duties are also never suppressed, since
     /// in-flight deposits must finish before they can be swept.
-    pub const fn is_withdrawal_path(&self) -> bool {
+    pub const fn should_suppress_under_safe_harbour(&self) -> bool {
         match self {
             GraphDuty::PublishClaim { .. }
             | GraphDuty::PublishUncontestedPayout { .. }
