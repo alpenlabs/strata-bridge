@@ -14,7 +14,7 @@ use crate::{
     events_classifier::{offchain, onchain},
     events_mux::{EventsMux, SafeHarbourEvent, UnifiedEvent},
     events_router,
-    persister::Persister,
+    persister::{PersistenceTracker, Persister},
     safe_harbour_scan::safe_harbour_scan,
     sm_registry::SMRegistry,
     sm_types::{SMId, UnifiedDuty},
@@ -61,6 +61,9 @@ impl Pipeline {
     /// the `initial_operator_table`. Any stake SMs already recovered from the database are
     /// preserved; only missing ones are created. The `start_height` is used as the initial block
     /// height for newly created stake SMs (typically the chain tip or the persisted cursor).
+    ///
+    /// When a persisted safe-harbour latch is recovered, the sweep/abort scan is also seeded once
+    /// before the loop.
     pub async fn run(
         self,
         initial_operator_table: OperatorTable,
@@ -80,6 +83,17 @@ impl Pipeline {
         self.bootstrap_stake_sms(&initial_operator_table, start_height)
             .await?;
 
+        // A recovered latch may cover deposits that were never scanned, and no buried block is
+        // guaranteed to arrive to retry: seed sweeps and aborts once before the loop.
+        if self.registry.safe_harbour_active() {
+            info!("recovered an active safe-harbour latch; seeding the sweep/abort scan");
+            let mut applicator = Applicator::new(&mut self.registry);
+            apply_safe_harbour_scan(&mut applicator)?;
+            let (duties, tracker) = applicator.finish();
+            self.persist_batches(tracker).await?;
+            self.dispatch_duties(duties);
+        }
+
         loop {
             // Stage 1: Multiplex event streams
             let event = self.event_mux.next().await;
@@ -97,11 +111,12 @@ impl Pipeline {
             };
             on_event();
 
-            // Safe harbour is registry-level, not SM-scoped: latch it before borrowing the
-            // registry for the applicator, and skip the classify/persist/dispatch stages since it
-            // produces no SM batches or duties. Matched by reference so `event` stays usable.
-            if let UnifiedEvent::SafeHarbour(safe_harbour) = &event {
-                self.process_safe_harbour(safe_harbour.clone()).await?;
+            // Safe harbour is registry-level, not SM-scoped: latch and persist it before
+            // borrowing the registry for the applicator. Only a first latch proceeds to the
+            // scan below; replayed activations from the monotonic feed are skipped.
+            if let UnifiedEvent::SafeHarbour(safe_harbour) = &event
+                && !self.process_safe_harbour(safe_harbour.clone()).await?
+            {
                 continue;
             }
 
@@ -109,16 +124,16 @@ impl Pipeline {
             let mut applicator = Applicator::new(&mut self.registry);
 
             match &event {
+                // On first latch: sweep and abort immediately rather than waiting for the next
+                // buried block.
+                UnifiedEvent::SafeHarbour(_) => apply_safe_harbour_scan(&mut applicator)?,
+
                 UnifiedEvent::Block(block_event) => {
                     onchain::process_block(&mut applicator, &initial_operator_table, block_event)?;
 
                     // While safe harbour is active, drive sweeps and aborts from the post-block
-                    // deposit states. The scan is a no-op while the latch is unset.
-                    let scan_events = safe_harbour_scan(applicator.registry());
-                    if !scan_events.is_empty() {
-                        info!(count = %scan_events.len(), "seeding safe-harbour sweep/abort events");
-                        applicator.apply_batch(scan_events)?;
-                    }
+                    // deposit states; the per-block replay is the retry mechanism.
+                    apply_safe_harbour_scan(&mut applicator)?;
                 }
 
                 _ => {
@@ -142,52 +157,68 @@ impl Pipeline {
 
             let (all_duties, tracker) = applicator.finish();
 
-            // Stage 4: Batch persistence
-            let batches = tracker.into_batches();
-            info!(count=%batches.len(), "persisting updated state machines batches");
-            for batch in batches {
-                self.persister.persist_batch(batch, &self.registry).await?;
-            }
+            // Stage 4: Batch persistence.
+            self.persist_batches(tracker).await?;
 
-            // Stage 5: Dispatch duties. While safe harbour is active no withdrawal advances:
-            // the withdrawal-path duties are dropped here, which also covers the graph SMs and
-            // the switch-over window before a deposit enters the sweep flow. Defensive duties
-            // (contest, counterproof, slash, unstaking burn) always dispatch.
-            let safe_harbour_active = self.registry.safe_harbour_active();
-            for duty in all_duties {
-                if safe_harbour_active && duty.should_suppress_under_safe_harbour() {
-                    info!(
-                        ?duty,
-                        "safe harbour active; suppressing withdrawal-path duty"
-                    );
-                    continue;
-                }
-                self.dispatcher.dispatch(duty);
-            }
+            // Stage 5: Dispatch duties.
+            self.dispatch_duties(all_duties);
         }
     }
 
-    /// Latches and persists a safe-harbour activation.
+    /// Latches and persists a safe-harbour activation, returning whether this call latched.
     ///
     /// Idempotent and monotonic: only the first activation latches, persists the frozen address
     /// (so the latch survives a restart), and logs. Subsequent activations — including re-emitted
     /// ones from the monotonic feed — are no-ops. Non-activation observations are ignored, so a
     /// tip reorg that flips the ASM flag back to inactive never un-latches the node.
-    async fn process_safe_harbour(&mut self, event: SafeHarbourEvent) -> Result<(), PipelineError> {
+    async fn process_safe_harbour(
+        &mut self,
+        event: SafeHarbourEvent,
+    ) -> Result<bool, PipelineError> {
         if !event.activated {
-            return Ok(());
+            return Ok(false);
         }
         let Some(address) = event.address else {
             warn!("ASM reported safe harbour active without an address; ignoring");
-            return Ok(());
+            return Ok(false);
         };
 
-        if self.registry.activate_safe_harbour(address.clone()) {
-            info!("safe harbour activated; latching frozen address and halting new custody");
-            self.persister.persist_safe_harbour(&address).await?;
+        if !self.registry.activate_safe_harbour(address.clone()) {
+            return Ok(false);
         }
 
+        info!("safe harbour activated; latching frozen address and halting new custody");
+        self.persister.persist_safe_harbour(&address).await?;
+        Ok(true)
+    }
+
+    /// Persists the batches of state machines touched during event processing.
+    async fn persist_batches(&self, tracker: PersistenceTracker) -> Result<(), PipelineError> {
+        let batches = tracker.into_batches();
+        info!(count=%batches.len(), "persisting updated state machines batches");
+        for batch in batches {
+            self.persister.persist_batch(batch, &self.registry).await?;
+        }
         Ok(())
+    }
+
+    /// Dispatches duties, dropping the suppressed ones while safe harbour is active.
+    fn dispatch_duties(&self, duties: Vec<UnifiedDuty>) {
+        let safe_harbour_active = self.registry.safe_harbour_active();
+        for duty in duties {
+            // While safe harbour is active no withdrawal advances:
+            // the withdrawal-path duties are dropped here, which also covers the graph SMs and
+            // the switch-over window before a deposit enters the sweep flow.
+            // Defensive duties (contest, counterproof, slash, unstaking burn) always dispatch
+            if safe_harbour_active && duty.should_suppress_under_safe_harbour() {
+                info!(
+                    ?duty,
+                    "safe harbour active; suppressing withdrawal-path duty"
+                );
+                continue;
+            }
+            self.dispatcher.dispatch(duty);
+        }
     }
 
     /// Creates one stake state machine per operator in `operator_table` that does not yet exist in
@@ -229,5 +260,62 @@ impl Pipeline {
         }
 
         Ok(())
+    }
+}
+
+/// Seeds the safe-harbour sweep/abort scan through the applicator; a no-op while the latch is
+/// unset.
+fn apply_safe_harbour_scan(applicator: &mut Applicator<'_>) -> Result<(), PipelineError> {
+    let scan_events = safe_harbour_scan(applicator.registry());
+    if !scan_events.is_empty() {
+        info!(count = %scan_events.len(), "seeding safe-harbour sweep/abort events");
+        applicator.apply_batch(scan_events)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use strata_bridge_sm::deposit::state::DepositState;
+
+    use super::*;
+    use crate::testing::{test_populated_registry, test_safe_harbour_address};
+
+    #[test]
+    fn scan_helper_is_a_noop_while_not_latched() {
+        let mut registry = test_populated_registry(1);
+        let mut applicator = Applicator::new(&mut registry);
+
+        apply_safe_harbour_scan(&mut applicator).unwrap();
+
+        let (duties, tracker) = applicator.finish();
+        assert!(duties.is_empty());
+        assert!(tracker.into_batches().is_empty());
+    }
+
+    #[test]
+    fn scan_helper_applies_transitions_on_a_latched_registry() {
+        let mut registry = test_populated_registry(1);
+        registry.activate_safe_harbour(test_safe_harbour_address());
+        let mut applicator = Applicator::new(&mut registry);
+
+        apply_safe_harbour_scan(&mut applicator).unwrap();
+
+        // The populated registry's deposit sits in the safe window (`Created`), so seeding the
+        // scan must abort it, not just enumerate it.
+        assert_eq!(
+            applicator
+                .registry()
+                .get_deposit(&0)
+                .expect("deposit SM must exist")
+                .state(),
+            &DepositState::Aborted,
+        );
+
+        let (_, tracker) = applicator.finish();
+        assert!(
+            !tracker.into_batches().is_empty(),
+            "scan-seeded transitions must be tracked for persistence"
+        );
     }
 }
