@@ -3,6 +3,7 @@
 
 use std::{collections::BTreeSet, time::Instant};
 
+use strata_bridge_p2p_types::UnsignedGossipsubMsg;
 use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
 use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 use tracing::{Instrument, debug, error, info, info_span, trace, warn};
@@ -184,7 +185,11 @@ impl Pipeline {
                             && !matches!(&event, UnifiedEvent::NagTick | UnifiedEvent::RetryTick)
                         {
                             debug!(event_kind, "event did not route to any state machine");
-                        } else if target_count > 0 && classified_count == 0 {
+                        } else if should_warn_on_unclassified_event(
+                            &event,
+                            target_count,
+                            classified_count,
+                        ) {
                             warn!(
                                 event_kind,
                                 target_count,
@@ -353,12 +358,49 @@ fn apply_safe_harbour_scan(applicator: &mut Applicator<'_>) -> Result<(), Pipeli
     Ok(())
 }
 
+/// Returns whether an event that produced no state-machine event needs the pipeline's generic
+/// warning. Nag requests report their specific drop reason in the router or classifier, so another
+/// warning here would either be misleading for an expected wrong-recipient drop or duplicate a
+/// more useful warning.
+const fn should_warn_on_unclassified_event(
+    event: &UnifiedEvent,
+    target_count: usize,
+    classified_count: usize,
+) -> bool {
+    target_count > 0 && classified_count == 0 && !is_nag_request(event)
+}
+
+const fn is_nag_request(event: &UnifiedEvent) -> bool {
+    match event {
+        UnifiedEvent::OuroborosMessage(message) => matches!(
+            &message.publish,
+            UnsignedGossipsubMsg::NagRequestExchange(_)
+        ),
+        UnifiedEvent::GossipMessage(message) => matches!(
+            &message.unsigned,
+            UnsignedGossipsubMsg::NagRequestExchange(_)
+        ),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use strata_bridge_p2p_service::message_handler::OuroborosMessage;
+    use strata_bridge_p2p_types::{
+        GossipsubMsg, NagRequest, NagRequestPayload, UnsignedGossipsubMsg,
+    };
     use strata_bridge_sm::deposit::state::DepositState;
 
     use super::*;
     use crate::testing::{test_populated_registry, test_safe_harbour_address};
+
+    fn nag_request() -> UnsignedGossipsubMsg {
+        UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+            recipient: vec![0; 32].into(),
+            payload: NagRequestPayload::DepositNonce { deposit_idx: 0 },
+        })
+    }
 
     #[test]
     fn scan_helper_is_a_noop_while_not_latched() {
@@ -396,5 +438,42 @@ mod tests {
             !tracker.into_batches().is_empty(),
             "scan-seeded transitions must be tracked for persistence"
         );
+    }
+
+    #[test]
+    fn unclassified_peer_nag_does_not_emit_generic_warning() {
+        let event = UnifiedEvent::GossipMessage(GossipsubMsg {
+            signature: Vec::new(),
+            key: vec![1; 32].into(),
+            unsigned: nag_request(),
+        });
+
+        assert!(!should_warn_on_unclassified_event(&event, 1, 0));
+    }
+
+    #[test]
+    fn unclassified_ouroboros_nag_does_not_emit_generic_warning() {
+        let event = UnifiedEvent::OuroborosMessage(OuroborosMessage {
+            publish: nag_request(),
+        });
+
+        assert!(!should_warn_on_unclassified_event(&event, 1, 0));
+    }
+
+    #[test]
+    fn other_unclassified_routed_events_still_emit_generic_warning() {
+        assert!(should_warn_on_unclassified_event(
+            &UnifiedEvent::NagTick,
+            1,
+            0
+        ));
+    }
+
+    #[test]
+    fn classified_or_unrouted_events_do_not_emit_generic_warning() {
+        let event = UnifiedEvent::NagTick;
+
+        assert!(!should_warn_on_unclassified_event(&event, 1, 1));
+        assert!(!should_warn_on_unclassified_event(&event, 0, 0));
     }
 }
