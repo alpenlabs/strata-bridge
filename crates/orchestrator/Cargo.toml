@@ -35,5 +35,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
+strata-bridge-tx-graph = { workspace = true, features = ["test_utils"] }
 strata-predicate.workspace = true
 libp2p-identity.workspace = true

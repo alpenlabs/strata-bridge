@@ -8,7 +8,7 @@ use bitcoin::{
     relative,
 };
 use secp256k1::schnorr::Signature;
-use strata_bridge_connectors::prelude::{DepositRequestConnector, NOfNConnector};
+use strata_bridge_connectors::prelude::NOfNConnector;
 use strata_bridge_orchestrator::sm_registry::{SMConfig, SMRegistry};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -42,7 +42,7 @@ use strata_bridge_tx_graph::{
     stake_graph::ProtocolParams as StakeProtocolParams,
     transactions::{
         cooperative_payout::{CooperativePayoutData, CooperativePayoutTx},
-        deposit::{DepositData, DepositTx},
+        deposit::{DepositData, DepositTx, build_test_deposit_tx},
         sweep::{SweepData, SweepTx},
     },
 };
@@ -111,25 +111,14 @@ fn test_graph_cfg() -> GraphSMCfg {
 }
 
 fn test_deposit_tx() -> DepositTx {
-    let n_of_n_pubkey = generate_xonly_pubkey();
-    let deposit_connector =
-        NOfNConnector::new(Network::Regtest, n_of_n_pubkey, TEST_DEPOSIT_AMOUNT);
-    let deposit_request_connector = DepositRequestConnector::new(
-        Network::Regtest,
-        n_of_n_pubkey,
-        generate_xonly_pubkey(),
-        relative::Height::from_height(144),
-        DepositTx::drt_required(TEST_DEPOSIT_AMOUNT),
-    );
-
-    DepositTx::new(
+    build_test_deposit_tx(
+        &test_operator_table(3, TEST_POV_IDX),
         DepositData {
             deposit_idx: DEPOSIT_IDX,
             deposit_request_outpoint: OutPoint::new(Txid::all_zeros(), 0),
             magic_bytes: TEST_MAGIC_BYTES.into(),
         },
-        deposit_connector,
-        deposit_request_connector,
+        TEST_DEPOSIT_AMOUNT,
     )
 }
 

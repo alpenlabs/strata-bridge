@@ -74,11 +74,15 @@ mod tests {
     use strata_bridge_test_utils::{
         bridge_fixtures::random_p2tr_desc, musig2::generate_agg_nonce, prelude::generate_txid,
     };
+    use strata_bridge_tx_graph::transactions::deposit::{
+        DepositData, DepositTx, build_test_deposit_tx,
+    };
 
     use super::*;
     use crate::testing::{
-        INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, insert_deposit_with_graphs,
-        test_empty_registry, test_operator_table, test_safe_harbour_address,
+        INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_DEPOSIT_AMOUNT, TEST_MAGIC_BYTES,
+        TEST_POV_IDX, insert_deposit_with_graphs, test_empty_registry, test_operator_table,
+        test_safe_harbour_address,
     };
 
     /// Inserts a deposit SM pinned to `state` (no graph SMs; the scan only reads deposits).
@@ -223,7 +227,7 @@ mod tests {
             &mut registry,
             0,
             DepositState::DepositNoncesCollected {
-                deposit_transaction: test_created_deposit_transaction(),
+                deposit_transaction: test_deposit_tx(),
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 claim_txids: BTreeMap::new(),
                 agg_nonce: generate_agg_nonce(),
@@ -245,30 +249,16 @@ mod tests {
         assert!(safe_harbour_scan(&registry).is_empty());
     }
 
-    /// Builds the `Created` state's deposit transaction via the public SM constructor.
-    fn test_created_deposit_transaction() -> strata_bridge_tx_graph::transactions::deposit::DepositTx
-    {
-        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-        let cfg = crate::testing::test_deposit_sm_cfg();
-        let sm = DepositSM::new(
-            cfg.clone(),
-            operator_table.clone(),
-            strata_bridge_tx_graph::transactions::prelude::DepositData {
+    /// Fills the states that carry a deposit transaction; the scan never inspects it.
+    fn test_deposit_tx() -> DepositTx {
+        build_test_deposit_tx(
+            &test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+            DepositData {
                 deposit_idx: 99,
                 deposit_request_outpoint: OutPoint::default(),
-                magic_bytes: cfg.magic_bytes,
+                magic_bytes: TEST_MAGIC_BYTES.into(),
             },
-            operator_table.pov_btc_key().x_only_public_key().0,
-            cfg.deposit_amount + bitcoin::Amount::from_sat(10_000),
-            INITIAL_BLOCK_HEIGHT,
-        );
-        let DepositState::Created {
-            deposit_transaction,
-            ..
-        } = sm.state()
-        else {
-            panic!("a new DepositSM must start in Created");
-        };
-        deposit_transaction.clone()
+            TEST_DEPOSIT_AMOUNT,
+        )
     }
 }
