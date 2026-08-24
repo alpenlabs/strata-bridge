@@ -16,12 +16,12 @@ mod tx_classifier;
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use bitcoin::{Amount, Network, OutPoint, relative};
+use bitcoin::{Amount, Network, OutPoint};
 use bitcoin_bosd::Descriptor;
 use musig2::KeyAggContext;
 use proptest::prelude::*;
 use secp256k1::{Message, SecretKey};
-use strata_bridge_connectors::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
+use strata_bridge_connectors::n_of_n::NOfNConnector;
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
     scripts::{prelude::get_aggregated_pubkey, taproot::TaprootTweak},
@@ -35,6 +35,7 @@ use strata_bridge_test_utils::{
 };
 use strata_bridge_tx_graph::transactions::{
     PresignedTx,
+    deposit::build_test_deposit_tx,
     prelude::{
         CooperativePayoutData, CooperativePayoutTx, DepositData, DepositTx, SweepData, SweepTx,
         WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
@@ -181,34 +182,15 @@ pub(super) fn get_deposit_signing_info(
 
 /// Creates a test deposit transaction with deterministic values.
 pub(super) fn test_deposit_txn() -> DepositTx {
-    let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-
-    let amount = Amount::from_btc(10.0).expect("valid amount");
-    let timelock = relative::Height::from_height(144);
-    let n_of_n_pubkey = operator_table.aggregated_btc_key().x_only_public_key().0;
-    let depositor_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
-
-    // Create DepositData
-    let data = DepositData {
-        deposit_idx: 0,
-        deposit_request_outpoint: OutPoint::default(),
-        magic_bytes: TEST_MAGIC_BYTES.into(),
-    };
-
-    // Create connectors with matching network, internal_key, and value. The
-    // deposit-request connector must include `deposit_amount + deposit_fee` so the deposit tx
-    // can pay its own fee.
-    let deposit_connector = NOfNConnector::new(Network::Regtest, n_of_n_pubkey, amount);
-
-    let deposit_request_connector = DepositRequestConnector::new(
-        Network::Regtest,
-        n_of_n_pubkey,
-        depositor_pubkey,
-        timelock,
-        DepositTx::drt_required(amount),
-    );
-
-    DepositTx::new(data, deposit_connector, deposit_request_connector)
+    build_test_deposit_tx(
+        &test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+        DepositData {
+            deposit_idx: 0,
+            deposit_request_outpoint: OutPoint::default(),
+            magic_bytes: TEST_MAGIC_BYTES.into(),
+        },
+        Amount::from_btc(10.0).expect("valid amount"),
+    )
 }
 
 // ===== Payout Transaction Helpers =====

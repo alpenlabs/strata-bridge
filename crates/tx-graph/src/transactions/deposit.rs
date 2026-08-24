@@ -14,6 +14,8 @@ use strata_bridge_connectors::{
     prelude::{DepositRequestConnector, NOfNConnector, TimelockedSpendPath, TimelockedWitness},
     Connector, SigningInfo,
 };
+#[cfg(any(test, feature = "test_utils"))]
+use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 use tracing::warn;
 
@@ -177,6 +179,38 @@ impl AsRef<Transaction> for DepositTx {
     fn as_ref(&self) -> &Transaction {
         &self.psbt.unsigned_tx
     }
+}
+
+/// Builds a [`DepositTx`] wired the way the deposit state machine wires it: both connectors keyed
+/// to the operator table's aggregated key, the depositor set to the point-of-view operator, and a
+/// deposit-request UTXO funded to exactly [`DepositTx::drt_required`].
+///
+/// The recovery delay is fixed because it only shapes the deposit-request tapscript, which leaves
+/// the deposit txid untouched — the `Normal` spend path always sequences as `Sequence::MAX`.
+#[cfg(any(test, feature = "test_utils"))]
+pub fn build_test_deposit_tx(
+    operator_table: &OperatorTable,
+    data: DepositData,
+    deposit_amount: Amount,
+) -> DepositTx {
+    use bitcoin::{relative, Network};
+
+    const RECOVERY_DELAY: u16 = 1_008;
+
+    let n_of_n = operator_table.aggregated_btc_key().x_only_public_key().0;
+    let depositor = operator_table.pov_btc_key().x_only_public_key().0;
+
+    DepositTx::new(
+        data,
+        NOfNConnector::new(Network::Regtest, n_of_n, deposit_amount),
+        DepositRequestConnector::new(
+            Network::Regtest,
+            n_of_n,
+            depositor,
+            relative::Height::from_height(RECOVERY_DELAY),
+            DepositTx::drt_required(deposit_amount),
+        ),
+    )
 }
 
 #[cfg(test)]
