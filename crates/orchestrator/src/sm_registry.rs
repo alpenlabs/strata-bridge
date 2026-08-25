@@ -25,7 +25,7 @@ use strata_bridge_sm::{
 };
 use strata_bridge_tx_graph::transactions::stake::StakeTx;
 use thiserror::Error;
-use tracing::{debug, error, info, info_span, warn};
+use tracing::{debug, error, info, info_span};
 
 use crate::{
     errors::{ProcessError, ProcessOutput},
@@ -468,6 +468,8 @@ impl SMRegistry {
         span.record("result", result);
         observability::record_transition(sm_kind, from_state, to_state, result, started.elapsed());
 
+        // Keep transition telemetry here, but leave ignored-outcome and fatal-error severity to
+        // the applicator and pipeline respectively.
         match &outcome {
             Ok(ProcessOutcome::Applied(output)) if output.did_mutate() && is_periodic => {
                 debug!(
@@ -491,46 +493,7 @@ impl SMRegistry {
                     "state-machine transition applied"
                 );
             }
-            Ok(ProcessOutcome::Applied(_)) => {}
-            Ok(ProcessOutcome::Ignored {
-                event,
-                reason: IgnoredEventReason::Duplicate,
-                ..
-            }) => {
-                debug!(
-                    sm_kind,
-                    sm_id = %id,
-                    from_state,
-                    to_state,
-                    event = %event,
-                    "duplicate state-machine event ignored"
-                );
-            }
-            Ok(ProcessOutcome::Ignored {
-                event,
-                reason: IgnoredEventReason::Rejected(reason),
-                ..
-            }) => {
-                warn!(
-                    sm_kind,
-                    sm_id = %id,
-                    from_state,
-                    to_state,
-                    event = %event,
-                    reason,
-                    "state-machine event rejected"
-                );
-            }
-            Err(error) => {
-                error!(
-                    %error,
-                    sm_kind,
-                    sm_id = %id,
-                    from_state,
-                    to_state,
-                    "state-machine event processing failed"
-                );
-            }
+            Ok(ProcessOutcome::Applied(_)) | Ok(ProcessOutcome::Ignored { .. }) | Err(_) => {}
         }
 
         outcome
