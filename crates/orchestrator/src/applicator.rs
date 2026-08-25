@@ -12,12 +12,13 @@ use std::collections::VecDeque;
 
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
 use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
+use tracing::{debug, warn};
 
 use crate::{
     errors::PipelineError,
     persister::PersistenceTracker,
     signals_router,
-    sm_registry::{ProcessOutcome, RegistryInsertError, SMRegistry},
+    sm_registry::{IgnoredEventReason, ProcessOutcome, RegistryInsertError, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
@@ -131,7 +132,7 @@ impl<'a> Applicator<'a> {
     /// Processes a single event through the registry's STF.
     ///
     /// On success, accumulates duties and enqueues any signal-derived events. Ignored outcomes are
-    /// non-fatal: duplicates are debug-logged and rejections are warning-logged by the registry.
+    /// non-fatal: duplicates are debug-logged and rejections are warning-logged by the applicator.
     /// Fatal errors are propagated.
     ///
     /// Persistence tracking follows the state machine's own report: a transition that leaves state
@@ -160,7 +161,17 @@ impl<'a> Applicator<'a> {
 
                 Ok(())
             }
-            Ok(ProcessOutcome::Ignored { .. }) => Ok(()),
+            Ok(ProcessOutcome::Ignored { id, event, reason }) => {
+                match reason {
+                    IgnoredEventReason::Duplicate => {
+                        debug!(?id, %event, "duplicate state-machine event ignored");
+                    }
+                    IgnoredEventReason::Rejected(reason) => {
+                        warn!(?id, %event, %reason, "state-machine event rejected");
+                    }
+                }
+                Ok(())
+            }
             Err(e) => Err(e.into()),
         }
     }
