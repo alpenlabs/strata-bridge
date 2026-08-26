@@ -7,6 +7,7 @@ use strata_asm_proto_bridge::AssignmentEntry;
 use strata_bridge_p2p_types::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
+use strata_bridge_primitives::types::P2POperatorPubKey;
 use strata_bridge_sm::{
     deposit::events::{self as DepositEvents, DepositEvent, RetryTickEvent},
     graph::events::{self as GraphEvents, AdaptorsVerifiedEvent, GraphEvent},
@@ -21,6 +22,16 @@ use crate::{
     sm_registry::SMRegistry,
     sm_types::{OperatorKey, SMEvent, SMId},
 };
+
+/// Result of attempting to classify an event for a routed state machine.
+#[derive(Debug)]
+pub(crate) enum ClassificationOutcome {
+    Classified(SMEvent),
+    /// The event was intentionally ignored before state-machine classification.
+    ExpectedDrop,
+    /// The event could not be converted into a state-machine event.
+    Unclassified,
+}
 
 /// Classifies a unified event into the typed event for a specific state machine.
 ///
@@ -61,6 +72,35 @@ pub(crate) fn classify(
         UnifiedEvent::NagTick => classify_nag_tick(sm_id, sm_registry),
         UnifiedEvent::RetryTick => classify_retry_tick(sm_id, sm_registry),
     }
+}
+
+/// Classifies a routed event while preserving intentional recipient filtering as a separate
+/// outcome for pipeline observability.
+pub(crate) fn classify_routed(
+    sm_id: &SMId,
+    event: &UnifiedEvent,
+    sm_registry: &SMRegistry,
+) -> ClassificationOutcome {
+    if let Some(sm_event) = classify(sm_id, event, sm_registry) {
+        return ClassificationOutcome::Classified(sm_event);
+    }
+
+    let gossip = match event {
+        UnifiedEvent::OuroborosMessage(message) => Some(&message.publish),
+        UnifiedEvent::GossipMessage(message) => Some(&message.unsigned),
+        _ => None,
+    };
+
+    if let Some(UnsignedGossipsubMsg::NagRequestExchange(nag_request)) = gossip {
+        let target_sm_id = nag_target_sm_id(&nag_request.payload);
+        if let Some(pov_p2p_key) = pov_p2p_key_for_sm(sm_registry, &target_sm_id)
+            && nag_request.recipient != pov_p2p_key
+        {
+            return ClassificationOutcome::ExpectedDrop;
+        }
+    }
+
+    ClassificationOutcome::Unclassified
 }
 
 /// Classifies an [`UnsignedGossipsubMsg`] into state-machine-specific events.
@@ -511,22 +551,7 @@ pub(crate) fn classify_unsigned_gossip(
         }
 
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => {
-            let sm_id = match &nag_request.payload {
-                NagRequestPayload::DepositNonce { deposit_idx }
-                | NagRequestPayload::DepositPartial { deposit_idx }
-                | NagRequestPayload::PayoutNonce { deposit_idx }
-                | NagRequestPayload::PayoutPartial { deposit_idx }
-                | NagRequestPayload::SweepNonce { deposit_idx }
-                | NagRequestPayload::SweepPartial { deposit_idx } => SMId::Deposit(*deposit_idx),
-                NagRequestPayload::GraphData { graph_idx }
-                | NagRequestPayload::GraphNonces { graph_idx }
-                | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
-                NagRequestPayload::UnstakingData { operator_idx }
-                | NagRequestPayload::UnstakingNonces { operator_idx }
-                | NagRequestPayload::UnstakingPartials { operator_idx } => {
-                    SMId::Stake(*operator_idx)
-                }
-            };
+            let sm_id = nag_target_sm_id(&nag_request.payload);
 
             info!(
                 target_sm = %sm_id,
@@ -537,20 +562,13 @@ pub(crate) fn classify_unsigned_gossip(
             );
 
             // Router guarantees target SM exists for routed events.
-            let pov_p2p_key = match sm_id {
-                SMId::Deposit(deposit_idx) => sm_registry
-                    .get_deposit(&deposit_idx)
-                    .map(|sm| sm.context().operator_table().pov_p2p_key().clone())
-                    .expect("router should route nags only to existing deposit SMs"),
-                SMId::Graph(graph_idx) => sm_registry
-                    .get_graph(&graph_idx)
-                    .map(|sm| sm.context().operator_table().pov_p2p_key().clone())
-                    .expect("router should route nags only to existing graph SMs"),
-                SMId::Stake(operator_idx) => sm_registry
-                    .get_stake(&operator_idx)
-                    .map(|sm| sm.context().operator_table().pov_p2p_key().clone())
-                    .expect("router should route nags only to existing stake SMs"),
+            let missing_sm_message = match &sm_id {
+                SMId::Deposit(_) => "router should route nags only to existing deposit SMs",
+                SMId::Graph(_) => "router should route nags only to existing graph SMs",
+                SMId::Stake(_) => "router should route nags only to existing stake SMs",
             };
+            let pov_p2p_key =
+                pov_p2p_key_for_sm(sm_registry, &sm_id).expect(missing_sm_message);
 
             // Check recipient matches POV
             if nag_request.recipient != pov_p2p_key {
@@ -617,6 +635,37 @@ pub(crate) fn classify_unsigned_gossip(
 
             vec![event]
         }
+    }
+}
+
+const fn nag_target_sm_id(payload: &NagRequestPayload) -> SMId {
+    match payload {
+        NagRequestPayload::DepositNonce { deposit_idx }
+        | NagRequestPayload::DepositPartial { deposit_idx }
+        | NagRequestPayload::PayoutNonce { deposit_idx }
+        | NagRequestPayload::PayoutPartial { deposit_idx }
+        | NagRequestPayload::SweepNonce { deposit_idx }
+        | NagRequestPayload::SweepPartial { deposit_idx } => SMId::Deposit(*deposit_idx),
+        NagRequestPayload::GraphData { graph_idx }
+        | NagRequestPayload::GraphNonces { graph_idx }
+        | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
+        NagRequestPayload::UnstakingData { operator_idx }
+        | NagRequestPayload::UnstakingNonces { operator_idx }
+        | NagRequestPayload::UnstakingPartials { operator_idx } => SMId::Stake(*operator_idx),
+    }
+}
+
+fn pov_p2p_key_for_sm(sm_registry: &SMRegistry, sm_id: &SMId) -> Option<P2POperatorPubKey> {
+    match sm_id {
+        SMId::Deposit(deposit_idx) => sm_registry
+            .get_deposit(deposit_idx)
+            .map(|sm| sm.context().operator_table().pov_p2p_key().clone()),
+        SMId::Graph(graph_idx) => sm_registry
+            .get_graph(graph_idx)
+            .map(|sm| sm.context().operator_table().pov_p2p_key().clone()),
+        SMId::Stake(operator_idx) => sm_registry
+            .get_stake(operator_idx)
+            .map(|sm| sm.context().operator_table().pov_p2p_key().clone()),
     }
 }
 
@@ -699,6 +748,7 @@ fn classify_mosaic_event(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEve
 #[cfg(test)]
 mod tests {
     use bitcoin::{OutPoint, Txid, hashes::Hash};
+    use strata_bridge_p2p_service::message_handler::OuroborosMessage;
     use strata_bridge_p2p_types::{
         GossipsubMsg, GraphData, PayoutDescriptor, UnsignedGossipsubMsg, XOnlyPubKey,
     };
@@ -1398,6 +1448,20 @@ mod tests {
                 classify_unsigned_gossip(&registry, &OperatorKey::Peer(&sender_p2p_key), &msg);
 
             assert!(result.is_empty(), "Should drop nag not addressed to us");
+
+            let ouroboros_event = UnifiedEvent::OuroborosMessage(OuroborosMessage {
+                publish: msg.clone(),
+            });
+            let outcome = classify_routed(&SMId::Deposit(deposit_idx), &ouroboros_event, &registry);
+            assert!(matches!(outcome, ClassificationOutcome::ExpectedDrop));
+
+            let event = UnifiedEvent::GossipMessage(GossipsubMsg {
+                signature: Vec::new(),
+                key: sender_p2p_key,
+                unsigned: msg,
+            });
+            let outcome = classify_routed(&SMId::Deposit(deposit_idx), &event, &registry);
+            assert!(matches!(outcome, ClassificationOutcome::ExpectedDrop));
         }
 
         #[test]
@@ -1423,6 +1487,14 @@ mod tests {
                 classify_unsigned_gossip(&registry, &OperatorKey::Peer(&unknown_sender_key), &msg);
 
             assert!(result.is_empty(), "Should drop nag from unknown sender");
+
+            let event = UnifiedEvent::GossipMessage(GossipsubMsg {
+                signature: Vec::new(),
+                key: unknown_sender_key,
+                unsigned: msg,
+            });
+            let outcome = classify_routed(&SMId::Deposit(deposit_idx), &event, &registry);
+            assert!(matches!(outcome, ClassificationOutcome::Unclassified));
         }
 
         #[test]

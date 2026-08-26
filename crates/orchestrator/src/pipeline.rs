@@ -164,21 +164,29 @@ impl Pipeline {
                         );
                         let sm_ids = events_router::route(&event, applicator.registry());
                         let target_count = sm_ids.len();
+                        let mut expected_drop_count = 0;
                         let seed_events: Vec<_> = sm_ids
                             .into_iter()
                             .filter_map(|sm_id| {
-                                offchain::classify(&sm_id, &event, applicator.registry())
-                                    .map(|sm_event| (sm_id, sm_event))
+                                match offchain::classify_routed(
+                                    &sm_id,
+                                    &event,
+                                    applicator.registry(),
+                                ) {
+                                    offchain::ClassificationOutcome::Classified(sm_event) => {
+                                        Some((sm_id, sm_event))
+                                    }
+                                    offchain::ClassificationOutcome::ExpectedDrop => {
+                                        expected_drop_count += 1;
+                                        None
+                                    }
+                                    offchain::ClassificationOutcome::Unclassified => None,
+                                }
                             })
                             .collect();
                         let classified_count = seed_events.len();
-                        let routing_result = if target_count == 0 {
-                            "no_targets"
-                        } else if classified_count == 0 {
-                            "no_classification"
-                        } else {
-                            "classified"
-                        };
+                        let routing_result =
+                            routing_result(target_count, classified_count, expected_drop_count);
                         observability::record_routing(event_kind, routing_result);
 
                         if target_count == 0
@@ -358,6 +366,22 @@ fn apply_safe_harbour_scan(applicator: &mut Applicator<'_>) -> Result<(), Pipeli
     Ok(())
 }
 
+const fn routing_result(
+    target_count: usize,
+    classified_count: usize,
+    expected_drop_count: usize,
+) -> &'static str {
+    if target_count == 0 {
+        "no_targets"
+    } else if classified_count > 0 {
+        "classified"
+    } else if expected_drop_count == target_count {
+        "expected_drop"
+    } else {
+        "no_classification"
+    }
+}
+
 /// Returns whether an event that produced no state-machine event needs the pipeline's generic
 /// warning. Nag requests report their specific drop reason in the router or classifier, so another
 /// warning here would either be misleading for an expected wrong-recipient drop or duplicate a
@@ -475,5 +499,14 @@ mod tests {
 
         assert!(!should_warn_on_unclassified_event(&event, 1, 1));
         assert!(!should_warn_on_unclassified_event(&event, 0, 0));
+    }
+
+    #[test]
+    fn routing_result_separates_expected_drops_from_failures() {
+        assert_eq!(routing_result(0, 0, 0), "no_targets");
+        assert_eq!(routing_result(1, 1, 0), "classified");
+        assert_eq!(routing_result(1, 0, 1), "expected_drop");
+        assert_eq!(routing_result(1, 0, 0), "no_classification");
+        assert_eq!(routing_result(2, 0, 1), "no_classification");
     }
 }
