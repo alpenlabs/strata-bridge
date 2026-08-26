@@ -13,3 +13,4 @@ pub mod game_graph;
 pub mod musig_functor;
 pub mod stake_graph;
 pub mod transactions;
+pub mod verify_contest;
