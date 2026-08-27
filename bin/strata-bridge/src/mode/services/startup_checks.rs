@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use algebra::retry::{Strategy, retry_with};
 use anyhow::{Context, Result, anyhow};
-use bitcoin::Amount;
+use bitcoin::{Amount, FeeRate};
 use jsonrpsee::http_client::HttpClient;
 use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::RpcCircuitInfoEntry;
@@ -56,6 +56,33 @@ pub(in crate::mode) fn verify_timelock_ordering(params: &Params, config: &Config
         .protocol
         .validate_timelock_ordering()
         .context("unsafe params timelocks")
+}
+
+/// The CPFP fee knobs must not contradict each other: a package floor above the cap would
+/// clamp every bump to the cap and the operator's two settings would fight. Checked at
+/// startup so the mismatch aborts the node instead of surfacing as a warn on every bump.
+pub(in crate::mode) fn verify_cpfp_fee_config(config: &Config) -> Result<()> {
+    let cap = FeeRate::from_sat_per_vb(config.max_fee_rate).ok_or_else(|| {
+        anyhow!(
+            "max_fee_rate = {} sat/vB is not a valid fee rate",
+            config.max_fee_rate
+        )
+    })?;
+    let floor = FeeRate::from_sat_per_vb(config.cpfp_min_package_fee_rate).ok_or_else(|| {
+        anyhow!(
+            "cpfp_min_package_fee_rate = {} sat/vB is not a valid fee rate",
+            config.cpfp_min_package_fee_rate
+        )
+    })?;
+    if floor > cap {
+        anyhow::bail!(
+            "cpfp_min_package_fee_rate = {} sat/vB exceeds max_fee_rate = {} sat/vB; \
+             the floor would clamp every CPFP bump to the cap",
+            config.cpfp_min_package_fee_rate,
+            config.max_fee_rate
+        );
+    }
+    Ok(())
 }
 
 async fn fetch_asm_params(client: &HttpClient, config: &AsmRpcConfig) -> Result<AsmParams> {
@@ -238,6 +265,20 @@ mod tests {
     use crate::{config::test_config, mode::services::test_fixtures::test_params};
 
     const ASSIGNMENT_DURATION: u16 = 144;
+
+    #[test]
+    fn a_package_floor_above_the_fee_cap_is_rejected() {
+        let mut config = test_config();
+        config.max_fee_rate = 10;
+        config.cpfp_min_package_fee_rate = 10;
+        verify_cpfp_fee_config(&config).expect("a floor at the cap is valid");
+
+        config.cpfp_min_package_fee_rate = 11;
+        assert!(
+            verify_cpfp_fee_config(&config).is_err(),
+            "a floor above the cap must abort startup"
+        );
+    }
 
     /// Arbitrary [`AsmParams`] with every *compared* field overwritten from `params`; the
     /// uncompared fields stay arbitrary on purpose — they must not affect the verdict.
