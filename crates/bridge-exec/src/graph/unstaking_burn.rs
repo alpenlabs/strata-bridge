@@ -6,7 +6,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot,
 };
-use btc_tracker::event::TxStatus;
+use btc_tracker::{cpfp::FeeTarget, event::TxStatus};
 use operator_wallet::{AnyOperatorWallet, Lease, LeaseOwner};
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_primitives::types::GraphIdx;
@@ -66,8 +66,12 @@ pub(super) async fn publish_unstaking_burn(
     // meant an operator's configured fee policy (e.g. mempool-explorer) was honoured for
     // deposits and stake funding but silently ignored here — and a bitcoind hiccup failed the
     // burn duty where the other paths ride it out on the cache. Floor at the same
-    // wallet-funded minimum the other v3 paths use.
-    let fee_rate = cfg.fee_source.try_current()?.max(MIN_WALLET_TX_FEE_RATE);
+    // wallet-funded minimum the other v3 paths use. `Standard`: the burn is not time-critical
+    // and does not pay the next-block premium tier.
+    let fee_rate = cfg
+        .fee_source
+        .try_current(FeeTarget::Standard)?
+        .max(MIN_WALLET_TX_FEE_RATE);
     debug!(%graph_idx, %fee_rate, "selected fee rate for unstaking burn transaction");
     if fee_rate > cfg.maximum_fee_rate {
         warn!(

@@ -69,9 +69,23 @@ struct FixedFeeSource(FeeRate);
 impl cpfp::CpfpFeeSource for FixedFeeSource {
     fn estimate(
         &self,
+        _target: cpfp::FeeTarget,
     ) -> impl std::future::Future<Output = Result<FeeRate, cpfp::FeeSourceError>> + Send {
         let rate = self.0;
         async move { Ok(rate) }
+    }
+
+    fn estimate_all(
+        &self,
+    ) -> impl std::future::Future<Output = Result<cpfp::TargetRates, cpfp::FeeSourceError>> + Send
+    {
+        let rate = self.0;
+        async move {
+            Ok(cpfp::TargetRates {
+                standard: rate,
+                next_block: rate,
+            })
+        }
     }
 }
 

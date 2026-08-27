@@ -29,7 +29,9 @@ use std::{
 use async_trait::async_trait;
 use bitcoin::FeeRate;
 use bitcoind_async_client::{ClientResult, traits::Reader};
-use btc_tracker::cpfp::{CachedFeeSource, CpfpFeeSource, FeeSourceError as CpfpFeeSourceError};
+use btc_tracker::cpfp::{
+    CachedFeeSource, CpfpFeeSource, FeeSourceError as CpfpFeeSourceError, FeeTarget, TargetRates,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
@@ -111,19 +113,25 @@ impl<R: FeeRateRpc> BitcoindFeeSource<R> {
     /// `conf_target` must be in `1..=1008` (Bitcoin Core rejects everything else).
     /// [`FeeSourceConfig::build`] validates before it constructs; a direct caller owns
     /// that check itself.
+    ///
+    /// `conf_target` controls the [`FeeTarget::Standard`] slot only; the
+    /// [`FeeTarget::NextBlock`] slot always queries `estimatesmartfee(1)`.
     pub const fn new(client: Arc<R>, conf_target: u16) -> Self {
         Self {
             client,
             conf_target,
         }
     }
-}
 
-impl<R: FeeRateRpc> CpfpFeeSource for BitcoindFeeSource<R> {
-    async fn estimate(&self) -> Result<FeeRate, CpfpFeeSourceError> {
+    /// One `estimatesmartfee` round trip for `target`, floored at [`MIN_SOURCE_FEE_RATE`].
+    async fn estimate_target(&self, target: FeeTarget) -> Result<FeeRate, CpfpFeeSourceError> {
+        let conf_target = match target {
+            FeeTarget::Standard => self.conf_target,
+            FeeTarget::NextBlock => 1,
+        };
         let rate = self
             .client
-            .estimate_smart_fee(self.conf_target)
+            .estimate_smart_fee(conf_target)
             .await
             .map_err(|e| CpfpFeeSourceError(FeeSourceError::Bitcoind(e).to_string()))?;
         let rate = match rate {
@@ -136,13 +144,34 @@ impl<R: FeeRateRpc> CpfpFeeSource for BitcoindFeeSource<R> {
                 // misconfigured node is indistinguishable from a genuinely calm mempool,
                 // and every bump quietly targets the minimum forever.
                 warn!(
-                    conf_target = self.conf_target,
+                    conf_target,
                     "estimatesmartfee returned no estimate; falling back to the floor fee rate"
                 );
                 MIN_SOURCE_FEE_RATE
             }
         };
         Ok(rate.max(MIN_SOURCE_FEE_RATE))
+    }
+}
+
+impl<R: FeeRateRpc> CpfpFeeSource for BitcoindFeeSource<R> {
+    async fn estimate(&self, target: FeeTarget) -> Result<FeeRate, CpfpFeeSourceError> {
+        self.estimate_target(target).await
+    }
+
+    async fn estimate_all(&self) -> Result<TargetRates, CpfpFeeSourceError> {
+        // Dedupe when the configured standard tier is already the next-block tier:
+        // two `estimatesmartfee(1)` round trips would buy one answer.
+        let next_block = self.estimate_target(FeeTarget::NextBlock).await?;
+        let standard = if self.conf_target == 1 {
+            next_block
+        } else {
+            self.estimate_target(FeeTarget::Standard).await?
+        };
+        Ok(TargetRates {
+            standard,
+            next_block,
+        })
     }
 }
 
@@ -227,6 +256,9 @@ impl<R: FeeRateRpc> MempoolExplorerFeeSource<R> {
     /// indicated by `policy`. `base_url` is e.g. `https://mempool.space/signet` or
     /// `https://mempool.space` for mainnet.
     ///
+    /// `policy` controls the [`FeeTarget::Standard`] slot only; the
+    /// [`FeeTarget::NextBlock`] slot always selects the fastest tier.
+    ///
     /// Returns an error if `base_url` is malformed enough that we cannot construct the
     /// recommended-fees URL from it.
     pub fn new(
@@ -251,6 +283,15 @@ impl<R: FeeRateRpc> MempoolExplorerFeeSource<R> {
         })
     }
 
+    /// Maps a [`FeeTarget`] onto the explorer tier it consumes. Next-block is always the
+    /// endpoint's `fastestFee` tier, whatever the configured policy is.
+    const fn tier_for(target: FeeTarget, configured: MempoolFeePolicy) -> MempoolFeePolicy {
+        match target {
+            FeeTarget::Standard => configured,
+            FeeTarget::NextBlock => MempoolFeePolicy::Fastest,
+        }
+    }
+
     async fn fetch_recommended(&self) -> Result<RecommendedFees, FeeSourceError> {
         let response = SHARED_HTTP_CLIENT
             .get(self.recommended_fees_url.clone())
@@ -267,12 +308,32 @@ impl<R: FeeRateRpc> MempoolExplorerFeeSource<R> {
 }
 
 impl<R: FeeRateRpc> CpfpFeeSource for MempoolExplorerFeeSource<R> {
-    async fn estimate(&self) -> Result<FeeRate, CpfpFeeSourceError> {
+    async fn estimate(&self, target: FeeTarget) -> Result<FeeRate, CpfpFeeSourceError> {
         match self.fetch_recommended().await {
-            Ok(fees) => Ok(clamp_to_min(fees.select(self.policy))),
+            Ok(fees) => Ok(clamp_to_min(
+                fees.select(Self::tier_for(target, self.policy)),
+            )),
             Err(e) => {
                 warn!(error = %e, "mempool explorer fee lookup failed; falling back to bitcoind");
-                self.fallback.estimate().await
+                self.fallback.estimate(target).await
+            }
+        }
+    }
+
+    /// One HTTP call feeds both slots — the endpoint returns every tier at once.
+    async fn estimate_all(&self) -> Result<TargetRates, CpfpFeeSourceError> {
+        match self.fetch_recommended().await {
+            Ok(fees) => Ok(TargetRates {
+                standard: clamp_to_min(
+                    fees.select(Self::tier_for(FeeTarget::Standard, self.policy)),
+                ),
+                next_block: clamp_to_min(
+                    fees.select(Self::tier_for(FeeTarget::NextBlock, self.policy)),
+                ),
+            }),
+            Err(e) => {
+                warn!(error = %e, "mempool explorer fee lookup failed; falling back to bitcoind");
+                self.fallback.estimate_all().await
             }
         }
     }
@@ -297,8 +358,15 @@ impl FixedFeeSource {
 }
 
 impl CpfpFeeSource for FixedFeeSource {
-    async fn estimate(&self) -> Result<FeeRate, CpfpFeeSourceError> {
+    async fn estimate(&self, _target: FeeTarget) -> Result<FeeRate, CpfpFeeSourceError> {
         Ok(self.0)
+    }
+
+    async fn estimate_all(&self) -> Result<TargetRates, CpfpFeeSourceError> {
+        Ok(TargetRates {
+            standard: self.0,
+            next_block: self.0,
+        })
     }
 }
 
@@ -323,11 +391,19 @@ pub enum ConfiguredFeeSource<R> {
 }
 
 impl<R: FeeRateRpc> CpfpFeeSource for ConfiguredFeeSource<R> {
-    async fn estimate(&self) -> Result<FeeRate, CpfpFeeSourceError> {
+    async fn estimate(&self, target: FeeTarget) -> Result<FeeRate, CpfpFeeSourceError> {
         match self {
-            Self::Bitcoind(s) => s.estimate().await,
-            Self::Mempool(s) => s.estimate().await,
-            Self::Fixed(s) => s.estimate().await,
+            Self::Bitcoind(s) => s.estimate(target).await,
+            Self::Mempool(s) => s.estimate(target).await,
+            Self::Fixed(s) => s.estimate(target).await,
+        }
+    }
+
+    async fn estimate_all(&self) -> Result<TargetRates, CpfpFeeSourceError> {
+        match self {
+            Self::Bitcoind(s) => s.estimate_all().await,
+            Self::Mempool(s) => s.estimate_all().await,
+            Self::Fixed(s) => s.estimate_all().await,
         }
     }
 }
@@ -341,7 +417,8 @@ impl<R: FeeRateRpc> CpfpFeeSource for ConfiguredFeeSource<R> {
 pub enum FeeSourceConfig {
     /// Query Bitcoin Core's `estimatesmartfee(conf_target)` directly.
     BitcoinCore {
-        /// Block confirmation target passed to `estimatesmartfee`.
+        /// Block confirmation target passed to `estimatesmartfee` for `Standard` estimates.
+        /// The `NextBlock` target always queries conf target 1.
         conf_target: u16,
     },
     /// Query a mempool.space-compatible explorer's `/api/v1/fees/recommended` endpoint, with
@@ -349,7 +426,8 @@ pub enum FeeSourceConfig {
     MempoolExplorer {
         /// Base URL, e.g. `https://mempool.space/signet` or `https://mempool.space`.
         base_url: Url,
-        /// Which tier of the recommended-fees response to use.
+        /// The tier of the recommended-fees response to use for `Standard` estimates. The
+        /// `NextBlock` target always uses the fastest tier.
         policy: MempoolFeePolicy,
         /// `conf_target` passed to `estimatesmartfee` on the fallback path.
         fallback_conf_target: u16,
@@ -472,8 +550,11 @@ pub(crate) fn wallet_tx_fee_rate(
 ) -> Result<FeeRate, ExecutorError> {
     // `try_current`, not `current`: a duty that prices from a frozen quote broadcasts at
     // whatever the market was when the source died. The error aborts the duty, and the
-    // retry succeeds after the source recovers.
-    let fee_rate = fee_source.try_current()?.max(MIN_WALLET_TX_FEE_RATE);
+    // retry succeeds after the source recovers. `Standard`: wallet-funded transactions are
+    // not time-critical and do not pay the next-block premium tier.
+    let fee_rate = fee_source
+        .try_current(FeeTarget::Standard)?
+        .max(MIN_WALLET_TX_FEE_RATE);
     if fee_rate > maximum_fee_rate {
         return Err(ExecutorError::FeeRateTooHigh {
             fee_rate,
@@ -529,6 +610,22 @@ mod tests {
         }
     }
 
+    /// [`MockFeeRateRpc`] variant that records the conf target of every `estimatesmartfee`
+    /// call, for asserting the [`FeeTarget`] → conf-target mapping.
+    #[derive(Debug)]
+    struct CapturingFeeRateRpc {
+        rate: ClientResult<Option<FeeRate>>,
+        conf_targets: std::sync::Mutex<Vec<u16>>,
+    }
+
+    #[async_trait]
+    impl FeeRateRpc for CapturingFeeRateRpc {
+        async fn estimate_smart_fee(&self, conf_target: u16) -> ClientResult<Option<FeeRate>> {
+            self.conf_targets.lock().unwrap().push(conf_target);
+            self.rate.clone()
+        }
+    }
+
     fn recommended_fees_body(
         fastest: u64,
         half_hour: u64,
@@ -548,14 +645,40 @@ mod tests {
     #[tokio::test]
     async fn bitcoind_happy_path() {
         let source = BitcoindFeeSource::new(Arc::new(MockFeeRateRpc::returning(5)), 1);
-        let rate = source.estimate().await.unwrap();
+        let rate = source.estimate(FeeTarget::Standard).await.unwrap();
         assert_eq!(rate, FeeRate::from_sat_per_vb(5).unwrap());
+    }
+
+    #[tokio::test]
+    async fn bitcoind_maps_targets_to_conf_targets() {
+        let capturing = Arc::new(CapturingFeeRateRpc {
+            rate: Ok(FeeRate::from_sat_per_vb(5)),
+            conf_targets: std::sync::Mutex::new(Vec::new()),
+        });
+        let source = BitcoindFeeSource::new(capturing.clone(), 3);
+        source.estimate(FeeTarget::NextBlock).await.unwrap();
+        source.estimate(FeeTarget::Standard).await.unwrap();
+        // NextBlock always queries conf target 1; Standard queries the configured target.
+        assert_eq!(*capturing.conf_targets.lock().unwrap(), vec![1, 3]);
+    }
+
+    #[tokio::test]
+    async fn bitcoind_estimate_all_dedupes_when_standard_is_next_block() {
+        let capturing = Arc::new(CapturingFeeRateRpc {
+            rate: Ok(FeeRate::from_sat_per_vb(5)),
+            conf_targets: std::sync::Mutex::new(Vec::new()),
+        });
+        let source = BitcoindFeeSource::new(capturing.clone(), 1);
+        let rates = source.estimate_all().await.unwrap();
+        // One round trip fills both slots when the configured standard tier is already 1.
+        assert_eq!(*capturing.conf_targets.lock().unwrap(), vec![1]);
+        assert_eq!(rates.standard, rates.next_block);
     }
 
     #[tokio::test]
     async fn bitcoind_floors_zero_to_one() {
         let source = BitcoindFeeSource::new(Arc::new(MockFeeRateRpc::returning(0)), 1);
-        let rate = source.estimate().await.unwrap();
+        let rate = source.estimate(FeeTarget::Standard).await.unwrap();
         assert_eq!(rate, FeeRate::from_sat_per_vb(1).unwrap());
     }
 
@@ -565,15 +688,15 @@ mod tests {
     #[tokio::test]
     async fn bitcoind_floors_missing_estimate_to_one() {
         let source = BitcoindFeeSource::new(Arc::new(MockFeeRateRpc::returning_none()), 1);
-        let rate = source.estimate().await.unwrap();
+        let rate = source.estimate(FeeTarget::Standard).await.unwrap();
         assert_eq!(rate, FeeRate::from_sat_per_vb(1).unwrap());
     }
 
     #[tokio::test]
     async fn bitcoind_propagates_rpc_error() {
         let source = BitcoindFeeSource::new(Arc::new(MockFeeRateRpc::failing()), 1);
-        let err = source.estimate().await.unwrap_err();
-        assert!(err.contains("bitcoind"), "unexpected error: {err}");
+        let err = source.estimate(FeeTarget::Standard).await.unwrap_err();
+        assert!(err.0.contains("bitcoind"), "unexpected error: {err}");
     }
 
     #[tokio::test]
@@ -594,7 +717,7 @@ mod tests {
             fallback,
         )
         .unwrap();
-        let rate = source.estimate().await.unwrap();
+        let rate = source.estimate(FeeTarget::Standard).await.unwrap();
         assert_eq!(rate, FeeRate::from_sat_per_vb(10).unwrap());
     }
 
@@ -616,8 +739,43 @@ mod tests {
             fallback,
         )
         .unwrap();
-        let rate = source.estimate().await.unwrap();
+        let rate = source.estimate(FeeTarget::Standard).await.unwrap();
         assert_eq!(rate, FeeRate::from_sat_per_vb(3).unwrap());
+    }
+
+    /// Pins the `FeeTarget`-to-tier mapping: `Standard` reads the configured policy (economy
+    /// here) and `NextBlock` always reads the fastest tier. A regression mapping `NextBlock`
+    /// to the configured policy would leave this suite green while pricing CPFP children at
+    /// the slower tier.
+    #[tokio::test]
+    async fn mempool_maps_targets_to_tiers() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(recommended_fees_body(10, 7, 5, 3, 1)),
+            )
+            .mount(&server)
+            .await;
+
+        let fallback = BitcoindFeeSource::new(Arc::new(MockFeeRateRpc::failing()), 1);
+        let source = MempoolExplorerFeeSource::new(
+            Url::parse(&server.uri()).unwrap(),
+            MempoolFeePolicy::Economy,
+            fallback,
+        )
+        .unwrap();
+        assert_eq!(
+            source.estimate(FeeTarget::Standard).await.unwrap(),
+            FeeRate::from_sat_per_vb(3).unwrap()
+        );
+        assert_eq!(
+            source.estimate(FeeTarget::NextBlock).await.unwrap(),
+            FeeRate::from_sat_per_vb(10).unwrap()
+        );
+        let rates = source.estimate_all().await.unwrap();
+        assert_eq!(rates.standard, FeeRate::from_sat_per_vb(3).unwrap());
+        assert_eq!(rates.next_block, FeeRate::from_sat_per_vb(10).unwrap());
     }
 
     #[tokio::test]
@@ -636,7 +794,7 @@ mod tests {
             fallback,
         )
         .unwrap();
-        let rate = source.estimate().await.unwrap();
+        let rate = source.estimate(FeeTarget::Standard).await.unwrap();
         // Fallback succeeded; the mempool error is absorbed.
         assert_eq!(rate, FeeRate::from_sat_per_vb(4).unwrap());
     }
@@ -657,7 +815,7 @@ mod tests {
             fallback,
         )
         .unwrap();
-        let rate = source.estimate().await.unwrap();
+        let rate = source.estimate(FeeTarget::Standard).await.unwrap();
         assert_eq!(rate, FeeRate::from_sat_per_vb(6).unwrap());
     }
 
@@ -678,14 +836,14 @@ mod tests {
         )
         .unwrap();
         // Mempool error is absorbed; surfaced error is from the bitcoind fallback.
-        let err = source.estimate().await.unwrap_err();
-        assert!(err.contains("bitcoind"), "unexpected error: {err}");
+        let err = source.estimate(FeeTarget::Standard).await.unwrap_err();
+        assert!(err.0.contains("bitcoind"), "unexpected error: {err}");
     }
 
     #[tokio::test]
     async fn fixed_source_returns_configured_rate() {
         let source = FixedFeeSource::from_sat_per_vb(7).unwrap();
-        let rate = source.estimate().await.unwrap();
+        let rate = source.estimate(FeeTarget::Standard).await.unwrap();
         assert_eq!(rate, FeeRate::from_sat_per_vb(7).unwrap());
     }
 
@@ -705,7 +863,7 @@ mod tests {
         let fallback = BitcoindFeeSource::new(Arc::new(MockFeeRateRpc::failing()), 1);
         let source =
             MempoolExplorerFeeSource::new(base, MempoolFeePolicy::Fastest, fallback).unwrap();
-        let rate = source.estimate().await.unwrap();
+        let rate = source.estimate(FeeTarget::Standard).await.unwrap();
         assert_eq!(rate, FeeRate::from_sat_per_vb(12).unwrap());
     }
 
