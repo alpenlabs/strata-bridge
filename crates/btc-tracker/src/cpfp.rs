@@ -899,6 +899,16 @@ where
     /// target to this and warns when clamping kicks in. Per design, exceeding this is an
     /// operator policy decision: we don't escalate.
     pub max_fee_rate: FeeRate,
+    /// Premium applied on top of the next-block fee estimate when pricing a CPFP bump
+    /// target, as a percentage of the estimate (e.g. `5` = +5%). Computed in sat/kwu and
+    /// rounded up, so the premium raises the target and never lowers it. A value of `0`
+    /// prices the child at the raw estimate.
+    pub fee_premium_percent: u32,
+    /// Floor on the package fee rate the bump ladder targets. The child pays the package
+    /// shortfall, including the parent's below-floor portion. When the parent sat at a
+    /// lower rate, the child's fee lifts the whole package to the floor. Applied after the
+    /// premium, before the [`Self::max_fee_rate`] clamp.
+    pub min_package_fee_rate: FeeRate,
     /// Submits `[parent, child]` packages via bitcoind. Wrapper around the
     /// [`submitpackage::submit_package`] helper.
     pub mempool: Arc<P>,
@@ -918,6 +928,8 @@ where
             multi_anchor_signer: self.multi_anchor_signer.clone(),
             wallet_input_signer: self.wallet_input_signer.clone(),
             max_fee_rate: self.max_fee_rate,
+            fee_premium_percent: self.fee_premium_percent,
+            min_package_fee_rate: self.min_package_fee_rate,
             mempool: self.mempool.clone(),
         }
     }
@@ -936,6 +948,8 @@ where
             .field("anchor_input_signer", &"<closure>")
             .field("wallet_input_signer", &"<closure>")
             .field("max_fee_rate", &self.max_fee_rate)
+            .field("fee_premium_percent", &self.fee_premium_percent)
+            .field("min_package_fee_rate", &self.min_package_fee_rate)
             .field("mempool", &self.mempool)
             .finish()
     }
@@ -992,6 +1006,15 @@ impl BumpReason {
 /// transactions price from [`FeeTarget::Standard`] through the same cache; they never
 /// touch this path.
 ///
+/// ## Premium and package floor
+///
+/// Before the cap clamp, the ladder raises the next-block estimate by
+/// `fee_premium_percent` (a percentage, rounded up in sat/kwu) and floors it at
+/// `min_package_fee_rate`. The floor bounds the package fee rate target. The child pays
+/// the package shortfall, so the package always lands at or above the floor. Both knobs
+/// are consumer policy on this context. Sources report raw market estimates, and
+/// wallet-funded transactions never pass through either knob.
+///
 /// ## Cap-and-warn at `max_fee_rate`
 ///
 /// When the fee source reports above `ctx.max_fee_rate`, the target is clamped and a warning
@@ -1027,6 +1050,24 @@ where
         .estimate(FeeTarget::NextBlock)
         .await
         .map_err(CpfpError::FeeSource)?;
+
+    // Apply the premium (a percentage of the next-block estimate, computed in sat/kwu and
+    // rounded up, so it raises the target and never lowers it), then the package floor,
+    // before the cap clamp below. A zero premium and a zero floor reproduce the raw
+    // estimate: both knobs are consumer policy and default to the values the operator set
+    // in the bridge config.
+    let estimated = if ctx.fee_premium_percent > 0 {
+        let rate_kwu = estimated.to_sat_per_kwu() as u128;
+        let multiplier = (ctx.fee_premium_percent as u128) + 100;
+        let premiumed = rate_kwu.saturating_mul(multiplier).div_ceil(100);
+        // A source rate or premium large enough that the raised rate does not fit a
+        // u64 saturates at the maximum instead of wrapping low; the cap clamp below
+        // then bounds it with a warning.
+        FeeRate::from_sat_per_kwu(premiumed.try_into().unwrap_or(u64::MAX))
+    } else {
+        estimated
+    };
+    let estimated = estimated.max(ctx.min_package_fee_rate);
 
     // ── 2. Clamp to max_fee_rate, warn if clamping kicked in ────────────────
     let target = if estimated > ctx.max_fee_rate {
@@ -1846,6 +1887,11 @@ pub(crate) mod tests {
             anchor_input_signer: anchor_signer,
             wallet_input_signer: wallet_signer,
             max_fee_rate,
+            // Neutral fee knobs: the existing ladder tests pin the raw estimate → clamp
+            // behaviour, so the premium and floor stay off here. The knob tests below
+            // construct their context directly with the PRD values.
+            fee_premium_percent: 0,
+            min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
             mempool: submitter,
         }
     }
@@ -2905,7 +2951,7 @@ pub(crate) mod tests {
             FeeRate::from_sat_per_vb(100).unwrap(),
         );
         let mut handle = CpfpHandle::default();
-        let outcome = perform_bump(
+        let bumped = perform_bump(
             &ctx,
             &parent,
             anchor_strategy(anchor_key),
@@ -2916,8 +2962,8 @@ pub(crate) mod tests {
         .await
         .expect("bump at the next-block rate must succeed");
         assert!(
-            matches!(outcome, BumpOutcome::Submitted),
-            "the next-block bump must submit a package: {outcome:?}"
+            matches!(bumped, BumpOutcome::Submitted),
+            "the next-block bump must submit a package: {bumped:?}"
         );
         assert_eq!(
             handle.last_pkg_fee_rate,
@@ -3140,6 +3186,218 @@ pub(crate) mod tests {
         }
     }
 
+    // ── Fee-knob tests (premium + package floor) ────────────────────────────
+    //
+    // The [`context`] helper pins neutral knobs (premium 0, floor 0 = raw estimate), so
+    // these tests build their context directly with the PRD values and assert the exact
+    // target the ladder computes: `handle.last_pkg_fee_rate` is the ladder's target, set
+    // only on a successful bump.
+
+    fn knob_test_context(
+        parent: &Transaction,
+        anchor_key: XOnlyPublicKey,
+        estimate: FeeRate,
+        premium_percent: u32,
+        min_package: FeeRate,
+        max_fee_rate: FeeRate,
+    ) -> CpfpContext<FakeWallet, FakeFeeSource, FakeSubmitter> {
+        let wallet_funding = vec![OutPoint {
+            txid: parent.compute_txid(),
+            vout: 7,
+        }];
+        let psbt = synthetic_child_psbt(parent, 0, anchor_key);
+        CpfpContext {
+            wallet: Arc::new(FakeWallet::returning(psbt, wallet_funding)),
+            fee_source: Arc::new(FakeFeeSource::returning(estimate)),
+            anchor_input_signer: fake_input_signer_ok(),
+            multi_anchor_signer: fake_input_signer_ok(),
+            wallet_input_signer: fake_input_signer_ok(),
+            max_fee_rate,
+            fee_premium_percent: premium_percent,
+            min_package_fee_rate: min_package,
+            mempool: Arc::new(FakeSubmitter::ok()),
+        }
+    }
+
+    #[tokio::test]
+    async fn fee_premium_raises_the_target() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        // 20 sat/vB × 1.05 = 21 sat/vB; the 10 sat/vB floor does not bind below the premium.
+        let ctx = knob_test_context(
+            &parent,
+            anchor_key,
+            FeeRate::from_sat_per_vb(20).unwrap(),
+            5,
+            FeeRate::from_sat_per_vb(10).unwrap(),
+            FeeRate::from_sat_per_vb(100).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("bump at the premium rate must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "expected a submitted package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_vb(21).unwrap()),
+            "5% premium on 20 sat/vB is 21 sat/vB"
+        );
+    }
+
+    #[tokio::test]
+    async fn package_floor_lifts_a_low_estimate() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        // Premium 0 is a no-op: the raw 3 sat/vB estimate lifts straight to the 10 sat/vB
+        // floor. A zero premium with a zero floor (the [`context`] helper) would keep 3.
+        let ctx = knob_test_context(
+            &parent,
+            anchor_key,
+            FeeRate::from_sat_per_vb(3).unwrap(),
+            0,
+            FeeRate::from_sat_per_vb(10).unwrap(),
+            FeeRate::from_sat_per_vb(100).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("bump at the floor must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "expected a submitted package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_vb(10).unwrap())
+        );
+    }
+
+    /// Pins the premium-then-floor order: the premium is computed on the raw estimate,
+    /// then the floor is applied to the premiumed rate. Premium 5% on 3 sat/vB is
+    /// 788 sat/kwu (below the floor); a floor-first regression would apply the premium to
+    /// the floored 10 sat/vB and land at 2625 sat/kwu instead of exactly the floor.
+    #[tokio::test]
+    async fn floor_applies_after_the_premium() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        let ctx = knob_test_context(
+            &parent,
+            anchor_key,
+            FeeRate::from_sat_per_vb(3).unwrap(),
+            5,
+            FeeRate::from_sat_per_vb(10).unwrap(),
+            FeeRate::from_sat_per_vb(100).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("bump at the floored premiumed rate must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "expected a submitted package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_vb(10).unwrap()),
+            "the floor must apply to the premiumed rate, not the other way round"
+        );
+    }
+
+    #[tokio::test]
+    async fn cap_wins_over_premium_and_floor() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        // 20 × 105 / 100 = 21, floor 10 does not bind, then the 12 sat/vB cap clamps the
+        // target. Order matters: the cap clamps the premium-raised rate, not the raw
+        // estimate.
+        let ctx = knob_test_context(
+            &parent,
+            anchor_key,
+            FeeRate::from_sat_per_vb(20).unwrap(),
+            5,
+            FeeRate::from_sat_per_vb(10).unwrap(),
+            FeeRate::from_sat_per_vb(12).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("clamped bump must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "expected a submitted package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_vb(12).unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn fee_premium_rounds_up_in_sat_kwu() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        // 3 sat/vB = 750 sat/kwu; 750 × 105 / 100 = 787.5, rounded up to 788. The rounding
+        // is conservative: the premium never lowers the target.
+        let ctx = knob_test_context(
+            &parent,
+            anchor_key,
+            FeeRate::from_sat_per_vb(3).unwrap(),
+            5,
+            FeeRate::from_sat_per_vb_unchecked(0),
+            FeeRate::from_sat_per_vb(100).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("premium bump must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "expected a submitted package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_kwu(788))
+        );
+    }
+
     /// A constant-byte signer whose output is recognisable in the final witness, so a test can
     /// prove *which* signer produced a given signature rather than only that signing happened.
     fn fake_input_signer_const(byte: u8) -> InputSigner {
@@ -3225,6 +3483,9 @@ pub(crate) mod tests {
             multi_anchor_signer: fake_input_signer_const(0xAA),
             wallet_input_signer: fake_input_signer_const(0xBB),
             max_fee_rate: FeeRate::from_sat_per_vb(20).unwrap(),
+            // Neutral fee knobs: this test pins signer selection, not pricing.
+            fee_premium_percent: 0,
+            min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
             mempool: submitter.clone(),
         };
         let strategy = CpfpStrategy::MultiAnchorBearing {

@@ -382,6 +382,9 @@ async fn cpfp_e2e_against_bitcoind() {
         anchor_input_signer,
         wallet_input_signer,
         max_fee_rate,
+        // Neutral fee knobs: the e2e tests pin the raw-estimate-to-cap behavior.
+        fee_premium_percent: 0,
+        min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
         mempool: cpfp_submitter,
     };
 
@@ -574,6 +577,9 @@ async fn cpfp_e2e_parent_tx_combined_against_bitcoind() {
         anchor_input_signer,
         wallet_input_signer,
         max_fee_rate,
+        // Neutral fee knobs: the e2e tests pin the raw-estimate-to-cap behavior.
+        fee_premium_percent: 0,
+        min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
         mempool: cpfp_submitter,
     };
 
@@ -790,6 +796,9 @@ async fn cpfp_e2e_infer_general_payout_against_bitcoind() {
         anchor_input_signer,
         wallet_input_signer,
         max_fee_rate,
+        // Neutral fee knobs: the e2e tests pin the raw-estimate-to-cap behavior.
+        fee_premium_percent: 0,
+        min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
         mempool: cpfp_submitter,
     };
 
@@ -1001,6 +1010,9 @@ async fn cpfp_e2e_multi_anchor_against_bitcoind() {
         anchor_input_signer,
         wallet_input_signer: test_input_signer(operator_keypair),
         max_fee_rate: FeeRate::from_sat_per_vb(TEST_FEE_CAP).unwrap(),
+        // Neutral fee knobs: the e2e tests pin the raw-estimate-to-cap behavior.
+        fee_premium_percent: 0,
+        min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
         mempool: Arc::new(BitcoindCpfpMempool::new(async_client.clone())),
     };
 
@@ -1139,6 +1151,9 @@ async fn cpfp_e2e_multi_anchor_contention_is_quiet() {
             anchor_input_signer: test_input_signer(operator_keypair),
             wallet_input_signer: test_input_signer(operator_keypair),
             max_fee_rate: FeeRate::from_sat_per_vb(TEST_FEE_CAP).unwrap(),
+            // Neutral fee knobs: the e2e tests pin the raw-estimate-to-cap behavior.
+            fee_premium_percent: 0,
+            min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
             mempool: Arc::new(BitcoindCpfpMempool::new(async_client.clone())),
         };
         let strategy = CpfpStrategy::MultiAnchorBearing {
@@ -1207,6 +1222,9 @@ async fn cpfp_e2e_multi_anchor_contention_is_quiet() {
         anchor_input_signer: ctx2.anchor_input_signer,
         wallet_input_signer: ctx2.wallet_input_signer,
         max_fee_rate: ctx2.max_fee_rate,
+        // Neutral fee knobs: the e2e tests pin the raw-estimate-to-cap behavior.
+        fee_premium_percent: 0,
+        min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
         mempool: Arc::new(BlindToSpends(BitcoindCpfpMempool::new(
             async_client.clone(),
         ))),
