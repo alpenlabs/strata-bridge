@@ -15,7 +15,10 @@
 
 use std::collections::HashMap;
 
-use bitcoin::{absolute::LockTime, transaction::Version, OutPoint, Transaction, Txid};
+use bitcoin::{
+    absolute::LockTime, opcodes, script::Instruction, taproot::LeafVersion, transaction::Version,
+    OutPoint, Transaction, Txid, XOnlyPublicKey,
+};
 
 use crate::{
     transactions::prelude::{ClaimTx, ContestTx, CounterproofAckTx},
@@ -112,22 +115,71 @@ pub enum AckError {
 /// on input count, since it additionally spends the deposit, the claim payout connector and the
 /// contest slash connector.
 ///
-/// This is a structural test. It does not authenticate anything on its own — its meaning comes
-/// entirely from `contest_txid` having already been verified.
-pub fn is_ack_of(contest_txid: Txid, tx: &Transaction) -> bool {
+/// The shape checks alone authenticate nothing, so one more is applied: an ack's other input
+/// spends the counterproof connector through its timeout leaf, which reveals
+///
+/// ```text
+/// <n_of_n> OP_CHECKSIGVERIFY <delta_nack> OP_CSV
+/// ```
+///
+/// For a confirmed transaction consensus has already validated that spend, so the configured
+/// N/N key appearing there proves the covenant signed this transaction. The same caveat as
+/// elsewhere applies: the argument holds only because the transaction is confirmed.
+///
+/// The contest payout connector input is a key path spend and reveals no script, so it cannot
+/// carry this check.
+pub fn is_ack_of(params: &VerifyParams, contest_txid: Txid, tx: &Transaction) -> bool {
     let spends = |vout: u32| {
         tx.input
             .iter()
             .any(|input| input.previous_output == OutPoint::new(contest_txid, vout))
     };
 
-    tx.version == Version(3)
+    let shape = tx.version == Version(3)
         && tx.lock_time == LockTime::ZERO
         && tx.input.len() == CounterproofAckTx::N_INPUTS
         && tx.output.len() == 1
         && tx.output[0].script_pubkey.is_p2tr()
         && spends(ContestTx::PAYOUT_VOUT)
-        && !spends(ContestTx::PROOF_VOUT)
+        && !spends(ContestTx::PROOF_VOUT);
+
+    // any input may carry the leaf; the payout connector one never does
+    shape
+        && tx.input.iter().any(|input| {
+            input
+                .witness
+                .taproot_leaf_script()
+                .filter(|leaf| leaf.version == LeafVersion::TapScript)
+                .and_then(|leaf| timelocked_leaf_key(leaf.script))
+                .is_some_and(|n_of_n| n_of_n == params.n_of_n_pubkey)
+        })
+}
+
+/// Parses `<key> OP_CHECKSIGVERIFY <n> OP_CSV`, returning the key.
+fn timelocked_leaf_key(leaf: &bitcoin::Script) -> Option<XOnlyPublicKey> {
+    let mut instructions = leaf.instructions();
+
+    let key = match instructions.next()? {
+        Ok(Instruction::PushBytes(bytes)) => XOnlyPublicKey::from_slice(bytes.as_bytes()).ok()?,
+        _ => return None,
+    };
+    match instructions.next()? {
+        Ok(Instruction::Op(opcodes::all::OP_CHECKSIGVERIFY)) => {}
+        _ => return None,
+    }
+    match instructions.next()? {
+        Ok(Instruction::PushBytes(_)) | Ok(Instruction::Op(_)) => {}
+        _ => return None,
+    }
+    match instructions.next()? {
+        Ok(Instruction::Op(opcodes::all::OP_CSV)) => {}
+        _ => return None,
+    }
+    if instructions.next().is_some() {
+        return None;
+    }
+
+    Some(key)
 }
 
 /// Reports whether a watchtower ack exists on chain for the game that `claim_txid` belongs to.
@@ -160,7 +212,7 @@ pub fn verify_ack<S: GraphTxSource>(
             let spender = source
                 .tx(&spender_txid)
                 .ok_or(AckError::MissingTx(spender_txid))?;
-            is_ack_of(contest_txid, &spender)
+            is_ack_of(params, contest_txid, &spender)
         }
     };
 
@@ -176,7 +228,7 @@ mod tests {
     use bitcoin::{consensus::encode::deserialize_hex, hashes::Hash};
 
     use super::*;
-    use crate::verify_contest::tests::{claim_tx, contest_tx, params, CLAIM_TX_HEX, CONTEST_TX_HEX, EXPECTED};
+    use crate::verify_contest::tests::{claim_tx, contest_tx, params, EXPECTED};
 
     /// Bridge proof timeout 29ac5eab17330569aba4bd82a481bd50ce03cc8d80f92d3a1689a5a0487bf779.
     /// It spends the contest's payout connector, so the walk finds it — and it is not an ack.
@@ -199,7 +251,7 @@ mod tests {
     #[test]
     fn timeout_is_not_an_ack() {
         let contest_txid = contest_tx().compute_txid();
-        assert!(!is_ack_of(contest_txid, &tx(TIMEOUT_TX_HEX)));
+        assert!(!is_ack_of(&params(), contest_txid, &tx(TIMEOUT_TX_HEX)));
     }
 
     #[test]
@@ -253,7 +305,7 @@ mod tests {
         let contest_txid = contest_tx().compute_txid();
         let mut synthetic = tx(TIMEOUT_TX_HEX);
         synthetic.input[0].previous_output = counterproof_outpoint();
-        assert!(is_ack_of(contest_txid, &synthetic));
+        assert!(is_ack_of(&params(), contest_txid, &synthetic));
 
         // the timeout and the synthetic ack both spend the payout connector, so they cannot
         // coexist; the source holds the ack instead

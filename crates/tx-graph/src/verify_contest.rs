@@ -12,8 +12,8 @@
 use std::num::NonZero;
 
 use bitcoin::{
-    absolute::LockTime, relative, transaction::Version, Amount, Network, Transaction,
-    XOnlyPublicKey,
+    absolute::LockTime, opcodes, relative, script::Instruction, taproot::LeafVersion,
+    transaction::Version, Amount, Network, Script, Transaction, Witness, XOnlyPublicKey,
 };
 use strata_bridge_connectors::{prelude::ContestProofConnector, Connector};
 
@@ -80,6 +80,13 @@ pub enum VerifyError {
     CandidateRejected(GameId),
     /// The transaction has the shape of a contest but belongs to no configured game.
     NoMatch,
+    /// The input does not reveal a tapscript leaf, so nothing about it is authenticated.
+    ///
+    /// A genuine contest spends the claim's contest connector through a tap leaf, which puts
+    /// that leaf in the witness. A key path spend, or no witness at all, cannot be a contest.
+    NotScriptSpend,
+    /// The revealed tap leaf is not the claim contest connector's, or names a different N/N key.
+    NotCovenantSigned,
 }
 
 /// Checks whether `tx` has the shape of a contest transaction.
@@ -124,14 +131,82 @@ pub fn matches_game(params: &VerifyParams, tx: &Transaction, game: GameId) -> bo
     out.script_pubkey == expected
 }
 
+/// Checks that `tx`'s input reveals the claim contest connector's tap leaf under the configured
+/// N/N key.
+///
+/// This is what authenticates a contest, and the only check here that an attacker cannot
+/// satisfy. Everything else in this module runs on public data and can be reproduced by anyone.
+///
+/// A contest spends the claim's contest connector through the leaf
+///
+/// ```text
+/// <n_of_n> OP_CHECKSIGVERIFY <watchtower_i> OP_CHECKSIG
+/// ```
+///
+/// which a script path spend puts in the witness, along with a control block proving the leaf
+/// was committed in the spent output. For a **confirmed** transaction consensus has already
+/// checked both, so finding the configured N/N key in that leaf proves the covenant signed this
+/// transaction. Forging it would require an N/N signature.
+///
+/// # Confirmed transactions only
+///
+/// The argument above rests entirely on consensus having validated the spend. Applied to an
+/// unconfirmed or off-chain transaction this proves nothing, and the signature would have to be
+/// verified directly — which additionally needs the prevout, for the sighash.
+fn reveals_covenant_leaf(params: &VerifyParams, witness: &Witness) -> Result<(), VerifyError> {
+    let leaf = witness
+        .taproot_leaf_script()
+        .filter(|leaf| leaf.version == LeafVersion::TapScript)
+        .ok_or(VerifyError::NotScriptSpend)?;
+    let (n_of_n, watchtower) =
+        parse_covenant_leaf(leaf.script).ok_or(VerifyError::NotCovenantSigned)?;
+
+    let known_watchtower = params.operator_pubkeys.contains(&watchtower);
+    if n_of_n == params.n_of_n_pubkey && known_watchtower {
+        Ok(())
+    } else {
+        Err(VerifyError::NotCovenantSigned)
+    }
+}
+
+/// Parses `<key> OP_CHECKSIGVERIFY <key> OP_CHECKSIG`, returning both keys.
+fn parse_covenant_leaf(leaf: &Script) -> Option<(XOnlyPublicKey, XOnlyPublicKey)> {
+    let mut instructions = leaf.instructions();
+
+    let first = match instructions.next()? {
+        Ok(Instruction::PushBytes(bytes)) => XOnlyPublicKey::from_slice(bytes.as_bytes()).ok()?,
+        _ => return None,
+    };
+    match instructions.next()? {
+        Ok(Instruction::Op(opcodes::all::OP_CHECKSIGVERIFY)) => {}
+        _ => return None,
+    }
+    let second = match instructions.next()? {
+        Ok(Instruction::PushBytes(bytes)) => XOnlyPublicKey::from_slice(bytes.as_bytes()).ok()?,
+        _ => return None,
+    };
+    match instructions.next()? {
+        Ok(Instruction::Op(opcodes::all::OP_CHECKSIG)) => {}
+        _ => return None,
+    }
+    if instructions.next().is_some() {
+        return None;
+    }
+
+    Some((first, second))
+}
+
 /// Resolves the game that `tx` belongs to.
 ///
-/// Checks the transaction's structure first and gives up early if it does not hold. If
-/// `candidate` is supplied, only that game is checked. Otherwise every configured operator is
-/// tried against every deposit index up to [`VerifyParams::max_deposit_idx`].
+/// Checks the transaction's structure, then that its input reveals the covenant leaf, and only
+/// then resolves the game. If `candidate` is supplied, only that game is checked. Otherwise
+/// every configured operator is tried against every deposit index up to
+/// [`VerifyParams::max_deposit_idx`].
 ///
-/// A successful result also confirms that the configured N/N key is the one committed in the
-/// connector, since it is an input to the script that the comparison is made against.
+/// The covenant check is the step that makes the result evidence rather than a guess — see
+/// [`reveals_covenant_leaf`], including its restriction to confirmed transactions. Matching the
+/// proof connector alone would accept a transaction anyone could have built, since every input
+/// to that script pubkey is public.
 pub fn verify_contest(
     params: &VerifyParams,
     tx: &Transaction,
@@ -142,6 +217,9 @@ pub fn verify_contest(
     if !has_contest_structure(tx, n_watchtowers) {
         return Err(VerifyError::BadStructure);
     }
+
+    let input = tx.input.first().ok_or(VerifyError::BadStructure)?;
+    reveals_covenant_leaf(params, &input.witness)?;
 
     if let Some(game) = candidate {
         return match matches_game(params, tx, game) {
@@ -260,7 +338,9 @@ pub(crate) mod tests {
     #[test]
     fn rejects_an_unknown_operator_set() {
         let mut params = params();
-        params.operator_pubkeys.remove(EXPECTED.operator_idx as usize);
+        params
+            .operator_pubkeys
+            .remove(EXPECTED.operator_idx as usize);
         // one fewer operator changes the expected output count, so this fails on structure
         assert_eq!(
             verify_contest(&params, &contest_tx(), None),
