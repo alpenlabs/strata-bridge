@@ -335,6 +335,11 @@ where
         multi_anchor_signer,
         wallet_input_signer,
         max_fee_rate: exec_cfg.maximum_fee_rate,
+        // Fee knobs are consumer policy on the CPFP path only; wallet-funded transactions
+        // price from `wallet_tx_fee_rate` and never touch them.
+        fee_premium_percent: config.cpfp_fee_premium_percent,
+        min_package_fee_rate: FeeRate::from_sat_per_vb(config.cpfp_min_package_fee_rate)
+            .expect("validated at startup: cpfp_min_package_fee_rate is a valid fee rate"),
         mempool: cpfp_submitter,
     };
     let tx_driver = TxDriver::with_cpfp(

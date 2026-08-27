@@ -15,6 +15,16 @@ const fn default_cpfp_bump_check_interval() -> Duration {
     Duration::from_secs(30)
 }
 
+/// Default CPFP fee premium (percent) — see [`Config::cpfp_fee_premium_percent`].
+const fn default_cpfp_fee_premium_percent() -> u32 {
+    5
+}
+
+/// Default CPFP package fee floor (sats/vbyte) — see [`Config::cpfp_min_package_fee_rate`].
+const fn default_cpfp_min_package_fee_rate() -> u64 {
+    10
+}
+
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
@@ -61,6 +71,20 @@ pub(crate) struct Config {
 
     /// The maximum fee rate for any transaction (in sats/vb).
     pub max_fee_rate: u64,
+
+    /// Premium applied on top of the next-block fee estimate when pricing a CPFP bump target,
+    /// as a percentage of the estimate (e.g. `5` = +5%). Rounded up, so the premium raises
+    /// the target and never lowers it. `0` prices the child at the raw estimate. Default 5,
+    /// per the product fee decision.
+    #[serde(default = "default_cpfp_fee_premium_percent")]
+    pub cpfp_fee_premium_percent: u32,
+
+    /// Floor (in sats/vb) on the package fee rate the CPFP ladder targets. The child pays
+    /// the package shortfall, so the package always lands at or above this value.
+    /// Default 10, per the product fee decision. Must not exceed `max_fee_rate`.
+    /// The startup checks reject a floor above the cap.
+    #[serde(default = "default_cpfp_min_package_fee_rate")]
+    pub cpfp_min_package_fee_rate: u64,
 
     /// Background-refresh cadence for the cached fee rate. The bridge spawns a tokio task at
     /// startup that polls the configured fee source at this interval and stores the result in
