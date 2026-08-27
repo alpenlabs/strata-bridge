@@ -41,7 +41,7 @@ impl VerifyParams {
     /// Number of watchtowers, which are the operators other than the graph's owner.
     ///
     /// Returns `None` if no operators are configured.
-    pub fn n_watchtowers(&self) -> Option<u32> {
+    pub const fn n_watchtowers(&self) -> Option<u32> {
         // cast safety: an operator table this large cannot be constructed in practice
         (self.operator_pubkeys.len() as u32).checked_sub(1)
     }
@@ -60,7 +60,7 @@ impl GameId {
     /// Game index of this game.
     ///
     /// In v1 the game index is the deposit index plus one, so that it is always non-zero.
-    pub fn game_index(self) -> NonZero<u32> {
+    pub const fn game_index(self) -> NonZero<u32> {
         NonZero::new(self.deposit_idx.saturating_add(1))
             .expect("a deposit index plus one is non-zero")
     }

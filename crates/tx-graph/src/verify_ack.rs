@@ -225,7 +225,7 @@ pub fn verify_ack<S: GraphTxSource>(
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{consensus::encode::deserialize_hex, hashes::Hash};
+    use bitcoin::consensus::encode::deserialize_hex;
 
     use super::*;
     use crate::verify_contest::tests::{claim_tx, contest_tx, params, EXPECTED};
@@ -246,6 +246,62 @@ mod tests {
     /// The real game as it stands on chain: claim, contest, and a timeout rather than an ack.
     fn source() -> MapTxSource {
         MapTxSource::new([claim_tx(), contest_tx(), tx(TIMEOUT_TX_HEX)])
+    }
+
+    /// A second signet game, this one carrying a real watchtower ack.
+    ///
+    /// Claim eaf25a3ef1a0ada03f8864dd65adb8367333ac050aedd2e4a2f835cc2b607716, operator 2,
+    /// deposit 0.
+    const ACKED_CLAIM_TX_HEX: &str = "03000000000101a5f5684cd734610882237a127af5cb155218f64be438e0210b9a1b2ffcc9d8f20000000000fdffffff034266000000000000225120687a6e9f7bc979d7f57e36fd78383e6475f1a33cfbdb157de53ebecaf8c1a9f14a01000000000000225120a175f220e78d78b35471822caeafdb7b3be5daf10b611a81f728307af42ce3f64a01000000000000225120c6671e59d5298046ea92dccdb2c718bf49244ccdf3642ccbba00ac7637b9da6c0140ad25dc4c980ec866ba2e1ee3ca11c7d87233e7770a69b1431a3ad293290d1574ab7bec03f39168b3fee4ed583cf7ccda653340857c2e0aa7993d77852719240100000000";
+
+    /// Contest 89d40b016f6ee3ec7aded6b0a64245307c38b195a66c46a85e5bcf102e1841c0, spending the
+    /// contest connector of [`ACKED_CLAIM_TX_HEX`]. Its input leaf names operator 3 as the
+    /// contesting watchtower.
+    const ACKED_CONTEST_TX_HEX: &str = "030000000001011677602bcc35f8a2e4d2ed0a05ac337336b8ad65dd64883fa0ada0f13e5af2ea0000000000ffffffff08c002000000000000225120a1aa6a05b5fde40db8ceac87ee2c0d8b4171de9b17cc8acac69f2ed46213cfe54a0100000000000022512057103704b9c68101bc45af38eebb0893c6ecb759eded3cefaa922391e75b3b5b4a01000000000000225120ef989d20647dad6edf2afb84fbf977a8bd877358ce37596816c42c00b563fd6dfa1600000000000022512039edbe0a5bf8699d066a84f6208624d68415258bcaabeeaf13c26f2c7f0d889dfa160000000000002251206687b91eb1ddc55d1c23c14d449a59311523266bf6a9fc46a78068a598cb4fadfa16000000000000225120f785ecc8ef20816cc51e4b58b2462f95e00e22833fc74725f6e4d5c8bcbb1718fa16000000000000225120a72c83c5f4b41cd4510d465d5753d6f0cc959ea5f9e453e38385d9f43991e44f4a010000000000002251202ab0832cee7d05f1d2612566892a3760bd894629af88c726f66b4a0b003d92d3044072ab01667b721c75c27c53930655afa9a8f0f3092fe497163738cfe89afe2159724ee93e1427a45d496eadf10d3fc09e58248768567ec8bfb7327b027dbd203b40abe783561f052d55b5574896e4705b82fb13c5806155daaa5772b646116a03f85aaf2af70c771eefb2bc04955bc6bf620b5dc4fa720403aa10b977474404e86e4420e5b7273af014acd41112d67377be1543499a642e8891481141d578c7df698497ad2035be0db46188725d717ae159ba2b56c971d718b8c827d405664b987390091b90ac61c04a906a18d71fd75c14f0f0b8b5b748d614b55355f0be3512f2da7e8cb5d4092f74a5bfe51c964b00c56a87cce513e3a0599cf241dc3375bdfad0d4de902d3e514b968d44f773c0356c46a841c8381023334c81677e9cb76641652d2595e6c6b900000000";
+
+    /// Watchtower ack 6508d324e9931fbb348bf225850a58de71af822b7e0438e0f92786bf8f30fdfb.
+    ///
+    /// It spends the contest payout connector and a counterproof output, and its counterproof
+    /// input reveals the timeout leaf under the N/N key. The only genuine ack in these fixtures.
+    const ACK_TX_HEX: &str = "030000000001023850e7d2d87b86d067e68073df5d8252e29494234653796a56b4a719ff6efa90000000000018000000c041182e10cf5b5ea8466ca695b1387c304542a6b0d6de7aece36e6f010bd4890100000000ffffffff0194020000000000002251202a53eb26b513b152a502c42d17167ba63aa33222dd29ddf29a3190cd1d0c958a0340565d0565ec2efe838316a18de77f837706ca621e6618f84cb1822dad0f25573ced6ac8c5fe5329fc904c80a3bab1d70f461d0c7fa9f25dbdda810b501709bcad2520e5b7273af014acd41112d67377be1543499a642e8891481141d578c7df698497ad0118b221c01e9f0a5a692f9e731ca6b318795c73cd53b17a926f671bcc232408b1e82aea92014034ef925aebb9b4a9859d4edc953ccec948c76ebbee3ca89677822a2aaad41191eb40d121c895f7cc3b240345e51306c13cc73a5d844e6904b62c97fe7ab7639900000000";
+
+    /// The game that [`ACK_TX_HEX`] belongs to.
+    const ACKED_GAME: GameId = GameId {
+        operator_idx: 2,
+        deposit_idx: 0,
+    };
+
+    fn acked_source() -> MapTxSource {
+        MapTxSource::new([
+            tx(ACKED_CLAIM_TX_HEX),
+            tx(ACKED_CONTEST_TX_HEX),
+            tx(ACK_TX_HEX),
+        ])
+    }
+
+    #[test]
+    fn recognises_a_real_ack() {
+        let contest_txid = tx(ACKED_CONTEST_TX_HEX).compute_txid();
+        assert!(is_ack_of(&params(), contest_txid, &tx(ACK_TX_HEX)));
+    }
+
+    #[test]
+    fn reports_an_ack_for_an_acked_game() {
+        let claim_txid = tx(ACKED_CLAIM_TX_HEX).compute_txid();
+        let report = verify_ack(&acked_source(), &params(), claim_txid, None).expect("report");
+        assert_eq!(report.contest_txid, tx(ACKED_CONTEST_TX_HEX).compute_txid());
+        assert_eq!(report.game, ACKED_GAME);
+        assert!(report.ack);
+    }
+
+    /// The ack of one game must not be accepted against another game's contest.
+    #[test]
+    fn ack_is_not_accepted_against_a_different_contest() {
+        assert!(!is_ack_of(
+            &params(),
+            contest_tx().compute_txid(),
+            &tx(ACK_TX_HEX)
+        ));
     }
 
     #[test]
@@ -289,29 +345,5 @@ mod tests {
             verify_ack(&source(), &params(), claim_txid(), Some(wrong)),
             Err(AckError::Contest(VerifyError::CandidateRejected(wrong)))
         );
-    }
-
-    /// Stands in for the counterproof transaction an ack's other input would come from.
-    fn counterproof_outpoint() -> OutPoint {
-        OutPoint::new(Txid::from_byte_array([0x11; 32]), 0)
-    }
-
-    /// No genuine ack exists on signet to test against, so the positive case is synthetic: the
-    /// timeout transaction with its proof-connector input repointed at a stand-in counterproof
-    /// output, which is exactly the shape an ack has. It exercises the discriminator, not a
-    /// real ack.
-    #[test]
-    fn recognises_an_ack_shaped_spender() {
-        let contest_txid = contest_tx().compute_txid();
-        let mut synthetic = tx(TIMEOUT_TX_HEX);
-        synthetic.input[0].previous_output = counterproof_outpoint();
-        assert!(is_ack_of(&params(), contest_txid, &synthetic));
-
-        // the timeout and the synthetic ack both spend the payout connector, so they cannot
-        // coexist; the source holds the ack instead
-        let mut source = MapTxSource::new([claim_tx(), contest_tx()]);
-        source.insert(synthetic);
-        let report = verify_ack(&source, &params(), claim_txid(), None).expect("report");
-        assert!(report.ack);
     }
 }
