@@ -259,10 +259,10 @@ impl CpfpMempool for BitcoindCpfpMempool {
     ) -> impl std::future::Future<Output = Result<AnchorSpendState, MempoolError>> + Send {
         let client = self.client.clone();
         async move {
-            // `gettxspendingprevout` reports the transaction that spends an outpoint, whether
-            // that transaction sits in the mempool or in a block. Core 24.0 added it, and the
-            // bridge already needs Core 24.0 for `submitpackage`. The typed surface of the
-            // client does not cover it, so call it raw.
+            // `gettxspendingprevout` reports the mempool transaction that spends an outpoint.
+            // It is mempool-only: a spend that confirmed reads as `Unspent` here. Core 24.0
+            // added it, and the bridge already needs Core 24.0 for `submitpackage`. The
+            // typed surface of the client does not cover it, so call it raw.
             let query =
                 serde_json::json!([{ "txid": anchor.txid.to_string(), "vout": anchor.vout }]);
             let spends: Vec<PrevoutSpend> = client
@@ -277,18 +277,18 @@ impl CpfpMempool for BitcoindCpfpMempool {
                 MempoolError(format!("gettxspendingprevout returned a bad txid: {e}"))
             })?;
 
-            // A spender exists. When the mempool holds it, its ancestor totals give the package
-            // rate that this operator competes against.
+            // A spender exists. Its ancestor totals give the package rate that this operator
+            // competes against.
             //
-            // When the mempool does not hold it, the spender is confirmed and no child can
-            // improve the parent. A transient RPC failure reads the same way here. The cost of
-            // that confusion is one skipped bump, and the next trigger retries.
-            let entry: Result<MempoolEntry, _> = client
+            // A failed lookup is an error, not a confirmed spend. The probe is mempool-only
+            // and never reports a confirmed spend, so a spender that the first call reported
+            // and the entry lookup cannot find is an RPC failure or a state divergence. The
+            // ladder treats the error as "probe unavailable" and builds; the submission is
+            // the authority.
+            let entry: MempoolEntry = client
                 .call_raw("getmempoolentry", &[serde_json::json!(spending_txid)])
-                .await;
-            let Ok(entry) = entry else {
-                return Ok(AnchorSpendState::Confirmed);
-            };
+                .await
+                .map_err(|e| MempoolError(format!("getmempoolentry: {e:?}")))?;
 
             let ancestor_fee = Amount::from_btc(entry.fees.ancestor)
                 .map_err(|e| MempoolError(format!("ancestor fee is not a valid amount: {e}")))?;
