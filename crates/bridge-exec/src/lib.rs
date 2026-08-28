@@ -10,6 +10,7 @@
 //! - It can be run asynchronously and independently of other executors.
 
 mod chain;
+pub mod claim_funding;
 pub mod config;
 pub mod cpfp_adapters;
 pub mod deposit;
