@@ -195,19 +195,21 @@ pub enum CpfpWalletError {
 /// What one call to [`perform_bump`] achieved.
 ///
 /// A caller that must decide the fate of a transaction needs more than "no package went
-/// out". A bump that stands down because a competitor's child already covers a shared
-/// anchor proves that the parent is in a mempool, and a bump that skips because no child is
-/// needed proves nothing about the parent at all.
+/// out". A bump that stands down because a live child already holds an output of the
+/// parent proves that the parent is in a mempool, and a bump that skips because no child
+/// is needed proves no publication failure: the next trigger retries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BumpOutcome {
     /// A `[parent, child]` package reached the mempool.
     Submitted,
-    /// No package went out, and the bump observed the parent in a mempool or in a block. A
-    /// competitor's child holds the shared anchor, or the anchor is spent by a confirmed
-    /// transaction.
+    /// No package went out, and the bump observed the parent in a mempool: a live child
+    /// holds an output of this parent.
     ParentIsLive,
-    /// No package went out, and the bump observed nothing about where the parent is. The
-    /// target sits at the protocol floor, or the parent's own fee already meets it.
+    /// No package went out, and the bump saw that a child is not needed: the target sits
+    /// at the protocol floor, the parent's own fee already meets it, a live child already
+    /// meets it, or the output is spent by a confirmed transaction. A failed attempt, or
+    /// a replacement race lost to a conflicting transaction, reports the same outcome; the
+    /// next trigger retries.
     NoChildNeeded,
     /// The parent cannot carry a child at all. Every later bump for it fails the same way, so
     /// the driver stops bumping it and lets the bare paths carry it.
@@ -585,19 +587,25 @@ impl CpfpFeeSource for CachedFeeSource {
     }
 }
 
-/// What already spends a CPFP anchor, if anything.
+/// What already spends the output a CPFP child would spend, if anything.
 ///
-/// A `MultiAnchor` anchor is shared. Every watchtower of the graph holds a leaf on it, and
-/// every one of them bumps the same output. The bump loop reads this state before it builds,
-/// so that a watchtower which has already lost the anchor stops paying to lose it again.
+/// The bump loop probes this state before every build, for every strategy. The probed
+/// output is the anchor for the anchor-bearing strategies, and the payout output for
+/// `ParentTxCombined`.
+///
+/// A `MultiAnchor` anchor is shared: every watchtower of the graph holds a leaf on it, and
+/// every one of them bumps the same output. The probe keeps a watchtower that has already
+/// lost the anchor from paying to lose it again. Every other output is exclusive to this
+/// operator: the spender, if any, is this operator's own prior child or, for a payout
+/// output, a concurrent duty transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnchorSpendState {
-    /// Nothing spends the anchor. This operator can bump.
+    /// Nothing in the mempool spends the output. This operator can bump.
     Unspent,
-    /// A mempool transaction spends the anchor, and its package pays this rate.
+    /// A mempool transaction spends the output, and its package pays this rate.
     SpentInMempool {
         /// Txid of the spending child. The bump loop compares it against its own last
-        /// child. A foreign spender means this operator's child lost the anchor, and the
+        /// child. A foreign spender means this operator's child lost the output, and the
         /// bump loop must release the child's funding leases. Our own spender means the
         /// leases must stay: a release lets a concurrent build double-spend the live
         /// child's funding and evict it.
@@ -605,7 +613,10 @@ pub enum AnchorSpendState {
         /// Package fee rate the spending child's ancestor set pays.
         pkg_fee_rate: FeeRate,
     },
-    /// A confirmed transaction spends the anchor. No child can improve the parent now.
+    /// A confirmed transaction spends the output. No child can improve the parent now.
+    ///
+    /// The mempool-only probe cannot observe a confirmed spend: it reads `Unspent` for one.
+    /// This variant exists for backends with chain visibility.
     Confirmed,
 }
 
@@ -619,11 +630,12 @@ pub trait CpfpMempool: Send + Sync + fmt::Debug {
         Output = Result<submitpackage::SubmitPackageSummary, SubmitPackageError>,
     > + Send;
 
-    /// Reports what already spends `anchor`.
+    /// Reports what already spends `anchor`, the output the bump would spend.
     ///
-    /// The bump loop calls this only for a shared anchor, and treats an error as
-    /// [`AnchorSpendState::Unspent`]. A failed lookup must not stop a bump, because the
-    /// submission itself is the authority on whether the package is acceptable.
+    /// The bump loop calls this before every build, for every strategy, and treats an
+    /// error as [`AnchorSpendState::Unspent`]. A failed lookup must not stop a bump,
+    /// because the submission itself is the authority on whether the package is
+    /// acceptable.
     fn anchor_spend_state(
         &self,
         anchor: OutPoint,
@@ -801,8 +813,10 @@ impl BumpReason {
 /// [`CpfpError`].
 ///
 /// Same-rate calls are a no-op only for [`BumpReason::NewJob`]; reactive reasons
-/// (block/tick/eviction) rebuild the child even at an unchanged target, because a child
-/// evicted by a competing package is invisible to us — see step 4 below.
+/// (block/tick/eviction) rebuild the child at an unchanged target unless the probe
+/// (step 4.5) shows a child already spends the output at a sufficient rate, because a
+/// child evicted by a competing package is invisible to us apart from that probe — see
+/// step 4 below.
 ///
 /// `handle.last_child_lease` takes the new lease as soon as the wallet hands back a funded
 /// child, and not only on success. The handle must own the lease across the fallible steps
@@ -819,7 +833,7 @@ impl BumpReason {
 ///
 /// ## Baseline skips
 ///
-/// Two conditions mean the parent needs no child at all (both return `Ok(false)`):
+/// Two conditions mean the parent needs no child at all (both return `NoChildNeeded`):
 /// - the fee source reports `≤ bridge_protocol_floor` — the presigned parent's protocol-floor fee
 ///   rate is already sufficient;
 /// - the parent's own fee (`strategy.parent_fee()` over its vbytes) already meets the target — a
@@ -892,13 +906,16 @@ where
 
     // ── 4. Skip if we already bumped at this rate (eager only) ──────────────
     //
-    // Reactive bumps (new block / tick / parent eviction) DO rebuild at the same rate:
-    // the previous child may have been silently evicted from the mempool by a competing
-    // replacement, and the only signal we get is the absence of confirmation. A same-rate
-    // resubmission either dedups against the still-present child (`txn-already-in-mempool`
-    // is fine inside `submitpackage`) or, if the rebuilt child differs, gets rejected by
-    // the BIP-125 incremental-fee rule — a logged, harmless failure. We accept that noise
-    // because it's the only way to revive a package whose child is actually gone.
+    // Reactive bumps (new block / tick / parent eviction) DO rebuild at the same rate when
+    // the probe below reports the output unspent: the previous child may have been silently
+    // evicted from the mempool by a competing replacement, and the probe is the only signal
+    // of that. When the probe shows the child still spends the output at a sufficient rate,
+    // step 4.5 skips the build, and the steady-state cost of a reactive attempt is the
+    // probe itself. A same-rate resubmission that does run either dedups against the
+    // still-present child (`txn-already-in-mempool` is fine inside `submitpackage`) or, if
+    // the rebuilt child differs, gets rejected by the BIP-125 incremental-fee rule — a
+    // logged, harmless failure. That is the price of reviving a package whose child is
+    // actually gone.
     if reason.skip_on_same_rate() {
         if let Some(prev) = handle.last_pkg_fee_rate {
             if target <= prev {
@@ -914,73 +931,87 @@ where
         }
     }
 
-    // ── 4.5 Skip when another watchtower already covers a shared anchor ─────
+    // ── 4.5 Probe the output the child would spend ──────────────────────────
     //
-    // Only `MultiAnchorBearing` reaches this check. Every other anchor belongs to one
-    // operator, so nobody else can spend it.
+    // The probe runs before every build, for every strategy. One `gettxspendingprevout`
+    // call answers "is the child still there at a sufficient rate", and the build runs
+    // only when the answer is no.
     //
-    // A `MultiAnchor` output carries one leaf per watchtower, and every watchtower bumps the
-    // same output. Their children conflict, so one wins each round and the rest are rejected.
-    // Without this check the losers rebuild, re-sign, and resubmit on every trigger, for as
-    // long as the parent stays unconfirmed. Each of those attempts costs a signing round trip
-    // and leaves a warning in the log.
+    // The probed output is the one the child would spend. For `MultiAnchorBearing` it is
+    // shared: every watchtower of the graph holds a leaf on it and bumps the same output.
+    // Their children conflict, so one wins each round and the rest are rejected. Without
+    // this probe the losers rebuild, re-sign, and resubmit on every trigger, for as long
+    // as the parent stays unconfirmed. Each of those attempts costs a signing round trip
+    // and leaves a warning in the log. Every other strategy probes an exclusive output:
+    // the spender, if any, is our own prior child or, for a payout output, a concurrent
+    // duty transaction — bounded, because the child's lease holds the payout output out
+    // of selection while the child spends it.
     //
-    // The check is not a lock. Two watchtowers can read `Unspent` in the same instant and both
-    // build. That race is bounded to one round, because the loser observes the winner on the
-    // next trigger. The submission remains the authority, and `perform_bump` still handles a
-    // rejection.
-    if let CpfpStrategy::MultiAnchorBearing { anchor_vout, .. } = &strategy {
-        let anchor = OutPoint {
+    // Steady state is every parent carrying a live child: the probe skips the build, so a
+    // reactive attempt costs the probe and no wallet call. The floor reduction retires
+    // the floor skip of step 3, so this is where the quiet-mempool trigger ends.
+    //
+    // The probe is not a lock. Two builders can read `Unspent` in the same instant and
+    // both build. That race is bounded to one round, because the loser observes the
+    // winner on the next trigger. Submission is the authority, and `perform_bump` still
+    // handles a rejection.
+    let probed = match &strategy {
+        CpfpStrategy::AnchorBearing { anchor_vout, .. }
+        | CpfpStrategy::MultiAnchorBearing { anchor_vout, .. } => OutPoint {
             txid: parent_txid,
             vout: *anchor_vout,
-        };
-        // An error here is not fatal. The lookup is an optimisation, so fall through to the
-        // build and let the submission decide.
-        match ctx.mempool.anchor_spend_state(anchor).await {
-            Ok(AnchorSpendState::SpentInMempool {
-                spender,
-                pkg_fee_rate: existing,
-            }) if existing >= target => {
-                // This skip ends the bump sequence, so the `replacing` hand-over of the
-                // next build never runs. Drop the lease of the last child here instead,
-                // but only when the winning child is not ours. When our own child holds
-                // the anchor at the target, its funding must stay held. A release at that
-                // point lets a concurrent build double-spend the funding and evict our own
-                // child.
-                if handle.last_child_txid != Some(spender) {
-                    handle.last_child_lease = None;
-                    handle.last_child_txid = None;
-                    handle.last_child_fee = None;
-                }
-                debug!(
-                    %parent_txid,
-                    ?target,
-                    ?existing,
-                    %spender,
-                    "anchor already bumped to the target; skipping"
-                );
-                // A child spends this parent's anchor, so the parent is in a mempool.
-                return Ok(BumpOutcome::ParentIsLive);
-            }
-            Ok(AnchorSpendState::Confirmed) => {
-                // The parent is confirmed. If a competitor's child won, this release
-                // frees our dead child's funding. If our child won, its funding is spent
-                // on-chain and the release has one bounded side effect: until the next
-                // sync, `list_unspent` still lists those outpoints, so builds can select
-                // a spent input and be rejected. A sync ends the window.
+        },
+        CpfpStrategy::ParentTxCombined {
+            payout_outpoint, ..
+        } => *payout_outpoint,
+    };
+    // An error here is not fatal. The lookup is an optimisation, so fall through to the
+    // build and let the submission decide.
+    match ctx.mempool.anchor_spend_state(probed).await {
+        Ok(AnchorSpendState::SpentInMempool {
+            spender,
+            pkg_fee_rate: existing,
+        }) if existing >= target => {
+            // This skip ends the bump sequence, so the `replacing` hand-over of the
+            // next build never runs. Drop the lease of the last child here instead,
+            // but only when the winning child is not ours. When our own child holds
+            // the output at the target, its funding must stay held. A release at that
+            // point lets a concurrent build double-spend the funding and evict our own
+            // child.
+            if handle.last_child_txid != Some(spender) {
                 handle.last_child_lease = None;
                 handle.last_child_txid = None;
                 handle.last_child_fee = None;
-                debug!(
-                    %parent_txid,
-                    "anchor already spent by a confirmed transaction; skipping"
-                );
-                return Ok(BumpOutcome::NoChildNeeded);
             }
-            Ok(_) => {}
-            Err(e) => {
-                debug!(%parent_txid, error = %e, "anchor spend lookup failed; building anyway");
-            }
+            debug!(
+                %parent_txid,
+                ?target,
+                ?existing,
+                %spender,
+                "probed output already bumped to the target; skipping"
+            );
+            // A child spends an output of this parent, so the parent is in a mempool.
+            return Ok(BumpOutcome::ParentIsLive);
+        }
+        Ok(AnchorSpendState::Confirmed) => {
+            // A confirmed spend means the winning child's funding is on-chain (our own
+            // child) or our child is dead (a competitor). Either way holding the lease
+            // serves nothing, and the next sync prunes it. The release has one bounded
+            // side effect until that sync: `list_unspent` may still list the spent
+            // outpoint, so a build that selects it is rejected. The rejection is
+            // self-healing.
+            handle.last_child_lease = None;
+            handle.last_child_txid = None;
+            handle.last_child_fee = None;
+            debug!(
+                %parent_txid,
+                "probed output already spent by a confirmed transaction; skipping"
+            );
+            return Ok(BumpOutcome::NoChildNeeded);
+        }
+        Ok(_) => {}
+        Err(e) => {
+            debug!(%parent_txid, error = %e, "anchor spend lookup failed; building anyway");
         }
     }
 
@@ -1381,6 +1412,10 @@ pub(crate) mod tests {
         pub(crate) tx_errors: Mutex<Vec<(Txid, String)>>,
         pub(crate) captured: Mutex<Vec<Vec<Transaction>>>,
         pub(crate) spend_state: Mutex<AnchorSpendState>,
+        /// Error the probe reports, when set.
+        pub(crate) probe_error: Mutex<Option<String>>,
+        /// Every outpoint the probe was asked about, in call order.
+        pub(crate) probed: Mutex<Vec<OutPoint>>,
     }
     impl FakeSubmitter {
         pub(crate) fn ok() -> Self {
@@ -1392,6 +1427,8 @@ pub(crate) mod tests {
                 tx_errors: Mutex::new(Vec::new()),
                 captured: Mutex::new(Vec::new()),
                 spend_state: Mutex::new(AnchorSpendState::Unspent),
+                probe_error: Mutex::new(None),
+                probed: Mutex::new(Vec::new()),
             }
         }
         pub(crate) fn failing(reason: &str) -> Self {
@@ -1400,11 +1437,22 @@ pub(crate) mod tests {
                 tx_errors: Mutex::new(Vec::new()),
                 captured: Mutex::new(Vec::new()),
                 spend_state: Mutex::new(AnchorSpendState::Unspent),
+                probe_error: Mutex::new(None),
+                probed: Mutex::new(Vec::new()),
             }
         }
         pub(crate) fn with_spend_state(self, state: AnchorSpendState) -> Self {
             *self.spend_state.lock().unwrap() = state;
             self
+        }
+        /// Makes the probe fail, so a test exercises the build-on-probe-error path.
+        pub(crate) fn with_failing_probe(self, reason: &str) -> Self {
+            *self.probe_error.lock().unwrap() = Some(reason.to_string());
+            self
+        }
+        /// The outpoints the probe was asked about, in call order.
+        pub(crate) fn probed(&self) -> Vec<OutPoint> {
+            self.probed.lock().unwrap().clone()
         }
         /// Attaches a per-tx error string to the rejection that this fake reports.
         pub(crate) fn with_tx_error(self, txid: Txid, err: &str) -> Self {
@@ -1437,13 +1485,18 @@ pub(crate) mod tests {
         }
 
         /// Reports the configured spend state (default: unspent, so tests exercise the
-        /// build path). The full contention flow is covered end to end against a live
-        /// bitcoind; the unit tests use [`FakeSubmitter::with_spend_state`] to pin the
-        /// lease bookkeeping on the skip paths.
+        /// build path), or the configured probe error. The full contention flow is
+        /// covered end to end against a live bitcoind; the unit tests use
+        /// [`FakeSubmitter::with_spend_state`] to pin the lease bookkeeping on the skip
+        /// paths.
         async fn anchor_spend_state(
             &self,
-            _anchor: OutPoint,
+            anchor: OutPoint,
         ) -> Result<AnchorSpendState, MempoolError> {
+            self.probed.lock().unwrap().push(anchor);
+            if let Some(err) = self.probe_error.lock().unwrap().clone() {
+                return Err(MempoolError(err));
+            }
             Ok(*self.spend_state.lock().unwrap())
         }
     }
@@ -1619,9 +1672,10 @@ pub(crate) mod tests {
         }
     }
 
-    /// A minimal one-leaf `MultiAnchorBearing` strategy. The step-4.5 contention skip is
-    /// gated on this variant, so the lease-release tests need a structurally valid leaf +
-    /// control block even though the skip never spends the anchor.
+    /// A minimal one-leaf `MultiAnchorBearing` strategy. The step-4.5 probe runs for every
+    /// strategy; the contention tests use this variant to cover the shared-anchor path.
+    /// The leaf and control block stay structurally valid even though the skip paths never
+    /// spend the anchor.
     fn multi_anchor_strategy(anchor_key: XOnlyPublicKey) -> CpfpStrategy {
         let leaf = script::Builder::new()
             .push_slice(anchor_key.serialize())
@@ -1847,11 +1901,140 @@ pub(crate) mod tests {
         assert_eq!(
             bumped,
             BumpOutcome::NoChildNeeded,
-            "a spender that left the mempool between the two probe calls is not an \
-             observation of the parent"
+            "a confirmed spend means the parent is in a block, and no child can improve it"
         );
         assert_eq!(*wallet.released.lock().unwrap(), inputs.to_vec());
         assert!(handle.last_child_lease.is_none());
+    }
+
+    /// The probe runs before the build for an exclusive anchor too. Our own child holds
+    /// the anchor at the target: the tick skips without a wallet call, keeps the leases,
+    /// and probes the anchor output of the parent.
+    #[tokio::test]
+    async fn reactive_probe_skips_an_exclusive_anchor_when_our_child_holds_it() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        let parent_txid = parent.compute_txid();
+        let ours = Txid::from_byte_array([0xAA; 32]);
+        let inputs = [OutPoint::new(Txid::from_byte_array([1; 32]), 0)];
+        let wallet = Arc::new(FakeWallet::failing("skip must not build"));
+        let submitter = Arc::new(
+            FakeSubmitter::failing("skip must not submit").with_spend_state(
+                AnchorSpendState::SpentInMempool {
+                    spender: ours,
+                    pkg_fee_rate: FeeRate::from_sat_per_vb_unchecked(10),
+                },
+            ),
+        );
+        let ctx = contention_context(wallet.clone(), submitter.clone());
+        let mut handle = seeded_handle(&wallet, &inputs, ours);
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::Tick,
+        )
+        .await
+        .expect("holding the anchor is a skip, not an error");
+        assert_eq!(
+            bumped,
+            BumpOutcome::ParentIsLive,
+            "a child that spends the anchor proves the parent reached the network"
+        );
+        assert!(wallet.released.lock().unwrap().is_empty());
+        assert_eq!(held_by(&handle), inputs.to_vec());
+        assert_eq!(
+            submitter.probed(),
+            vec![OutPoint {
+                txid: parent_txid,
+                vout: 0
+            }],
+            "the probe must ask about the anchor output of the parent"
+        );
+    }
+
+    /// The probe runs before the build for the payout-combined shape too. A child holds
+    /// the payout output at the target: the tick skips without a wallet call, and probes
+    /// the payout outpoint rather than a vout-derived one.
+    #[tokio::test]
+    async fn reactive_probe_skips_a_payout_combined_parent_when_a_child_holds_the_payout() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        let parent_txid = parent.compute_txid();
+        let ours = Txid::from_byte_array([0xAA; 32]);
+        let payout = OutPoint {
+            txid: parent_txid,
+            vout: 0,
+        };
+        let inputs = [OutPoint::new(Txid::from_byte_array([1; 32]), 0)];
+        let wallet = Arc::new(FakeWallet::failing("skip must not build"));
+        let submitter = Arc::new(
+            FakeSubmitter::failing("skip must not submit").with_spend_state(
+                AnchorSpendState::SpentInMempool {
+                    spender: ours,
+                    pkg_fee_rate: FeeRate::from_sat_per_vb_unchecked(10),
+                },
+            ),
+        );
+        let ctx = contention_context(wallet.clone(), submitter.clone());
+        let mut handle = seeded_handle(&wallet, &inputs, ours);
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            CpfpStrategy::ParentTxCombined {
+                payout_outpoint: payout,
+                parent_fee: Amount::from_sat(220),
+            },
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::Tick,
+        )
+        .await
+        .expect("holding the payout is a skip, not an error");
+        assert_eq!(bumped, BumpOutcome::ParentIsLive);
+        assert!(wallet.released.lock().unwrap().is_empty());
+        assert_eq!(held_by(&handle), inputs.to_vec());
+        assert_eq!(
+            submitter.probed(),
+            vec![payout],
+            "the probe must ask about the payout outpoint, not a vout-derived one"
+        );
+    }
+
+    /// A probe error is not a stop signal. The ladder treats it as "probe unavailable" and
+    /// builds anyway; the submission is the authority.
+    #[tokio::test]
+    async fn probe_error_builds_anyway() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        let wallet = Arc::new(FakeWallet::returning(
+            synthetic_child_psbt(&parent, 0, anchor_key),
+            vec![OutPoint {
+                txid: parent.compute_txid(),
+                vout: 7,
+            }],
+        ));
+        let submitter = Arc::new(FakeSubmitter::ok().with_failing_probe("probe RPC failure"));
+        let ctx = contention_context(wallet.clone(), submitter.clone());
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::Tick,
+        )
+        .await
+        .expect("a probe failure must not fail the bump");
+        assert_eq!(bumped, BumpOutcome::Submitted);
+        assert_eq!(
+            submitter.captured.lock().unwrap().len(),
+            1,
+            "the build must reach the submission despite the probe error"
+        );
     }
 
     #[tokio::test]

@@ -361,7 +361,10 @@ where
             outcome
         }
         Err(e) if e.is_unbumpable() => {
-            error!(
+            // `warn!`, not `error!`: a re-driven job re-arms the bumps for this parent, so a
+            // persistent Unbumpable parent would log at `error!` once per duty retry. The
+            // bare paths keep carrying the parent in the meantime.
+            warn!(
                 %parent_txid,
                 error = %e,
                 ?reason,
@@ -780,13 +783,13 @@ impl TxDriver {
             let mut active_tx_subs = SelectAll::<Abortable<Subscription<TxEvent>>>::new();
             let parents: Parents = Arc::new(Mutex::new(HashMap::new()));
             // Timer that fires every `bump_check_interval`. Note the cost model: tick is a
-            // reactive `BumpReason`, so parents whose target sits ABOVE the protocol floor
-            // are fully rebuilt every tick (wallet build + sign + submitpackage that either
-            // dedups against the live child or bounces off the BIP-125 incremental-fee rule)
-            // — deliberate, because a silently-evicted child is invisible and the tick is
-            // what revives it. The walk is only cheap in the quiet-mempool steady state,
-            // where the floor / parent-fee baseline skips return `Ok(false)` before any
-            // wallet call.
+            // reactive `BumpReason`, so it does not take the step-4 same-rate skip. A parent
+            // whose probe (step 4.5) reports a live child at a sufficient rate costs one
+            // probe and no wallet call. A parent whose probe reports the output unspent is
+            // fully rebuilt (wallet build + sign + submitpackage) — deliberate, because a
+            // silently-evicted child is invisible and the tick is what revives it. The walk
+            // is only cheap in the quiet-mempool steady state, where the floor / parent-fee
+            // baseline skips return `NoChildNeeded` before any wallet call.
             let mut bump_tick = tokio::time::interval(bump_check_interval);
             // `Interval::tick` fires immediately on first call. Burn it so the first effective
             // bump tick is one full interval after construction.
