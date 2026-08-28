@@ -116,6 +116,11 @@ impl AnyOperatorWallet {
         delegate!(self, w => w.last_general_sync())
     }
 
+    /// See [`OperatorWallet::reserved_utxo_at`].
+    pub fn reserved_utxo_at(&self, outpoint: OutPoint) -> Option<UtxoInfo> {
+        delegate!(self, w => w.reserved_utxo_at(outpoint))
+    }
+
     /// Lists the general wallet's UTXOs.
     ///
     /// Delegates to `GeneralWallet::list_utxos` on whichever backend is active. Exposed on the
