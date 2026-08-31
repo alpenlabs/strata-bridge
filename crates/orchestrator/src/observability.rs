@@ -212,11 +212,16 @@ const fn deposit_duty_kind(duty: &DepositDuty) -> &'static str {
         DepositDuty::PublishPayoutNonce { .. } => "publish_payout_nonce",
         DepositDuty::PublishPayoutPartial { .. } => "publish_payout_partial",
         DepositDuty::PublishPayout { .. } => "publish_payout",
+        DepositDuty::PublishSweepNonce { .. } => "publish_sweep_nonce",
+        DepositDuty::PublishSweepPartial { .. } => "publish_sweep_partial",
+        DepositDuty::PublishSweep { .. } => "publish_sweep",
         DepositDuty::Nag { duty } => match duty {
             DepositNagDuty::NagDepositNonce { .. } => "nag_deposit_nonce",
             DepositNagDuty::NagDepositPartial { .. } => "nag_deposit_partial",
             DepositNagDuty::NagPayoutNonce { .. } => "nag_payout_nonce",
             DepositNagDuty::NagPayoutPartial { .. } => "nag_payout_partial",
+            DepositNagDuty::NagSweepNonce { .. } => "nag_sweep_nonce",
+            DepositNagDuty::NagSweepPartial { .. } => "nag_sweep_partial",
         },
     }
 }
@@ -274,6 +279,8 @@ pub(crate) const fn deposit_state_kind(state: &DepositState) -> &'static str {
         DepositState::PayoutDescriptorReceived { .. } => "payout_descriptor_received",
         DepositState::PayoutNoncesCollected { .. } => "payout_nonces_collected",
         DepositState::CooperativePathFailed { .. } => "cooperative_path_failed",
+        DepositState::SweepNoncesPending { .. } => "sweep_nonces_pending",
+        DepositState::SweepNoncesCollected { .. } => "sweep_nonces_collected",
         DepositState::Spent { .. } => "spent",
         DepositState::Aborted => "aborted",
     }
