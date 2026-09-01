@@ -1,7 +1,7 @@
 //! Shared Bitcoin chain helpers for executors.
 
 use bitcoin::{
-    Address, Amount, OutPoint, ScriptBuf, Transaction, TxOut, Txid, secp256k1::SECP256K1,
+    Address, Amount, OutPoint, Script, ScriptBuf, Transaction, TxOut, Txid, secp256k1::SECP256K1,
     taproot::ControlBlock,
 };
 use bitcoind_async_client::{Client as BitcoinClient, error::ClientError, traits::Reader};
@@ -59,36 +59,42 @@ fn parent_fee_for_floor_tx(tx: &Transaction) -> Amount {
         .expect("protocol-floor × tx vsize cannot overflow Amount")
 }
 
-/// Scans `tx.output` for the first output paying the operator's general-wallet P2TR script
-/// (the script of `tr(operator_general_pubkey)` on `output_handles.network`). Returns the
-/// outpoint, or `None` if no matching output exists.
+/// Scans `tx.output` for the first output paying the operator's general-wallet receive script
+/// and returns its outpoint, or `None` if no matching output exists.
+///
+/// The receive script is the backend's `general_script_pubkey`: the BIP86-tweaked
+/// `tr(general_pubkey)` P2TR for the native BDK backend, or the vault P2WPKH
+/// for the Fireblocks backend. Both backends draw their funding change to this script, so this
+/// is what `InferGeneralPayout` must match — using a hardcoded P2TR derivation would silently
+/// miss the Fireblocks change output and disable CPFP for that backend.
 ///
 /// Used by [`CpfpKind::InferGeneralPayout`] to opportunistically classify a tx as
 /// `PayoutCombined` when an operator-owned output happens to be present. Three call sites
 /// rely on this:
 ///
-/// - **Withdrawal fulfillment**: BDK adds a change output back to the general wallet at
+/// - **Withdrawal fulfillment**: the wallet adds a change output back to the general wallet at
 ///   `WithdrawalFulfillmentTx::OPTIONAL_CHANGE_VOUT` (vout 2) when selected inputs exceed
 ///   user_amount + fee. When change exists, CPFP via that output.
-/// - **Stake funding**: BDK adds a change output back to the general wallet (vout depends on BDK
+/// - **Stake funding**: the wallet adds a change output back to the general wallet (vout depends on
 ///   ordering, typically vout 1 after the reserved-wallet output at vout 0).
-/// - **Slash**: The calling watchtower's payout is at `vout = 1 + their_index_in_watchtowers` keyed
-///   to their payout descriptor (= the general-wallet P2TR, by the bridge's `payout_descriptor`
-///   convention). Scan finds it without threading the index through.
+/// - **Slash**: the calling watchtower's payout sits at `vout = 1 + their_index_in_watchtowers`,
+///   keyed to its params-file covenant `payout_descriptor`. This is found only when that
+///   descriptor's script equals the general-wallet receive script — which is exactly what the
+///   native `payout_descriptor()` returns, so the scan matches whenever the params descriptor
+///   agrees with the wallet (the orchestrator warns at startup when it doesn't). On a mismatch (or
+///   a Fireblocks vault script, which is not the general P2TR) the scan returns `None` and slash
+///   CPFP falls back to no-bump (see `publish_slash`).
 ///
 /// Brittle assumption: matches by exact `script_pubkey` equality. If two different
-/// operators happened to share the same payout descriptor, the first match wins — but each
-/// operator has a unique general-wallet key in practice (one per s2 instance), so this
-/// can't collide in production.
-pub(crate) fn first_general_payout_outpoint(
+/// operators happened to share the same receive script, the first match wins — but each
+/// operator has a unique general-wallet key/vault in practice, so this can't collide in
+/// production.
+pub(crate) async fn first_general_payout_outpoint(
     tx: &Transaction,
     output_handles: &OutputHandles,
 ) -> Option<OutPoint> {
-    first_payout_outpoint_keyed_to(
-        tx,
-        output_handles.operator_general_pubkey,
-        output_handles.network,
-    )
+    let expected_script = output_handles.wallet.read().await.general_script_pubkey();
+    first_output_paying_script(tx, &expected_script)
 }
 
 /// Validates the caller-named anchor and returns the CPFP strategy for it.
@@ -159,17 +165,12 @@ fn checked_anchor_strategy(
     })
 }
 
-/// Inner helper for [`first_general_payout_outpoint`]; takes the pubkey/network explicitly so
+/// Inner helper for [`first_general_payout_outpoint`]; takes the receive script explicitly so
 /// it can be unit-tested without constructing a full [`OutputHandles`].
-fn first_payout_outpoint_keyed_to(
-    tx: &Transaction,
-    pubkey: bitcoin::XOnlyPublicKey,
-    network: bitcoin::Network,
-) -> Option<OutPoint> {
-    let expected_script = Address::p2tr(SECP256K1, pubkey, None, network).script_pubkey();
+fn first_output_paying_script(tx: &Transaction, expected_script: &Script) -> Option<OutPoint> {
     let txid = tx.compute_txid();
     tx.output.iter().enumerate().find_map(|(vout, o)| {
-        if o.script_pubkey != expected_script {
+        if o.script_pubkey != *expected_script {
             return None;
         }
         u32::try_from(vout).ok().map(|vout| OutPoint { txid, vout })
@@ -336,6 +337,7 @@ pub(crate) async fn publish_signed_transaction(
             parent_fee,
         }),
         CpfpKind::InferGeneralPayout => first_general_payout_outpoint(signed_tx, output_handles)
+            .await
             .map(|payout_outpoint| CpfpStrategy::ParentTxCombined {
                 payout_outpoint,
                 parent_fee,
@@ -418,8 +420,7 @@ mod tests {
     use strata_bridge_tx_graph::fee;
 
     use super::{
-        checked_anchor_strategy, first_payout_outpoint_keyed_to, is_outpoint_unspent,
-        is_txid_onchain,
+        checked_anchor_strategy, first_output_paying_script, is_outpoint_unspent, is_txid_onchain,
     };
 
     /// Per-coinbase reward on regtest before any halving.
@@ -530,11 +531,10 @@ mod tests {
             }, // vout 1: other key
             TxOut {
                 value: Amount::from_sat(50_000),
-                script_pubkey: our_script,
+                script_pubkey: our_script.clone(),
             }, // vout 2: our key
         ]);
-        let found = first_payout_outpoint_keyed_to(&tx, our_key, Network::Regtest)
-            .expect("should find our output");
+        let found = first_output_paying_script(&tx, &our_script).expect("should find our output");
         assert_eq!(found.vout, 2);
     }
 
@@ -544,6 +544,7 @@ mod tests {
         // output exists on this tx.
         let our_key = xonly_from_seed(1);
         let other_key = xonly_from_seed(2);
+        let our_script = Address::p2tr(SECP256K1, our_key, None, Network::Regtest).script_pubkey();
         let other_script =
             Address::p2tr(SECP256K1, other_key, None, Network::Regtest).script_pubkey();
         let tx = dummy_v3_tx(vec![
@@ -556,7 +557,7 @@ mod tests {
                 script_pubkey: other_script,
             },
         ]);
-        assert!(first_payout_outpoint_keyed_to(&tx, our_key, Network::Regtest).is_none());
+        assert!(first_output_paying_script(&tx, &our_script).is_none());
     }
 
     #[test]
@@ -573,11 +574,10 @@ mod tests {
             }, // vout 0
             TxOut {
                 value: Amount::from_sat(50_000),
-                script_pubkey: our_script,
+                script_pubkey: our_script.clone(),
             }, // vout 1
         ]);
-        let found = first_payout_outpoint_keyed_to(&tx, our_key, Network::Regtest)
-            .expect("should find first match");
+        let found = first_output_paying_script(&tx, &our_script).expect("should find first match");
         assert_eq!(found.vout, 0);
     }
 

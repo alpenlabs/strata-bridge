@@ -43,7 +43,7 @@ use btc_tracker::cpfp::{
     self, BumpOutcome, BumpReason, CpfpContext, CpfpHandle, CpfpStrategy, InputSigner,
 };
 use operator_wallet::{
-    NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend,
+    AnyOperatorWallet, NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend,
     test_utils::MemoryStore,
 };
 use serial_test::serial;
@@ -139,8 +139,9 @@ fn assert_package_pays_target(bitcoind: &corepc_node::Node, child_txid: bitcoin:
     );
 }
 
-/// The wallet shape these tests drive: the native general wallet over in-memory stores.
-type TestOperatorWallet = OperatorWallet<NativeGeneralWallet<MemoryStore>, MemoryStore>;
+/// The wallet shape these tests drive: the native general wallet over in-memory stores,
+/// behind the runtime-selected handle the executors take.
+type TestAnyWallet = AnyOperatorWallet<MemoryStore>;
 
 /// Constructs a `NativeGeneralWallet` keyed to `pubkey`, syncs it against `bitcoind`, and
 /// wraps it in an `OperatorWallet`. Sends `funding_utxos` separate UTXOs of `funding_per_utxo`
@@ -151,7 +152,7 @@ async fn build_operator_wallet(
     pubkey: XOnlyPublicKey,
     funding_utxos: usize,
     funding_per_utxo: Amount,
-) -> Arc<RwLock<TestOperatorWallet>> {
+) -> Arc<RwLock<TestAnyWallet>> {
     let backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
     let backend_clone = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
     let config = OperatorWalletConfig::new(Amount::from_sat(330), Network::Regtest);
@@ -190,14 +191,14 @@ async fn build_operator_wallet(
         .expect("mine confirmation");
 
     wallet.sync().await.expect("wallet sync after funding");
-    Arc::new(RwLock::new(wallet))
+    Arc::new(RwLock::new(wallet.into()))
 }
 
 /// Builds a fully-signed v3 parent transaction with a 330-sat keyed-Taproot anchor output
 /// keyed to `operator_pubkey`. Spends a wallet-selected UTXO; signed in-process with
 /// `operator_keypair`.
 async fn build_v3_parent(
-    wallet: &Arc<RwLock<TestOperatorWallet>>,
+    wallet: &Arc<RwLock<TestAnyWallet>>,
     operator_keypair: Keypair,
     operator_pubkey: XOnlyPublicKey,
     parent_fee_rate: FeeRate,
@@ -453,16 +454,19 @@ async fn cpfp_e2e_against_bitcoind() {
 /// Builds a fully-signed v3 parent whose single output is operator-owned (no anchor) —
 /// mirrors the shape of cooperative_payout / uncontested_payout / unstaking txs that use
 /// [`CpfpStrategy::ParentTxCombined`] in production.
+///
+/// The payout output is built from the wallet's production `payout_descriptor()` — the same
+/// script peers derive when they pay this operator. This is the regression tripwire for
+/// descriptor/signer mismatches: if the descriptor ever keys payouts to something the
+/// tap-tweaking wallet signer can't spend (e.g. the raw general key used verbatim as the
+/// output key), the child's payout-input signature fails real script validation below.
 async fn build_v3_payout_parent(
-    wallet: &Arc<RwLock<TestOperatorWallet>>,
+    wallet: &Arc<RwLock<TestAnyWallet>>,
     operator_keypair: Keypair,
-    operator_pubkey: XOnlyPublicKey,
     parent_fee_rate: FeeRate,
     payout_value: Amount,
 ) -> Transaction {
-    let secp = Secp256k1::new();
-    let payout_script =
-        Address::p2tr(&secp, operator_pubkey, None, Network::Regtest).script_pubkey();
+    let payout_script = wallet.read().await.payout_descriptor().to_script();
     let unsigned_tx = Transaction {
         version: Version(3),
         lock_time: absolute::LockTime::ZERO,
@@ -528,7 +532,6 @@ async fn cpfp_e2e_parent_tx_combined_against_bitcoind() {
     let parent = build_v3_payout_parent(
         &wallet,
         operator_keypair,
-        operator_pubkey,
         parent_fee_rate,
         Amount::from_btc(0.25).unwrap(),
     )
@@ -638,17 +641,18 @@ async fn cpfp_e2e_parent_tx_combined_against_bitcoind() {
 /// calling watchtower's slash share). The third one is the CPFP hook the production helper
 /// would discover via `CpfpKind::InferGeneralPayout`.
 async fn build_v3_mixed_parent(
-    wallet: &Arc<RwLock<TestOperatorWallet>>,
+    wallet: &Arc<RwLock<TestAnyWallet>>,
     operator_keypair: Keypair,
-    operator_pubkey: XOnlyPublicKey,
     other_pubkey: XOnlyPublicKey,
     parent_fee_rate: FeeRate,
     other_value: Amount,
     operator_value: Amount,
 ) -> Transaction {
     let secp = Secp256k1::new();
-    let operator_script =
-        Address::p2tr(&secp, operator_pubkey, None, Network::Regtest).script_pubkey();
+    // The operator-owned output comes from the production payout descriptor, so this test
+    // simultaneously asserts that `first_general_payout_outpoint`'s script matching agrees
+    // with what the wallet actually asks peers to pay (descriptor ↔ matcher consistency).
+    let operator_script = wallet.read().await.payout_descriptor().to_script();
     let other_script = Address::p2tr(&secp, other_pubkey, None, Network::Regtest).script_pubkey();
     let unsigned_tx = Transaction {
         version: Version(3),
@@ -725,7 +729,6 @@ async fn cpfp_e2e_infer_general_payout_against_bitcoind() {
     let parent = build_v3_mixed_parent(
         &wallet,
         operator_keypair,
-        operator_pubkey,
         other_pubkey,
         parent_fee_rate,
         Amount::from_btc(0.1).unwrap(),  // non-operator payout
@@ -853,7 +856,7 @@ async fn cpfp_e2e_infer_general_payout_against_bitcoind() {
 /// watchtower over an unspendable internal key, exactly as contest / bridge-proof-timeout
 /// transactions carry it in production.
 async fn build_v3_multi_anchor_parent(
-    wallet: &Arc<RwLock<TestOperatorWallet>>,
+    wallet: &Arc<RwLock<TestAnyWallet>>,
     operator_keypair: Keypair,
     anchor: &MultiAnchor,
     parent_fee_rate: FeeRate,

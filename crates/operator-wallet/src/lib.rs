@@ -18,6 +18,7 @@
 //! Methods on [`OperatorWallet`] are `&mut self`. Callers serialize via an outer lock when
 //! they need a multi-step critical section (e.g. DB-lookup-then-fund-then-persist).
 
+pub mod any;
 pub mod config;
 pub mod general;
 pub mod leases;
@@ -38,6 +39,7 @@ use serial_test as _;
 use thiserror::Error;
 
 pub use crate::{
+    any::AnyOperatorWallet,
     config::{OperatorWalletConfig, DEFAULT_PERSIST_EVERY_BLOCKS},
     general::{
         native::NativeGeneralWallet, AnchorInfo, AnchorOwnership, FundedPsbt, GeneralWallet,

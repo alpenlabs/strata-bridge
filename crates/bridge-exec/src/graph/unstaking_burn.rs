@@ -18,7 +18,7 @@ use crate::{
     chain::{CpfpKind, ParentFee, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
-    output_handles::{NativeWallet, OutputHandles},
+    output_handles::{AnyWallet, OutputHandles},
 };
 
 /// Index of the payout connector input in the unfunded burn template.
@@ -202,7 +202,7 @@ async fn burn_fee_rate(output_handles: &OutputHandles) -> Result<FeeRate, Execut
 ///   - general_wallet_output_value
 /// ```
 async fn select_funding(
-    wallet: &mut NativeWallet,
+    wallet: &mut AnyWallet,
     graph_idx: GraphIdx,
     unstaking_burn_tx: &UnstakingBurnTx,
     unstaking_preimage: [u8; 32],
@@ -243,6 +243,19 @@ async fn select_funding(
 
     let funding = wallet
         .select_general_utxo(LeaseOwner::UnstakingBurn, |utxo| {
+            // TRUC (BIP-431) rejects a v3 transaction with an unconfirmed non-v3 ancestor,
+            // and the burn already spends the claim-payout connector: funding from a
+            // zero-confirmation UTXO makes the burn unrelayable until that UTXO confirms.
+            if utxo.confirmations == 0 {
+                debug!(
+                    %graph_idx,
+                    outpoint = %utxo.outpoint,
+                    utxo_value = %utxo.amount,
+                    "unconfirmed wallet UTXO cannot fund unstaking burn (TRUC, BIP-431)"
+                );
+                return false;
+            }
+
             let output_value = match payout_connector_value
                 .checked_add(utxo.amount)
                 .and_then(|input_value| input_value.checked_sub(plan.fee))
@@ -369,10 +382,30 @@ async fn build_and_sign_tx(
 
     let prevouts = funded_burn.prevouts().to_vec();
     let mut signed_tx = funded_burn.finalize_partial(unstaking_preimage);
-    let wallet_signature = sign_wallet_input(output_handles, &signed_tx, &prevouts).await?;
-    signed_tx.input[WALLET_INPUT_INDEX]
-        .witness
-        .push(wallet_signature.to_vec());
+
+    // Sign the general-wallet funding input. A create-and-sign backend (Fireblocks) signs its
+    // P2WPKH input and returns the witness; the native descriptor-only backend returns `None`,
+    // and we sign the Taproot key-path via secret-service. (Sighashes don't depend on other
+    // inputs' witnesses, so computing over `signed_tx` after the connector is finalized is fine.)
+    let backend_witness = output_handles
+        .wallet
+        .read()
+        .await
+        .sign_owned_inputs(&signed_tx, &[WALLET_INPUT_INDEX], &prevouts)
+        .await
+        .map_err(|e| ExecutorError::WalletErr(format!("backend signing failed: {e}")))?
+        .into_iter()
+        .next()
+        .flatten();
+    match backend_witness {
+        Some(witness) => signed_tx.input[WALLET_INPUT_INDEX].witness = witness,
+        None => {
+            let wallet_signature = sign_wallet_input(output_handles, &signed_tx, &prevouts).await?;
+            signed_tx.input[WALLET_INPUT_INDEX]
+                .witness
+                .push(wallet_signature.to_vec());
+        }
+    }
 
     let final_vsize = signed_tx.vsize() as u64;
     let final_fee = plan
@@ -424,7 +457,9 @@ struct FeeEstimate {
 ///
 /// The estimate is derived from the actual transaction template: one payout connector input, one
 /// general-wallet input, and one output back to the general wallet. The connector witness is
-/// populated by `finalize_partial`; the wallet witness is modeled with a 64-byte Schnorr signature.
+/// populated by `finalize_partial`; the wallet witness is modeled to match the backend's receive
+/// script — a 73-byte DER signature + 33-byte pubkey for a P2WPKH (Fireblocks) input, or a 64-byte
+/// Schnorr signature for a P2TR (native) input.
 fn estimate_unstaking_burn_fee(
     unstaking_burn_tx: &UnstakingBurnTx,
     unstaking_preimage: [u8; 32],
@@ -446,12 +481,24 @@ fn estimate_unstaking_burn_fee(
         },
     );
 
-    // The connector witness is exact after `finalize_partial`; the general wallet witness is a
-    // fixed-size Schnorr signature, so a 64-byte dummy witness gives an exact vsize.
+    // The connector witness is exact after `finalize_partial`. The general-wallet input's
+    // witness shape depends on the backend: the native general wallet is P2TR (64-byte
+    // key-path Schnorr signature), Fireblocks is P2WPKH (DER signature + compressed pubkey).
+    // Model whichever the wallet uses (its receive `payout_script`) so the vsize estimate
+    // matches the signed transaction.
     let mut estimated_tx = unstaking_burn_tx.finalize_partial(unstaking_preimage);
-    estimated_tx.input[WALLET_INPUT_INDEX]
-        .witness
-        .push([0u8; 64]);
+    if payout_script.is_p2wpkh() {
+        estimated_tx.input[WALLET_INPUT_INDEX]
+            .witness
+            .push([0u8; 73]); // max DER signature + sighash-type byte
+        estimated_tx.input[WALLET_INPUT_INDEX]
+            .witness
+            .push([0u8; 33]); // compressed public key
+    } else {
+        estimated_tx.input[WALLET_INPUT_INDEX]
+            .witness
+            .push([0u8; 64]); // P2TR key-path Schnorr signature
+    }
 
     let vsize = estimated_tx.vsize() as u64;
     let fee = fee_rate
@@ -535,6 +582,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::output_handles::NativeWallet;
 
     const TEST_GRAPH_IDX: GraphIdx = GraphIdx {
         deposit: 0,
@@ -569,7 +617,7 @@ mod tests {
 
     /// Builds a wallet over fresh SQLite stores in a temp dir. The [`TempDir`] must outlive the
     /// wallet, so it is returned alongside.
-    async fn wallet(bitcoind: &Node) -> (NativeWallet, TempDir) {
+    async fn wallet(bitcoind: &Node) -> (AnyWallet, TempDir) {
         let data_dir = tempfile::tempdir().expect("temp dir for wallet stores");
         let general_store = SqliteStore::open_in_dir(data_dir.path(), WalletKind::General)
             .expect("general store should open");
@@ -596,10 +644,10 @@ mod tests {
         )
         .await
         .expect("reserved wallet should initialise against an empty store");
-        (wallet, data_dir)
+        (wallet.into(), data_dir)
     }
 
-    fn fund_general_wallet(bitcoind: &Node, wallet: &NativeWallet, amount: Amount) {
+    fn fund_general_wallet(bitcoind: &Node, wallet: &AnyWallet, amount: Amount) {
         let mining_address = bitcoind
             .client
             .new_address()
@@ -620,6 +668,27 @@ mod tests {
             .client
             .generate_to_address(1, &mining_address)
             .expect("general wallet funding should confirm");
+    }
+
+    /// Funds the general wallet with a single unconfirmed credit: mature coinbases, then send
+    /// without mining, so the wallet's synced view holds one zero-confirmation UTXO.
+    fn fund_general_wallet_unconfirmed(bitcoind: &Node, wallet: &AnyWallet, amount: Amount) {
+        let mining_address = bitcoind
+            .client
+            .new_address()
+            .expect("mining address should be generated");
+        bitcoind
+            .client
+            .generate_to_address(101, &mining_address)
+            .expect("coinbase outputs should mature");
+
+        let general_address =
+            Address::from_script(&wallet.general_script_pubkey(), Network::Regtest)
+                .expect("general wallet script should be addressable");
+        bitcoind
+            .client
+            .send_to_address(&general_address, amount)
+            .expect("general wallet should receive an unconfirmed credit");
     }
 
     fn unstaking_burn_tx(unstaking_preimage: [u8; 32]) -> UnstakingBurnTx {
@@ -730,5 +799,49 @@ mod tests {
             wallet.leased_outpoints().contains(&funding.outpoint),
             "selected funding outpoint should be leased"
         );
+    }
+
+    #[tokio::test]
+    async fn select_funding_rejects_unconfirmed_wallet_utxo() {
+        let bitcoind = setup_bitcoind();
+        let (mut wallet, _data_dir) = wallet(&bitcoind).await;
+        fund_general_wallet_unconfirmed(&bitcoind, &wallet, Amount::from_sat(25_000));
+
+        // The pin is only strong if the wallet actually sees the zero-confirmation UTXO:
+        // a wallet view that never surfaces mempool credits would pass this test with the
+        // confirmations gate absent.
+        wallet.sync().await.expect("wallet should sync");
+        let unconfirmed = wallet
+            .list_general_utxos()
+            .into_iter()
+            .filter(|u| u.confirmations == 0)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            unconfirmed.len(),
+            1,
+            "the wallet view should hold exactly one zero-confirmation UTXO"
+        );
+
+        let unstaking_preimage = [9; 32];
+        let unstaking_burn_tx = unstaking_burn_tx(unstaking_preimage);
+        let fee_rate = FeeRate::from_sat_per_vb(2).expect("fee rate should be valid");
+
+        let err = select_funding(
+            &mut wallet,
+            TEST_GRAPH_IDX,
+            &unstaking_burn_tx,
+            unstaking_preimage,
+            fee_rate,
+        )
+        .await
+        .expect_err("a zero-confirmation UTXO must not fund the burn (TRUC, BIP-431)");
+
+        match err {
+            ExecutorError::WalletErr(msg) => assert!(
+                msg.contains("no general wallet UTXO available"),
+                "rejection should report no available funding, got: {msg}"
+            ),
+            other => panic!("expected WalletErr, got: {other:?}"),
+        }
     }
 }

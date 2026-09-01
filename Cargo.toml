@@ -204,6 +204,7 @@ hex = { version = "0.4.3", features = ["serde"] }
 hkdf = "0.12.4"
 indexmap = "2.13.0"
 jsonrpsee = "0.26.0"
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 libp2p = { version = "0.56.0", features = [
   "noise",
   "gossipsub",
@@ -236,6 +237,7 @@ proptest-derive = "0.5.1"
 quinn = "0.11.9"
 rand = "0.8.8"
 reqwest = { version = "0.12", default-features = false, features = [
+  "json",
   "rustls-tls",
 ] }
 rkyv = "0.8.17"

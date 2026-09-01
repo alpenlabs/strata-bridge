@@ -6,7 +6,7 @@ use bitcoin::{Network, XOnlyPublicKey};
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use jsonrpsee::http_client::HttpClient;
-use operator_wallet::{NativeGeneralWallet, OperatorWallet, SqliteStore};
+use operator_wallet::{AnyOperatorWallet, NativeGeneralWallet, OperatorWallet, SqliteStore};
 use secret_service_client::SecretServiceClient;
 use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
@@ -21,10 +21,13 @@ pub type NativeWalletStore = SqliteStore;
 /// General-wallet backend of [`NativeWallet`].
 pub type NativeGeneralWalletBackend = NativeGeneralWallet<NativeWalletStore>;
 
-/// Concrete operator-wallet type used by bridge-exec. Today the only general-wallet backend in
-/// use is [`NativeGeneralWallet`]; Fireblocks support (STR-3437) will add a sibling impl and
-/// the binary will pick between them at startup.
+/// The native operator-wallet type. The binary constructs one of these (or a Fireblocks-backed
+/// wallet) at startup and erases the choice into [`AnyWallet`] for [`OutputHandles`].
 pub type NativeWallet = OperatorWallet<NativeGeneralWalletBackend, NativeWalletStore>;
+
+/// The runtime-selected operator wallet this crate works with. The general-wallet backend is
+/// erased; the store stays named, because both backends persist their reserved wallet in it.
+pub type AnyWallet = AnyOperatorWallet<NativeWalletStore>;
 
 /// The handles for external services that need to be accessed by the executors.
 ///
@@ -35,8 +38,9 @@ pub struct OutputHandles {
     ///
     /// Methods on [`OperatorWallet`] take `&mut self`. The outer `RwLock` also lets executors
     /// span multi-step critical sections (e.g. DB-lookup-then-fund-then-persist) without
-    /// races between concurrent duties.
-    pub wallet: Arc<RwLock<NativeWallet>>,
+    /// races between concurrent duties. Erased over the backend so the binary can pick native
+    /// vs Fireblocks at startup without threading `<G>` through every executor.
+    pub wallet: Arc<RwLock<AnyWallet>>,
 
     /// Handle for accessing the database.
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-2670>
