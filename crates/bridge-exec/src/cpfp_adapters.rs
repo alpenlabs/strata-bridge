@@ -290,12 +290,8 @@ impl CpfpMempool for BitcoindCpfpMempool {
                 .await
                 .map_err(|e| MempoolError(format!("getmempoolentry: {e:?}")))?;
 
-            let ancestor_fee = Amount::from_btc(entry.fees.ancestor)
-                .map_err(|e| MempoolError(format!("ancestor fee is not a valid amount: {e}")))?;
-            let rate = ancestor_fee
-                .checked_div(entry.ancestor_size.max(1))
-                .map(|per_vb| FeeRate::from_sat_per_vb_unchecked(per_vb.to_sat()))
-                .ok_or_else(|| MempoolError("ancestor fee rate overflowed".into()))?;
+            let rate = ancestor_fee_rate(entry.fees.ancestor, entry.ancestor_size)
+                .map_err(MempoolError)?;
             Ok(AnchorSpendState::SpentInMempool {
                 spender: spending_txid,
                 pkg_fee_rate: rate,
@@ -429,4 +425,67 @@ pub fn multi_anchor_spend_material(
         .spend_info()
         .control_block(&(leaf_script.clone(), LeafVersion::TapScript))?;
     Some((leaf_script, control_block))
+}
+
+/// One vbyte is four weight units, and one kiloweight unit is 1000 weight units,
+/// so one sat/vB is 250 sat per kiloweight unit.
+const SAT_PER_KWU_PER_SAT_PER_VB: u64 = 250;
+
+/// Computes the package rate from the ancestor totals `getmempoolentry` reports.
+///
+/// The rate is computed directly in sat/kwu — the unit `FeeRate` carries — instead of
+/// dividing sat by vbytes first. Dividing first truncates the observed rate to whole
+/// sat/vB, while the target is fractional sat/kwu: a child sitting at target then
+/// reads as underpriced, and the rebuild floor ratchets the package to ceil(target).
+/// The remaining truncation is one sat/kwu (1/250 sat/vB), the smallest step
+/// `FeeRate` can express.
+fn ancestor_fee_rate(ancestor_fee_btc: f64, ancestor_size: u64) -> Result<FeeRate, String> {
+    let fee_sat = Amount::from_btc(ancestor_fee_btc)
+        .map_err(|e| format!("ancestor fee is not a valid amount: {e}"))?
+        .to_sat();
+    let sat_per_kwu = fee_sat
+        .checked_mul(SAT_PER_KWU_PER_SAT_PER_VB)
+        .and_then(|f| f.checked_div(ancestor_size.max(1)))
+        .ok_or("ancestor fee rate overflowed")?;
+    Ok(FeeRate::from_sat_per_kwu(sat_per_kwu))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A fractional package rate keeps its fractional part: 1005 sat over 100 vB is
+    /// 10.05 sat/vB, which a sat/vB division truncates to 10 sat/vB (2500 sat/kwu) but
+    /// which reads 2512 sat/kwu at the precision `FeeRate` carries (2512.5, floored).
+    #[test]
+    fn the_ancestor_rate_keeps_fractional_sat_per_vb() {
+        // 1005 sat is 0.00001005 BTC; the float round-trips to 1005 sat.
+        let rate = ancestor_fee_rate(0.00001005_f64, 100).expect("valid inputs");
+        assert_eq!(rate.to_sat_per_kwu(), 2512);
+    }
+
+    /// A whole-number rate is unchanged by the precision: 2500 sat over 250 vB is 10
+    /// sat/vB = 2500 sat/kwu either way.
+    #[test]
+    fn the_ancestor_rate_is_exact_for_whole_sat_per_vb() {
+        let rate = ancestor_fee_rate(0.000025_f64, 250).expect("valid inputs");
+        assert_eq!(rate.to_sat_per_kwu(), 2500);
+    }
+
+    /// A tiny fee over an odd size keeps its fraction instead of truncating to zero:
+    /// 1 sat over 3 vB is 83.33... sat/kwu, not 0.
+    #[test]
+    fn the_ancestor_rate_does_not_truncate_a_tiny_fee_to_zero() {
+        let rate = ancestor_fee_rate(0.00000001_f64, 3).expect("valid inputs");
+        assert_eq!(rate.to_sat_per_kwu(), 83);
+    }
+
+    /// A sat-to-sat-kwu widening overflow is an error, not a saturating rate.
+    #[test]
+    fn the_ancestor_rate_rejects_an_overflow() {
+        // 8e8 BTC is 8e16 sat: valid as an Amount (u64 holds ~1.8e19 sat),
+        // but x250 overflows u64.
+        let err = ancestor_fee_rate(8e8_f64, 1).expect_err("must overflow");
+        assert_eq!(err, "ancestor fee rate overflowed");
+    }
 }
