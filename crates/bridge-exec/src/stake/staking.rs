@@ -26,7 +26,7 @@ use strata_bridge_primitives::{
     types::OperatorIdx,
 };
 use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::prelude::StakeTx};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     chain::{self, CpfpKind, publish_signed_transaction},
@@ -157,6 +157,37 @@ async fn read_or_create_stake_funding(
                     "persisted stake funding reservation is invalid for the current wallet; \
                      discarding it and creating a new funding tx"
                 );
+                // While the reservation's funding tx is still in the mempool (an operator
+                // changed the stake params while it was pending), re-funding selects the
+                // same live inputs and the replacement fails BIP125: the new tx is funded
+                // at the same live rate and does not pay the original fee plus the
+                // replacement premium. Defer this cycle; once the old tx confirms its
+                // inputs leave the wallet and the discard proceeds cleanly.
+                let old_txid = reservation.unsigned_tx.compute_txid();
+                match output_handles
+                    .bitcoind_rpc_client
+                    .call_raw::<serde_json::Value>(
+                        "getmempoolentry",
+                        &[serde_json::json!(old_txid)],
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        warn!(
+                            %operator_idx,
+                            %old_txid,
+                            "old stake funding tx is still in the mempool; deferring the \
+                             reservation discard until it resolves"
+                        );
+                        return Err(ExecutorError::StakeFundingTxInMempool(old_txid));
+                    }
+                    Err(e) => {
+                        // A failed lookup is not evidence the tx is live: the RPC is down,
+                        // or the tx already left the mempool. Proceed with the discard; a
+                        // live conflict then surfaces as a publish failure, as before.
+                        debug!(?e, "getmempoolentry failed; proceeding with the discard");
+                    }
+                }
                 // Startup rehydration (`get_all_funds`) leased this reservation's inputs.
                 // Deleting the row alone leaves those leases in place, and the sync prune
                 // only drops leases whose UTXO is gone — in the same-backend case (a params

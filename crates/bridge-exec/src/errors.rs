@@ -55,6 +55,12 @@ pub enum ExecutorError {
     #[error("stake outpoint {0} already spent on chain")]
     StakeOutPointAlreadySpent(OutPoint),
 
+    /// A stake funding reservation is being discarded while its funding transaction is still in
+    /// the mempool. Re-funding would select the same inputs and the replacement would fail
+    /// BIP125, so the discard is deferred until the old transaction resolves.
+    #[error("stake funding tx {0} is still in the mempool; discarding its reservation is deferred")]
+    StakeFundingTxInMempool(Txid),
+
     /// Error interacting with the database.
     #[error("database error: {0:?}")]
     DatabaseErr(OneOf<(FdbBindingError, LayerError)>),
