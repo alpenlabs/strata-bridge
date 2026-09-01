@@ -1103,10 +1103,12 @@ async fn publish_sweep(
     info!(%txid, "broadcasting sweep transaction");
 
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &finalized_tx,
         "sweep",
         TxStatus::is_buried,
+        chain::ParentFee::Floor,
+        CpfpKind::None,
     )
     .await?;
 

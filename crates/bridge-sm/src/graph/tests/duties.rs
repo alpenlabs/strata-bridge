@@ -129,6 +129,7 @@ mod tests {
             (
                 GraphDuty::PublishBridgeProofTimeout {
                     signed_timeout_tx: TestGraphTxKind::BridgeProofTimeout.into(),
+                    cpfp_anchor: None,
                 },
                 false,
             ),
@@ -148,6 +149,7 @@ mod tests {
             (
                 GraphDuty::PublishCounterProofAck {
                     signed_counter_proof_ack_tx: TestGraphTxKind::CounterproofAck.into(),
+                    anchor_key: strata_bridge_test_utils::bitcoin::generate_xonly_pubkey(),
                 },
                 false,
             ),
