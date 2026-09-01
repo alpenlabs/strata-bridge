@@ -241,6 +241,53 @@ pub(crate) async fn is_outpoint_unspent(
     }
 }
 
+/// Returns whether chain state shows the persisted withdrawal-funding `outpoints` were
+/// written under a previous general-wallet backend: every outpoint is unspent (mempool
+/// included) AND none of them pays `current_general_spk`.
+///
+/// Every ambiguous outcome resolves to "not a previous-backend row" because the caller's
+/// discard-and-reselect on a false positive funds, signs, and broadcasts a second payout,
+/// while a false negative is a stuck row an operator can edit with the funds intact:
+///
+/// - Any outpoint spent or unknown (`gettxout` null): most likely this deposit's own fulfillment
+///   transaction is in the mempool or confirmed while its confirmation event has not reached the
+///   state machine yet → `Ok(false)`, the caller keeps the row and the funding path no-ops and
+///   retries.
+/// - All unspent, but any pays the current backend's own script: the wallet view and the chain
+///   disagree (backend cache lag, mempool eviction, reorg), not a backend switch → `Ok(false)`.
+/// - All unspent at scripts other than the current backend's: the cross-backend recovery case →
+///   `Ok(true)`, the caller may discard the row and reselect.
+/// - Any RPC failure propagates as `Err`; the caller keeps the row.
+pub(crate) async fn outpoints_belong_to_previous_backend(
+    bitcoind_rpc_client: &BitcoinClient,
+    outpoints: &[OutPoint],
+    current_general_spk: &ScriptBuf,
+) -> Result<bool, ClientError> {
+    for outpoint in outpoints {
+        debug!(%outpoint, "classifying persisted funding outpoint against chain state");
+        match bitcoind_rpc_client
+            .get_tx_out(&outpoint.txid, outpoint.vout, true)
+            .await
+        {
+            Ok(res) => {
+                if res.tx_out.script_pubkey == *current_general_spk {
+                    return Ok(false);
+                }
+            }
+            // Same mapping as `is_outpoint_unspent`: bitcoind returns `null` for a spent or
+            // non-existent UTXO, surfaced by the client as this `Other` variant.
+            Err(ClientError::Other(ref msg)) if msg == "Empty data received" => {
+                return Ok(false);
+            }
+            Err(e) => {
+                warn!(%outpoint, ?e, "could not classify persisted funding outpoint");
+                return Err(e);
+            }
+        }
+    }
+    Ok(true)
+}
+
 /// Hint that lets the caller of [`publish_signed_transaction`] override how the CPFP
 /// strategy is selected for a parent transaction.
 ///
@@ -421,6 +468,7 @@ mod tests {
 
     use super::{
         checked_anchor_strategy, first_output_paying_script, is_outpoint_unspent, is_txid_onchain,
+        outpoints_belong_to_previous_backend,
     };
 
     /// Per-coinbase reward on regtest before any halving.
@@ -787,6 +835,135 @@ mod tests {
             mined_status.confirmations.is_some_and(|c| c >= 1),
             "stage 3 (mined): spending tx should have ≥1 confirmation, got {:?}",
             mined_status.confirmations
+        );
+    }
+
+    /// Drives the previous-backend gate through the outcomes that decide whether a persisted
+    /// withdrawal-funding row may be discarded. Only unspent-at-a-foreign-script says
+    /// "previous backend" (discard); unspent at the current backend's own script, spent in
+    /// the mempool, spent on chain, and a mixed set all say "keep".
+    #[tokio::test]
+    async fn previous_backend_gate_discards_only_unspent_foreign_outpoints() {
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+
+        let bitcoind = Node::with_conf("bitcoind", &conf).expect("bitcoind should start");
+        let mining_address = bitcoind
+            .client
+            .new_address()
+            .expect("wallet address should be generated");
+        bitcoind
+            .client
+            .generate_to_address(102, &mining_address)
+            .expect("coinbase outputs should mature");
+
+        let rpc_client = setup_btc_client(&bitcoind);
+
+        // Two matured coinbase outputs stand in for a persisted funding row. Their script
+        // belongs to the node wallet — a "previous backend" relative to any other script.
+        let mut outpoints = Vec::new();
+        let mut spks = Vec::new();
+        for height in [1, 2] {
+            let block = rpc_client
+                .get_block_at(height)
+                .await
+                .expect("mined block should be retrievable");
+            let coinbase_tx = block
+                .coinbase()
+                .expect("mined block should contain a coinbase transaction");
+            outpoints.push(OutPoint {
+                txid: coinbase_tx.compute_txid(),
+                vout: 0,
+            });
+            spks.push(coinbase_tx.output[0].script_pubkey.clone());
+        }
+        let own_spk = spks[0].clone();
+        let foreign_spk = Address::p2tr(
+            SECP256K1,
+            xonly_from_seed(3),
+            None,
+            bitcoin::Network::Regtest,
+        )
+        .script_pubkey();
+
+        // All unspent at a script that is not the current backend's: the backend-switch
+        // signature — the one outcome that may discard.
+        assert!(
+            outpoints_belong_to_previous_backend(&rpc_client, &outpoints, &foreign_spk)
+                .await
+                .expect("rpc should succeed"),
+            "unspent outpoints at a foreign script should classify as previous-backend"
+        );
+
+        // Same outpoints, but the current backend claims that script: anomaly, keep.
+        assert!(
+            !outpoints_belong_to_previous_backend(&rpc_client, &outpoints, &own_spk)
+                .await
+                .expect("rpc should succeed"),
+            "unspent outpoints at the current backend's script must not discard"
+        );
+
+        // Spend the first outpoint into the mempool (not mined): the gate must see the
+        // mempool spend and keep the row — this is the own-WFT-pending window.
+        let recipient = bitcoind
+            .client
+            .new_address()
+            .expect("recipient address should be generated");
+        let inputs = [Input {
+            txid: outpoints[0].txid,
+            vout: u64::from(outpoints[0].vout),
+            sequence: None,
+        }];
+        let outputs = [Output::new(
+            recipient,
+            Amount::from_sat(REGTEST_COINBASE_AMOUNT.to_sat() - 2_000),
+        )];
+        let unsigned_tx = bitcoind
+            .client
+            .create_raw_transaction(&inputs, &outputs)
+            .expect("create raw tx")
+            .transaction()
+            .expect("decode unsigned tx");
+        let signed = bitcoind
+            .client
+            .sign_raw_transaction_with_wallet(&unsigned_tx)
+            .expect("wallet should sign the spending tx");
+        assert!(
+            signed.complete,
+            "wallet should produce a complete signature"
+        );
+        let signed_tx: Transaction =
+            deserialize_hex(&signed.hex).expect("signed tx hex should deserialize");
+        bitcoind
+            .client
+            .send_raw_transaction(&signed_tx)
+            .expect("broadcast spending tx");
+
+        // Spent-in-mempool alone → keep.
+        assert!(
+            !outpoints_belong_to_previous_backend(&rpc_client, &outpoints[..1], &foreign_spk)
+                .await
+                .expect("rpc should succeed"),
+            "a mempool-spent outpoint must not classify as previous-backend"
+        );
+        // Mixed set (one spent, one unspent-foreign) → keep.
+        assert!(
+            !outpoints_belong_to_previous_backend(&rpc_client, &outpoints, &foreign_spk)
+                .await
+                .expect("rpc should succeed"),
+            "a partially spent set must not classify as previous-backend"
+        );
+
+        // Mined spend → still keep.
+        bitcoind
+            .client
+            .generate_to_address(1, &mining_address)
+            .expect("mine the spending tx");
+        assert!(
+            !outpoints_belong_to_previous_backend(&rpc_client, &outpoints, &foreign_spk)
+                .await
+                .expect("rpc should succeed"),
+            "a chain-spent outpoint must not classify as previous-backend"
         );
     }
 }
