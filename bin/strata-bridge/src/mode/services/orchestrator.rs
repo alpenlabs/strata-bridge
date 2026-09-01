@@ -24,7 +24,7 @@ use strata_bridge_exec::{
         BitcoindCpfpFeeSource, BitcoindCpfpMempool, OperatorWalletCpfpAdapter,
         build_anchor_input_signer, build_multi_anchor_signer, build_wallet_input_signer,
     },
-    output_handles::{NativeWallet, OutputHandles},
+    output_handles::{AnyWallet, OutputHandles},
 };
 use strata_bridge_orchestrator::{
     duty_dispatcher::DutyDispatcher, events_mux::EventsMux, persister::Persister,
@@ -73,7 +73,7 @@ pub(crate) async fn init_orchestrator<M>(
     gossip_handle: GossipHandle,
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,
-    wallet: Arc<RwLock<NativeWallet>>,
+    wallet: Arc<RwLock<AnyWallet>>,
     btc_rpc_client: BitcoinClient,
     asm_rpc_client: HttpClient,
     bridge_proof_host: BridgeProofHost,
@@ -220,7 +220,7 @@ where
     // it, from `ScheduledOperator::covenant_public_key`. A field change on `ScheduledOperator`
     // breaks the compilation of `_scheduled_operator_field_audit` (see
     // `crates/primitives/src/operator_set_schedule.rs`).
-    params
+    let own_covenant = params
         .keys
         .operators
         .iter()
@@ -231,6 +231,26 @@ where
                 operator_musig2_pubkey,
             )
         })?;
+
+    // The presigned graph pays this operator's covenant `payout_descriptor` (a params-file
+    // value the peers signed against), while gossip-built payouts and every spend go through
+    // the wallet's own `payout_descriptor()`. These must resolve to the same script: on a
+    // mismatch, graph payouts (uncontested/contested payout, counterproof nack) land on an
+    // output this wallet neither tracks nor can sign — unspendable by this operator, and
+    // their CPFP bumps fail forever. Warn rather than abort: graphs presigned under older
+    // params can differ legitimately, and an operator mid-rotation must still start.
+    {
+        let wallet_payout_script = wallet.read().await.payout_descriptor().to_script();
+        let covenant_payout_script = own_covenant.payout_descriptor().to_script();
+        if covenant_payout_script != wallet_payout_script {
+            warn!(
+                covenant_descriptor = %own_covenant.payout_descriptor(),
+                %wallet_payout_script,
+                "params covenant payout_descriptor does not match the wallet's payout script; \
+                 presigned-graph payouts will be unspendable and unbumpable by this operator"
+            );
+        }
+    }
 
     let cpfp_wallet = Arc::new(OperatorWalletCpfpAdapter::new(
         wallet.clone(),

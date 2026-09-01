@@ -9,7 +9,7 @@ use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_asm_rpc::traits::AsmControlApiClient;
 use strata_bridge_db::fdb::client::FdbClient;
-use strata_bridge_exec::output_handles::NativeWallet;
+use strata_bridge_exec::output_handles::AnyWallet;
 use strata_mosaic_client::MosaicClient;
 use strata_p2p::swarm::handle::CommandHandle;
 use tokio::{
@@ -195,7 +195,7 @@ pub(in crate::mode) fn spawn_s2_probe(
 /// duties. The read-lock acquisition is bounded so a stuck writer cannot leave the component
 /// reporting a stale `ok` state.
 pub(in crate::mode) fn spawn_wallet_probe(
-    wallet: Arc<RwLock<NativeWallet>>,
+    wallet: Arc<RwLock<AnyWallet>>,
     probe_interval: Duration,
     health_registry: HealthRegistry,
 ) {
