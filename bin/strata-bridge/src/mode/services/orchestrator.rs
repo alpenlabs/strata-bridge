@@ -12,6 +12,7 @@ use btc_tracker::{
 };
 use jsonrpsee::http_client::HttpClient;
 use libp2p_identity::ed25519::Keypair;
+use operator_wallet::AnyOperatorWallet;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_asm_events::client::{AsmEventFeed, AsmFeedHealthEvent};
@@ -24,7 +25,7 @@ use strata_bridge_exec::{
         BitcoindCpfpFeeSource, BitcoindCpfpMempool, OperatorWalletCpfpAdapter,
         build_anchor_input_signer, build_multi_anchor_signer, build_wallet_input_signer,
     },
-    output_handles::{NativeWallet, OutputHandles},
+    output_handles::OutputHandles,
 };
 use strata_bridge_orchestrator::{
     duty_dispatcher::DutyDispatcher, events_mux::EventsMux, persister::Persister,
@@ -48,7 +49,7 @@ use tokio::{
     select,
     sync::{RwLock, mpsc, oneshot},
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     config::Config,
@@ -73,7 +74,7 @@ pub(crate) async fn init_orchestrator<M>(
     gossip_handle: GossipHandle,
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,
-    wallet: Arc<RwLock<NativeWallet>>,
+    wallet: Arc<RwLock<AnyOperatorWallet>>,
     claim_funding_utxo_value: bitcoin::Amount,
     btc_rpc_client: BitcoinClient,
     asm_rpc_client: HttpClient,
@@ -224,7 +225,7 @@ where
     // The related invariant is `watchtower_pubkey == musig2_pubkey`. The operator table makes
     // it, from `covenant[i].musig2`. A field change on `CovenantKeys` breaks the compilation
     // of `_covenant_keys_field_audit` (see `crates/common/src/params.rs`).
-    params
+    let own_covenant = params
         .keys
         .covenant
         .iter()
@@ -235,6 +236,26 @@ where
                 operator_musig2_pubkey,
             )
         })?;
+
+    // The presigned graph pays this operator's covenant `payout_descriptor` (a params-file
+    // value the peers signed against), while gossip-built payouts and every spend go through
+    // the wallet's own `payout_descriptor()`. These must resolve to the same script: on a
+    // mismatch, graph payouts (uncontested/contested payout, counterproof nack) land on an
+    // output this wallet neither tracks nor can sign — unspendable by this operator, and
+    // their CPFP bumps fail forever. Warn rather than abort: graphs presigned under older
+    // params can differ legitimately, and an operator mid-rotation must still start.
+    {
+        let wallet_payout_script = wallet.read().await.payout_descriptor().to_script();
+        let covenant_payout_script = own_covenant.payout_descriptor.to_script();
+        if covenant_payout_script != wallet_payout_script {
+            warn!(
+                covenant_descriptor = %own_covenant.payout_descriptor,
+                %wallet_payout_script,
+                "params covenant payout_descriptor does not match the wallet's payout script; \
+                 presigned-graph payouts will be unspendable and unbumpable by this operator"
+            );
+        }
+    }
 
     let cpfp_wallet = Arc::new(OperatorWalletCpfpAdapter::new(
         wallet.clone(),

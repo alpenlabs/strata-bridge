@@ -5,11 +5,11 @@ use std::{fmt::Display, future::Future, sync::Arc, time::Duration};
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::tx_driver::TxDriverHealthHandle;
 use jsonrpsee::http_client::HttpClient;
+use operator_wallet::AnyOperatorWallet;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_asm_rpc::traits::AsmControlApiClient;
 use strata_bridge_db::fdb::client::FdbClient;
-use strata_bridge_exec::output_handles::NativeWallet;
 use strata_mosaic_client::MosaicClient;
 use strata_p2p::swarm::handle::CommandHandle;
 use tokio::{
@@ -195,7 +195,7 @@ pub(in crate::mode) fn spawn_s2_probe(
 /// duties. The read-lock acquisition is bounded so a stuck writer cannot leave the component
 /// reporting a stale `ok` state.
 pub(in crate::mode) fn spawn_wallet_probe(
-    wallet: Arc<RwLock<NativeWallet>>,
+    wallet: Arc<RwLock<AnyOperatorWallet>>,
     probe_interval: Duration,
     health_registry: HealthRegistry,
 ) {
