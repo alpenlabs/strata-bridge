@@ -12,8 +12,8 @@ use std::{
 
 use bdk_wallet::{
     bitcoin::{
-        psbt::Input as PsbtInput, taproot::LeafVersion, Amount, FeeRate, Network, OutPoint, Psbt,
-        ScriptBuf, Transaction, TxOut, XOnlyPublicKey,
+        psbt::Input as PsbtInput, taproot::LeafVersion, Address, Amount, FeeRate, Network,
+        OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Witness, XOnlyPublicKey,
     },
     descriptor,
     error::CreateTxError,
@@ -156,6 +156,31 @@ impl GeneralWallet for NativeGeneralWallet {
         self.script_pubkey.clone()
     }
 
+    fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
+        // The wallet's own receive script (the BIP-341 tap-tweaked general key), wrapped as
+        // a BOSD descriptor — the same construction `OperatorWallet::descriptor()` used
+        // before this became backend-specific. Deriving it from the receive script makes
+        // divergence structurally impossible: payouts land on an ordinary wallet UTXO that
+        // BDK tracks, and the tap-tweaking wallet signer can spend (and CPFP-bump) it.
+        //
+        // Wrapping the *raw* general key instead would be subtly catastrophic: BOSD treats
+        // a P2TR payload as the already-tweaked OUTPUT key (`dangerous_assume_tweaked`), so
+        // the payout output would be keyed to an untweaked point — invisible to the BDK
+        // descriptor and unspendable by every signer wired in production (they all
+        // tap-tweak).
+        //
+        // Known window (STR-3427, lease lifecycle): because payouts are ordinary wallet
+        // UTXOs, an in-mempool payout output is auto-selectable as funding by a concurrent
+        // duty until a bump child spends it — leases only cover child-selected funding
+        // inputs, never the payout outpoint itself. Bounded consequence: the duty tx ends
+        // up as the parent's de-facto TRUC child (it pays real fees, so the parent still
+        // confirms) and any later explicit bump bounces off RBF against it, noisily.
+        let address = Address::from_script(&self.script_pubkey, self.wallet.network())
+            .expect("wallet receive script is a standard P2TR script");
+        bitcoin_bosd::Descriptor::try_from(address)
+            .expect("standard address converts to a BOSD descriptor")
+    }
+
     fn list_utxos(&self) -> Vec<UtxoInfo> {
         let wallet = lock_wallet(&self.wallet);
         let tip = wallet.latest_checkpoint().height();
@@ -200,6 +225,17 @@ impl GeneralWallet for NativeGeneralWallet {
             exclude,
             replaced,
         )
+    }
+
+    async fn sign_owned_inputs(
+        &self,
+        _tx: &Transaction,
+        input_indices: &[usize],
+        _prevouts: &[TxOut],
+    ) -> Result<Vec<Option<Witness>>, Self::Error> {
+        // Descriptor-only: this backend holds no key material, so it signs nothing — the caller
+        // signs these inputs downstream via secret-service.
+        Ok(vec![None; input_indices.len()])
     }
 }
 

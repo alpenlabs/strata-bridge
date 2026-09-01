@@ -9,7 +9,7 @@ use bitcoin::{
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
-use operator_wallet::{GeneralUtxoPolicy, LeaseOwner, UtxoInfo};
+use operator_wallet::{AnyOperatorWallet, GeneralUtxoPolicy, LeaseOwner, UtxoInfo};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors::{Connector, ParentTx};
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
@@ -755,6 +755,19 @@ mod tests {
 
     impl GeneralWallet for ReconciliationGeneralWallet {
         type Error = MockError;
+
+        fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
+            unreachable!("reconciliation tests do not resolve payout descriptors")
+        }
+
+        async fn sign_owned_inputs(
+            &self,
+            _tx: &Transaction,
+            _input_indices: &[usize],
+            _prevouts: &[TxOut],
+        ) -> Result<Vec<Option<bitcoin::Witness>>, Self::Error> {
+            unreachable!("reconciliation tests do not sign inputs")
+        }
 
         async fn sync(&mut self) -> Result<(), Self::Error> {
             if self.sync_fails {
