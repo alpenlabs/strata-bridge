@@ -8,10 +8,7 @@ use bitcoin::{
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
-use operator_wallet::{
-    AnyOperatorWallet, GeneralUtxoPolicy, GeneralWallet, Lease, LeaseOwner, OperatorWallet,
-    WalletStore,
-};
+use operator_wallet::{Error as WalletError, GeneralUtxoPolicy, Lease, LeaseOwner};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors::{Connector, ParentTx};
 use strata_bridge_db::{
@@ -41,7 +38,7 @@ use crate::{
     chain::{self, CpfpKind, is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
-    output_handles::OutputHandles,
+    output_handles::{AnyWallet, OutputHandles},
 };
 
 pub(super) async fn generate_graph_data(
@@ -129,9 +126,38 @@ fn invalid_mosaic_key(err: bitcoin::secp256k1::Error) -> ExecutorError {
     ExecutorError::MosaicErr(format!("invalid mosaic pubkey: {err:?}"))
 }
 
+/// The wallet operations of claim-funding selection.
+///
+/// Production holds an [`AnyWallet`]. The selection tests need a fake general backend, which
+/// [`AnyWallet`] cannot hold, so this trait is the seam between the two.
+trait ClaimFundingWallet {
+    /// Syncs both wallets.
+    fn sync(&mut self) -> impl Future<Output = Result<(), WalletError>> + Send;
+
+    /// Takes a lease on one settled reserved-wallet UTXO of `value`, if one is free.
+    fn reserve_settled(
+        &self,
+        value: Amount,
+        bury_depth: u32,
+    ) -> impl Future<Output = Option<(OutPoint, Lease)>> + Send;
+}
+
+impl ClaimFundingWallet for AnyWallet {
+    fn sync(&mut self) -> impl Future<Output = Result<(), WalletError>> + Send {
+        AnyWallet::sync(self)
+    }
+
+    async fn reserve_settled(&self, value: Amount, bury_depth: u32) -> Option<(OutPoint, Lease)> {
+        let settled = self.settled(bury_depth);
+        self.reserve_utxo_with_value(value, LeaseOwner::ClaimFunding, predicate::not(settled))
+            .await
+            .0
+    }
+}
+
 // Selection must not use cached confirmations when either wallet fails to sync.
-async fn reserve_synced_claim_funding<G: GeneralWallet, P: WalletStore>(
-    wallet: &mut OperatorWallet<G, P>,
+async fn reserve_synced_claim_funding(
+    wallet: &mut impl ClaimFundingWallet,
     value: Amount,
     bury_depth: u32,
 ) -> Result<Option<(OutPoint, Lease)>, ExecutorError> {
@@ -140,11 +166,7 @@ async fn reserve_synced_claim_funding<G: GeneralWallet, P: WalletStore>(
             "wallet sync failed before selecting claim funding: {e:?}"
         ))
     })?;
-    let settled = wallet.settled(bury_depth);
-    Ok(wallet
-        .reserve_utxo_with_value(value, LeaseOwner::ClaimFunding, predicate::not(settled))
-        .await
-        .0)
+    Ok(wallet.reserve_settled(value, bury_depth).await)
 }
 
 /// Returns the outpoint of `reservation` if it holds exactly `value`, so that a reservation of
@@ -792,7 +814,8 @@ mod tests {
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
 
     use super::{
-        ExecutorError, check_claim_funding, reserve_synced_claim_funding, watchtower_idxs,
+        ClaimFundingWallet, ExecutorError, Lease, LeaseOwner, WalletError, check_claim_funding,
+        predicate, reserve_synced_claim_funding, watchtower_idxs,
     };
 
     #[derive(Debug)]
@@ -881,6 +904,23 @@ mod tests {
     fn core_rpc_client(bitcoind: &Node) -> CoreRpcClient {
         let auth = Auth::CookieFile(bitcoind.params.cookie_file.clone());
         CoreRpcClient::new(bitcoind.rpc_url().as_str(), auth).expect("core rpc client")
+    }
+
+    impl ClaimFundingWallet for OperatorWallet<ReconciliationGeneralWallet, MemoryStore> {
+        fn sync(&mut self) -> impl Future<Output = Result<(), WalletError>> + Send {
+            OperatorWallet::sync(self)
+        }
+
+        async fn reserve_settled(
+            &self,
+            value: Amount,
+            bury_depth: u32,
+        ) -> Option<(OutPoint, Lease)> {
+            let settled = self.settled(bury_depth);
+            self.reserve_utxo_with_value(value, LeaseOwner::ClaimFunding, predicate::not(settled))
+                .await
+                .0
+        }
     }
 
     async fn reconciliation_wallet(

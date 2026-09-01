@@ -32,13 +32,12 @@ use std::{
 
 use bdk_wallet::{
     bitcoin::{
-        Address, Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Txid, Witness,
+        Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Txid, Witness,
         XOnlyPublicKey,
     },
     chain::BlockId,
     descriptor, KeychainKind,
 };
-use bitcoin_bosd::Descriptor;
 use tokio::{sync::Mutex as TokioMutex, time::sleep};
 use tracing::{error, info, warn};
 
@@ -218,12 +217,6 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
     /// Returns the reserved wallet's receive script.
     pub fn reserved_script_pubkey(&self) -> ScriptBuf {
         self.reserved_script_pubkey.clone()
-    }
-
-    /// Returns a BOSD descriptor for the general wallet's current receive script.
-    pub fn descriptor(&self) -> Result<Descriptor, Error> {
-        let address = Address::from_script(&self.general_script_pubkey(), self.config.network)?;
-        Descriptor::try_from(address).map_err(Error::Descriptor)
     }
 
     // ── Lease bookkeeping ───────────────────────────────────────────────────

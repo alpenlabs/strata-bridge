@@ -19,7 +19,7 @@ use tokio::{
 use tracing::{error, warn};
 
 use crate::{
-    constants::DEFAULT_HEALTH_PROBE_TIMEOUT,
+    constants::{DEFAULT_HEALTH_PROBE_TIMEOUT, WALLET_PROBE_LOCK_TIMEOUT},
     health::{
         COMPONENT_ASM_RPC, COMPONENT_BITCOIN_RPC, COMPONENT_FDB, COMPONENT_MOSAIC,
         COMPONENT_ORCHESTRATOR, COMPONENT_P2P, COMPONENT_S2, COMPONENT_TX_DRIVER, COMPONENT_WALLET,
@@ -211,7 +211,11 @@ pub(in crate::mode) fn spawn_wallet_probe(
 
         loop {
             ticker.tick().await;
-            match timeout(DEFAULT_HEALTH_PROBE_TIMEOUT, wallet.read()).await {
+            // This wait is its own bound, not the general probe timeout — and it is a
+            // liveness cutoff, not a worst-case hold: a healthy wallet can hold the
+            // exclusive guard for minutes (retrying sync, Fireblocks signing wait), so a
+            // timeout here is expected during those windows and self-clears next tick.
+            match timeout(WALLET_PROBE_LOCK_TIMEOUT, wallet.read()).await {
                 Ok(guard) => {
                     let height = guard.local_chain_tip_height();
                     let general_sync = guard.last_general_sync();
