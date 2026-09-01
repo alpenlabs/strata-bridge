@@ -142,12 +142,51 @@ pub enum FireblocksError {
     /// Transaction construction (selection / change / sighash) failed.
     #[error("tx build: {0}")]
     TxBuild(String),
+    /// `anchor.vout` indexes past the end of `parent.output`.
+    #[error("anchor vout {vout} out of range for parent with {parent_outputs} outputs")]
+    AnchorVoutOutOfRange {
+        /// The requested anchor vout.
+        vout: u32,
+        /// Number of outputs on `parent`.
+        parent_outputs: usize,
+    },
     /// Witness assembly from a returned signature failed.
     #[error("witness: {0}")]
     Witness(String),
     /// A signing request did not reach a usable signed state within the allotted time.
     #[error("signing timed out for tx {0}")]
     SigningTimeout(String),
+}
+
+impl crate::ErrorPermanence for FireblocksError {
+    fn is_permanent(&self) -> bool {
+        match self {
+            // Conditions of the configured operator: a bad API secret, a deposit address that
+            // does not parse, an asset id that does not match the network, and a JWT that will
+            // not build. None of these passes on a later attempt.
+            Self::SigningKey(_)
+            | Self::DepositAddress(_)
+            | Self::AssetMismatch(_)
+            | Self::Jwt(_) => true,
+            // A dead wallet and a failed attempt repeat the same way for a signed parent, so
+            // the caller stops bumping one that cannot carry a child at all. The output count
+            // of a signed parent never changes, so a parent that cannot hold the anchor vout
+            // cannot carry a child at all.
+            Self::Witness(_) | Self::AnchorVoutOutOfRange { .. } => true,
+            // Transport, an API error of either kind (4xx and 5xx both live in this variant),
+            // a body that will not decode, selection failing on thin funding, and a signing
+            // poll that ran out of time: each of these passes on a later attempt. `Api` is
+            // the mixed class — a bad credential is permanent, an outage is not — and the
+            // safe default for a bump is to keep trying: the duty schedule bounds the retry
+            // rate, while classifying a permanent halt for one parent on the cheap error
+            // strands its funds.
+            Self::Http(_)
+            | Self::Api(_)
+            | Self::Decode(_)
+            | Self::TxBuild(_)
+            | Self::SigningTimeout(_) => false,
+        }
+    }
 }
 
 /// A Fireblocks-backed general wallet.
@@ -553,7 +592,7 @@ impl GeneralWallet for FireblocksGeneralWallet {
     }
 
     async fn fund_v3_transaction(
-        &mut self,
+        &self,
         outputs: Vec<TxOut>,
         explicit_inputs: Option<&[OutPoint]>,
         fee_rate: FeeRate,
@@ -599,7 +638,7 @@ impl GeneralWallet for FireblocksGeneralWallet {
     }
 
     async fn build_cpfp_child(
-        &mut self,
+        &self,
         parent: &Transaction,
         parent_fee: Amount,
         anchor: AnchorInfo,
@@ -614,8 +653,9 @@ impl GeneralWallet for FireblocksGeneralWallet {
         let anchor_prevout = parent
             .output
             .get(anchor.vout() as usize)
-            .ok_or_else(|| {
-                FireblocksError::TxBuild(format!("anchor vout {} out of range", anchor.vout()))
+            .ok_or_else(|| FireblocksError::AnchorVoutOutOfRange {
+                vout: anchor.vout(),
+                parent_outputs: parent.output.len(),
             })?
             .clone();
         let anchor_outpoint = OutPoint {

@@ -5,16 +5,26 @@
 //! startup from config. It forwards the full [`OperatorWallet`] surface the executors use to
 //! whichever variant is active; the Fireblocks variant is compiled only under the
 //! `fireblocks` feature.
+//!
+//! Method receivers mirror [`OperatorWallet`]: `&self` for everything except
+//! [`OperatorWallet::sync`], which needs `&mut self` because both backends' general-wallet
+//! sync takes `&mut self`. The interior funding lock inside the wallet serializes selection,
+//! so a caller that only funds
+//! or builds holds a shared guard; only sync (and callers keeping the old multi-step critical
+//! sections) take the exclusive guard.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, time::Instant};
 
 use bdk_wallet::bitcoin::{Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, Witness};
 
 #[cfg(feature = "fireblocks")]
 use crate::general::fireblocks::FireblocksGeneralWallet;
 use crate::{
-    general::{native::NativeGeneralWallet, AnchorInfo, FundedPsbt, GeneralWallet, UtxoInfo},
-    Error, GeneralUtxoPolicy, OperatorWallet,
+    general::{
+        native::NativeGeneralWallet, AnchorInfo, AnchorOwnership, GeneralWallet, ReplacedChild,
+        UtxoInfo,
+    },
+    Error, GeneralUtxoPolicy, Lease, LeaseOwner, LeasedPsbt, OperatorWallet,
 };
 
 /// An operator wallet whose general-wallet backend is selected at runtime.
@@ -77,18 +87,18 @@ impl AnyOperatorWallet {
     }
 
     /// See [`OperatorWallet::leased_outpoints`].
-    pub const fn leased_outpoints(&self) -> &BTreeSet<OutPoint> {
+    pub fn leased_outpoints(&self) -> BTreeSet<OutPoint> {
         delegate!(self, w => w.leased_outpoints())
     }
 
-    /// See [`OperatorWallet::lease`].
-    pub fn lease(&mut self, outpoints: &[OutPoint]) {
-        delegate!(self, w => w.lease(outpoints));
+    /// See [`OperatorWallet::lease_committed`].
+    pub async fn lease_committed(&self, outpoints: Vec<OutPoint>, owner: LeaseOwner) {
+        delegate!(self, w => w.lease_committed(outpoints, owner).await)
     }
 
-    /// See [`OperatorWallet::release`].
-    pub fn release(&mut self, outpoints: &[OutPoint]) {
-        delegate!(self, w => w.release(outpoints));
+    /// See [`OperatorWallet::release_committed`].
+    pub fn release_committed(&self, outpoints: &[OutPoint]) {
+        delegate!(self, w => w.release_committed(outpoints));
     }
 
     /// See [`OperatorWallet::reserved_utxos_with_value`].
@@ -102,7 +112,7 @@ impl AnyOperatorWallet {
     }
 
     /// See [`OperatorWallet::last_general_sync`].
-    pub const fn last_general_sync(&self) -> Option<(bool, std::time::Instant)> {
+    pub const fn last_general_sync(&self) -> Option<(bool, Instant)> {
         delegate!(self, w => w.last_general_sync())
     }
 
@@ -116,53 +126,79 @@ impl AnyOperatorWallet {
     }
 
     /// See [`OperatorWallet::reserve_utxo_with_value`].
-    pub fn reserve_utxo_with_value(
-        &mut self,
+    pub async fn reserve_utxo_with_value(
+        &self,
         value: Amount,
+        owner: LeaseOwner,
         ignore: impl Fn(&UtxoInfo) -> bool,
-    ) -> (Option<OutPoint>, u64) {
-        delegate!(self, w => w.reserve_utxo_with_value(value, ignore))
+    ) -> (Option<(OutPoint, Lease)>, u64) {
+        delegate!(self, w => w.reserve_utxo_with_value(value, owner, ignore).await)
     }
 
-    /// See [`OperatorWallet::select_and_lease_general_utxo`].
-    pub fn select_and_lease_general_utxo(
-        &mut self,
+    /// See [`OperatorWallet::select_general_utxo`].
+    pub async fn select_general_utxo(
+        &self,
+        owner: LeaseOwner,
         predicate: impl Fn(&UtxoInfo) -> bool,
-    ) -> Option<UtxoInfo> {
-        delegate!(self, w => w.select_and_lease_general_utxo(predicate))
+    ) -> Option<(UtxoInfo, Lease)> {
+        delegate!(self, w => w.select_general_utxo(owner, predicate).await)
     }
 
     /// See [`OperatorWallet::fund_v3_transaction`].
     pub async fn fund_v3_transaction(
-        &mut self,
+        &self,
         unsigned_tx: Transaction,
         fee_rate: FeeRate,
         general_utxo_policy: GeneralUtxoPolicy,
-    ) -> Result<FundedPsbt, Error> {
-        delegate!(self, w => w.fund_v3_transaction(unsigned_tx, fee_rate, general_utxo_policy).await)
+        owner: LeaseOwner,
+    ) -> Result<LeasedPsbt, Error> {
+        delegate!(
+            self,
+            w => w
+                .fund_v3_transaction(unsigned_tx, fee_rate, general_utxo_policy, owner)
+                .await
+        )
     }
 
     /// See [`OperatorWallet::fund_v3_transaction_with_inputs`].
     pub async fn fund_v3_transaction_with_inputs(
-        &mut self,
+        &self,
         unsigned_tx: Transaction,
         inputs: &[OutPoint],
         fee_rate: FeeRate,
-    ) -> Result<FundedPsbt, Error> {
-        delegate!(self, w => w.fund_v3_transaction_with_inputs(unsigned_tx, inputs, fee_rate).await)
+        owner: LeaseOwner,
+    ) -> Result<LeasedPsbt, Error> {
+        delegate!(
+            self,
+            w => w
+                .fund_v3_transaction_with_inputs(unsigned_tx, inputs, fee_rate, owner)
+                .await
+        )
     }
 
     /// See [`OperatorWallet::build_cpfp_child`].
     pub async fn build_cpfp_child(
-        &mut self,
+        &self,
         parent: &Transaction,
         parent_fee: Amount,
         anchor: AnchorInfo,
+        anchor_ownership: AnchorOwnership,
         target_pkg_fee_rate: FeeRate,
-        replacing: Option<&[OutPoint]>,
-        prior_child_fee: Option<Amount>,
-    ) -> Result<FundedPsbt, Error> {
-        delegate!(self, w => w.build_cpfp_child(parent, parent_fee, anchor, target_pkg_fee_rate, replacing, prior_child_fee).await)
+        replaced: ReplacedChild<'_>,
+    ) -> Result<LeasedPsbt, Error> {
+        delegate!(
+            self,
+            w => w
+                .build_cpfp_child(
+                    parent,
+                    parent_fee,
+                    anchor,
+                    anchor_ownership,
+                    target_pkg_fee_rate,
+                    replaced,
+                )
+                .await
+        )
     }
 
     /// See [`OperatorWallet::sign_owned_inputs`].
@@ -177,13 +213,25 @@ impl AnyOperatorWallet {
 
     /// See [`OperatorWallet::create_reserved_utxos`].
     pub async fn create_reserved_utxos(
-        &mut self,
+        &self,
         fee_rate: FeeRate,
         utxo_value: Amount,
         quantity: usize,
         general_utxo_policy: GeneralUtxoPolicy,
-    ) -> Result<FundedPsbt, Error> {
-        delegate!(self, w => w.create_reserved_utxos(fee_rate, utxo_value, quantity, general_utxo_policy).await)
+        owner: LeaseOwner,
+    ) -> Result<LeasedPsbt, Error> {
+        delegate!(
+            self,
+            w => w
+                .create_reserved_utxos(
+                    fee_rate,
+                    utxo_value,
+                    quantity,
+                    general_utxo_policy,
+                    owner,
+                )
+                .await
+        )
     }
 
     /// See [`OperatorWallet::sync`].

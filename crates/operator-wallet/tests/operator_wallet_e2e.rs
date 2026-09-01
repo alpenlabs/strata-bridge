@@ -561,6 +561,19 @@ impl GeneralWallet for YieldingGeneralWallet {
     ) -> Result<operator_wallet::FundedPsbt, Self::Error> {
         unreachable!("this test does not build CPFP children")
     }
+
+    fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
+        unreachable!("this test does not resolve payout descriptors")
+    }
+
+    async fn sign_owned_inputs(
+        &self,
+        _tx: &Transaction,
+        _input_indices: &[usize],
+        _prevouts: &[bdk_wallet::bitcoin::TxOut],
+    ) -> Result<Vec<Option<bdk_wallet::bitcoin::Witness>>, Self::Error> {
+        unreachable!("this test does not sign owned inputs")
+    }
 }
 
 /// Two funding calls that run at the same time must not select one general-wallet UTXO twice.

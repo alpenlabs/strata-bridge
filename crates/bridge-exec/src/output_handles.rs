@@ -26,10 +26,14 @@ pub type NativeWallet = OperatorWallet<NativeGeneralWallet>;
 pub struct OutputHandles {
     /// Handle for accessing operator funds.
     ///
-    /// Methods on [`OperatorWallet`] take `&mut self`. The outer `RwLock` also lets executors
-    /// span multi-step critical sections (e.g. DB-lookup-then-fund-then-persist) without
-    /// races between concurrent duties. Erased over the backend so the binary can pick native
-    /// vs Fireblocks at startup without threading `<G>` through every executor.
+    /// Only `sync` takes the wallet's exclusive guard; fund, build, and selection run under
+    /// the shared read guard plus the wallet's internal funding lock. That funding lock
+    /// serializes funding across duties for the length of a backend round trip — what
+    /// concurrent duties gain from the shared guard is that read-only observations do not
+    /// queue behind a round trip. The outer write guard is for duties that span a multi-step
+    /// critical section (e.g. DB-lookup-then-fund-then-persist) without races between concurrent
+    /// duties. Erased over the backend so the binary can pick native vs Fireblocks at
+    /// startup without threading `<G>` through every executor.
     pub wallet: Arc<RwLock<AnyOperatorWallet>>,
 
     /// Handle for accessing the database.
