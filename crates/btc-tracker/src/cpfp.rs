@@ -139,10 +139,14 @@ pub struct CpfpHandle {
     /// Package fee rate the driver last targeted. Used to skip noop bumps when the fee source
     /// hasn't moved upward.
     pub last_pkg_fee_rate: Option<FeeRate>,
-    /// Txid of the child we last broadcast (for tracking / replacement). `None` before the
-    /// first bump succeeds.
+    /// Txid of the child we last accepted into the mempool, for tracking and
+    /// replacement. `None` before the first accepted bump.
     pub last_child_txid: Option<Txid>,
-    /// Absolute fee that the most recent child pays. BIP-125 rule 4 requires a
+    /// Absolute fee that the most recent child pays. Set only when the package is
+    /// accepted into the mempool (step 9 of the bump), together with `last_child_txid`:
+    /// a rejected candidate must not become the floor, because the replacement floor
+    /// derived from it is not re-clamped against the target's max rate.
+    /// BIP-125 rule 4 requires a
     /// replacement to pay the replaced fee plus the incremental relay fee over the
     /// replacement's own size. The builder floors the next child's fee at this value plus
     /// 1 sat/vB × the new child's vbytes. A small target rise then produces a valid
@@ -1017,10 +1021,13 @@ where
 
     // ── 5. Build the child via the wallet ───────────────────────────────────
     let replacing: Option<&dyn FundingLease> = handle.last_child_lease.as_deref();
-    // The RBF floor only applies while there is a live child to replace. A prior child
-    // recorded but since evicted (lost anchor race, confirmed competitor) clears the handle
-    // through the release paths, so `last_child_fee` here always describes the mempool
-    // incumbent we are replacing.
+    // The RBF floor only applies while there is a child to replace. Only accepted
+    // submissions record `last_child_fee` (step 9), so a rejected candidate never feeds
+    // the floor. A prior child that lost the anchor race or was confirmed away clears
+    // the handle through the release paths. A child evicted by fee pressure is not
+    // probe-visible, so in that one case the floor still holds the dead child's fee and
+    // is conservative: the next child pays the dead child's fee plus its own
+    // incremental relay fee, which is a valid replacement fee.
     let prior_child_fee = handle
         .last_child_fee
         .filter(|_| handle.last_child_txid.is_some());
@@ -1038,12 +1045,15 @@ where
     // `replacing`. This assignment also drops the lease of the child that the new child
     // supersedes, once the caller writes the handle back.
     //
-    // Record the fee together with the lease. The fee is the floor for the next
-    // replacement (BIP-125 rule 4). If submission fails below, the prior child stays in
-    // the mempool and pays less than the recorded fee. The floor is then conservative,
-    // which is safe: the next child pays slightly more than the rule requires.
+    // The fee is captured but NOT recorded yet: it is the floor for the next replacement
+    // (BIP-125 rule 4) and must describe a child that is actually in the mempool. A
+    // rejected candidate must not set the floor — the floor is not re-clamped against
+    // the target's max rate, and submitpackage disables the Core fee guard, so
+    // recording a rejected fee would let failed submissions ratchet the package above
+    // the operator's cap, one failed tick at a time. The fee advances with
+    // `last_child_txid`, on acceptance only (step 9).
     handle.last_child_lease = Some(funded.lease);
-    handle.last_child_fee = funded.psbt.as_psbt().fee().ok();
+    let child_fee = funded.psbt.as_psbt().fee().ok();
 
     // ── 6. Sign each input still lacking final_script_witness ─────────────
     //
@@ -1193,10 +1203,13 @@ where
     // ── 9. Update handle ────────────────────────────────────────────────────
     //
     // The lease was already recorded right after funding (see above) so a failure
-    // anywhere in between still hands the leases back on the next bump. The remaining two
-    // fields describe what is actually in the mempool, so they only advance on success.
+    // anywhere in between still hands the leases back on the next bump. The remaining
+    // fields describe what is actually in the mempool, so they only advance on
+    // acceptance: a rejected candidate sets neither the floor fee nor the incumbent
+    // txid, and the wallet derives the next replacement floor from `last_child_fee`.
     handle.last_pkg_fee_rate = Some(target);
     handle.last_child_txid = Some(child_txid);
+    handle.last_child_fee = child_fee;
 
     Ok(BumpOutcome::Submitted)
 }
@@ -2234,6 +2247,58 @@ pub(crate) mod tests {
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].len(), 2);
         assert_eq!(captured[0][0].compute_txid(), parent.compute_txid());
+    }
+
+    /// A rejected candidate is not the incumbent: a failed submission advances neither
+    /// the floor fee nor the child txid. Recording the rejected fee would let the next
+    /// build floor itself on it, and the floor is not re-clamped against the target's
+    /// max rate — sustained failures would ratchet the package above the operator's cap.
+    #[tokio::test]
+    async fn a_rejected_candidate_does_not_advance_the_floor() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        let psbt = synthetic_child_psbt(&parent, 0, anchor_key);
+        let wallet_funding = vec![OutPoint {
+            txid: bitcoin::Txid::from_slice(&[1u8; 32]).unwrap(),
+            vout: 0,
+        }];
+
+        let submitter = Arc::new(FakeSubmitter::failing("min relay fee not met"));
+        let ctx = context(
+            Arc::new(FakeFeeSource::returning(
+                FeeRate::from_sat_per_vb(10).unwrap(),
+            )),
+            Arc::new(FakeWallet::returning(psbt, wallet_funding.clone())),
+            submitter.clone(),
+            fake_input_signer_ok(),
+            fake_input_signer_ok(),
+            FeeRate::from_sat_per_vb(50).unwrap(),
+        );
+
+        let mut handle = CpfpHandle::default();
+        perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect_err("a failing submitter must surface the error");
+
+        assert!(
+            handle.last_child_txid.is_none(),
+            "a rejected candidate is not the incumbent"
+        );
+        assert!(
+            handle.last_child_fee.is_none(),
+            "a rejected candidate must not set the replacement floor"
+        );
+        assert!(handle.last_pkg_fee_rate.is_none());
+        // The lease still covers the built child's funding: the next bump hands it back
+        // or passes it as the replacement lease.
+        assert_eq!(held_by(&handle), wallet_funding);
     }
 
     #[tokio::test]
