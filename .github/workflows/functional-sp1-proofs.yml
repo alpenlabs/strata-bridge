@@ -42,7 +42,7 @@ jobs:
 
       - name: Extract Rust version
         id: extract-version
-        uses: ./.github/actions/extract-rust-version
+        uses: $/.github/actions/extract-rust-version
 
   run:
     name: Run ${{ matrix.test }} with real SP1 proving
@@ -103,7 +103,7 @@ jobs:
           echo "$OPENSSL_INSTALL_DIR/bin" >> "$GITHUB_PATH"
 
       - name: Cleanup space
-        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+        uses: $/.github/actions/cleanup # zizmor: ignore[unpinned-uses]
 
       - name: Install bitcoind
         env:
@@ -144,10 +144,10 @@ jobs:
           sudo apt-get install -y libclang-dev
 
       - name: Setup FoundationDB client
-        uses: ./.github/actions/setup-foundationdb
+        uses: $/.github/actions/setup-foundationdb
 
       - name: Setup FoundationDB server
-        uses: ./.github/actions/setup-foundationdb-server
+        uses: $/.github/actions/setup-foundationdb-server
 
       - name: Install protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
@@ -280,7 +280,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Send Slack alert
-        uses: ./.github/actions/notify-slack # zizmor: ignore[unpinned-uses]
+        uses: $/.github/actions/notify-slack # zizmor: ignore[unpinned-uses]
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           message: ${{ steps.msg.outputs.text }}

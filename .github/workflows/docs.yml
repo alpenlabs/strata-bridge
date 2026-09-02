@@ -25,7 +25,7 @@ jobs:
 
       - name: Extract Rust version
         id: extract-version
-        uses: ./.github/actions/extract-rust-version
+        uses: $/.github/actions/extract-rust-version
 
   docs:
     name: Generate docs
@@ -51,7 +51,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install FoundationDB
-        uses: ./.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
+        uses: $/.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
 
       - name: Check docs leaving the dependencies out
         run: cargo doc --workspace --no-deps
