@@ -174,10 +174,10 @@ jobs:
           enable-cache: true
           cache-suffix: "functional-tests"
 
-      - name: Install libclang for bindgen
+      - name: Install libclang for bindgen and gdb for core triage
         run: |
           sudo apt-get update
-          sudo apt-get install -y libclang-dev
+          sudo apt-get install -y libclang-dev gdb
 
       - name: Setup FoundationDB client
         uses: ./.github/actions/setup-foundationdb
@@ -253,6 +253,22 @@ jobs:
         run: |
           echo "$GITHUB_WORKSPACE/target/asm/bin" >> "$GITHUB_PATH"
 
+      - name: Prepare flake diagnostics (runner info, core dumps, fdb traces)
+        run: |
+          DIAG_DIR="$GITHUB_WORKSPACE/functional-tests/_dd/diagnostics"
+          mkdir -p "$DIAG_DIR/cores" "$DIAG_DIR/fdb-trace"
+          {
+            echo "runner: $RUNNER_NAME"
+            echo "image: $ImageOS $ImageVersion"
+            grep -m1 'model name' /proc/cpuinfo
+            echo "cpus: $(nproc)"
+            grep MemTotal /proc/meminfo
+            uname -a
+          } > "$DIAG_DIR/runner-info.log"
+          cat "$DIAG_DIR/runner-info.log"
+          # Route core dumps to a known location (apport intercepts them by default).
+          sudo sysctl -w kernel.core_pattern="$DIAG_DIR/cores/core-%e-%p-%s"
+
       - name: Run functional tests
         id: funcTestsRun
         continue-on-error: true
@@ -261,8 +277,12 @@ jobs:
           LOG_LEVEL: "info"
           PYTHON_VERSION: "3.12" # NOTE: (@Rajil1213) build fails with 3.13 since bitcoinlib (>=0.7.5,<0.8) uses an old version of numpy
           TEST_GROUP: ${{ matrix.group }}
+          # libfdb_c picks up FDB_NETWORK_OPTION_* env vars; client traces aid flake triage.
+          FDB_NETWORK_OPTION_TRACE_ENABLE: ${{ github.workspace }}/functional-tests/_dd/diagnostics/fdb-trace
           shell: bash
         run: |
+          # Allow core dumps from test services (routed to _dd/diagnostics/cores).
+          ulimit -c unlimited
           export LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/target/llvm-cov-target/strata-%p-%m.profraw"
           NEWPATH="$GITHUB_WORKSPACE/target/llvm-cov-target/debug"
           export PATH="$NEWPATH:$PATH"
@@ -293,6 +313,22 @@ jobs:
           name: functional-lcov-${{ matrix.group }}
           path: lcov.functional.${{ matrix.group }}.info
 
+      - name: Collect kernel log and core backtraces on failure
+        if: steps.funcTestsRun.outcome == 'failure'
+        run: |
+          DIAG_DIR="$GITHUB_WORKSPACE/functional-tests/_dd/diagnostics"
+          mkdir -p "$DIAG_DIR"
+          # Kernel log records segfaults (with faulting ip) and OOM kills.
+          sudo dmesg -T | tail -300 > "$DIAG_DIR/dmesg.log" || true
+          grep -iE "segfault|killed process|out of memory|trap" "$DIAG_DIR/dmesg.log" || echo "no kill/fault lines in dmesg"
+          # Backtrace any core dumps (gdb resolves the executable from the core).
+          shopt -s nullglob
+          for core in "$DIAG_DIR"/cores/core-*; do
+            echo "==== $core ====" >> "$DIAG_DIR/gdb-backtraces.log"
+            gdb -batch -c "$core" -ex "bt" -ex "info threads" >> "$DIAG_DIR/gdb-backtraces.log" 2>&1 || true
+          done
+          ls -la "$DIAG_DIR/cores/" || true
+
       - name: Zip log files on failure
         if: steps.funcTestsRun.outcome == 'failure'
         # Create a zip archive (logs.zip) that includes only service.log files,
@@ -303,6 +339,9 @@ jobs:
           find functional-tests/_dd -type f -name "service.log" | zip -@ logs.zip
           # functional test logs
           zip -r logs.zip functional-tests/_dd -i '*/logs/*.log'
+          # flake diagnostics (runner info, rss samples, dmesg, gdb backtraces, fdb traces);
+          # cores stay on the runner - they can be hundreds of MBs
+          zip -r logs.zip functional-tests/_dd/diagnostics -x '*/cores/*' || true
 
       - name: Upload logs as build artifact on failure
         if: steps.funcTestsRun.outcome == 'failure'

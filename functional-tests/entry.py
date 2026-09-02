@@ -16,6 +16,7 @@ from factory.fdb import FdbFactory
 from factory.mosaic import MosaicFactory
 from factory.s2 import S2Factory
 from utils.logging import setup_root_logger
+from utils.service_diagnostics import install_service_diagnostics, start_rss_sampler
 
 # Groups in here don't run when you just call `./run_test.sh` with no
 # arguments. They're the slow / expensive ones that we never want sweeping up the default
@@ -74,6 +75,10 @@ def main(argv):
 
     # Create datadir.
     datadir_root = flexitest.create_datadir_in_workspace(os.path.join(root_dir, "_dd"))
+
+    # Flake diagnostics: log service pids/exit codes and sample RSS (utils/service_diagnostics.py).
+    install_service_diagnostics()
+    start_rss_sampler(os.path.join(root_dir, "_dd", "diagnostics", "rss.log"))
 
     # gen mtls info
     gen_s2_tls_script_path = os.path.abspath(
