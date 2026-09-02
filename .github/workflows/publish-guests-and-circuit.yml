@@ -45,7 +45,7 @@ permissions: {}
 jobs:
   guest-build:
     name: Guest build
-    uses: ./.github/workflows/publish-sp1-bridge-guests.yml
+    uses: $/.github/workflows/publish-sp1-bridge-guests.yml
     permissions:
       contents: read
       id-token: write
@@ -60,7 +60,7 @@ jobs:
     needs: guest-build
     # No `env:` input — circuit-gen reads it from the manifest in guest-build's
     # artifact, so the circuit key can't name a different env than the bridge tree.
-    uses: ./.github/workflows/circuit-gen.yml
+    uses: $/.github/workflows/circuit-gen.yml
     permissions:
       contents: read
       id-token: write

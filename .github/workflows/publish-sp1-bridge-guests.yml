@@ -72,7 +72,7 @@ jobs:
 
       - name: Extract Rust version
         id: extract-version
-        uses: ./.github/actions/extract-rust-version
+        uses: $/.github/actions/extract-rust-version
 
   publish-sp1-bridge-guests:
     name: Build and publish SP1 bridge-proof and counterproof ELFs

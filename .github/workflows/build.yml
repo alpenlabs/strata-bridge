@@ -26,7 +26,7 @@ jobs:
 
       - name: Extract Rust version
         id: extract-version
-        uses: ./.github/actions/extract-rust-version
+        uses: $/.github/actions/extract-rust-version
 
   crate-checks:
     name: Check that crates compile on their own
@@ -67,7 +67,7 @@ jobs:
           version: "v0.10.0" # sccache version
 
       - name: Install FoundationDB
-        uses: ./.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
+        uses: $/.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
 
       - name: Check crates compile
         run: cargo hack check

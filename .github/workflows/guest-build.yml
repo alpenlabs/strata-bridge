@@ -28,7 +28,7 @@ jobs:
 
       - name: Extract Rust version
         id: extract-version
-        uses: ./.github/actions/extract-rust-version
+        uses: $/.github/actions/extract-rust-version
 
   sp1-guest-build:
     name: Build SP1 bridge-proof and counterproof guests with bundled stub params

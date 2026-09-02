@@ -22,7 +22,7 @@ jobs:
 
       - name: Extract Rust version
         id: extract-version
-        uses: ./.github/actions/extract-rust-version
+        uses: $/.github/actions/extract-rust-version
 
   discover-groups:
     name: Discover functional test groups
@@ -134,7 +134,7 @@ jobs:
           echo "$OPENSSL_INSTALL_DIR/bin" >> "$GITHUB_PATH"
 
       - name: Cleanup space
-        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+        uses: $/.github/actions/cleanup # zizmor: ignore[unpinned-uses]
 
       - name: Install bitcoind
         env:
@@ -180,10 +180,10 @@ jobs:
           sudo apt-get install -y libclang-dev
 
       - name: Setup FoundationDB client
-        uses: ./.github/actions/setup-foundationdb
+        uses: $/.github/actions/setup-foundationdb
 
       - name: Setup FoundationDB server
-        uses: ./.github/actions/setup-foundationdb-server
+        uses: $/.github/actions/setup-foundationdb-server
 
       - name: Build Cargo project
         run: |

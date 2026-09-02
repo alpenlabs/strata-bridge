@@ -139,7 +139,7 @@ jobs:
           path: build-src
 
       - name: Cleanup space
-        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+        uses: $/.github/actions/cleanup # zizmor: ignore[unpinned-uses]
 
       - name: Validate AWS publish configuration
         env:
@@ -189,7 +189,7 @@ jobs:
       # .trivyignore.yaml comes from the root (main) checkout — untrusted build refs cannot suppress CVEs.
       - name: Scan ${{ matrix.display_name }} with Trivy
         id: trivy
-        uses: ./.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
+        uses: $/.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
         with:
           image_ref: ${{ env.LOCAL_TAG }}
           display_name: ${{ matrix.display_name }}
@@ -275,7 +275,7 @@ jobs:
           path: build-src
 
       - name: Cleanup space
-        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+        uses: $/.github/actions/cleanup # zizmor: ignore[unpinned-uses]
 
       - name: Validate AWS publish configuration
         env:
@@ -329,7 +329,7 @@ jobs:
       # .trivyignore.yaml comes from the root (main) checkout — untrusted build refs cannot suppress CVEs.
       - name: Scan ${{ matrix.display_name }} with Trivy
         id: trivy
-        uses: ./.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
+        uses: $/.github/actions/trivy-scan # zizmor: ignore[unpinned-uses]
         with:
           image_ref: ${{ matrix.local_tag }}
           display_name: ${{ matrix.display_name }}
