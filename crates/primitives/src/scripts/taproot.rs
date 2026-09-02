@@ -264,7 +264,8 @@ impl<'a> Arbitrary<'a> for TaprootWitness {
         match choice {
             0 => Ok(TaprootWitness::Key),
             1 => {
-                let script_len = usize::arbitrary(u)? % 100; // Limit the length of the script for practicality
+                let script_len = usize::arbitrary(u)? % 100; // Limit the length of the script for
+                                                             // practicality
                 let script_bytes = u.bytes(script_len)?; // Generate random bytes for the script
                 let script_buf = ScriptBuf::from(script_bytes.to_vec());
 

@@ -25,13 +25,13 @@ pub fn and<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn
 
 /// Predicate combinator for the || operation.
 #[inline(always)]
-pub fn or<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn(&A) -> bool {
+pub fn or<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl Fn(&A) -> bool {
     move |a| f(a) || g(a)
 }
 
 /// Predicate combinator for the xor operation.
 #[inline(always)]
-pub fn xor<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn(&A) -> bool {
+pub fn xor<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl Fn(&A) -> bool {
     move |a| f(a) ^ g(a)
 }
 
