@@ -56,5 +56,7 @@ jobs:
       - name: Check docs leaving the dependencies out
         run: cargo doc --workspace --no-deps
         env:
-          RUSTDOCFLAGS: --show-type-layout --enable-index-page -Zunstable-options -A rustdoc::private-doc-tests -D warnings
+          # generic_const_exprs is not yet supported by the globally enabled next-generation trait
+          # solver. See https://github.com/rust-lang/rust/issues/160895.
+          RUSTDOCFLAGS: --show-type-layout --enable-index-page -Zunstable-options -Znext-solver=coherence -A rustdoc::private-doc-tests -D warnings
           DATABASE_URL: sqlite://./operator.db
