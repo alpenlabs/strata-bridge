@@ -332,8 +332,12 @@ jobs:
             exe=$(file "$core" | grep -o "execfn: '[^']*'" | cut -d"'" -f2)
             echo "==== $core (exe: ${exe:-unknown}) ====" >> "$DIAG_DIR/gdb-backtraces.log"
             if [ -n "$exe" ] && [ -f "$exe" ]; then
-              gdb -batch "$exe" -c "$core" -ex "bt full" -ex "info threads" -ex "thread apply all bt" \
+              gdb -batch "$exe" -c "$core" \
+                -ex 'p $_siginfo' -ex 'info registers' -ex 'x/8i $pc-16' \
+                -ex 'bt full' -ex 'info threads' -ex 'thread apply all bt' \
                 >> "$DIAG_DIR/gdb-backtraces.log" 2>&1 || true
+              # keep the exact binary for offline disassembly against the core
+              cp -n "$exe" "$DIAG_DIR/crashed-exe-$(basename "$exe")" 2>/dev/null || true
             else
               gdb -batch -c "$core" -ex "bt" -ex "info threads" >> "$DIAG_DIR/gdb-backtraces.log" 2>&1 || true
             fi
@@ -354,6 +358,25 @@ jobs:
           # flake diagnostics (runner info, rss samples, dmesg, gdb backtraces, fdb traces);
           # cores stay on the runner - they can be hundreds of MBs
           zip -r logs.zip functional-tests/_dd/diagnostics -x '*/cores/*' || true
+
+      - name: Compress core dumps on failure
+        if: steps.funcTestsRun.outcome == 'failure'
+        run: |
+          shopt -s nullglob
+          cores=("$GITHUB_WORKSPACE"/functional-tests/_dd/diagnostics/cores/core-*)
+          if [ ${#cores[@]} -gt 0 ]; then
+            zstd -T0 -3 --rm "${cores[@]}"
+          fi
+
+      - name: Upload core dumps as build artifact on failure
+        if: steps.funcTestsRun.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fntest_cores-${{ matrix.group }}
+          path: functional-tests/_dd/diagnostics/cores/*.zst
+          retention-days: 7
+          if-no-files-found: ignore
+          compression-level: 0 # already compressed
 
       - name: Upload logs as build artifact on failure
         if: steps.funcTestsRun.outcome == 'failure'
