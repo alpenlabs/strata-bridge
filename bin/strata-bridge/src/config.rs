@@ -2,7 +2,7 @@
 //!
 //! These do not affect consensus between bridge nodes and can be set to different values by
 //! different operators.
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{fmt, net::SocketAddr, path::PathBuf, time::Duration};
 
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
@@ -114,7 +114,12 @@ pub(crate) struct SecretServiceConfig {
 }
 
 /// Configuration for the Bitcoin client.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Debug` is implemented by hand so neither half of the RPC credential is printed. Operator
+/// startup logs the whole [`Config`] at debug level, and those records reach stdout, rolling
+/// files, and the OTLP collector, so a derived `Debug` would copy the credential to every enabled
+/// sink.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct BtcClientConfig {
     /// URL of the Bitcoin client.
     pub url: String,
@@ -130,6 +135,18 @@ pub(crate) struct BtcClientConfig {
 
     /// Optional retry interval for failed requests.
     pub retry_interval: Option<u64>,
+}
+
+impl fmt::Debug for BtcClientConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BtcClientConfig")
+            .field("url", &self.url)
+            .field("user", &"<redacted>")
+            .field("pass", &"<redacted>")
+            .field("retry_count", &self.retry_count)
+            .field("retry_interval", &self.retry_interval)
+            .finish()
+    }
 }
 
 /// Configuration for the Bitcoin ZMQ client.
@@ -285,6 +302,10 @@ pub(crate) struct MetricsConfig {
     pub prometheus_listener_addr: Option<SocketAddr>,
 }
 
+/// Shared config fixture for tests.
+///
+/// The Bitcoin RPC credentials are sentinels so `debug_redacts_btc_rpc_credentials` can search
+/// rendered output for them without matching field names or other values.
 #[cfg(test)]
 pub(crate) fn test_config() -> Config {
     toml::from_str(
@@ -309,8 +330,8 @@ pub(crate) fn test_config() -> Config {
 
             [btc_client]
             url = "http://localhost:18443"
-            user = "user"
-            pass = "password"
+            user = "sentinel-user"
+            pass = "sentinel-password"
             retry_count = 3
             retry_interval = 1_000
 
@@ -389,5 +410,32 @@ mod tests {
             reserialized, serialized,
             "serde round-trip must preserve every field"
         );
+    }
+
+    // Operator startup logs the whole config, so no debug rendering of it may carry the Bitcoin
+    // RPC credentials, neither the leaf struct nor the parent that holds it.
+    #[test]
+    fn debug_redacts_btc_rpc_credentials() {
+        let config = test_config();
+
+        for rendered in [
+            format!("{:?}", config.btc_client),
+            format!("{:#?}", config.btc_client),
+            format!("{config:?}"),
+        ] {
+            assert!(
+                !rendered.contains("sentinel-password"),
+                "password leaked: {rendered}"
+            );
+            assert!(
+                !rendered.contains("sentinel-user"),
+                "username leaked: {rendered}"
+            );
+        }
+
+        // Non-secret fields stay visible so the startup record remains a usable diagnostic.
+        let rendered = format!("{:?}", config.btc_client);
+        assert!(rendered.contains("http://localhost:18443"));
+        assert!(rendered.contains("retry_count: Some(3)"));
     }
 }
