@@ -220,13 +220,17 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ github.workspace }}/target/mosaic
-          key: ${{ runner.os }}-mosaic-${{ steps.bin-versions.outputs.mosaic-ref-type }}-${{ steps.bin-versions.outputs.mosaic-ref }}-${{ needs.extract-rust-version.outputs.nightly-version }}
+          key: ${{ runner.os }}-mosaic-${{ steps.bin-versions.outputs.mosaic-ref-type }}-${{ steps.bin-versions.outputs.mosaic-ref }}-${{ needs.extract-rust-version.outputs.nightly-version }}-dbgsym1
 
       - name: Install mosaic binary
         if: steps.cache-mosaic.outputs.cache-hit != 'true'
         env:
           MOSAIC_REF_TYPE: ${{ steps.bin-versions.outputs.mosaic-ref-type }}
           MOSAIC_REF: ${{ steps.bin-versions.outputs.mosaic-ref }}
+          # mosaic's release profile strips symbols; keep them (plus line tables)
+          # so flake cores backtrace with function names and file:line
+          CARGO_PROFILE_RELEASE_STRIP: "none"
+          CARGO_PROFILE_RELEASE_DEBUG: "line-tables-only"
         run: |
           cargo install --locked --git https://github.com/alpenlabs/mosaic "--$MOSAIC_REF_TYPE" "$MOSAIC_REF" --features=reduced-circuits --root "$GITHUB_WORKSPACE/target/mosaic" mosaic
 
