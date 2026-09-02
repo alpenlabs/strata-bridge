@@ -109,7 +109,7 @@ jobs:
           rustup default "$RUST_NIGHTLY"
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           cache-on-failure: true
 
@@ -157,7 +157,7 @@ jobs:
         run: python3 .github/scripts/guest_publish.py summarize
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: arn:aws:iam::496607027995:role/github-actions-strata-bridge-circuit-s3
           aws-region: ${{ env.AWS_REGION }}

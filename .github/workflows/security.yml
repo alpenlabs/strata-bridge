@@ -18,7 +18,7 @@ jobs:
     permissions: {}
     steps:
       - name: Install cargo-audit
-        uses: taiki-e/install-action@b550161ef8a7bc4f2a671c0b03a18ac9ccedea1e # v2.79.1
+        uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2.86.3
         with:
           tool: cargo-audit@0.22.2
 
@@ -81,7 +81,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Trivy
-        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
         with:
           version: v0.69.3
           cache: true
@@ -135,7 +135,7 @@ jobs:
       - name: Upload SARIF to GitHub Security tab
         if: steps.trivy_sarif_cargo.outcome == 'success'
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v3
+        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v3
         with:
           sarif_file: trivy-cargo.sarif
           category: cargo-fs

@@ -47,12 +47,12 @@ jobs:
           rustup default "$RUST_NIGHTLY"
 
       - name: Install cargo-hack
-        uses: taiki-e/install-action@b550161ef8a7bc4f2a671c0b03a18ac9ccedea1e # cargo-hack v2.79.1
+        uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # cargo-hack v2.86.3
         with:
           tool: cargo-hack
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           cache-on-failure: true
 
@@ -62,7 +62,7 @@ jobs:
           echo  "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         with:
           version: "v0.10.0" # sccache version
 

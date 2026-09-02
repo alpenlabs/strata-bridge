@@ -116,7 +116,7 @@ jobs:
         # not the built commit, so a dispatched ref's build.rs/proc-macro output
         # could otherwise seed a cache that later trusted builds restore.
         # Restore-only keeps the speedup without the poisoning vector.
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           save-if: false
 
@@ -189,7 +189,7 @@ jobs:
           echo "Checksummed:"; ls -la bin
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
