@@ -39,7 +39,7 @@ fn deserialize_outpoints(bytes: &[u8]) -> Result<Vec<OutPoint>, InvalidOutPointB
         return Err(InvalidOutPointBytes { len: bytes.len() });
     }
     let mut outpoints = Vec::with_capacity(bytes.len() / SERIALIZED_OUTPOINT_SIZE);
-    for chunk in bytes.chunks_exact(SERIALIZED_OUTPOINT_SIZE) {
+    for chunk in bytes.as_chunks::<SERIALIZED_OUTPOINT_SIZE>().0 {
         let txid = Txid::from_slice(&chunk[..SERIALIZED_TXID_SIZE]).unwrap_or_else(|_| {
             panic!(
                 "Invalid Txid bytes: expected {} bytes, got {}",

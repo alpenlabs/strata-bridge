@@ -1,4 +1,3 @@
-#![feature(bool_to_result)]
 //! This crate implements state machines for managing bridge operations.
 //!
 //! The state machines in the bridge are a cooperating automata that together implement the overall
