@@ -321,12 +321,20 @@ jobs:
           # Kernel log records segfaults (with faulting ip) and OOM kills.
           sudo dmesg -T | tail -300 > "$DIAG_DIR/dmesg.log" || true
           grep -iE "segfault|killed process|out of memory|trap" "$DIAG_DIR/dmesg.log" || echo "no kill/fault lines in dmesg"
-          # Backtrace any core dumps (gdb resolves the executable from the core).
+          # Backtrace any core dumps. gdb needs the executable for symbols;
+          # recover it from the core's execfn note.
           shopt -s nullglob
           for core in "$DIAG_DIR"/cores/core-*; do
-            echo "==== $core ====" >> "$DIAG_DIR/gdb-backtraces.log"
-            gdb -batch -c "$core" -ex "bt" -ex "info threads" >> "$DIAG_DIR/gdb-backtraces.log" 2>&1 || true
+            exe=$(file "$core" | grep -o "execfn: '[^']*'" | cut -d"'" -f2)
+            echo "==== $core (exe: ${exe:-unknown}) ====" >> "$DIAG_DIR/gdb-backtraces.log"
+            if [ -n "$exe" ] && [ -f "$exe" ]; then
+              gdb -batch "$exe" -c "$core" -ex "bt full" -ex "info threads" -ex "thread apply all bt" \
+                >> "$DIAG_DIR/gdb-backtraces.log" 2>&1 || true
+            else
+              gdb -batch -c "$core" -ex "bt" -ex "info threads" >> "$DIAG_DIR/gdb-backtraces.log" 2>&1 || true
+            fi
           done
+          cat "$DIAG_DIR/gdb-backtraces.log" 2>/dev/null || true
           ls -la "$DIAG_DIR/cores/" || true
 
       - name: Zip log files on failure
