@@ -30,5 +30,13 @@
         "RESERVED_WALLET": "bcrt1pwu5arzpjcx3qqlfeeef2ap0hdynazynp5zj3ck9srlh58yz8uccqmh37lv",
         "MUSIG2_KEY": "d1b992bb2909e873c5afaa4911f7ac79a7655973c07461b2121d3cfb536f917e",
         "P2P_KEY": "a3279fc32b9cc3c8088db8cded3e36ad4952daa903975725657113b6107f00a2"
+    },
+    {
+        "SEED": "9c388a06a7d429cb3d24f8ed665ff566ecd6c7c3af295e3b9f08665de772cdf4",
+        "GENERAL_WALLET": "bcrt1p6c7usqchmqgq5hdgsud9ya5a4y9v3v90fxwarrjw7wxvm0ftng0sp0hcjj",
+        "GENERAL_WALLET_DESCRIPTOR": "04d63dc80317d8100a5da8871a52769da90ac8b0af499dd18e4ef38ccdbd2b9a1f",
+        "RESERVED_WALLET": "bcrt1p246mnjrha5x4yxmk9dmc3gspvwu6p7tu9cmegly4phq5a0mmflrsqtxlsr",
+        "MUSIG2_KEY": "f2b44fc1e6d0a4728f4cd9cf40eb4e32910689c236bb1bf2aeca5a341b2ef3e2",
+        "P2P_KEY": "6c4191c44b97910f6ecef4f1bf53f58d6524a02cd237b34b0fa3670b7b53a565"
     }
 ]

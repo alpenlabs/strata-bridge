@@ -4,7 +4,8 @@ BRIDGE_NODE_DIR = "bridge_node"
 SECRET_SERVICE_DIR = "secret_service"
 BLOCK_GENERATION_INTERVAL_SECS = 2
 MEMPOOL_POLL_INTERVAL_SECS = 1
-BRIDGE_NETWORK_SIZE = 3
+# flake arm 2: 5 operators -> 20 pairwise garbling sessions (amplifies the setup-burst flake)
+BRIDGE_NETWORK_SIZE = 5
 DEFAULT_LOG_LEVEL = "DEBUG"
 ASM_MAGIC_BYTES = "ALPN"
 MOSAIC_DIR = "mosaic"
