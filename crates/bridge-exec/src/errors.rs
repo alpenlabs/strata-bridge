@@ -89,6 +89,11 @@ pub enum ExecutorError {
         /// The maximum fee rate allowed by the configuration.
         max: FeeRate,
     },
+
+    /// The cached fee rate is older than its staleness bound, so duty pricing refuses it.
+    /// The duty retries after the fee source recovers.
+    #[error("fee source stale: {0}")]
+    FeeSourceStale(#[from] btc_tracker::cpfp::StaleFeeRate),
 }
 
 impl From<OneOf<(FdbBindingError, LayerError)>> for ExecutorError {

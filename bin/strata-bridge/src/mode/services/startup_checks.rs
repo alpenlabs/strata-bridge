@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use algebra::retry::{Strategy, retry_with};
 use anyhow::{Context, Result, anyhow};
-use bitcoin::Amount;
+use bitcoin::{Amount, FeeRate};
 use jsonrpsee::http_client::HttpClient;
 use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::RpcCircuitInfoEntry;
@@ -29,6 +29,8 @@ pub(in crate::mode) async fn verify(
     bridge_proof_host: &BridgeProofHost,
     counterproof_host: &BridgeCounterproofHost,
 ) -> Result<()> {
+    verify_cpfp_fee_config(config)?;
+
     verify_predicates(params, bridge_proof_host, counterproof_host)?;
 
     let asm_params = fetch_asm_params(asm_rpc_client, &config.asm_rpc)
@@ -41,6 +43,33 @@ pub(in crate::mode) async fn verify(
         .context("fetching Mosaic circuit definitions for startup consistency check")?;
     verify_mosaic_vkey(counterproof_host.vkey_hash(), &circuit_defs)
         .context("bridge/Mosaic counterproof vkey mismatch")?;
+    Ok(())
+}
+
+/// The CPFP fee knobs must not contradict each other: a package floor above the cap would
+/// clamp every bump to the cap and the operator's two settings would fight. Checked at
+/// startup so the mismatch aborts the node instead of surfacing as a warn on every bump.
+fn verify_cpfp_fee_config(config: &Config) -> Result<()> {
+    let cap = FeeRate::from_sat_per_vb(config.max_fee_rate).ok_or_else(|| {
+        anyhow!(
+            "max_fee_rate = {} sat/vB is not a valid fee rate",
+            config.max_fee_rate
+        )
+    })?;
+    let floor = FeeRate::from_sat_per_vb(config.cpfp_min_package_fee_rate).ok_or_else(|| {
+        anyhow!(
+            "cpfp_min_package_fee_rate = {} sat/vB is not a valid fee rate",
+            config.cpfp_min_package_fee_rate
+        )
+    })?;
+    if floor > cap {
+        anyhow::bail!(
+            "cpfp_min_package_fee_rate = {} sat/vB exceeds max_fee_rate = {} sat/vB; \
+             the floor would clamp every CPFP bump to the cap",
+            config.cpfp_min_package_fee_rate,
+            config.max_fee_rate
+        );
+    }
     Ok(())
 }
 
