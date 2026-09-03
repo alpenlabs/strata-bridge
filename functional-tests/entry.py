@@ -16,6 +16,7 @@ from factory.fdb import FdbFactory
 from factory.mosaic import MosaicFactory
 from factory.s2 import S2Factory
 from utils.logging import setup_root_logger
+from utils.service_diagnostics import install_service_exit_logging
 
 # Groups in here don't run when you just call `./run_test.sh` with no
 # arguments. They're the slow / expensive ones that we never want sweeping up the default
@@ -69,6 +70,7 @@ def main(argv):
     parsed_args = parser.parse_args(argv[1:])
 
     setup_root_logger()
+    install_service_exit_logging()
     root_dir = os.path.dirname(os.path.abspath(__file__))
     test_dir = os.path.join(root_dir, TEST_DIR)
 
