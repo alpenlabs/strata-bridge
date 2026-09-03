@@ -16,7 +16,6 @@ secret-service-client.workspace = true
 secret-service-proto.workspace = true
 strata-bridge-asm-events.workspace = true
 strata-bridge-common.workspace = true
-strata-bridge-connectors.workspace = true
 strata-bridge-counterproof.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-exec.workspace = true
@@ -68,6 +67,7 @@ tikv-jemallocator = "0.6"
 [dev-dependencies]
 bitcoin-bosd.workspace = true
 strata-asm-params = { workspace = true, features = ["arbitrary"] }
+strata-bridge-connectors.workspace = true
 strata-bridge-test-utils.workspace = true
 strata-bridge-tx-graph = { workspace = true, features = ["test_utils"] }
 strata-l1-txfmt.workspace = true
