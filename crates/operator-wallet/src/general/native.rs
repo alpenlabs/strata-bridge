@@ -594,10 +594,7 @@ fn is_spendable_funding(wallet: &Wallet, utxo: &bdk_wallet::LocalOutput, tip: u3
     let is_coinbase = wallet
         .get_tx(utxo.outpoint.txid)
         .is_some_and(|tx| tx.tx_node.tx.is_coinbase());
-    if is_coinbase && tip.saturating_sub(confirmation_height) + 1 < COINBASE_MATURITY {
-        return false;
-    }
-    true
+    !(is_coinbase && tip.saturating_sub(confirmation_height) + 1 < COINBASE_MATURITY)
 }
 
 /// Dust threshold for the child's P2TR drain output. Below this the output is unspendable and
