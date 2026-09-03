@@ -13,13 +13,16 @@ use bitcoin::{
     hashes::{Hash, sha256},
     relative,
 };
-use operator_wallet::{NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend};
+use operator_wallet::{
+    AnyOperatorWallet, NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
+    general::fireblocks::{FireblocksConfig, FireblocksGeneralWallet},
+    sync::Backend,
+};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_common::params::Params;
 use strata_bridge_connectors::prelude::{ClaimContestConnector, ClaimPayoutConnector};
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb};
-use strata_bridge_exec::output_handles::NativeWallet;
 use strata_bridge_primitives::constants::SEGWIT_MIN_AMOUNT;
 use strata_bridge_tx_graph::{fee, transactions::prelude::ClaimTx};
 use tokio::sync::RwLock;
@@ -33,8 +36,9 @@ use crate::config::Config;
 /// orchestrator forwards it into `strata_bridge_exec::config::ExecutionConfig` so duty
 /// executors can reference the pool by value.
 pub(in crate::mode) struct InitializedOperatorWallet {
-    /// The composed operator wallet, ready to lease + sign against.
-    pub wallet: NativeWallet,
+    /// The composed operator wallet, ready to lease + sign against. Backend (native vs
+    /// Fireblocks) is selected from config; erased so the orchestrator stays backend-agnostic.
+    pub wallet: AnyOperatorWallet,
     /// Per-UTXO denomination of the claim-funding pool. The composer is denomination-
     /// agnostic; this value is propagated into `strata_bridge_exec::config::ExecutionConfig`
     /// so duty executors can reference the pool by value.
@@ -66,8 +70,6 @@ pub(in crate::mode) async fn init_operator_wallet(
     );
     debug!(?bitcoin_rpc_client, "bitcoin rpc client");
 
-    let general_key = s2_client.general_wallet_signer().pubkey().await?;
-    info!(%general_key, "operator wallet general key");
     let reserved_key = s2_client.reserved_wallet_signer().pubkey().await?;
     info!(%reserved_key, "operator wallet reserved key");
     let own_musig2_key = s2_client.musig2_signer().pubkey().await?;
@@ -75,18 +77,59 @@ pub(in crate::mode) async fn init_operator_wallet(
     let operator_wallet_config = OperatorWalletConfig::new(SEGWIT_MIN_AMOUNT, params.network);
     debug!(?operator_wallet_config, %claim_funding_utxo_value, "operator wallet config");
 
-    let general_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
+    // The reserved wallet is always native (BDK), regardless of the general-wallet backend.
     let reserved_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
-    debug!(?general_sync_backend, "operator wallet sync backend");
-    let general_wallet =
-        NativeGeneralWallet::new(general_key, params.network, general_sync_backend);
-    let wallet = OperatorWallet::new(
-        general_wallet,
-        reserved_key,
-        operator_wallet_config,
-        reserved_sync_backend,
-        leased_outpoints,
-    );
+
+    let wallet: AnyOperatorWallet = match &config.operator_wallet.fireblocks {
+        None => {
+            let general_key = s2_client.general_wallet_signer().pubkey().await?;
+            info!(%general_key, "operator wallet general key (native backend)");
+            let general_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
+            let general_wallet =
+                NativeGeneralWallet::new(general_key, params.network, general_sync_backend);
+            OperatorWallet::new(
+                general_wallet,
+                reserved_key,
+                operator_wallet_config,
+                reserved_sync_backend,
+                leased_outpoints,
+            )
+            .into()
+        }
+        Some(fb) => {
+            info!(
+                vault = %fb.vault_account_id,
+                asset = %fb.asset_id,
+                "operator wallet general backend: fireblocks"
+            );
+            let api_secret = std::fs::read(&fb.api_secret_path).map_err(|e| {
+                anyhow!(
+                    "failed to read Fireblocks API secret at {:?}: {e}",
+                    fb.api_secret_path
+                )
+            })?;
+            let fb_config = FireblocksConfig {
+                base_url: fb.base_url.clone(),
+                api_key: fb.api_key.clone(),
+                vault_account_id: fb.vault_account_id.clone(),
+                asset_id: fb.asset_id.clone(),
+                network: params.network,
+                deposit_address: fb.deposit_address.clone(),
+                bip44_address_index: fb.bip44_address_index,
+                bip44_change: fb.bip44_change,
+            };
+            let general_wallet = FireblocksGeneralWallet::new(fb_config, &api_secret)
+                .map_err(|e| anyhow!("failed to initialize Fireblocks general wallet: {e}"))?;
+            OperatorWallet::new(
+                general_wallet,
+                reserved_key,
+                operator_wallet_config,
+                reserved_sync_backend,
+                leased_outpoints,
+            )
+            .into()
+        }
+    };
     debug!("operator wallet initialized");
 
     Ok(InitializedOperatorWallet {
@@ -104,8 +147,10 @@ const INITIAL_SYNC_RETRY_INTERVAL: Duration = Duration::from_secs(30);
 /// are duty-driven after startup: without it, a bitcoind or backend outage at boot leaves
 /// the wallet empty, and every CPFP bump fails with `InsufficientFunding` until the first
 /// duty happens to call `sync()`. A failed attempt does not crash the node — it is logged
-/// and retried.
-pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(wallet: Arc<RwLock<NativeWallet>>) {
+/// and retried, and the health probe reads the outcome through `last_general_sync`.
+pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(
+    wallet: Arc<RwLock<AnyOperatorWallet>>,
+) {
     info!("starting initial operator wallet sync");
     let mut attempt: u32 = 0;
     loop {

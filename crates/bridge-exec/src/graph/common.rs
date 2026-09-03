@@ -756,6 +756,19 @@ mod tests {
     impl GeneralWallet for ReconciliationGeneralWallet {
         type Error = MockError;
 
+        fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
+            unreachable!("reconciliation tests do not resolve payout descriptors")
+        }
+
+        async fn sign_owned_inputs(
+            &self,
+            _tx: &Transaction,
+            _input_indices: &[usize],
+            _prevouts: &[TxOut],
+        ) -> Result<Vec<Option<bitcoin::Witness>>, Self::Error> {
+            unreachable!("reconciliation tests do not sign inputs")
+        }
+
         async fn sync(&mut self) -> Result<(), Self::Error> {
             if self.sync_fails {
                 Err(MockError("test sync failure".into()))
