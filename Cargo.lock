@@ -3012,10 +3012,10 @@ dependencies = [
 [[package]]
 name = "ckt-fmtv5-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/ckt?tag=v0.3.0-rc.2#a7462a1d1372f5dbf0519c61b39a2f032898edff"
+source = "git+https://github.com/alpenlabs/ckt?tag=v0.4.0-rc.2#1a53a2dbdc6487be4acfc8a01e2309c02e2c3ddb"
 dependencies = [
  "blake3",
- "cynosure 0.4.0",
+ "cynosure 0.6.0",
  "kanal",
  "libc",
  "monoio",
@@ -3024,7 +3024,7 @@ dependencies = [
 [[package]]
 name = "ckt-gobble"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/ckt?tag=v0.3.0-rc.2#a7462a1d1372f5dbf0519c61b39a2f032898edff"
+source = "git+https://github.com/alpenlabs/ckt?tag=v0.4.0-rc.2#1a53a2dbdc6487be4acfc8a01e2309c02e2c3ddb"
 dependencies = [
  "bitvec",
  "blake3",
@@ -3468,7 +3468,23 @@ dependencies = [
  "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
  "digest 0.10.7",
- "fiat-crypto",
+ "fiat-crypto 0.2.9",
+ "rustc_version 0.4.1",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "curve25519-dalek"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5eed333089e2e1c1ac8c6c0398e5e2497b4c9926ca6d0365ed1e099afa5bc23"
+dependencies = [
+ "cfg-if 1.0.4",
+ "cpufeatures 0.3.0",
+ "curve25519-dalek-derive",
+ "digest 0.11.3",
+ "fiat-crypto 0.3.0",
  "rustc_version 0.4.1",
  "subtle",
  "zeroize",
@@ -3496,11 +3512,10 @@ dependencies = [
 
 [[package]]
 name = "cynosure"
-version = "0.4.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b87575c1637454fd3c7de54730c5780c9605c87c30f174e03ec3d94e634a36b"
+checksum = "85ae3fe761ac97c0847c4a5af729031ad2a77bd0dab9cc24f22ad2a8c5e51d48"
 dependencies = [
- "futures",
  "monoio",
 ]
 
@@ -3972,7 +3987,7 @@ dependencies = [
  "elliptic-curve",
  "rfc6979",
  "serdect 0.2.0",
- "signature",
+ "signature 2.2.0",
  "spki",
 ]
 
@@ -3983,7 +3998,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
  "pkcs8",
- "signature",
+ "signature 2.2.0",
+]
+
+[[package]]
+name = "ed25519"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29fcf32e6c73d1079f83ab4d782de2d81620346a5f38c6237a86a22f8368980a"
+dependencies = [
+ "signature 3.0.0",
 ]
 
 [[package]]
@@ -3992,10 +4016,23 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
- "curve25519-dalek",
- "ed25519",
+ "curve25519-dalek 4.1.3",
+ "ed25519 2.2.3",
  "serde",
  "sha2 0.10.9",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "ed25519-dalek"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ebaa1a2bf1290ab3bfe5a7b771d050ebffab2711c19a81691c683a5144a25de"
+dependencies = [
+ "curve25519-dalek 5.0.0",
+ "ed25519 3.0.0",
+ "sha2 0.11.0",
  "subtle",
  "zeroize",
 ]
@@ -4281,6 +4318,12 @@ name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
+
+[[package]]
+name = "fiat-crypto"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "find-msvc-tools"
@@ -5832,7 +5875,7 @@ dependencies = [
  "once_cell",
  "serdect 0.2.0",
  "sha2 0.10.9",
- "signature",
+ "signature 2.2.0",
 ]
 
 [[package]]
@@ -6063,7 +6106,7 @@ checksum = "f0c7892c221730ba55f7196e98b0b8ba5e04b4155651736036628e9f73ed6fc3"
 dependencies = [
  "asn1_der",
  "bs58",
- "ed25519-dalek",
+ "ed25519-dalek 2.2.0",
  "hkdf",
  "k256",
  "multihash",
@@ -6788,7 +6831,7 @@ dependencies = [
 [[package]]
 name = "mosaic-adaptor-sigs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=758492b4af94f56c86b1db4ff2fa74f8c4464f57#758492b4af94f56c86b1db4ff2fa74f8c4464f57"
+source = "git+https://github.com/alpenlabs/mosaic?rev=2ce3e51d4bb9d4e80167b87074fc6878c2fac118#2ce3e51d4bb9d4e80167b87074fc6878c2fac118"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -6803,7 +6846,7 @@ dependencies = [
 [[package]]
 name = "mosaic-cac-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=758492b4af94f56c86b1db4ff2fa74f8c4464f57#758492b4af94f56c86b1db4ff2fa74f8c4464f57"
+source = "git+https://github.com/alpenlabs/mosaic?rev=2ce3e51d4bb9d4e80167b87074fc6878c2fac118#2ce3e51d4bb9d4e80167b87074fc6878c2fac118"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -6824,7 +6867,7 @@ dependencies = [
 [[package]]
 name = "mosaic-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=758492b4af94f56c86b1db4ff2fa74f8c4464f57#758492b4af94f56c86b1db4ff2fa74f8c4464f57"
+source = "git+https://github.com/alpenlabs/mosaic?rev=2ce3e51d4bb9d4e80167b87074fc6878c2fac118#2ce3e51d4bb9d4e80167b87074fc6878c2fac118"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -6833,7 +6876,7 @@ dependencies = [
 [[package]]
 name = "mosaic-heap-array"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=758492b4af94f56c86b1db4ff2fa74f8c4464f57#758492b4af94f56c86b1db4ff2fa74f8c4464f57"
+source = "git+https://github.com/alpenlabs/mosaic?rev=2ce3e51d4bb9d4e80167b87074fc6878c2fac118#2ce3e51d4bb9d4e80167b87074fc6878c2fac118"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -6842,10 +6885,10 @@ dependencies = [
 [[package]]
 name = "mosaic-net-svc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=758492b4af94f56c86b1db4ff2fa74f8c4464f57#758492b4af94f56c86b1db4ff2fa74f8c4464f57"
+source = "git+https://github.com/alpenlabs/mosaic?rev=2ce3e51d4bb9d4e80167b87074fc6878c2fac118#2ce3e51d4bb9d4e80167b87074fc6878c2fac118"
 dependencies = [
  "ark-serialize 0.6.0",
- "ed25519-dalek",
+ "ed25519-dalek 3.0.0",
  "hex",
  "kanal",
  "serde",
@@ -6854,7 +6897,7 @@ dependencies = [
 [[package]]
 name = "mosaic-rpc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=758492b4af94f56c86b1db4ff2fa74f8c4464f57#758492b4af94f56c86b1db4ff2fa74f8c4464f57"
+source = "git+https://github.com/alpenlabs/mosaic?rev=2ce3e51d4bb9d4e80167b87074fc6878c2fac118#2ce3e51d4bb9d4e80167b87074fc6878c2fac118"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
@@ -6864,7 +6907,7 @@ dependencies = [
 [[package]]
 name = "mosaic-rpc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=758492b4af94f56c86b1db4ff2fa74f8c4464f57#758492b4af94f56c86b1db4ff2fa74f8c4464f57"
+source = "git+https://github.com/alpenlabs/mosaic?rev=2ce3e51d4bb9d4e80167b87074fc6878c2fac118#2ce3e51d4bb9d4e80167b87074fc6878c2fac118"
 dependencies = [
  "bitcoin",
  "ckt-fmtv5-types",
@@ -6881,7 +6924,7 @@ dependencies = [
 [[package]]
 name = "mosaic-vs3"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=758492b4af94f56c86b1db4ff2fa74f8c4464f57#758492b4af94f56c86b1db4ff2fa74f8c4464f57"
+source = "git+https://github.com/alpenlabs/mosaic?rev=2ce3e51d4bb9d4e80167b87074fc6878c2fac118#2ce3e51d4bb9d4e80167b87074fc6878c2fac118"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -9771,6 +9814,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "signature"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28d567dcbaf0049cb8ac2608a76cd95ff9e4412e1899d389ee400918ca7537f5"
+
+[[package]]
 name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10254,7 +10303,7 @@ dependencies = [
  "aes-gcm",
  "blake2",
  "chacha20poly1305",
- "curve25519-dalek",
+ "curve25519-dalek 4.1.3",
  "rand_core 0.6.4",
  "ring",
  "rustc_version 0.4.1",
@@ -11434,7 +11483,7 @@ dependencies = [
  "btc-tracker",
  "chrono",
  "clap",
- "ed25519-dalek",
+ "ed25519-dalek 2.2.0",
  "futures",
  "hex",
  "jsonrpsee",
@@ -11647,7 +11696,7 @@ name = "strata-bridge-key-deriv"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "ed25519-dalek",
+ "ed25519-dalek 2.2.0",
  "hkdf",
  "make_buf",
  "secp256k1 0.29.1",
@@ -12213,7 +12262,7 @@ dependencies = [
  "hex",
  "k256",
  "serde",
- "signature",
+ "signature 2.2.0",
  "ssz",
  "ssz_codegen",
  "ssz_derive",
@@ -14099,7 +14148,7 @@ version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7e468321c81fb07fa7f4c636c3972b9100f0346e5b6a9f2bd0603a52f7ed277"
 dependencies = [
- "curve25519-dalek",
+ "curve25519-dalek 4.1.3",
  "rand_core 0.6.4",
  "serde",
  "zeroize",

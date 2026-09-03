@@ -107,10 +107,10 @@ strata-asm-spec = { git = "https://github.com/alpenlabs/asm", rev = "93b5ca8c8e7
 strata-asm-worker = { git = "https://github.com/alpenlabs/asm", rev = "93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb" }
 strata-test-utils-arb = { git = "https://github.com/alpenlabs/asm", rev = "93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb" }
 
-# Dependencies from alpenlabs/mosaic pinned to commit 758492b4 (main @ 2026-08-08)
-mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "758492b4af94f56c86b1db4ff2fa74f8c4464f57" }
-mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "758492b4af94f56c86b1db4ff2fa74f8c4464f57" }
-mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "758492b4af94f56c86b1db4ff2fa74f8c4464f57" }
+# Dependencies from alpenlabs/mosaic pinned to commit 758492b4 (main @ 2026-10-03)
+mosaic-common = { git = "https://github.com/alpenlabs/mosaic", rev = "2ce3e51d4bb9d4e80167b87074fc6878c2fac118" }
+mosaic-rpc-api = { git = "https://github.com/alpenlabs/mosaic", rev = "2ce3e51d4bb9d4e80167b87074fc6878c2fac118" }
+mosaic-rpc-types = { git = "https://github.com/alpenlabs/mosaic", rev = "2ce3e51d4bb9d4e80167b87074fc6878c2fac118" }
 
 # Dependencies from alpenlabs/strata-common
 strata-btc-types = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0-rc.2" }
