@@ -3,7 +3,9 @@
 
 use std::num::NonZero;
 
-use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey, hashes::sha256};
+use bitcoin::{
+    OutPoint, ScriptBuf, Transaction, Txid, XOnlyPublicKey, hashes::sha256, taproot::ControlBlock,
+};
 use musig2::{
     AggNonce,
     secp256k1::{Message, schnorr::Signature},
@@ -21,6 +23,25 @@ use strata_bridge_tx_graph::transactions::{
 };
 use strata_mosaic_client_api::types::CompletedSignatures;
 use zkaleido::ProofReceipt;
+
+/// Script-path CPFP material for a `MultiAnchor` anchor output.
+///
+/// `contest` and `bridge_proof_timeout` carry a `MultiAnchor` — a Taproot script tree with one
+/// `<watchtower_pubkey> OP_CHECKSIG` leaf per watchtower — rather than the bare key-path anchor
+/// every other bridge transaction uses. Bumping one is a script-path spend, so the executor needs
+/// the leaf script and its control block, and which leaf it may satisfy depends on this
+/// operator's slot in *this graph's* watchtower set. That is state-machine knowledge: the
+/// transaction alone does not reveal it, and two operators looking at identical bytes have
+/// different answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MultiAnchorSpend {
+    /// Index of the anchor output on the parent transaction.
+    pub anchor_vout: u32,
+    /// The leaf script this operator is entitled to satisfy.
+    pub leaf_script: ScriptBuf,
+    /// Control block proving the leaf's membership in the anchor's tree.
+    pub control_block: ControlBlock,
+}
 
 /// The nag duties that can be emitted to remind operators of missing graph signing data.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -248,6 +269,11 @@ pub enum GraphDuty {
     PublishBridgeProofTimeout {
         /// The signed bridge proof timeout transaction to be published.
         signed_timeout_tx: Transaction,
+
+        /// Script-path CPFP material for this operator's watchtower leaf on the timeout's
+        /// `MultiAnchor`, or `None` when this operator owns the graph and therefore holds no
+        /// leaf. `None` means "publish without fee bumping", not an error.
+        cpfp_anchor: Option<MultiAnchorSpend>,
     },
 
     /// Evaluate a bridge proof and, if warranted, generate and publish a counterproof.
@@ -281,6 +307,10 @@ pub enum GraphDuty {
     PublishCounterProofAck {
         /// The signed counterproof ACK transaction to be published.
         signed_counter_proof_ack_tx: Transaction,
+        /// Internal key of the CPFP anchor of that transaction. It belongs to the watchtower
+        /// that this ACK is for. The executor cannot get it from the transaction, because the
+        /// output holds the tweaked key and not the internal key.
+        anchor_key: XOnlyPublicKey,
     },
 
     /// Publish a counterproof NACK on-chain to reject an invalid counterproof.

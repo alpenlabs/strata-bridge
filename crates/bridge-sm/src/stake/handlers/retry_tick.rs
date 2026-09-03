@@ -1,3 +1,4 @@
+use strata_bridge_connectors::{Connector, ParentTx};
 use strata_bridge_tx_graph::stake_graph::StakeGraph;
 
 use crate::{
@@ -24,6 +25,7 @@ impl StakeSM {
                 vec![StakeDuty::PublishStake {
                     operator_idx: self.context().operator_idx(),
                     tx: stake_graph.stake.as_ref().clone(),
+                    anchor_key: stake_graph.stake.cpfp_connector().internal_key(),
                 }]
             }
             _ => Vec::new(),

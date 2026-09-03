@@ -25,7 +25,9 @@ use tracing::{info, warn};
 use zkaleido::ZkVmError;
 
 use crate::{
-    chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
+    chain::{self, CpfpKind, publish_signed_transaction},
+    errors::ExecutorError,
+    output_handles::OutputHandles,
 };
 
 /// Generates the bridge proof anchored at the given block height and publishes
@@ -92,11 +94,17 @@ pub(super) async fn generate_and_publish_bridge_proof(
 
     let signed_tx = bridge_proof_tx.finalize_partial(signature);
 
+    // Bridge proof tx has no operator-owned output and no keyed anchor — its only output is
+    // a zero-value OP_RETURN encoding the proof bytes. The fee comes from the contest
+    // proof-connector input's surcharge. Not CPFP-able from the operator side; eviction
+    // resubmit is the only recovery path.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "bridge proof",
         TxStatus::is_buried,
+        chain::ParentFee::Floor,
+        CpfpKind::None,
     )
     .await
 }

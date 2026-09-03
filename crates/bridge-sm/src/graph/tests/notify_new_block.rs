@@ -4,6 +4,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use musig2::secp256k1::schnorr::Signature;
+    use strata_bridge_connectors::{Connector, ParentTx};
     use strata_bridge_test_utils::bitcoin::generate_txid;
     use strata_bridge_tx_graph::musig_functor::GameFunctor;
 
@@ -28,7 +29,7 @@ mod tests {
                 test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary, test_graph_transition,
                 test_recipient_desc,
             },
-            watchtower::watchtower_slot_for_operator,
+            watchtower::{multi_anchor_spend_for_pov, watchtower_slot_for_operator},
         },
         testing::test_transition,
     };
@@ -253,6 +254,11 @@ mod tests {
             GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
                 .expect("Failed to unpack signatures")
                 .bridge_proof_timeout;
+        let cpfp_anchor = multi_anchor_spend_for_pov(
+            &game_graph.bridge_proof_timeout,
+            ctx.operator_idx(),
+            ctx.operator_table().pov_idx(),
+        );
         let signed_timeout_tx = game_graph
             .bridge_proof_timeout
             .finalize(bridge_proof_timeout_sigs);
@@ -267,7 +273,10 @@ mod tests {
                     block_height: new_height,
                 }),
                 expected_state: contested_state_with(new_height, signatures),
-                expected_duties: vec![GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx }],
+                expected_duties: vec![GraphDuty::PublishBridgeProofTimeout {
+                    signed_timeout_tx,
+                    cpfp_anchor,
+                }],
                 expected_signals: vec![],
             },
         );
@@ -679,6 +688,13 @@ mod tests {
             GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
                 .expect("Failed to unpack signatures")
                 .bridge_proof_timeout;
+        // This case drives a non-POV state machine: the POV operator is a *watchtower* of this
+        // graph, not its owner, so it does hold a leaf on the timeout's `MultiAnchor`.
+        let cpfp_anchor = multi_anchor_spend_for_pov(
+            &game_graph.bridge_proof_timeout,
+            ctx.operator_idx(),
+            TEST_NONPOV_IDX,
+        );
         let signed_timeout_tx = game_graph
             .bridge_proof_timeout
             .finalize(bridge_proof_timeout_sigs);
@@ -706,7 +722,10 @@ mod tests {
                     signatures,
                     BTreeMap::new(),
                 ),
-                expected_duties: vec![GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx }],
+                expected_duties: vec![GraphDuty::PublishBridgeProofTimeout {
+                    signed_timeout_tx,
+                    cpfp_anchor,
+                }],
                 expected_signals: vec![],
             },
         );
@@ -848,6 +867,10 @@ mod tests {
         let signatures = mock_game_signatures(&game_graph);
         let sigs = GameFunctor::unpack(signatures.clone(), ctx.watchtower_pubkeys().len())
             .expect("Failed to unpack signatures");
+        let anchor_key = game_graph.counterproofs[watchtower_slot]
+            .counterproof_ack
+            .cpfp_connector()
+            .internal_key();
         let signed_counter_proof_ack_tx = game_graph.counterproofs[watchtower_slot]
             .counterproof_ack
             .clone()
@@ -875,6 +898,7 @@ mod tests {
                 ),
                 expected_duties: vec![GraphDuty::PublishCounterProofAck {
                     signed_counter_proof_ack_tx,
+                    anchor_key,
                 }],
                 expected_signals: vec![],
             },

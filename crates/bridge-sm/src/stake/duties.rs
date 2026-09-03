@@ -27,6 +27,10 @@ pub enum StakeDuty {
         operator_idx: OperatorIdx,
         /// The unsigned stake transaction.
         tx: Transaction,
+        /// Internal key of the CPFP anchor of `tx`. The executor cannot get it from the
+        /// transaction, because the output holds the tweaked key and not the internal key.
+        /// The state machine builds the anchor, so it reports the key with the duty.
+        anchor_key: XOnlyPublicKey,
     },
     /// Publish the nonces for a given operator.
     PublishUnstakingNonces {

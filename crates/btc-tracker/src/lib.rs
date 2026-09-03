@@ -7,8 +7,10 @@
 pub mod client;
 pub mod config;
 mod constants;
+pub mod cpfp;
 pub mod event;
 mod state_machine;
+pub mod submitpackage;
 pub mod tx_driver;
 
 // Re-exports
