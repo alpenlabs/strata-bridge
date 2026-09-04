@@ -201,7 +201,7 @@ hex = { version = "0.4.3", features = ["serde"] }
 hkdf = "0.12.4"
 indexmap = "2.13.0"
 jsonrpsee = "0.26.0"
-jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 libp2p = { version = "0.56.0", features = [
   "noise",
   "gossipsub",
