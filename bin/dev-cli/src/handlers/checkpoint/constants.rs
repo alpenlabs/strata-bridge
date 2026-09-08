@@ -1,4 +1,3 @@
-pub(super) use strata_bridge_primitives::constants::BRIDGE_TAG;
 use strata_identifiers::AccountSerial;
 
 /// Bridge gateway account serial.

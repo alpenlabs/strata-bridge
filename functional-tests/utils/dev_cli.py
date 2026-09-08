@@ -165,6 +165,8 @@ class DevCli:
             str(epoch),
             "--assignee-node-idx",
             str(assignee_node_idx),
+            "--params",
+            self.params_path,
         ]
 
         res = self._run_command(args)
