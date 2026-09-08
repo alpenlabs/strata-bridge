@@ -81,8 +81,11 @@ pub(crate) struct CreateAndPublishMockCheckpointArgs {
     #[arg(long, default_value = "1", help = "checkpoint epoch")]
     pub(crate) epoch: u32,
 
-    #[arg(long, default_value = "101", help = "genesis L1 height")]
-    pub(crate) genesis_l1_height: u32,
+    #[arg(
+        long,
+        help = "genesis L1 height (defaults to `genesis_height` from the params file)"
+    )]
+    pub(crate) genesis_l1_height: Option<u32>,
 
     #[arg(long, help = "start OL block slot for the L2 range")]
     pub(crate) ol_start_slot: u64,
@@ -97,8 +100,8 @@ pub(crate) struct CreateAndPublishMockCheckpointArgs {
     )]
     pub(crate) assignee_node_idx: u32,
 
-    #[arg(long, default_value_t = Network::Regtest, help = "bitcoin network")]
-    pub(crate) network: Network,
+    #[arg(long, help = "the path to the params file")]
+    pub(crate) params: PathBuf,
 
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,

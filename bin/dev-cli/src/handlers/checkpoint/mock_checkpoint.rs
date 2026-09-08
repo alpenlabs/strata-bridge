@@ -1,3 +1,4 @@
+use bitcoin::Amount;
 use bitcoin_bosd::Descriptor;
 use k256::{
     ecdsa::signature::SignatureEncoding,
@@ -9,7 +10,6 @@ use strata_asm_checkpoint_types::{
     compute_asm_manifests_hash, CheckpointClaim, CheckpointPayload, CheckpointSidecar,
     CheckpointTip, L2BlockRange, OLLog, SimpleWithdrawalIntentLogData, TerminalHeaderComplement,
 };
-use strata_bridge_primitives::constants::BRIDGE_DENOMINATION;
 use strata_crypto::hash;
 use strata_identifiers::{Buf32, OLBlockCommitment, OLBlockId};
 use strata_test_utils_arb::ArbitraryGenerator;
@@ -64,11 +64,15 @@ impl MockCheckpointBuilder {
     }
 
     /// Generates a mock checkpoint payload signed by the checkpoint predicate.
+    ///
+    /// Every withdrawal intent log carries `withdrawal_amount`, which should be the bridge's
+    /// `deposit_amount` so that ASM assigns exactly one withdrawal per log.
     pub(crate) fn build_payload(
         &self,
         prev_tip: &CheckpointTip,
         new_tip: &CheckpointTip,
         num_withdrawals: usize,
+        withdrawal_amount: Amount,
         assignee_node_idx: u32,
     ) -> CheckpointPayload {
         let mut arb = ArbitraryGenerator::new();
@@ -86,7 +90,7 @@ impl MockCheckpointBuilder {
         let ol_logs: Vec<OLLog> = (0..num_withdrawals)
             .map(|_| {
                 let log_data = SimpleWithdrawalIntentLogData::new(
-                    BRIDGE_DENOMINATION.to_sat(),
+                    withdrawal_amount.to_sat(),
                     dest.to_bytes(),
                     assignee_node_idx,
                 )

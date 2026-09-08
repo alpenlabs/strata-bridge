@@ -28,12 +28,13 @@ dev-cli create-and-publish-mock-checkpoint \
   --btc-pass password \
   --num-withdrawals 1 \
   --epoch 1 \
-  --genesis-l1-height 101 \
   --ol-start-slot 0 \
   --ol-end-slot 1 \
   --assignee-node-idx 0 \
-  --network regtest
+  --params ./params.toml
 ```
+
+The network, magic bytes, withdrawal amount (`protocol.deposit_amount`) and default genesis L1 height (`genesis_height`, override with `--genesis-l1-height`) come from the params file.
 
 ### `claim`
 

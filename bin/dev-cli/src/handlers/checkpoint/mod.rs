@@ -1,11 +1,11 @@
 use anyhow::{bail, Context, Result};
 use ssz::Encode;
 use strata_asm_checkpoint_types::CheckpointPayload;
+use strata_bridge_common::params::Params;
 use strata_codec::{encode_to_vec, Varint};
-use strata_l1_txfmt::MagicBytes;
 use tracing::info;
 
-use crate::{cli::CreateAndPublishMockCheckpointArgs, handlers::checkpoint::constants::BRIDGE_TAG};
+use crate::cli::CreateAndPublishMockCheckpointArgs;
 
 mod constants;
 pub(crate) mod envelope;
@@ -34,6 +34,14 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
         );
     }
 
+    let params = Params::from_path(&args.params).context("failed to load params file")?;
+    let withdrawal_amount = params.protocol.deposit_amount;
+    let genesis_l1_height = match args.genesis_l1_height {
+        Some(height) => height,
+        None => u32::try_from(params.genesis_height)
+            .context("params genesis_height does not fit in u32")?,
+    };
+
     // Connect to bitcoind.
     let btc_client = bitcoincore_rpc::Client::new(
         &args.btc_args.url,
@@ -45,7 +53,7 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
     let builder = mock_checkpoint::MockCheckpointBuilder::new();
     let (prev_tip, new_tip) = builder.gen_tips(
         args.epoch,
-        args.genesis_l1_height,
+        genesis_l1_height,
         args.ol_start_slot,
         args.ol_end_slot,
     );
@@ -53,6 +61,7 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
         &prev_tip,
         &new_tip,
         args.num_withdrawals,
+        withdrawal_amount,
         args.assignee_node_idx,
     );
 
@@ -61,18 +70,18 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
     info!(
         epoch = new_tip.epoch,
         num_withdrawals = args.num_withdrawals,
+        withdrawal_amount_sat = withdrawal_amount.to_sat(),
         payload_size = encoded_checkpoint.len(),
         "broadcasting mock checkpoint"
     );
 
-    let magic: MagicBytes = BRIDGE_TAG.parse().expect("valid magic bytes");
     let reveal_txid = envelope::build_and_broadcast_envelope_tx(
         &btc_client,
-        magic,
+        params.protocol.magic_bytes,
         CHECKPOINT_SUBPROTOCOL_ID,
         OL_STF_CHECKPOINT_TX_TYPE,
         &encoded_checkpoint,
-        args.network,
+        params.network,
     )
     .context("failed to broadcast checkpoint envelope")?;
 
