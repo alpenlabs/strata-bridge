@@ -70,7 +70,7 @@ static PLACEHOLDER_P2TR_SCRIPT_PUBKEY: LazyLock<ScriptBuf> = LazyLock::new(|| {
 /// When [`FEE_RATE_SAT_PER_VB`] is non-zero, returns rust-bitcoin's `Script::minimal_non_dust`
 /// for a P2TR script_pubkey, the smallest amount bitcoin core's relay policy accepts on a tx
 /// that pays a fee.
-pub(crate) fn anchor_dust_value() -> Amount {
+pub fn anchor_dust_value() -> Amount {
     if FEE_RATE_SAT_PER_VB == 0 {
         Amount::ZERO
     } else {

@@ -1,6 +1,10 @@
 //! Provides operator wallet initialization.
 
-use std::{num::NonZero, sync::Arc, time::Instant};
+use std::{
+    num::NonZero,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::anyhow;
 use bdk_bitcoind_rpc::bitcoincore_rpc;
@@ -91,18 +95,42 @@ pub(in crate::mode) async fn init_operator_wallet(
     })
 }
 
-/// Performs a one-shot sync of the operator wallet against its backend.
+/// Interval between attempts when the initial operator wallet sync fails.
+const INITIAL_SYNC_RETRY_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Syncs the operator wallet against its backend until one sync succeeds, then returns.
 ///
-/// Intended to run as a background task at startup so the wallet has a head start before its
-/// first on-demand use. A sync failure is logged and swallowed: callers must still sync the wallet
-/// before use, so a failed initial sync must not crash the node.
+/// Intended to run as a background task at startup. The retry loop matters because syncs
+/// are duty-driven after startup: without it, a bitcoind or backend outage at boot leaves
+/// the wallet empty, and every CPFP bump fails with `InsufficientFunding` until the first
+/// duty happens to call `sync()`. A failed attempt does not crash the node — it is logged
+/// and retried.
 pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(wallet: Arc<RwLock<NativeWallet>>) {
     info!("starting initial operator wallet sync");
-    let start = Instant::now();
-    match wallet.write().await.sync().await {
-        Ok(()) => info!(time_spent=?start.elapsed(), "initial operator wallet sync complete"),
-        Err(e) => {
-            warn!(?e, time_spent=?start.elapsed(), "initial operator wallet sync failed, first use might be slow")
+    let mut attempt: u32 = 0;
+    loop {
+        attempt += 1;
+        let start = Instant::now();
+        // Bind the result so the write guard (a temporary in this expression) drops here.
+        // A `match` directly on the expression keeps the guard alive through the arms, and
+        // the retry sleep then holds the wallet write lock for the whole interval — every
+        // duty and the health probe stall behind it.
+        let result = wallet.write().await.sync().await;
+        match result {
+            Ok(()) => {
+                info!(time_spent=?start.elapsed(), attempt, "initial operator wallet sync complete");
+                return;
+            }
+            Err(e) => {
+                warn!(
+                    ?e,
+                    time_spent=?start.elapsed(),
+                    attempt,
+                    retry_in=?INITIAL_SYNC_RETRY_INTERVAL,
+                    "initial operator wallet sync failed; wallet stays unusable until a sync succeeds"
+                );
+                tokio::time::sleep(INITIAL_SYNC_RETRY_INTERVAL).await;
+            }
         }
     }
 }

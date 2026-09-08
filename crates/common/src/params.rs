@@ -154,6 +154,26 @@ pub struct CovenantKeys {
     pub payout_descriptor: Descriptor,
 }
 
+/// Forces a compile error if [`CovenantKeys`] grows or shrinks a field.
+///
+/// The operator table holds one BTC key for each operator, from `covenant[i].musig2` (see
+/// `bin/strata-bridge/src/mode/services/operator_table.rs`). `GraphSMCtx::watchtower_pubkeys`
+/// gives a graph its watchtower set from that table. For this reason,
+/// `watchtower_pubkey == musig2_pubkey` is a property of the whole graph, and not of one code
+/// path.
+///
+/// A new `watchtower: XOnlyPublicKey` field on [`CovenantKeys`] makes this destructuring fail
+/// to compile with "missing field `watchtower`". That is the point to audit each reader of
+/// the watchtower key set.
+#[allow(dead_code)]
+fn _covenant_keys_field_audit(c: CovenantKeys) {
+    let CovenantKeys {
+        musig2: _,
+        p2p: _,
+        payout_descriptor: _,
+    } = c;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct EncodedCovenantKeys {
     musig2: String,
