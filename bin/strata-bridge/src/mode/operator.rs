@@ -100,10 +100,10 @@ pub(crate) async fn bootstrap(
     health_registry.mark_ok(COMPONENT_S2, "operator_table_loaded");
 
     debug!("initializing operator wallet");
-    let initialized_wallet = init_operator_wallet(&config, &params, &s2_client, &db).await?;
-    let claim_funding_utxo_value = initialized_wallet.claim_funding_utxo_value;
-    let operator_wallet = Arc::new(RwLock::new(initialized_wallet.wallet));
-    info!(%claim_funding_utxo_value, "operator wallet initialized");
+    let operator_wallet = Arc::new(RwLock::new(
+        init_operator_wallet(&config, &params, &s2_client, &db).await?,
+    ));
+    info!("operator wallet initialized");
     health_registry.mark_ok(COMPONENT_WALLET, "wallet_initialized");
 
     debug!("spawning initial operator wallet sync");
@@ -197,7 +197,6 @@ pub(crate) async fn bootstrap(
         req_resp_handle,
         keypair,
         operator_wallet,
-        claim_funding_utxo_value,
         btc_rpc_client,
         asm_rpc_client,
         bridge_proof_host,

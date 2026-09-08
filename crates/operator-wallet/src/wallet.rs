@@ -256,6 +256,22 @@ impl<G: GeneralWallet> OperatorWallet<G> {
             .collect()
     }
 
+    /// Returns the reserved-wallet UTXO at `outpoint`, or `None` if the reserved wallet's
+    /// unspent list does not contain it — it may be spent, or the wallet's view may be stale.
+    ///
+    /// Outpoint-keyed because the caller already holds a previously-reserved outpoint (e.g. a
+    /// claim-funding UTXO recorded against a graph at construction time) and needs the matching
+    /// `TxOut`, regardless of the value that UTXO was funded at — callers can't assume the
+    /// current pool denomination matches an older reservation if the denomination is recomputed
+    /// from live protocol state.
+    pub fn reserved_utxo_at(&self, outpoint: OutPoint) -> Option<UtxoInfo> {
+        let tip = self.reserved.latest_checkpoint().height();
+        self.reserved
+            .list_unspent()
+            .find(|utxo| utxo.outpoint == outpoint)
+            .map(|lo| local_output_to_utxo_info(&lo, tip))
+    }
+
     /// Takes a lease on one free reserved-wallet UTXO of value `value` that the `ignore`
     /// predicate does not reject.
     ///
