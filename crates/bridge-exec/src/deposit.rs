@@ -6,7 +6,7 @@ use std::{
 };
 
 use bitcoin::{
-    Amount, OutPoint, TapSighashType, Transaction, Txid,
+    Amount, OutPoint, ScriptBuf, TapSighashType, Transaction, Txid,
     secp256k1::{Message, PublicKey, XOnlyPublicKey, schnorr},
     sighash::{Prevouts, SighashCache},
 };
@@ -14,7 +14,7 @@ use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
-use operator_wallet::LeaseOwner;
+use operator_wallet::{LeaseOwner, UtxoInfo};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors::SigningInfo;
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
@@ -22,7 +22,7 @@ use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, PayoutDescriptor};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
-    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
 use strata_bridge_tx_graph::{
@@ -559,14 +559,100 @@ async fn fulfill_withdrawal(
         let mut wallet = output_handles.wallet.write().await;
 
         info!(%deposit_idx, "syncing wallet before funding withdrawal fulfillment tx");
-        if let Err(e) = wallet.sync().await {
-            warn!(%deposit_idx, ?e, "could not sync wallet, continuing anyway");
-        }
+        let sync_ok = match wallet.sync().await {
+            Ok(()) => true,
+            Err(e) => {
+                warn!(%deposit_idx, ?e, "could not sync wallet, continuing anyway");
+                false
+            }
+        };
 
         let persisted_funding_outpoints = output_handles
             .db
             .get_withdrawal_funding_outpoints(deposit_idx)
             .await?;
+
+        // Outpoints persisted under a previous general backend (a native to Fireblocks
+        // switch) are not spendable by the current one: every retry would fail inside
+        // the backend and the withdrawal would be stuck until the row is edited by
+        // hand. Verify the persisted set against the freshly synced UTXO set — the
+        // same discard-and-reselect recovery the stake-reservation path uses. Only
+        // verify after a successful sync: a stale cache would report live outpoints
+        // as missing.
+        //
+        // A view mismatch alone must NOT discard the row. The same mismatch appears
+        // when this deposit's own fulfillment transaction is in the mempool or
+        // confirmed while the state machine still says `Assigned` (a retry tick or a
+        // restart re-runs this duty in exactly that window), and discarding there
+        // funds, signs, and broadcasts a second payout. Only chain state showing the
+        // outpoints unspent at a script other than the current backend's — the
+        // backend-switch signature — may discard; every other outcome keeps the row,
+        // and the funding path no-ops and retries as it did before this recovery
+        // existed.
+        let persisted_funding_outpoints = if sync_ok {
+            match persisted_funding_outpoints {
+                Some(outpoints)
+                    if persisted_outpoints_are_current(
+                        &wallet.list_general_utxos(),
+                        &wallet.general_script_pubkey(),
+                        &outpoints,
+                    ) =>
+                {
+                    Some(outpoints)
+                }
+                Some(outpoints) => {
+                    match chain::outpoints_belong_to_previous_backend(
+                        &output_handles.bitcoind_rpc_client,
+                        &outpoints,
+                        &wallet.general_script_pubkey(),
+                    )
+                    .await
+                    {
+                        Ok(true) => {
+                            warn!(
+                                %deposit_idx,
+                                ?outpoints,
+                                "persisted withdrawal funding outpoints belong to a \
+                                 previous wallet backend; discarding the row and \
+                                 selecting fresh"
+                            );
+                            output_handles
+                                .db
+                                .delete_withdrawal_funding_outpoints(GraphIdx {
+                                    deposit: deposit_idx,
+                                    // The delete reads only the deposit index.
+                                    operator: 0,
+                                })
+                                .await?;
+                            None
+                        }
+                        Ok(false) => {
+                            warn!(
+                                %deposit_idx,
+                                ?outpoints,
+                                "persisted withdrawal funding outpoints are spent or \
+                                 pending in the current backend; keeping the row for \
+                                 retry"
+                            );
+                            Some(outpoints)
+                        }
+                        Err(e) => {
+                            warn!(
+                                %deposit_idx,
+                                ?outpoints,
+                                ?e,
+                                "chain lookup for persisted withdrawal funding \
+                                 outpoints failed; keeping the row"
+                            );
+                            Some(outpoints)
+                        }
+                    }
+                }
+                None => None,
+            }
+        } else {
+            persisted_funding_outpoints
+        };
 
         // Every path that ends with a funded PSBT commits its lease. The database row keeps
         // the funding outpoints of a deposit across duties and across restarts, and the
@@ -671,15 +757,30 @@ async fn fulfill_withdrawal(
     let sign_result: Result<Transaction, ExecutorError> = async {
         let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
 
+        // Collect one prevout per input, preserving index alignment for `Prevouts::All` (a
+        // `filter_map` that dropped an input would silently misalign every subsequent sighash).
+        // Every WFT input is wallet-funded, so `witness_utxo` is always populated.
         let prevouts: Vec<_> = wft_psbt
             .inputs
             .iter()
-            .filter_map(|input| input.witness_utxo.clone())
+            .map(|input| {
+                input
+                    .witness_utxo
+                    .clone()
+                    .expect("WFT PSBT input is wallet-funded and always carries witness_utxo")
+            })
             .collect();
         let prevouts = Prevouts::All(&prevouts);
 
         let mut signed_tx = wft_psbt.unsigned_tx.clone();
-        for (input_index, _) in wft_psbt.inputs.iter().enumerate() {
+        for (input_index, input) in wft_psbt.inputs.iter().enumerate() {
+            // A create-and-sign backend (Fireblocks) already populated this input's witness;
+            // use it verbatim. Otherwise it's a native descriptor-only input we sign via
+            // secret-service. (`GeneralWallet` signing contract — skip what the backend signed.)
+            if let Some(witness) = &input.final_script_witness {
+                signed_tx.input[input_index].witness = witness.clone();
+                continue;
+            }
             let msg = create_message_hash(
                 &mut sighash_cache,
                 prevouts.clone(),
@@ -738,6 +839,25 @@ async fn fulfill_withdrawal(
     Ok(())
 }
 
+/// The persisted withdrawal-funding outpoints are spendable by the current general
+/// backend: every outpoint is in `current_utxos` (the freshly synced UTXO set) and pays
+/// `general_spk` (the general wallet's script). Catches a row written under a previous
+/// backend so it can be discarded and reselected instead of failing in the backend forever.
+///
+/// Takes plain data rather than the wallet handle so the mock-backend unit suites can
+/// exercise both verdicts (same shape as `stake::staking::validate_reservation`).
+fn persisted_outpoints_are_current(
+    current_utxos: &[UtxoInfo],
+    general_spk: &ScriptBuf,
+    outpoints: &[OutPoint],
+) -> bool {
+    outpoints.iter().all(|outpoint| {
+        current_utxos
+            .iter()
+            .any(|utxo| utxo.outpoint == *outpoint && utxo.script_pubkey == *general_spk)
+    })
+}
+
 /// Initiates the cooperative payout flow by publishing the assignee's payout descriptor.
 ///
 /// Only the assignee executes this duty. The descriptor tells other operators
@@ -750,21 +870,33 @@ async fn request_payout_nonces(
 ) -> Result<(), ExecutorError> {
     let payout_descriptor = match payout_descriptor {
         Some(descriptor) => {
+            // Reuse is load-bearing: peers have nonced against this exact descriptor, and a
+            // substitution here invalidates the collected nonces. When the wallet backend
+            // (or its vault address) changed after the session started, the payout lands on
+            // a script the current backend does not track — warn so the operator sees which
+            // deposits a backend switch stranded. The remedy is operational (drain in-flight
+            // payouts before a switch), not a substitution on retry.
+            let current = output_handles.wallet.read().await.payout_descriptor();
+            if current.to_script() != descriptor.to_script() {
+                warn!(
+                    %deposit_idx,
+                    session_descriptor = %descriptor,
+                    wallet_descriptor = %current,
+                    "reused payout descriptor differs from the current wallet backend; \
+                     this payout will land on a script the active backend does not track"
+                );
+            }
             info!(%deposit_idx, "reusing descriptor to request payout nonces");
             PayoutDescriptor::from(descriptor)
         }
         None => {
             info!(%deposit_idx, "creating descriptor to request payout nonces");
 
-            output_handles
-                .wallet
-                .read()
-                .await
-                .descriptor()
-                .map(PayoutDescriptor::from)
-                .map_err(|e| {
-                    ExecutorError::WalletErr(format!("failed to create descriptor: {e}"))
-                })?
+            // The payout destination is backend-supplied: the operator wallet knows where it
+            // can receive *and spend* funds (native general-key P2TR vs. Fireblocks vault
+            // P2WPKH). Peers honour whatever descriptor we broadcast, building the payout
+            // output via `Descriptor::to_script`.
+            PayoutDescriptor::from(output_handles.wallet.read().await.payout_descriptor())
         }
     };
 
@@ -1114,4 +1246,56 @@ async fn publish_sweep(
 
     info!(%txid, "sweep transaction confirmed");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{Amount, hashes::Hash};
+
+    use super::*;
+
+    fn spk(byte: u8) -> ScriptBuf {
+        ScriptBuf::from_bytes(vec![0x00, 0x14, byte])
+    }
+
+    fn utxo(outpoint: OutPoint, script_pubkey: &ScriptBuf) -> UtxoInfo {
+        UtxoInfo {
+            outpoint,
+            amount: Amount::from_sat(50_000),
+            confirmations: 1,
+            script_pubkey: script_pubkey.clone(),
+        }
+    }
+
+    fn outpoint(seed: u8) -> OutPoint {
+        OutPoint {
+            txid: Txid::from_byte_array([seed; 32]),
+            vout: 0,
+        }
+    }
+
+    /// The destructive-delete gate's fast path: a row whose every outpoint is in the
+    /// current backend's synced view at the backend's own script passes; a row written
+    /// under another backend (present at a different script, or absent entirely) fails.
+    #[test]
+    fn persisted_outpoints_are_current_distinguishes_backends() {
+        let general = spk(0xaa);
+        let foreign = spk(0xbb);
+        let (a, b) = (outpoint(1), outpoint(2));
+        let current = vec![utxo(a, &general), utxo(b, &general)];
+
+        // Every persisted outpoint in the current view at the general script: current.
+        assert!(persisted_outpoints_are_current(&current, &general, &[a, b]));
+
+        // An outpoint missing from the view is not current.
+        assert!(!persisted_outpoints_are_current(
+            &current,
+            &general,
+            &[a, outpoint(3)]
+        ));
+
+        // An outpoint present but at another backend's script is not current.
+        let mixed = vec![utxo(a, &general), utxo(b, &foreign)];
+        assert!(!persisted_outpoints_are_current(&mixed, &general, &[a, b]));
+    }
 }

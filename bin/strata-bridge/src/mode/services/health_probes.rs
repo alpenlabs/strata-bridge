@@ -5,11 +5,11 @@ use std::{fmt::Display, future::Future, sync::Arc, time::Duration};
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::tx_driver::TxDriverHealthHandle;
 use jsonrpsee::http_client::HttpClient;
+use operator_wallet::AnyOperatorWallet;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_asm_rpc::traits::AsmControlApiClient;
 use strata_bridge_db::fdb::client::FdbClient;
-use strata_bridge_exec::output_handles::NativeWallet;
 use strata_mosaic_client::MosaicClient;
 use strata_p2p::swarm::handle::CommandHandle;
 use tokio::{
@@ -19,7 +19,7 @@ use tokio::{
 use tracing::{error, warn};
 
 use crate::{
-    constants::DEFAULT_HEALTH_PROBE_TIMEOUT,
+    constants::{DEFAULT_HEALTH_PROBE_TIMEOUT, WALLET_PROBE_LOCK_TIMEOUT},
     health::{
         COMPONENT_ASM_RPC, COMPONENT_BITCOIN_RPC, COMPONENT_FDB, COMPONENT_MOSAIC,
         COMPONENT_ORCHESTRATOR, COMPONENT_P2P, COMPONENT_S2, COMPONENT_TX_DRIVER, COMPONENT_WALLET,
@@ -187,6 +187,13 @@ pub(in crate::mode) fn spawn_s2_probe(
     });
 }
 
+/// Age past which a successful general-backend sync stops counting as `ok` and reports
+/// `degraded` instead. Thirty minutes covers the normal duty cadence with margin: under
+/// regular operation duties sync far more often than this, so a verdict this old means the
+/// bridge is idle or the duty pipeline is stuck — either way, "the backend is healthy now"
+/// is no longer a claim the probe can make.
+const GENERAL_SYNC_STALENESS_BOUND: Duration = Duration::from_secs(30 * 60);
+
 /// Starts a periodic operator-wallet liveness probe.
 ///
 /// Reads the wallet's local chain tip through a shared read lock — a non-mutating, in-memory
@@ -195,7 +202,7 @@ pub(in crate::mode) fn spawn_s2_probe(
 /// duties. The read-lock acquisition is bounded so a stuck writer cannot leave the component
 /// reporting a stale `ok` state.
 pub(in crate::mode) fn spawn_wallet_probe(
-    wallet: Arc<RwLock<NativeWallet>>,
+    wallet: Arc<RwLock<AnyOperatorWallet>>,
     probe_interval: Duration,
     health_registry: HealthRegistry,
 ) {
@@ -204,11 +211,53 @@ pub(in crate::mode) fn spawn_wallet_probe(
 
         loop {
             ticker.tick().await;
-            match timeout(DEFAULT_HEALTH_PROBE_TIMEOUT, wallet.read()).await {
+            // This wait is its own bound, not the general probe timeout — and it is a
+            // liveness cutoff, not a worst-case hold: a healthy wallet can hold the
+            // exclusive guard for minutes (retrying sync, Fireblocks signing wait), so a
+            // timeout here is expected during those windows and self-clears next tick.
+            match timeout(WALLET_PROBE_LOCK_TIMEOUT, wallet.read()).await {
                 Ok(guard) => {
                     let height = guard.local_chain_tip_height();
+                    let general_sync = guard.last_general_sync();
                     drop(guard);
-                    health_registry.mark_ok(COMPONENT_WALLET, format!("synced_to_height_{height}"));
+                    // The tip comes from the reserved wallet and keeps advancing while the
+                    // general backend fails its syncs (the two sync independently), so the
+                    // general backend gets its own verdict:
+                    //
+                    // - A failed last attempt is unhealthy until a sync succeeds.
+                    // - A success older than the staleness bound is degraded, not ok. Syncs are
+                    //   duty-driven, so an idle bridge holds an old verdict — the degraded state
+                    //   says "the backend was healthy when last used", which is the true claim.
+                    // - `None` means no sync has run yet: expected briefly at startup while the
+                    //   initial sync task retries, not a fault by itself.
+                    match general_sync {
+                        Some((false, _)) => {
+                            health_registry.mark_unhealthy(
+                                COMPONENT_WALLET,
+                                format!("general_backend_sync_failed_at_height_{height}"),
+                            );
+                            error!("operator wallet general backend failed its last sync");
+                        }
+                        Some((true, at)) if at.elapsed() > GENERAL_SYNC_STALENESS_BOUND => {
+                            health_registry.mark_degraded(
+                                COMPONENT_WALLET,
+                                format!(
+                                    "last_general_sync_ok_{}s_ago_at_height_{height}",
+                                    at.elapsed().as_secs()
+                                ),
+                            );
+                        }
+                        Some((true, _)) => {
+                            health_registry
+                                .mark_ok(COMPONENT_WALLET, format!("synced_to_height_{height}"));
+                        }
+                        None => {
+                            health_registry.mark_ok(
+                                COMPONENT_WALLET,
+                                format!("awaiting_first_sync_at_height_{height}"),
+                            );
+                        }
+                    }
                 }
                 Err(_) => {
                     health_registry.mark_unhealthy(COMPONENT_WALLET, "probe_timed_out");

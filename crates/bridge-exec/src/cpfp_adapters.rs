@@ -22,8 +22,7 @@ use btc_tracker::{
     submitpackage::{self, SubmitPackageError, SubmitPackageSummary},
 };
 use operator_wallet::{
-    AnchorInfo, AnchorOwnership, ErrorPermanence, GeneralWallet, Lease, OperatorWallet,
-    ReplacedChild,
+    AnchorInfo, AnchorOwnership, AnyOperatorWallet, ErrorPermanence, Lease, ReplacedChild,
 };
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
@@ -31,7 +30,7 @@ use strata_bridge_connectors::{Connector, prelude::MultiAnchor};
 use tokio::sync::RwLock;
 use tracing::warn;
 
-/// Wraps the bridge's `Arc<RwLock<OperatorWallet<G>>>` and implements [`CpfpWallet`] over it.
+/// Wraps the bridge's `Arc<RwLock<AnyOperatorWallet>>` and implements [`CpfpWallet`] over it.
 ///
 /// Both [`CpfpStrategy`] variants funnel through
 /// [`OperatorWallet::build_cpfp_child`](operator_wallet::OperatorWallet::build_cpfp_child) with the
@@ -40,30 +39,37 @@ use tracing::warn;
 /// - [`CpfpStrategy::AnchorBearing`]: a 330-sat keyed-Taproot anchor at `anchor_vout`, internal key
 ///   = the operator's musig2 pubkey (the "btc key" from the operator table).
 /// - [`CpfpStrategy::ParentTxCombined`]: the operator's payout output at `payout_outpoint.vout`,
-///   internal key = the operator's general-wallet pubkey (the bridge assumes the operator's
-///   covenant `payout_descriptor` resolves to the general-wallet P2TR — if not, signing fails
-///   downstream and the bump is skipped + retried).
+///   internal key = the operator's general-wallet pubkey. This holds when the payout output pays
+///   the wallet's own `payout_descriptor()` (the BIP-341-tweaked general key) — guaranteed by
+///   construction for the descriptor-gossip parents (cooperative payout, unstaking), but the
+///   presigned-graph parents (uncontested/contested payout, counterproof nack) pay the params-file
+///   covenant descriptor, which the orchestrator only WARNS about at startup when it differs from
+///   the wallet. On a mismatch, signing fails downstream and the bump is skipped + retried. The
+///   Fireblocks backend ignores the hint — it recognises its own vault script on the prevout and
+///   signs that input itself.
 ///
 /// Treating the payout as a foreign UTXO (rather than asking BDK to track it in the wallet's
 /// UTXO set) is essential: the parent has NOT been broadcast at the time we build the child
 /// (we submit `[parent, child]` as a v3 1P1C package), so BDK has no knowledge of the
 /// payout outpoint. `add_foreign_utxo` accepts it with a caller-provided `witness_utxo`.
 #[derive(Debug)]
-pub struct OperatorWalletCpfpAdapter<G: GeneralWallet + std::fmt::Debug + 'static> {
-    wallet: Arc<RwLock<OperatorWallet<G>>>,
+pub struct OperatorWalletCpfpAdapter {
+    wallet: Arc<RwLock<AnyOperatorWallet>>,
     /// Operator's general-wallet pubkey. Used as the foreign-UTXO `tap_internal_key` when
     /// CPFPing a [`CpfpStrategy::ParentTxCombined`] parent — every payout output across
     /// cooperative_payout / uncontested_payout / contested_payout / unstaking goes to the
-    /// operator's payout descriptor, which the bridge expects to be the general-wallet P2TR.
+    /// operator's payout descriptor. The descriptor is backend-dependent (the native
+    /// wallet's P2TR receive script, the Fireblocks vault's P2WPKH script); the
+    /// classification of a prevout as the payout is backend-agnostic.
     operator_general_pubkey: XOnlyPublicKey,
 }
 
-impl<G: GeneralWallet + std::fmt::Debug + 'static> OperatorWalletCpfpAdapter<G> {
+impl OperatorWalletCpfpAdapter {
     /// Constructs a new adapter wrapping the shared wallet handle. `operator_general_pubkey`
     /// is the operator's general-wallet x-only pubkey (typically fetched once at
     /// orchestrator startup via `s2_client.general_wallet_signer().pubkey()`).
     pub const fn new(
-        wallet: Arc<RwLock<OperatorWallet<G>>>,
+        wallet: Arc<RwLock<AnyOperatorWallet>>,
         operator_general_pubkey: XOnlyPublicKey,
     ) -> Self {
         Self {
@@ -89,7 +95,7 @@ impl FundingLease for WalletFundingLease {
     }
 }
 
-impl<G: GeneralWallet + std::fmt::Debug + 'static> CpfpWallet for OperatorWalletCpfpAdapter<G> {
+impl CpfpWallet for OperatorWalletCpfpAdapter {
     fn build_cpfp_child(
         &self,
         parent: &Transaction,
