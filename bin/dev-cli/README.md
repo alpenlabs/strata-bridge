@@ -2,6 +2,13 @@
 
 Strata Bridge CLI for dev environment.
 
+## Distribution
+
+Native `dev-cli` binaries are published in two forms:
+
+- GitHub Actions artifacts on manual runs of `.github/workflows/dev-cli-release.yml`
+- GitHub release assets when a `v*` tag is pushed
+
 ## Commands
 
 ### `bridge-in`
