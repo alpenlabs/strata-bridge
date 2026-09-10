@@ -4,6 +4,7 @@
 //! different operators.
 use std::{fmt, net::SocketAddr, num::NonZeroU32, path::PathBuf, time::Duration};
 
+use bitcoin::BlockHash;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
@@ -278,6 +279,20 @@ pub(crate) struct OperatorWalletConfig {
     /// [`DEFAULT_PERSIST_EVERY_BLOCKS`](operator_wallet::DEFAULT_PERSIST_EVERY_BLOCKS).
     #[serde(default)]
     pub persist_every_blocks: Option<NonZeroU32>,
+
+    /// Block height at which wallet stores created on this start begin scanning. Unset or `0`
+    /// means Bitcoin genesis. Set it at or below the oldest unspent output either wallet owns;
+    /// anything below it is invisible. Stores that already exist resume from their own tip and
+    /// ignore this value.
+    #[serde(default)]
+    pub bootstrap_height: Option<u64>,
+
+    /// Hash the block at [`Self::bootstrap_height`] must have. Startup fails when the connected
+    /// node reports a different hash, which is what catches a node following another chain. A
+    /// height on its own identifies no chain, so leaving this unset trusts whichever block the
+    /// node happens to have there.
+    #[serde(default)]
+    pub bootstrap_block_hash: Option<BlockHash>,
 }
 
 /// Configuration for the mosaic client.
@@ -381,6 +396,8 @@ pub(crate) fn test_config() -> Config {
             [operator_wallet]
             claim_funding_pool_size = 32
             data_dir = "wallet-data"
+            bootstrap_height = 101
+            bootstrap_block_hash = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
 
             [mosaic]
             rpc_url = "http://localhost:7500"

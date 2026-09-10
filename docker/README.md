@@ -109,6 +109,34 @@ Each bridge node persists its two BDK wallets as SQLite files under `operator_wa
 `/app/data/wallet` in the checked-in configs, which is `docker/vol/strata-bridge-{1,2,3}/data/wallet/`
 on the host. The directory is gitignored, survives `just docker`, and is removed by `just clean-docker`.
 
+A store created on a start begins scanning at the configured bootstrap checkpoint, or at bitcoin
+genesis when none is set. The wallet never sees blocks below it, so the checkpoint must be at or
+below the oldest unspent output either wallet holds. Obtain it from your own node: the lowest
+`height` under `unspents` is the earliest block you must cover, and `getblockhash` names that
+block.
+
+```sh
+bitcoin-cli scantxoutset start '["addr(<general wallet address>)"]'
+bitcoin-cli getblockhash <height>
+```
+
+Verify that hash against a source other than the node you just asked, a second node or a block
+explorer, then configure the pair:
+
+```toml
+[operator_wallet]
+bootstrap_height = 800000
+bootstrap_block_hash = "00000000000000000002a7c4c1e48d76c5a37902165a270156b7a8d72728a054"
+```
+
+Startup fails if the node reports a different hash at that height, which is what catches a node
+following another chain. A height with no hash is accepted but taken on trust and logged as such,
+and a height the node has no block for fails rather than falling back to genesis.
+
+Stores that already exist resume from their own tip and ignore the setting, so changing or
+removing it affects only stores created afterwards. To roll a checkpoint back, edit the pair and
+move the stores aside as below; the next start rebuilds from the new value.
+
 A node that cannot open a store (damaged file, or one written for another network or key) stops
 at startup naming the file. To rebuild, move the stores aside and restart:
 
