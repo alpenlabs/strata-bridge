@@ -9,11 +9,11 @@ pub mod sqlite;
 
 use bdk_wallet::{
     bitcoin::{constants::genesis_block, Network},
-    chain::{local_chain::CannotConnectError, BlockId},
+    chain::local_chain::CannotConnectError,
     descriptor::{DescriptorError, ExtendedDescriptor},
     KeychainKind, LoadError, LoadWithPersistError, Update, Wallet,
 };
-pub use bdk_wallet::{AsyncWalletPersister, ChangeSet, PersistedWallet};
+pub use bdk_wallet::{chain::BlockId, AsyncWalletPersister, ChangeSet, PersistedWallet};
 pub use sqlite::{SqliteStore, SqliteStoreError, WalletKind};
 use thiserror::Error;
 use tracing::info;
