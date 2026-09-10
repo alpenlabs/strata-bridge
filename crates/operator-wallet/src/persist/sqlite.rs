@@ -137,6 +137,16 @@ impl SqliteStore {
 
         let conn = Connection::open(&path).map_err(sqlite)?;
         conn.busy_timeout(BUSY_TIMEOUT).map_err(sqlite)?;
+
+        // Before any mutating pragma: switching journal mode rewrites the header, which would
+        // modify a file this open is about to reject.
+        let report: String = conn
+            .query_row("PRAGMA quick_check", [], |row| row.get(0))
+            .map_err(sqlite)?;
+        if report != "ok" {
+            return Err(SqliteStoreError::Corrupt { path, report });
+        }
+
         let mode: String = conn
             .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))
             .map_err(sqlite)?;
@@ -145,12 +155,6 @@ impl SqliteStore {
         }
         conn.pragma_update(None, "synchronous", "FULL")
             .map_err(sqlite)?;
-        let report: String = conn
-            .query_row("PRAGMA quick_check", [], |row| row.get(0))
-            .map_err(sqlite)?;
-        if report != "ok" {
-            return Err(SqliteStoreError::Corrupt { path, report });
-        }
 
         Ok(Self {
             path,
@@ -290,6 +294,59 @@ mod tests {
             fs::read(&path).unwrap(),
             garbage,
             "rejected file is left intact"
+        );
+    }
+
+    /// Offsets 18 and 19 of the SQLite header are the write and read format versions: 1 for a
+    /// rollback journal, 2 for WAL. `PRAGMA journal_mode=WAL` rewrites both.
+    fn header_format_versions(path: &Path) -> [u8; 2] {
+        let header = fs::read(path).unwrap();
+        [header[18], header[19]]
+    }
+
+    #[test]
+    fn structurally_damaged_file_is_rejected_before_the_journal_mode_is_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = WalletKind::General.path_in(dir.path());
+
+        // A rollback-journal database (as a restored backup or a file from another tool may be)
+        // with an intact header and a corrupted b-tree page: `quick_check` fails, but the
+        // journal-mode switch would have succeeded and rewritten the header first.
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA journal_mode=DELETE; \
+             CREATE TABLE t(v TEXT); \
+             WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 400) \
+             INSERT INTO t(v) SELECT hex(zeroblob(64)) FROM c;",
+        )
+        .unwrap();
+        drop(conn);
+        assert_eq!(header_format_versions(&path), [1, 1], "not WAL yet");
+        let mut bytes = fs::read(&path).unwrap();
+        assert!(
+            bytes.len() > 8192,
+            "table must span more than the first page"
+        );
+        bytes[4096] = 0xFF; // page 2's b-tree page type
+        fs::write(&path, &bytes).unwrap();
+
+        let err = SqliteStore::open(&path).expect_err("damaged file must not open");
+        assert!(
+            matches!(
+                err,
+                SqliteStoreError::Corrupt { .. } | SqliteStoreError::Sqlite { .. }
+            ),
+            "got {err}"
+        );
+        assert_eq!(
+            header_format_versions(&path),
+            [1, 1],
+            "a rejected file must not have its journal mode rewritten"
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            bytes,
+            "rejected file left untouched"
         );
     }
 

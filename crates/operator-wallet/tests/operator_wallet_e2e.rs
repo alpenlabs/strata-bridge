@@ -1019,14 +1019,14 @@ async fn bootstrap_checkpoint_skips_history_below_it() {
         90,
         "fresh wallet starts at the checkpoint"
     );
-    // Create-time commits: descriptor/network/genesis, then the checkpoint.
+    // One create-time commit carrying descriptor, network, genesis and the checkpoint.
     let created = stores.reserved.history();
-    assert_eq!(created.len(), 2);
+    assert_eq!(created.len(), 1, "wallet and checkpoint commit together");
     assert_eq!(chain_heights(&created), BTreeSet::from([0, 90]));
 
     wallet.sync().await.expect("sync");
     assert_eq!(wallet.local_chain_tip_height(), 101);
-    let synced = &stores.reserved.history()[2..];
+    let synced = &stores.reserved.history()[created.len()..];
     let expected: BTreeSet<u32> = (91..=101).collect();
     assert_eq!(
         chain_heights(synced),
