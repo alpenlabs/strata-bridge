@@ -21,10 +21,10 @@ strata-bridge-tx-graph.workspace = true
 
 ssz.workspace = true
 strata-asm-admin-types.workspace = true
+strata-asm-checkpoint-types.workspace = true
 strata-asm-proto-admin-txs = { workspace = true, features = ["test-utils"] }
 strata-asm-proto-bridge-txs.workspace = true
 strata-asm-proto-checkpoint-txs.workspace = true
-strata-asm-checkpoint-types.workspace = true
 strata-codec.workspace = true
 strata-crypto.workspace = true
 strata-identifiers.workspace = true

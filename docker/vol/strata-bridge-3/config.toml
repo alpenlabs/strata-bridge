@@ -56,6 +56,7 @@ sequence_connection_string = "tcp://host.docker.internal:28336"
 
 [operator_wallet]
 claim_funding_pool_size = 32
+data_dir = "/app/data/wallet"
 
 [mosaic]
 rpc_url = "http://mosaic-3:8000"

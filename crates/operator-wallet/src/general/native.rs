@@ -4,11 +4,15 @@
 //! never holds private keys. Per the [`GeneralWallet`] signing contract, every PSBT this impl
 //! returns carries `witness_utxo` and `tap_internal_key` on its inputs but no signatures —
 //! the caller signs downstream.
+//!
+//! Chain state lives in a BDK [`PersistedWallet`] backed by a caller-supplied [`WalletStore`], so
+//! a restart resumes from the last persisted checkpoint instead of rescanning from genesis.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, num::NonZeroU32};
 
 use bdk_wallet::{
-    bitcoin::{FeeRate, Network, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
+    bitcoin::{FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
+    chain::BlockId,
     descriptor,
     error::CreateTxError,
     KeychainKind, TxOrdering, Wallet,
@@ -17,35 +21,45 @@ use thiserror::Error;
 use tracing::info;
 
 use crate::{
+    config::OperatorWalletConfig,
     general::{local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
+    persist::{load_or_create, InitError, PersistedWallet, WalletStore},
     sync::{Backend, SyncError},
 };
 
 /// Native BDK-backed general wallet.
 #[derive(Debug)]
-pub struct NativeGeneralWallet {
+pub struct NativeGeneralWallet<P> {
     /// Cached at construction; the BDK descriptor doesn't change at runtime.
     script_pubkey: ScriptBuf,
-    wallet: Wallet,
+    wallet: PersistedWallet<P>,
+    store: P,
     sync_backend: Backend,
+    persist_every_blocks: NonZeroU32,
 }
 
-impl NativeGeneralWallet {
-    /// Constructs a native general wallet from the operator's general x-only public key.
-    pub fn new(general_pubkey: XOnlyPublicKey, network: Network, sync_backend: Backend) -> Self {
+impl<P: WalletStore> NativeGeneralWallet<P> {
+    /// Loads the general wallet for `general_pubkey` from `store`, or creates it when the store is
+    /// empty. Network and persistence cadence come from `config`, shared with the reserved wallet.
+    /// See [`load_or_create`] for the identity checks and the role of `bootstrap_checkpoint`.
+    pub async fn load_or_create(
+        general_pubkey: XOnlyPublicKey,
+        config: &OperatorWalletConfig,
+        sync_backend: Backend,
+        mut store: P,
+        bootstrap_checkpoint: Option<BlockId>,
+    ) -> Result<Self, InitError<P::Error>> {
         let (desc, ..) = descriptor!(tr(general_pubkey)).expect("valid tr() descriptor");
-        let wallet = Wallet::create_single(desc)
-            .network(network)
-            .create_wallet_no_persist()
-            .expect("wallet creation must not fail");
+        let wallet = load_or_create(&mut store, desc, config.network, bootstrap_checkpoint).await?;
         let address = wallet.peek_address(KeychainKind::External, 0).address;
         info!("general wallet address: {address}");
-        let script_pubkey = address.script_pubkey();
-        Self {
-            script_pubkey,
+        Ok(Self {
+            script_pubkey: address.script_pubkey(),
             wallet,
+            store,
             sync_backend,
-        }
+            persist_every_blocks: config.persist_every_blocks,
+        })
     }
 }
 
@@ -55,7 +69,7 @@ pub enum NativeGeneralError {
     /// BDK failed to build a transaction (insufficient funds, no UTXOs, ...).
     #[error("bdk create-tx: {0}")]
     CreateTx(#[from] CreateTxError),
-    /// Chain sync (block / mempool fetch) failed.
+    /// Chain sync (block / mempool fetch / persist) failed.
     #[error("wallet sync: {0:?}")]
     Sync(SyncError),
     /// CPFP-child building is intentionally unimplemented until STR-3439 lands.
@@ -63,12 +77,12 @@ pub enum NativeGeneralError {
     CpfpChildNotImplemented,
 }
 
-impl GeneralWallet for NativeGeneralWallet {
+impl<P: WalletStore> GeneralWallet for NativeGeneralWallet<P> {
     type Error = NativeGeneralError;
 
     async fn sync(&mut self) -> Result<(), Self::Error> {
         self.sync_backend
-            .sync_wallet(&mut self.wallet)
+            .sync_wallet(&mut self.wallet, &mut self.store, self.persist_every_blocks)
             .await
             .map_err(NativeGeneralError::Sync)
     }

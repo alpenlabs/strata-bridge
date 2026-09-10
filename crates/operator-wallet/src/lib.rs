@@ -1,7 +1,9 @@
 //! Operator wallet — composition over a swappable [`GeneralWallet`] backend.
 //!
-//! Callers hold an `OperatorWallet<G>` where `G: GeneralWallet`. The composer owns:
-//! - a descriptor-only reserved wallet (BDK), signed downstream by the caller,
+//! Callers hold an `OperatorWallet<G, P>` where `G: GeneralWallet` and `P: WalletStore`. The
+//! composer owns:
+//! - a descriptor-only reserved wallet (BDK), signed downstream by the caller and persisted through
+//!   `P`,
 //! - the in-memory lease set shared across both wallets,
 //! - CPFP-anchor identification and exclusion from input selection,
 //! - cross-wallet construction helpers that pay from the general wallet into reserved-wallet
@@ -10,11 +12,15 @@
 //! The [`GeneralWallet`] backend handles only what varies between implementations: its own
 //! UTXO discovery, its own signing, and the funding+CPFP construction primitives.
 //!
+//! Chain state for both wallets is persisted incrementally during sync (see [`persist`]) so a
+//! restart resumes from the last committed checkpoint instead of rescanning from genesis.
+//!
 //! Methods on [`OperatorWallet`] are `&mut self`. Callers serialize via an outer lock when
 //! they need a multi-step critical section (e.g. DB-lookup-then-fund-then-persist).
 
 pub mod config;
 pub mod general;
+pub mod persist;
 pub mod sync;
 pub mod wallet;
 
@@ -23,12 +29,17 @@ pub mod wallet;
 #[cfg(test)]
 use corepc_node as _;
 #[cfg(test)]
+use operator_wallet as _;
+#[cfg(test)]
 use serial_test as _;
 use thiserror::Error;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub use crate::persist::test_utils;
 pub use crate::{
-    config::OperatorWalletConfig,
+    config::{OperatorWalletConfig, DEFAULT_PERSIST_EVERY_BLOCKS},
     general::{native::NativeGeneralWallet, FundedPsbt, GeneralWallet, UtxoInfo},
+    persist::{load_or_create, InitError, SqliteStore, SqliteStoreError, WalletKind, WalletStore},
     sync::SyncError,
     wallet::{GeneralUtxoPolicy, OperatorWallet},
 };
@@ -63,6 +74,9 @@ pub enum Error {
     /// Reserved-wallet sync against the chain failed.
     #[error("reserved wallet sync: {0:?}")]
     Sync(SyncError),
+    /// The reserved wallet could not be loaded from or created in its store.
+    #[error("reserved wallet init: {0}")]
+    ReservedInit(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl Error {

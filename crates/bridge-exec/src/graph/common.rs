@@ -11,7 +11,7 @@ use bitcoin::{
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
-use operator_wallet::{GeneralUtxoPolicy, GeneralWallet, OperatorWallet, UtxoInfo};
+use operator_wallet::{GeneralUtxoPolicy, GeneralWallet, OperatorWallet, UtxoInfo, WalletStore};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
 use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
@@ -275,8 +275,8 @@ async fn ensure_claim_funding_outpoint(
     Ok(assigned_outpoint)
 }
 
-async fn reconcile_claim_funding_leases_after_driver_failure<G: GeneralWallet>(
-    wallet: &mut OperatorWallet<G>,
+async fn reconcile_claim_funding_leases_after_driver_failure<G: GeneralWallet, P: WalletStore>(
+    wallet: &mut OperatorWallet<G, P>,
     spent: &[OutPoint],
 ) {
     if let Err(sync_err) = wallet.sync().await {
