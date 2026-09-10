@@ -2,16 +2,17 @@
 
 use std::{num::NonZero, sync::Arc, time::Instant};
 
-use anyhow::{Context, anyhow};
+use anyhow::{Context, anyhow, ensure};
 use bdk_bitcoind_rpc::bitcoincore_rpc;
 use bitcoin::{
-    Amount, XOnlyPublicKey,
+    Amount, BlockHash, XOnlyPublicKey,
     hashes::{Hash, sha256},
     relative,
 };
+use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use operator_wallet::{
-    DEFAULT_PERSIST_EVERY_BLOCKS, NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
-    SqliteStore, WalletKind, sync::Backend,
+    BlockId, DEFAULT_PERSIST_EVERY_BLOCKS, NativeGeneralWallet, OperatorWallet,
+    OperatorWalletConfig, SqliteStore, WalletKind, sync::Backend,
 };
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
@@ -45,6 +46,7 @@ pub(in crate::mode) async fn init_operator_wallet(
     params: &Params,
     s2_client: &SecretServiceClient,
     db_client: &FdbClient,
+    btc_rpc_client: &BitcoinClient,
 ) -> anyhow::Result<InitializedOperatorWallet> {
     info!("fetching leased utxos from database");
     let leased_outpoints = db_client
@@ -92,9 +94,7 @@ pub(in crate::mode) async fn init_operator_wallet(
     let general_store = open_store(WalletKind::General)?;
     let reserved_store = open_store(WalletKind::Reserved)?;
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4291>
-    // Derive the bootstrap checkpoint from the trusted-checkpoint
-    let bootstrap_checkpoint = None;
+    let bootstrap_checkpoint = resolve_bootstrap_checkpoint(btc_rpc_client, config, params).await?;
     let general_wallet = NativeGeneralWallet::load_or_create(
         general_key,
         &operator_wallet_config,
@@ -121,6 +121,108 @@ pub(in crate::mode) async fn init_operator_wallet(
         wallet,
         claim_funding_utxo_value,
     })
+}
+
+/// What the `operator_wallet.bootstrap_*` settings ask of a store created on this start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BootstrapSetting {
+    /// No checkpoint: scan from the network's genesis block.
+    Genesis,
+    /// Start at this height, trusting whichever block the node has there.
+    UnverifiedHeight(u32),
+    /// Start at this block, and refuse to start unless the node agrees it is the one.
+    Checkpoint(BlockId),
+}
+
+/// Reads the pair of `operator_wallet.bootstrap_*` settings.
+///
+/// A height of `0`, like an unset height, means genesis. A hash without a height, or with height
+/// `0`, is a contradiction rather than a default, so it is rejected instead of ignored.
+fn bootstrap_setting(
+    height: Option<u64>,
+    block_hash: Option<BlockHash>,
+) -> anyhow::Result<BootstrapSetting> {
+    let height = match height {
+        None | Some(0) => {
+            ensure!(
+                block_hash.is_none(),
+                "operator_wallet.bootstrap_block_hash is set without a bootstrap_height above zero"
+            );
+            return Ok(BootstrapSetting::Genesis);
+        }
+        Some(height) => u32::try_from(height).map_err(|_| {
+            anyhow!("operator_wallet.bootstrap_height {height} is not a block height")
+        })?,
+    };
+    Ok(match block_hash {
+        Some(hash) => BootstrapSetting::Checkpoint(BlockId { height, hash }),
+        None => BootstrapSetting::UnverifiedHeight(height),
+    })
+}
+
+/// Resolves the bootstrap settings into the checkpoint that stores created on this start begin
+/// scanning from.
+///
+/// A configured hash is checked against the connected node, so a node following another chain
+/// aborts startup instead of seeding wallets from the wrong history. Without a hash the node's
+/// own block is taken on trust. Either way a height the node has no block for aborts startup:
+/// falling back to genesis would silently cost a full rescan. Existing stores resume from their
+/// own tip and never consult this.
+async fn resolve_bootstrap_checkpoint(
+    client: &BitcoinClient,
+    config: &Config,
+    params: &Params,
+) -> anyhow::Result<Option<BlockId>> {
+    let wallet = &config.operator_wallet;
+    let setting = bootstrap_setting(wallet.bootstrap_height, wallet.bootstrap_block_hash)?;
+    let height = match setting {
+        BootstrapSetting::Genesis => {
+            info!("wallet stores created on this start will scan from bitcoin genesis");
+            return Ok(None);
+        }
+        BootstrapSetting::UnverifiedHeight(height)
+        | BootstrapSetting::Checkpoint(BlockId { height, .. }) => height,
+    };
+    if u64::from(height) > params.genesis_height {
+        warn!(
+            height,
+            genesis_height = params.genesis_height,
+            "operator_wallet.bootstrap_height is above bridge genesis; wallet funds received \
+             below it stay invisible"
+        );
+    }
+
+    let reported = client
+        .get_block_hash(u64::from(height))
+        .await
+        .map_err(|e| {
+            anyhow!("could not fetch the block at operator_wallet.bootstrap_height {height}: {e:?}")
+        })?;
+    match setting {
+        BootstrapSetting::Checkpoint(checkpoint) => {
+            ensure!(
+                reported == checkpoint.hash,
+                "operator_wallet.bootstrap_block_hash {} is not the block at height {height}: \
+                 the connected node reports {reported}. Check the pair against an independent \
+                 source; the node may be following another chain.",
+                checkpoint.hash
+            );
+            info!(height, hash = %reported, "verified bootstrap checkpoint against the connected node");
+            Ok(Some(checkpoint))
+        }
+        _ => {
+            warn!(
+                height,
+                hash = %reported,
+                "operator_wallet.bootstrap_height has no bootstrap_block_hash, so this block is \
+                 taken from the connected node on trust"
+            );
+            Ok(Some(BlockId {
+                height,
+                hash: reported,
+            }))
+        }
+    }
 }
 
 /// Performs a one-shot sync of the operator wallet against its backend.
@@ -190,4 +292,62 @@ fn compute_claim_funding_utxo_value(params: &Params, own_musig2_key: XOnlyPublic
     );
 
     ClaimTx::claim_funds_required(&claim_contest_connector, &claim_payout_connector)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hash(byte: u8) -> BlockHash {
+        BlockHash::from_byte_array([byte; 32])
+    }
+
+    #[test]
+    fn no_height_and_no_hash_mean_genesis() {
+        assert_eq!(
+            bootstrap_setting(None, None).expect("unset is valid"),
+            BootstrapSetting::Genesis
+        );
+        assert_eq!(
+            bootstrap_setting(Some(0), None).expect("zero is valid"),
+            BootstrapSetting::Genesis
+        );
+    }
+
+    #[test]
+    fn a_height_without_a_hash_is_taken_on_trust() {
+        assert_eq!(
+            bootstrap_setting(Some(101), None).expect("valid height"),
+            BootstrapSetting::UnverifiedHeight(101)
+        );
+    }
+
+    #[test]
+    fn a_height_and_a_hash_make_a_checkpoint() {
+        assert_eq!(
+            bootstrap_setting(Some(101), Some(hash(7))).expect("valid pair"),
+            BootstrapSetting::Checkpoint(BlockId {
+                height: 101,
+                hash: hash(7)
+            })
+        );
+    }
+
+    #[test]
+    fn a_hash_without_a_height_is_rejected() {
+        for height in [None, Some(0)] {
+            let err = bootstrap_setting(height, Some(hash(7))).expect_err("hash needs a height");
+            assert!(
+                err.to_string().contains("without a bootstrap_height"),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_height_past_the_block_height_range_is_rejected() {
+        let too_big = u64::from(u32::MAX) + 1;
+        let err = bootstrap_setting(Some(too_big), None).expect_err("not a block height");
+        assert!(err.to_string().contains(&too_big.to_string()), "{err}");
+    }
 }
