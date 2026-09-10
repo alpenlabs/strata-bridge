@@ -14,6 +14,10 @@
 //!   delta, and the wallet doesn't re-spend existing pool members back to itself.
 //! - **Sync prunes stale leases** so a long-running operator doesn't accumulate leases for
 //!   outpoints that the chain has already spent.
+//! - **Persistence**: a restart from the same stores resumes at the persisted tip and applies only
+//!   the chain delta; staged state is committed in bounded batches; a failed commit is retried
+//!   without gaps or duplicates; a reorg rolls the persisted chain back; a bootstrap checkpoint
+//!   skips history below it.
 //!
 //! Tests are `#[serial]` because `bitcoind` binds a fixed RPC port — parallel runs would
 //! collide. Each test spins up a fresh `bitcoind` so state doesn't leak between cases.
@@ -24,22 +28,47 @@
 //! signing with the same keypair the descriptor was constructed from (BIP-341 key-path with
 //! the empty-merkle-root tap-tweak).
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    num::NonZeroU32,
+    path::Path,
+    sync::Arc,
+};
 
-use bdk_wallet::bitcoin::{
-    hashes::Hash,
-    key::{Keypair, Secp256k1, TapTweak},
-    secp256k1::{Message, SecretKey},
-    sighash::{Prevouts, SighashCache},
-    taproot, Address, Amount, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction,
-    Witness, XOnlyPublicKey,
+use bdk_bitcoind_rpc::bitcoincore_rpc::RpcApi;
+use bdk_wallet::{
+    bitcoin::{
+        hashes::Hash,
+        key::{Keypair, Secp256k1, TapTweak},
+        secp256k1::{Message, SecretKey},
+        sighash::{Prevouts, SighashCache},
+        taproot, Address, Amount, BlockHash, FeeRate, Network, OutPoint, Psbt, TapSighashType,
+        Transaction, Witness, XOnlyPublicKey,
+    },
+    chain::{BlockId, Merge},
+    descriptor, ChangeSet,
 };
 use corepc_node::{Conf, Node};
 use operator_wallet::{
-    sync::Backend, Error as OperatorWalletError, GeneralUtxoPolicy, GeneralWallet,
-    NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
+    load_or_create, sync::Backend, test_utils::MemoryStore, Error as OperatorWalletError,
+    GeneralUtxoPolicy, GeneralWallet, NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
+    SqliteStore, WalletKind, DEFAULT_PERSIST_EVERY_BLOCKS,
 };
 use serial_test::serial;
+
+/// The concrete wallet type under test: native general wallet + in-memory stores.
+type TestWallet = OperatorWallet<NativeGeneralWallet<MemoryStore>, MemoryStore>;
+
+/// The production shape: native general wallet + one SQLite file per wallet.
+type SqliteWallet = OperatorWallet<NativeGeneralWallet<SqliteStore>, SqliteStore>;
+
+/// The pair of in-memory stores backing one operator wallet. Clones share storage, so keeping a
+/// `Stores` around and re-opening from it simulates a process restart.
+#[derive(Clone, Default)]
+struct Stores {
+    general: MemoryStore,
+    reserved: MemoryStore,
+}
 
 /// 1 sat — the smallest possible "anchor" value, used in tests where we don't actually
 /// want any UTXO to look like an anchor. `OperatorWallet`'s anchor exclusion filters on
@@ -75,10 +104,50 @@ fn keypair_from_seed(seed: u8) -> (Keypair, XOnlyPublicKey) {
     (kp, xonly)
 }
 
-/// Builds a fully-wired `OperatorWallet<NativeGeneralWallet>` for tests. Funds the general
-/// wallet with `general_funding_utxos` UTXOs of `general_funding_value` each via bitcoind's
-/// own wallet, then syncs. The reserved wallet is created from a separate deterministic
-/// keypair and starts empty.
+/// Opens (loads or creates) an operator wallet against `stores` without funding or syncing it.
+/// Returns the wallet plus the origin reported for the general and reserved wallets.
+async fn open_wallet(
+    bitcoind: &Node,
+    general_seed: u8,
+    reserved_seed: u8,
+    stores: &Stores,
+    bootstrap_checkpoint: Option<BlockId>,
+    persist_every_blocks: NonZeroU32,
+) -> TestWallet {
+    let (_, general_pubkey) = keypair_from_seed(general_seed);
+    let (_, reserved_pubkey) = keypair_from_seed(reserved_seed);
+
+    let general_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
+    let reserved_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
+    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest)
+        .with_persist_every_blocks(persist_every_blocks);
+    let general = NativeGeneralWallet::load_or_create(
+        general_pubkey,
+        &config,
+        general_backend,
+        stores.general.clone(),
+        bootstrap_checkpoint,
+    )
+    .await
+    .expect("general wallet init");
+    let wallet = OperatorWallet::load_or_create(
+        general,
+        reserved_pubkey,
+        config,
+        reserved_backend,
+        stores.reserved.clone(),
+        bootstrap_checkpoint,
+        BTreeSet::new(),
+    )
+    .await
+    .expect("reserved wallet init");
+    wallet
+}
+
+/// Builds a fully-wired [`TestWallet`] against fresh in-memory stores. Funds the general wallet
+/// with `general_funding_utxos` UTXOs of `general_funding_value` each via bitcoind's own wallet,
+/// then syncs. The reserved wallet is created from a separate deterministic keypair and starts
+/// empty.
 async fn build_operator_wallet(
     bitcoind: &Node,
     general_seed: u8,
@@ -86,24 +155,20 @@ async fn build_operator_wallet(
     general_funding_utxos: usize,
     general_funding_value: Amount,
 ) -> (
-    OperatorWallet<NativeGeneralWallet>,
+    TestWallet,
     Keypair, // general keypair, used by the test to sign funded PSBTs
     XOnlyPublicKey,
 ) {
     let (general_kp, general_pubkey) = keypair_from_seed(general_seed);
-    let (_reserved_kp, reserved_pubkey) = keypair_from_seed(reserved_seed);
-
-    let general_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
-    let reserved_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
-    let general = NativeGeneralWallet::new(general_pubkey, Network::Regtest, general_backend);
-    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest);
-    let mut wallet = OperatorWallet::new(
-        general,
-        reserved_pubkey,
-        config,
-        reserved_backend,
-        BTreeSet::new(),
-    );
+    let mut wallet = open_wallet(
+        bitcoind,
+        general_seed,
+        reserved_seed,
+        &Stores::default(),
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
 
     // Fund the general wallet's address from bitcoind's own wallet.
     let general_address = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
@@ -635,4 +700,431 @@ async fn refill_workflow_skips_existing_pool_members() {
         4,
         "pool should now contain the original 2 + the 2 we just added"
     );
+}
+
+// ── Persistence ────────────────────────────────────────────────────────────
+
+/// Every block height mentioned (added or removed) across `changesets`.
+fn chain_heights(changesets: &[ChangeSet]) -> BTreeSet<u32> {
+    changesets
+        .iter()
+        .flat_map(|cs| cs.local_chain.blocks.keys().copied())
+        .collect()
+}
+
+/// Merges `changesets` in order into one, the way a store's aggregate view would.
+fn merged(changesets: &[ChangeSet]) -> ChangeSet {
+    let mut out = ChangeSet::default();
+    for cs in changesets {
+        out.merge(cs.clone());
+    }
+    out
+}
+
+/// Heights whose value is `Some` in the aggregate, i.e. blocks a restart would load.
+fn live_heights(aggregate: &ChangeSet) -> BTreeMap<u32, BlockHash> {
+    aggregate
+        .local_chain
+        .blocks
+        .iter()
+        .filter_map(|(h, hash)| hash.map(|hash| (*h, hash)))
+        .collect()
+}
+
+fn mine(bitcoind: &Node, n: usize) {
+    let addr = bitcoind.client.new_address().expect("miner address");
+    bitcoind
+        .client
+        .generate_to_address(n, &addr)
+        .expect("mine blocks");
+}
+
+#[tokio::test]
+#[serial]
+async fn restart_loads_persisted_state_and_applies_only_the_chain_delta() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        21,
+        22,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    for store in [&stores.general, &stores.reserved] {
+        assert_eq!(
+            store.history().len(),
+            1,
+            "a fresh store gets exactly the create commit"
+        );
+    }
+
+    // Fund the general wallet so there is transaction-graph state to carry across the restart.
+    let (_, general_pubkey) = keypair_from_seed(21);
+    let general_address = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
+    bitcoind
+        .client
+        .send_to_address(&general_address, Amount::from_btc(0.5).unwrap())
+        .expect("fund general wallet");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("initial sync");
+
+    let tip_before = wallet.local_chain_tip_height();
+    let utxos_before: BTreeSet<OutPoint> = wallet
+        .general()
+        .list_utxos()
+        .into_iter()
+        .map(|u| u.outpoint)
+        .collect();
+    assert_eq!(utxos_before.len(), 1, "general wallet sees its funding");
+    let general_history_len = stores.general.history().len();
+    let reserved_history_len = stores.reserved.history().len();
+    drop(wallet);
+
+    // The chain moves on while the node is "down".
+    mine(&bitcoind, 5);
+
+    let mut wallet = open_wallet(
+        &bitcoind,
+        21,
+        22,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    assert_eq!(
+        stores.general.history().len(),
+        general_history_len,
+        "loading writes nothing"
+    );
+    assert_eq!(stores.reserved.history().len(), reserved_history_len);
+    assert_eq!(
+        wallet.local_chain_tip_height(),
+        tip_before,
+        "loaded wallet resumes at the persisted tip before syncing"
+    );
+    let utxos_after_load: BTreeSet<OutPoint> = wallet
+        .general()
+        .list_utxos()
+        .into_iter()
+        .map(|u| u.outpoint)
+        .collect();
+    assert_eq!(
+        utxos_after_load, utxos_before,
+        "transaction-graph state survives the restart"
+    );
+
+    wallet.sync().await.expect("post-restart sync");
+    assert_eq!(wallet.local_chain_tip_height(), tip_before + 5);
+
+    // Only the five new blocks were applied after the restart: no persisted changeset touches a
+    // height at or below the old tip.
+    let expected: BTreeSet<u32> = (tip_before + 1..=tip_before + 5).collect();
+    let general_new = &stores.general.history()[general_history_len..];
+    let reserved_new = &stores.reserved.history()[reserved_history_len..];
+    assert_eq!(chain_heights(general_new), expected);
+    assert_eq!(chain_heights(reserved_new), expected);
+}
+
+#[tokio::test]
+#[serial]
+async fn sync_commits_in_batches_bounded_by_the_cadence() {
+    let bitcoind = setup_bitcoind(); // 101 blocks
+    let stores = Stores::default();
+    let cadence = NonZeroU32::new(25).unwrap();
+    let mut wallet = open_wallet(&bitcoind, 23, 24, &stores, None, cadence).await;
+    wallet.sync().await.expect("sync");
+    let tip = wallet.local_chain_tip_height();
+    assert_eq!(tip, 101);
+
+    for store in [&stores.general, &stores.reserved] {
+        let history = store.history();
+        // First entry is the create-time changeset (descriptor, network, genesis block).
+        assert!(history[0].descriptor.is_some());
+        assert_eq!(history[0].local_chain.blocks.len(), 1);
+        for cs in &history[1..] {
+            assert!(
+                cs.local_chain.blocks.len() <= cadence.get() as usize,
+                "a batch must never exceed the cadence: {} blocks",
+                cs.local_chain.blocks.len()
+            );
+        }
+        let min_batches = (tip / cadence) as usize;
+        assert!(
+            history.len() > min_batches,
+            "expected the create commit plus at least {min_batches} batch commits, got {}",
+            history.len()
+        );
+        let all: BTreeSet<u32> = (0..=tip).collect();
+        assert_eq!(
+            chain_heights(&history),
+            all,
+            "every height committed exactly once overall"
+        );
+        assert_eq!(live_heights(&store.aggregate()).len(), all.len());
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn failed_commit_aborts_the_attempt_and_the_retry_leaves_no_gaps() {
+    let bitcoind = setup_bitcoind(); // 101 blocks
+    let (_, pubkey) = keypair_from_seed(25);
+    let (desc, ..) = descriptor!(tr(pubkey)).expect("descriptor");
+    let mut store = MemoryStore::new();
+    let mut wallet = load_or_create(&mut store, desc, Network::Regtest, None)
+        .await
+        .expect("create");
+    assert_eq!(store.persist_calls(), 1, "create persists once");
+
+    let cadence = NonZeroU32::new(25).unwrap();
+    // Call 1 was the create; call 2 is the batch ending at height 25; call 3 (height 50) fails.
+    store.fail_on_persist_call(3);
+    let backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(&bitcoind)));
+
+    backend
+        .sync_wallet(&mut wallet, &mut store, cadence)
+        .await
+        .expect_err("injected persist failure must abort the attempt");
+    assert_eq!(
+        wallet.latest_checkpoint().height(),
+        50,
+        "applied up to the failed batch"
+    );
+    assert!(wallet.staged().is_some(), "failed batch stays staged");
+    let persisted_tip = *live_heights(&store.aggregate()).keys().last().unwrap();
+    assert_eq!(persisted_tip, 25, "only the successful batch is durable");
+
+    backend
+        .sync_wallet(&mut wallet, &mut store, cadence)
+        .await
+        .expect("retry succeeds");
+    assert!(
+        wallet.staged().is_none(),
+        "everything drained after a clean attempt"
+    );
+    let live = live_heights(&store.aggregate());
+    let expected: BTreeSet<u32> = (0..=101).collect();
+    assert_eq!(
+        live.keys().copied().collect::<BTreeSet<_>>(),
+        expected,
+        "no gaps"
+    );
+    assert_eq!(wallet.latest_checkpoint().height(), 101);
+    for (height, hash) in &live {
+        assert_eq!(
+            wallet.latest_checkpoint().get(*height).map(|cp| cp.hash()),
+            Some(*hash),
+            "persisted hash matches the wallet's chain at {height}"
+        );
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn reorg_rolls_back_the_persisted_chain_and_reanchors_reserved_utxos() {
+    let bitcoind = setup_bitcoind(); // 101 blocks
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        27,
+        28,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    let rpc = sync_rpc_client(&bitcoind);
+
+    // Fund the reserved wallet directly and confirm it at height 102.
+    let value = Amount::from_btc(0.01).unwrap();
+    let reserved_addr = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    bitcoind
+        .client
+        .send_to_address(&reserved_addr, value)
+        .expect("fund reserved");
+    mine(&bitcoind, 3); // heights 102, 103, 104
+    wallet.sync().await.expect("sync");
+    assert_eq!(wallet.local_chain_tip_height(), 104);
+    let pool = wallet.reserved_utxos_with_value(value);
+    assert_eq!(pool.len(), 1);
+    assert_eq!(pool[0].confirmations, 3, "confirmed at 102, tip 104");
+    let reserved_history_len = stores.reserved.history().len();
+
+    // Reorg out 102..=104 and mine a single replacement block at 102. The funding tx returns to
+    // the mempool and is re-mined into the replacement block.
+    let old_102 = rpc.get_block_hash(102).expect("hash 102");
+    rpc.invalidate_block(&old_102).expect("invalidate");
+    mine(&bitcoind, 1);
+    let new_102 = rpc.get_block_hash(102).expect("new hash 102");
+    assert_ne!(new_102, old_102);
+
+    wallet.sync().await.expect("sync after reorg");
+    assert_eq!(wallet.local_chain_tip_height(), 102);
+    assert_eq!(wallet.reserved_tip_hash(), new_102);
+    let pool = wallet.reserved_utxos_with_value(value);
+    assert_eq!(pool.len(), 1, "the UTXO is still ours");
+    assert_eq!(
+        pool[0].confirmations, 1,
+        "re-anchored in the replacement block"
+    );
+
+    // The persisted rollback: 102 replaced, 103 and 104 removed.
+    let after = merged(&stores.reserved.history()[reserved_history_len..]);
+    assert_eq!(after.local_chain.blocks.get(&102), Some(&Some(new_102)));
+    assert_eq!(after.local_chain.blocks.get(&103), Some(&None));
+    assert_eq!(after.local_chain.blocks.get(&104), Some(&None));
+
+    // A restart from the stores lands on the new branch.
+    drop(wallet);
+    let wallet = open_wallet(
+        &bitcoind,
+        27,
+        28,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    assert_eq!(wallet.local_chain_tip_height(), 102);
+    assert_eq!(wallet.reserved_tip_hash(), new_102);
+    assert_eq!(wallet.reserved_utxos_with_value(value).len(), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn bootstrap_checkpoint_skips_history_below_it() {
+    let bitcoind = setup_bitcoind(); // 101 blocks
+    let rpc = sync_rpc_client(&bitcoind);
+    let checkpoint = BlockId {
+        height: 90,
+        hash: rpc.get_block_hash(90).expect("hash 90"),
+    };
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        29,
+        30,
+        &stores,
+        Some(checkpoint),
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    assert_eq!(
+        wallet.local_chain_tip_height(),
+        90,
+        "fresh wallet starts at the checkpoint"
+    );
+    // Create-time commits: descriptor/network/genesis, then the checkpoint.
+    let created = stores.reserved.history();
+    assert_eq!(created.len(), 2);
+    assert_eq!(chain_heights(&created), BTreeSet::from([0, 90]));
+
+    wallet.sync().await.expect("sync");
+    assert_eq!(wallet.local_chain_tip_height(), 101);
+    let synced = &stores.reserved.history()[2..];
+    let expected: BTreeSet<u32> = (91..=101).collect();
+    assert_eq!(
+        chain_heights(synced),
+        expected,
+        "only blocks above the checkpoint are fetched and committed"
+    );
+    let live = live_heights(&stores.reserved.aggregate());
+    assert!(
+        (1..90).all(|h| !live.contains_key(&h)),
+        "history below the checkpoint is never persisted"
+    );
+}
+
+/// Opens (loads or creates) a [`SqliteWallet`] whose two stores live in `data_dir`.
+async fn open_sqlite_wallet(
+    bitcoind: &Node,
+    general_seed: u8,
+    reserved_seed: u8,
+    data_dir: &Path,
+) -> SqliteWallet {
+    let (_, general_pubkey) = keypair_from_seed(general_seed);
+    let (_, reserved_pubkey) = keypair_from_seed(reserved_seed);
+    let general_store =
+        SqliteStore::open_in_dir(data_dir, WalletKind::General).expect("open general");
+    let reserved_store =
+        SqliteStore::open_in_dir(data_dir, WalletKind::Reserved).expect("open reserved");
+    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest);
+    let general = NativeGeneralWallet::load_or_create(
+        general_pubkey,
+        &config,
+        Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind))),
+        general_store,
+        None,
+    )
+    .await
+    .expect("general wallet init");
+    let wallet = OperatorWallet::load_or_create(
+        general,
+        reserved_pubkey,
+        config,
+        Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind))),
+        reserved_store,
+        None,
+        BTreeSet::new(),
+    )
+    .await
+    .expect("reserved wallet init");
+    wallet
+}
+
+#[tokio::test]
+#[serial]
+async fn sqlite_store_survives_a_restart_and_resumes_at_the_persisted_tip() {
+    let bitcoind = setup_bitcoind();
+    let data_dir = tempfile::tempdir().expect("temp dir");
+    let mut wallet = open_sqlite_wallet(&bitcoind, 31, 32, data_dir.path()).await;
+    assert!(WalletKind::General.path_in(data_dir.path()).exists());
+    assert!(WalletKind::Reserved.path_in(data_dir.path()).exists());
+
+    let (_, general_pubkey) = keypair_from_seed(31);
+    let general_address = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
+    bitcoind
+        .client
+        .send_to_address(&general_address, Amount::from_btc(0.5).unwrap())
+        .expect("fund general wallet");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("initial sync");
+    let tip_before = wallet.local_chain_tip_height();
+    let utxos_before: BTreeSet<OutPoint> = wallet
+        .general()
+        .list_utxos()
+        .into_iter()
+        .map(|u| u.outpoint)
+        .collect();
+    assert_eq!(utxos_before.len(), 1);
+    drop(wallet); // closes both SQLite connections, as a process exit would
+
+    mine(&bitcoind, 5);
+
+    let mut wallet = open_sqlite_wallet(&bitcoind, 31, 32, data_dir.path()).await;
+    // Reopening a populated store can only succeed by loading: the create path would fail with
+    // `DataAlreadyExists`. The tip proves which state was loaded.
+    assert_eq!(
+        wallet.local_chain_tip_height(),
+        tip_before,
+        "resumes at persisted tip"
+    );
+    let utxos_after_load: BTreeSet<OutPoint> = wallet
+        .general()
+        .list_utxos()
+        .into_iter()
+        .map(|u| u.outpoint)
+        .collect();
+    assert_eq!(
+        utxos_after_load, utxos_before,
+        "graph state reloaded from SQLite"
+    );
+
+    wallet.sync().await.expect("post-restart sync");
+    assert_eq!(wallet.local_chain_tip_height(), tip_before + 5);
 }
