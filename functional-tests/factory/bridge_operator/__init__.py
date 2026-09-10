@@ -149,6 +149,8 @@ class BridgeOperatorFactory(flexitest.Factory):
         props = {
             "rpc_port": rpc_port,
             "logfile": logfile_path,
+            "config_path": config_toml_path,
+            "wallet_data_dir": str((Path(config_toml_path).parent / "wallet").resolve()),
             "reserved_wallet_address": current_operator_key.RESERVED_WALLET,
             "general_wallet_address": current_operator_key.GENERAL_WALLET,
         }
