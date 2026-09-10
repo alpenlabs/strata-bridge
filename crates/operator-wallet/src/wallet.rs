@@ -13,10 +13,12 @@
 //! Methods on [`OperatorWallet`] take `&mut self`; callers serialize via an outer lock when
 //! they need a multi-step critical section (e.g. DB-lookup-then-fund-then-persist).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use bdk_wallet::{
-    bitcoin::{Address, Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
+    bitcoin::{
+        Address, Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    },
     chain::BlockId,
     descriptor, KeychainKind,
 };
@@ -26,8 +28,8 @@ use tracing::{error, info, warn};
 
 use crate::{
     config::OperatorWalletConfig,
-    general::{local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
-    persist::{load_or_create, PersistedWallet, WalletStore},
+    general::{is_spendable, local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
+    persist::{ensure_backend_not_behind, load_or_create, PersistedWallet, WalletStore},
     sync::Backend,
     Error,
 };
@@ -52,6 +54,7 @@ pub struct OperatorWallet<G, P> {
     reserved_script_pubkey: ScriptBuf,
     config: OperatorWalletConfig,
     leased_outpoints: BTreeSet<OutPoint>,
+    reserved_mempool: HashSet<Txid>,
 }
 
 impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
@@ -78,6 +81,9 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
         )
         .await
         .map_err(|e| Error::ReservedInit(Box::new(e)))?;
+        ensure_backend_not_behind(&reserved_sync_backend, &reserved)
+            .await
+            .map_err(|e| Error::ReservedInit(Box::new(e)))?;
         let reserved_addr = reserved.peek_address(KeychainKind::External, 0).address;
         info!("reserved wallet address: {reserved_addr}");
         Ok(Self {
@@ -88,6 +94,7 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
             reserved_script_pubkey: reserved_addr.script_pubkey(),
             config,
             leased_outpoints: initial_leases,
+            reserved_mempool: HashSet::new(),
         })
     }
 
@@ -172,6 +179,7 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
         let tip = self.reserved.latest_checkpoint().height();
         self.reserved
             .list_unspent()
+            .filter(|output| is_spendable(output, &self.reserved_mempool))
             .filter(|utxo| utxo.txout.value == value)
             .map(|lo| local_output_to_utxo_info(&lo, tip))
             .collect()
@@ -381,7 +389,9 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
             if let Err(e) = self.general.sync().await {
                 err = Some(Error::from_general(e));
             }
-            if let Err(e) = self
+            // Cleared per attempt, so a failure leaves no snapshot behind.
+            self.reserved_mempool.clear();
+            match self
                 .reserved_sync_backend
                 .sync_wallet(
                     &mut self.reserved,
@@ -390,7 +400,8 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
                 )
                 .await
             {
-                err = Some(Error::Sync(e));
+                Ok(mempool) => self.reserved_mempool = mempool,
+                Err(e) => err = Some(Error::Sync(e)),
             }
             match err {
                 Some(e) => {
@@ -406,14 +417,15 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
             }
         }
 
-        // Prune stale leases. After a successful sync, drop any leased outpoint whose
-        // underlying UTXO is no longer in either wallet's spendable set — it was observed
-        // spent on-chain (the on-chain spend supersedes our local lease bookkeeping).
+        // Prune stale leases. After a successful sync, drop any leased outpoint neither wallet
+        // still holds — it was observed spent (the spend supersedes our lease bookkeeping). This
+        // asks what the wallets hold, not what they will spend: an output the spendable filter
+        // rejects may yet come back, and releasing its lease early would let a second caller take
+        // an outpoint the first is still committed to.
         let live: BTreeSet<OutPoint> = self
             .general
-            .list_utxos()
+            .unspent_outpoints()
             .into_iter()
-            .map(|u| u.outpoint)
             .chain(self.reserved.list_unspent().map(|lo| lo.outpoint))
             .collect();
         self.leased_outpoints.retain(|o| live.contains(o));
