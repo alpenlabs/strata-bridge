@@ -9,11 +9,12 @@
 
 pub mod native;
 
-use std::error::Error as StdError;
+use std::{collections::HashSet, error::Error as StdError};
 
 use bdk_wallet::{
-    bitcoin::{Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut},
+    bitcoin::{Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Txid},
     chain::ChainPosition,
+    LocalOutput,
 };
 
 /// A backend that manages the operator's general-purpose Bitcoin funds.
@@ -46,6 +47,14 @@ pub trait GeneralWallet: Send + Sync {
     /// caller is responsible for filtering anchors, leases, and other domain-specific
     /// exclusions before requesting funding.
     fn list_utxos(&self) -> Vec<UtxoInfo>;
+
+    /// Every outpoint the wallet still holds unspent, including any [`Self::list_utxos`] leaves
+    /// out.
+    ///
+    /// Lease bookkeeping asks this rather than [`Self::list_utxos`]: a lease must only be released
+    /// once the outpoint has actually been spent, not because the wallet has stopped trusting it
+    /// for spending. Releasing early would let two callers lease the same outpoint.
+    fn unspent_outpoints(&self) -> Vec<OutPoint>;
 
     /// Builds a v3 TRUC funding transaction and signs the inputs it has key material for.
     ///
@@ -141,6 +150,19 @@ impl From<&UtxoInfo> for TxOut {
     }
 }
 
+/// Whether an output is spendable, given the mempool as of the last sync.
+///
+/// This BDK version cannot evict a transaction, so one reorged out of the chain and not
+/// re-broadcast stays canonical and its outputs keep looking spendable; an unconfirmed output
+/// therefore counts only while its transaction is in the mempool. An output *consumed* by such a
+/// transaction stays hidden, matching BDK's own coin selection, and returns on a store rebuild.
+pub(crate) fn is_spendable(output: &LocalOutput, mempool: &HashSet<Txid>) -> bool {
+    match output.chain_position {
+        ChainPosition::Confirmed { .. } => true,
+        ChainPosition::Unconfirmed { .. } => mempool.contains(&output.outpoint.txid),
+    }
+}
+
 /// Converts a BDK [`bdk_wallet::LocalOutput`] into a backend-neutral [`UtxoInfo`], computing
 /// confirmations against `tip_height`. Shared between the native general-wallet backend and
 /// the composer's reserved-wallet lookup since both are BDK-backed.
@@ -156,5 +178,203 @@ pub(crate) fn local_output_to_utxo_info(lo: &bdk_wallet::LocalOutput, tip_height
         amount: lo.txout.value,
         confirmations,
         script_pubkey: lo.txout.script_pubkey.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bdk_wallet::{
+        bitcoin::{
+            absolute::LockTime,
+            hashes::Hash,
+            secp256k1::{Keypair, Secp256k1, SecretKey},
+            transaction::Version,
+            Amount, BlockHash, FeeRate, Network, Sequence, TxIn, Witness,
+        },
+        chain::{BlockId, CheckPoint, ConfirmationBlockTime, TxUpdate},
+        descriptor,
+        tx_builder::AddUtxoError,
+        KeychainKind, Update, Wallet,
+    };
+
+    use super::*;
+
+    fn block(height: u32, tag: u8) -> BlockId {
+        BlockId {
+            height,
+            hash: BlockHash::from_byte_array([tag; 32]),
+        }
+    }
+
+    /// A descriptor-only wallet and the script it owns.
+    fn wallet(seed: u8) -> (Wallet, ScriptBuf) {
+        let secret = SecretKey::from_slice(&[seed; 32]).expect("valid scalar");
+        let key = Keypair::from_secret_key(&Secp256k1::new(), &secret)
+            .x_only_public_key()
+            .0;
+        let (desc, ..) = descriptor!(tr(key)).expect("valid descriptor");
+        let wallet = Wallet::create_single(desc)
+            .network(Network::Regtest)
+            .create_wallet_no_persist()
+            .expect("wallet");
+        let script = wallet
+            .peek_address(KeychainKind::External, 0)
+            .address
+            .script_pubkey();
+        (wallet, script)
+    }
+
+    /// An arbitrary outpoint to spend. Never null: BDK treats a null input as a coinbase, which
+    /// it refuses to see unconfirmed.
+    fn source(tag: u8) -> OutPoint {
+        OutPoint {
+            txid: Txid::from_byte_array([tag; 32]),
+            vout: 0,
+        }
+    }
+
+    /// A transaction spending `source` and paying `sats` to `script`.
+    fn pay(source: OutPoint, script: &ScriptBuf, sats: u64) -> Transaction {
+        Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: source,
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::new(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(sats),
+                script_pubkey: script.clone(),
+            }],
+        }
+    }
+
+    /// Sets the wallet's chain to `blocks` and applies each transaction, anchored at the given
+    /// block or, with `None`, seen in the mempool.
+    fn apply(wallet: &mut Wallet, blocks: &[BlockId], txs: &[(&Transaction, Option<BlockId>)]) {
+        let mut update = TxUpdate::default();
+        for (tx, at) in txs {
+            update.txs.push(Arc::new((*tx).clone()));
+            match at {
+                Some(block) => {
+                    let anchor = ConfirmationBlockTime {
+                        block_id: *block,
+                        confirmation_time: u64::from(block.height) * 600,
+                    };
+                    update.anchors.insert((anchor, tx.compute_txid()));
+                }
+                None => {
+                    update.seen_ats.insert(tx.compute_txid(), 1_000);
+                }
+            }
+        }
+        wallet
+            .apply_update(Update {
+                chain: Some(CheckPoint::from_block_ids(blocks.iter().copied()).expect("ascending")),
+                tx_update: update,
+                ..Update::default()
+            })
+            .expect("apply update");
+    }
+
+    fn spendable(wallet: &Wallet, mempool: &HashSet<Txid>) -> Vec<LocalOutput> {
+        wallet
+            .list_unspent()
+            .filter(|output| is_spendable(output, mempool))
+            .collect()
+    }
+
+    /// A payment seen in the mempool, confirmed, then reorged out and gone from the mempool. BDK
+    /// keeps its stale mempool sighting, so only the current mempool tells it from a live payment.
+    #[test]
+    fn a_payment_reorged_out_of_the_chain_is_not_spendable() {
+        let (mut wallet, script) = wallet(9);
+        let genesis = wallet.latest_checkpoint().block_id();
+        let payment = pay(source(1), &script, 100_000);
+        let seen = HashSet::from([payment.compute_txid()]);
+        let h1 = block(1, 1);
+
+        apply(&mut wallet, &[genesis], &[(&payment, None)]);
+        assert_eq!(spendable(&wallet, &seen).len(), 1, "in the mempool");
+
+        apply(&mut wallet, &[genesis, h1], &[(&payment, Some(h1))]);
+        assert_eq!(spendable(&wallet, &HashSet::new()).len(), 1, "confirmed");
+
+        apply(&mut wallet, &[genesis, block(1, 11)], &[]);
+        assert!(
+            matches!(
+                wallet.transactions().next().expect("one tx").chain_position,
+                ChainPosition::Unconfirmed { last_seen: Some(_) }
+            ),
+            "BDK reports a stale sighting, not an absence"
+        );
+        assert!(
+            spendable(&wallet, &HashSet::new()).is_empty(),
+            "gone from the mempool, so not spendable"
+        );
+        assert_eq!(
+            spendable(&wallet, &seen).len(),
+            1,
+            "re-broadcast, so spendable"
+        );
+    }
+
+    /// A reorg replacing a payment with a conflicting one paying the same wallet: the replacement
+    /// counts and the original does not, so the two never both count.
+    #[test]
+    fn a_replaced_payment_leaves_only_the_replacement_spendable() {
+        let (mut wallet, script) = wallet(11);
+        let genesis = wallet.latest_checkpoint().block_id();
+        let source = source(7);
+        let original = pay(source, &script, 100_000);
+        let replacement = pay(source, &script, 80_000);
+        let (h1, h1b) = (block(1, 1), block(1, 11));
+
+        apply(&mut wallet, &[genesis, h1], &[(&original, Some(h1))]);
+        assert_eq!(spendable(&wallet, &HashSet::new()).len(), 1);
+
+        apply(&mut wallet, &[genesis, h1b], &[(&replacement, Some(h1b))]);
+        let spendable = spendable(&wallet, &HashSet::new());
+        assert_eq!(spendable.len(), 1, "never both");
+        assert_eq!(spendable[0].outpoint.txid, replacement.compute_txid());
+        assert_eq!(spendable[0].txout.value, Amount::from_sat(80_000));
+    }
+
+    /// The known limitation: an output consumed by a reorged-out spend stays hidden. Restoring it
+    /// would be pointless, since BDK's coin selection refuses to spend it.
+    #[test]
+    fn an_orphaned_spend_keeps_its_input_hidden() {
+        let (mut wallet, script) = wallet(10);
+        let genesis = wallet.latest_checkpoint().block_id();
+        let funding = pay(source(2), &script, 100_000);
+        let funded = OutPoint {
+            txid: funding.compute_txid(),
+            vout: 0,
+        };
+        let spend = pay(funded, &ScriptBuf::new(), 90_000);
+        let (h1, h2) = (block(1, 1), block(2, 2));
+
+        apply(
+            &mut wallet,
+            &[genesis, h1, h2],
+            &[(&funding, Some(h1)), (&spend, Some(h2))],
+        );
+        apply(&mut wallet, &[genesis, h1, block(2, 22)], &[]);
+
+        assert!(
+            spendable(&wallet, &HashSet::new()).is_empty(),
+            "the consumed output stays hidden"
+        );
+        let mut builder = wallet.build_tx();
+        builder.fee_rate(FeeRate::from_sat_per_vb(2).expect("fee rate"));
+        builder.add_recipient(script, Amount::from_sat(10_000));
+        assert!(
+            matches!(builder.add_utxo(funded), Err(AddUtxoError::UnknownUtxo(_))),
+            "and BDK would refuse to spend it anyway"
+        );
     }
 }

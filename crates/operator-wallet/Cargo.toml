@@ -8,7 +8,7 @@ workspace = true
 
 [dependencies]
 bdk_bitcoind_rpc.workspace = true
-bdk_wallet.workspace = true
+bdk_wallet = { workspace = true, features = ["rusqlite"] }
 bitcoin-bosd.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -16,4 +16,9 @@ tracing.workspace = true
 
 [dev-dependencies]
 corepc-node.workspace = true
+operator-wallet = { path = ".", features = ["test-utils"] }
 serial_test.workspace = true
+tempfile.workspace = true
+
+[features]
+test-utils = []

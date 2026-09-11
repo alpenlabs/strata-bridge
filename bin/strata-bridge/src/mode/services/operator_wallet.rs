@@ -2,14 +2,17 @@
 
 use std::{num::NonZero, sync::Arc, time::Instant};
 
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use bdk_bitcoind_rpc::bitcoincore_rpc;
 use bitcoin::{
     Amount, XOnlyPublicKey,
     hashes::{Hash, sha256},
     relative,
 };
-use operator_wallet::{NativeGeneralWallet, OperatorWallet, OperatorWalletConfig, sync::Backend};
+use operator_wallet::{
+    DEFAULT_PERSIST_EVERY_BLOCKS, NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
+    SqliteStore, WalletKind, sync::Backend,
+};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_common::params::Params;
@@ -68,21 +71,50 @@ pub(in crate::mode) async fn init_operator_wallet(
     info!(%reserved_key, "operator wallet reserved key");
     let own_musig2_key = s2_client.musig2_signer().pubkey().await?;
     let claim_funding_utxo_value = compute_claim_funding_utxo_value(params, own_musig2_key);
-    let operator_wallet_config = OperatorWalletConfig::new(SEGWIT_MIN_AMOUNT, params.network);
+    let persist_every_blocks = config
+        .operator_wallet
+        .persist_every_blocks
+        .unwrap_or(DEFAULT_PERSIST_EVERY_BLOCKS);
+    let operator_wallet_config = OperatorWalletConfig::new(SEGWIT_MIN_AMOUNT, params.network)
+        .with_persist_every_blocks(persist_every_blocks);
     debug!(?operator_wallet_config, %claim_funding_utxo_value, "operator wallet config");
 
     let general_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
     let reserved_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
     debug!(?general_sync_backend, "operator wallet sync backend");
-    let general_wallet =
-        NativeGeneralWallet::new(general_key, params.network, general_sync_backend);
-    let wallet = OperatorWallet::new(
+
+    let data_dir = &config.operator_wallet.data_dir;
+    info!(data_dir = %data_dir.display(), "opening operator wallet stores");
+    let open_store = |kind| {
+        SqliteStore::open_in_dir(data_dir, kind)
+            .with_context(|| format!("opening {kind} wallet store"))
+    };
+    let general_store = open_store(WalletKind::General)?;
+    let reserved_store = open_store(WalletKind::Reserved)?;
+
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4291>
+    // Derive the bootstrap checkpoint from the trusted-checkpoint
+    let bootstrap_checkpoint = None;
+    let general_wallet = NativeGeneralWallet::load_or_create(
+        general_key,
+        &operator_wallet_config,
+        general_sync_backend,
+        general_store,
+        bootstrap_checkpoint,
+    )
+    .await
+    .context("loading general wallet")?;
+    let wallet = OperatorWallet::load_or_create(
         general_wallet,
         reserved_key,
         operator_wallet_config,
         reserved_sync_backend,
+        reserved_store,
+        bootstrap_checkpoint,
         leased_outpoints,
-    );
+    )
+    .await
+    .context("loading reserved wallet")?;
     debug!("operator wallet initialized");
 
     Ok(InitializedOperatorWallet {

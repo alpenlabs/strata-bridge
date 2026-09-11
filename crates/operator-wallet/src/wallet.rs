@@ -3,7 +3,8 @@
 //! Composes a swappable [`crate::GeneralWallet`] backend with an always-native reserved wallet
 //! and shared in-memory lease bookkeeping. The composer owns:
 //!
-//! - the BDK descriptor-only reserved wallet (signed downstream by the caller),
+//! - the BDK descriptor-only reserved wallet (signed downstream by the caller, persisted through a
+//!   caller-supplied [`crate::WalletStore`]),
 //! - the lease set shared across both wallets,
 //! - anchor exclusion during input selection,
 //! - cross-wallet construction helpers that produce PSBTs paying from the general wallet into
@@ -12,11 +13,14 @@
 //! Methods on [`OperatorWallet`] take `&mut self`; callers serialize via an outer lock when
 //! they need a multi-step critical section (e.g. DB-lookup-then-fund-then-persist).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use bdk_wallet::{
-    bitcoin::{Address, Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
-    descriptor, KeychainKind, Wallet,
+    bitcoin::{
+        Address, Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    },
+    chain::BlockId,
+    descriptor, KeychainKind,
 };
 use bitcoin_bosd::Descriptor;
 use tokio::time::sleep;
@@ -24,7 +28,8 @@ use tracing::{error, info, warn};
 
 use crate::{
     config::OperatorWalletConfig,
-    general::{local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
+    general::{is_spendable, local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
+    persist::{ensure_backend_not_behind, load_or_create, PersistedWallet, WalletStore},
     sync::Backend,
     Error,
 };
@@ -41,45 +46,56 @@ pub enum GeneralUtxoPolicy {
 /// The operator's wallet: a [`GeneralWallet`] backend composed with the always-native reserved
 /// wallet, shared lease bookkeeping, and cross-wallet transaction construction helpers.
 #[derive(Debug)]
-pub struct OperatorWallet<G: GeneralWallet> {
+pub struct OperatorWallet<G, P> {
     general: G,
-    reserved: Wallet,
+    reserved: PersistedWallet<P>,
+    reserved_store: P,
     reserved_sync_backend: Backend,
     reserved_script_pubkey: ScriptBuf,
     config: OperatorWalletConfig,
     leased_outpoints: BTreeSet<OutPoint>,
+    reserved_mempool: HashSet<Txid>,
 }
 
-impl<G: GeneralWallet> OperatorWallet<G> {
+impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
     /// Constructs an [`OperatorWallet`] from a [`GeneralWallet`] backend and a reserved-wallet
-    /// pubkey. `initial_leases` is the set of outpoints to seed the lease state with
-    /// (typically rehydrated from durable storage at startup).
-    pub fn new(
+    /// pubkey, loading the reserved wallet from `reserved_store` or creating it when the store is
+    /// empty (see [`load_or_create`]). `initial_leases` seeds the lease set, typically from durable
+    /// storage.
+    pub async fn load_or_create(
         general: G,
         reserved_pubkey: XOnlyPublicKey,
         config: OperatorWalletConfig,
         reserved_sync_backend: Backend,
+        mut reserved_store: P,
+        bootstrap_checkpoint: Option<BlockId>,
         initial_leases: BTreeSet<OutPoint>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let (reserved_desc, ..) =
             descriptor!(tr(reserved_pubkey)).expect("valid tr() descriptor for reserved");
-        let reserved_wallet = Wallet::create_single(reserved_desc)
-            .network(config.network)
-            .create_wallet_no_persist()
-            .expect("reserved wallet creation must not fail");
-        let reserved_addr = reserved_wallet
-            .peek_address(KeychainKind::External, 0)
-            .address;
+        let reserved = load_or_create(
+            &mut reserved_store,
+            reserved_desc,
+            config.network,
+            bootstrap_checkpoint,
+        )
+        .await
+        .map_err(|e| Error::ReservedInit(Box::new(e)))?;
+        ensure_backend_not_behind(&reserved_sync_backend, &reserved)
+            .await
+            .map_err(|e| Error::ReservedInit(Box::new(e)))?;
+        let reserved_addr = reserved.peek_address(KeychainKind::External, 0).address;
         info!("reserved wallet address: {reserved_addr}");
-        let reserved_script_pubkey = reserved_addr.script_pubkey();
-        Self {
+        Ok(Self {
             general,
-            reserved: reserved_wallet,
+            reserved,
+            reserved_store,
             reserved_sync_backend,
-            reserved_script_pubkey,
+            reserved_script_pubkey: reserved_addr.script_pubkey(),
             config,
             leased_outpoints: initial_leases,
-        }
+            reserved_mempool: HashSet::new(),
+        })
     }
 
     /// Returns a reference to the underlying [`GeneralWallet`] for callers that need
@@ -147,6 +163,11 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         self.reserved.latest_checkpoint().height()
     }
 
+    /// Returns the block hash of the reserved wallet's local chain tip.
+    pub fn reserved_tip_hash(&self) -> bdk_wallet::bitcoin::BlockHash {
+        self.reserved.latest_checkpoint().hash()
+    }
+
     // ── Reserved-wallet UTXO lookup ─────────────────────────────────────────
 
     /// Returns every reserved-wallet UTXO whose output value matches `value`.
@@ -158,6 +179,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         let tip = self.reserved.latest_checkpoint().height();
         self.reserved
             .list_unspent()
+            .filter(|output| is_spendable(output, &self.reserved_mempool))
             .filter(|utxo| utxo.txout.value == value)
             .map(|lo| local_output_to_utxo_info(&lo, tip))
             .collect()
@@ -357,9 +379,9 @@ impl<G: GeneralWallet> OperatorWallet<G> {
 
     // ── Sync ───────────────────────────────────────────────────────────────
 
-    /// Syncs both wallets against their respective backends and then prunes the lease set:
-    /// any leased outpoint that is no longer in either wallet's spendable UTXO set is
-    /// dropped (it was observed spent on-chain).
+    /// Syncs both wallets against their respective backends, persisting their staged chain state
+    /// as it goes, and then prunes the lease set: any leased outpoint that is no longer in either
+    /// wallet's spendable UTXO set is dropped (it was observed spent on-chain).
     pub async fn sync(&mut self) -> Result<(), Error> {
         let mut attempt = 0u32;
         loop {
@@ -367,12 +389,19 @@ impl<G: GeneralWallet> OperatorWallet<G> {
             if let Err(e) = self.general.sync().await {
                 err = Some(Error::from_general(e));
             }
-            if let Err(e) = self
+            // Cleared per attempt, so a failure leaves no snapshot behind.
+            self.reserved_mempool.clear();
+            match self
                 .reserved_sync_backend
-                .sync_wallet(&mut self.reserved)
+                .sync_wallet(
+                    &mut self.reserved,
+                    &mut self.reserved_store,
+                    self.config.persist_every_blocks,
+                )
                 .await
             {
-                err = Some(Error::Sync(e));
+                Ok(mempool) => self.reserved_mempool = mempool,
+                Err(e) => err = Some(Error::Sync(e)),
             }
             match err {
                 Some(e) => {
@@ -388,14 +417,15 @@ impl<G: GeneralWallet> OperatorWallet<G> {
             }
         }
 
-        // Prune stale leases. After a successful sync, drop any leased outpoint whose
-        // underlying UTXO is no longer in either wallet's spendable set — it was observed
-        // spent on-chain (the on-chain spend supersedes our local lease bookkeeping).
+        // Prune stale leases. After a successful sync, drop any leased outpoint neither wallet
+        // still holds — it was observed spent (the spend supersedes our lease bookkeeping). This
+        // asks what the wallets hold, not what they will spend: an output the spendable filter
+        // rejects may yet come back, and releasing its lease early would let a second caller take
+        // an outpoint the first is still committed to.
         let live: BTreeSet<OutPoint> = self
             .general
-            .list_utxos()
+            .unspent_outpoints()
             .into_iter()
-            .map(|u| u.outpoint)
             .chain(self.reserved.list_unspent().map(|lo| lo.outpoint))
             .collect();
         self.leased_outpoints.retain(|o| live.contains(o));
