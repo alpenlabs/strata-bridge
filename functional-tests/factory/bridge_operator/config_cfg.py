@@ -85,6 +85,8 @@ class OperatorWalletConfig:
     claim_funding_pool_size: int
     data_dir: str
     persist_every_blocks: int | None = None
+    bootstrap_height: int | None = None
+    bootstrap_block_hash: str | None = None
 
 
 @dataclass

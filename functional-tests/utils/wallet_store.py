@@ -50,6 +50,20 @@ def read_store(path: Path) -> StoreState:
     return StoreState(tip_height=tip, network=network, descriptor=descriptor)
 
 
+def first_synced_height(path: Path) -> int:
+    """Lowest block above genesis in the store, i.e. where the wallet's first sync began."""
+    if not path.exists():
+        raise FileNotFoundError(path)
+    con = sqlite3.connect(str(path), timeout=5)
+    try:
+        (height,) = con.execute(
+            "SELECT MIN(block_height) FROM bdk_blocks WHERE block_height > 0"
+        ).fetchone()
+    finally:
+        con.close()
+    return height
+
+
 def wait_until_store_synced(path: Path, height: int, timeout: int = 180):
     """Wait until the store on disk has committed a tip at or above `height`."""
     wait_until(
