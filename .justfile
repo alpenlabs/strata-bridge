@@ -342,9 +342,11 @@ lint-fix: fmt-toml fmt-ws lint-fix-ws lint-fix-codespell
 # Runs `cargo docs` to generate the Rust documents in the `target/doc` directory
 [group('code-quality')]
 rustdocs:
+    # generic_const_exprs requires the coherence solver (https://github.com/rust-lang/rust/issues/160895).
     RUSTDOCFLAGS="\
     --show-type-layout \
     --enable-index-page -Z unstable-options \
+    -Znext-solver=coherence \
     -A rustdoc::private-doc-tests \
     -D warnings" \
     cargo doc \
