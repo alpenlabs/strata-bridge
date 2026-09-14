@@ -251,6 +251,7 @@ mod tests {
                     graph_idx: test_graph_sm_ctx().graph_idx(),
                 })),
                 expected_duties: vec![GraphDuty::GenerateGraphData {
+                    covenant: test_graph_sm_ctx().covenant,
                     graph_idx: test_graph_sm_ctx().graph_idx(),
                     deposit_outpoint: test_graph_sm_ctx().deposit_outpoint(),
                     stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
@@ -271,6 +272,7 @@ mod tests {
                     graph_idx: test_graph_sm_ctx().graph_idx(),
                 })),
                 expected_duties: vec![GraphDuty::GenerateGraphData {
+                    covenant: test_graph_sm_ctx().covenant,
                     graph_idx: test_graph_sm_ctx().graph_idx(),
                     deposit_outpoint: test_graph_sm_ctx().deposit_outpoint(),
                     stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
@@ -295,6 +297,7 @@ mod tests {
                     graph_idx: test_graph_sm_ctx().graph_idx(),
                 })),
                 expected_duties: vec![GraphDuty::GenerateGraphData {
+                    covenant: test_graph_sm_ctx().covenant,
                     graph_idx: test_graph_sm_ctx().graph_idx(),
                     deposit_outpoint: test_graph_sm_ctx().deposit_outpoint(),
                     stake_outpoint: test_graph_sm_ctx().stake_outpoint(),

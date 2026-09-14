@@ -313,6 +313,11 @@ mod tests {
     fn test_graph_sm(graph_idx: GraphIdx) -> GraphSM {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let gsm_ctx = GraphSMCtx {
+            covenant: strata_bridge_primitives::covenant::CovenantId::from_operator_table(
+                &operator_table,
+                100,
+            )
+            .unwrap(),
             graph_idx,
             deposit_outpoint: OutPoint::default(),
             stake_outpoint: OutPoint::default(),

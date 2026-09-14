@@ -96,6 +96,8 @@ pub enum GraphDuty {
     ///
     /// Generation of these data require communicating with external service in an effectful way.
     GenerateGraphData {
+        /// The covenant recorded by the originating graph.
+        covenant: strata_bridge_primitives::covenant::CovenantId,
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
 
