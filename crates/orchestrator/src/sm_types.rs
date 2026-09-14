@@ -2,7 +2,10 @@
 
 use std::fmt::Display;
 
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, GraphIdx, P2POperatorPubKey},
+};
 use strata_bridge_sm::{
     deposit::{duties::DepositDuty, events::DepositEvent},
     graph::{duties::GraphDuty, events::GraphEvent},
@@ -18,7 +21,7 @@ pub enum SMId {
     Graph(GraphIdx),
     /// IDs the state machine responsible for tracking the stake of the operator with the given
     /// index.
-    Stake(OperatorIdx),
+    Stake(StakeKey),
 }
 
 // Note: `DepositIdx` and `OperatorIdx` are both type aliases for `u32`, so a blanket
@@ -41,7 +44,7 @@ impl Display for SMId {
                 "Graph(deposit: {}, operator: {})",
                 graph_idx.deposit, graph_idx.operator
             ),
-            SMId::Stake(operator_idx) => write!(f, "Stake(operator: {})", operator_idx),
+            SMId::Stake(operator_idx) => write!(f, "Stake({})", operator_idx),
         }
     }
 }
