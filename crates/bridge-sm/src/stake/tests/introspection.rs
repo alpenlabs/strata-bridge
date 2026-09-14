@@ -25,6 +25,7 @@ fn preimage_revealed_state() -> StakeState {
 
 fn unstaked_state() -> StakeState {
     StakeState::Unstaked {
+        summary: *TEST_GRAPH_SUMMARY,
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
     }

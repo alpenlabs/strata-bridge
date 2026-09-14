@@ -265,14 +265,22 @@ fn classify_tx_for_all_sms(
                 .map(|ev| (graph_idx.into(), ev.into()))
         }))
         .chain(registry.stakes().filter_map(|(&operator_idx, sm)| {
-            sm.classify_tx(stake_cfg, tx, height).map(|ev| {
+            sm.classify_tx(stake_cfg, tx, height).and_then(|ev| {
+                let summary = sm.state().graph_summary()?;
+                let source = OutPoint::new(
+                    summary.stake,
+                    strata_bridge_tx_graph::transactions::stake::StakeTx::STAKE_VOUT,
+                );
+                if registry.resolve_stake_outpoint(&source) != Some(operator_idx) {
+                    return None;
+                }
                 info!(
                     %operator_idx,
                     txid = %tx.compute_txid(),
                     event = %ev,
                     "stake SM recognized transaction"
                 );
-                (SMId::Stake(operator_idx), ev.into())
+                Some((SMId::Stake(operator_idx), ev.into()))
             })
         }))
         .collect()
@@ -582,6 +590,72 @@ mod tests {
         assert_eq!(
             duty_operator_table, &operator_table,
             "initial graph duty must carry the active operator-table snapshot"
+        );
+    }
+}
+
+#[cfg(test)]
+mod covenant_routing_tests {
+    use strata_bridge_sm::stake::context::StakeSMCtx;
+    use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_txid};
+    use strata_bridge_tx_graph::transactions::stake::StakeTx;
+
+    use super::*;
+    use crate::testing::{
+        N_TEST_OPERATORS, TEST_POV_IDX, make_confirmed_stake_sm, test_empty_registry,
+        test_operator_table,
+    };
+
+    #[test]
+    fn source_outpoint_routes_only_its_historical_stake() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let historical = make_confirmed_stake_sm(TEST_POV_IDX, table.clone(), generate_txid());
+        let old_key = historical.context().stake_key();
+        let mut successor = make_confirmed_stake_sm(TEST_POV_IDX, table.clone(), generate_txid());
+        successor.context = StakeSMCtx::new(TEST_POV_IDX, table, 200);
+        let new_key = successor.context().stake_key();
+        let source = OutPoint::new(
+            historical.state().graph_summary().unwrap().stake,
+            StakeTx::STAKE_VOUT,
+        );
+        let mut registry = test_empty_registry();
+        registry.insert_stake(historical).unwrap();
+        registry.insert_stake(successor.clone()).unwrap();
+        assert_eq!(registry.resolve_stake_outpoint(&source), Some(old_key));
+        let tx = generate_spending_tx(source, &[]);
+        let cfg = registry.cfg().clone();
+        let events =
+            classify_tx_for_all_sms(&cfg.deposit, &cfg.graph, &cfg.stake, &registry, &tx, 201);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, SMId::Stake(old_key));
+        for (key, event) in events {
+            registry.process_event(&key, event).unwrap();
+        }
+        assert!(registry.get_stake(&old_key).unwrap().state().is_slashed());
+        assert_eq!(registry.get_stake(&new_key), Some(&successor));
+        assert_eq!(registry.resolve_stake_outpoint(&source), Some(old_key));
+        assert!(registry.resolve_stake_outpoint(&OutPoint::null()).is_none());
+    }
+
+    #[test]
+    fn duplicate_source_outpoints_are_not_routed_to_multiple_covenants() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let first = make_confirmed_stake_sm(TEST_POV_IDX, table.clone(), generate_txid());
+        let source = OutPoint::new(
+            first.state().graph_summary().unwrap().stake,
+            StakeTx::STAKE_VOUT,
+        );
+        let mut second = first.clone();
+        second.context = StakeSMCtx::new(TEST_POV_IDX, table, 200);
+        let mut registry = test_empty_registry();
+        registry.insert_stake(first).unwrap();
+        registry.insert_stake(second).unwrap();
+        assert!(registry.resolve_stake_outpoint(&source).is_none());
+        let tx = generate_spending_tx(source, &[]);
+        let cfg = registry.cfg();
+        assert!(
+            classify_tx_for_all_sms(&cfg.deposit, &cfg.graph, &cfg.stake, &registry, &tx, 201)
+                .is_empty()
         );
     }
 }

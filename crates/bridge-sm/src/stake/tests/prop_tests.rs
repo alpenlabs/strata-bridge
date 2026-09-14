@@ -110,6 +110,7 @@ impl Arbitrary for StakeState {
 
 fn any_terminal_state() -> impl Strategy<Value = StakeState> {
     Just(StakeState::Unstaked {
+        summary: *TEST_GRAPH_SUMMARY,
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
     })

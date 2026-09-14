@@ -433,3 +433,38 @@ mod tests {
         assert!(routed.contains(&SMId::Deposit(dep2)));
     }
 }
+
+#[cfg(test)]
+mod covenant_wire_tests {
+    use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
+
+    use super::*;
+    use crate::testing::{
+        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table,
+    };
+
+    #[test]
+    fn operator_only_stake_messages_are_rejected_when_covenants_are_ambiguous() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let mut registry = test_empty_registry();
+        let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Unstake {
+            operator_idx: TEST_POV_IDX,
+            nonces: vec![],
+        });
+        let (first, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), 100), 100);
+        let key = first.context().stake_key();
+        registry.insert_stake(first).unwrap();
+        assert_eq!(route_gossipsub_msg(&registry, &msg), vec![SMId::Stake(key)]);
+        let (second, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table, 200), 100);
+        registry.insert_stake(second).unwrap();
+        assert!(route_gossipsub_msg(&registry, &msg).is_empty());
+        assert!(
+            crate::events_classifier::offchain::classify_unsigned_gossip(
+                &registry,
+                &crate::sm_types::OperatorKey::Pov,
+                &msg
+            )
+            .is_empty()
+        );
+    }
+}

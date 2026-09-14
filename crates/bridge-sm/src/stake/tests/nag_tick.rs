@@ -119,6 +119,7 @@ fn dont_nag_when_nothing_is_missing() {
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::Unstaked {
+            summary: *TEST_GRAPH_SUMMARY,
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },

@@ -96,6 +96,8 @@ pub enum StakeState {
     },
     /// The unstaking transaction has been confirmed on the bitcoin blockchain.
     Unstaked {
+        /// Immutable transaction identities retained for historical source lookup.
+        summary: StakeGraphSummary,
         /// The revealed unstaking preimage.
         preimage: [u8; 32],
         /// ID of the confirmed unstaking transaction.
@@ -120,6 +122,20 @@ pub enum StakeState {
 }
 
 impl StakeState {
+    /// Returns the immutable transaction identities once stake data is known.
+    pub const fn graph_summary(&self) -> Option<&StakeGraphSummary> {
+        match self {
+            Self::Created { .. } => None,
+            Self::StakeGraphGenerated { summary, .. }
+            | Self::UnstakingNoncesCollected { summary, .. }
+            | Self::UnstakingSigned { summary, .. }
+            | Self::Confirmed { summary, .. }
+            | Self::PreimageRevealed { summary, .. }
+            | Self::Unstaked { summary, .. }
+            | Self::Slashed { summary, .. } => Some(summary),
+        }
+    }
+
     /// Creates the initial state of the stake state machine, which is [`StakeState::Created`].
     pub const fn new(block_height: BitcoinBlockHeight) -> Self {
         Self::Created {
