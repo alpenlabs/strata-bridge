@@ -537,7 +537,7 @@ mod tests {
         state: StakeState,
     ) -> StakeSM {
         StakeSM {
-            context: StakeSMCtx::new(operator_idx, operator_table),
+            context: StakeSMCtx::new(operator_idx, operator_table, 101),
             state,
         }
     }

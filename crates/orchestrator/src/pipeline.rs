@@ -62,6 +62,7 @@ impl Pipeline {
     /// the `initial_operator_table`. Any stake SMs already recovered from the database are
     /// preserved; only missing ones are created. The `start_height` is used as the initial block
     /// height for newly created stake SMs (typically the chain tip or the persisted cursor).
+    /// `activation_height` is the configured admin boundary, independent of that cursor.
     ///
     /// When a persisted safe-harbour latch is recovered, the sweep/abort scan is also seeded once
     /// before the loop.
@@ -69,9 +70,15 @@ impl Pipeline {
         self,
         initial_operator_table: OperatorTable,
         start_height: BitcoinBlockHeight,
+        activation_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
-        self.run_with_observer(initial_operator_table, start_height, || {})
-            .await
+        self.run_with_observer(
+            initial_operator_table,
+            start_height,
+            activation_height,
+            || {},
+        )
+        .await
     }
 
     /// Runs the main event loop and calls `on_event` after each non-shutdown event is received.
@@ -79,11 +86,12 @@ impl Pipeline {
         mut self,
         initial_operator_table: OperatorTable,
         start_height: BitcoinBlockHeight,
+        activation_height: BitcoinBlockHeight,
         mut on_event: impl FnMut(),
     ) -> Result<(), PipelineError> {
         observability::describe_metrics();
         if let Err(error) = self
-            .bootstrap_stake_sms(&initial_operator_table, start_height)
+            .bootstrap_stake_sms(&initial_operator_table, start_height, activation_height)
             .instrument(info_span!("bridge_stake_bootstrap"))
             .await
         {
@@ -320,6 +328,7 @@ impl Pipeline {
         &mut self,
         operator_table: &OperatorTable,
         start_height: BitcoinBlockHeight,
+        activation_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
         let mut touched: BTreeSet<SMId> = BTreeSet::new();
         let mut duties: Vec<UnifiedDuty> = Vec::new();
@@ -329,7 +338,7 @@ impl Pipeline {
                 continue;
             }
 
-            let ctx = StakeSMCtx::new(op_idx, operator_table.clone());
+            let ctx = StakeSMCtx::new(op_idx, operator_table.clone(), activation_height);
             let (ssm, initial_duty) = StakeSM::new(ctx, start_height);
             self.registry
                 .insert_stake(op_idx, ssm)
