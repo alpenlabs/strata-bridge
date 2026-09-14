@@ -94,13 +94,23 @@ fn accept_nag_received_stake_data() {
 
     for from_state in accepting_states {
         test_pov_owned_handler_output(StakeHandlerOutput {
-            state: from_state,
+            state: from_state.clone(),
             event: StakeEvent::NagReceived(create_nag_event(NagRequestPayload::UnstakingData {
                 operator_idx: TEST_CTX.operator_idx(),
             })),
             expected_duties: vec![StakeDuty::PublishStakeData {
                 operator_idx: TEST_CTX.operator_idx(),
             }],
+        });
+        test_nonpov_handler_output(StakeHandlerOutput {
+            state: from_state,
+            event: StakeEvent::NagReceived(NagReceivedEvent {
+                payload: NagRequestPayload::UnstakingData {
+                    operator_idx: TEST_CTX.operator_idx(),
+                },
+                sender_operator_idx: TEST_POV_IDX,
+            }),
+            expected_duties: vec![],
         });
     }
 }

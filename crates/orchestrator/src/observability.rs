@@ -198,7 +198,7 @@ pub(crate) const fn duty_kind(duty: &UnifiedDuty) -> &'static str {
     match duty {
         UnifiedDuty::Deposit(duty) => deposit_duty_kind(duty),
         UnifiedDuty::Graph(duty) => graph_duty_kind(duty),
-        UnifiedDuty::Stake(duty) => stake_duty_kind(duty),
+        UnifiedDuty::Stake { duty, .. } => stake_duty_kind(duty),
     }
 }
 
