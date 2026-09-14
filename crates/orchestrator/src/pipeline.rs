@@ -4,7 +4,9 @@
 use std::{collections::BTreeSet, time::Instant};
 
 use strata_bridge_p2p_types::UnsignedGossipsubMsg;
-use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
+use strata_bridge_primitives::{
+    covenant::CovenantId, operator_table::OperatorTable, types::BitcoinBlockHeight,
+};
 use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 use tracing::{Instrument, debug, error, info, info_span, trace, warn};
 
@@ -17,7 +19,7 @@ use crate::{
     events_router, observability,
     persister::{PersistenceTracker, Persister},
     safe_harbour_scan::safe_harbour_scan,
-    sm_registry::SMRegistry,
+    sm_registry::{RegistryInsertError, SMRegistry},
     sm_types::{SMId, UnifiedDuty},
 };
 
@@ -89,6 +91,11 @@ impl Pipeline {
         activation_height: BitcoinBlockHeight,
         mut on_event: impl FnMut(),
     ) -> Result<(), PipelineError> {
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-3622>
+        // Resolve the finalized covenant and operator table from the membership pre-pass for
+        // each block. This fixed identity supports only the initial covenant until integration.
+        let covenant = CovenantId::from_operator_table(&initial_operator_table, activation_height)
+            .expect("validated initial operator table");
         observability::describe_metrics();
         if let Err(error) = self
             .bootstrap_stake_sms(&initial_operator_table, start_height, activation_height)
@@ -158,6 +165,7 @@ impl Pipeline {
                         onchain::process_block(
                             &mut applicator,
                             &initial_operator_table,
+                            covenant,
                             block_event,
                         )?;
 
@@ -336,7 +344,17 @@ impl Pipeline {
         for op_idx in operator_table.operator_idxs() {
             let ctx = StakeSMCtx::new(op_idx, operator_table.clone(), activation_height);
             let stake_key = ctx.stake_key();
-            if self.registry.contains_id(&SMId::Stake(stake_key)) {
+            if let Some(existing) = self.registry.get_stake(&stake_key) {
+                if !existing
+                    .context()
+                    .operator_table()
+                    .has_same_membership(operator_table)
+                {
+                    return Err(ProcessError::from(
+                        RegistryInsertError::CovenantMembershipMismatch(stake_key),
+                    )
+                    .into());
+                }
                 continue;
             }
 

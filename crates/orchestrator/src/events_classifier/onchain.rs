@@ -14,7 +14,7 @@ use bitcoin::{OutPoint, Transaction};
 use btc_tracker::event::BlockEvent;
 use strata_asm_proto_bridge_txs::deposit_request::DRT_OUTPUT_INDEX;
 use strata_bridge_primitives::{
-    covenant::StakeKey,
+    covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, GraphIdx},
 };
@@ -43,7 +43,7 @@ use super::drt;
 use crate::{
     applicator::Applicator,
     errors::{PipelineError, ProcessError},
-    sm_registry::{ActiveOperatorSnapshot, SMRegistry},
+    sm_registry::{ActiveOperatorSnapshot, SMRegistry, SnapshotError},
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
@@ -58,6 +58,7 @@ use crate::{
 pub(crate) fn process_block(
     applicator: &mut Applicator<'_>,
     initial_operator_table: &OperatorTable,
+    covenant: CovenantId,
     block_event: &BlockEvent,
 ) -> Result<(), PipelineError> {
     let deposit_cfg = applicator.registry().cfg().deposit.clone();
@@ -75,13 +76,16 @@ pub(crate) fn process_block(
     let existing_stakes = applicator.registry().get_stake_ids();
 
     for tx in &block_event.block.txdata {
-        // If this tx is a DRT, register new DepositSM + per-operator GraphSMs using the currently
-        // active operator snapshot. Because stake SM state transitions settle between transaction
-        // batches via the Applicator, a stake transition that removes an operator from the active
-        // set in an earlier transaction will be reflected here for a DRT appearing later in the
-        // same block.
-        let initial_duties =
-            try_register_deposit(&deposit_cfg, initial_operator_table, applicator, tx, height)?;
+        // Readiness is checked after earlier transactions have settled. An unavailable
+        // covenant member closes admission for later DRTs in the same block.
+        let initial_duties = try_register_deposit(
+            &deposit_cfg,
+            initial_operator_table,
+            covenant,
+            applicator,
+            tx,
+            height,
+        )?;
 
         // Classify this tx against every active SM via TxClassifier
         // PERF: (Rajil1213) this needs benchmarking to make sure that classifying every tx
@@ -123,11 +127,12 @@ pub(crate) fn process_block(
 /// [`GraphSM`]s into the registry.
 ///
 /// Returns initial duties emitted by [`GraphSM`] constructors (e.g., `GenerateGraphData`).
-/// Returns `Ok(Vec::new())` if the registry is not yet ready (no stakes confirmed, or this
-/// node's operator is not in the active set) or if the transaction fails DRT validation.
+/// Returns `Ok(Vec::new())` unless every requested covenant member has an available stake,
+/// or if the transaction fails DRT validation.
 fn try_register_deposit(
     deposit_cfg: &Arc<DepositSMCfg>,
     full_operator_table: &OperatorTable,
+    covenant: CovenantId,
     applicator: &mut Applicator<'_>,
     tx: &Transaction,
     height: BitcoinBlockHeight,
@@ -146,20 +151,15 @@ fn try_register_deposit(
         return Ok(Vec::new());
     }
 
-    // Activation rule: before any DSM / GSM may become active, one stake state machine must exist
-    // for every configured operator and all of them must have reached `Confirmed` or higher.
-    if !applicator
-        .registry()
-        .all_operators_have_staked(full_operator_table)
-    {
-        return Ok(Vec::new());
-    }
-
     let snapshot = match applicator
         .registry()
-        .active_operator_snapshot(full_operator_table)
+        .active_operator_snapshot(covenant, full_operator_table)
     {
         Ok(snap) => snap,
+        Err(err @ (SnapshotError::MissingStakeSM(_) | SnapshotError::StakeUnavailable(_))) => {
+            debug!(%err, "covenant stakes are not ready; refusing to admit new deposit");
+            return Ok(Vec::new());
+        }
         Err(err) => {
             warn!(%err, "skipping DRT check: could not derive active operator snapshot");
             return Ok(Vec::new());
@@ -167,6 +167,7 @@ fn try_register_deposit(
     };
 
     let ActiveOperatorSnapshot {
+        covenant,
         operator_table: active_operator_table,
         stake_inputs,
         unstaking_images,
@@ -225,6 +226,7 @@ fn try_register_deposit(
             .expect("snapshot must contain unstaking image for active operator");
 
         let gsm_ctx = GraphSMCtx {
+            covenant,
             graph_idx,
             deposit_outpoint,
             stake_outpoint,
@@ -329,16 +331,17 @@ fn new_block_events(
 #[cfg(test)]
 mod tests {
     use bitcoin::{absolute, transaction};
-    use strata_bridge_sm::graph::duties::GraphDuty;
+    use strata_bridge_sm::{graph::duties::GraphDuty, stake::state::StakeState};
     use strata_bridge_test_utils::bitcoin::generate_txid;
 
     use super::*;
     use crate::{
         sm_registry::SMRegistry,
         testing::{
-            DrtBuilder, N_TEST_OPERATORS, TEST_POV_IDX, insert_confirmed_stake,
-            test_deposit_sm_cfg, test_operator_table, test_populated_registry,
-            test_safe_harbour_address, test_stake_key,
+            DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX,
+            insert_confirmed_stake, make_confirmed_stake_sm, test_deposit_sm_cfg,
+            test_operator_table, test_populated_registry, test_safe_harbour_address,
+            test_stake_key,
         },
     };
 
@@ -464,8 +467,15 @@ mod tests {
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
         let mut applicator = Applicator::new(&mut registry);
-        let duties =
-            try_register_deposit(&cfg, &operator_table, &mut applicator, &tx, TEST_HEIGHT).unwrap();
+        let duties = try_register_deposit(
+            &cfg,
+            &operator_table,
+            CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
+            &mut applicator,
+            &tx,
+            TEST_HEIGHT,
+        )
+        .unwrap();
         let (_, tracker) = applicator.finish();
 
         assert!(
@@ -481,6 +491,90 @@ mod tests {
             tracker.into_batches().is_empty(),
             "stake-readiness gate must not record any SMs",
         );
+    }
+
+    #[test]
+    fn try_register_deposit_rejects_unavailable_covenant_member() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let confirmed =
+            make_confirmed_stake_sm(TEST_POV_IDX, operator_table.clone(), generate_txid());
+        let StakeState::Confirmed {
+            last_block_height,
+            stake_data,
+            summary,
+            signatures,
+        } = confirmed.state().clone()
+        else {
+            panic!("fixture must supply a confirmed stake");
+        };
+        let preimage = [0x42; 32];
+        let unstaking_txid = summary.unstaking;
+        let unavailable_states = [
+            StakeState::Created { last_block_height },
+            StakeState::PreimageRevealed {
+                last_block_height,
+                stake_data,
+                summary,
+                preimage,
+                unstaking_intent_block_height: TEST_HEIGHT,
+                signatures,
+            },
+            StakeState::Unstaked {
+                preimage,
+                unstaking_txid,
+            },
+            StakeState::Slashed {
+                summary,
+                slash_txid: generate_txid(),
+                preimage: None,
+            },
+        ];
+        let covenant = confirmed.context().stake_key().covenant;
+        let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
+        for state in unavailable_states {
+            let mut registry = test_populated_registry(0);
+            for operator in operator_table.operator_idxs() {
+                let mut stake =
+                    make_confirmed_stake_sm(operator, operator_table.clone(), generate_txid());
+                if operator == TEST_POV_IDX {
+                    stake.state = state.clone();
+                }
+                registry.insert_stake(stake).unwrap();
+            }
+            let mut applicator = Applicator::new(&mut registry);
+            let duties = try_register_deposit(
+                &cfg,
+                &operator_table,
+                covenant,
+                &mut applicator,
+                &tx,
+                TEST_HEIGHT,
+            )
+            .unwrap();
+            let (applied_duties, tracker) = applicator.finish();
+            assert!(
+                duties.is_empty(),
+                "A member in {state} must prevent initial duties"
+            );
+            assert!(
+                applied_duties.is_empty(),
+                "A member in {state} must prevent applied duties"
+            );
+            assert_eq!(
+                registry.num_deposits(),
+                0,
+                "A member in {state} must prevent deposit registration"
+            );
+            assert!(
+                registry.get_graph_ids().is_empty(),
+                "A member in {state} must prevent graph registration"
+            );
+            assert!(
+                tracker.into_batches().is_empty(),
+                "A member in {state} must leave persistence batches empty"
+            );
+        }
     }
 
     #[test]
@@ -502,6 +596,7 @@ mod tests {
         let duties = try_register_deposit(
             &cfg,
             &operator_table,
+            CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
             &mut applicator,
             &random_tx,
             TEST_HEIGHT,
@@ -532,8 +627,15 @@ mod tests {
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
         let mut applicator = Applicator::new(&mut registry);
-        let duties =
-            try_register_deposit(&cfg, &operator_table, &mut applicator, &tx, TEST_HEIGHT).unwrap();
+        let duties = try_register_deposit(
+            &cfg,
+            &operator_table,
+            CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
+            &mut applicator,
+            &tx,
+            TEST_HEIGHT,
+        )
+        .unwrap();
         let (_, tracker) = applicator.finish();
 
         assert!(duties.is_empty(), "halt gate must not emit duties");
@@ -562,8 +664,15 @@ mod tests {
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
         let mut applicator = Applicator::new(&mut registry);
-        let duties =
-            try_register_deposit(&cfg, &operator_table, &mut applicator, &tx, TEST_HEIGHT).unwrap();
+        let duties = try_register_deposit(
+            &cfg,
+            &operator_table,
+            CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
+            &mut applicator,
+            &tx,
+            TEST_HEIGHT,
+        )
+        .unwrap();
         let _ = applicator.finish();
 
         assert_eq!(
@@ -582,12 +691,17 @@ mod tests {
             "exactly one GenerateGraphData duty is emitted, for the POV operator only"
         );
         let UnifiedDuty::Graph(GraphDuty::GenerateGraphData {
+            covenant: duty_covenant,
             operator_table: duty_operator_table,
             ..
         }) = &duties[0]
         else {
             panic!("expected GenerateGraphData duty, got {:?}", duties[0]);
         };
+        assert_eq!(
+            *duty_covenant,
+            CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap()
+        );
         assert_eq!(
             duty_operator_table, &operator_table,
             "initial graph duty must carry the active operator-table snapshot"

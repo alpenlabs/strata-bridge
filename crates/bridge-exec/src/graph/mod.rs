@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use strata_bridge_p2p_types::{NagRequest, NagRequestPayload};
 use strata_bridge_primitives::types::GameIndex;
-use strata_bridge_sm::graph::duties::GraphDuty;
+use strata_bridge_sm::graph::{context::GraphSMCtx, duties::GraphDuty};
 use tracing::info;
 
 use crate::{
@@ -43,6 +43,7 @@ pub async fn execute_graph_duty(
 ) -> Result<(), ExecutorError> {
     match duty {
         GraphDuty::GenerateGraphData {
+            covenant,
             graph_idx,
             deposit_outpoint,
             stake_outpoint,
@@ -52,11 +53,14 @@ pub async fn execute_graph_duty(
             common::generate_graph_data(
                 &cfg,
                 &output_handles,
-                *graph_idx,
-                *deposit_outpoint,
-                *stake_outpoint,
-                *unstaking_image,
-                operator_table,
+                &GraphSMCtx {
+                    covenant: *covenant,
+                    graph_idx: *graph_idx,
+                    deposit_outpoint: *deposit_outpoint,
+                    stake_outpoint: *stake_outpoint,
+                    unstaking_image: *unstaking_image,
+                    operator_table: operator_table.clone(),
+                },
             )
             .await
         }

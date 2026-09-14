@@ -30,7 +30,7 @@ mod tests {
                     graph_signed_state, nonces_collected_state, test_nonce_context,
                 },
                 test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
-                test_graph_summary, test_graph_transition, test_operator_table,
+                test_graph_sm_ctx, test_graph_summary, test_graph_transition, test_operator_table,
                 test_recipient_desc,
                 utils::NonceContext,
             },
@@ -157,6 +157,7 @@ mod tests {
         pov_idx: OperatorIdx,
     ) {
         let context = GraphSMCtx {
+            covenant: test_graph_sm_ctx().covenant,
             graph_idx: GraphIdx {
                 deposit: TEST_DEPOSIT_IDX,
                 operator: graph_owner_idx,

@@ -423,6 +423,7 @@ mod tests {
     };
     use strata_bridge_connectors::n_of_n::NOfNConnector;
     use strata_bridge_primitives::{
+        covenant::CovenantId,
         operator_table::{OperatorTable, prop_test_generators::arb_operator_table},
         types::{DepositIdx, OperatorIdx},
     };
@@ -572,6 +573,7 @@ mod tests {
 
         GraphSM {
             context: GraphSMCtx {
+                covenant: CovenantId::from_operator_table(&operator_table, 100).unwrap(),
                 graph_idx: GraphIdx {
                     deposit: deposit_idx,
                     operator: operator_idx,

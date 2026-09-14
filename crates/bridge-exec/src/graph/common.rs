@@ -5,7 +5,6 @@ use std::collections::BTreeSet;
 use algebra::predicate;
 use bitcoin::{
     OutPoint, TapSighashType, TxOut, Txid, XOnlyPublicKey,
-    hashes::sha256,
     sighash::{Prevouts, SighashCache},
 };
 use btc_tracker::event::TxStatus;
@@ -43,12 +42,12 @@ use crate::{
 pub(super) async fn generate_graph_data(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
-    graph_idx: GraphIdx,
-    deposit_outpoint: OutPoint,
-    stake_outpoint: OutPoint,
-    unstaking_image: sha256::Hash,
-    operator_table: &OperatorTable,
+    ctx: &GraphSMCtx,
 ) -> Result<(), ExecutorError> {
+    let graph_idx = ctx.graph_idx();
+    let deposit_outpoint = ctx.deposit_outpoint();
+    let stake_outpoint = ctx.stake_outpoint();
+    let operator_table = ctx.operator_table();
     info!(
         ?graph_idx,
         %deposit_outpoint,
@@ -76,13 +75,6 @@ pub(super) async fn generate_graph_data(
         "fetched graph keys from mosaic"
     );
 
-    let ctx = GraphSMCtx {
-        graph_idx,
-        deposit_outpoint,
-        stake_outpoint,
-        unstaking_image,
-        operator_table: operator_table.clone(),
-    };
     let deposit_params = DepositParams {
         game_index: game_index.into(),
         claim_funds: funding_outpoint,
@@ -100,7 +92,7 @@ pub(super) async fn generate_graph_data(
             .collect::<Result<_, _>>()
             .map_err(invalid_mosaic_key)?,
     };
-    let game_graph = generate_game_graph(&cfg.graph_sm_cfg, &ctx, &deposit_params);
+    let game_graph = generate_game_graph(&cfg.graph_sm_cfg, ctx, &deposit_params);
     info!(?graph_idx, "game graph constructed");
 
     init_evaluator_with_peers(
