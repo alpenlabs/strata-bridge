@@ -6,7 +6,10 @@ use bitcoin::XOnlyPublicKey;
 use musig2::{errors::KeyAggError, KeyAggContext};
 use serde::{Deserialize, Serialize};
 
-use crate::{operator_table::OperatorTable, types::BitcoinBlockHeight};
+use crate::{
+    operator_table::OperatorTable,
+    types::{BitcoinBlockHeight, OperatorIdx},
+};
 
 /// The signing authority and admin activation boundary of a covenant.
 ///
@@ -73,6 +76,48 @@ impl CovenantId {
 impl fmt::Display for CovenantId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}@{}", self.aggregate_pubkey, self.activation_height)
+    }
+}
+
+/// Identifies one operator's stake in an exact covenant.
+///
+/// The same operator can have current, historical, and prepared stakes simultaneously. Always
+/// retain both fields when looking up a stake; equal signing aggregates at different admin
+/// activation heights still identify different stakes. The owning context must separately
+/// validate that the operator belongs to the covenant's full indexed membership.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct StakeKey {
+    /// The covenant to which this stake is bound.
+    pub covenant: CovenantId,
+    /// The permanent registration index of the stake owner.
+    pub operator: OperatorIdx,
+}
+
+impl StakeKey {
+    /// Encodes the covenant's 40 bytes followed by the four-byte big-endian operator index.
+    pub fn to_bytes(self) -> [u8; 44] {
+        let mut bytes = [0; 44];
+        bytes[..40].copy_from_slice(&self.covenant.to_bytes());
+        bytes[40..].copy_from_slice(&self.operator.to_be_bytes());
+        bytes
+    }
+
+    /// Decodes the fixed-width representation, rejecting invalid covenant public keys.
+    pub fn from_bytes(bytes: [u8; 44]) -> Result<Self, secp256k1::Error> {
+        let mut covenant = [0; 40];
+        covenant.copy_from_slice(&bytes[..40]);
+        let mut operator = [0; 4];
+        operator.copy_from_slice(&bytes[40..]);
+        Ok(Self {
+            covenant: CovenantId::from_bytes(covenant)?,
+            operator: OperatorIdx::from_be_bytes(operator),
+        })
+    }
+}
+
+impl fmt::Display for StakeKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/operator:{}", self.covenant, self.operator)
     }
 }
 
@@ -247,6 +292,78 @@ mod tests {
             .iter()
             .filter(|op| surviving_members.contains_idx(&op.index()))
             .all(|op| op.activation_height() == 100));
+    }
+
+    #[test]
+    fn stake_keys_isolate_operators_and_covenants_in_a_registry() {
+        let members = table_at(registrations(), 200);
+        let covenant = CovenantId::from_operator_table(&members, 200).unwrap();
+        let later = CovenantId::from_operator_table(&members, 300).unwrap();
+        let successor =
+            CovenantId::from_operator_table(&table_at(registrations(), 300), 200).unwrap();
+        let keys = [
+            StakeKey {
+                covenant,
+                operator: 0,
+            },
+            StakeKey {
+                covenant,
+                operator: 2,
+            },
+            StakeKey {
+                covenant: later,
+                operator: 0,
+            },
+            StakeKey {
+                covenant: successor,
+                operator: 0,
+            },
+        ];
+        let stakes: std::collections::HashMap<_, _> = keys
+            .into_iter()
+            .enumerate()
+            .map(|(i, key)| (key, i))
+            .collect();
+
+        assert_eq!(stakes.len(), 4);
+        let encoded: std::collections::BTreeSet<_> =
+            keys.iter().map(|key| key.to_bytes()).collect();
+        assert_eq!(encoded.len(), 4);
+        for (i, key) in keys.into_iter().enumerate() {
+            let decoded = StakeKey::from_bytes(key.to_bytes()).unwrap();
+            assert_eq!(stakes.get(&decoded), Some(&i));
+            let json = serde_json::to_string(&key).unwrap();
+            assert_eq!(serde_json::from_str::<StakeKey>(&json).unwrap(), key);
+        }
+    }
+
+    #[test]
+    fn stake_key_encoding_and_formatting_preserve_both_identifiers() {
+        let covenant = CovenantId {
+            aggregate_pubkey: SIGNING_KEYS[0].parse().unwrap(),
+            activation_height: 0x0102_0304_0506_0708,
+        };
+        let key = StakeKey {
+            covenant,
+            operator: 0x090a_0b0c,
+        };
+        assert_eq!(
+            hex::encode(key.to_bytes()),
+            format!("{}0102030405060708090a0b0c", SIGNING_KEYS[0])
+        );
+        assert_eq!(key.to_string(), format!("{covenant}/operator:151653132"));
+        assert_eq!(
+            serde_json::to_value(key).unwrap(),
+            serde_json::json!({
+                "covenant": { "aggregate_pubkey": SIGNING_KEYS[0], "activation_height": 0x0102_0304_0506_0708u64 },
+                "operator": 0x090a_0b0cu32,
+            })
+        );
+        for operator in [0, u32::MAX] {
+            let boundary = StakeKey { covenant, operator };
+            assert_eq!(StakeKey::from_bytes(boundary.to_bytes()).unwrap(), boundary);
+        }
+        assert!(StakeKey::from_bytes([0xff; 44]).is_err());
     }
 
     #[test]
