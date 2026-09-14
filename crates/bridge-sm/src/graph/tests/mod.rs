@@ -26,6 +26,7 @@ use bitcoin::{
 use musig2::secp256k1::schnorr::Signature;
 use secp256k1::SecretKey;
 use strata_bridge_primitives::{
+    covenant::CovenantId,
     secp::EvenSecretKey,
     types::{BitcoinBlockHeight, GraphIdx, OperatorIdx},
 };
@@ -137,7 +138,9 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
 
 /// Creates a GraphSM for a POV operator.
 pub(super) fn test_graph_sm_ctx() -> GraphSMCtx {
+    let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
     GraphSMCtx {
+        covenant: CovenantId::from_operator_table(&operator_table, 100).unwrap(),
         graph_idx: GraphIdx {
             deposit: TEST_DEPOSIT_IDX,
             operator: TEST_POV_IDX,
@@ -145,7 +148,7 @@ pub(super) fn test_graph_sm_ctx() -> GraphSMCtx {
         deposit_outpoint: OutPoint::default(),
         stake_outpoint: test_stake_outpoint(),
         unstaking_image: sha256::Hash::all_zeros(),
-        operator_table: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+        operator_table,
     }
 }
 
@@ -356,6 +359,7 @@ pub(super) fn create_sm(state: GraphState) -> GraphSM {
 pub(super) fn create_nonpov_sm(state: GraphState) -> GraphSM {
     GraphSM {
         context: GraphSMCtx {
+            covenant: test_graph_sm_ctx().covenant,
             graph_idx: GraphIdx {
                 deposit: TEST_DEPOSIT_IDX,
                 operator: TEST_POV_IDX,

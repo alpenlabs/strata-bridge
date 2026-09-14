@@ -132,6 +132,7 @@ impl GraphSM {
 
         let is_mine = sm.context().operator_table().pov_idx() == sm.context().operator_idx();
         let duty = is_mine.then(|| GraphDuty::GenerateGraphData {
+            covenant: sm.context().covenant,
             graph_idx: sm.context().graph_idx(),
             deposit_outpoint: sm.context().deposit_outpoint(),
             stake_outpoint: sm.context().stake_outpoint(),

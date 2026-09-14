@@ -10,6 +10,7 @@ use musig2::{
 };
 use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_bridge_primitives::{
+    covenant::CovenantId,
     operator_table::OperatorTable,
     scripts::taproot::TaprootTweak,
     types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
@@ -96,6 +97,8 @@ pub enum GraphDuty {
     ///
     /// Generation of these data require communicating with external service in an effectful way.
     GenerateGraphData {
+        /// The covenant recorded by the originating graph.
+        covenant: CovenantId,
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
 

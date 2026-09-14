@@ -178,6 +178,7 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
             operator: op_idx,
         };
         let gsm_ctx = GraphSMCtx {
+            covenant: CovenantId::from_operator_table(&operator_table, 100).unwrap(),
             graph_idx,
             deposit_outpoint,
             stake_outpoint: OutPoint::default(),

@@ -3,6 +3,7 @@
 use bitcoin::{OutPoint, XOnlyPublicKey, hashes::sha256};
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{
+    covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
@@ -13,6 +14,9 @@ use crate::graph::config::GraphSMCfg;
 /// Execution context for a single instance of the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GraphSMCtx {
+    /// The covenant whose stake and membership this graph permanently uses.
+    pub covenant: CovenantId,
+
     /// The index of the graph represented by the deposit and the operator this graph is associated
     /// with.
     pub graph_idx: GraphIdx,
@@ -33,6 +37,14 @@ pub struct GraphSMCtx {
 }
 
 impl GraphSMCtx {
+    /// Returns the exact stake instance bound to this graph.
+    pub const fn stake_key(&self) -> StakeKey {
+        StakeKey {
+            covenant: self.covenant,
+            operator: self.graph_idx.operator,
+        }
+    }
+
     /// Returns the index of the deposit this graph is associated with.
     pub const fn deposit_idx(&self) -> DepositIdx {
         self.graph_idx.deposit

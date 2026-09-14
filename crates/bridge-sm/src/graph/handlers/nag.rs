@@ -134,6 +134,7 @@ impl GraphSM {
             GraphState::Created { .. }
             | GraphState::GraphGenerated { .. }
             | GraphState::AdaptorsVerified { .. } => Ok(vec![GraphDuty::GenerateGraphData {
+                covenant: self.context().covenant,
                 graph_idx: self.context().graph_idx(),
                 deposit_outpoint: self.context().deposit_outpoint(),
                 stake_outpoint: self.context().stake_outpoint(),

@@ -2,6 +2,7 @@
 #[cfg(test)]
 mod tests {
     use bitcoin::hashes::{Hash, sha256};
+    use strata_bridge_primitives::covenant::CovenantId;
     use strata_bridge_test_utils::{bitcoin::generate_txid, prelude::generate_signature};
     use strata_bridge_tx_graph::{
         game_graph::GameConnectors,
@@ -41,6 +42,7 @@ mod tests {
         let cases = vec![
             (
                 GraphDuty::GenerateGraphData {
+                    covenant: CovenantId::from_operator_table(&operator_table, 100).unwrap(),
                     graph_idx,
                     deposit_outpoint: test_deposit_outpoint(),
                     stake_outpoint: test_stake_outpoint(),
