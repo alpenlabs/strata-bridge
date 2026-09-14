@@ -120,6 +120,19 @@ pub enum StakeState {
 }
 
 impl StakeState {
+    /// Returns the stake transaction ID when retained by the current state.
+    pub const fn stake_txid(&self) -> Option<Txid> {
+        match self {
+            Self::Created { .. } | Self::Unstaked { .. } => None,
+            Self::StakeGraphGenerated { summary, .. }
+            | Self::UnstakingNoncesCollected { summary, .. }
+            | Self::UnstakingSigned { summary, .. }
+            | Self::Confirmed { summary, .. }
+            | Self::PreimageRevealed { summary, .. }
+            | Self::Slashed { summary, .. } => Some(summary.stake),
+        }
+    }
+
     /// Creates the initial state of the stake state machine, which is [`StakeState::Created`].
     pub const fn new(block_height: BitcoinBlockHeight) -> Self {
         Self::Created {

@@ -248,6 +248,17 @@ impl SMRegistry {
         candidates.next().is_none().then_some(key)
     }
 
+    /// Resolves a validated observation's source stake output without interpreting exit rules.
+    /// Missing or ambiguous sources do not resolve to a local instance.
+    pub fn resolve_stake_outpoint(&self, source: &OutPoint) -> Option<StakeKey> {
+        let mut matches = self.stakes.iter().filter_map(|(key, sm)| {
+            let stake_txid = sm.state().stake_txid()?;
+            (OutPoint::new(stake_txid, StakeTx::STAKE_VOUT) == *source).then_some(*key)
+        });
+        let key = matches.next()?;
+        matches.next().is_none().then_some(key)
+    }
+
     /// Looks up an exact covenant-qualified stake instance.
     pub fn get_stake(&self, operator_idx: &StakeKey) -> Option<&StakeSM> {
         self.stakes.get(operator_idx)
