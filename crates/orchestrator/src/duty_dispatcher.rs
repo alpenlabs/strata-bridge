@@ -106,7 +106,9 @@ async fn execute_duty(
             execute_deposit_duty(cfg, handles, deposit_duty).await
         }
         UnifiedDuty::Graph(graph_duty) => execute_graph_duty(cfg, handles, graph_duty).await,
-        UnifiedDuty::Stake(stake_duty) => execute_stake_duty(cfg, handles, stake_duty).await,
+        UnifiedDuty::Stake { context, duty } => {
+            execute_stake_duty(cfg, handles, context, duty).await
+        }
     }
 }
 

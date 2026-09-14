@@ -340,7 +340,7 @@ impl Pipeline {
                 continue;
             }
 
-            let (ssm, initial_duty) = StakeSM::new(ctx, start_height);
+            let (ssm, initial_duty) = StakeSM::new(ctx.clone(), start_height);
             self.registry
                 .insert_stake(ssm)
                 .map_err(ProcessError::from)?;
@@ -348,7 +348,10 @@ impl Pipeline {
             info!(%op_idx, %start_height, "bootstrapped stake state machine");
 
             if let Some(duty) = initial_duty {
-                duties.push(duty.into());
+                duties.push(UnifiedDuty::Stake {
+                    context: Box::new(ctx),
+                    duty,
+                });
             }
         }
 

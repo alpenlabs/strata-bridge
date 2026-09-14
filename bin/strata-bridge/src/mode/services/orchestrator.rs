@@ -162,7 +162,13 @@ where
         pending_asm_events: VecDeque::new(),
     };
 
-    let exec_cfg = build_exec_config(params, config, &sm_config, claim_funding_utxo_value);
+    let exec_cfg = build_exec_config(
+        params,
+        config,
+        &sm_config,
+        claim_funding_utxo_value,
+        &operator_table,
+    );
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
     let tx_driver_health = tx_driver.health_handle();
     health_registry.mark_ok(COMPONENT_TX_DRIVER, "driver_initialized");
@@ -320,8 +326,14 @@ fn build_exec_config(
     config: &Config,
     sm_config: &SMConfig,
     claim_funding_utxo_value: bitcoin::Amount,
+    operator_table: &OperatorTable,
 ) -> ExecutionConfig {
     ExecutionConfig {
+        legacy_stake_covenant: strata_bridge_primitives::covenant::CovenantId::from_operator_table(
+            operator_table,
+            params.genesis_height,
+        )
+        .expect("validated initial operator table"),
         network: params.network,
         min_withdrawal_fulfillment_window: config.min_withdrawal_fulfillment_window,
         magic_bytes: params.protocol.magic_bytes,

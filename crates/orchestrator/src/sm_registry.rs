@@ -586,7 +586,10 @@ impl SMRegistry {
                         let mut out = out;
                         out.duties
                             .extend(sm.run_post_stf_hook(&self.cfg.stake, &cross_sm_context));
-                        applied_process_outcome(out, UnifiedDuty::Stake)
+                        applied_process_outcome(out, |duty| UnifiedDuty::Stake {
+                            context: Box::new(sm.context().clone()),
+                            duty,
+                        })
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
             }
@@ -1500,6 +1503,31 @@ mod covenant_tests {
         let mut absent = second_key;
         absent.covenant.activation_height = 300;
         assert!(registry.get_stake(&absent).is_none());
+    }
+
+    #[test]
+    fn nag_duties_retain_their_covenant_context() {
+        let (first, second) = stakes_at_two_heights();
+        let contexts = [first.context().clone(), second.context().clone()];
+        let mut registry = test_empty_registry();
+        registry.insert_stake(first).unwrap();
+        registry.insert_stake(second).unwrap();
+        for expected in contexts {
+            let output = registry
+                .process_event(
+                    &SMId::Stake(expected.stake_key()),
+                    StakeEvent::NagTick(strata_bridge_sm::stake::events::NagTickEvent).into(),
+                )
+                .unwrap();
+            let ProcessOutcome::Applied(output) = output else {
+                panic!("nag tick must apply");
+            };
+            assert_eq!(output.duties.len(), 1);
+            let UnifiedDuty::Stake { context, .. } = &output.duties[0] else {
+                panic!("stake duty expected");
+            };
+            assert_eq!(context.as_ref(), &expected);
+        }
     }
 
     #[test]

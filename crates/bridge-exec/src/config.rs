@@ -9,6 +9,10 @@ use strata_l1_txfmt::MagicBytes;
 /// The static configuration for the duty executors.
 #[derive(Debug, Clone)]
 pub struct ExecutionConfig {
+    /// Covenant supported by operator-only stake storage and wire messages.
+    /// Successor preparation requires covenant-qualified storage and wire support.
+    pub legacy_stake_covenant: strata_bridge_primitives::covenant::CovenantId,
+
     /// The Bitcoin network to operate on.
     pub network: Network,
 
