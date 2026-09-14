@@ -155,7 +155,8 @@ impl From<&UtxoInfo> for TxOut {
 /// This BDK version cannot evict a transaction, so one reorged out of the chain and not
 /// re-broadcast stays canonical and its outputs keep looking spendable; an unconfirmed output
 /// therefore counts only while its transaction is in the mempool. An output *consumed* by such a
-/// transaction stays hidden, matching BDK's own coin selection, and returns on a store rebuild.
+/// transaction stays hidden until a restart, matching BDK's own coin selection; nothing about the
+/// transaction survives a load (see [`prune_stale_anchors`](crate::persist::prune_stale_anchors)).
 pub(crate) fn is_spendable(output: &LocalOutput, mempool: &HashSet<Txid>) -> bool {
     match output.chain_position {
         ChainPosition::Confirmed { .. } => true,

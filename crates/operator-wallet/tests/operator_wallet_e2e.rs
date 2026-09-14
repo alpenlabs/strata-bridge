@@ -41,12 +41,16 @@ use bdk_bitcoind_rpc::bitcoincore_rpc::{
 };
 use bdk_wallet::{
     bitcoin::{
+        absolute::LockTime,
+        consensus::encode::serialize_hex,
         hashes::Hash,
         key::{Keypair, Secp256k1, TapTweak},
         secp256k1::{Message, SecretKey},
         sighash::{Prevouts, SighashCache},
-        taproot, Address, Amount, BlockHash, FeeRate, Network, OutPoint, Psbt, TapSighashType,
-        Transaction, Txid, Witness, XOnlyPublicKey,
+        taproot,
+        transaction::Version,
+        Address, Amount, BlockHash, FeeRate, Network, OutPoint, Psbt, ScriptBuf, Sequence,
+        TapSighashType, Transaction, TxIn, TxOut, Txid, Witness, XOnlyPublicKey,
     },
     chain::{BlockId, Merge},
     descriptor, ChangeSet,
@@ -217,9 +221,15 @@ async fn build_operator_wallet(
 /// (BIP-341 tap-tweak with empty merkle root). Used by the tests to finalize PSBTs that
 /// the descriptor-only `NativeGeneralWallet` returns unsigned. Returns the extracted
 /// signed transaction.
-fn sign_and_finalize(mut psbt: Psbt, keypair: Keypair) -> Transaction {
+fn sign_and_finalize(psbt: Psbt, keypair: Keypair) -> Transaction {
+    let keys = vec![keypair; psbt.inputs.len()];
+    sign_and_finalize_with(psbt, &keys)
+}
+
+/// [`sign_and_finalize`] with one keypair per input, in input order.
+fn sign_and_finalize_with(mut psbt: Psbt, keys: &[Keypair]) -> Transaction {
+    assert_eq!(keys.len(), psbt.inputs.len(), "one key per input");
     let secp = Secp256k1::new();
-    let tweaked = keypair.tap_tweak(&secp, None).to_keypair();
     let prevouts: Vec<_> = psbt
         .inputs
         .iter()
@@ -227,7 +237,8 @@ fn sign_and_finalize(mut psbt: Psbt, keypair: Keypair) -> Transaction {
         .collect();
     let unsigned = psbt.unsigned_tx.clone();
     let mut cache = SighashCache::new(&unsigned);
-    for i in 0..psbt.inputs.len() {
+    for (i, keypair) in keys.iter().enumerate() {
+        let tweaked = keypair.tap_tweak(&secp, None).to_keypair();
         let sighash = cache
             .taproot_key_spend_signature_hash(i, &Prevouts::All(&prevouts), TapSighashType::Default)
             .expect("sighash");
@@ -764,16 +775,20 @@ fn mine(bitcoind: &Node, n: usize) {
         .expect("mine blocks");
 }
 
-/// Mines one block holding only its coinbase, leaving the mempool as it is.
-fn mine_empty_block(bitcoind: &Node) {
+/// Mines one block holding its coinbase and `txs`, taking nothing from the mempool.
+fn mine_block_with(bitcoind: &Node, txs: &[&Transaction]) {
     let addr = bitcoind.client.new_address().expect("miner address");
+    let txs = txs
+        .iter()
+        .map(|tx| Value::String(serialize_hex(*tx)))
+        .collect();
     bitcoind
         .client
         .call::<Value>(
             "generateblock",
-            &[Value::String(addr.to_string()), Value::Array(Vec::new())],
+            &[Value::String(addr.to_string()), Value::Array(txs)],
         )
-        .expect("mine an empty block");
+        .expect("mine a block");
 }
 
 #[tokio::test]
@@ -1418,7 +1433,7 @@ async fn unconfirmed_outputs_stay_spendable_across_a_failed_sync() {
     stores
         .reserved
         .fail_on_persist_call(stores.reserved.persist_calls() + 1);
-    mine_empty_block(&bitcoind);
+    mine_block_with(&bitcoind, &[]);
     wallet.sync().await.expect_err("injected persist failure");
 
     // Both wallets still show what the last successful sync saw.
@@ -1486,6 +1501,145 @@ async fn a_reorg_across_a_restart_reconciles() {
     wallet.sync().await.expect("sync after the reorg");
     assert_eq!(wallet.local_chain_tip_height(), tip + 1);
     assert_ne!(wallet.reserved_tip_hash(), tip_hash);
+}
+
+/// A spend reorged out behind a conflict the wallet never sees is on neither the chain nor the
+/// mempool. BDK keeps it canonical in memory, so its inputs stay hidden until a restart.
+#[tokio::test]
+#[serial]
+async fn inputs_of_a_reorged_out_spend_return_after_a_restart() {
+    let bitcoind = setup_bitcoind();
+    let rpc = sync_rpc_client(&bitcoind);
+    let stores = Stores::default();
+    let (general_kp, general_pubkey) = keypair_from_seed(47);
+    let mut wallet = open_wallet(
+        &bitcoind,
+        47,
+        48,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+
+    // One coin in the general wallet and one under an unrelated key, confirmed together.
+    let secp = Secp256k1::new();
+    let general_addr = Address::p2tr(&secp, general_pubkey, None, Network::Regtest);
+    let (other_kp, other_pubkey) = keypair_from_seed(49);
+    let other_addr = Address::p2tr(&secp, other_pubkey, None, Network::Regtest);
+    let value = Amount::from_btc(0.5).unwrap();
+    rpc.send_to_address(&general_addr, value, None, None, None, None, None, None)
+        .expect("fund the general wallet");
+    let other_txid = rpc
+        .send_to_address(&other_addr, value, None, None, None, None, None, None)
+        .expect("fund the other key");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("sync");
+    let coin = wallet
+        .general()
+        .list_utxos()
+        .pop()
+        .expect("the general coin");
+    let other_tx = rpc
+        .get_raw_transaction(&other_txid, None)
+        .expect("other funding tx");
+    let other_vout = other_tx
+        .output
+        .iter()
+        .position(|o| o.script_pubkey == other_addr.script_pubkey())
+        .expect("output to the other key");
+    let other = OutPoint {
+        txid: other_txid,
+        vout: other_vout as u32,
+    };
+    let other_txout = other_tx.output[other_vout].clone();
+
+    // A spend of both coins, confirmed.
+    let sink = bitcoind
+        .client
+        .new_address()
+        .expect("sink address")
+        .script_pubkey();
+    let fee = Amount::from_sat(2_000);
+    let input = |outpoint| TxIn {
+        previous_output: outpoint,
+        script_sig: ScriptBuf::new(),
+        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+        witness: Witness::new(),
+    };
+    let spend = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![input(coin.outpoint), input(other)],
+        output: vec![TxOut {
+            value: coin.amount + other_txout.value - fee,
+            script_pubkey: sink.clone(),
+        }],
+    };
+    let mut psbt = Psbt::from_unsigned_tx(spend).expect("psbt");
+    psbt.inputs[0].witness_utxo = Some(TxOut::from(&coin));
+    psbt.inputs[1].witness_utxo = Some(other_txout.clone());
+    let spend = sign_and_finalize_with(psbt, &[general_kp, other_kp]);
+    let spend_txid = rpc
+        .send_raw_transaction(&spend)
+        .expect("broadcast the spend");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("sync with the spend confirmed");
+    assert!(
+        wallet.general().list_utxos().is_empty(),
+        "the coin is spent"
+    );
+
+    // Reorg the spend out behind a block spending the other coin elsewhere: the spend is invalid
+    // there, so the node drops it, and the conflict touches no wallet script.
+    let height = rpc.get_block_count().expect("height");
+    rpc.invalidate_block(&rpc.get_block_hash(height).expect("block hash"))
+        .expect("invalidate");
+    let conflict = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![input(other)],
+        output: vec![TxOut {
+            value: other_txout.value - fee,
+            script_pubkey: sink,
+        }],
+    };
+    let mut psbt = Psbt::from_unsigned_tx(conflict).expect("psbt");
+    psbt.inputs[0].witness_utxo = Some(other_txout);
+    let conflict = sign_and_finalize_with(psbt, &[other_kp]);
+    mine_block_with(&bitcoind, &[&conflict]);
+    assert!(
+        rpc.get_mempool_entry(&spend_txid).is_err(),
+        "the spend is gone from the mempool"
+    );
+    wallet.sync().await.expect("sync after the reorg");
+    assert!(
+        wallet.general().list_utxos().is_empty(),
+        "hidden until a restart"
+    );
+
+    // Nothing about the spend survives a load.
+    drop(wallet);
+    let mut wallet = open_wallet(
+        &bitcoind,
+        47,
+        48,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    let outpoints = |wallet: &TestWallet| -> Vec<OutPoint> {
+        wallet
+            .general()
+            .list_utxos()
+            .into_iter()
+            .map(|u| u.outpoint)
+            .collect()
+    };
+    assert_eq!(outpoints(&wallet), vec![coin.outpoint], "the coin is back");
+    wallet.sync().await.expect("sync after the restart");
+    assert_eq!(outpoints(&wallet), vec![coin.outpoint], "and stays back");
 }
 
 #[tokio::test]
