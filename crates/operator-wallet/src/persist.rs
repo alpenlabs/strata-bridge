@@ -160,6 +160,25 @@ pub async fn ensure_backend_not_behind<P: WalletStore>(
     Err(InitError::BackendBehindTip { tip, height })
 }
 
+/// Drops anchors to blocks the persisted chain has since replaced or removed. Stores apply it to
+/// the changeset they hand to BDK at load.
+///
+/// BDK never deletes an anchor and canonicalizes a transaction whose anchors all point off the
+/// chain, so a spend confirmed in a reorged-out block keeps its inputs spent for as long as the
+/// anchor is loaded. Without it, and with mempool sightings never persisted, the transaction is
+/// unknown to canonicalization until the chain or the mempool shows it again. Anchors to heights
+/// the chain has no entry for are kept; the chain has nothing to say about them.
+pub(crate) fn prune_stale_anchors(changeset: &mut ChangeSet) {
+    let blocks = &changeset.local_chain.blocks;
+    changeset
+        .tx_graph
+        .anchors
+        .retain(|(anchor, _)| match blocks.get(&anchor.block_id.height) {
+            Some(hash) => *hash == Some(anchor.block_id.hash),
+            None => true,
+        });
+}
+
 #[cfg(test)]
 mod tests {
     use bdk_wallet::{

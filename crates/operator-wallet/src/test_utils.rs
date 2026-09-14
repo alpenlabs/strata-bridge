@@ -10,6 +10,8 @@ use std::{
 use bdk_wallet::{chain::Merge, AsyncWalletPersister, ChangeSet};
 use thiserror::Error;
 
+use crate::persist::prune_stale_anchors;
+
 /// In-memory store. Clones share one store, so a test can rebuild a wallet from a clone to
 /// simulate a restart. Records every persisted changeset and can fail one chosen `persist` call.
 #[derive(Debug, Clone, Default)]
@@ -77,7 +79,11 @@ impl AsyncWalletPersister for MemoryStore {
     where
         Self: 'a,
     {
-        Box::pin(async move { Ok(persister.aggregate()) })
+        Box::pin(async move {
+            let mut changeset = persister.aggregate();
+            prune_stale_anchors(&mut changeset);
+            Ok(changeset)
+        })
     }
 
     fn persist<'a>(persister: &'a mut Self, changeset: &'a ChangeSet) -> StoreFuture<'a, ()>
