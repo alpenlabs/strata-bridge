@@ -27,7 +27,7 @@ use crate::mode::rpc_server::da::{stake_aggregate_signatures_response, stake_dat
 const OPERATOR_IDX: OperatorIdx = 1;
 
 fn test_stake_ctx() -> StakeSMCtx {
-    StakeSMCtx::new(OPERATOR_IDX, test_operator_table(3, TEST_POV_IDX))
+    StakeSMCtx::new(OPERATOR_IDX, test_operator_table(3, TEST_POV_IDX), 101)
 }
 
 fn test_stake_cfg() -> StakeSMCfg {

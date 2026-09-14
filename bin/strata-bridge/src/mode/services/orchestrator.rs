@@ -191,6 +191,7 @@ where
     health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "pipeline_spawned");
     spawn_orchestrator_stale_monitor(orchestrator_stale_after(config), health_registry.clone());
     let pipeline_health_registry = health_registry.clone();
+    let activation_height = params.genesis_height;
     executor.spawn_critical_async_with_shutdown("orchestrator", |shutdown_guard| async move {
         let pipeline = orchestrator_pipeline;
 
@@ -208,7 +209,7 @@ where
             // Handle pipeline completion (this should indicate an error as this is supposed to run indefinitely)
             pipeline_complete = tokio::task::spawn(async move {
                 pipeline
-                    .run_with_observer(operator_table, start_height, move || {
+                    .run_with_observer(operator_table, start_height, activation_height, move || {
                         pipeline_health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "event_processed");
                     })
                     .await

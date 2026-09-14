@@ -135,7 +135,7 @@ impl StakeSM {
                     )
                     .boxed();
 
-                    if context.operator_idx() == context.operator_table().pov_idx() {
+                    if context.pov_idx() == Some(context.operator_idx()) {
                         let stake_graph = StakeGraph::new(stake_data.expand(*cfg, &context));
                         let stake_tx = stake_graph.stake.as_ref().clone();
                         duties.push(StakeDuty::PublishStake {

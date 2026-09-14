@@ -424,10 +424,17 @@ impl SMRegistry {
     ///
     /// Returns `None` if the SM is not in the registry or the operator key cannot be resolved.
     pub fn lookup_operator(&self, id: &SMId, key: &OperatorKey<'_>) -> Option<OperatorIdx> {
+        if let SMId::Stake(idx) = id {
+            let ctx = self.stakes.get(idx)?.context();
+            return match key {
+                OperatorKey::Pov => ctx.pov_idx(),
+                OperatorKey::Peer(key) => ctx.operator_table().p2p_key_to_idx(key),
+            };
+        }
         let table = match id {
             SMId::Deposit(idx) => self.deposits.get(idx)?.context().operator_table(),
             SMId::Graph(idx) => self.graphs.get(idx)?.context().operator_table(),
-            SMId::Stake(idx) => self.stakes.get(idx)?.context().operator_table(),
+            SMId::Stake(_) => unreachable!("stake handled above"),
         };
         match key {
             OperatorKey::Pov => Some(table.pov_idx()),

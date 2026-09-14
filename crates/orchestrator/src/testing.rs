@@ -197,7 +197,7 @@ pub(crate) fn insert_created_stake(
     operator_idx: OperatorIdx,
     operator_table: OperatorTable,
 ) {
-    let ctx = StakeSMCtx::new(operator_idx, operator_table);
+    let ctx = StakeSMCtx::new(operator_idx, operator_table, INITIAL_BLOCK_HEIGHT);
     let (ssm, _duty) = StakeSM::new(ctx, INITIAL_BLOCK_HEIGHT);
     registry
         .insert_stake(operator_idx, ssm)
@@ -233,7 +233,7 @@ pub(crate) fn make_confirmed_stake_sm(
         unstaking: generate_txid(),
     };
     StakeSM {
-        context: StakeSMCtx::new(operator_idx, operator_table),
+        context: StakeSMCtx::new(operator_idx, operator_table, INITIAL_BLOCK_HEIGHT),
         state: StakeState::Confirmed {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             stake_data,

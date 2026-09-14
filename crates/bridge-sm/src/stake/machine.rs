@@ -38,7 +38,7 @@ impl StateMachine for StakeSM {
         cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
-        match event {
+        let mut output = match event {
             StakeEvent::StakeDataReceived(event) => self.process_stake_data(&cfg, event),
             StakeEvent::UnstakingNoncesReceived(event) => {
                 self.process_unstaking_nonces_received(&cfg, event)
@@ -54,7 +54,11 @@ impl StateMachine for StakeSM {
             StakeEvent::RetryTick(RetryTickEvent) => self.process_retry_tick(&cfg),
             StakeEvent::NagTick(NagTickEvent) => self.process_nag_tick(),
             StakeEvent::NagReceived(event) => self.process_nag_received(&cfg, event),
+        }?;
+        if self.context().pov_idx().is_none() {
+            output.duties.clear();
         }
+        Ok(output)
     }
 }
 
@@ -72,10 +76,11 @@ impl StakeSM {
             state: StakeState::new(block_height),
         };
 
-        let initial_duty = (sm.context().operator_table().pov_idx() == sm.context().operator_idx())
-            .then_some(StakeDuty::PublishStakeData {
+        let initial_duty = (sm.context().pov_idx() == Some(sm.context().operator_idx())).then_some(
+            StakeDuty::PublishStakeData {
                 operator_idx: sm.context().operator_idx(),
-            });
+            },
+        );
 
         (sm, initial_duty)
     }

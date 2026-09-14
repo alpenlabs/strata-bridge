@@ -663,9 +663,12 @@ fn pov_p2p_key_for_sm(sm_registry: &SMRegistry, sm_id: &SMId) -> Option<P2POpera
         SMId::Graph(graph_idx) => sm_registry
             .get_graph(graph_idx)
             .map(|sm| sm.context().operator_table().pov_p2p_key().clone()),
-        SMId::Stake(operator_idx) => sm_registry
-            .get_stake(operator_idx)
-            .map(|sm| sm.context().operator_table().pov_p2p_key().clone()),
+        SMId::Stake(operator_idx) => sm_registry.get_stake(operator_idx).and_then(|sm| {
+            sm.context()
+                .operator_table()
+                .idx_to_p2p_key(&sm.context().pov_idx()?)
+                .cloned()
+        }),
     }
 }
 

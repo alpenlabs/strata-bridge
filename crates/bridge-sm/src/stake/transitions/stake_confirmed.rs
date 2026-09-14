@@ -33,7 +33,7 @@ impl StakeSM {
                     ));
                 }
 
-                let is_my_stake = self.context.operator_idx() == self.context.operator_table().pov_idx();
+                let is_my_stake = self.context.pov_idx() == Some(self.context.operator_idx());
                 if is_my_stake {
                     return Err(SSMError::invalid_event(
                         self.state().clone(),
