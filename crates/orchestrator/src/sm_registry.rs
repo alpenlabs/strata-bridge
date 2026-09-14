@@ -11,6 +11,7 @@ use std::{
 use bitcoin::{OutPoint, hashes::sha256};
 use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_bridge_primitives::{
+    covenant::StakeKey,
     operator_table::OperatorTable,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
@@ -56,9 +57,8 @@ pub struct SMRegistry {
     // deposit index, change this to a `BTreeMap<DepositIdx, BTreeMap<OperatorIdx, GraphSM>>` or
     // maintain a separate index for that mapping.
     graphs: BTreeMap<GraphIdx, GraphSM>,
-    /// The state machines responsible for tracking an operator's stake, indexed by the operator
-    /// index. There is exactly one stake state machine per operator in the operator table.
-    stakes: BTreeMap<OperatorIdx, StakeSM>,
+    /// Independent stake instances, indexed by covenant and permanent operator index.
+    stakes: BTreeMap<StakeKey, StakeSM>,
     /// The latched safe-harbour destination address, set once when the ASM reports the safe
     /// harbour as activated. This is sticky and monotonic: the first write wins and it is never
     /// cleared, so it survives a tip reorg that flips the ASM flag back to inactive. `None` means
@@ -75,9 +75,12 @@ pub enum RegistryInsertError {
     /// A graph SM already exists at this key.
     #[error("graph state machine already exists at index {0:?}")]
     GraphAlreadyExists(GraphIdx),
-    /// A stake SM already exists at this operator index.
+    /// A stake SM already exists at this covenant-qualified key.
     #[error("stake state machine already exists for operator {0}")]
-    StakeAlreadyExists(OperatorIdx),
+    StakeAlreadyExists(StakeKey),
+    /// Equal identities must have the same full indexed membership.
+    #[error("conflicting membership for stake {0}")]
+    CovenantMembershipMismatch(StakeKey),
     /// The maximum deposit index has been reached.
     #[error("deposit index exhausted at {0}; cannot allocate a new deposit index")]
     DepositIdxExhausted(DepositIdx),
@@ -205,8 +208,8 @@ impl SMRegistry {
         self.graphs.keys().copied().collect()
     }
 
-    /// Gets a list of operator indices for all stake state machines currently in the registry.
-    pub fn get_stake_ids(&self) -> Vec<OperatorIdx> {
+    /// Gets the covenant-qualified keys of all stake state machines.
+    pub fn get_stake_ids(&self) -> Vec<StakeKey> {
         self.stakes.keys().copied().collect()
     }
 
@@ -232,9 +235,21 @@ impl SMRegistry {
         self.graphs.get(graph_idx)
     }
 
-    /// Gets a reference to the stake state machine for the given operator index, if it exists in
-    /// the registry.
-    pub fn get_stake(&self, operator_idx: &OperatorIdx) -> Option<&StakeSM> {
+    /// Resolves an operator-only legacy message only when there is exactly one stake instance.
+    /// Ambiguous messages are rejected until covenant-qualified wire messages are available.
+    ///
+    /// Temporary compatibility shim for operator-only callers. Replace these lookups with explicit
+    /// [`StakeKey`] lookups as storage ([STR-4043](https://alpenlabs.atlassian.net/browse/STR-4043)),
+    /// P2P messages ([STR-4044](https://alpenlabs.atlassian.net/browse/STR-4044)), and RPCs
+    /// ([STR-3625](https://alpenlabs.atlassian.net/browse/STR-3625)) adopt covenant-qualified identities.
+    pub fn resolve_legacy_stake_key(&self, operator: OperatorIdx) -> Option<StakeKey> {
+        let mut candidates = self.stakes.keys().filter(|key| key.operator == operator);
+        let key = *candidates.next()?;
+        candidates.next().is_none().then_some(key)
+    }
+
+    /// Looks up an exact covenant-qualified stake instance.
+    pub fn get_stake(&self, operator_idx: &StakeKey) -> Option<&StakeSM> {
         self.stakes.get(operator_idx)
     }
 
@@ -249,7 +264,7 @@ impl SMRegistry {
     }
 
     /// Returns an iterator over all stake state machines and their operator indices.
-    pub fn stakes(&self) -> impl Iterator<Item = (&OperatorIdx, &StakeSM)> {
+    pub fn stakes(&self) -> impl Iterator<Item = (&StakeKey, &StakeSM)> {
         self.stakes.iter()
     }
 
@@ -321,14 +336,22 @@ impl SMRegistry {
         }
     }
 
-    /// Inserts a new stake state machine into the registry for the given operator index.
+    /// Inserts a stake under its immutable context identity.
     ///
-    /// Returns an error if a stake state machine already exists for this operator.
-    pub fn insert_stake(
-        &mut self,
-        operator_idx: OperatorIdx,
-        sm: StakeSM,
-    ) -> Result<(), RegistryInsertError> {
+    /// Rejects duplicate identities and conflicting indexed membership for the same covenant.
+    pub fn insert_stake(&mut self, sm: StakeSM) -> Result<(), RegistryInsertError> {
+        let operator_idx = sm.context().stake_key();
+        if self.stakes.values().any(|existing| {
+            existing.context().stake_key().covenant == operator_idx.covenant
+                && !existing
+                    .context()
+                    .operator_table()
+                    .has_same_membership(sm.context().operator_table())
+        }) {
+            return Err(RegistryInsertError::CovenantMembershipMismatch(
+                operator_idx,
+            ));
+        }
         match self.stakes.entry(operator_idx) {
             Entry::Vacant(entry) => {
                 entry.insert(sm);
@@ -354,8 +377,8 @@ impl SMRegistry {
     /// an empty / partially bootstrapped registry.
     pub fn all_operators_have_staked(&self, operator_table: &OperatorTable) -> bool {
         operator_table.operator_idxs().iter().all(|op_idx| {
-            self.stakes
-                .get(op_idx)
+            self.resolve_legacy_stake_key(*op_idx)
+                .and_then(|key| self.stakes.get(&key))
                 .is_some_and(|sm| sm.state().has_staked())
         })
     }
@@ -363,8 +386,8 @@ impl SMRegistry {
     /// Returns `true` iff the given operator currently has a stake available
     /// ([`StakeState::is_stake_available`], i.e. `Confirmed` and not yet winding down).
     pub fn is_operator_active_for_new_deposits(&self, operator_idx: &OperatorIdx) -> bool {
-        self.stakes
-            .get(operator_idx)
+        self.resolve_legacy_stake_key(*operator_idx)
+            .and_then(|key| self.stakes.get(&key))
             .is_some_and(|sm| sm.state().is_stake_available())
     }
 
@@ -383,8 +406,8 @@ impl SMRegistry {
 
         for op_idx in full_table.operator_idxs() {
             let ssm = self
-                .stakes
-                .get(&op_idx)
+                .resolve_legacy_stake_key(op_idx)
+                .and_then(|key| self.stakes.get(&key))
                 .ok_or(SnapshotError::MissingStakeSM(op_idx))?;
 
             let StakeState::Confirmed {
@@ -593,8 +616,8 @@ impl SMRegistry {
             return CrossSmContext::default();
         };
 
-        self.stakes
-            .get(&graph_sm.context().operator_idx())
+        self.resolve_legacy_stake_key(graph_sm.context().operator_idx())
+            .and_then(|key| self.stakes.get(&key))
             .and_then(|stake_sm| stake_sm.state().preimage())
             .map_or_else(
                 CrossSmContext::default,
@@ -667,7 +690,7 @@ where
 {
     match err {
         BridgeSMError::InvalidEvent { reason, state, .. } => Err(ProcessError::InvariantViolation(
-            *id,
+            Box::new(*id),
             event,
             state.to_string(),
             reason.unwrap_or_else(|| "invalid event".to_string()),
@@ -964,10 +987,11 @@ mod tests {
         let preimage = [0x42; 32];
 
         registry
-            .insert_stake(
+            .insert_stake(preimage_revealed_stake_sm(
                 graph_idx.operator,
-                preimage_revealed_stake_sm(graph_idx.operator, table, preimage),
-            )
+                table,
+                preimage,
+            ))
             .unwrap();
 
         let context = registry.resolve_cross_sm_context(&SMId::Graph(graph_idx));
@@ -984,7 +1008,7 @@ mod tests {
         };
 
         registry
-            .insert_stake(2, preimage_revealed_stake_sm(2, table, [0x24; 32]))
+            .insert_stake(preimage_revealed_stake_sm(2, table, [0x24; 32]))
             .unwrap();
 
         let context = registry.resolve_cross_sm_context(&SMId::Graph(graph_idx));
@@ -1053,10 +1077,11 @@ mod tests {
         let preimage = [0x42; 32];
 
         registry
-            .insert_stake(
+            .insert_stake(preimage_revealed_stake_sm(
                 graph_idx.operator,
-                preimage_revealed_stake_sm(graph_idx.operator, table, preimage),
-            )
+                table,
+                preimage,
+            ))
             .unwrap();
         set_graph_claimed_with_unstaking_image(&mut registry, graph_idx, preimage);
 
@@ -1165,7 +1190,7 @@ mod tests {
         assert!(matches!(
             result,
             Err(ProcessError::InvariantViolation(dep_id, dep_event, state, err_reason))
-                if err_reason == reason && state == state_str && dep_id == id && dep_event == event
+                if err_reason == reason && state == state_str && *dep_id == id && dep_event == event
         ));
     }
 
@@ -1291,7 +1316,7 @@ mod tests {
         for &op_idx in op_idxs.iter().take(op_idxs.len() - 1) {
             insert_confirmed_stake(&mut registry, op_idx, table.clone(), generate_txid());
         }
-        assert!(registry.get_stake(&missing).is_none());
+        assert!(registry.resolve_legacy_stake_key(missing).is_none());
 
         assert!(!registry.all_operators_have_staked(&table));
     }
@@ -1405,5 +1430,94 @@ mod tests {
         let pov_input = snapshot.stake_inputs.get(&TEST_POV_IDX).unwrap();
         assert_eq!(pov_input.txid, stake_txid);
         assert_eq!(pov_input.vout, StakeTx::STAKE_VOUT);
+    }
+}
+
+#[cfg(test)]
+mod covenant_tests {
+    use strata_bridge_primitives::operator_table::PublicOperatorTable;
+    use strata_bridge_sm::stake::{context::StakeSMCtx, events::NewBlockEvent};
+
+    use super::*;
+    use crate::testing::{
+        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table,
+    };
+
+    pub(super) fn stakes_at_two_heights() -> (StakeSM, StakeSM) {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let (first, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), 100), 101);
+        let (second, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table, 200), 101);
+        (first, second)
+    }
+
+    #[test]
+    fn same_owner_and_aggregate_at_different_heights_progress_independently() {
+        let (first, second) = stakes_at_two_heights();
+        let first_key = first.context().stake_key();
+        let second_key = second.context().stake_key();
+        assert_eq!(
+            first_key.covenant.aggregate_pubkey,
+            second_key.covenant.aggregate_pubkey
+        );
+        let mut registry = test_empty_registry();
+        registry.insert_stake(first.clone()).unwrap();
+        assert_eq!(
+            registry.resolve_legacy_stake_key(TEST_POV_IDX),
+            Some(first_key)
+        );
+        registry.insert_stake(second.clone()).unwrap();
+        assert_eq!(registry.resolve_legacy_stake_key(TEST_POV_IDX), None);
+        assert!(
+            matches!(registry.insert_stake(first), Err(RegistryInsertError::StakeAlreadyExists(k)) if k == first_key)
+        );
+        registry
+            .process_event(
+                &SMId::Stake(first_key),
+                StakeEvent::NewBlock(NewBlockEvent { block_height: 102 }).into(),
+            )
+            .unwrap();
+        assert_eq!(
+            registry
+                .get_stake(&first_key)
+                .unwrap()
+                .state()
+                .last_processed_block_height(),
+            Some(102)
+        );
+        assert_eq!(registry.get_stake(&second_key), Some(&second));
+        let mut absent = second_key;
+        absent.covenant.activation_height = 300;
+        assert!(registry.get_stake(&absent).is_none());
+    }
+
+    #[test]
+    fn equal_identity_with_different_indexed_membership_is_rejected() {
+        let (first, _) = stakes_at_two_heights();
+        let key = first.context().stake_key();
+        let table = first.context().operator_table();
+        let entries = table
+            .operator_idxs()
+            .into_iter()
+            .map(|idx| {
+                (
+                    idx + 10,
+                    table.idx_to_p2p_key(&idx).unwrap().clone(),
+                    table.idx_to_btc_key(&idx).unwrap(),
+                )
+            })
+            .collect();
+        let remapped = PublicOperatorTable::from_entries(entries).unwrap();
+        let ctx = StakeSMCtx::new(
+            key.operator + 10,
+            remapped.with_pov(table.pov_idx() + 10).unwrap(),
+            key.covenant.activation_height,
+        );
+        let (other, _) = StakeSM::new(ctx, 101);
+        let mut registry = test_empty_registry();
+        registry.insert_stake(first).unwrap();
+        assert!(matches!(
+            registry.insert_stake(other),
+            Err(RegistryInsertError::CovenantMembershipMismatch(_))
+        ));
     }
 }

@@ -340,7 +340,10 @@ const fn process_error_class(error: &ProcessError) -> &'static str {
 pub(crate) const fn persist_error_class(error: &PersistError) -> &'static str {
     match error {
         PersistError::DbErr(_) => "database",
-        PersistError::RegistryInvariant(_) => "registry_invariant",
+        PersistError::RegistryInvariant(_) | PersistError::StakeIdentityMismatch => {
+            "registry_invariant"
+        }
+        PersistError::CovenantStorageRequired => "unsupported_stake_storage",
         PersistError::MissingStateMachine(_) => "state_machine_not_found",
     }
 }
@@ -370,6 +373,7 @@ pub(crate) const fn executor_error_class(error: &ExecutorError) -> &'static str 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::test_stake_key;
 
     #[test]
     fn periodic_event_kinds_are_stable_and_distinct() {
@@ -380,6 +384,6 @@ mod tests {
     #[test]
     fn state_machine_kinds_do_not_include_identifiers() {
         assert_eq!(sm_kind(&SMId::Deposit(42)), "deposit");
-        assert_eq!(sm_kind(&SMId::Stake(7)), "stake");
+        assert_eq!(sm_kind(&SMId::Stake(test_stake_key(7))), "stake");
     }
 }

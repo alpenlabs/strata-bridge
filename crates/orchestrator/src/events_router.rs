@@ -66,7 +66,12 @@ fn route_gossipsub_msg(
         }
         UnsignedGossipsubMsg::UnstakingDataExchange { operator_idx, .. } => {
             debug!(%operator_idx, "routing UnstakingDataExchange to stake SM");
-            SMId::Stake(*operator_idx)
+            {
+                let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
+                    return vec![];
+                };
+                SMId::Stake(key)
+            }
         }
         UnsignedGossipsubMsg::Musig2NoncesExchange(musig2_nonce) => match musig2_nonce {
             MuSig2Nonce::Deposit { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
@@ -75,7 +80,12 @@ fn route_gossipsub_msg(
             MuSig2Nonce::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
             MuSig2Nonce::Unstake { operator_idx, .. } => {
                 debug!(%operator_idx, "routing MuSig2Nonce::Unstake to stake SM");
-                SMId::Stake(*operator_idx)
+                {
+                    let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
+                        return vec![];
+                    };
+                    SMId::Stake(key)
+                }
             }
         },
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => match musig2_partial {
@@ -85,7 +95,12 @@ fn route_gossipsub_msg(
             MuSig2Partial::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
             MuSig2Partial::Unstake { operator_idx, .. } => {
                 debug!(%operator_idx, "routing MuSig2Partial::Unstake to stake SM");
-                SMId::Stake(*operator_idx)
+                {
+                    let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
+                        return vec![];
+                    };
+                    SMId::Stake(key)
+                }
             }
         },
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => match &nag_request.payload {
@@ -102,7 +117,12 @@ fn route_gossipsub_msg(
             | NagRequestPayload::UnstakingNonces { operator_idx }
             | NagRequestPayload::UnstakingPartials { operator_idx } => {
                 debug!(%operator_idx, payload = ?nag_request.payload, "routing unstaking nag request to stake SM");
-                SMId::Stake(*operator_idx)
+                {
+                    let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
+                        return vec![];
+                    };
+                    SMId::Stake(key)
+                }
             }
         },
     };

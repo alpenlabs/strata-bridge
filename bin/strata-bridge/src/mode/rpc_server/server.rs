@@ -492,8 +492,9 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         let cached_registry = self.cached_registry.read().await;
         Ok(cached_registry
             .stakes()
-            .map(|(&operator_idx, sm)| RpcOperatorStakeInfo {
-                operator_idx,
+            .map(|(&stake_key, sm)| RpcOperatorStakeInfo {
+                operator_idx: stake_key.operator,
+                covenant: stake_key.covenant,
                 state: stake_state_to_rpc(sm.state()),
             })
             .collect())
@@ -536,7 +537,8 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         let stake_cfg = cached_registry.cfg().stake.clone();
 
         Ok(cached_registry
-            .get_stake(&operator_idx)
+            .resolve_legacy_stake_key(operator_idx)
+            .and_then(|key| cached_registry.get_stake(&key))
             .and_then(|ssm| stake_data_response(ssm.context(), ssm.state(), &stake_cfg)))
     }
 
@@ -547,7 +549,8 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         let cached_registry = self.cached_registry.read().await;
 
         Ok(cached_registry
-            .get_stake(&operator_idx)
+            .resolve_legacy_stake_key(operator_idx)
+            .and_then(|key| cached_registry.get_stake(&key))
             .and_then(|ssm| stake_aggregate_signatures_response(operator_idx, ssm.state())))
     }
 }

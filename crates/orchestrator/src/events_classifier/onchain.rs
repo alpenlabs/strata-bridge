@@ -14,8 +14,9 @@ use bitcoin::{OutPoint, Transaction};
 use btc_tracker::event::BlockEvent;
 use strata_asm_proto_bridge_txs::deposit_request::DRT_OUTPUT_INDEX;
 use strata_bridge_primitives::{
+    covenant::StakeKey,
     operator_table::OperatorTable,
-    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx},
 };
 use strata_bridge_sm::{
     deposit::{
@@ -284,7 +285,7 @@ fn classify_tx_for_all_sms(
 fn new_block_events(
     deposit_ids: &[DepositIdx],
     graph_ids: &[GraphIdx],
-    stake_ids: &[OperatorIdx],
+    stake_ids: &[StakeKey],
     height: BitcoinBlockHeight,
 ) -> Vec<(SMId, SMEvent)> {
     let deposit_event = DepositEvent::NewBlock(DepositNewBlockEvent {
@@ -325,7 +326,7 @@ mod tests {
         testing::{
             DrtBuilder, N_TEST_OPERATORS, TEST_POV_IDX, insert_confirmed_stake,
             test_deposit_sm_cfg, test_operator_table, test_populated_registry,
-            test_safe_harbour_address,
+            test_safe_harbour_address, test_stake_key,
         },
     };
 
@@ -372,7 +373,7 @@ mod tests {
 
     #[test]
     fn new_block_events_stakes_only() {
-        let stake_ids = vec![0u32, 1, 2];
+        let stake_ids = (0..3).map(test_stake_key).collect::<Vec<_>>();
         let events = new_block_events(&[], &[], &stake_ids, TEST_HEIGHT);
 
         assert_eq!(events.len(), 3);
@@ -398,7 +399,7 @@ mod tests {
                 operator: 1,
             },
         ];
-        let stake_ids = vec![0u32, 1];
+        let stake_ids = (0..2).map(test_stake_key).collect::<Vec<_>>();
         let events = new_block_events(&deposit_ids, &graph_ids, &stake_ids, TEST_HEIGHT);
 
         assert_eq!(events.len(), 7);
@@ -411,7 +412,7 @@ mod tests {
             deposit: 0,
             operator: 0,
         }];
-        let stake_ids = vec![0u32];
+        let stake_ids = vec![test_stake_key(0)];
         let events = new_block_events(&deposit_ids, &graph_ids, &stake_ids, TEST_HEIGHT);
 
         for (_id, event) in events {

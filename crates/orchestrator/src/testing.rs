@@ -19,6 +19,7 @@ use strata_asm_proto_bridge_txs::{
     deposit_request::create_deposit_request_locking_script,
 };
 use strata_bridge_primitives::{
+    covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
@@ -200,7 +201,7 @@ pub(crate) fn insert_created_stake(
     let ctx = StakeSMCtx::new(operator_idx, operator_table, INITIAL_BLOCK_HEIGHT);
     let (ssm, _duty) = StakeSM::new(ctx, INITIAL_BLOCK_HEIGHT);
     registry
-        .insert_stake(operator_idx, ssm)
+        .insert_stake(ssm)
         .expect("test helper must not insert duplicate stake state machine");
 }
 
@@ -254,7 +255,7 @@ pub(crate) fn insert_confirmed_stake(
 ) {
     let sm = make_confirmed_stake_sm(operator_idx, operator_table, stake_txid);
     registry
-        .insert_stake(operator_idx, sm)
+        .insert_stake(sm)
         .expect("test helper must not insert duplicate confirmed stake state machine");
 }
 
@@ -345,5 +346,17 @@ impl DrtBuilder {
                 },
             ],
         }
+    }
+}
+
+/// Covenant-qualified identity for the standard test membership.
+pub(crate) fn test_stake_key(operator: OperatorIdx) -> StakeKey {
+    StakeKey {
+        covenant: CovenantId::from_operator_table(
+            &test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+            INITIAL_BLOCK_HEIGHT,
+        )
+        .unwrap(),
+        operator,
     }
 }

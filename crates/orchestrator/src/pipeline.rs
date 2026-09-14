@@ -334,16 +334,17 @@ impl Pipeline {
         let mut duties: Vec<UnifiedDuty> = Vec::new();
 
         for op_idx in operator_table.operator_idxs() {
-            if self.registry.contains_id(&SMId::Stake(op_idx)) {
+            let ctx = StakeSMCtx::new(op_idx, operator_table.clone(), activation_height);
+            let stake_key = ctx.stake_key();
+            if self.registry.contains_id(&SMId::Stake(stake_key)) {
                 continue;
             }
 
-            let ctx = StakeSMCtx::new(op_idx, operator_table.clone(), activation_height);
             let (ssm, initial_duty) = StakeSM::new(ctx, start_height);
             self.registry
-                .insert_stake(op_idx, ssm)
+                .insert_stake(ssm)
                 .map_err(ProcessError::from)?;
-            touched.insert(SMId::Stake(op_idx));
+            touched.insert(SMId::Stake(stake_key));
             info!(%op_idx, %start_height, "bootstrapped stake state machine");
 
             if let Some(duty) = initial_duty {

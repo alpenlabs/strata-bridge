@@ -3,7 +3,10 @@
 use bitcoin::Txid;
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    covenant::CovenantId,
+    types::{DepositIdx, GraphIdx, OperatorIdx},
+};
 use strata_bridge_sm::{graph::context::GraphSMCtx, stake::context::StakeSMCtx};
 use strata_bridge_tx_graph::{
     game_graph::{DepositParams, SetupParams},
@@ -283,6 +286,8 @@ pub enum RpcStakeState {
 /// under a sub-object. This keeps the JSON readable and easy to parse in consumers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcOperatorStakeInfo {
+    /// Covenant whose stake is being reported.
+    pub covenant: CovenantId,
     /// The operator this stake belongs to.
     pub operator_idx: OperatorIdx,
 

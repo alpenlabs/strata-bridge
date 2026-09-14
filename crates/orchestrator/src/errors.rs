@@ -25,7 +25,7 @@ pub enum ProcessError {
 
     /// The state machine violated an invariant during event processing.
     #[error("Failed to process event {1} for state machine with id {0} in state: {2}: {3}")]
-    InvariantViolation(SMId, SMEvent, String, String),
+    InvariantViolation(Box<SMId>, SMEvent, String, String),
 
     /// A duplicate or invalid registry insertion was attempted.
     #[error("Registry insertion error: {0}")]
