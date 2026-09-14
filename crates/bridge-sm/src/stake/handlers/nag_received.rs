@@ -69,6 +69,9 @@ impl StakeSM {
     }
 
     fn process_unstaking_data_nag(&self, event: &NagReceivedEvent) -> SSMResult<Vec<StakeDuty>> {
+        if self.context().operator_table().pov_idx() != self.context().operator_idx() {
+            return Ok(Vec::new());
+        }
         match self.state() {
             StakeState::Created { .. }
             | StakeState::StakeGraphGenerated { .. }

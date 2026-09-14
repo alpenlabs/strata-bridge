@@ -8,6 +8,7 @@ mod utils;
 
 use std::sync::Arc;
 
+use strata_bridge_primitives::covenant::StakeKey;
 use strata_bridge_sm::stake::duties::StakeDuty;
 use strata_bridge_tx_graph::musig_functor::StakeFunctor;
 use tracing::info;
@@ -18,12 +19,14 @@ use crate::{config::ExecutionConfig, errors::ExecutorError, output_handles::Outp
 pub async fn execute_stake_duty(
     cfg: Arc<ExecutionConfig>,
     output_handles: Arc<OutputHandles>,
+    stake_key: StakeKey,
     duty: &StakeDuty,
 ) -> Result<(), ExecutorError> {
+    info!(%stake_key, "executing covenant-qualified stake duty");
     match duty {
         StakeDuty::PublishStakeData { operator_idx } => {
             info!(%operator_idx, "executing StakeDuty::PublishStakeData");
-            staking::publish_stake_data(&cfg, &output_handles, *operator_idx).await
+            staking::publish_stake_data(&cfg, &output_handles, stake_key).await
         }
         StakeDuty::PublishUnstakingNonces {
             operator_idx,

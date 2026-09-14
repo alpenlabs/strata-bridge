@@ -348,7 +348,7 @@ impl Pipeline {
             info!(%op_idx, %start_height, "bootstrapped stake state machine");
 
             if let Some(duty) = initial_duty {
-                duties.push(duty.into());
+                duties.push(UnifiedDuty::Stake { stake_key, duty });
             }
         }
 

@@ -107,7 +107,12 @@ pub enum UnifiedDuty {
     /// A duty related to the game graph.
     Graph(GraphDuty),
     /// A duty related to an operator's stake.
-    Stake(StakeDuty),
+    Stake {
+        /// The covenant and stake owner captured at emission.
+        stake_key: StakeKey,
+        /// The action emitted by the stake state machine.
+        duty: StakeDuty,
+    },
 }
 
 impl UnifiedDuty {
@@ -119,7 +124,7 @@ impl UnifiedDuty {
         match self {
             UnifiedDuty::Deposit(duty) => duty.should_suppress_under_safe_harbour(),
             UnifiedDuty::Graph(duty) => duty.should_suppress_under_safe_harbour(),
-            UnifiedDuty::Stake(_) => false,
+            UnifiedDuty::Stake { .. } => false,
         }
     }
 }
@@ -129,7 +134,7 @@ impl Display for UnifiedDuty {
         match self {
             Self::Deposit(duty) => Display::fmt(duty, f),
             Self::Graph(duty) => Display::fmt(duty, f),
-            Self::Stake(duty) => Display::fmt(duty, f),
+            Self::Stake { stake_key, duty } => write!(f, "{stake_key}: {duty}"),
         }
     }
 }
@@ -144,17 +149,14 @@ impl From<GraphDuty> for UnifiedDuty {
         UnifiedDuty::Graph(duty)
     }
 }
-impl From<StakeDuty> for UnifiedDuty {
-    fn from(duty: StakeDuty) -> Self {
-        UnifiedDuty::Stake(duty)
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use bitcoin::{Amount, Transaction, absolute, transaction};
+    use strata_bridge_sm::stake::context::StakeSMCtx;
 
     use super::*;
+    use crate::testing::test_operator_table;
 
     fn dummy_tx() -> Transaction {
         Transaction {
@@ -195,7 +197,10 @@ mod tests {
             "defensive duties are never suppressed"
         );
 
-        let stake: UnifiedDuty = StakeDuty::PublishStakeData { operator_idx: 0 }.into();
+        let stake = UnifiedDuty::Stake {
+            stake_key: StakeSMCtx::new(0, test_operator_table(3, 0), 100).stake_key(),
+            duty: StakeDuty::PublishStakeData { operator_idx: 0 },
+        };
         assert!(!stake.should_suppress_under_safe_harbour());
     }
 }

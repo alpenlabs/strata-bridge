@@ -584,7 +584,10 @@ impl SMRegistry {
                         let mut out = out;
                         out.duties
                             .extend(sm.run_post_stf_hook(&self.cfg.stake, &cross_sm_context));
-                        applied_process_outcome(out, UnifiedDuty::Stake)
+                        applied_process_outcome(out, |duty| UnifiedDuty::Stake {
+                            stake_key: sm.context().stake_key(),
+                            duty,
+                        })
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
             }
@@ -1447,7 +1450,10 @@ mod tests {
 #[cfg(test)]
 mod covenant_tests {
     use strata_bridge_primitives::operator_table::PublicOperatorTable;
-    use strata_bridge_sm::stake::{context::StakeSMCtx, events::NewBlockEvent};
+    use strata_bridge_sm::stake::{
+        context::StakeSMCtx,
+        events::{NagTickEvent, NewBlockEvent},
+    };
 
     use super::*;
     use crate::testing::{
@@ -1499,6 +1505,31 @@ mod covenant_tests {
         let mut absent = second_key;
         absent.covenant.activation_height = 300;
         assert!(registry.get_stake(&absent).is_none());
+    }
+
+    #[test]
+    fn nag_duties_retain_their_stake_key() {
+        let (first, second) = stakes_at_two_heights();
+        let keys = [first.context().stake_key(), second.context().stake_key()];
+        let mut registry = test_empty_registry();
+        registry.insert_stake(first).unwrap();
+        registry.insert_stake(second).unwrap();
+        for expected in keys {
+            let output = registry
+                .process_event(
+                    &SMId::Stake(expected),
+                    StakeEvent::NagTick(NagTickEvent).into(),
+                )
+                .unwrap();
+            let ProcessOutcome::Applied(output) = output else {
+                panic!("nag tick must apply");
+            };
+            assert_eq!(output.duties.len(), 1);
+            let UnifiedDuty::Stake { stake_key, .. } = &output.duties[0] else {
+                panic!("stake duty expected");
+            };
+            assert_eq!(*stake_key, expected);
+        }
     }
 
     #[test]
