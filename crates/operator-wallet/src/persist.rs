@@ -2,8 +2,10 @@
 //!
 //! [`WalletStore`] is the seam a wallet persists through; [`load_or_create`] is the shared entry
 //! point that loads and validates persisted state, or creates a fresh wallet when the store is
-//! empty. The `test_utils` module (feature `test-utils`) holds the in-memory store for tests.
+//! empty. [`SqliteStore`] is the durable store; the `test_utils` module (feature `test-utils`)
+//! holds the in-memory one for tests.
 
+pub mod sqlite;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
@@ -14,6 +16,7 @@ use bdk_wallet::{
     KeychainKind, LoadError, LoadWithPersistError, Update, Wallet,
 };
 pub use bdk_wallet::{AsyncWalletPersister, ChangeSet, PersistedWallet};
+pub use sqlite::{SqliteStore, SqliteStoreError, WalletKind};
 use thiserror::Error;
 use tracing::info;
 
