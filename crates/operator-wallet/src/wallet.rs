@@ -13,10 +13,12 @@
 //! Methods on [`OperatorWallet`] take `&mut self`; callers serialize via an outer lock when
 //! they need a multi-step critical section (e.g. DB-lookup-then-fund-then-persist).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use bdk_wallet::{
-    bitcoin::{Address, Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
+    bitcoin::{
+        Address, Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    },
     chain::BlockId,
     descriptor, KeychainKind,
 };
@@ -26,7 +28,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     config::OperatorWalletConfig,
-    general::{local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
+    general::{is_spendable, local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
     persist::{load_or_create, PersistedWallet, WalletStore},
     sync::Backend,
     Error,
@@ -52,6 +54,10 @@ pub struct OperatorWallet<G, P> {
     reserved_script_pubkey: ScriptBuf,
     config: OperatorWalletConfig,
     leased_outpoints: BTreeSet<OutPoint>,
+    /// The node's mempool as of the last successful sync, which decides whether an unconfirmed
+    /// reserved output is spendable (see [`is_spendable`]). Kept across a failed sync: callers
+    /// carry on after one, and an empty set would hide every unconfirmed output.
+    reserved_mempool: HashSet<Txid>,
 }
 
 impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
@@ -88,6 +94,7 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
             reserved_script_pubkey: reserved_addr.script_pubkey(),
             config,
             leased_outpoints: initial_leases,
+            reserved_mempool: HashSet::new(),
         })
     }
 
@@ -172,6 +179,7 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
         let tip = self.reserved.latest_checkpoint().height();
         self.reserved
             .list_unspent()
+            .filter(|output| is_spendable(output, &self.reserved_mempool))
             .filter(|utxo| utxo.txout.value == value)
             .map(|lo| local_output_to_utxo_info(&lo, tip))
             .collect()
@@ -381,7 +389,7 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
             if let Err(e) = self.general.sync().await {
                 err = Some(Error::from_general(e));
             }
-            if let Err(e) = self
+            match self
                 .reserved_sync_backend
                 .sync_wallet(
                     &mut self.reserved,
@@ -390,7 +398,8 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
                 )
                 .await
             {
-                err = Some(Error::Sync(e));
+                Ok(mempool) => self.reserved_mempool = mempool,
+                Err(e) => err = Some(Error::Sync(e)),
             }
             match err {
                 Some(e) => {
