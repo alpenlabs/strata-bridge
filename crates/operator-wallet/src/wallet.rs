@@ -415,14 +415,15 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
             }
         }
 
-        // Prune stale leases. After a successful sync, drop any leased outpoint whose
-        // underlying UTXO is no longer in either wallet's spendable set — it was observed
-        // spent on-chain (the on-chain spend supersedes our local lease bookkeeping).
+        // Prune stale leases. After a successful sync, drop any leased outpoint neither wallet
+        // still holds — it was observed spent (the spend supersedes our lease bookkeeping). This
+        // asks what the wallets hold, not what they will spend: an output the spendable filter
+        // rejects may yet come back, and releasing its lease early would let a second caller take
+        // an outpoint the first is still committed to.
         let live: BTreeSet<OutPoint> = self
             .general
-            .list_utxos()
+            .unspent_outpoints()
             .into_iter()
-            .map(|u| u.outpoint)
             .chain(self.reserved.list_unspent().map(|lo| lo.outpoint))
             .collect();
         self.leased_outpoints.retain(|o| live.contains(o));
