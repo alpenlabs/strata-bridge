@@ -239,6 +239,11 @@ pub enum PersistError {
     /// Multiple runtime covenants cannot be written to an operator-only legacy row.
     #[error("legacy stake storage cannot represent multiple covenants")]
     CovenantStorageRequired,
+    /// The membership row and atomic storage integration are not installed.
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4043>
+    // Add the membership component to ordinary storage batches.
+    #[error("operator set storage integration is required")]
+    OperatorSetStorageRequired,
     /// A tracked state machine was absent when its atomic write batch was constructed.
     #[error("state machine {0} is missing from the registry during persistence")]
     MissingStateMachine(SMId),
@@ -252,6 +257,7 @@ fn build_write_batch(
 
     for sm_id in batch {
         match sm_id {
+            SMId::OperatorSet => return Err(PersistError::OperatorSetStorageRequired),
             SMId::Deposit(deposit_idx) => {
                 let deposit_sm = sm_registry
                     .get_deposit(&deposit_idx)
@@ -462,7 +468,8 @@ mod covenant_storage_tests {
 
     use super::*;
     use crate::testing::{
-        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table,
+        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_set_sm,
+        test_operator_table,
     };
 
     #[test]
@@ -484,6 +491,18 @@ mod covenant_storage_tests {
         assert!(matches!(
             build_write_batch(keys, &registry),
             Err(PersistError::CovenantStorageRequired)
+        ));
+    }
+
+    #[test]
+    fn operator_set_cannot_be_silently_omitted_from_a_write_batch() {
+        let mut registry = test_empty_registry();
+        registry
+            .insert_operator_set(test_operator_set_sm())
+            .unwrap();
+        assert!(matches!(
+            build_write_batch(BTreeSet::from([SMId::OperatorSet]), &registry),
+            Err(PersistError::OperatorSetStorageRequired)
         ));
     }
 }
