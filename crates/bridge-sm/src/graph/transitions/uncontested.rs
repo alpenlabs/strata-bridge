@@ -7,6 +7,7 @@ use musig2::{
 };
 use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootTweak};
 use strata_bridge_tx_graph::{game_graph::DepositParams, musig_functor::GameFunctor};
+use tracing::warn;
 
 use crate::{
     graph::{
@@ -877,7 +878,42 @@ impl GraphSM {
             GraphState::Claimed { .. } => {
                 Err(GSMError::duplicate(self.state().clone(), claim.into()))
             }
-            _ => Err(GSMError::invalid_event(
+            // Faulty case: claim before the graph is signed. No signatures yet, so nothing to
+            // contest with.
+            GraphState::GraphGenerated { graph_summary, .. }
+            | GraphState::AdaptorsVerified { graph_summary, .. }
+            | GraphState::NoncesCollected { graph_summary, .. } => {
+                if claim.claim_txid != graph_summary.claim {
+                    return Err(GSMError::rejected(
+                        self.state().clone(),
+                        claim.into(),
+                        "Invalid claim transaction",
+                    ));
+                }
+
+                warn!(
+                    graph_idx = ?self.context().graph_idx(),
+                    claim_txid = %claim.claim_txid,
+                    "Claim posted before graph signing completed"
+                );
+
+                Err(GSMError::rejected(
+                    self.state().clone(),
+                    claim.into(),
+                    "Claim confirmed before graph signing completed",
+                ))
+            }
+            // Exhaustive so a new state must be classified rather than inherit the fatal arm.
+            GraphState::Created { .. }
+            | GraphState::Contested { .. }
+            | GraphState::BridgeProofPosted { .. }
+            | GraphState::BridgeProofTimedout { .. }
+            | GraphState::CounterProofPosted { .. }
+            | GraphState::AllNackd { .. }
+            | GraphState::Acked { .. }
+            | GraphState::Withdrawn { .. }
+            | GraphState::Slashed { .. }
+            | GraphState::Aborted { .. } => Err(GSMError::invalid_event(
                 self.state().clone(),
                 claim.into(),
                 None,

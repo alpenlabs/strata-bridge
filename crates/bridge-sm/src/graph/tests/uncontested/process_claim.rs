@@ -26,8 +26,8 @@ mod tests {
                 GraphTransition, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_DEPOSIT_IDX,
                 TEST_POV_IDX, create_nonpov_sm, create_sm, get_state, mock_game_signatures,
                 mock_states::{
-                    assigned_state, claimed_state, fulfilled_state, graph_signed_state,
-                    test_nonce_context,
+                    adaptors_verified_state, assigned_state, claimed_state, fulfilled_state,
+                    graph_signed_state, nonces_collected_state, test_nonce_context,
                 },
                 test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
                 test_graph_summary, test_graph_transition, test_operator_table,
@@ -269,6 +269,13 @@ mod tests {
             fulfilled_state(TEST_POV_IDX, generate_txid()),
             graph_signed_state(&nonce_ctx),
             assigned_state(TEST_POV_IDX, ASSIGNMENT_DEADLINE, test_recipient_desc(1)),
+            GraphState::GraphGenerated {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: test_graph_summary(),
+            },
+            adaptors_verified_state(test_deposit_params(), test_graph_summary()),
+            nonces_collected_state(&nonce_ctx, test_deposit_params(), test_graph_summary()),
         ];
 
         for from_state in from_states {
@@ -276,6 +283,31 @@ mod tests {
                 from_state,
                 event: GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
                     claim_txid: test_graph_summary().slash,
+                    claim_block_height: CLAIM_BLOCK_HEIGHT,
+                }),
+                expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+            });
+        }
+    }
+
+    #[test]
+    fn test_claim_rejected_before_graph_signed() {
+        let (_, _, nonce_ctx) = test_nonce_context();
+        let from_states = [
+            GraphState::GraphGenerated {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                graph_data: test_deposit_params(),
+                graph_summary: test_graph_summary(),
+            },
+            adaptors_verified_state(test_deposit_params(), test_graph_summary()),
+            nonces_collected_state(&nonce_ctx, test_deposit_params(), test_graph_summary()),
+        ];
+
+        for from_state in from_states {
+            test_graph_invalid_transition(GraphInvalidTransition {
+                from_state,
+                event: GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
+                    claim_txid: test_graph_summary().claim,
                     claim_block_height: CLAIM_BLOCK_HEIGHT,
                 }),
                 expected_error: |e| matches!(e, GSMError::Rejected { .. }),
