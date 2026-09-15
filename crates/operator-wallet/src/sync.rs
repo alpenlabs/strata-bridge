@@ -1,5 +1,10 @@
 //! Operator wallet chain data sync module
-use std::{collections::BTreeSet, fmt::Debug, num::NonZeroU32, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashSet},
+    fmt::Debug,
+    num::NonZeroU32,
+    sync::Arc,
+};
 
 use bdk_bitcoind_rpc::{
     bitcoincore_rpc::{self},
@@ -42,6 +47,9 @@ impl Backend {
     /// returns `Err` with the changes still staged for the next attempt. Mempool state is applied
     /// in memory only and re-fetched on every sync; only confirmed transactions are persisted.
     ///
+    /// Returns the transaction ids in the node's mempool, which the caller keeps to tell a live
+    /// unconfirmed transaction from one reorged out of the chain.
+    ///
     /// Lease cleanup (removing leases whose underlying outpoints have been observed spent) is the
     /// caller's responsibility — after this call, the caller compares its lease set against
     /// the wallet's `list_unspent()` and drops any lease whose outpoint is no longer present.
@@ -50,7 +58,7 @@ impl Backend {
         wallet: &mut PersistedWallet<P>,
         store: &mut P,
         persist_every_blocks: NonZeroU32,
-    ) -> Result<(), SyncError> {
+    ) -> Result<HashSet<Txid>, SyncError> {
         let last_cp = wallet.latest_checkpoint();
         debug!(
             tip_height = last_cp.height(),
@@ -66,6 +74,7 @@ impl Backend {
         };
 
         let mut applied_since_persist = 0u32;
+        let mut mempool = HashSet::new();
         while let Some(update) = rx.recv().await {
             match update {
                 WalletUpdate::NewBlock(ev) => {
@@ -86,6 +95,7 @@ impl Backend {
                     // persisted unconfirmed transaction could never be evicted, and the stream of
                     // them is unbounded. The emitter re-sends the whole mempool every sync.
                     persist(wallet, store).await?;
+                    mempool = txs.iter().map(|(tx, _)| tx.compute_txid()).collect();
                     wallet.apply_unconfirmed_txs(txs);
                     let _ = wallet.take_staged();
                 }
@@ -97,7 +107,7 @@ impl Backend {
         persist(wallet, store).await?;
 
         handle.await.expect("thread to be fine")?;
-        Ok(())
+        Ok(mempool)
     }
 }
 
