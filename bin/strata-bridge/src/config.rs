@@ -2,7 +2,7 @@
 //!
 //! These do not affect consensus between bridge nodes and can be set to different values by
 //! different operators.
-use std::{fmt, net::SocketAddr, path::PathBuf, time::Duration};
+use std::{fmt, net::SocketAddr, num::NonZeroU32, path::PathBuf, time::Duration};
 
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
@@ -268,6 +268,16 @@ pub(crate) struct OperatorWalletConfig {
     /// The size of the claim funding pool, i.e., the number of UTXOs to generate for funding claim
     /// transactions when they run out.
     pub claim_funding_pool_size: usize,
+
+    /// Directory holding the persisted chain state of the general and reserved wallets, one SQLite
+    /// file each. Created on first start if absent.
+    pub data_dir: PathBuf,
+
+    /// Number of applied blocks between commits of wallet state during a sync. Bounds the work a
+    /// crash mid-sync can lose. Defaults to
+    /// [`DEFAULT_PERSIST_EVERY_BLOCKS`](operator_wallet::DEFAULT_PERSIST_EVERY_BLOCKS).
+    #[serde(default)]
+    pub persist_every_blocks: Option<NonZeroU32>,
 }
 
 /// Configuration for the mosaic client.
@@ -370,6 +380,7 @@ pub(crate) fn test_config() -> Config {
 
             [operator_wallet]
             claim_funding_pool_size = 32
+            data_dir = "wallet-data"
 
             [mosaic]
             rpc_url = "http://localhost:7500"

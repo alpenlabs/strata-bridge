@@ -518,9 +518,12 @@ mod tests {
         secp256k1::{Keypair, SECP256K1, SecretKey},
     };
     use corepc_node::{Conf, Node};
-    use operator_wallet::{NativeGeneralWallet, OperatorWalletConfig, sync::Backend};
+    use operator_wallet::{
+        NativeGeneralWallet, OperatorWalletConfig, SqliteStore, WalletKind, sync::Backend,
+    };
     use strata_bridge_connectors::prelude::ClaimPayoutConnector;
     use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnData;
+    use tempfile::TempDir;
 
     use super::*;
 
@@ -555,19 +558,36 @@ mod tests {
         keypair.x_only_public_key().0
     }
 
-    fn wallet(bitcoind: &Node) -> NativeWallet {
-        let general = NativeGeneralWallet::new(
+    /// Builds a wallet over fresh SQLite stores in a temp dir. The [`TempDir`] must outlive the
+    /// wallet, so it is returned alongside.
+    async fn wallet(bitcoind: &Node) -> (NativeWallet, TempDir) {
+        let data_dir = tempfile::tempdir().expect("temp dir for wallet stores");
+        let general_store = SqliteStore::open_in_dir(data_dir.path(), WalletKind::General)
+            .expect("general store should open");
+        let reserved_store = SqliteStore::open_in_dir(data_dir.path(), WalletKind::Reserved)
+            .expect("reserved store should open");
+        let config = OperatorWalletConfig::new(Amount::from_sat(20_000), Network::Regtest);
+        let general = NativeGeneralWallet::load_or_create(
             xonly_pubkey(1),
-            Network::Regtest,
+            &config,
             Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
-        );
-        NativeWallet::new(
+            general_store,
+            None,
+        )
+        .await
+        .expect("general wallet should initialise against an empty store");
+        let wallet = NativeWallet::load_or_create(
             general,
             xonly_pubkey(2),
-            OperatorWalletConfig::new(Amount::from_sat(20_000), Network::Regtest),
+            config,
             Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
+            reserved_store,
+            None,
             BTreeSet::new(),
         )
+        .await
+        .expect("reserved wallet should initialise against an empty store");
+        (wallet, data_dir)
     }
 
     fn fund_general_wallet(bitcoind: &Node, wallet: &NativeWallet, amount: Amount) {
@@ -665,7 +685,7 @@ mod tests {
     #[tokio::test]
     async fn select_funding_leases_utxo_that_can_fund_non_dust_output() {
         let bitcoind = setup_bitcoind();
-        let mut wallet = wallet(&bitcoind);
+        let (mut wallet, _data_dir) = wallet(&bitcoind).await;
         fund_general_wallet(&bitcoind, &wallet, Amount::from_sat(25_000));
 
         let unstaking_preimage = [8; 32];

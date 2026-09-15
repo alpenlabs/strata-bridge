@@ -5,7 +5,7 @@ use std::{fmt, sync::Arc};
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use jsonrpsee::http_client::HttpClient;
-use operator_wallet::{NativeGeneralWallet, OperatorWallet};
+use operator_wallet::{NativeGeneralWallet, OperatorWallet, SqliteStore};
 use secret_service_client::SecretServiceClient;
 use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
@@ -14,10 +14,16 @@ use strata_bridge_proof::BridgeProofHost;
 use strata_mosaic_client_api::MosaicClientApi;
 use tokio::sync::RwLock;
 
+/// Store for the general and reserved wallets' chain state.
+pub type NativeWalletStore = SqliteStore;
+
+/// General-wallet backend of [`NativeWallet`].
+pub type NativeGeneralWalletBackend = NativeGeneralWallet<NativeWalletStore>;
+
 /// Concrete operator-wallet type used by bridge-exec. Today the only general-wallet backend in
 /// use is [`NativeGeneralWallet`]; Fireblocks support (STR-3437) will add a sibling impl and
 /// the binary will pick between them at startup.
-pub type NativeWallet = OperatorWallet<NativeGeneralWallet>;
+pub type NativeWallet = OperatorWallet<NativeGeneralWalletBackend, NativeWalletStore>;
 
 /// The handles for external services that need to be accessed by the executors.
 ///

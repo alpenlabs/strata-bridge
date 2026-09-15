@@ -83,6 +83,8 @@ class AsmRpcConfig:
 @dataclass
 class OperatorWalletConfig:
     claim_funding_pool_size: int
+    data_dir: str
+    persist_every_blocks: int | None = None
 
 
 @dataclass

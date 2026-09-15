@@ -1,9 +1,9 @@
 //! Persistence for the operator wallets.
 //!
-//! [`WalletStore`] is the seam a wallet persists through; [`load_or_create`] is the shared entry
-//! point that loads and validates persisted state, or creates a fresh wallet when the store is
-//! empty. [`SqliteStore`] is the durable store; the `test_utils` module (feature `test-utils`)
-//! holds the in-memory one for tests.
+//! Both wallets are BDK [`PersistedWallet`]s behind the [`WalletStore`] seam. [`load_or_create`]
+//! is the shared entry point: load and validate persisted state, or create a fresh wallet when the
+//! store is empty. [`SqliteStore`] is the durable store; the `test_utils` module (feature
+//! `test-utils`) holds the in-memory one for tests.
 
 pub mod sqlite;
 #[cfg(any(test, feature = "test-utils"))]
