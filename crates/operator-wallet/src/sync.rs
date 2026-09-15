@@ -98,7 +98,7 @@ async fn sync_wallet_bitcoin_core(
     {
         let client = client.clone();
         async move {
-            let start_height = last_cp.height();
+            let start_height = scan_start_height(&last_cp);
             with_bitcoin_core(client, move |client| {
                 let mut emitter = Emitter::new(client, last_cp, start_height);
                 while let Some(ev) = emitter.next_block().unwrap() {
@@ -113,6 +113,20 @@ async fn sync_wallet_bitcoin_core(
     }
     .await
     .map_err(|e| (Box::new(e) as BoxedErr).into())
+}
+
+/// Height the emitter may skip forward to when its agreement point lies below it: the wallet's
+/// lowest non-genesis checkpoint, or 0 for a genesis-only chain.
+///
+/// Not the tip: after a reorg that leaves the node's chain shorter than the tip, a tip-based start
+/// makes the emitter skip the replacement blocks once the chain regrows, leaving stale blocks in
+/// the local chain.
+fn scan_start_height(tip: &CheckPoint) -> u32 {
+    tip.iter()
+        .map(|cp| cp.height())
+        .filter(|height| *height > 0)
+        .last()
+        .unwrap_or(0)
 }
 
 async fn with_bitcoin_core<T, F>(
