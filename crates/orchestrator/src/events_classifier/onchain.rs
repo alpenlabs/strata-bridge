@@ -436,6 +436,7 @@ mod tests {
 
         for (_id, event) in events {
             match event {
+                SMEvent::OperatorSet(_) => panic!("membership must be finalized by the pre-pass"),
                 SMEvent::Deposit(boxed) => match *boxed {
                     DepositEvent::NewBlock(ref nb) => assert_eq!(nb.block_height, TEST_HEIGHT),
                     other => panic!("expected NewBlock, got {other}"),
