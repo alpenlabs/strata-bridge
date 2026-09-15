@@ -77,10 +77,10 @@ impl<E: std::error::Error + 'static> From<LoadWithPersistError<E>> for InitError
 
 /// Loads the wallet for `descriptor` from `store`, or creates it when the store is empty.
 ///
-/// Loading verifies network, genesis hash, and descriptor identity; a mismatch fails without
-/// touching the store. Creating persists the descriptor, network, and genesis block, then seeds
-/// the local chain with `bootstrap_checkpoint` if given, so the first sync starts above it. The
-/// checkpoint is ignored on load: persisted state wins.
+/// Loading verifies network, genesis hash, and both keychains' descriptor identity; a mismatch
+/// fails without touching the store. Creating persists the descriptor, network, and genesis
+/// block, then seeds the local chain with `bootstrap_checkpoint` if given, so the first sync
+/// starts above it. The checkpoint is ignored on load: persisted state wins.
 pub async fn load_or_create<P: WalletStore>(
     store: &mut P,
     descriptor: ExtendedDescriptor,
@@ -90,6 +90,7 @@ pub async fn load_or_create<P: WalletStore>(
     let load_params = || {
         Wallet::load()
             .descriptor(KeychainKind::External, Some(descriptor.clone()))
+            .descriptor(KeychainKind::Internal, Option::<ExtendedDescriptor>::None)
             .check_network(network)
             .check_genesis_hash(genesis_block(network).block_hash())
     };
@@ -251,6 +252,41 @@ mod tests {
             "got {err:?}"
         );
         assert_eq!(store.persist_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_unexpected_change_descriptor_is_rejected() {
+        let mut store = MemoryStore::new();
+        open(&mut store, 1, Network::Regtest, None)
+            .await
+            .expect("create");
+
+        // A store carrying the expected external descriptor plus a change keychain must fail:
+        // these wallets never write one, and change would otherwise be derived from it.
+        let with_change_keychain = ChangeSet {
+            change_descriptor: Some(tr_descriptor(2)),
+            ..ChangeSet::default()
+        };
+        MemoryStore::persist(&mut store, &with_change_keychain)
+            .await
+            .unwrap();
+
+        let err = open(&mut store, 1, Network::Regtest, None)
+            .await
+            .expect_err("unexpected change keychain");
+        assert!(
+            matches!(
+                &err,
+                InitError::InvalidState(e) if matches!(
+                    **e,
+                    LoadError::Mismatch(LoadMismatch::Descriptor {
+                        keychain: KeychainKind::Internal,
+                        ..
+                    })
+                )
+            ),
+            "got {err:?}"
+        );
     }
 
     #[tokio::test]
