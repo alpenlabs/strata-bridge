@@ -110,6 +110,10 @@ impl<P: WalletStore> GeneralWallet for NativeGeneralWallet<P> {
             .collect()
     }
 
+    fn unspent_outpoints(&self) -> Vec<OutPoint> {
+        self.wallet.list_unspent().map(|lo| lo.outpoint).collect()
+    }
+
     async fn fund_v3_transaction(
         &mut self,
         outputs: Vec<TxOut>,

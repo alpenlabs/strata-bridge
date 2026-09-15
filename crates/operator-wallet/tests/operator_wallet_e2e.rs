@@ -1266,6 +1266,51 @@ async fn a_reorged_out_payment_stops_being_spendable() {
     );
 }
 
+#[tokio::test]
+#[serial]
+async fn a_lease_survives_its_funding_leaving_the_mempool() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        43,
+        44,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    let rpc = sync_rpc_client(&bitcoind);
+    wallet.sync().await.expect("initial sync");
+
+    // An unconfirmed payment to the reserved script, leased as the claim-funding path would.
+    let value = Amount::from_btc(0.04).unwrap();
+    let reserved_addr = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    bitcoind
+        .client
+        .send_to_address(&reserved_addr, value)
+        .expect("send to reserved script");
+    wallet.sync().await.expect("sync with the payment pending");
+    let leased = wallet
+        .reserve_utxo_with_value(value, |_| false)
+        .0
+        .expect("an unconfirmed pool member is reservable");
+    assert!(wallet.leased_outpoints().contains(&leased));
+
+    // The payment leaves the mempool, so it is no longer spendable, but nothing has spent it.
+    replace(&bitcoind, &rpc, leased.txid);
+    wallet.sync().await.expect("sync with the payment gone");
+    assert!(
+        wallet.reserved_utxos_with_value(value).is_empty(),
+        "gone from the mempool, so not offered for spending"
+    );
+    assert!(
+        wallet.leased_outpoints().contains(&leased),
+        "but the lease must hold: another graph must not be handed the same outpoint"
+    );
+}
+
 /// Callers carry on after a failed sync, so a failed sync leaves the spendable set as the last
 /// successful one saw it. Unconfirmed outputs depend on this: they are spendable only through the
 /// mempool snapshot.
