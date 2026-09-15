@@ -15,6 +15,7 @@
 
 pub mod config;
 pub mod general;
+pub mod persist;
 pub mod sync;
 pub mod wallet;
 
@@ -26,9 +27,12 @@ use corepc_node as _;
 use serial_test as _;
 use thiserror::Error;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub use crate::persist::test_utils;
 pub use crate::{
     config::OperatorWalletConfig,
     general::{native::NativeGeneralWallet, FundedPsbt, GeneralWallet, UtxoInfo},
+    persist::{load_or_create, InitError, WalletStore},
     sync::SyncError,
     wallet::{GeneralUtxoPolicy, OperatorWallet},
 };

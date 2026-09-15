@@ -17,3 +17,6 @@ tracing.workspace = true
 [dev-dependencies]
 corepc-node.workspace = true
 serial_test.workspace = true
+
+[features]
+test-utils = []
