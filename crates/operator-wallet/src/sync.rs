@@ -7,7 +7,7 @@ use std::{
 };
 
 use bdk_bitcoind_rpc::{
-    bitcoincore_rpc::{self},
+    bitcoincore_rpc::{self, RpcApi},
     BlockEvent, Emitter,
 };
 use bdk_wallet::{
@@ -39,6 +39,18 @@ pub enum Backend {
 }
 
 impl Backend {
+    /// The height of the backend's best chain.
+    pub async fn height(&self) -> Result<u32, SyncError> {
+        match self {
+            Backend::BitcoinCore(client) => with_bitcoin_core(client.clone(), |client| {
+                // Heights fit u32 long past any chain this runs against.
+                client.get_block_count().map(|height| height as u32)
+            })
+            .await
+            .map_err(|e| (Box::new(e) as BoxedErr).into()),
+        }
+    }
+
     /// Syncs a wallet using the configured backend.
     ///
     /// Pulls new blocks + mempool state and applies them to the wallet's view. Block-derived

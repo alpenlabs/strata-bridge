@@ -18,6 +18,8 @@ pub use sqlite::{SqliteStore, SqliteStoreError, WalletKind};
 use thiserror::Error;
 use tracing::info;
 
+use crate::sync::Backend;
+
 /// [`AsyncWalletPersister`] whose errors can be boxed and which can live behind an
 /// `Arc<RwLock<_>>` across tasks. Blanket-implemented; implement the BDK trait and this follows.
 pub trait WalletStore:
@@ -45,6 +47,17 @@ pub enum InitError<E: std::error::Error + 'static> {
     /// The store reported no data straight after acknowledging the initial write.
     #[error("wallet store reported no data after the initial write was acknowledged")]
     StoreDroppedWrite,
+    /// The backend's chain is shorter than the persisted tip.
+    #[error("node is at height {height}, behind the persisted wallet tip {tip}")]
+    BackendBehindTip {
+        /// Height of the persisted tip.
+        tip: u32,
+        /// Height of the backend's best chain.
+        height: u32,
+    },
+    /// The backend could not be asked for its height.
+    #[error("checking the persisted tip against the node: {0:?}")]
+    Backend(crate::sync::SyncError),
     /// The bootstrap checkpoint is not above genesis.
     #[error("bootstrap checkpoint at height {0} must be above genesis")]
     BootstrapHeight(u32),
@@ -126,6 +139,24 @@ pub async fn load_or_create<P: WalletStore>(
     PersistedWallet::load_async(store, load_params())
         .await?
         .ok_or(InitError::StoreDroppedWrite)
+}
+
+/// Fails when the backend's chain is shorter than the wallet's tip.
+///
+/// A reorg is not a problem on its own: the emitter walks back to a block the backend still has
+/// and re-emits from there. It can only do that while the backend has blocks above that one, so a
+/// backend shorter than the stored tip, as after restoring an older node data directory, leaves
+/// the wallet's extra blocks in place with their transactions still looking confirmed.
+pub async fn ensure_backend_not_behind<P: WalletStore>(
+    backend: &Backend,
+    wallet: &PersistedWallet<P>,
+) -> Result<(), InitError<P::Error>> {
+    let tip = wallet.latest_checkpoint().height();
+    let height = backend.height().await.map_err(InitError::Backend)?;
+    if height >= tip {
+        return Ok(());
+    }
+    Err(InitError::BackendBehindTip { tip, height })
 }
 
 #[cfg(test)]
