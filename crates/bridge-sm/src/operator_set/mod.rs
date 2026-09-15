@@ -5,9 +5,12 @@
 
 mod schedule;
 mod state;
+mod transitions;
 
 pub use schedule::MembershipUpdate;
-pub use state::{MembershipCause, MembershipSnapshot, OperatorSetError, OperatorSetSM};
+pub use state::{
+    ConfirmedExit, ExitKind, MembershipCause, MembershipSnapshot, OperatorSetError, OperatorSetSM,
+};
 
 #[cfg(test)]
 mod tests;

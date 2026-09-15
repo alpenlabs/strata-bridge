@@ -42,6 +42,24 @@ impl SortedUpdates {
     pub(super) fn as_slice(&self) -> &[MembershipUpdate] {
         &self.0
     }
+
+    /// Borrows the ordered prefix whose activation heights are at or before `height`.
+    ///
+    /// Leaves the pending updates unchanged; returns an empty slice if none are due.
+    pub(super) fn due(&self, height: BitcoinBlockHeight) -> &[MembershipUpdate] {
+        let end = self
+            .0
+            .partition_point(|update| update.activation_height <= height);
+        &self.0[..end]
+    }
+
+    /// Removes and returns all updates activated at or before `height`, in activation order.
+    ///
+    /// Equal-height updates retain their supplied order. Later updates remain pending;
+    /// returns an empty vector if none are due.
+    pub(super) fn take_due(&mut self, height: BitcoinBlockHeight) -> Vec<MembershipUpdate> {
+        self.0.drain(..self.due(height).len()).collect()
+    }
 }
 
 impl From<Vec<MembershipUpdate>> for SortedUpdates {
