@@ -9,8 +9,9 @@ pub mod test_utils;
 
 use bdk_wallet::{
     bitcoin::{constants::genesis_block, Network},
+    chain::{local_chain::CannotConnectError, BlockId},
     descriptor::{DescriptorError, ExtendedDescriptor},
-    CreateWithPersistError, KeychainKind, LoadError, LoadWithPersistError, Wallet,
+    KeychainKind, LoadError, LoadWithPersistError, Update, Wallet,
 };
 pub use bdk_wallet::{AsyncWalletPersister, ChangeSet, PersistedWallet};
 use thiserror::Error;
@@ -37,12 +38,18 @@ pub enum InitError<E: std::error::Error + 'static> {
     /// Persisted state is for another network, genesis, or descriptor, or is incomplete.
     #[error("persisted wallet state is invalid for this wallet: {0}")]
     InvalidState(Box<LoadError>),
-    /// The store was empty on load but not on create: a concurrent writer.
-    #[error("wallet store reported existing data while creating a fresh wallet")]
-    DataAlreadyExists,
     /// The descriptor is not valid for BDK.
     #[error("wallet descriptor: {0}")]
     Descriptor(DescriptorError),
+    /// The store reported no data straight after acknowledging the initial write.
+    #[error("wallet store reported no data after the initial write was acknowledged")]
+    StoreDroppedWrite,
+    /// The bootstrap checkpoint is not above genesis.
+    #[error("bootstrap checkpoint at height {0} must be above genesis")]
+    BootstrapHeight(u32),
+    /// The bootstrap checkpoint could not be connected to genesis.
+    #[error("bootstrap checkpoint does not connect to genesis: {0}")]
+    Bootstrap(CannotConnectError),
 }
 
 impl<E: std::error::Error + 'static> From<LoadWithPersistError<E>> for InitError<E> {
@@ -54,30 +61,25 @@ impl<E: std::error::Error + 'static> From<LoadWithPersistError<E>> for InitError
     }
 }
 
-impl<E: std::error::Error + 'static> From<CreateWithPersistError<E>> for InitError<E> {
-    fn from(e: CreateWithPersistError<E>) -> Self {
-        match e {
-            CreateWithPersistError::Persist(e) => Self::Store(e),
-            CreateWithPersistError::DataAlreadyExists(_) => Self::DataAlreadyExists,
-            CreateWithPersistError::Descriptor(e) => Self::Descriptor(e),
-        }
-    }
-}
-
 /// Loads the wallet for `descriptor` from `store`, or creates it when the store is empty.
 ///
 /// Loading verifies network, genesis hash, and descriptor identity; a mismatch fails without
-/// touching the store. Creating persists the descriptor, network, and genesis block.
+/// touching the store. Creating persists the descriptor, network, and genesis block, then seeds
+/// the local chain with `bootstrap_checkpoint` if given, so the first sync starts above it. The
+/// checkpoint is ignored on load: persisted state wins.
 pub async fn load_or_create<P: WalletStore>(
     store: &mut P,
     descriptor: ExtendedDescriptor,
     network: Network,
+    bootstrap_checkpoint: Option<BlockId>,
 ) -> Result<PersistedWallet<P>, InitError<P::Error>> {
-    let load_params = Wallet::load()
-        .descriptor(KeychainKind::External, Some(descriptor.clone()))
-        .check_network(network)
-        .check_genesis_hash(genesis_block(network).block_hash());
-    if let Some(wallet) = PersistedWallet::load_async(store, load_params).await? {
+    let load_params = || {
+        Wallet::load()
+            .descriptor(KeychainKind::External, Some(descriptor.clone()))
+            .check_network(network)
+            .check_genesis_hash(genesis_block(network).block_hash())
+    };
+    if let Some(wallet) = PersistedWallet::load_async(store, load_params()).await? {
         info!(
             tip_height = wallet.latest_checkpoint().height(),
             "loaded persisted wallet state"
@@ -85,19 +87,55 @@ pub async fn load_or_create<P: WalletStore>(
         return Ok(wallet);
     }
 
-    let create_params = Wallet::create_single(descriptor).network(network);
-    let wallet = PersistedWallet::create_async(store, create_params).await?;
-    info!("created wallet at genesis");
-    Ok(wallet)
+    // Build the whole initial state in memory and commit it once. Committing the wallet and the
+    // checkpoint separately would let a failure in between strand the wallet at genesis: the load
+    // path wins on the next start, so the checkpoint would never be applied.
+    let mut wallet = Wallet::create_single(descriptor.clone())
+        .network(network)
+        .create_wallet_no_persist()
+        .map_err(InitError::Descriptor)?;
+    if let Some(block) = bootstrap_checkpoint {
+        // `push` refuses a height at or below the current tip, which is genesis here.
+        let chain = wallet
+            .latest_checkpoint()
+            .push(block)
+            .map_err(|_| InitError::BootstrapHeight(block.height))?;
+        wallet
+            .apply_update(Update {
+                chain: Some(chain),
+                ..Update::default()
+            })
+            .map_err(InitError::Bootstrap)?;
+    }
+    let changeset = wallet
+        .take_staged()
+        .expect("a fresh wallet always stages its descriptor and network");
+    P::persist(store, &changeset)
+        .await
+        .map_err(InitError::Store)?;
+
+    match bootstrap_checkpoint {
+        Some(block) => info!(
+            height = block.height,
+            hash = %block.hash,
+            "created wallet seeded with bootstrap checkpoint"
+        ),
+        None => info!("created wallet at genesis"),
+    }
+    PersistedWallet::load_async(store, load_params())
+        .await?
+        .ok_or(InitError::StoreDroppedWrite)
 }
 
 #[cfg(test)]
 mod tests {
     use bdk_wallet::{
         bitcoin::{
+            hashes::Hash,
             secp256k1::{Keypair, Secp256k1, SecretKey},
-            XOnlyPublicKey,
+            BlockHash, XOnlyPublicKey,
         },
+        chain::Merge,
         descriptor, LoadMismatch,
     };
 
@@ -119,19 +157,24 @@ mod tests {
         store: &mut MemoryStore,
         seed: u8,
         network: Network,
+        bootstrap: Option<BlockId>,
     ) -> Result<PersistedWallet<MemoryStore>, InitError<MemoryStoreError>> {
-        load_or_create(store, tr_descriptor(seed), network).await
+        load_or_create(store, tr_descriptor(seed), network, bootstrap).await
     }
 
     #[tokio::test]
     async fn create_then_load_persists_once() {
         let mut store = MemoryStore::new();
-        let wallet = open(&mut store, 1, Network::Regtest).await.expect("create");
+        let wallet = open(&mut store, 1, Network::Regtest, None)
+            .await
+            .expect("create");
         assert_eq!(wallet.latest_checkpoint().height(), 0);
         assert_eq!(store.persist_calls(), 1, "create persists once");
         drop(wallet);
 
-        let wallet = open(&mut store, 1, Network::Regtest).await.expect("load");
+        let wallet = open(&mut store, 1, Network::Regtest, None)
+            .await
+            .expect("load");
         assert_eq!(wallet.latest_checkpoint().height(), 0);
         assert_eq!(store.persist_calls(), 1, "loading never writes");
     }
@@ -139,9 +182,11 @@ mod tests {
     #[tokio::test]
     async fn wrong_network_is_rejected_and_the_store_is_untouched() {
         let mut store = MemoryStore::new();
-        open(&mut store, 1, Network::Regtest).await.expect("create");
+        open(&mut store, 1, Network::Regtest, None)
+            .await
+            .expect("create");
 
-        let err = open(&mut store, 1, Network::Signet)
+        let err = open(&mut store, 1, Network::Signet, None)
             .await
             .expect_err("network mismatch");
         assert!(
@@ -158,9 +203,11 @@ mod tests {
     #[tokio::test]
     async fn wrong_descriptor_is_rejected_and_the_store_is_untouched() {
         let mut store = MemoryStore::new();
-        open(&mut store, 1, Network::Regtest).await.expect("create");
+        open(&mut store, 1, Network::Regtest, None)
+            .await
+            .expect("create");
 
-        let err = open(&mut store, 2, Network::Regtest)
+        let err = open(&mut store, 2, Network::Regtest, None)
             .await
             .expect_err("descriptor mismatch");
         assert!(
@@ -172,5 +219,82 @@ mod tests {
             "got {err:?}"
         );
         assert_eq!(store.persist_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_checkpoint_seeds_the_chain_and_is_ignored_on_load() {
+        let mut store = MemoryStore::new();
+        let block = BlockId {
+            height: 500,
+            hash: BlockHash::from_byte_array([7; 32]),
+        };
+        let wallet = open(&mut store, 1, Network::Regtest, Some(block))
+            .await
+            .expect("create with bootstrap");
+        assert_eq!(wallet.latest_checkpoint().block_id(), block);
+        assert_eq!(
+            store.persist_calls(),
+            1,
+            "wallet and checkpoint commit together"
+        );
+        drop(wallet);
+
+        // A different checkpoint on load changes nothing: persisted state wins.
+        let other = BlockId {
+            height: 900,
+            hash: BlockHash::from_byte_array([9; 32]),
+        };
+        let wallet = open(&mut store, 1, Network::Regtest, Some(other))
+            .await
+            .expect("load");
+        assert_eq!(wallet.latest_checkpoint().block_id(), block);
+        assert_eq!(store.persist_calls(), 1, "loading never writes");
+    }
+
+    #[tokio::test]
+    async fn a_bootstrap_create_is_a_single_commit() {
+        let block = BlockId {
+            height: 500,
+            hash: BlockHash::from_byte_array([7; 32]),
+        };
+
+        // A failed create leaves nothing behind, so the retry applies the checkpoint. Committing
+        // the wallet and the checkpoint separately would instead strand a genesis-only wallet that
+        // the load path prefers from then on, and the checkpoint would never be applied.
+        let mut store = MemoryStore::new();
+        store.fail_on_persist_call(1);
+        open(&mut store, 1, Network::Regtest, Some(block))
+            .await
+            .expect_err("injected");
+        assert!(
+            store.aggregate().is_empty(),
+            "nothing to load after a failed create"
+        );
+        let wallet = open(&mut store, 1, Network::Regtest, Some(block))
+            .await
+            .expect("retry");
+        assert_eq!(wallet.latest_checkpoint().block_id(), block);
+
+        // There is no second commit to fail: the whole initial state goes in one call.
+        let mut store = MemoryStore::new();
+        store.fail_on_persist_call(2);
+        let wallet = open(&mut store, 1, Network::Regtest, Some(block))
+            .await
+            .expect("create must not need a second commit");
+        assert_eq!(wallet.latest_checkpoint().block_id(), block);
+        assert_eq!(store.persist_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_checkpoint_at_genesis_height_is_rejected() {
+        let mut store = MemoryStore::new();
+        let genesis_height = BlockId {
+            height: 0,
+            hash: BlockHash::from_byte_array([1; 32]),
+        };
+        let err = open(&mut store, 1, Network::Regtest, Some(genesis_height))
+            .await
+            .expect_err("height zero cannot sit above genesis");
+        assert!(matches!(err, InitError::BootstrapHeight(0)));
     }
 }
