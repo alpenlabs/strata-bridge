@@ -124,6 +124,9 @@ pub enum OperatorSetError {
     /// Existing registration identity or historical intervals cannot be rewritten.
     #[error("registration {0} is missing or has conflicting historical configuration")]
     RegistrationMismatch(OperatorIdx),
+    /// Preparation requires an activation beyond the processed height.
+    #[error("preparation height {0} is not in the future")]
+    InvalidPreparationHeight(BitcoinBlockHeight),
 }
 
 impl OperatorSetSM {
