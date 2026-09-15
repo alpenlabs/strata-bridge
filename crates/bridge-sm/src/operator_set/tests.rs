@@ -8,12 +8,16 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use strata_bridge_primitives::{
-    covenant::CovenantId,
+    covenant::{CovenantId, StakeKey},
     operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
     types::P2POperatorPubKey,
 };
 
-use super::{ConfirmedExit, ExitKind, MembershipUpdate, OperatorSetError, OperatorSetSM};
+use super::{
+    ConfirmedExit, ExitKind, MembershipUpdate, OperatorSetError, OperatorSetEvent, OperatorSetSM,
+    OperatorSetSignal,
+};
+use crate::state_machine::StateMachine;
 
 fn operator(index: u32, activation: u64, deactivation: Option<u64>) -> ScheduledOperator {
     let secret = SecretKey::from_slice(&[u8::try_from(index + 1).unwrap(); 32]).unwrap();
@@ -586,5 +590,228 @@ fn registration_updates_preserve_membership_and_reject_historical_rewrites() {
     assert_eq!(
         sm, saved,
         "Rejecting a rewritten original activation height must preserve the entire state"
+    );
+}
+
+#[test]
+fn block_stf_emits_only_final_covenant_members_and_no_external_duties() {
+    let mut sm = OperatorSetSM::new(10, three_members(), vec![]).unwrap();
+    assert_eq!(
+        sm.initialization_signals().unwrap().len(),
+        3,
+        "Initialization must request one stake for each current covenant member"
+    );
+    let output = sm
+        .process_event(
+            (),
+            OperatorSetEvent::NewBlock {
+                block_height: 11,
+                exits: vec![exit(1, 0), exit(2, 1)],
+            },
+        )
+        .unwrap();
+    assert!(output.did_mutate());
+    assert!(output.duties.is_empty());
+    assert_eq!(
+        output.signals,
+        vec![OperatorSetSignal::InitializeStake {
+            stake_key: StakeKey {
+                covenant: sm.current_covenant(),
+                operator: 0
+            },
+            operator_table: sm.current_operator_table().unwrap(),
+        }],
+        "A block with multiple exits must initialize only the final covenant, not intermediate subsets"
+    );
+    let ordinary = sm
+        .process_event(
+            (),
+            OperatorSetEvent::NewBlock {
+                block_height: 12,
+                exits: vec![],
+            },
+        )
+        .unwrap();
+    assert!(ordinary.did_mutate());
+    assert!(ordinary.signals.is_empty());
+}
+
+#[test]
+fn preparation_uses_future_identity_without_advancing_membership_or_clock() {
+    let mut sm = OperatorSetSM::new(10, schedule(), vec![update(20, &[2], &[1])]).unwrap();
+    let before = sm.clone();
+    let prepared = sm.prepare_covenant(20).unwrap();
+    assert_eq!(
+        sm, before,
+        "Preparing a future covenant must not alter membership, history, or the processing height"
+    );
+    assert!(!prepared.did_mutate());
+    assert!(prepared.duties.is_empty());
+    assert_eq!(
+        prepared.signals.len(),
+        2,
+        "Preparation must request stakes for both the surviving and newly added future members"
+    );
+    for signal in &prepared.signals {
+        let OperatorSetSignal::InitializeStake {
+            stake_key,
+            operator_table,
+        } = signal;
+        assert_eq!(
+            stake_key.covenant.activation_height, 20,
+            "Prepared stake identities must use the future admin activation height"
+        );
+        assert_eq!(
+            operator_table.operator_idxs(),
+            BTreeSet::from([0, 2]),
+            "Prepared membership must include the addition and exclude the scheduled removal"
+        );
+        assert!(operator_table.contains_idx(&stake_key.operator));
+    }
+    assert_eq!(
+        sm.prepare_covenant(20).unwrap(),
+        prepared,
+        "Repeated preparation must produce identical initialization requests"
+    );
+    let no_op = sm.prepare_covenant(19).unwrap();
+    assert!(!no_op.did_mutate());
+    assert!(no_op.duties.is_empty());
+    assert!(no_op.signals.is_empty());
+    assert!(sm.prepare_covenant(10).is_err());
+    for height in 11..20 {
+        sm.apply_block(height, &[]).unwrap();
+    }
+    let activation = sm
+        .process_event(
+            (),
+            OperatorSetEvent::NewBlock {
+                block_height: 20,
+                exits: vec![],
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        activation.signals, prepared.signals,
+        "Activation without intervening membership changes must request the previously prepared stakes"
+    );
+}
+
+#[test]
+fn automatic_exit_changes_future_projection_and_retains_current_admin_height() {
+    let initialization_height = 10;
+    let activation_height = 20;
+    let exit_height = initialization_height + 1;
+    let exited_operator = 0;
+    let removed_operator = 1;
+    let added_operator = 2;
+    let expected_members = BTreeSet::from([added_operator]);
+
+    let mut sm = OperatorSetSM::new(
+        initialization_height,
+        schedule(),
+        vec![update(
+            activation_height,
+            &[added_operator],
+            &[removed_operator],
+        )],
+    )
+    .unwrap();
+    let before = sm.prepare_covenant(activation_height).unwrap();
+    sm.process_event(
+        (),
+        OperatorSetEvent::NewBlock {
+            block_height: exit_height,
+            exits: vec![exit(exited_operator, 0)],
+        },
+    )
+    .unwrap();
+    let after = sm.prepare_covenant(activation_height).unwrap();
+    assert_eq!(
+        sm.current_covenant().activation_height,
+        initialization_height,
+        "An automatic exit must preserve the current admin boundary"
+    );
+    assert_ne!(before, after);
+    assert_eq!(
+        after.signals.len(),
+        expected_members.len(),
+        "Future preparation must exclude both the automatic exit and the scheduled removal"
+    );
+    let OperatorSetSignal::InitializeStake {
+        stake_key,
+        operator_table,
+    } = &after.signals[0];
+    assert_eq!(
+        stake_key.operator, added_operator,
+        "Only the future registration at index {added_operator} should need a prepared stake"
+    );
+    assert_eq!(
+        stake_key.covenant.activation_height, activation_height,
+        "The projected covenant must retain its scheduled activation height after an intervening exit"
+    );
+    assert_eq!(
+        operator_table.operator_idxs(),
+        expected_members,
+        "The projected table must contain only the surviving future member"
+    );
+}
+
+#[test]
+fn serialization_preserves_initialization_intent_and_replay_does_not_emit_again() {
+    let mut sm = OperatorSetSM::new(10, three_members(), vec![]).unwrap();
+    let event = OperatorSetEvent::NewBlock {
+        block_height: 11,
+        exits: vec![exit(1, 0)],
+    };
+    let output = sm.process_event((), event.clone()).unwrap();
+    let bytes = postcard::to_allocvec(&sm).unwrap();
+    let mut restored: OperatorSetSM = postcard::from_bytes(&bytes).unwrap();
+    assert_eq!(
+        restored.initialization_signals().unwrap(),
+        output.signals,
+        "Restoring membership must reproduce initialization intent for the same finalized covenant"
+    );
+    let encoded_signals = postcard::to_allocvec(&output.signals).unwrap();
+    assert_eq!(
+        postcard::from_bytes::<Vec<OperatorSetSignal>>(&encoded_signals).unwrap(),
+        output.signals,
+        "Signal serialization must preserve exact stake identities and covenant membership tables"
+    );
+    assert!(restored.process_event((), event).is_err());
+    assert_eq!(
+        restored, sm,
+        "Rejecting a replay after restoration must leave the recovered state unchanged"
+    );
+}
+
+#[test]
+fn registration_update_marks_only_changed_inputs_as_mutated() {
+    let mut sm = OperatorSetSM::new(10, schedule(), vec![]).unwrap();
+    let event = OperatorSetEvent::UpdateOperatorTable {
+        registrations: schedule(),
+        pending_updates: vec![update(30, &[], &[0]), update(20, &[2], &[1])],
+    };
+    let covenant = sm.current_covenant();
+    let output = sm.process_event((), event.clone()).unwrap();
+    assert!(output.did_mutate());
+    assert!(output.signals.is_empty());
+    assert_eq!(
+        sm.pending_updates(),
+        &[update(20, &[2], &[1]), update(30, &[], &[0])],
+        "The update event must normalize pending operations into activation order"
+    );
+    assert_eq!(
+        sm.current_covenant(),
+        covenant,
+        "Installing pending operations must not change the currently finalized covenant"
+    );
+
+    let before = sm.clone();
+    let duplicate = sm.process_event((), event).unwrap();
+    assert!(!duplicate.did_mutate());
+    assert!(duplicate.signals.is_empty());
+    assert_eq!(
+        sm, before,
+        "Repeating the same schedule event must leave the complete state unchanged"
     );
 }
