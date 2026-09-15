@@ -24,22 +24,37 @@
 //! signing with the same keypair the descriptor was constructed from (BIP-341 key-path with
 //! the empty-merkle-root tap-tweak).
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, num::NonZeroU32, sync::Arc};
 
-use bdk_wallet::bitcoin::{
-    hashes::Hash,
-    key::{Keypair, Secp256k1, TapTweak},
-    secp256k1::{Message, SecretKey},
-    sighash::{Prevouts, SighashCache},
-    taproot, Address, Amount, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction,
-    Witness, XOnlyPublicKey,
+use bdk_wallet::{
+    bitcoin::{
+        hashes::Hash,
+        key::{Keypair, Secp256k1, TapTweak},
+        secp256k1::{Message, SecretKey},
+        sighash::{Prevouts, SighashCache},
+        taproot, Address, Amount, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction,
+        Witness, XOnlyPublicKey,
+    },
+    chain::BlockId,
 };
 use corepc_node::{Conf, Node};
 use operator_wallet::{
-    sync::Backend, Error as OperatorWalletError, GeneralUtxoPolicy, GeneralWallet,
-    NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
+    sync::Backend, test_utils::MemoryStore, Error as OperatorWalletError, GeneralUtxoPolicy,
+    GeneralWallet, NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
+    DEFAULT_PERSIST_EVERY_BLOCKS,
 };
 use serial_test::serial;
+
+/// The concrete wallet type under test: native general wallet + in-memory stores.
+type TestWallet = OperatorWallet<NativeGeneralWallet<MemoryStore>, MemoryStore>;
+
+/// The pair of in-memory stores backing one operator wallet. Clones share storage, so keeping a
+/// `Stores` around and re-opening from it simulates a process restart.
+#[derive(Clone, Default)]
+struct Stores {
+    general: MemoryStore,
+    reserved: MemoryStore,
+}
 
 /// 1 sat — the smallest possible "anchor" value, used in tests where we don't actually
 /// want any UTXO to look like an anchor. `OperatorWallet`'s anchor exclusion filters on
@@ -75,10 +90,50 @@ fn keypair_from_seed(seed: u8) -> (Keypair, XOnlyPublicKey) {
     (kp, xonly)
 }
 
-/// Builds a fully-wired `OperatorWallet<NativeGeneralWallet>` for tests. Funds the general
-/// wallet with `general_funding_utxos` UTXOs of `general_funding_value` each via bitcoind's
-/// own wallet, then syncs. The reserved wallet is created from a separate deterministic
-/// keypair and starts empty.
+/// Opens (loads or creates) an operator wallet against `stores` without funding or syncing it.
+/// Returns the wallet plus the origin reported for the general and reserved wallets.
+async fn open_wallet(
+    bitcoind: &Node,
+    general_seed: u8,
+    reserved_seed: u8,
+    stores: &Stores,
+    bootstrap_checkpoint: Option<BlockId>,
+    persist_every_blocks: NonZeroU32,
+) -> TestWallet {
+    let (_, general_pubkey) = keypair_from_seed(general_seed);
+    let (_, reserved_pubkey) = keypair_from_seed(reserved_seed);
+
+    let general_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
+    let reserved_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
+    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest)
+        .with_persist_every_blocks(persist_every_blocks);
+    let general = NativeGeneralWallet::load_or_create(
+        general_pubkey,
+        &config,
+        general_backend,
+        stores.general.clone(),
+        bootstrap_checkpoint,
+    )
+    .await
+    .expect("general wallet init");
+    let wallet = OperatorWallet::load_or_create(
+        general,
+        reserved_pubkey,
+        config,
+        reserved_backend,
+        stores.reserved.clone(),
+        bootstrap_checkpoint,
+        BTreeSet::new(),
+    )
+    .await
+    .expect("reserved wallet init");
+    wallet
+}
+
+/// Builds a fully-wired [`TestWallet`] against fresh in-memory stores. Funds the general wallet
+/// with `general_funding_utxos` UTXOs of `general_funding_value` each via bitcoind's own wallet,
+/// then syncs. The reserved wallet is created from a separate deterministic keypair and starts
+/// empty.
 async fn build_operator_wallet(
     bitcoind: &Node,
     general_seed: u8,
@@ -86,24 +141,20 @@ async fn build_operator_wallet(
     general_funding_utxos: usize,
     general_funding_value: Amount,
 ) -> (
-    OperatorWallet<NativeGeneralWallet>,
+    TestWallet,
     Keypair, // general keypair, used by the test to sign funded PSBTs
     XOnlyPublicKey,
 ) {
     let (general_kp, general_pubkey) = keypair_from_seed(general_seed);
-    let (_reserved_kp, reserved_pubkey) = keypair_from_seed(reserved_seed);
-
-    let general_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
-    let reserved_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
-    let general = NativeGeneralWallet::new(general_pubkey, Network::Regtest, general_backend);
-    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest);
-    let mut wallet = OperatorWallet::new(
-        general,
-        reserved_pubkey,
-        config,
-        reserved_backend,
-        BTreeSet::new(),
-    );
+    let mut wallet = open_wallet(
+        bitcoind,
+        general_seed,
+        reserved_seed,
+        &Stores::default(),
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
 
     // Fund the general wallet's address from bitcoind's own wallet.
     let general_address = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);

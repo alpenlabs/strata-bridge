@@ -11,7 +11,7 @@ use bitcoin::{
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
-use operator_wallet::{GeneralUtxoPolicy, GeneralWallet, OperatorWallet, UtxoInfo};
+use operator_wallet::{GeneralUtxoPolicy, GeneralWallet, OperatorWallet, UtxoInfo, WalletStore};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
 use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
@@ -275,8 +275,8 @@ async fn ensure_claim_funding_outpoint(
     Ok(assigned_outpoint)
 }
 
-async fn reconcile_claim_funding_leases_after_driver_failure<G: GeneralWallet>(
-    wallet: &mut OperatorWallet<G>,
+async fn reconcile_claim_funding_leases_after_driver_failure<G: GeneralWallet, P: WalletStore>(
+    wallet: &mut OperatorWallet<G, P>,
     spent: &[OutPoint],
 ) {
     if let Err(sync_err) = wallet.sync().await {
@@ -744,6 +744,7 @@ mod tests {
     use corepc_node::{Conf, Node};
     use operator_wallet::{
         FundedPsbt, GeneralWallet, OperatorWallet, OperatorWalletConfig, UtxoInfo, sync::Backend,
+        test_utils::MemoryStore,
     };
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
 
@@ -807,12 +808,12 @@ mod tests {
         CoreRpcClient::new(bitcoind.rpc_url().as_str(), auth).expect("core rpc client")
     }
 
-    fn reconciliation_wallet(
+    async fn reconciliation_wallet(
         bitcoind: &Node,
         live_utxos: Vec<UtxoInfo>,
         sync_fails: bool,
         initial_leases: BTreeSet<OutPoint>,
-    ) -> OperatorWallet<ReconciliationGeneralWallet> {
+    ) -> OperatorWallet<ReconciliationGeneralWallet, MemoryStore> {
         let general = ReconciliationGeneralWallet {
             live_utxos,
             sync_fails,
@@ -820,13 +821,17 @@ mod tests {
         let config = OperatorWalletConfig::new(Amount::from_sat(330), Network::Regtest)
             .with_sync_policy(0, 1, Duration::ZERO);
 
-        OperatorWallet::new(
+        OperatorWallet::load_or_create(
             general,
             xonly_pubkey(42),
             config,
             Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
+            MemoryStore::new(),
+            None,
             initial_leases,
         )
+        .await
+        .expect("reserved wallet should initialise against an empty store")
     }
 
     fn test_utxo(outpoint: OutPoint) -> UtxoInfo {
@@ -866,7 +871,8 @@ mod tests {
             vec![test_utxo(live)],
             false,
             BTreeSet::from([spent, live]),
-        );
+        )
+        .await;
 
         reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &[spent, live]).await;
 
@@ -888,7 +894,8 @@ mod tests {
             vec![test_utxo(input)],
             true,
             BTreeSet::from([input]),
-        );
+        )
+        .await;
 
         reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &[input]).await;
 

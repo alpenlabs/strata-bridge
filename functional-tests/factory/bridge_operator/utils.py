@@ -53,8 +53,13 @@ def generate_config_toml(
     mosaic_rpc: str,
     heartbeat_delay_factor: int = 1,  # no delay by default
     metrics_listener_addr: str | None = None,
+    wallet_data_dir: str | None = None,
 ):
     mtls_dir = Path(tls_dir)
+    # Wallet chain state persists next to the node's config by default, so a restarted node in a
+    # test resumes from where it stopped exactly as a deployed node would.
+    if wallet_data_dir is None:
+        wallet_data_dir = str((Path(output_path).parent / "wallet").resolve())
     total_peers = len(other_p2p_addrs) + 1  # +1 for self
 
     # Read connection details from props; defaults preserve the spawn-path behavior.
@@ -141,7 +146,7 @@ def generate_config_toml(
                 bitcoind_props["zmq_sequence"], zmq_host
             ),
         ),
-        operator_wallet=OperatorWalletConfig(claim_funding_pool_size=32),
+        operator_wallet=OperatorWalletConfig(claim_funding_pool_size=32, data_dir=wallet_data_dir),
         mosaic=MosaicConfig(
             rpc_url=mosaic_rpc,
             peer_ids=mosaic_peers,

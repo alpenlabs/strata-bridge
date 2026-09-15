@@ -1,12 +1,12 @@
 //! Configuration knobs for [`crate::OperatorWallet`].
 //!
 //! Holds runtime parameters that don't change after construction (network, anchor-identification
-//! value, sync retry policy). Per-call parameters like UTXO denominations are passed to the
-//! relevant methods directly; this struct intentionally does not bake them in so the same
-//! composer can serve multiple use cases (claim funding, stake funding, etc.) without
+//! value, sync retry policy, persistence cadence). Per-call parameters like UTXO denominations are
+//! passed to the relevant methods directly; this struct intentionally does not bake them in so the
+//! same composer can serve multiple use cases (claim funding, stake funding, etc.) without
 //! conflating their denominations.
 
-use std::time::Duration;
+use std::{num::NonZeroU32, time::Duration};
 
 use bdk_wallet::bitcoin::{Amount, Network};
 
@@ -19,6 +19,10 @@ pub const DEFAULT_SYNC_BACKOFF: u32 = 3;
 
 /// Initial delay between sync retry attempts (multiplied by the exponential backoff).
 pub const DEFAULT_SYNC_BASE_DELAY: Duration = Duration::from_millis(100);
+
+/// How many applied blocks trigger a persist of staged wallet state during a sync.
+pub const DEFAULT_PERSIST_EVERY_BLOCKS: NonZeroU32 =
+    NonZeroU32::new(2_000).expect("persist cadence must be non-zero");
 
 /// Configuration for [`crate::OperatorWallet`].
 #[derive(Debug, Clone)]
@@ -35,12 +39,16 @@ pub struct OperatorWalletConfig {
     /// Initial delay before the first retry; multiplied by the exponential backoff on each
     /// subsequent attempt.
     pub(crate) sync_base_delay: Duration,
+    /// Number of applied blocks between persists of the reserved wallet's staged state during a
+    /// sync. See [`DEFAULT_PERSIST_EVERY_BLOCKS`].
+    pub(crate) persist_every_blocks: NonZeroU32,
 }
 
 impl OperatorWalletConfig {
     /// Creates a new config with the sync-retry knobs at their defaults
-    /// ([`DEFAULT_SYNC_RETRIES`] / [`DEFAULT_SYNC_BACKOFF`] / [`DEFAULT_SYNC_BASE_DELAY`]).
-    /// Use [`Self::with_sync_policy`] to override them.
+    /// ([`DEFAULT_SYNC_RETRIES`] / [`DEFAULT_SYNC_BACKOFF`] / [`DEFAULT_SYNC_BASE_DELAY`]) and the
+    /// persistence cadence at [`DEFAULT_PERSIST_EVERY_BLOCKS`]. Use [`Self::with_sync_policy`] and
+    /// [`Self::with_persist_every_blocks`] to override them.
     pub const fn new(cpfp_value: Amount, network: Network) -> Self {
         Self {
             cpfp_value,
@@ -48,6 +56,7 @@ impl OperatorWalletConfig {
             sync_retries: DEFAULT_SYNC_RETRIES,
             sync_backoff: DEFAULT_SYNC_BACKOFF,
             sync_base_delay: DEFAULT_SYNC_BASE_DELAY,
+            persist_every_blocks: DEFAULT_PERSIST_EVERY_BLOCKS,
         }
     }
 
@@ -63,5 +72,16 @@ impl OperatorWalletConfig {
         self.sync_backoff = sync_backoff;
         self.sync_base_delay = sync_base_delay;
         self
+    }
+
+    /// Returns a copy with the persistence cadence replaced.
+    pub const fn with_persist_every_blocks(mut self, persist_every_blocks: NonZeroU32) -> Self {
+        self.persist_every_blocks = persist_every_blocks;
+        self
+    }
+
+    /// Number of applied blocks between persists during a sync.
+    pub const fn persist_every_blocks(&self) -> NonZeroU32 {
+        self.persist_every_blocks
     }
 }

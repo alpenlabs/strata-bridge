@@ -103,6 +103,22 @@ just docker
 
 to rebuild and restart the stack without deleting persisted state.
 
+### Wallet State
+
+Each bridge node persists its two BDK wallets as SQLite files under `operator_wallet.data_dir`,
+`/app/data/wallet` in the checked-in configs, which is `docker/vol/strata-bridge-{1,2,3}/data/wallet/`
+on the host. The directory is gitignored, survives `just docker`, and is removed by `just clean-docker`.
+
+A node that cannot open a store (damaged file, or one written for another network or key) stops
+at startup naming the file. To rebuild, move the stores aside and restart:
+
+```sh
+docker compose stop bridge-1
+mkdir -p docker/vol/strata-bridge-1/data/wallet/retired
+mv docker/vol/strata-bridge-1/data/wallet/*.sqlite* docker/vol/strata-bridge-1/data/wallet/retired/
+docker compose up -d bridge-1
+```
+
 ### FoundationDB
 
 The bridge nodes use FoundationDB for persistent storage. The Docker workflow automatically:
