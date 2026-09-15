@@ -54,8 +54,8 @@ use bdk_wallet::{
 use corepc_node::{Conf, Node};
 use operator_wallet::{
     load_or_create, sync::Backend, test_utils::MemoryStore, Error as OperatorWalletError,
-    GeneralUtxoPolicy, GeneralWallet, NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
-    SqliteStore, WalletKind, DEFAULT_PERSIST_EVERY_BLOCKS,
+    GeneralUtxoPolicy, GeneralWallet, InitError, NativeGeneralWallet, OperatorWallet,
+    OperatorWalletConfig, SqliteStore, WalletKind, DEFAULT_PERSIST_EVERY_BLOCKS,
 };
 use serial_test::serial;
 
@@ -1268,6 +1268,47 @@ async fn a_reorged_out_payment_stops_being_spendable() {
 
 #[tokio::test]
 #[serial]
+async fn a_store_ahead_of_the_node_is_refused() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        39,
+        40,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet.sync().await.expect("sync");
+    let tip = wallet.local_chain_tip_height();
+    assert!(tip > 0);
+    drop(wallet);
+
+    // Roll the node back below the persisted tip, as restoring an older data directory would.
+    let rpc = sync_rpc_client(&bitcoind);
+    rpc.invalidate_block(&rpc.get_block_hash(u64::from(tip) - 2).expect("block hash"))
+        .expect("invalidate");
+    assert!(rpc.get_block_count().expect("count") < u64::from(tip));
+
+    let (_, general_pubkey) = keypair_from_seed(39);
+    let err = NativeGeneralWallet::load_or_create(
+        general_pubkey,
+        &OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest),
+        Backend::BitcoinCore(Arc::new(sync_rpc_client(&bitcoind))),
+        stores.general.clone(),
+        None,
+    )
+    .await
+    .expect_err("a store ahead of the node must be refused");
+    assert!(
+        matches!(err, InitError::BackendBehindTip { tip: stored, .. } if stored == tip),
+        "got {err:?}"
+    );
+}
+
+#[tokio::test]
+#[serial]
 async fn a_lease_survives_its_funding_leaving_the_mempool() {
     let bitcoind = setup_bitcoind();
     let stores = Stores::default();
@@ -1400,6 +1441,51 @@ async fn unconfirmed_outputs_stay_spendable_across_a_failed_sync() {
     wallet.sync().await.expect("retry");
     assert_eq!(wallet.reserved_utxos_with_value(value).len(), quantity);
     assert_eq!(unconfirmed_general(&wallet), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn a_reorg_across_a_restart_reconciles() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        41,
+        42,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet.sync().await.expect("sync");
+    let tip = wallet.local_chain_tip_height();
+    let tip_hash = wallet.reserved_tip_hash();
+    drop(wallet);
+
+    // While stopped, the stored tip is reorged away and the node builds past it.
+    let rpc = sync_rpc_client(&bitcoind);
+    rpc.invalidate_block(&rpc.get_block_hash(u64::from(tip)).expect("block hash"))
+        .expect("invalidate");
+    mine(&bitcoind, 2);
+    assert_ne!(
+        rpc.get_block_hash(u64::from(tip)).expect("new hash"),
+        tip_hash,
+        "the stored tip's block is gone"
+    );
+
+    // The node is no shorter than the store, so the emitter can reconcile and startup proceeds.
+    let mut wallet = open_wallet(
+        &bitcoind,
+        41,
+        42,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet.sync().await.expect("sync after the reorg");
+    assert_eq!(wallet.local_chain_tip_height(), tip + 1);
+    assert_ne!(wallet.reserved_tip_hash(), tip_hash);
 }
 
 #[tokio::test]

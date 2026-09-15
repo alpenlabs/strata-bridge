@@ -26,7 +26,7 @@ use tracing::info;
 use crate::{
     config::OperatorWalletConfig,
     general::{is_spendable, local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
-    persist::{load_or_create, InitError, PersistedWallet, WalletStore},
+    persist::{ensure_backend_not_behind, load_or_create, InitError, PersistedWallet, WalletStore},
     sync::{Backend, SyncError},
 };
 
@@ -58,6 +58,7 @@ impl<P: WalletStore> NativeGeneralWallet<P> {
     ) -> Result<Self, InitError<P::Error>> {
         let (desc, ..) = descriptor!(tr(general_pubkey)).expect("valid tr() descriptor");
         let wallet = load_or_create(&mut store, desc, config.network, bootstrap_checkpoint).await?;
+        ensure_backend_not_behind(&sync_backend, &wallet).await?;
         let address = wallet.peek_address(KeychainKind::External, 0).address;
         info!("general wallet address: {address}");
         Ok(Self {

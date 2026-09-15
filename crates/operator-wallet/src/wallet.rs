@@ -29,7 +29,7 @@ use tracing::{error, info, warn};
 use crate::{
     config::OperatorWalletConfig,
     general::{is_spendable, local_output_to_utxo_info, FundedPsbt, GeneralWallet, UtxoInfo},
-    persist::{load_or_create, PersistedWallet, WalletStore},
+    persist::{ensure_backend_not_behind, load_or_create, PersistedWallet, WalletStore},
     sync::Backend,
     Error,
 };
@@ -84,6 +84,9 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
         )
         .await
         .map_err(|e| Error::ReservedInit(Box::new(e)))?;
+        ensure_backend_not_behind(&reserved_sync_backend, &reserved)
+            .await
+            .map_err(|e| Error::ReservedInit(Box::new(e)))?;
         let reserved_addr = reserved.peek_address(KeychainKind::External, 0).address;
         info!("reserved wallet address: {reserved_addr}");
         Ok(Self {
