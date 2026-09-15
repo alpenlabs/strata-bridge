@@ -101,11 +101,15 @@ async fn sync_wallet_bitcoin_core(
             let start_height = scan_start_height(&last_cp);
             with_bitcoin_core(client, move |client| {
                 let mut emitter = Emitter::new(client, last_cp, start_height);
-                while let Some(ev) = emitter.next_block().unwrap() {
-                    send_update.send(WalletUpdate::NewBlock(ev)).unwrap();
+                while let Some(ev) = emitter.next_block()? {
+                    // A closed channel means the receiver gave up on this attempt. Stop emitting
+                    // instead of panicking on the dropped receiver.
+                    if send_update.send(WalletUpdate::NewBlock(ev)).is_err() {
+                        return Ok(());
+                    }
                 }
-                let mempool = emitter.mempool().unwrap();
-                send_update.send(WalletUpdate::MempoolTxs(mempool)).unwrap();
+                let mempool = emitter.mempool()?;
+                let _ = send_update.send(WalletUpdate::MempoolTxs(mempool));
                 Ok(())
             })
             .await
