@@ -10,6 +10,7 @@ pub mod deposit;
 pub(crate) mod error_policy;
 pub mod errors;
 pub mod graph;
+pub mod operator_set;
 pub mod signals;
 pub mod stake;
 pub mod state_machine;
