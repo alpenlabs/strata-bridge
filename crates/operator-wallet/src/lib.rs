@@ -32,7 +32,7 @@ pub use crate::persist::test_utils;
 pub use crate::{
     config::OperatorWalletConfig,
     general::{native::NativeGeneralWallet, FundedPsbt, GeneralWallet, UtxoInfo},
-    persist::{load_or_create, InitError, WalletStore},
+    persist::{load_or_create, InitError, SqliteStore, SqliteStoreError, WalletKind, WalletStore},
     sync::SyncError,
     wallet::{GeneralUtxoPolicy, OperatorWallet},
 };
