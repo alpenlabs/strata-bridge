@@ -48,6 +48,14 @@ pub trait GeneralWallet: Send + Sync {
     /// exclusions before requesting funding.
     fn list_utxos(&self) -> Vec<UtxoInfo>;
 
+    /// Every outpoint the wallet still holds unspent, including any [`Self::list_utxos`] leaves
+    /// out.
+    ///
+    /// Lease bookkeeping asks this rather than [`Self::list_utxos`]: a lease must only be released
+    /// once the outpoint has actually been spent, not because the wallet has stopped trusting it
+    /// for spending. Releasing early would let two callers lease the same outpoint.
+    fn unspent_outpoints(&self) -> Vec<OutPoint>;
+
     /// Builds a v3 TRUC funding transaction and signs the inputs it has key material for.
     ///
     /// * `outputs` — recipient outputs to fund. Change (if any) is appended.

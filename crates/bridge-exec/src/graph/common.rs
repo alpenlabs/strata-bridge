@@ -775,6 +775,10 @@ mod tests {
             self.live_utxos.clone()
         }
 
+        fn unspent_outpoints(&self) -> Vec<OutPoint> {
+            self.live_utxos.iter().map(|utxo| utxo.outpoint).collect()
+        }
+
         async fn fund_v3_transaction(
             &mut self,
             _outputs: Vec<TxOut>,
