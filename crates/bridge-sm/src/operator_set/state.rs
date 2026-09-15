@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{
     covenant::CovenantId,
@@ -18,6 +19,39 @@ use super::schedule::{MembershipUpdate, SortedUpdates};
 pub enum MembershipCause {
     /// Membership trusted from registration intervals on first initialization.
     Initialization,
+    /// A confirmed, externally validated exit at its original Bitcoin transaction position.
+    Exit(ConfirmedExit),
+    /// An applied admin update, including no-ops, retained for schedule provenance.
+    Admin {
+        /// The authorized operation, with additions preceding removals.
+        update: MembershipUpdate,
+        /// Whether any addition or removal took effect, even if the final set is unchanged.
+        effective: bool,
+    },
+}
+
+/// A confirmed exit whose transaction and registration identity have been validated.
+///
+/// Exits must be validated against membership at their position in Bitcoin transaction order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmedExit {
+    /// The permanent registration evicted, regardless of the source stake's covenant.
+    pub operator_idx: OperatorIdx,
+    /// The transaction that established the exit.
+    pub txid: Txid,
+    /// Its zero-based position within the block, for historical validation ordering.
+    pub tx_index: u32,
+    /// Whether the transaction was a slash or an unstaking intent.
+    pub kind: ExitKind,
+}
+
+/// The validated reason for a registration's exit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExitKind {
+    /// A confirmed unstaking intent for any stake of this registration.
+    UnstakingIntent,
+    /// A confirmed slash for this registration.
+    Slash,
 }
 
 /// Indexed membership after one operation, retained in execution order.
@@ -76,6 +110,20 @@ pub enum OperatorSetError {
     /// Public membership could not be constructed from the supplied registrations.
     #[error("invalid public operator membership")]
     InvalidMembership,
+    /// Blocks must follow the processed height exactly; replay cannot create another successor.
+    #[error("expected the block after {processed}, received {received}")]
+    NonconsecutiveBlock {
+        /// Last fully processed height.
+        processed: BitcoinBlockHeight,
+        /// Supplied block height.
+        received: BitcoinBlockHeight,
+    },
+    /// Exit classifications must preserve Bitcoin transaction order.
+    #[error("exit classifications are not in transaction order")]
+    UnorderedExits,
+    /// Existing registration identity or historical intervals cannot be rewritten.
+    #[error("registration {0} is missing or has conflicting historical configuration")]
+    RegistrationMismatch(OperatorIdx),
 }
 
 impl OperatorSetSM {
@@ -152,6 +200,24 @@ impl OperatorSetSM {
     /// Membership snapshots in execution order, beginning with initialization.
     pub fn membership_history(&self) -> &[MembershipSnapshot] {
         &self.membership_history
+    }
+
+    /// Reports effective transitions after initialization, including admin round trips.
+    ///
+    /// An effective admin update counts even when later operations at the same height restore
+    /// the original signing set.
+    pub fn transition_at(&self, height: BitcoinBlockHeight) -> bool {
+        self.membership_history.windows(2).any(|pair| {
+            pair[1].block_height == height
+                && (pair[0].members != pair[1].members
+                    || matches!(
+                        pair[1].cause,
+                        MembershipCause::Admin {
+                            effective: true,
+                            ..
+                        }
+                    ))
+        })
     }
 
     /// The last fully processed block height.
