@@ -1,7 +1,7 @@
 //! Error types for the orchestrator crate.
 
 use strata_bridge_primitives::covenant::StakeKey;
-use strata_bridge_sm::{signals::Signal, state_machine::SMOutput};
+use strata_bridge_sm::{operator_set::OperatorSetError, signals::Signal, state_machine::SMOutput};
 use thiserror::Error;
 
 use crate::{
@@ -31,6 +31,10 @@ pub enum ProcessError {
     /// A duplicate or invalid registry insertion was attempted.
     #[error("Registry insertion error: {0}")]
     RegistryInsert(#[from] RegistryInsertError),
+
+    /// The membership transition failed and must not be skipped to finalize the block.
+    #[error("operator membership transition failed: {0}")]
+    OperatorSet(#[from] OperatorSetError),
 }
 
 /// Fatal error from the pipeline main loop.

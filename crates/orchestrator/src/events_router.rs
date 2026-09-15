@@ -27,8 +27,12 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
         // handled directly by the pipeline/registry (the latch), not deposit-scoped, so it is not
         // routed to any state machine
         UnifiedEvent::SafeHarbour(_) => Vec::new(),
-        // relevant to all state machines
-        UnifiedEvent::NagTick | UnifiedEvent::RetryTick => registry.get_all_ids(),
+        // Membership has no peer retry or nag duties.
+        UnifiedEvent::NagTick | UnifiedEvent::RetryTick => registry
+            .get_all_ids()
+            .into_iter()
+            .filter(|id| *id != SMId::OperatorSet)
+            .collect(),
 
         // Each assignment targets one DepositSM and all GraphSMs for that deposit (one per
         // operator).

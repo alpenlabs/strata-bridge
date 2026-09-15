@@ -568,6 +568,7 @@ pub(crate) fn classify_unsigned_gossip(
 
             // Router guarantees target SM exists for routed events.
             let missing_sm_message = match &sm_id {
+                SMId::OperatorSet => return vec![],
                 SMId::Deposit(_) => "router should route nags only to existing deposit SMs",
                 SMId::Graph(_) => "router should route nags only to existing graph SMs",
                 SMId::Stake(_) => "router should route nags only to existing stake SMs",
@@ -664,6 +665,7 @@ fn nag_target_sm_id(payload: &NagRequestPayload, registry: &SMRegistry) -> Optio
 
 fn pov_p2p_key_for_sm(sm_registry: &SMRegistry, sm_id: &SMId) -> Option<P2POperatorPubKey> {
     match sm_id {
+        SMId::OperatorSet => None,
         SMId::Deposit(deposit_idx) => sm_registry
             .get_deposit(deposit_idx)
             .map(|sm| sm.context().operator_table().pov_p2p_key().clone()),
@@ -682,6 +684,7 @@ fn pov_p2p_key_for_sm(sm_registry: &SMRegistry, sm_id: &SMId) -> Option<P2POpera
 /// the event matching `sm_id`'s type, paired with the entry whose `deposit_idx` matches.
 fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEvent> {
     match sm_id {
+        SMId::OperatorSet => None,
         SMId::Deposit(deposit_idx) => entries.iter().find_map(|entry| {
             (entry.deposit_idx() == *deposit_idx).then(|| {
                 DepositEvent::WithdrawalAssigned(DepositEvents::WithdrawalAssignedEvent {
@@ -709,6 +712,7 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
 
 fn classify_nag_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
     match sm_id {
+        SMId::OperatorSet => None,
         SMId::Deposit(deposit_idx) => sm_registry
             .get_deposit(deposit_idx)
             .map(|_| DepositEvent::NagTick(DepositEvents::NagTickEvent).into()),
@@ -723,6 +727,7 @@ fn classify_nag_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> 
 
 fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
     match sm_id {
+        SMId::OperatorSet => None,
         SMId::Deposit(deposit_idx) => sm_registry
             .get_deposit(deposit_idx)
             .map(|_| DepositEvent::RetryTick(RetryTickEvent).into()),
@@ -737,6 +742,7 @@ fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent
 
 fn classify_mosaic_event(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
     match sm_id {
+        SMId::OperatorSet => None,
         SMId::Stake(_) => {
             error!("got unexpected SMId::Stake for mosaic event");
             None
