@@ -997,6 +997,135 @@ async fn reorg_rolls_back_the_persisted_chain_and_reanchors_reserved_utxos() {
 
 #[tokio::test]
 #[serial]
+async fn an_unconfirmed_payment_is_not_spendable_after_a_restart() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        33,
+        34,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet.sync().await.expect("initial sync");
+
+    // A payment to the reserved script that later leaves the mempool cannot be evicted from the
+    // wallet with this BDK version, so its mempool timestamp is kept in memory only.
+    let value = Amount::from_btc(0.01).unwrap();
+    let reserved_addr = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    bitcoind
+        .client
+        .send_to_address(&reserved_addr, value)
+        .expect("send to reserved script");
+    wallet
+        .sync()
+        .await
+        .expect("sync with the payment in the mempool");
+
+    let pool = wallet.reserved_utxos_with_value(value);
+    assert_eq!(pool.len(), 1, "unconfirmed payment visible in memory");
+    assert_eq!(pool[0].confirmations, 0);
+    let txid = pool[0].outpoint.txid;
+
+    // Nothing about it reaches the store, so repeated payments that never confirm cannot grow it.
+    let aggregate = stores.reserved.aggregate();
+    assert!(
+        !aggregate
+            .tx_graph
+            .txs
+            .iter()
+            .any(|tx| tx.compute_txid() == txid),
+        "an unconfirmed transaction must not be persisted"
+    );
+    assert!(
+        aggregate.tx_graph.last_seen.is_empty(),
+        "mempool timestamps must not be persisted"
+    );
+
+    // So a restart cannot hand the payment out as a pool member.
+    drop(wallet);
+    let wallet = open_wallet(
+        &bitcoind,
+        33,
+        34,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    assert!(
+        wallet.reserved_utxos_with_value(value).is_empty(),
+        "an unconfirmed payment must not be spendable after a restart"
+    );
+    assert!(
+        stores.reserved.aggregate().tx_graph.txs.is_empty(),
+        "the store holds no unanchored transactions"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn a_payment_seen_in_the_mempool_survives_confirmation_and_restart() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        35,
+        36,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet.sync().await.expect("initial sync");
+
+    let value = Amount::from_btc(0.02).unwrap();
+    let reserved_addr = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    bitcoind
+        .client
+        .send_to_address(&reserved_addr, value)
+        .expect("send to reserved script");
+
+    // Seen unconfirmed first, then confirmed: applying the block stages only the anchor, because
+    // the transaction is already in the wallet's graph.
+    wallet
+        .sync()
+        .await
+        .expect("sync with the payment in the mempool");
+    mine(&bitcoind, 1);
+    wallet
+        .sync()
+        .await
+        .expect("sync with the payment confirmed");
+    let pool = wallet.reserved_utxos_with_value(value);
+    assert_eq!(pool.len(), 1);
+    assert_eq!(pool[0].confirmations, 1);
+
+    drop(wallet);
+    let wallet = open_wallet(
+        &bitcoind,
+        35,
+        36,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    let pool = wallet.reserved_utxos_with_value(value);
+    assert_eq!(
+        pool.len(),
+        1,
+        "a confirmed payment first seen in the mempool must survive a restart"
+    );
+    assert!(pool[0].confirmations >= 1);
+}
+
+#[tokio::test]
+#[serial]
 async fn bootstrap_checkpoint_skips_history_below_it() {
     let bitcoind = setup_bitcoind(); // 101 blocks
     let rpc = sync_rpc_client(&bitcoind);
