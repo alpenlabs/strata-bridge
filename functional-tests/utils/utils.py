@@ -64,6 +64,7 @@ def wait_until(
         error_msg: Custom error message for timeout.
     """
     end_time = time.time() + timeout
+    last_exc: Exception | None = None
 
     while time.time() < end_time:
         time.sleep(step)  # sleep first
@@ -72,11 +73,11 @@ def wait_until(
             if condition():
                 return
         except Exception as e:
-            ety = type(e)
-            logging.debug(f"caught exception {ety}, will still wait for timeout: {e}")
-            pass
+            last_exc = e
+            logging.debug(f"caught exception {type(e)}, will still wait for timeout: {e}")
 
-    raise TimeoutError(f"{error_msg} (timeout: {timeout}s)")
+    detail = f"; last error: {type(last_exc).__name__}: {last_exc}" if last_exc else ""
+    raise TimeoutError(f"{error_msg} (timeout: {timeout}s{detail})")
 
 
 def snapshot_log_offsets(log_paths: list[str]) -> dict[str, int]:
@@ -193,53 +194,76 @@ def wait_until_bridge_ready(rpc_client, timeout: int = 300, step: int = 1):
     )
 
 
-def wait_until_bitcoind_ready(rpc_client, timeout: int = 120, step: int = 1):
+def _unreachable_zmq_endpoints(notifications: list[dict]) -> list[str]:
+    """Returns the advertised ZMQ addresses that are malformed or refuse a TCP connect."""
+    unreachable = []
+    for notification in notifications:
+        address = notification.get("address", "")
+        host, _, port_str = address[len("tcp://") :].rpartition(":")
+        if not address.startswith("tcp://") or not port_str.isdigit():
+            unreachable.append(address)
+            continue
+        # bitcoind reports 0.0.0.0 when binding on all interfaces; connect locally.
+        probe_host = "127.0.0.1" if host in ("0.0.0.0", "") else host
+        try:
+            with socket.create_connection((probe_host, int(port_str)), timeout=1):
+                pass
+        except OSError:
+            unreachable.append(address)
+    return unreachable
+
+
+def _zmq_publishers_missing_msg(props: dict | None) -> str:
+    ports = {k: v for k, v in (props or {}).items() if k.startswith("zmq_") and k != "zmq_host"}
+    where = f"configured ZMQ ports: {ports}" if ports else "see the node's service.log"
+    return (
+        "bitcoind RPC is up but advertises no ZMQ publishers: a -zmqpub* bind failed (port "
+        f"already in use?) and bitcoind never retries; {where}, grep service.log for 'zmq'"
+    )
+
+
+def wait_until_bitcoind_ready(
+    rpc_client,
+    timeout: int = BITCOIND_READY_TIMEOUT_SECS,
+    step: int = 1,
+    props: dict | None = None,
+):
     """
     Waits until bitcoind is fully ready: RPC server responsive and ZMQ publishers bound.
 
-    bitcoind binds its ZMQ publishers slightly after the RPC server becomes reachable, so
-    checking only `getblockcount` is insufficient — a client that attempts to subscribe in that
-    gap sees the ZMQ handshake time out. This helper first polls `getblockcount` for RPC
-    readiness, then polls `getzmqnotifications` and probes each advertised publisher endpoint
-    with a short TCP connect to confirm the listener is up.
+    Probes immediately and then every `step` seconds. Fails fast when RPC answers but
+    `getzmqnotifications` is empty: bitcoind creates its ZMQ publishers before RPC leaves
+    warm-up and drops all of them if a single `-zmqpub*` bind fails, so an empty list never
+    fills in later. Every advertised publisher endpoint is probed with a short TCP connect
+    to confirm the listener is up.
 
     Args:
         rpc_client: The RPC client to check for readiness.
-        timeout: Timeout in seconds (default 120 seconds).
+        timeout: Timeout in seconds (default BITCOIND_READY_TIMEOUT_SECS).
         step: Poll interval in seconds (default 1 second).
+        props: The bitcoin service props; only used to name the ZMQ ports in the error.
     """
-
-    def rpc_ready() -> bool:
-        return rpc_client.proxy.getblockcount() is not None
-
-    def zmq_ready() -> bool:
-        notifications = rpc_client.proxy.getzmqnotifications()
-        if not notifications:
-            return False
-        for notification in notifications:
-            address = notification.get("address", "")
-            if not address.startswith("tcp://"):
-                return False
-            host_port = address[len("tcp://") :]
-            host, _, port_str = host_port.rpartition(":")
-            if not port_str.isdigit():
-                return False
-            port = int(port_str)
-            # bitcoind reports 0.0.0.0 when binding on all interfaces; connect locally.
-            probe_host = "127.0.0.1" if host in ("0.0.0.0", "") else host
-            try:
-                with socket.create_connection((probe_host, port), timeout=1):
-                    pass
-            except OSError:
-                return False
-        return True
-
-    wait_until(
-        lambda: rpc_ready() and zmq_ready(),
-        timeout=timeout,
-        step=step,
-        error_msg="Bitcoind did not become ready (RPC + ZMQ) within timeout",
-    )
+    deadline = time.monotonic() + timeout
+    last_reason = "no probe completed"
+    while True:
+        try:
+            rpc_client.proxy.getblockcount()
+            notifications = rpc_client.proxy.getzmqnotifications()
+        except Exception as e:
+            last_reason = f"rpc not ready: {type(e).__name__}: {e}"
+        else:
+            if not notifications:
+                raise RuntimeError(_zmq_publishers_missing_msg(props))
+            unreachable = _unreachable_zmq_endpoints(notifications)
+            if not unreachable:
+                return
+            last_reason = f"zmq endpoints not accepting connections: {unreachable}"
+        if time.monotonic() >= deadline:
+            logging.warning(f"bitcoind not ready after {timeout}s: {last_reason}")
+            raise TimeoutError(
+                f"Bitcoind did not become ready (RPC + ZMQ) within {timeout}s: {last_reason}"
+            )
+        time.sleep(step)
 
 
 def wait_for_tx_confirmation(bitcoin_rpc, txid: str, timeout: int = 60) -> str:

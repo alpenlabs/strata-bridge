@@ -37,6 +37,8 @@ MAX_BRIDGE_TIMEOUT = (1 << 16) - 1
 
 # bitcoind RPC socket timeout; bitcoinlib hardcodes 10s, too tight for a contended CI runner.
 BITCOIND_RPC_TIMEOUT_SECS = 120
+# Budget for a freshly spawned bitcoind to answer RPC and bind its ZMQ publishers.
+BITCOIND_READY_TIMEOUT_SECS = 60
 
 # Test signing keys for the asm-runner's native backend (asm-stf + moho hosts).
 NATIVE_TEST_ASM_SIGNING_KEY = "01" * 32

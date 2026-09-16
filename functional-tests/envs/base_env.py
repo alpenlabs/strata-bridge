@@ -83,7 +83,7 @@ class BaseEnv(flexitest.EnvConfig):
         else:
             bitcoind = btc_fac.create_regtest_bitcoin()
         brpc = bitcoind.create_rpc()
-        wait_until_bitcoind_ready(brpc, timeout=10)
+        wait_until_bitcoind_ready(brpc, props=bitcoind.props)
 
         walletname = bitcoind.get_prop("walletname")
         if self.btc_config.external:

@@ -145,6 +145,7 @@ class BitcoinFactory(flexitest.Factory):
             "-listen=0",
             f"-port={p2p_port}",
             "-printtoconsole",
+            "-debug=zmq",
             "-server=1",
             "-txindex=1",
             "-acceptnonstdtxn=0",
