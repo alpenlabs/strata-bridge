@@ -15,6 +15,7 @@ import threading
 
 import flexitest
 
+from factory.common.ports import PortProbingFactory
 from utils.utils import wait_until
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ def _cleanup_fdb():
 atexit.register(_cleanup_fdb)
 
 
-class FdbFactory(flexitest.Factory):
+class FdbFactory(PortProbingFactory):
     """Factory for creating a shared FoundationDB server instance for testing.
 
     This factory implements a singleton pattern - only one FDB server is created

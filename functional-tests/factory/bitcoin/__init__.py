@@ -7,6 +7,7 @@ from bitcoinlib.services.authproxy import AuthServiceProxy
 from bitcoinlib.services.bitcoind import BitcoindClient
 
 from constants import BITCOIND_RPC_TIMEOUT_SECS
+from factory.common.ports import PortProbingFactory
 
 BD_USERNAME = "user"
 BD_PASSWORD = "password"
@@ -117,7 +118,7 @@ class ExternalBitcoinService(flexitest.service.Service):
         return True
 
 
-class BitcoinFactory(flexitest.Factory):
+class BitcoinFactory(PortProbingFactory):
     def __init__(self, port_range: list[int]):
         super().__init__(port_range)
 
