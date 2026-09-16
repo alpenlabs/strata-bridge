@@ -12,6 +12,32 @@ from constants import MEMPOOL_POLL_INTERVAL_SECS
 ZMQ_SETTLE_SECS = 0.25
 
 
+def mine_to_height(rpc: BitcoindClient, addr: str, target_height: int, attempts: int = 3) -> None:
+    """Mine to `addr` until the chain is at least `target_height` blocks long.
+
+    Each attempt mines only the remaining shortfall: bitcoind keeps mining after a client-side
+    timeout, so retrying the full count would over-shoot.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        shortfall = target_height - rpc.proxy.getblockcount()
+        if shortfall <= 0:
+            return
+        try:
+            rpc.proxy.generatetoaddress(shortfall, addr)
+            return
+        except Exception as ex:
+            last_exc = ex
+            logging.warning(
+                f"{ex} while mining {shortfall} blocks to {addr}; attempt {attempt}/{attempts}"
+            )
+    if rpc.proxy.getblockcount() >= target_height:
+        return
+    raise RuntimeError(
+        f"chain did not reach height {target_height} in {attempts} attempts"
+    ) from last_exc
+
+
 def prepare_wallet_and_chain(rpc: BitcoindClient, walletname: str, min_height: int) -> str:
     """Load-or-create `walletname`, mine up to `min_height`, and return a wallet address."""
     if walletname not in rpc.proxy.listwallets():
@@ -20,9 +46,7 @@ def prepare_wallet_and_chain(rpc: BitcoindClient, walletname: str, min_height: i
         except Exception:
             rpc.proxy.createwallet(walletname)
     addr = rpc.proxy.getnewaddress()
-    shortfall = min_height - rpc.proxy.getblockcount()
-    if shortfall > 0:
-        rpc.proxy.generatetoaddress(shortfall, addr)
+    mine_to_height(rpc, addr, min_height)
     return addr
 
 

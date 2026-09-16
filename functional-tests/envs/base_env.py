@@ -86,16 +86,9 @@ class BaseEnv(flexitest.EnvConfig):
         wait_until_bitcoind_ready(brpc, props=bitcoind.props)
 
         walletname = bitcoind.get_prop("walletname")
-        if self.btc_config.external:
-            # External node may already have the wallet + blocks; reuse and top up.
-            wallet_addr = prepare_wallet_and_chain(brpc, walletname, self.initial_blocks)
-        else:
-            # Create new wallet
-            brpc.proxy.createwallet(walletname)
-            wallet_addr = brpc.proxy.getnewaddress()
-
-            # Mine initial blocks to have usable funds
-            brpc.proxy.generatetoaddress(self.initial_blocks, wallet_addr)
+        # Load-or-create the wallet and mine up to `initial_blocks`. Idempotent, so a retried
+        # mine cannot over-shoot; an external node may already have both.
+        wallet_addr = prepare_wallet_and_chain(brpc, walletname, self.initial_blocks)
 
         # Start automatic block generation
         miner = None
