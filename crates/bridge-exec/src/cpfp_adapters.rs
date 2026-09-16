@@ -1,9 +1,10 @@
 //! Bridge-side implementations of the [`btc_tracker::cpfp`] traits.
 //!
-//! `btc-tracker` defines [`CpfpWallet`], [`CpfpFeeSource`], and [`CpfpMempool`] as
-//! abstract interfaces so the crate stays at the bottom of the dependency graph. The concrete
-//! adapters that wire those traits to the bridge's actual wallet, fee source, and Bitcoin Core
-//! client live here.
+//! `btc-tracker` defines [`CpfpWallet`], `CpfpFeeSource`, and [`CpfpMempool`] as abstract
+//! interfaces so the crate stays at the bottom of the dependency graph. The concrete adapters
+//! that wire those traits to the bridge's actual wallet and Bitcoin Core client live here; the
+//! fee source itself is built in `bridge-exec::fees` and wrapped in
+//! `btc_tracker::cpfp::CachedFeeSource`.
 
 use std::sync::Arc;
 
@@ -12,12 +13,11 @@ use bitcoin::{
     secp256k1::{Message, schnorr::Signature},
     taproot::{ControlBlock, LeafVersion},
 };
-use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
+use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::{
     cpfp::{
-        AnchorSpendState, ChildPsbt, CpfpFeeSource, CpfpMempool, CpfpStrategy, CpfpWallet,
-        CpfpWalletError, FeeSourceError, FundingLease, InputSignFut, InputSigner, MempoolError,
-        SignerError, WalletFundedPsbt,
+        AnchorSpendState, ChildPsbt, CpfpMempool, CpfpStrategy, CpfpWallet, CpfpWalletError,
+        FundingLease, InputSignFut, InputSigner, MempoolError, SignerError, WalletFundedPsbt,
     },
     submitpackage::{self, SubmitPackageError, SubmitPackageSummary},
 };
@@ -187,49 +187,6 @@ impl CpfpWallet for OperatorWalletCpfpAdapter {
                 psbt,
                 lease: Arc::new(WalletFundingLease(lease)),
             })
-        }
-    }
-}
-
-/// [`CpfpFeeSource`] backed by `bitcoind`'s `estimatesmartfee`.
-///
-/// Floors the result at 1 sat/vB. `estimatesmartfee` reports no rate at all when it has too
-/// little data to work with (a fresh regtest, an early signet), and can report below min-relay
-/// on a quiet network — either way the bump loop must not target a rate that would leave the
-/// package unrelayable.
-#[derive(Debug)]
-pub struct BitcoindCpfpFeeSource {
-    client: Arc<BitcoinClient>,
-    conf_target: u16,
-}
-
-impl BitcoindCpfpFeeSource {
-    /// Constructs a fee source that polls `client.estimate_smart_fee(conf_target)` each call.
-    pub const fn new(client: Arc<BitcoinClient>, conf_target: u16) -> Self {
-        Self {
-            client,
-            conf_target,
-        }
-    }
-}
-
-impl CpfpFeeSource for BitcoindCpfpFeeSource {
-    fn estimate(
-        &self,
-    ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
-        let client = self.client.clone();
-        let conf_target = self.conf_target;
-        async move {
-            let smart_fee = client
-                .estimate_smart_fee(conf_target)
-                .await
-                .map_err(|e| FeeSourceError(format!("estimate_smart_fee: {e:?}")))?;
-            // `estimatesmartfee` reports no `fee_rate` when it has insufficient data (fresh
-            // regtest, early signet); floor at 1 sat/vB in that case and whenever the node
-            // reports something below it, so the bump loop never targets a rate that would
-            // leave the package below min-relay.
-            let floor = FeeRate::from_sat_per_vb(1).expect("1 sat/vB is always a valid FeeRate");
-            Ok(smart_fee.fee_rate.unwrap_or(floor).max(floor))
         }
     }
 }

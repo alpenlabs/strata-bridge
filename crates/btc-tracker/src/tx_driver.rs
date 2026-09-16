@@ -1483,6 +1483,9 @@ mod cpfp_lifecycle_tests {
             multi_anchor_signer: fake_input_signer_ok(),
             wallet_input_signer: fake_input_signer_ok(),
             max_fee_rate: FeeRate::from_sat_per_vb(20).unwrap(),
+            // Neutral fee knobs: the tx_driver tests pin the raw-estimate-to-cap behavior.
+            fee_premium_percent: 0,
+            min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
             mempool: Arc::new(submitter),
         }
     }
@@ -1536,6 +1539,9 @@ mod cpfp_lifecycle_tests {
                 multi_anchor_signer: fake_input_signer_ok(),
                 wallet_input_signer: fake_input_signer_ok(),
                 max_fee_rate: FeeRate::from_sat_per_vb(20).unwrap(),
+                // Neutral fee knobs: the tx_driver tests pin the raw-estimate-to-cap behavior.
+                fee_premium_percent: 0,
+                min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
                 mempool: submitter.clone(),
             };
             let (parents, mark) =

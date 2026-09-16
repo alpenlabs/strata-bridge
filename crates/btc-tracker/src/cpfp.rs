@@ -413,17 +413,55 @@ pub trait CpfpWallet: Send + Sync + fmt::Debug {
     ) -> impl std::future::Future<Output = Result<WalletFundedPsbt, CpfpWalletError>> + Send;
 }
 
-/// Source of fee-rate estimates used to drive the package target. Defined in this crate
-/// (rather than reusing a wallet- or executor-side abstraction) so `btc-tracker` stays at
-/// the bottom of the dependency graph; callers implement it for their estimator of choice.
+/// Which market tier a fee estimate targets.
 ///
-/// In production the live estimator is wrapped in a [`CachedFeeSource`] so the bump loop
-/// reads from a hot atomic instead of hitting the network per call. The tracker refreshes
-/// it in the background on `refresh_interval`.
+/// The bridge prices two kinds of transaction. A CPFP child must confirm in the next block
+/// per the product fee decision, so the bump ladder reads [`FeeTarget::NextBlock`].
+/// Wallet-funded transactions (claim-funding refills, stake funding, unstaking burns,
+/// withdrawal fulfillments) are not time-critical and read [`FeeTarget::Standard`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeeTarget {
+    /// The configured standard tier: the source's configured confirmation target
+    /// (Bitcoin Core) or configured policy tier (mempool explorer).
+    Standard,
+    /// The source's fastest tier: confirmation target 1 (Bitcoin Core) or `fastestFee`
+    /// (mempool explorer).
+    NextBlock,
+}
+
+/// A paired fee estimate: one rate per [`FeeTarget`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TargetRates {
+    /// The rate for [`FeeTarget::Standard`].
+    pub standard: FeeRate,
+    /// The rate for [`FeeTarget::NextBlock`].
+    pub next_block: FeeRate,
+}
+
+/// Source of fee-rate estimates used to drive the package target.
+///
+/// Lives here (the lowest crate that needs it) rather than in `bridge-exec` to keep the
+/// dependency graph acyclic — `bridge-exec` depends on `btc-tracker`, and its concrete sources
+/// (`bridge-exec::fees::{BitcoindFeeSource, MempoolExplorerFeeSource, FixedFeeSource}`) implement
+/// this trait. In production the configured source is wrapped in a [`CachedFeeSource`] so the
+/// bump loop and the executors both read from a hot atomic instead of hitting the network per
+/// call; the tracker refreshes in the background on `refresh_interval`.
 pub trait CpfpFeeSource: Send + Sync + fmt::Debug {
-    /// Returns the current sat/vB target for the next block.
-    fn estimate(&self)
-        -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send;
+    /// Returns the current sat/vB rate for `target`.
+    fn estimate(
+        &self,
+        target: FeeTarget,
+    ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send;
+
+    /// Returns a paired estimate for both targets, in one upstream round trip where the
+    /// source supports it.
+    ///
+    /// [`CachedFeeSource`] drives its refresh loop through this method so one call fills
+    /// both cache slots. A source must answer this without paying more upstream than two
+    /// separate [`Self::estimate`] calls.
+    fn estimate_all(
+        &self,
+    ) -> impl std::future::Future<Output = Result<TargetRates, FeeSourceError>> + Send;
 }
 
 /// Boxed future returned by an [`InputSigner`]; pinned + Send so it can fly across the
@@ -453,14 +491,14 @@ pub type InputSignFut =
 /// the corresponding outputs were constructed (keyed-Taproot, no script tree).
 pub type InputSigner = Arc<dyn Fn(Message) -> InputSignFut + Send + Sync>;
 
-/// A [`CpfpFeeSource`] that caches the most recent estimate in a shared atomic, refreshed in
-/// the background by a tokio task at a configurable interval.
+/// A [`CpfpFeeSource`] that caches one estimate per [`FeeTarget`] in shared atomics,
+/// refreshed in the background by a tokio task at a configurable interval.
 ///
 /// Wraps any underlying [`CpfpFeeSource`] (typically the live `bridge-exec::fees::FeeSource`
 /// going to Bitcoin Core or mempool.space). Reads from the cache are constant-time —
-/// `estimate()` returns the latest cached value without I/O, so the bump loop in
-/// [`TxDriver`](crate::tx_driver::TxDriver) can poll it on a fast timer without rate-limiting
-/// the underlying source.
+/// `estimate()` returns the latest cached value for the requested target without I/O, so
+/// the bump loop in [`TxDriver`](crate::tx_driver::TxDriver) can poll it on a fast timer
+/// without rate-limiting the underlying source.
 ///
 /// ## Initialization semantics
 ///
@@ -475,7 +513,10 @@ pub type InputSigner = Arc<dyn Fn(Message) -> InputSignFut + Send + Sync>;
 /// runs an infinite loop; tokio's `JoinHandle::abort` cancels it cleanly. In tests this
 /// ensures one test's tracker doesn't leak into the next.
 pub struct CachedFeeSource {
-    cached_sat_per_kwu: Arc<AtomicU64>,
+    /// Last successful refresh, in sat/kwu, for [`FeeTarget::Standard`].
+    standard_sat_per_kwu: Arc<AtomicU64>,
+    /// Last successful refresh, in sat/kwu, for [`FeeTarget::NextBlock`].
+    next_block_sat_per_kwu: Arc<AtomicU64>,
     /// Monotonic-millis-since-spawn of the most recent successful refresh. Stored as
     /// milliseconds elapsed from a process-start anchor [`Instant`] so it fits in `u64`
     /// and avoids wall-clock skew. Inspected via [`Self::seconds_since_last_refresh`] —
@@ -484,18 +525,33 @@ pub struct CachedFeeSource {
     /// Anchor point for the `last_refresh_unix_ms` clock. Same instant for the duration
     /// of the [`CachedFeeSource`]'s lifetime.
     spawn_anchor: std::time::Instant,
+    /// Age past which the cached value stops being served to duty pricing
+    /// ([`Self::try_current`]). Ten refresh intervals: one or two missed refreshes are
+    /// normal for RPC transport, ten consecutive misses show the source is down.
+    max_staleness: Duration,
+    /// Latch for the bump-path stale warning: one warning per stale episode, reset by the
+    /// first fresh read. Without the latch, N tracked parents × the bump triggers repeat
+    /// the same warning hundreds of times per hour during one incident.
+    stale_warned: Arc<std::sync::atomic::AtomicBool>,
     task: JoinHandle<()>,
 }
 
 impl Debug for CachedFeeSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let kwu = self.cached_sat_per_kwu.load(Ordering::Relaxed);
         f.debug_struct("CachedFeeSource")
-            .field("cached_sat_per_kwu", &kwu)
+            .field(
+                "standard_sat_per_kwu",
+                &self.standard_sat_per_kwu.load(Ordering::Relaxed),
+            )
+            .field(
+                "next_block_sat_per_kwu",
+                &self.next_block_sat_per_kwu.load(Ordering::Relaxed),
+            )
             .field(
                 "seconds_since_last_refresh",
                 &self.seconds_since_last_refresh(),
             )
+            .field("max_staleness", &self.max_staleness)
             .field("task_finished", &self.task.is_finished())
             .finish()
     }
@@ -508,9 +564,9 @@ impl Drop for CachedFeeSource {
 }
 
 impl CachedFeeSource {
-    /// Performs one initial refresh from `underlying`, spawns a background task that re-polls
-    /// every `refresh_interval`, and returns a `CachedFeeSource` whose `estimate()` reads from
-    /// the cached atomic.
+    /// Performs one initial refresh from `underlying` (both targets, one round trip),
+    /// spawns a background task that re-polls every `refresh_interval`, and returns a
+    /// `CachedFeeSource` whose `estimate()` reads from the cached atomics.
     pub async fn spawn<U>(
         underlying: Arc<U>,
         refresh_interval: Duration,
@@ -519,14 +575,17 @@ impl CachedFeeSource {
         U: CpfpFeeSource + 'static,
     {
         let spawn_anchor = std::time::Instant::now();
-        let initial = underlying.estimate().await?;
-        let cached_sat_per_kwu = Arc::new(AtomicU64::new(initial.to_sat_per_kwu()));
+        let initial = underlying.estimate_all().await?;
+        let standard_sat_per_kwu = Arc::new(AtomicU64::new(initial.standard.to_sat_per_kwu()));
+        let next_block_sat_per_kwu = Arc::new(AtomicU64::new(initial.next_block.to_sat_per_kwu()));
         // Stamp the initial refresh time so `seconds_since_last_refresh()` returns ~0 right
         // after `spawn()` returns; otherwise the AtomicU64 would still be 0 and the elapsed
-        // calc would report the time since `spawn_anchor` instead.
+        // calc would report the time since `spawn_anchor` instead. One stamp covers both
+        // slots: a single refresh fills both.
         let initial_elapsed_ms = spawn_anchor.elapsed().as_millis().min(u64::MAX as u128) as u64;
         let last_refresh_unix_ms = Arc::new(AtomicU64::new(initial_elapsed_ms));
-        let cache_clone = cached_sat_per_kwu.clone();
+        let standard_clone = standard_sat_per_kwu.clone();
+        let next_block_clone = next_block_sat_per_kwu.clone();
         let last_refresh_clone = last_refresh_unix_ms.clone();
         let task = tokio::task::spawn(async move {
             let mut tick = tokio::time::interval(refresh_interval);
@@ -535,9 +594,11 @@ impl CachedFeeSource {
             tick.tick().await;
             loop {
                 tick.tick().await;
-                match underlying.estimate().await {
-                    Ok(rate) => {
-                        cache_clone.store(rate.to_sat_per_kwu(), Ordering::Relaxed);
+                match underlying.estimate_all().await {
+                    Ok(rates) => {
+                        standard_clone.store(rates.standard.to_sat_per_kwu(), Ordering::Relaxed);
+                        next_block_clone
+                            .store(rates.next_block.to_sat_per_kwu(), Ordering::Relaxed);
                         let elapsed =
                             spawn_anchor.elapsed().as_millis().min(u64::MAX as u128) as u64;
                         last_refresh_clone.store(elapsed, Ordering::Relaxed);
@@ -545,30 +606,63 @@ impl CachedFeeSource {
                     Err(e) => {
                         warn!(
                             error = %e,
-                            "fee-rate refresh failed; retaining last cached value"
+                            "fee-rate refresh failed; retaining last cached values"
                         );
                     }
                 }
             }
         });
         Ok(Self {
-            cached_sat_per_kwu,
+            standard_sat_per_kwu,
+            next_block_sat_per_kwu,
             last_refresh_unix_ms,
             spawn_anchor,
+            max_staleness: refresh_interval.saturating_mul(STALENESS_REFRESH_MULTIPLE),
+            stale_warned: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             task,
         })
     }
 
-    /// Returns the most recently cached fee rate without I/O.
-    pub fn current(&self) -> FeeRate {
-        FeeRate::from_sat_per_kwu(self.cached_sat_per_kwu.load(Ordering::Relaxed))
+    /// Returns the most recently cached fee rate for `target` without I/O.
+    pub fn current(&self, target: FeeTarget) -> FeeRate {
+        let kwu = match target {
+            FeeTarget::Standard => self.standard_sat_per_kwu.load(Ordering::Relaxed),
+            FeeTarget::NextBlock => self.next_block_sat_per_kwu.load(Ordering::Relaxed),
+        };
+        FeeRate::from_sat_per_kwu(kwu)
+    }
+
+    /// Returns the cached fee rate, or the cache age when the value is stale.
+    ///
+    /// Duty pricing must use this accessor. A frozen quote prices a transaction at the
+    /// market rate from before the source failed, with no signal. The error aborts the
+    /// duty, and the duty retries after the source recovers. The bump loop stays on the
+    /// infallible [`Self::current`]: a bump at a stale rate is better than no bump,
+    /// because the parent pays only the protocol floor without one.
+    pub fn try_current(&self, target: FeeTarget) -> Result<FeeRate, StaleFeeRate> {
+        // Millisecond precision, not `seconds_since_last_refresh`: that accessor truncates
+        // to whole seconds, and a truncated age compares wrong against sub-second bounds.
+        let last_ms = self.last_refresh_unix_ms.load(Ordering::Relaxed);
+        let now_ms = self
+            .spawn_anchor
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+        let age = Duration::from_millis(now_ms.saturating_sub(last_ms));
+        if age > self.max_staleness {
+            return Err(StaleFeeRate {
+                age,
+                max_staleness: self.max_staleness,
+            });
+        }
+        Ok(self.current(target))
     }
 
     /// Returns the number of seconds since the cache was last *successfully* refreshed.
-    /// Returns 0 for the initial refresh in [`Self::spawn`]. Lets callers decide how much
-    /// to trust the cached value — e.g., the bump loop could log a warning when the cache
-    /// is older than several refresh intervals (indicating the underlying source has been
-    /// failing).
+    /// Returns 0 for the initial refresh in [`Self::spawn`]. [`Self::try_current`] applies
+    /// the staleness bound for duty pricing, and the [`CpfpFeeSource`] impl logs a warning on
+    /// the bump path when the bound is exceeded; this accessor is the observability
+    /// surface behind both.
     pub fn seconds_since_last_refresh(&self) -> u64 {
         let last_ms = self.last_refresh_unix_ms.load(Ordering::Relaxed);
         let now_ms = self
@@ -578,21 +672,77 @@ impl CachedFeeSource {
             .min(u64::MAX as u128) as u64;
         now_ms.saturating_sub(last_ms) / 1_000
     }
-}
 
-impl CpfpFeeSource for CachedFeeSource {
-    /// Returns the cached value. Never returns `Err` — refresh failures are logged at the
-    /// background task and the prior value is retained.
-    fn estimate(
-        &self,
-    ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
-        let value = self.current();
-        async move { Ok(value) }
+    /// Warns once per stale episode. A stale cache keeps serving the last known rate on the
+    /// bump path; the latch keeps one incident from repeating the warning on every bump
+    /// trigger.
+    fn note_staleness(&self) {
+        match self.try_current(FeeTarget::Standard) {
+            Err(stale) => {
+                if !self.stale_warned.swap(true, Ordering::Relaxed) {
+                    warn!(
+                        age_secs = stale.age.as_secs(),
+                        max_secs = stale.max_staleness.as_secs(),
+                        "fee cache is stale; the bump loop continues on the last known rate"
+                    );
+                }
+            }
+            Ok(_) => self.stale_warned.store(false, Ordering::Relaxed),
+        }
     }
 }
 
+impl CpfpFeeSource for CachedFeeSource {
+    /// Returns the cached value for `target`. Never returns `Err` — refresh failures are
+    /// logged by the background task and the prior value is retained.
+    fn estimate(
+        &self,
+        target: FeeTarget,
+    ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
+        self.note_staleness();
+        let value = self.current(target);
+        async move { Ok(value) }
+    }
+
+    /// Returns both cached values. Staleness is shared: one refresh fills both slots.
+    fn estimate_all(
+        &self,
+    ) -> impl std::future::Future<Output = Result<TargetRates, FeeSourceError>> + Send {
+        self.note_staleness();
+        let rates = TargetRates {
+            standard: self.current(FeeTarget::Standard),
+            next_block: self.current(FeeTarget::NextBlock),
+        };
+        async move { Ok(rates) }
+    }
+}
+
+/// Multiple of the refresh interval past which the cache counts as stale.
+const STALENESS_REFRESH_MULTIPLE: u32 = 10;
+
+/// The fee cache has not refreshed inside its staleness bound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StaleFeeRate {
+    /// Time since the last successful refresh.
+    pub age: Duration,
+    /// The bound the age exceeded.
+    pub max_staleness: Duration,
+}
+
+impl fmt::Display for StaleFeeRate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "fee cache is stale: last successful refresh {}s ago exceeds the {}s bound",
+            self.age.as_secs(),
+            self.max_staleness.as_secs()
+        )
+    }
+}
+
+impl std::error::Error for StaleFeeRate {}
+
 /// What already spends the output a CPFP child would spend, if anything.
-///
 /// The bump loop probes this state before every build, for every strategy. The probed
 /// output is the anchor for the anchor-bearing strategies, and the payout output for
 /// `ParentTxCombined`.
@@ -678,8 +828,15 @@ impl CpfpWallet for CpfpDisabled {
 impl CpfpFeeSource for CpfpDisabled {
     fn estimate(
         &self,
+        _target: FeeTarget,
     ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
         async { unreachable!("CpfpDisabled::estimate should never be called") }
+    }
+
+    fn estimate_all(
+        &self,
+    ) -> impl std::future::Future<Output = Result<TargetRates, FeeSourceError>> + Send {
+        async { unreachable!("CpfpDisabled::estimate_all should never be called") }
     }
 }
 
@@ -742,6 +899,16 @@ where
     /// target to this and warns when clamping kicks in. Per design, exceeding this is an
     /// operator policy decision: we don't escalate.
     pub max_fee_rate: FeeRate,
+    /// Premium applied on top of the next-block fee estimate when pricing a CPFP bump
+    /// target, as a percentage of the estimate (e.g. `5` = +5%). Computed in sat/kwu and
+    /// rounded up, so the premium raises the target and never lowers it. A value of `0`
+    /// prices the child at the raw estimate.
+    pub fee_premium_percent: u32,
+    /// Floor on the package fee rate the bump ladder targets. The child pays the package
+    /// shortfall, including the parent's below-floor portion. When the parent sat at a
+    /// lower rate, the child's fee lifts the whole package to the floor. Applied after the
+    /// premium, before the [`Self::max_fee_rate`] clamp.
+    pub min_package_fee_rate: FeeRate,
     /// Submits `[parent, child]` packages via bitcoind. Wrapper around the
     /// [`submitpackage::submit_package`] helper.
     pub mempool: Arc<P>,
@@ -761,6 +928,8 @@ where
             multi_anchor_signer: self.multi_anchor_signer.clone(),
             wallet_input_signer: self.wallet_input_signer.clone(),
             max_fee_rate: self.max_fee_rate,
+            fee_premium_percent: self.fee_premium_percent,
+            min_package_fee_rate: self.min_package_fee_rate,
             mempool: self.mempool.clone(),
         }
     }
@@ -779,6 +948,8 @@ where
             .field("anchor_input_signer", &"<closure>")
             .field("wallet_input_signer", &"<closure>")
             .field("max_fee_rate", &self.max_fee_rate)
+            .field("fee_premium_percent", &self.fee_premium_percent)
+            .field("min_package_fee_rate", &self.min_package_fee_rate)
             .field("mempool", &self.mempool)
             .finish()
     }
@@ -828,6 +999,22 @@ impl BumpReason {
 /// `handle.last_pkg_fee_rate` and `handle.last_child_txid` describe what actually reached the
 /// mempool, so those advance only on success.
 ///
+/// ## Fee target
+///
+/// The ladder reads [`FeeTarget::NextBlock`]: a CPFP child must confirm in the next block
+/// per the product fee decision, so it targets the source's fastest tier. Wallet-funded
+/// transactions price from [`FeeTarget::Standard`] through the same cache; they never
+/// touch this path.
+///
+/// ## Premium and package floor
+///
+/// Before the cap clamp, the ladder raises the next-block estimate by
+/// `fee_premium_percent` (a percentage, rounded up in sat/kwu) and floors it at
+/// `min_package_fee_rate`. The floor bounds the package fee rate target. The child pays
+/// the package shortfall, so the package always lands at or above the floor. Both knobs
+/// are consumer policy on this context. Sources report raw market estimates, and
+/// wallet-funded transactions never pass through either knob.
+///
 /// ## Cap-and-warn at `max_fee_rate`
 ///
 /// When the fee source reports above `ctx.max_fee_rate`, the target is clamped and a warning
@@ -857,12 +1044,30 @@ where
 {
     let parent_txid = parent.compute_txid();
 
-    // ── 1. Query the fee source ─────────────────────────────────────────────
+    // ── 1. Query the fee source (next-block tier: the child must confirm next block) ──
     let estimated = ctx
         .fee_source
-        .estimate()
+        .estimate(FeeTarget::NextBlock)
         .await
         .map_err(CpfpError::FeeSource)?;
+
+    // Apply the premium (a percentage of the next-block estimate, computed in sat/kwu and
+    // rounded up, so it raises the target and never lowers it), then the package floor,
+    // before the cap clamp below. A zero premium and a zero floor reproduce the raw
+    // estimate: both knobs are consumer policy and default to the values the operator set
+    // in the bridge config.
+    let estimated = if ctx.fee_premium_percent > 0 {
+        let rate_kwu = estimated.to_sat_per_kwu() as u128;
+        let multiplier = (ctx.fee_premium_percent as u128) + 100;
+        let premiumed = rate_kwu.saturating_mul(multiplier).div_ceil(100);
+        // A source rate or premium large enough that the raised rate does not fit a
+        // u64 saturates at the maximum instead of wrapping low; the cap clamp below
+        // then bounds it with a warning.
+        FeeRate::from_sat_per_kwu(premiumed.try_into().unwrap_or(u64::MAX))
+    } else {
+        estimated
+    };
+    let estimated = estimated.max(ctx.min_package_fee_rate);
 
     // ── 2. Clamp to max_fee_rate, warn if clamping kicked in ────────────────
     let target = if estimated > ctx.max_fee_rate {
@@ -1316,9 +1521,22 @@ pub(crate) mod tests {
     impl CpfpFeeSource for FakeFeeSource {
         fn estimate(
             &self,
+            _target: FeeTarget,
         ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
             let r = self.rate.lock().unwrap().clone();
             async move { r }
+        }
+
+        fn estimate_all(
+            &self,
+        ) -> impl std::future::Future<Output = Result<TargetRates, FeeSourceError>> + Send {
+            let r = self.rate.lock().unwrap().clone();
+            async move {
+                r.map(|rate| TargetRates {
+                    standard: rate,
+                    next_block: rate,
+                })
+            }
         }
     }
 
@@ -1669,6 +1887,11 @@ pub(crate) mod tests {
             anchor_input_signer: anchor_signer,
             wallet_input_signer: wallet_signer,
             max_fee_rate,
+            // Neutral fee knobs: the existing ladder tests pin the raw estimate → clamp
+            // behaviour, so the premium and floor stay off here. The knob tests below
+            // construct their context directly with the PRD values.
+            fee_premium_percent: 0,
+            min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
             mempool: submitter,
         }
     }
@@ -2629,9 +2852,16 @@ pub(crate) mod tests {
         let cache = CachedFeeSource::spawn(underlying, Duration::from_secs(60))
             .await
             .expect("initial refresh must succeed");
-        assert_eq!(cache.current(), FeeRate::from_sat_per_vb(7).unwrap());
+        assert_eq!(
+            cache.current(FeeTarget::Standard),
+            FeeRate::from_sat_per_vb(7).unwrap()
+        );
+        assert_eq!(
+            cache.current(FeeTarget::NextBlock),
+            FeeRate::from_sat_per_vb(7).unwrap()
+        );
         // Trait impl returns the same.
-        let via_trait = cache.estimate().await.unwrap();
+        let via_trait = cache.estimate(FeeTarget::NextBlock).await.unwrap();
         assert_eq!(via_trait, FeeRate::from_sat_per_vb(7).unwrap());
     }
 
@@ -2640,6 +2870,106 @@ pub(crate) mod tests {
         let underlying = Arc::new(FakeFeeSource::failing());
         let result = CachedFeeSource::spawn(underlying, Duration::from_secs(60)).await;
         assert!(result.is_err(), "initial refresh failure must propagate");
+    }
+
+    /// Fee source that answers differently per target, for exercising the dual slots of
+    /// [`CachedFeeSource`].
+    #[derive(Debug)]
+    struct TwoTierFeeSource {
+        standard: FeeRate,
+        next_block: FeeRate,
+    }
+    impl CpfpFeeSource for TwoTierFeeSource {
+        fn estimate(
+            &self,
+            target: FeeTarget,
+        ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
+            let rate = match target {
+                FeeTarget::Standard => self.standard,
+                FeeTarget::NextBlock => self.next_block,
+            };
+            async move { Ok(rate) }
+        }
+
+        #[expect(clippy::manual_async_fn, reason = "mirror AFIT trait signature shape")]
+        fn estimate_all(
+            &self,
+        ) -> impl std::future::Future<Output = Result<TargetRates, FeeSourceError>> + Send {
+            async move {
+                Ok(TargetRates {
+                    standard: self.standard,
+                    next_block: self.next_block,
+                })
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cached_fee_source_keeps_distinct_rates_per_target() {
+        let underlying = Arc::new(TwoTierFeeSource {
+            standard: FeeRate::from_sat_per_vb(3).unwrap(),
+            next_block: FeeRate::from_sat_per_vb(12).unwrap(),
+        });
+        let cache = CachedFeeSource::spawn(underlying, Duration::from_secs(60))
+            .await
+            .unwrap();
+        assert_eq!(
+            cache.current(FeeTarget::Standard),
+            FeeRate::from_sat_per_vb(3).unwrap()
+        );
+        assert_eq!(
+            cache.current(FeeTarget::NextBlock),
+            FeeRate::from_sat_per_vb(12).unwrap()
+        );
+        let paired = cache.estimate_all().await.unwrap();
+        assert_eq!(paired.standard, FeeRate::from_sat_per_vb(3).unwrap());
+        assert_eq!(paired.next_block, FeeRate::from_sat_per_vb(12).unwrap());
+    }
+
+    /// Pins the ladder's target read: `perform_bump` must price from
+    /// [`FeeTarget::NextBlock`], not [`FeeTarget::Standard`]. The source returns distinct
+    /// rates per target; a ladder regressed to reading `Standard` would target 10 sat/vB
+    /// instead of 20 and this assert fails.
+    #[tokio::test]
+    async fn bump_ladder_prices_from_the_next_block_target() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        let wallet_funding = vec![OutPoint {
+            txid: parent.compute_txid(),
+            vout: 7,
+        }];
+        let psbt = synthetic_child_psbt(&parent, 0, anchor_key);
+        let ctx = context(
+            Arc::new(TwoTierFeeSource {
+                standard: FeeRate::from_sat_per_vb(10).unwrap(),
+                next_block: FeeRate::from_sat_per_vb(20).unwrap(),
+            }),
+            Arc::new(FakeWallet::returning(psbt, wallet_funding)),
+            Arc::new(FakeSubmitter::ok()),
+            fake_input_signer_ok(),
+            fake_input_signer_ok(),
+            FeeRate::from_sat_per_vb(100).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("bump at the next-block rate must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "the next-block bump must submit a package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_vb(20).unwrap()),
+            "the ladder target must derive from the next-block rate"
+        );
     }
 
     /// Fee source whose result can be swapped mid-test, for exercising the background
@@ -2651,9 +2981,22 @@ pub(crate) mod tests {
     impl CpfpFeeSource for FlippableFeeSource {
         fn estimate(
             &self,
+            _target: FeeTarget,
         ) -> impl std::future::Future<Output = Result<FeeRate, FeeSourceError>> + Send {
             let r = self.inner.lock().unwrap().clone();
             async move { r }
+        }
+
+        fn estimate_all(
+            &self,
+        ) -> impl std::future::Future<Output = Result<TargetRates, FeeSourceError>> + Send {
+            let r = self.inner.lock().unwrap().clone();
+            async move {
+                r.map(|rate| TargetRates {
+                    standard: rate,
+                    next_block: rate,
+                })
+            }
         }
     }
 
@@ -2668,7 +3011,10 @@ pub(crate) mod tests {
         let cache = CachedFeeSource::spawn(flippable.clone(), Duration::from_millis(5))
             .await
             .unwrap();
-        assert_eq!(cache.current(), FeeRate::from_sat_per_vb(10).unwrap());
+        assert_eq!(
+            cache.current(FeeTarget::Standard),
+            FeeRate::from_sat_per_vb(10).unwrap()
+        );
 
         // Flip underlying to failing.
         *flippable.inner.lock().unwrap() = Err(FeeSourceError("transient blip".into()));
@@ -2676,7 +3022,10 @@ pub(crate) mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Cache still reports 10.
-        assert_eq!(cache.current(), FeeRate::from_sat_per_vb(10).unwrap());
+        assert_eq!(
+            cache.current(FeeTarget::Standard),
+            FeeRate::from_sat_per_vb(10).unwrap()
+        );
     }
 
     #[tokio::test]
@@ -2688,13 +3037,50 @@ pub(crate) mod tests {
         let cache = CachedFeeSource::spawn(flippable.clone(), Duration::from_millis(5))
             .await
             .unwrap();
-        assert_eq!(cache.current(), FeeRate::from_sat_per_vb(5).unwrap());
+        assert_eq!(
+            cache.current(FeeTarget::Standard),
+            FeeRate::from_sat_per_vb(5).unwrap()
+        );
 
         *flippable.inner.lock().unwrap() = Ok(FeeRate::from_sat_per_vb(30).unwrap());
         // Allow a few refresh ticks to fire.
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        assert_eq!(cache.current(), FeeRate::from_sat_per_vb(30).unwrap());
+        assert_eq!(
+            cache.current(FeeTarget::Standard),
+            FeeRate::from_sat_per_vb(30).unwrap()
+        );
+    }
+
+    /// `try_current` refuses a cache that has not refreshed inside its staleness bound,
+    /// while `current` keeps serving the last value for the bump path. The bound is ten
+    /// refresh intervals, so a source that dies after the initial estimate exceeds it.
+    #[tokio::test]
+    async fn a_stale_cache_fails_try_current_and_serves_current() {
+        let flippable = Arc::new(FlippableFeeSource {
+            inner: Mutex::new(Ok(FeeRate::from_sat_per_vb(5).unwrap())),
+        });
+        let cache = CachedFeeSource::spawn(flippable.clone(), Duration::from_millis(10))
+            .await
+            .unwrap();
+        assert!(
+            cache.try_current(FeeTarget::Standard).is_ok(),
+            "a fresh cache serves duty pricing"
+        );
+
+        // Every later refresh fails; the bound is 10 × 10 ms = 100 ms.
+        *flippable.inner.lock().unwrap() = Err(FeeSourceError("source died".into()));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        let err = cache
+            .try_current(FeeTarget::Standard)
+            .expect_err("a stale cache must refuse duty pricing");
+        assert!(err.age > err.max_staleness);
+        assert_eq!(
+            cache.current(FeeTarget::Standard),
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            "the bump path keeps the last known rate"
+        );
     }
 
     #[tokio::test]
@@ -2800,6 +3186,218 @@ pub(crate) mod tests {
         }
     }
 
+    // ── Fee-knob tests (premium + package floor) ────────────────────────────
+    //
+    // The [`context`] helper pins neutral knobs (premium 0, floor 0 = raw estimate), so
+    // these tests build their context directly with the PRD values and assert the exact
+    // target the ladder computes: `handle.last_pkg_fee_rate` is the ladder's target, set
+    // only on a successful bump.
+
+    fn knob_test_context(
+        parent: &Transaction,
+        anchor_key: XOnlyPublicKey,
+        estimate: FeeRate,
+        premium_percent: u32,
+        min_package: FeeRate,
+        max_fee_rate: FeeRate,
+    ) -> CpfpContext<FakeWallet, FakeFeeSource, FakeSubmitter> {
+        let wallet_funding = vec![OutPoint {
+            txid: parent.compute_txid(),
+            vout: 7,
+        }];
+        let psbt = synthetic_child_psbt(parent, 0, anchor_key);
+        CpfpContext {
+            wallet: Arc::new(FakeWallet::returning(psbt, wallet_funding)),
+            fee_source: Arc::new(FakeFeeSource::returning(estimate)),
+            anchor_input_signer: fake_input_signer_ok(),
+            multi_anchor_signer: fake_input_signer_ok(),
+            wallet_input_signer: fake_input_signer_ok(),
+            max_fee_rate,
+            fee_premium_percent: premium_percent,
+            min_package_fee_rate: min_package,
+            mempool: Arc::new(FakeSubmitter::ok()),
+        }
+    }
+
+    #[tokio::test]
+    async fn fee_premium_raises_the_target() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        // 20 sat/vB × 1.05 = 21 sat/vB; the 10 sat/vB floor does not bind below the premium.
+        let ctx = knob_test_context(
+            &parent,
+            anchor_key,
+            FeeRate::from_sat_per_vb(20).unwrap(),
+            5,
+            FeeRate::from_sat_per_vb(10).unwrap(),
+            FeeRate::from_sat_per_vb(100).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("bump at the premium rate must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "expected a submitted package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_vb(21).unwrap()),
+            "5% premium on 20 sat/vB is 21 sat/vB"
+        );
+    }
+
+    #[tokio::test]
+    async fn package_floor_lifts_a_low_estimate() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        // Premium 0 is a no-op: the raw 3 sat/vB estimate lifts straight to the 10 sat/vB
+        // floor. A zero premium with a zero floor (the [`context`] helper) would keep 3.
+        let ctx = knob_test_context(
+            &parent,
+            anchor_key,
+            FeeRate::from_sat_per_vb(3).unwrap(),
+            0,
+            FeeRate::from_sat_per_vb(10).unwrap(),
+            FeeRate::from_sat_per_vb(100).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("bump at the floor must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "expected a submitted package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_vb(10).unwrap())
+        );
+    }
+
+    /// Pins the premium-then-floor order: the premium is computed on the raw estimate,
+    /// then the floor is applied to the premiumed rate. Premium 5% on 3 sat/vB is
+    /// 788 sat/kwu (below the floor); a floor-first regression would apply the premium to
+    /// the floored 10 sat/vB and land at 2625 sat/kwu instead of exactly the floor.
+    #[tokio::test]
+    async fn floor_applies_after_the_premium() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        let ctx = knob_test_context(
+            &parent,
+            anchor_key,
+            FeeRate::from_sat_per_vb(3).unwrap(),
+            5,
+            FeeRate::from_sat_per_vb(10).unwrap(),
+            FeeRate::from_sat_per_vb(100).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("bump at the floored premiumed rate must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "expected a submitted package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_vb(10).unwrap()),
+            "the floor must apply to the premiumed rate, not the other way round"
+        );
+    }
+
+    #[tokio::test]
+    async fn cap_wins_over_premium_and_floor() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        // 20 × 105 / 100 = 21, floor 10 does not bind, then the 12 sat/vB cap clamps the
+        // target. Order matters: the cap clamps the premium-raised rate, not the raw
+        // estimate.
+        let ctx = knob_test_context(
+            &parent,
+            anchor_key,
+            FeeRate::from_sat_per_vb(20).unwrap(),
+            5,
+            FeeRate::from_sat_per_vb(10).unwrap(),
+            FeeRate::from_sat_per_vb(12).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("clamped bump must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "expected a submitted package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_vb(12).unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn fee_premium_rounds_up_in_sat_kwu() {
+        let (_, anchor_key) = test_keypair_and_xonly();
+        let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+        // 3 sat/vB = 750 sat/kwu; 750 × 105 / 100 = 787.5, rounded up to 788. The rounding
+        // is conservative: the premium never lowers the target.
+        let ctx = knob_test_context(
+            &parent,
+            anchor_key,
+            FeeRate::from_sat_per_vb(3).unwrap(),
+            5,
+            FeeRate::from_sat_per_vb_unchecked(0),
+            FeeRate::from_sat_per_vb(100).unwrap(),
+        );
+        let mut handle = CpfpHandle::default();
+        let bumped = perform_bump(
+            &ctx,
+            &parent,
+            anchor_strategy(anchor_key),
+            &mut handle,
+            PROTOCOL_FLOOR,
+            BumpReason::NewJob,
+        )
+        .await
+        .expect("premium bump must succeed");
+        assert!(
+            matches!(bumped, BumpOutcome::Submitted),
+            "expected a submitted package: {bumped:?}"
+        );
+        assert_eq!(
+            handle.last_pkg_fee_rate,
+            Some(FeeRate::from_sat_per_kwu(788))
+        );
+    }
+
     /// A constant-byte signer whose output is recognisable in the final witness, so a test can
     /// prove *which* signer produced a given signature rather than only that signing happened.
     fn fake_input_signer_const(byte: u8) -> InputSigner {
@@ -2885,6 +3483,9 @@ pub(crate) mod tests {
             multi_anchor_signer: fake_input_signer_const(0xAA),
             wallet_input_signer: fake_input_signer_const(0xBB),
             max_fee_rate: FeeRate::from_sat_per_vb(20).unwrap(),
+            // Neutral fee knobs: this test pins signer selection, not pricing.
+            fee_premium_percent: 0,
+            min_package_fee_rate: FeeRate::from_sat_per_vb_unchecked(0),
             mempool: submitter.clone(),
         };
         let strategy = CpfpStrategy::MultiAnchorBearing {
