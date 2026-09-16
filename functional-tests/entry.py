@@ -22,7 +22,7 @@ from utils.service_diagnostics import install_service_exit_logging
 # arguments. They're the slow / expensive ones that we never want sweeping up the default
 # regression run. They still run when you ask for them — either by
 # file (`-t tests/proofs/fn_bridge_proof.py`) or by group (`-g proofs`).
-SKIP_GROUPS_BY_DEFAULT = frozenset({"proofs"})
+SKIP_GROUPS_BY_DEFAULT = frozenset({"proofs", "full_mosaic"})
 
 parser = argparse.ArgumentParser(prog="entry.py")
 parser.add_argument("-g", "--groups", nargs="*", help="Test groups (subdirectory names) to run")
