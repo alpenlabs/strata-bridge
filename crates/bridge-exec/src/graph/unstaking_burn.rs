@@ -8,13 +8,14 @@ use bitcoin::{
 };
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
+use operator_wallet::{Lease, LeaseOwner};
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnTx;
 use tracing::{debug, info, warn};
 
 use crate::{
-    chain::publish_signed_transaction,
+    chain::{CpfpKind, ParentFee, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::{NativeWallet, OutputHandles},
@@ -72,7 +73,9 @@ pub(super) async fn publish_unstaking_burn(
         return Ok(());
     }
 
-    let (funding, plan) = {
+    // `funding_lease` holds the wallet UTXO that pays for the burn. Every failure path below
+    // drops it, which returns the UTXO to the pool.
+    let (funding, funding_lease, plan) = {
         let mut wallet = output_handles.wallet.write().await;
         select_funding(
             &mut wallet,
@@ -103,39 +106,42 @@ pub(super) async fn publish_unstaking_burn(
                 %e,
                 "failed to sign unstaking burn transaction; releasing wallet funding outpoint"
             );
-            output_handles
-                .wallet
-                .write()
-                .await
-                .release(&[funding.outpoint]);
             return Err(e);
         }
     };
 
     info!(%graph_idx, txid = %signed_tx.compute_txid(), "publishing unstaking burn transaction");
+    // Preserve this executor's pre-CPFP behaviour: the burn tx is already wallet-funded at the
+    // estimated market fee rate, so it broadcasts without a CPFP child. `parent_fee` is the
+    // exact fee the plan paid (unused while `cpfp` is `None`, but kept accurate so flipping to
+    // a CPFP strategy later is a one-line change).
     let publish_result = publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "unstaking burn",
         TxStatus::is_buried,
+        ParentFee::Exact(plan.fee),
+        CpfpKind::None,
     )
     .await;
 
-    if let Err(ref e) = publish_result {
-        warn!(
-            %graph_idx,
-            funding_outpoint = %funding.outpoint,
-            %e,
-            "failed to publish unstaking burn transaction; releasing wallet funding outpoint"
-        );
-        output_handles
-            .wallet
-            .write()
-            .await
-            .release(&[funding.outpoint]);
+    match publish_result {
+        Ok(()) => {
+            // The transaction reached the network and spends this UTXO. The lease stays in
+            // place until a sync observes the spend.
+            funding_lease.commit();
+            Ok(())
+        }
+        Err(e) => {
+            warn!(
+                %graph_idx,
+                funding_outpoint = %funding.outpoint,
+                %e,
+                "failed to publish unstaking burn transaction; releasing wallet funding outpoint"
+            );
+            Err(e)
+        }
     }
-
-    publish_result
 }
 
 /// Returns the fee rate used for an unstaking burn attempt.
@@ -201,7 +207,7 @@ async fn select_funding(
     unstaking_burn_tx: &UnstakingBurnTx,
     unstaking_preimage: [u8; 32],
     fee_rate: FeeRate,
-) -> Result<(WalletFunding, BurnTxPlan), ExecutorError> {
+) -> Result<(WalletFunding, Lease, BurnTxPlan), ExecutorError> {
     let payout_connector_value = unstaking_burn_tx.prevouts()[CONNECTOR_INPUT_INDEX].value;
 
     info!(%graph_idx, "syncing wallet before funding unstaking burn transaction");
@@ -235,41 +241,43 @@ async fn select_funding(
         "selecting wallet funding UTXO for unstaking burn"
     );
 
-    let funding = wallet.select_and_lease_general_utxo(|utxo| {
-        let output_value = match payout_connector_value
-            .checked_add(utxo.amount)
-            .and_then(|input_value| input_value.checked_sub(plan.fee))
-        {
-            Some(output_value) => output_value,
-            None => {
+    let funding = wallet
+        .select_general_utxo(LeaseOwner::UnstakingBurn, |utxo| {
+            let output_value = match payout_connector_value
+                .checked_add(utxo.amount)
+                .and_then(|input_value| input_value.checked_sub(plan.fee))
+            {
+                Some(output_value) => output_value,
+                None => {
+                    debug!(
+                        %graph_idx,
+                        outpoint = %utxo.outpoint,
+                        utxo_value = %utxo.amount,
+                        fee = %plan.fee,
+                        "wallet UTXO cannot cover unstaking burn fee"
+                    );
+                    return false;
+                }
+            };
+
+            if output_value < min_output_value {
                 debug!(
                     %graph_idx,
                     outpoint = %utxo.outpoint,
                     utxo_value = %utxo.amount,
+                    %output_value,
+                    %min_output_value,
                     fee = %plan.fee,
-                    "wallet UTXO cannot cover unstaking burn fee"
+                    "wallet UTXO cannot fund non-dust unstaking burn output"
                 );
                 return false;
             }
-        };
 
-        if output_value < min_output_value {
-            debug!(
-                %graph_idx,
-                outpoint = %utxo.outpoint,
-                utxo_value = %utxo.amount,
-                %output_value,
-                %min_output_value,
-                fee = %plan.fee,
-                "wallet UTXO cannot fund non-dust unstaking burn output"
-            );
-            return false;
-        }
+            true
+        })
+        .await;
 
-        true
-    });
-
-    let Some(funding) = funding else {
+    let Some((funding, lease)) = funding else {
         warn!(
             %graph_idx,
             %payout_connector_value,
@@ -311,6 +319,7 @@ async fn select_funding(
             outpoint: funding.outpoint,
             prevout: funding.into(),
         },
+        lease,
         plan,
     ))
 }
@@ -673,7 +682,7 @@ mod tests {
         let fee_rate = FeeRate::from_sat_per_vb(2).expect("fee rate should be valid");
         let min_output_value = wallet.general_script_pubkey().minimal_non_dust();
 
-        let (funding, plan) = select_funding(
+        let (funding, _lease, plan) = select_funding(
             &mut wallet,
             TEST_GRAPH_IDX,
             &unstaking_burn_tx,

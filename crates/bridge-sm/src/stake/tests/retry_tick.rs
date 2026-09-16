@@ -1,5 +1,7 @@
 //! Unit tests for [`StakeSM::process_retry_tick`].
 
+use strata_bridge_connectors::{Connector, ParentTx};
+
 use super::*;
 use crate::stake::{duties::StakeDuty, events::RetryTickEvent, state::StakeState};
 
@@ -18,6 +20,7 @@ fn retry_publish_stake() {
         expected_duties: vec![StakeDuty::PublishStake {
             operator_idx: TEST_POV_IDX,
             tx: stake_graph.stake.as_ref().clone(),
+            anchor_key: stake_graph.stake.cpfp_connector().internal_key(),
         }],
     });
 }

@@ -1,4 +1,5 @@
 use musig2::{aggregate_partial_signatures, verify_partial};
+use strata_bridge_connectors::{Connector, ParentTx};
 use strata_bridge_primitives::key_agg::create_agg_ctx;
 use strata_bridge_tx_graph::{musig_functor::StakeFunctor, stake_graph::StakeGraph};
 
@@ -137,10 +138,12 @@ impl StakeSM {
 
                     if context.operator_idx() == context.operator_table().pov_idx() {
                         let stake_graph = StakeGraph::new(stake_data.expand(*cfg, &context));
+                        let anchor_key = stake_graph.stake.cpfp_connector().internal_key();
                         let stake_tx = stake_graph.stake.as_ref().clone();
                         duties.push(StakeDuty::PublishStake {
                             operator_idx: context.operator_idx(),
                             tx: stake_tx,
+                            anchor_key,
                         });
                     }
 
