@@ -56,7 +56,39 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
         export BRIDGE_PROOF_ASM_PARAMS_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/asm-params.json"
         export BRIDGE_PROOF_ASM_VK_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/asm-vk.json"
         export BRIDGE_PROOF_MOHO_VK_PATH="$BRIDGE_PROOF_ASM_PARAMS_DIR/moho-vk.json"
+
+        # Opt-in second, deliberately STALE guest ELF pair, built from the bundled stub
+        # params. Its genesis (asm anchor + asm/moho vks, and therefore the counterproof's
+        # baked bridge_proof_vk) differs from the real-params build, so both vkeys — and
+        # both Sp1Groth16 predicates — differ. A watchtower given the stale counterproof
+        # ELF can prove `CounterproofMode::InvalidBridgeProof` against a bridge proof that
+        # is in fact valid, which is how tests/full_mosaic forges an invalid counterproof.
+        # Built BEFORE the real build so `elfs/` ends up holding the canonical artifacts
+        # that every other test depends on.
+        if [ "$BRIDGE_PROOF_SP1_STALE_ARTIFACTS" = "1" ]; then
+            echo "building STALE SP1 guest ELFs from stub params (one extra guest build)"
+            SKIP_PARAMS=1 cargo build --release -p strata-bridge-sp1-guest-builder --features build-elf
+            STALE_ELF_DIR="$(realpath functional-tests)/_stale_elfs"
+            mkdir -p "$STALE_ELF_DIR"
+            cp guest-builder/sp1/elfs/{bridge-proof,counterproof}.{elf,predicate} "$STALE_ELF_DIR/"
+            export BRIDGE_STALE_PROOF_SP1_ELF="$STALE_ELF_DIR/bridge-proof.elf"
+            export BRIDGE_STALE_COUNTERPROOF_SP1_ELF="$STALE_ELF_DIR/counterproof.elf"
+        fi
+
         cargo build --release -p strata-bridge-sp1-guest-builder --features build-elf
+
+        # A "stale" predicate identical to the canonical one would make the invalid-
+        # counterproof test pass vacuously. Fail the run instead of testing nothing.
+        if [ "$BRIDGE_PROOF_SP1_STALE_ARTIFACTS" = "1" ]; then
+            for name in bridge-proof counterproof; do
+                if cmp -s "$STALE_ELF_DIR/$name.predicate" "guest-builder/sp1/elfs/$name.predicate"; then
+                    echo "ERROR: stale and canonical $name predicates are identical; the stub-params build did not diverge" >&2
+                    exit 1
+                fi
+            done
+            echo "STALE predicate (bridge-proof):  $(cat "$STALE_ELF_DIR/bridge-proof.predicate")"
+            echo "STALE predicate (counterproof): $(cat "$STALE_ELF_DIR/counterproof.predicate")"
+        fi
     else
         echo "SP1 proving mode (SP1_PROVER=$SP1_PROVER): building guest ELF with stub params (may take several minutes)"
         SKIP_PARAMS=1 cargo build --release -p strata-bridge-sp1-guest-builder --features build-elf

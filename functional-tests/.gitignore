@@ -12,7 +12,7 @@ wheels/
 # DB Migrations
 migrations/
 
-# Local SP1 proving config (copied from sp1-env.bash.sample; holds secrets)
+# Local SP1 proving + mosaic circuit config (copied from sp1-env.bash.sample; holds secrets)
 sp1-env.bash
 
 # asm-params generated from the external L1 and baked into the SP1 guest ELF
@@ -20,3 +20,10 @@ _asm_params/
 
 # asm repo checkout (pinned rev) used to build the ASM/Moho SP1 guest ELFs
 .asm-src/
+
+# g16 repo checkout (pinned ref) used to generate the full mosaic circuit
+.g16-src/
+
+# deliberately stale guest ELFs used by tests/full_mosaic to forge an invalid
+# counterproof (built from stub params; see sp1-setup.bash)
+_stale_elfs/
