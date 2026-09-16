@@ -6,11 +6,9 @@ import os
 import sys
 from pathlib import Path
 
-from bitcoinlib.services.bitcoind import BitcoindClient
-
 from envs.asm_config import AsmEnvConfig
 from envs.btc_config import BitcoinEnvConfig
-from factory.bitcoin import _read_external_btc_env
+from factory.bitcoin import _read_external_btc_env, make_bitcoind_client
 from factory.bridge_operator.asm_cfg import write_asm_params
 from utils.bitcoin import prepare_wallet_and_chain
 from utils.logging import setup_root_logger
@@ -27,7 +25,7 @@ def main() -> int:
     num_operators = int(os.environ["BRIDGE_PROOF_NUM_OPERATORS"])
 
     props, client_url = _read_external_btc_env()
-    rpc = BitcoindClient(base_url=client_url, network="regtest")
+    rpc = make_bitcoind_client(client_url)
     wait_until_bitcoind_ready(rpc, timeout=30)
 
     btc_config = BitcoinEnvConfig()

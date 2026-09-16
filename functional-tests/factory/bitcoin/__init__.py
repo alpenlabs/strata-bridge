@@ -1,8 +1,12 @@
+import http.client
 import os
 from urllib.parse import urlparse
 
 import flexitest
+from bitcoinlib.services.authproxy import AuthServiceProxy
 from bitcoinlib.services.bitcoind import BitcoindClient
+
+from constants import BITCOIND_RPC_TIMEOUT_SECS
 
 BD_USERNAME = "user"
 BD_PASSWORD = "password"
@@ -60,6 +64,35 @@ def _read_external_btc_env() -> tuple[dict, str]:
     return props, client_url
 
 
+class _FreshHTTPConnection(http.client.HTTPConnection):
+    """HTTPConnection that drops any previous connection before each request.
+
+    `AuthServiceProxy` closes its connection only after a successful call, so a refused
+    connect or a socket timeout leaves http.client in `Request-sent` and every later call
+    raises `CannotSendRequest`. The proxy opens a new TCP connection per call anyway.
+    """
+
+    def request(self, method, url, body=None, headers=None, *, encode_chunked=False):
+        self.close()
+        super().request(method, url, body, headers or {}, encode_chunked=encode_chunked)
+
+
+def make_bitcoind_client(url: str, timeout: int = BITCOIND_RPC_TIMEOUT_SECS) -> BitcoindClient:
+    """Build a regtest `BitcoindClient` whose RPC calls time out after `timeout` seconds.
+
+    `BitcoindClient` hard-wires bitcoinlib's 10s `HTTP_TIMEOUT`, so the proxy is replaced
+    after construction with one that carries the longer timeout and a self-resetting
+    connection.
+    """
+    parsed = urlparse(url)
+    if parsed.hostname is None:
+        raise ValueError(f"bitcoind rpc url has no host: {url!r}")
+    client = BitcoindClient(base_url=url, network="regtest")
+    conn = _FreshHTTPConnection(parsed.hostname, parsed.port, timeout=timeout)
+    client.proxy = AuthServiceProxy(url, timeout=timeout, connection=conn)
+    return client
+
+
 class ExternalBitcoinService(flexitest.service.Service):
     """Handle for an externally-managed regtest bitcoind.
 
@@ -73,7 +106,7 @@ class ExternalBitcoinService(flexitest.service.Service):
         self._client_url = client_url
 
         def _create_rpc() -> BitcoindClient:
-            return BitcoindClient(base_url=client_url, network="regtest")
+            return make_bitcoind_client(client_url)
 
         self.create_rpc = _create_rpc
 
@@ -152,7 +185,7 @@ class BitcoinFactory(flexitest.Factory):
             if not st:
                 raise RuntimeError("service isn't active")
             url = f"http://{BD_USERNAME}:{BD_PASSWORD}@0.0.0.0:{rpc_port}"
-            return BitcoindClient(base_url=url, network="regtest")
+            return make_bitcoind_client(url)
 
         svc.create_rpc = _create_rpc
 

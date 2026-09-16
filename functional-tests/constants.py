@@ -35,6 +35,9 @@ COUNTERPROOF_ACK_NACK_VOUT = 0
 # Bridge supports this as u16, this is the max value
 MAX_BRIDGE_TIMEOUT = (1 << 16) - 1
 
+# bitcoind RPC socket timeout; bitcoinlib hardcodes 10s, too tight for a contended CI runner.
+BITCOIND_RPC_TIMEOUT_SECS = 120
+
 # Test signing keys for the asm-runner's native backend (asm-stf + moho hosts).
 NATIVE_TEST_ASM_SIGNING_KEY = "01" * 32
 NATIVE_TEST_MOHO_SIGNING_KEY = "02" * 32
