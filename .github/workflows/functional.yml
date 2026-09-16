@@ -256,12 +256,12 @@ jobs:
       - name: Run functional tests
         id: funcTestsRun
         continue-on-error: true
+        shell: bash
         env:
           NO_COLOR: "1"
           LOG_LEVEL: "info"
           PYTHON_VERSION: "3.12" # NOTE: (@Rajil1213) build fails with 3.13 since bitcoinlib (>=0.7.5,<0.8) uses an old version of numpy
           TEST_GROUP: ${{ matrix.group }}
-          shell: bash
         run: |
           export LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/target/llvm-cov-target/strata-%p-%m.profraw"
           NEWPATH="$GITHUB_WORKSPACE/target/llvm-cov-target/debug"
@@ -295,27 +295,30 @@ jobs:
 
       - name: Zip log files on failure
         if: steps.funcTestsRun.outcome == 'failure'
-        # Create a zip archive (logs.zip) that includes only service.log files,
-        # preserving the folder structure starting from functional-tests/_dd
-        # NOTE: (MdTeach) Entire _dd could end up hundreds of MBs, so keep only logs
+        # Keep only service/test logs and results.json; the full _dd can reach hundreds of MBs.
+        # An env-init failure leaves no `logs/*.log`, so "nothing matched" must not fail the step.
         run: |
-          # service logs
-          find functional-tests/_dd -type f -name "service.log" | zip -@ logs.zip
-          # functional test logs
-          zip -r logs.zip functional-tests/_dd -i '*/logs/*.log'
+          find functional-tests/_dd -type f \
+            \( -name service.log -o -name results.json -o -path '*/logs/*.log' \) 2>/dev/null \
+            | sort > logs.txt
+          if [ ! -s logs.txt ]; then
+            echo "::warning::no functional-test logs found under functional-tests/_dd"
+            exit 0
+          fi
+          zip -q -@ logs.zip < logs.txt
 
       - name: Upload logs as build artifact on failure
-        if: steps.funcTestsRun.outcome == 'failure'
+        if: always() && steps.funcTestsRun.outcome == 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fntest_dd-${{ matrix.group }}
           path: logs.zip
           retention-days: 30
-          if-no-files-found: error
+          if-no-files-found: warn
           compression-level: 0 # already compressed
 
       - name: Fail job if functional tests fail
-        if: steps.funcTestsRun.outcome == 'failure'
+        if: always() && steps.funcTestsRun.outcome == 'failure'
         run: |
           echo "Functional tests failed"
           exit 1
