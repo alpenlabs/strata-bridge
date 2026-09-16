@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -82,13 +83,23 @@ class BaseEnv(flexitest.EnvConfig):
             bitcoind = btc_fac.connect_external_bitcoin()
         else:
             bitcoind = btc_fac.create_regtest_bitcoin()
-        brpc = bitcoind.create_rpc()
-        wait_until_bitcoind_ready(brpc, props=bitcoind.props)
+        try:
+            brpc = bitcoind.create_rpc()
+            wait_until_bitcoind_ready(brpc, props=bitcoind.props)
 
-        walletname = bitcoind.get_prop("walletname")
-        # Load-or-create the wallet and mine up to `initial_blocks`. Idempotent, so a retried
-        # mine cannot over-shoot; an external node may already have both.
-        wallet_addr = prepare_wallet_and_chain(brpc, walletname, self.initial_blocks)
+            walletname = bitcoind.get_prop("walletname")
+            # Load-or-create the wallet and mine up to `initial_blocks`. Idempotent, so a
+            # retried mine cannot over-shoot; an external node may already have both.
+            wallet_addr = prepare_wallet_and_chain(brpc, walletname, self.initial_blocks)
+        except Exception:
+            # flexitest never shuts down an env whose init raised, so stop the node here or it
+            # keeps its ports and CPU for the rest of the run. External nodes are never started.
+            if bitcoind.is_started():
+                try:
+                    bitcoind.stop()
+                except Exception as stop_exc:
+                    logging.warning(f"failed to stop bitcoind after setup error: {stop_exc}")
+            raise
 
         # Start automatic block generation
         miner = None
