@@ -157,6 +157,27 @@ fn sign_and_finalize(mut psbt: Psbt, keypair: Keypair) -> Transaction {
     psbt.extract_tx().expect("extract")
 }
 
+/// The payout descriptor and the wallet's own receive script must be the SAME script:
+/// payouts then arrive as ordinary wallet UTXOs (BDK tracks them) and are spent — including
+/// CPFP force-spends of the unconfirmed payout — with the same tap-tweaking signer as any
+/// funding input. A payout descriptor keyed to anything the funding descriptor doesn't
+/// watch (e.g. the raw, untweaked general key, which BOSD would use verbatim as the output
+/// key) silently strands every payout: invisible to the wallet and unspendable by the
+/// production signers.
+#[tokio::test]
+#[serial]
+async fn payout_descriptor_is_the_wallet_receive_script() {
+    let bitcoind = setup_bitcoind();
+    let (wallet, _kp, _pk) =
+        build_operator_wallet(&bitcoind, 1, 2, 1, Amount::from_btc(0.5).unwrap()).await;
+
+    assert_eq!(
+        wallet.payout_descriptor().to_script(),
+        wallet.general_script_pubkey(),
+        "native payout descriptor must resolve to the funding wallet's own script"
+    );
+}
+
 #[tokio::test]
 #[serial]
 async fn committed_leases_survive_until_an_explicit_release() {
@@ -539,6 +560,19 @@ impl GeneralWallet for YieldingGeneralWallet {
         _replaced: operator_wallet::ReplacedChild<'_>,
     ) -> Result<operator_wallet::FundedPsbt, Self::Error> {
         unreachable!("this test does not build CPFP children")
+    }
+
+    fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
+        unreachable!("this test does not resolve payout descriptors")
+    }
+
+    async fn sign_owned_inputs(
+        &self,
+        _tx: &Transaction,
+        _input_indices: &[usize],
+        _prevouts: &[bdk_wallet::bitcoin::TxOut],
+    ) -> Result<Vec<Option<bdk_wallet::bitcoin::Witness>>, Self::Error> {
+        unreachable!("this test does not sign owned inputs")
     }
 }
 

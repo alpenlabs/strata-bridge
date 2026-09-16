@@ -23,15 +23,14 @@
 //! Callers still take the exclusive outer lock for a multi-step critical section, such as a
 //! database lookup, then funding, then a write.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc, time::Instant};
 
 use bdk_wallet::{
     bitcoin::{
-        Address, Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, XOnlyPublicKey,
+        Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Witness, XOnlyPublicKey,
     },
     descriptor, KeychainKind, Wallet,
 };
-use bitcoin_bosd::Descriptor;
 use tokio::{sync::Mutex as TokioMutex, time::sleep};
 use tracing::{error, info, warn};
 
@@ -115,6 +114,14 @@ pub struct OperatorWallet<G: GeneralWallet> {
     /// paths take it as well, so that an await added to one of them later cannot open the gap
     /// without notice.
     funding: TokioMutex<()>,
+    /// Outcome and time of the most recent general-backend sync attempt. `None` before
+    /// the first attempt. Kept per-backend because the reserved wallet's chain tip
+    /// advances even while the general backend fails every sync (the two sync
+    /// independently inside [`Self::sync`]), so the tip alone cannot represent
+    /// general-backend health. The timestamp lets the probe report a stale verdict as
+    /// degraded: syncs are duty-driven, so an old success on an idle bridge is a weaker
+    /// signal than a fresh one.
+    last_general_sync: Option<(bool, Instant)>,
 }
 
 impl<G: GeneralWallet> OperatorWallet<G> {
@@ -149,6 +156,7 @@ impl<G: GeneralWallet> OperatorWallet<G> {
             config,
             leases: Arc::new(LeaseSet::with_committed(initial_leases)),
             funding: TokioMutex::new(()),
+            last_general_sync: None,
         }
     }
 
@@ -165,15 +173,17 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         self.general.script_pubkey()
     }
 
+    /// Returns the BOSD descriptor where bridge payouts to this operator should be directed.
+    /// Delegates to the backend so the destination matches the custodian that can spend it
+    /// (native general-key P2TR vs. Fireblocks vault P2WPKH). See
+    /// [`GeneralWallet::payout_descriptor`].
+    pub fn payout_descriptor(&self) -> bitcoin_bosd::Descriptor {
+        self.general.payout_descriptor()
+    }
+
     /// Returns the reserved wallet's receive script.
     pub fn reserved_script_pubkey(&self) -> ScriptBuf {
         self.reserved_script_pubkey.clone()
-    }
-
-    /// Returns a BOSD descriptor for the general wallet's current receive script.
-    pub fn descriptor(&self) -> Result<Descriptor, Error> {
-        let address = Address::from_script(&self.general_script_pubkey(), self.config.network)?;
-        Descriptor::try_from(address).map_err(Error::Descriptor)
     }
 
     // ── Lease bookkeeping ───────────────────────────────────────────────────
@@ -212,10 +222,22 @@ impl<G: GeneralWallet> OperatorWallet<G> {
     ///
     /// This is a non-mutating, in-memory read: it neither contacts the backend nor takes any
     /// internal write path, so health probes can observe sync progress through a shared read
-    /// lock without serializing against wallet-dependent duties. Both the general and reserved
-    /// wallets advance together in [`sync`](Self::sync), so the reserved tip is representative.
+    /// lock without serializing against wallet-dependent duties. The tip covers the reserved
+    /// wallet only: the general backend syncs independently inside [`sync`](Self::sync) and
+    /// can fail while this tip advances — probe [`Self::last_general_sync`] for it.
     pub fn local_chain_tip_height(&self) -> u32 {
         self.reserved.latest_checkpoint().height()
+    }
+
+    /// Outcome and time of the most recent general-backend sync attempt, or `None` before
+    /// the first.
+    ///
+    /// The reserved tip ([`Self::local_chain_tip_height`]) keeps advancing while the general
+    /// backend fails, because the two backends sync independently. A health probe that reads
+    /// only the tip therefore reports a dead general backend (bad Fireblocks credentials, an
+    /// API outage) as healthy forever. This is the general backend's own signal.
+    pub const fn last_general_sync(&self) -> Option<(bool, Instant)> {
+        self.last_general_sync
     }
 
     // ── Reserved-wallet UTXO lookup ─────────────────────────────────────────
@@ -392,6 +414,22 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         })
     }
 
+    /// Signs the general-wallet-owned inputs of `tx` at `input_indices`. Returns a witness per
+    /// index for inputs the backend can sign (e.g. Fireblocks), or `None` for inputs the caller
+    /// must sign downstream (the native descriptor-only backend returns all `None`). See
+    /// [`GeneralWallet::sign_owned_inputs`]. `prevouts[i]` is the output spent by `tx.input[i]`.
+    pub async fn sign_owned_inputs(
+        &self,
+        tx: &Transaction,
+        input_indices: &[usize],
+        prevouts: &[TxOut],
+    ) -> Result<Vec<Option<Witness>>, Error> {
+        self.general
+            .sign_owned_inputs(tx, input_indices, prevouts)
+            .await
+            .map_err(Error::from_general)
+    }
+
     // ── Cross-wallet (general → reserved) ──────────────────────────────────
 
     /// Creates a PSBT that funds `quantity` reserved-wallet UTXOs of `utxo_value` each,
@@ -451,7 +489,9 @@ impl<G: GeneralWallet> OperatorWallet<G> {
         let mut attempt = 0u32;
         loop {
             let mut err: Option<Error> = None;
-            if let Err(e) = self.general.sync().await {
+            let general_result = self.general.sync().await;
+            self.last_general_sync = Some((general_result.is_ok(), Instant::now()));
+            if let Err(e) = general_result {
                 err = Some(Error::from_general(e));
             }
             if let Err(e) = self

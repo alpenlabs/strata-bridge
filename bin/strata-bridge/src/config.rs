@@ -288,11 +288,80 @@ pub(crate) struct RpcConfig {
 }
 
 /// Configuration for the operator wallet.
+///
+/// `deny_unknown_fields` so a mistyped key — e.g. `[operator_wallet.firebloks]` — is a hard
+/// error rather than silently deserializing `fireblocks` as `None` and downgrading a
+/// Fireblocks-custodied operator to the native backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct OperatorWalletConfig {
     /// The size of the claim funding pool, i.e., the number of UTXOs to generate for funding claim
     /// transactions when they run out.
     pub claim_funding_pool_size: usize,
+
+    /// When present, the operator's general wallet is custodied in Fireblocks instead of a local
+    /// BDK wallet. When absent (the default), the native backend is used. The reserved wallet is
+    /// always native regardless.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fireblocks: Option<FireblocksWalletConfig>,
+}
+
+/// Connection + identity configuration for a Fireblocks-backed general wallet.
+///
+/// `Debug` is hand-written to redact `api_key`: the whole [`Config`] is logged at startup
+/// (`mode/operator.rs`), so a derived `Debug` would leak the API key into the logs.
+///
+/// `deny_unknown_fields` so a mistyped credential key surfaces as a config error instead of
+/// being silently dropped.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FireblocksWalletConfig {
+    /// API host root, **without** the `/v1` path segment, e.g. `https://api.fireblocks.io`.
+    pub base_url: String,
+
+    /// Fireblocks API key (sent as the `X-API-Key` header).
+    pub api_key: String,
+
+    /// Vault account id holding the BTC asset.
+    pub vault_account_id: String,
+
+    /// Asset id for the network — `BTC` on mainnet, `BTC_TEST` on test networks.
+    pub asset_id: String,
+
+    /// The vault account's BTC deposit address (P2WPKH). Where the general wallet receives
+    /// funding and earnings.
+    pub deposit_address: String,
+
+    /// Path to the Fireblocks API secret — an RSA private key in PEM form, used to sign the
+    /// per-request JWTs. Kept out of the config body (like the secret-service TLS material) so
+    /// the key never lives in the config file itself.
+    pub api_secret_path: PathBuf,
+
+    /// BIP44 address index (`bip44AddressIndex`) telling Fireblocks which derived key under the
+    /// vault to RAW-sign with. Must correspond to `deposit_address`. Defaults to `0` (the
+    /// vault's default address).
+    #[serde(default)]
+    pub bip44_address_index: u32,
+
+    /// BIP44 change index (`bip44change`). `0` for receive, `1` for internal. Defaults to `0`.
+    #[serde(default)]
+    pub bip44_change: u32,
+}
+
+impl fmt::Debug for FireblocksWalletConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Redact the API key; everything else is non-secret operational config.
+        f.debug_struct("FireblocksWalletConfig")
+            .field("base_url", &self.base_url)
+            .field("api_key", &"<redacted>")
+            .field("vault_account_id", &self.vault_account_id)
+            .field("asset_id", &self.asset_id)
+            .field("deposit_address", &self.deposit_address)
+            .field("api_secret_path", &self.api_secret_path)
+            .field("bip44_address_index", &self.bip44_address_index)
+            .field("bip44_change", &self.bip44_change)
+            .finish()
+    }
 }
 
 /// Configuration for the mosaic client.
@@ -332,9 +401,9 @@ pub(crate) struct MetricsConfig {
 /// The Bitcoin RPC credentials are sentinels so `debug_redacts_btc_rpc_credentials` can search
 /// rendered output for them without matching field names or other values.
 #[cfg(test)]
-pub(crate) fn test_config() -> Config {
-    toml::from_str(
-        r#"
+/// Everything except the `[operator_wallet]` table, so individual tests can append
+/// different operator-wallet configurations (native vs Fireblocks).
+pub(crate) const BASE_TOML: &str = r#"
             num_threads = 4
             thread_stack_size = 8_388_608 # 8 * 1024 * 1024
             is_faulty = false
@@ -393,9 +462,6 @@ pub(crate) fn test_config() -> Config {
             rawtx_connection_string = "tcp://127.0.0.1:28335"
             sequence_connection_string = "tcp://127.0.0.1:28336"
 
-            [operator_wallet]
-            claim_funding_pool_size = 32
-
             [mosaic]
             rpc_url = "http://localhost:7500"
             retry_delay = { secs = 2, nanos = 0 }
@@ -416,8 +482,15 @@ pub(crate) fn test_config() -> Config {
 
             [metrics]
             prometheus_listener_addr = "127.0.0.1:9615"
-        "#,
-    )
+        "#;
+
+/// A full parsed test config with the native operator-wallet backend. Startup-check tests
+/// and config tests share this constructor.
+#[cfg(test)]
+pub(crate) fn test_config() -> Config {
+    toml::from_str(&format!(
+        "{BASE_TOML}\n[operator_wallet]\nclaim_funding_pool_size = 32\n"
+    ))
     .expect("valid test config")
 }
 
@@ -425,9 +498,11 @@ pub(crate) fn test_config() -> Config {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_config_serde_toml() {
-        let config = test_config();
+    /// Parses `toml_str` and asserts a serde round-trip preserves every field, returning the
+    /// parsed config.
+    fn assert_roundtrips(toml_str: &str) -> Config {
+        let config = toml::from_str::<Config>(toml_str)
+            .unwrap_or_else(|e| panic!("must deserialize config from toml: {e}"));
         let serialized = toml::to_string(&config).unwrap();
         let reparsed = toml::from_str::<Config>(&serialized).unwrap();
         let reserialized = toml::to_string(&reparsed).unwrap();
@@ -435,6 +510,41 @@ mod tests {
             reserialized, serialized,
             "serde round-trip must preserve every field"
         );
+        config
+    }
+
+    #[test]
+    fn test_config_serde_toml() {
+        let toml_str = format!("{BASE_TOML}\n[operator_wallet]\nclaim_funding_pool_size = 32\n");
+        let config = assert_roundtrips(&toml_str);
+        assert!(
+            config.operator_wallet.fireblocks.is_none(),
+            "no fireblocks table => native backend"
+        );
+    }
+
+    #[test]
+    fn test_config_serde_toml_with_fireblocks() {
+        let toml_str = format!(
+            "{BASE_TOML}\n\
+             [operator_wallet]\n\
+             claim_funding_pool_size = 32\n\n\
+             [operator_wallet.fireblocks]\n\
+             base_url = \"https://api.fireblocks.io\"\n\
+             api_key = \"api-key-id\"\n\
+             vault_account_id = \"0\"\n\
+             asset_id = \"BTC\"\n\
+             deposit_address = \"bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq\"\n\
+             api_secret_path = \"fireblocks_secret.pem\"\n"
+        );
+        let config = assert_roundtrips(&toml_str);
+        let fb = config
+            .operator_wallet
+            .fireblocks
+            .expect("fireblocks table => Fireblocks backend");
+        assert_eq!(fb.asset_id, "BTC");
+        assert_eq!(fb.vault_account_id, "0");
+        assert_eq!(fb.api_secret_path, PathBuf::from("fireblocks_secret.pem"));
     }
 
     // Operator startup logs the whole config, so no debug rendering of it may carry the Bitcoin

@@ -26,7 +26,7 @@ use strata_bridge_primitives::{
     types::OperatorIdx,
 };
 use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::prelude::StakeTx};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     chain::{self, CpfpKind, publish_signed_transaction},
@@ -81,15 +81,10 @@ pub(crate) async fn publish_stake_data(
     info!(%unstaking_image, "fetched unstaking intent preimage and computed the unstaking image");
 
     info!("constructing the unstaking output descriptor");
-    let output_desc = output_handles
-        .wallet
-        .read()
-        .await
-        .descriptor()
-        .map_err(|e| {
-            ExecutorError::WalletErr(format!("failed to create unstaking descriptor: {e}"))
-        })?;
-    info!(%output_desc, "constructed the unstaking output descriptor");
+    // Backend-aware receive destination: where this operator gets its unstaking funds, so the
+    // funds land somewhere it can actually spend — the wallet's own receive script for the
+    // native backend, the vault P2WPKH for Fireblocks.
+    let output_desc = output_handles.wallet.read().await.payout_descriptor();
 
     let unstaking_input = UnstakingInput {
         stake_funds,
@@ -128,25 +123,91 @@ async fn read_or_create_stake_funding(
         .get_stake_funding_reservation(operator_idx)
         .await?
     {
-        info!(%operator_idx, "reusing persisted stake funding reservation");
-        validate_reservation(
+        match validate_reservation(
             &reservation,
             &wallet.reserved_script_pubkey(),
+            &wallet.general_script_pubkey(),
             funding_amount,
-        )?;
-        let inputs: Vec<OutPoint> = reservation
-            .unsigned_tx
-            .input
-            .iter()
-            .map(|txin| txin.previous_output)
-            .collect();
-        // The database row keeps this reservation across restarts, so the lease has no owning
-        // value to drop. Startup rehydration holds the same outpoints. This call covers the
-        // case where the row was written after startup read the funds.
-        wallet
-            .lease_committed(inputs, LeaseOwner::StakeFunding)
-            .await;
-        return Ok(reservation);
+        ) {
+            Ok(()) => {
+                info!(%operator_idx, "reusing persisted stake funding reservation");
+                let inputs: Vec<OutPoint> = reservation
+                    .unsigned_tx
+                    .input
+                    .iter()
+                    .map(|txin| txin.previous_output)
+                    .collect();
+                // The database row keeps this reservation across restarts, so the lease has
+                // no owning value to drop. Startup rehydration holds the same outpoints.
+                // This call covers the case where the row was written after startup read
+                // the funds.
+                wallet
+                    .lease_committed(inputs, LeaseOwner::StakeFunding)
+                    .await;
+                return Ok(reservation);
+            }
+            Err(e) => {
+                // A reservation that fails validation fails it forever (it is durable and
+                // the wallet it was built against is gone or changed). Erroring out here
+                // blocked stake publication permanently with no operator-facing recovery.
+                // Discard it and fund afresh instead.
+                warn!(
+                    %operator_idx,
+                    error = %e,
+                    "persisted stake funding reservation is invalid for the current wallet; \
+                     discarding it and creating a new funding tx"
+                );
+                // While the reservation's funding tx is still in the mempool (an operator
+                // changed the stake params while it was pending), re-funding selects the
+                // same live inputs and the replacement fails BIP125: the new tx is funded
+                // at the same live rate and does not pay the original fee plus the
+                // replacement premium. Defer this cycle; once the old tx confirms its
+                // inputs leave the wallet and the discard proceeds cleanly.
+                let old_txid = reservation.unsigned_tx.compute_txid();
+                match output_handles
+                    .bitcoind_rpc_client
+                    .call_raw::<serde_json::Value>(
+                        "getmempoolentry",
+                        &[serde_json::json!(old_txid)],
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        warn!(
+                            %operator_idx,
+                            %old_txid,
+                            "old stake funding tx is still in the mempool; deferring the \
+                             reservation discard until it resolves"
+                        );
+                        return Err(ExecutorError::StakeFundingTxInMempool(old_txid));
+                    }
+                    Err(e) => {
+                        // A failed lookup is not evidence the tx is live: the RPC is down,
+                        // or the tx already left the mempool. Proceed with the discard; a
+                        // live conflict then surfaces as a publish failure, as before.
+                        debug!(?e, "getmempoolentry failed; proceeding with the discard");
+                    }
+                }
+                // Startup rehydration (`get_all_funds`) leased this reservation's inputs.
+                // Deleting the row alone leaves those leases in place, and the sync prune
+                // only drops leases whose UTXO is gone — in the same-backend case (a params
+                // change, not a backend switch) the inputs are live wallet UTXOs, and the
+                // stale leases would silently shrink the spendable balance until restart.
+                // The wallet write lock is held across this whole function, so the release
+                // and the delete are atomic against other duties.
+                let stale_inputs: Vec<OutPoint> = reservation
+                    .unsigned_tx
+                    .input
+                    .iter()
+                    .map(|txin| txin.previous_output)
+                    .collect();
+                wallet.release_committed(&stale_inputs);
+                output_handles
+                    .db
+                    .delete_stake_funding_reservation(operator_idx)
+                    .await?;
+            }
+        }
     }
 
     info!(%operator_idx, "no persisted stake funding reservation; creating a new funding tx");
@@ -185,9 +246,13 @@ async fn read_or_create_stake_funding(
         Ok(FundingAssignment::Existing(reservation)) => {
             info!(%operator_idx, "using existing stake funding reservation saved by another duty");
             drop(candidate_lease);
+            // No discard-and-rebuild here, unlike the read path: this reservation was just
+            // written by a concurrently-running duty of this same process, so its backend
+            // is the current backend and a validation failure means real corruption.
             validate_reservation(
                 &reservation,
                 &wallet.reserved_script_pubkey(),
+                &wallet.general_script_pubkey(),
                 funding_amount,
             )?;
             let assigned_inputs: Vec<OutPoint> = reservation
@@ -237,6 +302,7 @@ async fn estimate_funding_fee_rate(
 fn validate_reservation(
     reservation: &StakeFundingReservation,
     expected_stake_script: &bitcoin::ScriptBuf,
+    expected_funding_script: &bitcoin::ScriptBuf,
     expected_funding_amount: Amount,
 ) -> Result<(), ExecutorError> {
     if reservation.prevouts.len() != reservation.unsigned_tx.input.len() {
@@ -245,6 +311,19 @@ fn validate_reservation(
             reservation.prevouts.len(),
             reservation.unsigned_tx.input.len(),
         )));
+    }
+    // The funding inputs must belong to the CURRENT general backend. A reservation persisted
+    // under one backend and signed by another produces either a hard signing error
+    // (P2TR prevouts through the Fireblocks P2WPKH sighash) or an invalid transaction
+    // (a Schnorr key-spend witness on a P2WPKH input) — permanently, because the reservation
+    // is durable. Reject it here so the caller discards it and funds afresh.
+    for (i, prevout) in reservation.prevouts.iter().enumerate() {
+        if prevout.script_pubkey != *expected_funding_script {
+            return Err(ExecutorError::InvalidTxStructure(format!(
+                "stake funding reservation prevout {i} pays a script the current general \
+                 wallet does not control (backend changed since the reservation was made?)",
+            )));
+        }
     }
     let stake_output = reservation
         .unsigned_tx
@@ -296,34 +375,52 @@ async fn sign_reservation(
     output_handles: &OutputHandles,
     reservation: &StakeFundingReservation,
 ) -> Result<Transaction, ExecutorError> {
-    let prevouts = Prevouts::All(&reservation.prevouts);
-
     const DEFAULT_SIGHASH_TYPE: TapSighashType = TapSighashType::Default;
 
+    let input_count = reservation.unsigned_tx.input.len();
+    let all_indices: Vec<usize> = (0..input_count).collect();
+
+    // The stake-funding tx is funded entirely from the general wallet, but the reservation is
+    // persisted as an unsigned tx + prevouts (the funded PSBT's witnesses, if any, aren't
+    // stored), so sign on demand here. A create-and-sign backend (Fireblocks) signs its P2WPKH
+    // inputs and returns their witnesses; the native descriptor-only backend returns all `None`
+    // and those inputs are signed via secret-service below.
+    let backend_witnesses = output_handles
+        .wallet
+        .read()
+        .await
+        .sign_owned_inputs(
+            &reservation.unsigned_tx,
+            &all_indices,
+            &reservation.prevouts,
+        )
+        .await
+        .map_err(|e| ExecutorError::WalletErr(format!("backend signing failed: {e}")))?;
+
+    let prevouts = Prevouts::All(&reservation.prevouts);
     let mut sighash_cache = SighashCache::new(&reservation.unsigned_tx);
-    let sighashes = (0..reservation.unsigned_tx.input.len()).map(|input_index| {
-        create_key_spend_hash(
+    let s2_signer = output_handles.s2_client.general_wallet_signer();
+
+    let mut signed_tx = reservation.unsigned_tx.clone();
+    for (input_index, backend_witness) in backend_witnesses.iter().enumerate() {
+        if let Some(witness) = backend_witness {
+            signed_tx.input[input_index].witness = witness.clone();
+            continue;
+        }
+        let sighash = create_key_spend_hash(
             &mut sighash_cache,
             prevouts.clone(),
             DEFAULT_SIGHASH_TYPE,
             input_index,
         )
-        .expect("must be able to create key spend hash")
-    });
-
-    let s2_signer = output_handles.s2_client.general_wallet_signer();
-    let mut signatures = Vec::with_capacity(reservation.unsigned_tx.input.len());
-    for sighash in sighashes {
+        .map_err(|e| ExecutorError::WalletErr(format!("key spend hash: {e}")))?;
         let signature = s2_signer
             .sign(sighash.as_ref(), None)
             .await
             .map_err(ExecutorError::SecretServiceErr)?;
-        signatures.push(signature);
-    }
-
-    let mut signed_tx = reservation.unsigned_tx.clone();
-    for (input, signature) in signed_tx.input.iter_mut().zip(signatures) {
-        input.witness.push(signature.serialize());
+        signed_tx.input[input_index]
+            .witness
+            .push(signature.serialize());
     }
 
     Ok(signed_tx)
@@ -510,4 +607,65 @@ fn stake_funding_amount(network: Network, stake_amount: Amount) -> Amount {
         fee::unstaking_intent_surcharge(),
     );
     StakeTx::stake_funds_required(stake_amount, &unstaking_intent_output)
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{
+        Amount, Transaction, TxIn, TxOut, absolute::LockTime, hashes::Hash, transaction::Version,
+    };
+    use strata_bridge_db::types::StakeFundingReservation;
+
+    use super::validate_reservation;
+
+    fn script(byte: u8) -> bitcoin::ScriptBuf {
+        // The shape is irrelevant to `validate_reservation`; only script identity matters.
+        bitcoin::ScriptBuf::from_bytes(vec![0x51, 0x20, byte])
+    }
+
+    fn reservation(
+        funding_script: &bitcoin::ScriptBuf,
+        stake_script: &bitcoin::ScriptBuf,
+    ) -> StakeFundingReservation {
+        let prevout = TxOut {
+            value: Amount::from_sat(60_000),
+            script_pubkey: funding_script.clone(),
+        };
+        StakeFundingReservation {
+            unsigned_tx: Transaction {
+                version: Version(3),
+                lock_time: LockTime::ZERO,
+                input: vec![TxIn {
+                    previous_output: bitcoin::OutPoint {
+                        txid: bitcoin::Txid::all_zeros(),
+                        vout: 0,
+                    },
+                    ..Default::default()
+                }],
+                output: vec![TxOut {
+                    value: Amount::from_sat(50_000),
+                    script_pubkey: stake_script.clone(),
+                }],
+            },
+            prevouts: vec![prevout],
+            stake_output_vout: 0,
+        }
+    }
+
+    /// A reservation funded by a previous general backend must be rejected, not signed.
+    /// Signing it produces either a hard error or an invalid transaction — forever,
+    /// because the reservation is durable. Rejection is what lets the caller discard the
+    /// row and fund afresh.
+    #[test]
+    fn a_reservation_from_another_backend_is_rejected() {
+        let old_backend = script(1);
+        let current_backend = script(2);
+        let stake = script(3);
+        let r = reservation(&old_backend, &stake);
+        let err = validate_reservation(&r, &stake, &current_backend, Amount::from_sat(50_000));
+        assert!(err.is_err(), "foreign-backend prevout must fail validation");
+
+        let ok = validate_reservation(&r, &stake, &old_backend, Amount::from_sat(50_000));
+        assert!(ok.is_ok(), "same-backend prevout must pass");
+    }
 }

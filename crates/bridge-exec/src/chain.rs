@@ -1,7 +1,7 @@
 //! Shared Bitcoin chain helpers for executors.
 
 use bitcoin::{
-    Address, Amount, OutPoint, ScriptBuf, Transaction, TxOut, Txid, secp256k1::SECP256K1,
+    Address, Amount, OutPoint, Script, ScriptBuf, Transaction, TxOut, Txid, secp256k1::SECP256K1,
     taproot::ControlBlock,
 };
 use bitcoind_async_client::{Client as BitcoinClient, error::ClientError, traits::Reader};
@@ -59,36 +59,42 @@ fn parent_fee_for_floor_tx(tx: &Transaction) -> Amount {
         .expect("protocol-floor × tx vsize cannot overflow Amount")
 }
 
-/// Scans `tx.output` for the first output paying the operator's general-wallet P2TR script
-/// (the script of `tr(operator_general_pubkey)` on `output_handles.network`). Returns the
-/// outpoint, or `None` if no matching output exists.
+/// Scans `tx.output` for the first output paying the operator's general-wallet receive script
+/// and returns its outpoint, or `None` if no matching output exists.
+///
+/// The receive script is the backend's `general_script_pubkey`: the BIP86-tweaked
+/// `tr(general_pubkey)` P2TR for the native BDK backend, or the vault P2WPKH
+/// for the Fireblocks backend. Both backends draw their funding change to this script, so this
+/// is what `InferGeneralPayout` must match — using a hardcoded P2TR derivation would silently
+/// miss the Fireblocks change output and disable CPFP for that backend.
 ///
 /// Used by [`CpfpKind::InferGeneralPayout`] to opportunistically classify a tx as
 /// `PayoutCombined` when an operator-owned output happens to be present. Three call sites
 /// rely on this:
 ///
-/// - **Withdrawal fulfillment**: BDK adds a change output back to the general wallet at
+/// - **Withdrawal fulfillment**: the wallet adds a change output back to the general wallet at
 ///   `WithdrawalFulfillmentTx::OPTIONAL_CHANGE_VOUT` (vout 2) when selected inputs exceed
 ///   user_amount + fee. When change exists, CPFP via that output.
-/// - **Stake funding**: BDK adds a change output back to the general wallet (vout depends on BDK
+/// - **Stake funding**: the wallet adds a change output back to the general wallet (vout depends on
 ///   ordering, typically vout 1 after the reserved-wallet output at vout 0).
-/// - **Slash**: The calling watchtower's payout is at `vout = 1 + their_index_in_watchtowers` keyed
-///   to their payout descriptor (= the general-wallet P2TR, by the bridge's `payout_descriptor`
-///   convention). Scan finds it without threading the index through.
+/// - **Slash**: the calling watchtower's payout sits at `vout = 1 + their_index_in_watchtowers`,
+///   keyed to its params-file covenant `payout_descriptor`. This is found only when that
+///   descriptor's script equals the general-wallet receive script — which is exactly what the
+///   native `payout_descriptor()` returns, so the scan matches whenever the params descriptor
+///   agrees with the wallet (the orchestrator warns at startup when it doesn't). On a mismatch (or
+///   a Fireblocks vault script, which is not the general P2TR) the scan returns `None` and slash
+///   CPFP falls back to no-bump (see `publish_slash`).
 ///
 /// Brittle assumption: matches by exact `script_pubkey` equality. If two different
-/// operators happened to share the same payout descriptor, the first match wins — but each
-/// operator has a unique general-wallet key in practice (one per s2 instance), so this
-/// can't collide in production.
-pub(crate) fn first_general_payout_outpoint(
+/// operators happened to share the same receive script, the first match wins — but each
+/// operator has a unique general-wallet key/vault in practice, so this can't collide in
+/// production.
+pub(crate) async fn first_general_payout_outpoint(
     tx: &Transaction,
     output_handles: &OutputHandles,
 ) -> Option<OutPoint> {
-    first_payout_outpoint_keyed_to(
-        tx,
-        output_handles.operator_general_pubkey,
-        output_handles.network,
-    )
+    let expected_script = output_handles.wallet.read().await.general_script_pubkey();
+    first_output_paying_script(tx, &expected_script)
 }
 
 /// Validates the caller-named anchor and returns the CPFP strategy for it.
@@ -159,17 +165,12 @@ fn checked_anchor_strategy(
     })
 }
 
-/// Inner helper for [`first_general_payout_outpoint`]; takes the pubkey/network explicitly so
+/// Inner helper for [`first_general_payout_outpoint`]; takes the receive script explicitly so
 /// it can be unit-tested without constructing a full [`OutputHandles`].
-fn first_payout_outpoint_keyed_to(
-    tx: &Transaction,
-    pubkey: bitcoin::XOnlyPublicKey,
-    network: bitcoin::Network,
-) -> Option<OutPoint> {
-    let expected_script = Address::p2tr(SECP256K1, pubkey, None, network).script_pubkey();
+fn first_output_paying_script(tx: &Transaction, expected_script: &Script) -> Option<OutPoint> {
     let txid = tx.compute_txid();
     tx.output.iter().enumerate().find_map(|(vout, o)| {
-        if o.script_pubkey != expected_script {
+        if o.script_pubkey != *expected_script {
             return None;
         }
         u32::try_from(vout).ok().map(|vout| OutPoint { txid, vout })
@@ -238,6 +239,53 @@ pub(crate) async fn is_outpoint_unspent(
             Err(e)
         }
     }
+}
+
+/// Returns whether chain state shows the persisted withdrawal-funding `outpoints` were
+/// written under a previous general-wallet backend: every outpoint is unspent (mempool
+/// included) AND none of them pays `current_general_spk`.
+///
+/// Every ambiguous outcome resolves to "not a previous-backend row" because the caller's
+/// discard-and-reselect on a false positive funds, signs, and broadcasts a second payout,
+/// while a false negative is a stuck row an operator can edit with the funds intact:
+///
+/// - Any outpoint spent or unknown (`gettxout` null): most likely this deposit's own fulfillment
+///   transaction is in the mempool or confirmed while its confirmation event has not reached the
+///   state machine yet → `Ok(false)`, the caller keeps the row and the funding path no-ops and
+///   retries.
+/// - All unspent, but any pays the current backend's own script: the wallet view and the chain
+///   disagree (backend cache lag, mempool eviction, reorg), not a backend switch → `Ok(false)`.
+/// - All unspent at scripts other than the current backend's: the cross-backend recovery case →
+///   `Ok(true)`, the caller may discard the row and reselect.
+/// - Any RPC failure propagates as `Err`; the caller keeps the row.
+pub(crate) async fn outpoints_belong_to_previous_backend(
+    bitcoind_rpc_client: &BitcoinClient,
+    outpoints: &[OutPoint],
+    current_general_spk: &ScriptBuf,
+) -> Result<bool, ClientError> {
+    for outpoint in outpoints {
+        debug!(%outpoint, "classifying persisted funding outpoint against chain state");
+        match bitcoind_rpc_client
+            .get_tx_out(&outpoint.txid, outpoint.vout, true)
+            .await
+        {
+            Ok(res) => {
+                if res.tx_out.script_pubkey == *current_general_spk {
+                    return Ok(false);
+                }
+            }
+            // Same mapping as `is_outpoint_unspent`: bitcoind returns `null` for a spent or
+            // non-existent UTXO, surfaced by the client as this `Other` variant.
+            Err(ClientError::Other(ref msg)) if msg == "Empty data received" => {
+                return Ok(false);
+            }
+            Err(e) => {
+                warn!(%outpoint, ?e, "could not classify persisted funding outpoint");
+                return Err(e);
+            }
+        }
+    }
+    Ok(true)
 }
 
 /// Hint that lets the caller of [`publish_signed_transaction`] override how the CPFP
@@ -336,6 +384,7 @@ pub(crate) async fn publish_signed_transaction(
             parent_fee,
         }),
         CpfpKind::InferGeneralPayout => first_general_payout_outpoint(signed_tx, output_handles)
+            .await
             .map(|payout_outpoint| CpfpStrategy::ParentTxCombined {
                 payout_outpoint,
                 parent_fee,
@@ -418,8 +467,8 @@ mod tests {
     use strata_bridge_tx_graph::fee;
 
     use super::{
-        checked_anchor_strategy, first_payout_outpoint_keyed_to, is_outpoint_unspent,
-        is_txid_onchain,
+        checked_anchor_strategy, first_output_paying_script, is_outpoint_unspent, is_txid_onchain,
+        outpoints_belong_to_previous_backend,
     };
 
     /// Per-coinbase reward on regtest before any halving.
@@ -530,11 +579,10 @@ mod tests {
             }, // vout 1: other key
             TxOut {
                 value: Amount::from_sat(50_000),
-                script_pubkey: our_script,
+                script_pubkey: our_script.clone(),
             }, // vout 2: our key
         ]);
-        let found = first_payout_outpoint_keyed_to(&tx, our_key, Network::Regtest)
-            .expect("should find our output");
+        let found = first_output_paying_script(&tx, &our_script).expect("should find our output");
         assert_eq!(found.vout, 2);
     }
 
@@ -544,6 +592,7 @@ mod tests {
         // output exists on this tx.
         let our_key = xonly_from_seed(1);
         let other_key = xonly_from_seed(2);
+        let our_script = Address::p2tr(SECP256K1, our_key, None, Network::Regtest).script_pubkey();
         let other_script =
             Address::p2tr(SECP256K1, other_key, None, Network::Regtest).script_pubkey();
         let tx = dummy_v3_tx(vec![
@@ -556,7 +605,7 @@ mod tests {
                 script_pubkey: other_script,
             },
         ]);
-        assert!(first_payout_outpoint_keyed_to(&tx, our_key, Network::Regtest).is_none());
+        assert!(first_output_paying_script(&tx, &our_script).is_none());
     }
 
     #[test]
@@ -573,11 +622,10 @@ mod tests {
             }, // vout 0
             TxOut {
                 value: Amount::from_sat(50_000),
-                script_pubkey: our_script,
+                script_pubkey: our_script.clone(),
             }, // vout 1
         ]);
-        let found = first_payout_outpoint_keyed_to(&tx, our_key, Network::Regtest)
-            .expect("should find first match");
+        let found = first_output_paying_script(&tx, &our_script).expect("should find first match");
         assert_eq!(found.vout, 0);
     }
 
@@ -787,6 +835,135 @@ mod tests {
             mined_status.confirmations.is_some_and(|c| c >= 1),
             "stage 3 (mined): spending tx should have ≥1 confirmation, got {:?}",
             mined_status.confirmations
+        );
+    }
+
+    /// Drives the previous-backend gate through the outcomes that decide whether a persisted
+    /// withdrawal-funding row may be discarded. Only unspent-at-a-foreign-script says
+    /// "previous backend" (discard); unspent at the current backend's own script, spent in
+    /// the mempool, spent on chain, and a mixed set all say "keep".
+    #[tokio::test]
+    async fn previous_backend_gate_discards_only_unspent_foreign_outpoints() {
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+
+        let bitcoind = Node::with_conf("bitcoind", &conf).expect("bitcoind should start");
+        let mining_address = bitcoind
+            .client
+            .new_address()
+            .expect("wallet address should be generated");
+        bitcoind
+            .client
+            .generate_to_address(102, &mining_address)
+            .expect("coinbase outputs should mature");
+
+        let rpc_client = setup_btc_client(&bitcoind);
+
+        // Two matured coinbase outputs stand in for a persisted funding row. Their script
+        // belongs to the node wallet — a "previous backend" relative to any other script.
+        let mut outpoints = Vec::new();
+        let mut spks = Vec::new();
+        for height in [1, 2] {
+            let block = rpc_client
+                .get_block_at(height)
+                .await
+                .expect("mined block should be retrievable");
+            let coinbase_tx = block
+                .coinbase()
+                .expect("mined block should contain a coinbase transaction");
+            outpoints.push(OutPoint {
+                txid: coinbase_tx.compute_txid(),
+                vout: 0,
+            });
+            spks.push(coinbase_tx.output[0].script_pubkey.clone());
+        }
+        let own_spk = spks[0].clone();
+        let foreign_spk = Address::p2tr(
+            SECP256K1,
+            xonly_from_seed(3),
+            None,
+            bitcoin::Network::Regtest,
+        )
+        .script_pubkey();
+
+        // All unspent at a script that is not the current backend's: the backend-switch
+        // signature — the one outcome that may discard.
+        assert!(
+            outpoints_belong_to_previous_backend(&rpc_client, &outpoints, &foreign_spk)
+                .await
+                .expect("rpc should succeed"),
+            "unspent outpoints at a foreign script should classify as previous-backend"
+        );
+
+        // Same outpoints, but the current backend claims that script: anomaly, keep.
+        assert!(
+            !outpoints_belong_to_previous_backend(&rpc_client, &outpoints, &own_spk)
+                .await
+                .expect("rpc should succeed"),
+            "unspent outpoints at the current backend's script must not discard"
+        );
+
+        // Spend the first outpoint into the mempool (not mined): the gate must see the
+        // mempool spend and keep the row — this is the own-WFT-pending window.
+        let recipient = bitcoind
+            .client
+            .new_address()
+            .expect("recipient address should be generated");
+        let inputs = [Input {
+            txid: outpoints[0].txid,
+            vout: u64::from(outpoints[0].vout),
+            sequence: None,
+        }];
+        let outputs = [Output::new(
+            recipient,
+            Amount::from_sat(REGTEST_COINBASE_AMOUNT.to_sat() - 2_000),
+        )];
+        let unsigned_tx = bitcoind
+            .client
+            .create_raw_transaction(&inputs, &outputs)
+            .expect("create raw tx")
+            .transaction()
+            .expect("decode unsigned tx");
+        let signed = bitcoind
+            .client
+            .sign_raw_transaction_with_wallet(&unsigned_tx)
+            .expect("wallet should sign the spending tx");
+        assert!(
+            signed.complete,
+            "wallet should produce a complete signature"
+        );
+        let signed_tx: Transaction =
+            deserialize_hex(&signed.hex).expect("signed tx hex should deserialize");
+        bitcoind
+            .client
+            .send_raw_transaction(&signed_tx)
+            .expect("broadcast spending tx");
+
+        // Spent-in-mempool alone → keep.
+        assert!(
+            !outpoints_belong_to_previous_backend(&rpc_client, &outpoints[..1], &foreign_spk)
+                .await
+                .expect("rpc should succeed"),
+            "a mempool-spent outpoint must not classify as previous-backend"
+        );
+        // Mixed set (one spent, one unspent-foreign) → keep.
+        assert!(
+            !outpoints_belong_to_previous_backend(&rpc_client, &outpoints, &foreign_spk)
+                .await
+                .expect("rpc should succeed"),
+            "a partially spent set must not classify as previous-backend"
+        );
+
+        // Mined spend → still keep.
+        bitcoind
+            .client
+            .generate_to_address(1, &mining_address)
+            .expect("mine the spending tx");
+        assert!(
+            !outpoints_belong_to_previous_backend(&rpc_client, &outpoints, &foreign_spk)
+                .await
+                .expect("rpc should succeed"),
+            "a chain-spent outpoint must not classify as previous-backend"
         );
     }
 }
