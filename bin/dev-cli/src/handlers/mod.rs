@@ -1,10 +1,11 @@
+pub(crate) mod admin;
 pub(crate) mod bridge_in;
 pub(crate) mod bridge_proof;
 pub(crate) mod checkpoint;
 pub(crate) mod claim;
 pub(crate) mod contest;
-pub(crate) mod defcon;
 pub(crate) mod derive_keys;
+pub(crate) mod drt_takeback;
 mod graph;
 mod rpc;
 pub(crate) mod unstaking_intent;

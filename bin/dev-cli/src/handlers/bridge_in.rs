@@ -125,6 +125,8 @@ fn get_recovery_pubkey() -> XOnlyPublicKey {
     let secret_key = keypair.secret_bytes().to_lower_hex_string();
 
     info!(event = "generated random x-only pubkey for recovery", %secret_key, %xonly_pubkey);
+    // Tracing is off by default, and without this key the DRT can never be taken back.
+    println!("recovery_secret = {secret_key}");
 
     xonly_pubkey
 }

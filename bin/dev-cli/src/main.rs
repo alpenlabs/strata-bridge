@@ -8,7 +8,7 @@ use handlers::derive_keys;
 use strata_bridge_common::logging;
 
 use crate::handlers::{
-    bridge_in, bridge_proof, checkpoint, claim, contest, defcon, unstaking_intent,
+    admin, bridge_in, bridge_proof, checkpoint, claim, contest, drt_takeback, unstaking_intent,
 };
 
 mod cli;
@@ -24,7 +24,11 @@ async fn main() -> Result<(), Error> {
         cli::Commands::CreateAndPublishMockCheckpoint(args) => {
             checkpoint::handle_create_and_publish_mock_checkpoint(args).await
         }
-        cli::Commands::Defcon1(args) => defcon::handle_defcon1(args),
+        cli::Commands::Defcon1(args) => admin::handle_defcon1(args),
+        cli::Commands::SafeHarbourAddressUpdate(args) => {
+            admin::handle_safe_harbour_address_update(args)
+        }
+        cli::Commands::DrtTakeback(args) => drt_takeback::handle_drt_takeback(args),
         cli::Commands::Contest(args) => contest::handle_contest(args).await,
         cli::Commands::Claim(args) => claim::handle_claim(args).await,
         cli::Commands::BridgeProof(args) => bridge_proof::handle_bridge_proof(args).await,

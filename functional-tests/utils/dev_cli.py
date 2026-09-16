@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from dataclasses import asdict
 
 import toml
@@ -102,11 +103,12 @@ class DevCli:
         txid = res.splitlines()[-1].split("=")[-1].strip()
         return txid
 
-    def send_defcon1(self, seqno: int = 1) -> str:
+    def send_defcon1(self, seqno: int = 1, signer_indices: Sequence[int] = (0,)) -> str:
         """Publish a Defcon1 admin tx activating the ASM safe harbour.
 
-        The test ASM params configure the security council as the operators' musig2 keys
-        with threshold 1, so operator 0's seed signs as the council (signer index 0).
+        The test ASM params configure the security council as the operators' musig2 keys, so
+        council index == operator index. Pass at least the council threshold's worth of
+        `signer_indices`.
         """
         rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
         wallet = self.bitcoind_props.get("walletname", "testwallet")
@@ -119,11 +121,11 @@ class DevCli:
             self.bitcoind_props.get("rpc_user", "user"),
             "--btc-pass",
             self.bitcoind_props.get("rpc_password", "password"),
-            "--seed",
-            self.operator_key_infos[0].SEED,
             "--seqno",
             str(seqno),
         ]
+        for idx in signer_indices:
+            args += ["--seed", self.operator_key_infos[idx].SEED, "--signer-idx", str(idx)]
 
         res = self._run_command(args)
         # HACK: (@Rajil1213) parse raw stdout to extract txid

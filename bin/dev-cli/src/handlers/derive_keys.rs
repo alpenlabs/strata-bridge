@@ -65,7 +65,7 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
     let p2p_pubkey = ed_keypair.public().to_bytes().to_lower_hex_string();
 
     // Output the JSON entry
-    let output = json!({
+    let mut output = json!({
         "seed": seed.to_lower_hex_string(),
         "general_wallet_address": general_wallet_addr.to_string(),
         "general_wallet_descriptor": general_wallet_descriptor.to_string(),
@@ -73,6 +73,11 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
         "musig2_key": musig2_pubkey_hex,
         "p2p_key": p2p_pubkey
     });
+    if args.with_secrets {
+        // Same key the admin signer uses; opt-in so the default output stays shareable.
+        let musig2_sk = musig2_keys.keypair.secret_key().secret_bytes();
+        output["musig2_secret_key"] = json!(musig2_sk.to_lower_hex_string());
+    }
     println!("{}", serde_json::to_string_pretty(&output)?);
 
     Ok(())

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use bitcoin::Network;
+use bitcoin::{address::NetworkUnchecked, Address, Network, Txid};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -25,6 +25,12 @@ pub(crate) enum Commands {
 
     /// Publish a Defcon1 admin transaction activating the ASM safe harbour.
     Defcon1(Defcon1Args),
+
+    /// Publish an admin transaction rotating the ASM safe harbour address.
+    SafeHarbourAddressUpdate(SafeHarbourAddressUpdateArgs),
+
+    /// Reclaim a deposit request output through the depositor's takeback path.
+    DrtTakeback(DrtTakebackArgs),
 
     /// Contest a claim transaction.
     Contest(ContestArgs),
@@ -53,6 +59,9 @@ pub(crate) struct DeriveKeysArgs {
         default_value_t = Network::Regtest
     )]
     pub(crate) network: Network,
+
+    #[arg(long, help = "also print the musig2 secret key")]
+    pub(crate) with_secrets: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -113,24 +122,88 @@ pub(crate) struct CreateAndPublishMockCheckpointArgs {
     version
 )]
 pub(crate) struct Defcon1Args {
-    #[arg(
-        long,
-        help = "hex-encoded seed of the council signer (operator 0 in test setups)"
-    )]
-    pub(crate) seed: String,
-
-    #[arg(
-        long,
-        default_value = "1",
-        help = "admin action sequence number (must exceed the council's last seqno)"
-    )]
-    pub(crate) seqno: u64,
+    #[clap(flatten)]
+    pub(crate) admin: AdminTxArgs,
 
     #[arg(long, default_value_t = Network::Regtest, help = "bitcoin network")]
     pub(crate) network: Network,
 
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(
+    about = "Publish an admin tx rotating the ASM safe harbour address (enacted after the configured confirmation depth; rejected once Defcon1 is active)",
+    version
+)]
+pub(crate) struct SafeHarbourAddressUpdateArgs {
+    #[arg(long, help = "new safe harbour address (must be P2TR / bech32m)")]
+    pub(crate) address: Address<NetworkUnchecked>,
+
+    #[clap(flatten)]
+    pub(crate) admin: AdminTxArgs,
+
+    #[arg(long, default_value_t = Network::Regtest, help = "bitcoin network")]
+    pub(crate) network: Network,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(
+    about = "Reclaim a DRT output via the depositor's takeback tapscript once the recovery delay has passed",
+    version
+)]
+pub(crate) struct DrtTakebackArgs {
+    #[arg(long, help = "txid of the deposit request transaction")]
+    pub(crate) drt_txid: Txid,
+
+    #[arg(
+        long,
+        help = "hex-encoded recovery secret key that bridge-in generated for this DRT"
+    )]
+    pub(crate) recovery_secret: String,
+
+    #[arg(
+        long,
+        help = "destination address (defaults to a fresh bech32m address from the bitcoind wallet)"
+    )]
+    pub(crate) destination: Option<Address<NetworkUnchecked>>,
+
+    #[arg(long, default_value = "10", help = "fee rate in sat/vB")]
+    pub(crate) fee_rate: u64,
+
+    #[arg(long, help = "the path to the params file")]
+    pub(crate) params: PathBuf,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+}
+
+/// Signer set and sequencing shared by every multisig admin tx.
+#[derive(Parser, Debug, Clone)]
+pub(crate) struct AdminTxArgs {
+    #[arg(
+        long,
+        required = true,
+        help = "hex-encoded seed of a multisig signer; repeat once per signer (operator seeds in test setups)"
+    )]
+    pub(crate) seed: Vec<String>,
+
+    #[arg(
+        long,
+        help = "multisig key index of each --seed, in the same order (defaults to 0, 1, ...)"
+    )]
+    pub(crate) signer_idx: Vec<u8>,
+
+    #[arg(
+        long,
+        default_value = "1",
+        help = "admin action sequence number (must exceed the signing role's last seqno)"
+    )]
+    pub(crate) seqno: u64,
 }
 
 #[derive(Parser, Debug, Clone)]
