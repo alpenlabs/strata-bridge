@@ -217,11 +217,17 @@ jobs:
 
       - name: Zip log files on failure
         if: always() && steps.funcTestsRun.outcome != 'success' && steps.funcTestsRun.outcome != 'skipped'
-        # Create a zip archive (logs.zip) that includes only service.log files,
-        # preserving the folder structure starting from functional-tests/_dd
+        # Keep only service/test logs and results.json; the full _dd can reach hundreds of MBs.
+        # An env-init failure leaves no `logs/*.log`, so "nothing matched" must not fail the step.
         run: |
-          find functional-tests/_dd -type f -name "service.log" | zip -@ logs.zip
-          zip -r logs.zip functional-tests/_dd -i '*/logs/*.log'
+          find functional-tests/_dd -type f \
+            \( -name service.log -o -name results.json -o -path '*/logs/*.log' \) 2>/dev/null \
+            | sort > logs.txt
+          if [ ! -s logs.txt ]; then
+            echo "::warning::no functional-test logs found under functional-tests/_dd"
+            exit 0
+          fi
+          zip -q -@ logs.zip < logs.txt
 
       - name: Upload logs as build artifact on failure
         if: always() && steps.funcTestsRun.outcome != 'success' && steps.funcTestsRun.outcome != 'skipped'
@@ -230,7 +236,7 @@ jobs:
           name: fntest_dd-${{ matrix.test }}
           path: logs.zip
           retention-days: 30
-          if-no-files-found: error
+          if-no-files-found: warn
           compression-level: 0 # already compressed
 
       - name: Stop bitcoind
