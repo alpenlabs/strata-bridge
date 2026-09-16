@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bitcoin::{Amount, FeeRate, Network};
+use bitcoin::{Amount, FeeRate, Network, XOnlyPublicKey};
 use btc_tracker::cpfp::CachedFeeSource;
 use strata_bridge_sm::graph::config::GraphSMCfg;
 use strata_l1_txfmt::MagicBytes;
@@ -31,14 +31,22 @@ pub struct ExecutionConfig {
     /// stake transaction must carry `stake_amount` plus any connector dust the stake tx produces.
     pub stake_amount: Amount,
 
-    /// The denomination of each UTXO in the claim-funding pool. The composer creates
-    /// reserved-wallet UTXOs of exactly this value when refilling the pool, and the duty
-    /// dispatcher selects them by exact value match.
-    pub claim_funding_utxo_value: Amount,
-
     /// The target number of claim-funding UTXOs to keep available in the reserved wallet.
     /// When the pool is exhausted, the duty dispatcher tops it back up to this size.
     pub funding_uxto_pool_size: usize,
+
+    /// musig2 keys of every operator that contests claims, excluding the operator running this
+    /// node. Drives the per-UTXO denomination of the claim-funding pool via
+    /// [`crate::claim_funding::utxo_value`]; the connector that the claim tx must pay for scales
+    /// with the watchtower count.
+    ///
+    /// Today this is snapshotted from `params.keys.covenant` at orchestrator startup, since the
+    /// operator set doesn't change at runtime yet. The value lives here (rather than as a
+    /// precomputed `claim_funding_utxo_value: Amount`) so the executors recompute the
+    /// denomination on every duty firing — when runtime operator entry/exit lands, only the
+    /// source of this field needs to swap to a live handle and the executors get correct values
+    /// without further plumbing.
+    pub watchtower_musig2_keys: Arc<Vec<XOnlyPublicKey>>,
 
     /// The graph state-machine configuration, shared with the GSM to keep protocol parameters
     /// and static keys consistent across graph construction paths.
