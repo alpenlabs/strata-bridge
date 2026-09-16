@@ -11,6 +11,7 @@ from pathlib import Path
 import flexitest
 import toml
 
+from factory.common.ports import PortProbingFactory
 from rpc import inject_service_create_rpc
 
 from .config_cfg import (
@@ -28,7 +29,7 @@ EXPECTED_TARGET_PATHS = (
 )
 
 
-class AsmRpcFactory(flexitest.Factory):
+class AsmRpcFactory(PortProbingFactory):
     """Factory for creating ASM RPC service instances."""
 
     def __init__(self, port_range: list[int]):

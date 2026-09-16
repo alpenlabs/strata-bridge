@@ -12,6 +12,7 @@ from constants import (
     BRIDGE_NODE_DIR,
     MOHO_VK_FILE,
 )
+from factory.common.ports import PortProbingFactory
 from rpc import inject_service_create_rpc
 from utils.service_names import get_mtls_cred_path, get_operator_service_name
 from utils.utils import OperatorKeyInfo
@@ -69,7 +70,7 @@ def _get_fdb_env():
     return env
 
 
-class BridgeOperatorFactory(flexitest.Factory):
+class BridgeOperatorFactory(PortProbingFactory):
     def __init__(self, port_range: list[int]):
         super().__init__(port_range)
 

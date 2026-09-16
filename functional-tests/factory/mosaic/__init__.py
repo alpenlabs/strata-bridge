@@ -6,6 +6,7 @@ import flexitest
 import toml
 
 from constants import MOSAIC_DIR
+from factory.common.ports import PortProbingFactory
 from rpc import inject_service_create_rpc
 from utils.mosaic import PeerConfig
 from utils.service_names import get_operator_service_name
@@ -22,7 +23,7 @@ class MosaicFactoryConfig:
     all_peers: dict[int, PeerConfig]
 
 
-class MosaicFactory(flexitest.Factory):
+class MosaicFactory(PortProbingFactory):
     def __init__(self, port_range: list[int]):
         super().__init__(port_range)
 
