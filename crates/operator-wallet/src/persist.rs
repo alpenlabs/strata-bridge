@@ -2,12 +2,10 @@
 //!
 //! Both wallets are BDK [`PersistedWallet`]s behind the [`WalletStore`] seam. [`load_or_create`]
 //! is the shared entry point: load and validate persisted state, or create a fresh wallet when the
-//! store is empty. [`SqliteStore`] is the durable store; the `test_utils` module (feature
+//! store is empty. [`SqliteStore`] is the durable store; the crate's `test_utils` module (feature
 //! `test-utils`) holds the in-memory one for tests.
 
 pub mod sqlite;
-#[cfg(any(test, feature = "test-utils"))]
-pub mod test_utils;
 
 use bdk_wallet::{
     bitcoin::{constants::genesis_block, Network},
@@ -143,7 +141,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::persist::test_utils::{MemoryStore, MemoryStoreError};
+    use crate::test_utils::{MemoryStore, MemoryStoreError};
 
     fn xonly(seed: u8) -> XOnlyPublicKey {
         let secret = SecretKey::from_slice(&[seed; 32]).expect("valid scalar");
