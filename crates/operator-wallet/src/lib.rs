@@ -22,6 +22,8 @@ pub mod config;
 pub mod general;
 pub mod persist;
 pub mod sync;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 pub mod wallet;
 
 // Dev-deps only used by the `tests/` integration tests; silence the lib-test build's
@@ -34,8 +36,6 @@ use operator_wallet as _;
 use serial_test as _;
 use thiserror::Error;
 
-#[cfg(any(test, feature = "test-utils"))]
-pub use crate::persist::test_utils;
 pub use crate::{
     config::{OperatorWalletConfig, DEFAULT_PERSIST_EVERY_BLOCKS},
     general::{native::NativeGeneralWallet, FundedPsbt, GeneralWallet, UtxoInfo},
