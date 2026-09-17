@@ -10,7 +10,7 @@ use bdk_wallet::{
     chain::CheckPoint,
 };
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::persist::{PersistedWallet, WalletStore};
 
@@ -147,12 +147,16 @@ async fn sync_wallet_bitcoin_core(
                 while let Some(ev) = emitter.next_block()? {
                     // A closed channel means the receiver gave up on this attempt (e.g. a persist
                     // failure). Stop emitting instead of panicking on the dropped receiver.
+                    let height = ev.block_height();
                     if send_update.send(WalletUpdate::NewBlock(ev)).is_err() {
+                        warn!(height, "sync receiver dropped, stopping block emission");
                         return Ok(());
                     }
                 }
                 let mempool = emitter.mempool()?;
-                let _ = send_update.send(WalletUpdate::MempoolTxs(mempool));
+                if send_update.send(WalletUpdate::MempoolTxs(mempool)).is_err() {
+                    warn!("sync receiver dropped, discarding the mempool snapshot");
+                }
                 Ok(())
             })
             .await
