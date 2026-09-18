@@ -28,6 +28,10 @@ CLAIM_CONTEST_VOUT = 0
 CLAIM_PAYOUT_VOUT = 1
 CONTEST_PROOF_VOUT = 0
 CONTEST_PAYOUT_VOUT = 1
+# Payout/slash mutex: `contested_payout` spends this key-path with no CSV of its own (the
+# tx waits ack_timelock on its contest-payout input), `slash` via a CSV
+# `contested_payout_timelock` leaf. First to confirm rules out the other.
+CONTEST_SLASH_VOUT = 2
 CONTEST_WATCHTOWER_0_VOUT = 3
 COUNTERPROOF_ACK_NACK_VOUT = 0
 
