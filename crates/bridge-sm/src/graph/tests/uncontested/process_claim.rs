@@ -26,10 +26,12 @@ mod tests {
                 GraphTransition, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_DEPOSIT_IDX,
                 TEST_POV_IDX, create_nonpov_sm, create_sm, get_state, mock_game_signatures,
                 mock_states::{
-                    assigned_state, claimed_state, fulfilled_state, graph_signed_state,
+                    adaptors_verified_state, assigned_state, claimed_state, fulfilled_state,
+                    graph_signed_state, nonces_collected_state, test_graph_generated_state,
                     test_nonce_context,
                 },
-                test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
+                test_deposit_params, test_graph_invalid_transition,
+                test_graph_invalid_transition_with, test_graph_sm_cfg,
                 test_graph_summary, test_graph_transition, test_operator_table,
                 test_recipient_desc,
                 utils::NonceContext,
@@ -310,6 +312,91 @@ mod tests {
             }),
             expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
         });
+    }
+
+    // ================================================================================
+    // PoC (STR-4063 sibling): claim-before-graph-signed is a fatal `InvalidEvent`.
+    //
+    // The `GraphSM` tx-classifier DELIBERATELY emits `ClaimConfirmed` from the early
+    // pre-signing states `GraphGenerated`, `AdaptorsVerified`, and `NoncesCollected`
+    // (see `graph/tx_classifier.rs:39-58`, comment: "Only the claim is observable
+    // here"). But `process_claim` handles only `Fulfilled | Assigned | GraphSigned |
+    // Claimed`; every other state falls through to `_ => GSMError::invalid_event(..)`.
+    //
+    // `machine.rs:74` routes `ClaimConfirmed` WITHOUT `soften_peer_event_error`, so the
+    // `InvalidEvent` survives to the orchestrator, where `sm_registry.rs:557` maps it to
+    // `ProcessError::InvariantViolation` and the critical pipeline task shuts the node
+    // down (documented verbatim at `graph/transitions/payout.rs:117-119`).
+    //
+    // The claim tx spends only `ClaimData::claim_funds` — the graph owner's own wallet
+    // UTXO (`tx-graph/.../claim.rs:63`), NOT an N-of-N presigned output. So a malicious
+    // operator can withhold its own nonce/partial (pinning every honest node at
+    // `AdaptorsVerified`/`NoncesCollected`) and then broadcast the self-funded claim.
+    // When it confirms, EVERY honest watchtower crashes on the same block — and reruns
+    // the same block on restart, i.e. a permanent crash-loop. This is the exact class
+    // fixed in PR #736, in a sibling transition.
+    //
+    // Each test asserts the CURRENT (vulnerable) behavior: `InvalidEvent`. A correct fix
+    // returns `GSMError::Rejected` from these states, which the orchestrator treats as
+    // non-fatal `ProcessOutcome::Ignored` (log + skip) — flip the matcher to `Rejected`
+    // once patched, mirroring PR #736.
+    // ================================================================================
+
+    /// A confirmed canonical claim (`txid == graph_summary.claim`); the state arm is
+    /// reached before any txid check, so a well-formed claim is enough — no malformed
+    /// data required.
+    fn canonical_claim_event() -> GraphEvent {
+        GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
+            claim_txid: test_graph_summary().claim,
+            claim_block_height: CLAIM_BLOCK_HEIGHT,
+        })
+    }
+
+    /// PoC: an honest (non-POV) watchtower crashes when the graph owner claims while the
+    /// graph is still in `GraphGenerated`.
+    #[test]
+    fn poc_claim_before_graph_signed_is_fatal_from_graph_generated() {
+        test_graph_invalid_transition_with(
+            create_nonpov_sm,
+            GraphInvalidTransition {
+                from_state: test_graph_generated_state(),
+                event: canonical_claim_event(),
+                // BUG: fatal `InvalidEvent` → node shutdown. Should be `Rejected`.
+                expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+            },
+        );
+    }
+
+    /// PoC: same crash from `AdaptorsVerified` — the state an honest node sits in while
+    /// the malicious owner withholds its pubnonce.
+    #[test]
+    fn poc_claim_before_graph_signed_is_fatal_from_adaptors_verified() {
+        test_graph_invalid_transition_with(
+            create_nonpov_sm,
+            GraphInvalidTransition {
+                from_state: adaptors_verified_state(test_deposit_params(), test_graph_summary()),
+                event: canonical_claim_event(),
+                // BUG: fatal `InvalidEvent` → node shutdown. Should be `Rejected`.
+                expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+            },
+        );
+    }
+
+    /// PoC: same crash from `NoncesCollected` — the state an honest node sits in while
+    /// the malicious owner withholds its partial signature.
+    #[test]
+    fn poc_claim_before_graph_signed_is_fatal_from_nonces_collected() {
+        let (deposit_params, graph_summary, nonce_ctx) = test_nonce_context();
+
+        test_graph_invalid_transition_with(
+            create_nonpov_sm,
+            GraphInvalidTransition {
+                from_state: nonces_collected_state(&nonce_ctx, deposit_params, graph_summary),
+                event: canonical_claim_event(),
+                // BUG: fatal `InvalidEvent` → node shutdown. Should be `Rejected`.
+                expected_error: |e| matches!(e, GSMError::InvalidEvent { .. }),
+            },
+        );
     }
 
     fn expected_contest_signature(
