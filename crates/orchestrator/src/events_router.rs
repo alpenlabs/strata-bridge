@@ -66,7 +66,12 @@ fn route_gossipsub_msg(
         }
         UnsignedGossipsubMsg::UnstakingDataExchange { operator_idx, .. } => {
             debug!(%operator_idx, "routing UnstakingDataExchange to stake SM");
-            SMId::Stake(*operator_idx)
+            {
+                let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
+                    return vec![];
+                };
+                SMId::Stake(key)
+            }
         }
         UnsignedGossipsubMsg::Musig2NoncesExchange(musig2_nonce) => match musig2_nonce {
             MuSig2Nonce::Deposit { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
@@ -75,7 +80,12 @@ fn route_gossipsub_msg(
             MuSig2Nonce::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
             MuSig2Nonce::Unstake { operator_idx, .. } => {
                 debug!(%operator_idx, "routing MuSig2Nonce::Unstake to stake SM");
-                SMId::Stake(*operator_idx)
+                {
+                    let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
+                        return vec![];
+                    };
+                    SMId::Stake(key)
+                }
             }
         },
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => match musig2_partial {
@@ -85,7 +95,12 @@ fn route_gossipsub_msg(
             MuSig2Partial::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
             MuSig2Partial::Unstake { operator_idx, .. } => {
                 debug!(%operator_idx, "routing MuSig2Partial::Unstake to stake SM");
-                SMId::Stake(*operator_idx)
+                {
+                    let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
+                        return vec![];
+                    };
+                    SMId::Stake(key)
+                }
             }
         },
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => match &nag_request.payload {
@@ -102,7 +117,12 @@ fn route_gossipsub_msg(
             | NagRequestPayload::UnstakingNonces { operator_idx }
             | NagRequestPayload::UnstakingPartials { operator_idx } => {
                 debug!(%operator_idx, payload = ?nag_request.payload, "routing unstaking nag request to stake SM");
-                SMId::Stake(*operator_idx)
+                {
+                    let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
+                        return vec![];
+                    };
+                    SMId::Stake(key)
+                }
             }
         },
     };
@@ -411,5 +431,40 @@ mod tests {
         // At minimum, each entry produces deposit + graphs
         assert!(routed.contains(&SMId::Deposit(dep1)));
         assert!(routed.contains(&SMId::Deposit(dep2)));
+    }
+}
+
+#[cfg(test)]
+mod covenant_wire_tests {
+    use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
+
+    use super::*;
+    use crate::testing::{
+        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table,
+    };
+
+    #[test]
+    fn operator_only_stake_messages_are_rejected_when_covenants_are_ambiguous() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let mut registry = test_empty_registry();
+        let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Unstake {
+            operator_idx: TEST_POV_IDX,
+            nonces: vec![],
+        });
+        let (first, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), 100), 100);
+        let key = first.context().stake_key();
+        registry.insert_stake(first).unwrap();
+        assert_eq!(route_gossipsub_msg(&registry, &msg), vec![SMId::Stake(key)]);
+        let (second, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table, 200), 100);
+        registry.insert_stake(second).unwrap();
+        assert!(route_gossipsub_msg(&registry, &msg).is_empty());
+        assert!(
+            crate::events_classifier::offchain::classify_unsigned_gossip(
+                &registry,
+                &crate::sm_types::OperatorKey::Pov,
+                &msg
+            )
+            .is_empty()
+        );
     }
 }

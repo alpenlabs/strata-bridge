@@ -18,7 +18,7 @@ impl StakeSM {
     pub(crate) fn process_retry_tick(&self, cfg: &StakeSMCfg) -> SSMResult<SSMOutput> {
         let duties = match self.state() {
             StakeState::UnstakingSigned { stake_data, .. }
-                if self.context().operator_table().pov_idx() == self.context().operator_idx() =>
+                if self.context().pov_idx() == Some(self.context().operator_idx()) =>
             {
                 let stake_graph = StakeGraph::new(stake_data.expand(*cfg, self.context()));
                 vec![StakeDuty::PublishStake {

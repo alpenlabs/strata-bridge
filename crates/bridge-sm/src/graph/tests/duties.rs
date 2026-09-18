@@ -41,6 +41,11 @@ mod tests {
         let cases = vec![
             (
                 GraphDuty::GenerateGraphData {
+                    covenant: strata_bridge_primitives::covenant::CovenantId::from_operator_table(
+                        &operator_table,
+                        100,
+                    )
+                    .unwrap(),
                     graph_idx,
                     deposit_outpoint: test_deposit_outpoint(),
                     stake_outpoint: test_stake_outpoint(),

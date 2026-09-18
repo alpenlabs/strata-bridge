@@ -537,7 +537,7 @@ mod tests {
         state: StakeState,
     ) -> StakeSM {
         StakeSM {
-            context: StakeSMCtx::new(operator_idx, operator_table),
+            context: StakeSMCtx::new(operator_idx, operator_table, 101),
             state,
         }
     }
@@ -572,6 +572,11 @@ mod tests {
 
         GraphSM {
             context: GraphSMCtx {
+                covenant: strata_bridge_primitives::covenant::CovenantId::from_operator_table(
+                    &operator_table,
+                    100,
+                )
+                .unwrap(),
                 graph_idx: GraphIdx {
                     deposit: deposit_idx,
                     operator: operator_idx,

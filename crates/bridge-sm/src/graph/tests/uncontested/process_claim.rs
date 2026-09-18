@@ -157,6 +157,7 @@ mod tests {
         pov_idx: OperatorIdx,
     ) {
         let context = GraphSMCtx {
+            covenant: crate::graph::tests::test_graph_sm_ctx().covenant,
             graph_idx: GraphIdx {
                 deposit: TEST_DEPOSIT_IDX,
                 operator: graph_owner_idx,

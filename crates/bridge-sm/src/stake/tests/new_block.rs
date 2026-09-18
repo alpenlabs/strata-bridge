@@ -61,6 +61,7 @@ fn preimage_revealed_state(
 #[test]
 fn reject_unstaked_state() {
     let from_state = StakeState::Unstaked {
+        summary: *TEST_GRAPH_SUMMARY,
         preimage: TEST_UNSTAKING_PREIMAGE,
         unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
     };

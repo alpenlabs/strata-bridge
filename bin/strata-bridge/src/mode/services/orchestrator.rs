@@ -162,7 +162,13 @@ where
         pending_asm_events: VecDeque::new(),
     };
 
-    let exec_cfg = build_exec_config(params, config, &sm_config, claim_funding_utxo_value);
+    let exec_cfg = build_exec_config(
+        params,
+        config,
+        &sm_config,
+        claim_funding_utxo_value,
+        &operator_table,
+    );
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
     let tx_driver_health = tx_driver.health_handle();
     health_registry.mark_ok(COMPONENT_TX_DRIVER, "driver_initialized");
@@ -191,6 +197,7 @@ where
     health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "pipeline_spawned");
     spawn_orchestrator_stale_monitor(orchestrator_stale_after(config), health_registry.clone());
     let pipeline_health_registry = health_registry.clone();
+    let activation_height = params.genesis_height;
     executor.spawn_critical_async_with_shutdown("orchestrator", |shutdown_guard| async move {
         let pipeline = orchestrator_pipeline;
 
@@ -208,7 +215,7 @@ where
             // Handle pipeline completion (this should indicate an error as this is supposed to run indefinitely)
             pipeline_complete = tokio::task::spawn(async move {
                 pipeline
-                    .run_with_observer(operator_table, start_height, move || {
+                    .run_with_observer(operator_table, start_height, activation_height, move || {
                         pipeline_health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "event_processed");
                     })
                     .await
@@ -319,8 +326,14 @@ fn build_exec_config(
     config: &Config,
     sm_config: &SMConfig,
     claim_funding_utxo_value: bitcoin::Amount,
+    operator_table: &OperatorTable,
 ) -> ExecutionConfig {
     ExecutionConfig {
+        legacy_stake_covenant: strata_bridge_primitives::covenant::CovenantId::from_operator_table(
+            operator_table,
+            params.genesis_height,
+        )
+        .expect("validated initial operator table"),
         network: params.network,
         min_withdrawal_fulfillment_window: config.min_withdrawal_fulfillment_window,
         magic_bytes: params.protocol.magic_bytes,

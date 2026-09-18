@@ -198,7 +198,7 @@ pub(crate) const fn duty_kind(duty: &UnifiedDuty) -> &'static str {
     match duty {
         UnifiedDuty::Deposit(duty) => deposit_duty_kind(duty),
         UnifiedDuty::Graph(duty) => graph_duty_kind(duty),
-        UnifiedDuty::Stake(duty) => stake_duty_kind(duty),
+        UnifiedDuty::Stake { duty, .. } => stake_duty_kind(duty),
     }
 }
 
@@ -340,7 +340,10 @@ const fn process_error_class(error: &ProcessError) -> &'static str {
 pub(crate) const fn persist_error_class(error: &PersistError) -> &'static str {
     match error {
         PersistError::DbErr(_) => "database",
-        PersistError::RegistryInvariant(_) => "registry_invariant",
+        PersistError::RegistryInvariant(_) | PersistError::StakeIdentityMismatch => {
+            "registry_invariant"
+        }
+        PersistError::CovenantStorageRequired => "unsupported_stake_storage",
         PersistError::MissingStateMachine(_) => "state_machine_not_found",
     }
 }
@@ -380,6 +383,9 @@ mod tests {
     #[test]
     fn state_machine_kinds_do_not_include_identifiers() {
         assert_eq!(sm_kind(&SMId::Deposit(42)), "deposit");
-        assert_eq!(sm_kind(&SMId::Stake(7)), "stake");
+        assert_eq!(
+            sm_kind(&SMId::Stake(crate::testing::test_stake_key(7))),
+            "stake"
+        );
     }
 }

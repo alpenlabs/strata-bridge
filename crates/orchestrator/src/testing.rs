@@ -177,6 +177,11 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
             operator: op_idx,
         };
         let gsm_ctx = GraphSMCtx {
+            covenant: strata_bridge_primitives::covenant::CovenantId::from_operator_table(
+                &operator_table,
+                100,
+            )
+            .unwrap(),
             graph_idx,
             deposit_outpoint,
             stake_outpoint: OutPoint::default(),
@@ -197,10 +202,10 @@ pub(crate) fn insert_created_stake(
     operator_idx: OperatorIdx,
     operator_table: OperatorTable,
 ) {
-    let ctx = StakeSMCtx::new(operator_idx, operator_table);
+    let ctx = StakeSMCtx::new(operator_idx, operator_table, INITIAL_BLOCK_HEIGHT);
     let (ssm, _duty) = StakeSM::new(ctx, INITIAL_BLOCK_HEIGHT);
     registry
-        .insert_stake(operator_idx, ssm)
+        .insert_stake(ssm)
         .expect("test helper must not insert duplicate stake state machine");
 }
 
@@ -233,7 +238,7 @@ pub(crate) fn make_confirmed_stake_sm(
         unstaking: generate_txid(),
     };
     StakeSM {
-        context: StakeSMCtx::new(operator_idx, operator_table),
+        context: StakeSMCtx::new(operator_idx, operator_table, INITIAL_BLOCK_HEIGHT),
         state: StakeState::Confirmed {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             stake_data,
@@ -254,7 +259,7 @@ pub(crate) fn insert_confirmed_stake(
 ) {
     let sm = make_confirmed_stake_sm(operator_idx, operator_table, stake_txid);
     registry
-        .insert_stake(operator_idx, sm)
+        .insert_stake(sm)
         .expect("test helper must not insert duplicate confirmed stake state machine");
 }
 
@@ -345,5 +350,19 @@ impl DrtBuilder {
                 },
             ],
         }
+    }
+}
+
+/// Covenant-qualified identity for the standard test membership.
+pub(crate) fn test_stake_key(
+    operator: OperatorIdx,
+) -> strata_bridge_primitives::covenant::StakeKey {
+    strata_bridge_primitives::covenant::StakeKey {
+        covenant: strata_bridge_primitives::covenant::CovenantId::from_operator_table(
+            &test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+            INITIAL_BLOCK_HEIGHT,
+        )
+        .unwrap(),
+        operator,
     }
 }

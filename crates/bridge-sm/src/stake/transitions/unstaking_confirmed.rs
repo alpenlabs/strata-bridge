@@ -42,6 +42,7 @@ impl StakeSM {
                 }
 
                 self.state = StakeState::Unstaked {
+                    summary: *summary,
                     preimage: *preimage,
                     unstaking_txid: summary.unstaking,
                 };

@@ -3,48 +3,106 @@
 use bitcoin::{OutPoint, hashes::sha256};
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
+use strata_bridge_primitives::{
+    covenant::{CovenantId, StakeKey},
+    operator_table::{OperatorTable, PublicOperatorTable},
+    types::OperatorIdx,
+};
 use strata_bridge_tx_graph::stake_graph::{SetupParams, StakeData};
+use thiserror::Error;
 
 use crate::stake::config::StakeSMCfg;
 
-/// Execution context for a single instance of a Stake State Machine.
+/// Invalid immutable stake context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum StakeContextError {
+    /// The owner is absent from the covenant.
+    #[error("stake owner is not a covenant member")]
+    OwnerAbsent,
+    /// The local signer is absent from the covenant.
+    #[error("local signer is not a covenant member")]
+    SignerAbsent,
+    /// The identity does not match the supplied signing keys.
+    #[error("covenant identity does not match the operator table")]
+    CovenantMismatch,
+}
+
+/// Immutable execution context for one operator's stake in one covenant.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StakeSMCtx {
-    // Invariant: `operator_idx` is included in `operator_table`.
-    /// The index of the operator whose stake is tracked by this state machine.
-    operator_idx: OperatorIdx,
-
-    /// The operator table for this state machine instance.
-    operator_table: OperatorTable,
+    stake_key: StakeKey,
+    operator_table: PublicOperatorTable,
+    local_operator: Option<OperatorIdx>,
 }
 
 impl StakeSMCtx {
-    /// Creates a new Stake State Machine context.
+    /// Creates a participant context with an explicit admin activation boundary.
     ///
     /// # Panics
-    ///
-    /// This method panics if the operator index is not included in the operator table.
-    pub fn new(operator_idx: OperatorIdx, operator_table: OperatorTable) -> Self {
-        assert!(
-            operator_table.contains_idx(&operator_idx),
-            "The operator index must be included in the operator table"
-        );
+    /// Panics if the owner is absent or the keys cannot be aggregated.
+    pub fn new(
+        operator_idx: OperatorIdx,
+        operator_table: OperatorTable,
+        activation_height: u64,
+    ) -> Self {
+        let covenant = CovenantId::from_operator_table(&operator_table, activation_height)
+            .expect("valid covenant signing keys");
+        let pov = operator_table.pov_idx();
+        Self::from_public(
+            StakeKey {
+                covenant,
+                operator: operator_idx,
+            },
+            operator_table.into_public(),
+            Some(pov),
+        )
+        .expect("valid stake context")
+    }
 
-        Self {
-            operator_idx,
-            operator_table,
+    /// Creates a public or participant context, validating owner, local membership, and identity.
+    /// The caller must separately validate the full membership and protocol configuration.
+    pub fn from_public(
+        stake_key: StakeKey,
+        operator_table: PublicOperatorTable,
+        local_operator: Option<OperatorIdx>,
+    ) -> Result<Self, StakeContextError> {
+        if !operator_table.contains_idx(&stake_key.operator) {
+            return Err(StakeContextError::OwnerAbsent);
         }
+        if local_operator.is_some_and(|idx| !operator_table.contains_idx(&idx)) {
+            return Err(StakeContextError::SignerAbsent);
+        }
+        if CovenantId::from_operator_table(&operator_table, stake_key.covenant.activation_height)
+            .ok()
+            != Some(stake_key.covenant)
+        {
+            return Err(StakeContextError::CovenantMismatch);
+        }
+        Ok(Self {
+            stake_key,
+            operator_table,
+            local_operator,
+        })
     }
 
-    /// Returns the index of the operator whose stake is tracked.
+    /// Returns the exact covenant-qualified stake identity.
+    pub const fn stake_key(&self) -> StakeKey {
+        self.stake_key
+    }
+
+    /// Returns the stake owner.
     pub const fn operator_idx(&self) -> OperatorIdx {
-        self.operator_idx
+        self.stake_key.operator
     }
 
-    /// Returns the operator table.
-    pub const fn operator_table(&self) -> &OperatorTable {
+    /// Returns the exact public covenant membership.
+    pub const fn operator_table(&self) -> &PublicOperatorTable {
         &self.operator_table
+    }
+
+    /// Returns the local signing member, or none for observers.
+    pub const fn pov_idx(&self) -> Option<OperatorIdx> {
+        self.local_operator
     }
 
     /// Constructs the complete set of information required to construct the unstaking graph.

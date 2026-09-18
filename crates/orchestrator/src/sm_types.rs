@@ -2,11 +2,14 @@
 
 use std::fmt::Display;
 
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, GraphIdx, P2POperatorPubKey},
+};
 use strata_bridge_sm::{
     deposit::{duties::DepositDuty, events::DepositEvent},
     graph::{duties::GraphDuty, events::GraphEvent},
-    stake::{duties::StakeDuty, events::StakeEvent},
+    stake::{context::StakeSMCtx, duties::StakeDuty, events::StakeEvent},
 };
 
 /// The unique identifier for a state machine in `strata-bridge`.
@@ -18,7 +21,7 @@ pub enum SMId {
     Graph(GraphIdx),
     /// IDs the state machine responsible for tracking the stake of the operator with the given
     /// index.
-    Stake(OperatorIdx),
+    Stake(StakeKey),
 }
 
 // Note: `DepositIdx` and `OperatorIdx` are both type aliases for `u32`, so a blanket
@@ -41,7 +44,7 @@ impl Display for SMId {
                 "Graph(deposit: {}, operator: {})",
                 graph_idx.deposit, graph_idx.operator
             ),
-            SMId::Stake(operator_idx) => write!(f, "Stake(operator: {})", operator_idx),
+            SMId::Stake(operator_idx) => write!(f, "Stake({})", operator_idx),
         }
     }
 }
@@ -104,7 +107,12 @@ pub enum UnifiedDuty {
     /// A duty related to the game graph.
     Graph(GraphDuty),
     /// A duty related to an operator's stake.
-    Stake(StakeDuty),
+    Stake {
+        /// Immutable covenant and local participation captured at emission.
+        context: Box<StakeSMCtx>,
+        /// Action to execute against that context.
+        duty: StakeDuty,
+    },
 }
 
 impl UnifiedDuty {
@@ -116,7 +124,7 @@ impl UnifiedDuty {
         match self {
             UnifiedDuty::Deposit(duty) => duty.should_suppress_under_safe_harbour(),
             UnifiedDuty::Graph(duty) => duty.should_suppress_under_safe_harbour(),
-            UnifiedDuty::Stake(_) => false,
+            UnifiedDuty::Stake { .. } => false,
         }
     }
 }
@@ -126,7 +134,7 @@ impl Display for UnifiedDuty {
         match self {
             Self::Deposit(duty) => Display::fmt(duty, f),
             Self::Graph(duty) => Display::fmt(duty, f),
-            Self::Stake(duty) => Display::fmt(duty, f),
+            Self::Stake { context, duty } => write!(f, "{}: {duty}", context.stake_key()),
         }
     }
 }
@@ -139,11 +147,6 @@ impl From<DepositDuty> for UnifiedDuty {
 impl From<GraphDuty> for UnifiedDuty {
     fn from(duty: GraphDuty) -> Self {
         UnifiedDuty::Graph(duty)
-    }
-}
-impl From<StakeDuty> for UnifiedDuty {
-    fn from(duty: StakeDuty) -> Self {
-        UnifiedDuty::Stake(duty)
     }
 }
 
@@ -192,7 +195,14 @@ mod tests {
             "defensive duties are never suppressed"
         );
 
-        let stake: UnifiedDuty = StakeDuty::PublishStakeData { operator_idx: 0 }.into();
+        let stake = UnifiedDuty::Stake {
+            context: Box::new(StakeSMCtx::new(
+                0,
+                crate::testing::test_operator_table(3, 0),
+                100,
+            )),
+            duty: StakeDuty::PublishStakeData { operator_idx: 0 },
+        };
         assert!(!stake.should_suppress_under_safe_harbour());
     }
 }

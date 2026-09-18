@@ -45,7 +45,7 @@ impl StakeSM {
 
         // not my graph, so no duties to perform, but we still want to update the last processed
         // block height and reject old heights (above).
-        if self.context.operator_idx() != self.context.operator_table().pov_idx() {
+        if self.context.pov_idx() != Some(self.context.operator_idx()) {
             return Ok(SMOutput::new());
         }
 

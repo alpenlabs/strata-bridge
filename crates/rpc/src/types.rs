@@ -283,6 +283,8 @@ pub enum RpcStakeState {
 /// under a sub-object. This keeps the JSON readable and easy to parse in consumers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcOperatorStakeInfo {
+    /// Covenant whose stake is being reported.
+    pub covenant: strata_bridge_primitives::covenant::CovenantId,
     /// The operator this stake belongs to.
     pub operator_idx: OperatorIdx,
 

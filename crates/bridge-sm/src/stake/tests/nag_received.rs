@@ -123,6 +123,7 @@ fn reject_nag_received_stake_data() {
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::Unstaked {
+            summary: *TEST_GRAPH_SUMMARY,
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },
@@ -205,6 +206,7 @@ fn reject_nag_received_unstaking_nonces() {
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::Unstaked {
+            summary: *TEST_GRAPH_SUMMARY,
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },
@@ -289,6 +291,7 @@ fn reject_nag_received_unstaking_partials() {
             signatures: Some(*TEST_FINAL_SIGS).into(),
         },
         StakeState::Unstaked {
+            summary: *TEST_GRAPH_SUMMARY,
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },

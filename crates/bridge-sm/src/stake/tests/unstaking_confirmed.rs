@@ -64,6 +64,7 @@ fn accept_unstaking_tx() {
         from_state: preimage_revealed_state(),
         event: UnstakingConfirmedEvent { tx: unstaking_tx() }.into(),
         expected_state: StakeState::Unstaked {
+            summary: *TEST_GRAPH_SUMMARY,
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },
@@ -88,6 +89,7 @@ fn reject_mismatching_unstaking_tx() {
 fn reject_rejected_states() {
     test_stake_invalid_transition(StakeInvalidTransition {
         from_state: StakeState::Unstaked {
+            summary: *TEST_GRAPH_SUMMARY,
             preimage: TEST_UNSTAKING_PREIMAGE,
             unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
         },
