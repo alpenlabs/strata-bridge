@@ -191,6 +191,7 @@ pub(crate) const fn sm_kind(id: &SMId) -> &'static str {
         SMId::Deposit(_) => "deposit",
         SMId::Graph(_) => "graph",
         SMId::Stake(_) => "stake",
+        SMId::OperatorSet => "operator_set",
     }
 }
 
@@ -325,6 +326,7 @@ pub(crate) const fn pipeline_error_class(error: &PipelineError) -> &'static str 
     match error {
         PipelineError::Process(error) => process_error_class(error),
         PipelineError::Persist(error) => persist_error_class(error),
+        PipelineError::StakeInitializationRequired(_) => "stake_initialization_required",
     }
 }
 
@@ -334,6 +336,7 @@ const fn process_error_class(error: &ProcessError) -> &'static str {
         ProcessError::InvalidInvocation(_, _) => "invalid_invocation",
         ProcessError::InvariantViolation(_, _, _, _) => "invariant_violation",
         ProcessError::RegistryInsert(_) => "registry_insertion",
+        ProcessError::OperatorSet(_) => "operator_membership",
     }
 }
 
@@ -344,6 +347,7 @@ pub(crate) const fn persist_error_class(error: &PersistError) -> &'static str {
             "registry_invariant"
         }
         PersistError::CovenantStorageRequired => "unsupported_stake_storage",
+        PersistError::OperatorSetStorageRequired => "unsupported_membership_storage",
         PersistError::MissingStateMachine(_) => "state_machine_not_found",
     }
 }

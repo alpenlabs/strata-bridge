@@ -13,18 +13,22 @@ use bitcoin::{
     secp256k1::XOnlyPublicKey,
     transaction,
 };
+use libp2p_identity::Keypair;
 use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_asm_proto_bridge_txs::{
     BRIDGE_SUBPROTOCOL_ID, constants::BridgeTxType,
     deposit_request::create_deposit_request_locking_script,
 };
 use strata_bridge_primitives::{
+    covenant::{CovenantId, StakeKey},
+    operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
     operator_table::OperatorTable,
-    types::{DepositIdx, GraphIdx, OperatorIdx},
+    types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
 };
 use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, machine::DepositSM},
     graph::{config::GraphSMCfg, context::GraphSMCtx, machine::GraphSM},
+    operator_set::OperatorSetSM,
     stake::{
         config::StakeSMCfg,
         context::{MinimumStakeData, StakeSMCtx},
@@ -177,11 +181,7 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
             operator: op_idx,
         };
         let gsm_ctx = GraphSMCtx {
-            covenant: strata_bridge_primitives::covenant::CovenantId::from_operator_table(
-                &operator_table,
-                100,
-            )
-            .unwrap(),
+            covenant: CovenantId::from_operator_table(&operator_table, 100).unwrap(),
             graph_idx,
             deposit_outpoint,
             stake_outpoint: OutPoint::default(),
@@ -354,15 +354,40 @@ impl DrtBuilder {
 }
 
 /// Covenant-qualified identity for the standard test membership.
-pub(crate) fn test_stake_key(
-    operator: OperatorIdx,
-) -> strata_bridge_primitives::covenant::StakeKey {
-    strata_bridge_primitives::covenant::StakeKey {
-        covenant: strata_bridge_primitives::covenant::CovenantId::from_operator_table(
+pub(crate) fn test_stake_key(operator: OperatorIdx) -> StakeKey {
+    StakeKey {
+        covenant: CovenantId::from_operator_table(
             &test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
             INITIAL_BLOCK_HEIGHT,
         )
         .unwrap(),
         operator,
     }
+}
+
+/// Public membership with two active registrations and no local signing identity.
+pub(crate) fn test_operator_set_sm() -> OperatorSetSM {
+    let registrations = (0..2)
+        .map(|index| {
+            let p2p = Keypair::generate_ed25519()
+                .public()
+                .try_into_ed25519()
+                .unwrap();
+            ScheduledOperator::new(
+                index,
+                generate_xonly_pubkey(),
+                P2POperatorPubKey::from(p2p.to_bytes().to_vec()),
+                random_p2tr_desc(),
+                INITIAL_BLOCK_HEIGHT,
+                None,
+            )
+            .unwrap()
+        })
+        .collect();
+    OperatorSetSM::new(
+        INITIAL_BLOCK_HEIGHT,
+        OperatorSetSchedule::new(registrations).unwrap(),
+        vec![],
+    )
+    .unwrap()
 }

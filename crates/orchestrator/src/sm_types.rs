@@ -9,6 +9,7 @@ use strata_bridge_primitives::{
 use strata_bridge_sm::{
     deposit::{duties::DepositDuty, events::DepositEvent},
     graph::{duties::GraphDuty, events::GraphEvent},
+    operator_set::OperatorSetEvent,
     stake::{context::StakeSMCtx, duties::StakeDuty, events::StakeEvent},
 };
 
@@ -22,6 +23,8 @@ pub enum SMId {
     /// IDs the state machine responsible for tracking the stake of the operator with the given
     /// index.
     Stake(StakeKey),
+    /// The singleton public membership state machine.
+    OperatorSet,
 }
 
 // Note: `DepositIdx` and `OperatorIdx` are both type aliases for `u32`, so a blanket
@@ -38,6 +41,7 @@ impl From<GraphIdx> for SMId {
 impl Display for SMId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SMId::OperatorSet => write!(f, "OperatorSet"),
             SMId::Deposit(deposit_idx) => write!(f, "Deposit({})", deposit_idx),
             SMId::Graph(graph_idx) => write!(
                 f,
@@ -67,11 +71,14 @@ pub enum SMEvent {
     Graph(Box<GraphEvent>),
     /// An event related to the stake state machine.
     Stake(Box<StakeEvent>),
+    /// An event related to public membership.
+    OperatorSet(Box<OperatorSetEvent>),
 }
 
 impl Display for SMEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SMEvent::OperatorSet(event) => write!(f, "OperatorSetEvent({event})"),
             SMEvent::Deposit(event) => write!(f, "DepositEvent({event})"),
             SMEvent::Graph(event) => write!(f, "GraphEvent({event})"),
             SMEvent::Stake(event) => write!(f, "StakeEvent({event})"),
@@ -94,6 +101,12 @@ impl From<GraphEvent> for SMEvent {
 impl From<StakeEvent> for SMEvent {
     fn from(event: StakeEvent) -> Self {
         SMEvent::Stake(Box::new(event))
+    }
+}
+
+impl From<OperatorSetEvent> for SMEvent {
+    fn from(event: OperatorSetEvent) -> Self {
+        Self::OperatorSet(Box::new(event))
     }
 }
 

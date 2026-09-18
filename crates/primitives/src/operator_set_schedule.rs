@@ -5,13 +5,14 @@ use std::{collections::BTreeSet, slice};
 use bitcoin::XOnlyPublicKey;
 use bitcoin_bosd::{Descriptor, DescriptorType};
 use libp2p_identity::ed25519::PublicKey as LibP2pEdPublicKey;
+use serde::{Deserialize, Serialize};
 
 use crate::types::{BitcoinBlockHeight, OperatorIdx, P2POperatorPubKey};
 
 /// A scheduled operator table used to derive active operator sets by block height.
 ///
 /// Operator indices are exactly the dense range `0..n`, and covenant/p2p keys are unique.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OperatorSetSchedule {
     operators: Vec<ScheduledOperator>,
 }
@@ -72,7 +73,7 @@ impl<'a> IntoIterator for &'a OperatorSetSchedule {
 }
 
 /// A configured bridge operator and the height range in which it is active.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScheduledOperator {
     /// Stable operator index used in state machines and peer resolution.
     index: OperatorIdx,

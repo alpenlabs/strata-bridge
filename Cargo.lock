@@ -11760,6 +11760,7 @@ dependencies = [
  "libp2p-identity",
  "metrics",
  "musig2",
+ "postcard",
  "rkyv",
  "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?rev=93b5ca8c8e73ec9ad46fb448a07b8ba39c3636fb)",
  "strata-asm-proto-bridge",

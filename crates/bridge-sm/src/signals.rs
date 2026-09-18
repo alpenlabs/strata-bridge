@@ -3,6 +3,8 @@
 use bitcoin::Txid;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 
+use crate::operator_set::OperatorSetSignal;
+
 /// The signals that need to be sent across different state machines in the bridge.
 ///
 /// This is a sum of directional contracts between different state machines. Each variant represents
@@ -14,6 +16,9 @@ pub enum Signal {
 
     /// Messages from the Graph State Machine.
     FromGraph(GraphSignal),
+
+    /// Local initialization requests from the public membership state machine.
+    FromOperatorSet(OperatorSetSignal),
 }
 
 /// Signals that the [Deposit State Machine](crate::deposit::machine::DepositSM) can emit.
