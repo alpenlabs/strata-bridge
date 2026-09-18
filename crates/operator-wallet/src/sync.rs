@@ -1,12 +1,17 @@
 //! Operator wallet chain data sync module
-use std::{fmt::Debug, num::NonZeroU32, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashSet},
+    fmt::Debug,
+    num::NonZeroU32,
+    sync::Arc,
+};
 
 use bdk_bitcoind_rpc::{
-    bitcoincore_rpc::{self},
+    bitcoincore_rpc::{self, RpcApi},
     BlockEvent, Emitter,
 };
 use bdk_wallet::{
-    bitcoin::{Block, Transaction},
+    bitcoin::{Block, Transaction, Txid},
     chain::CheckPoint,
 };
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -34,12 +39,28 @@ pub enum Backend {
 }
 
 impl Backend {
+    /// The height of the backend's best chain.
+    pub async fn height(&self) -> Result<u32, SyncError> {
+        match self {
+            Backend::BitcoinCore(client) => with_bitcoin_core(client.clone(), |client| {
+                // Heights fit u32 long past any chain this runs against.
+                client.get_block_count().map(|height| height as u32)
+            })
+            .await
+            .map_err(|e| (Box::new(e) as BoxedErr).into()),
+        }
+    }
+
     /// Syncs a wallet using the configured backend.
     ///
-    /// Pulls new blocks + mempool state and applies them to the wallet's view. Staged changes are
-    /// persisted to `store` every `persist_every_blocks` blocks and once after the mempool, each
-    /// as a single persist call, so a crash between two calls resumes from the last one. A failed
-    /// persist returns `Err` with the changes still staged for the next attempt.
+    /// Pulls new blocks + mempool state and applies them to the wallet's view. Block-derived
+    /// changes are persisted to `store` every `persist_every_blocks` blocks, each as a single
+    /// persist call, so a crash between two calls resumes from the last one. A failed persist
+    /// returns `Err` with the changes still staged for the next attempt. Mempool state is applied
+    /// in memory only and re-fetched on every sync; only confirmed transactions are persisted.
+    ///
+    /// Returns the transaction ids in the node's mempool, which the caller keeps to tell a live
+    /// unconfirmed transaction from one reorged out of the chain.
     ///
     /// Lease cleanup (removing leases whose underlying outpoints have been observed spent) is the
     /// caller's responsibility — after this call, the caller compares its lease set against
@@ -49,7 +70,7 @@ impl Backend {
         wallet: &mut PersistedWallet<P>,
         store: &mut P,
         persist_every_blocks: NonZeroU32,
-    ) -> Result<(), SyncError> {
+    ) -> Result<HashSet<Txid>, SyncError> {
         let last_cp = wallet.latest_checkpoint();
         debug!(
             tip_height = last_cp.height(),
@@ -65,6 +86,7 @@ impl Backend {
         };
 
         let mut applied_since_persist = 0u32;
+        let mut mempool = HashSet::new();
         while let Some(update) = rx.recv().await {
             match update {
                 WalletUpdate::NewBlock(ev) => {
@@ -73,6 +95,7 @@ impl Backend {
                     wallet
                         .apply_block_connected_to(&ev.block, height, connected_to)
                         .expect("block to be added");
+                    stage_anchored_txs(wallet);
                     applied_since_persist += 1;
                     if applied_since_persist >= persist_every_blocks.get() {
                         persist(wallet, store).await?;
@@ -80,7 +103,13 @@ impl Backend {
                     }
                 }
                 WalletUpdate::MempoolTxs(txs) => {
+                    // Commit the blocks, then apply the mempool and drop everything it staged: a
+                    // persisted unconfirmed transaction could never be evicted, and the stream of
+                    // them is unbounded. The emitter re-sends the whole mempool every sync.
+                    persist(wallet, store).await?;
+                    mempool = txs.iter().map(|(tx, _)| tx.compute_txid()).collect();
                     wallet.apply_unconfirmed_txs(txs);
+                    let _ = wallet.take_staged();
                 }
             }
         }
@@ -90,7 +119,34 @@ impl Backend {
         persist(wallet, store).await?;
 
         handle.await.expect("thread to be fine")?;
-        Ok(())
+        Ok(mempool)
+    }
+}
+
+/// Stages the transaction behind every anchor the wallet has staged.
+///
+/// `TxGraph::insert_tx` yields nothing for a transaction the wallet already holds, so a block
+/// confirming one seen earlier in the mempool stages only its anchor. Mempool state is not
+/// persisted, so without this the store would hold an anchor whose transaction is missing, and the
+/// checkpoint above it would stop the block being scanned again.
+fn stage_anchored_txs<P: WalletStore>(wallet: &mut PersistedWallet<P>) {
+    let Some(stage) = wallet.staged() else { return };
+    let staged: BTreeSet<Txid> = stage
+        .tx_graph
+        .txs
+        .iter()
+        .map(|tx| tx.compute_txid())
+        .collect();
+    let missing: Vec<_> = stage
+        .tx_graph
+        .anchors
+        .iter()
+        .map(|(_, txid)| *txid)
+        .filter(|txid| !staged.contains(txid))
+        .filter_map(|txid| wallet.tx_graph().get_tx(txid))
+        .collect();
+    if let Some(stage) = wallet.staged_mut() {
+        stage.tx_graph.txs.extend(missing);
     }
 }
 

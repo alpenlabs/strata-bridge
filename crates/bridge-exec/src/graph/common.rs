@@ -232,13 +232,20 @@ async fn ensure_claim_funding_outpoint(
                     error!(?e, "could not sync wallet after refilling funding utxos");
                     ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
                 })?;
+                // The refilled pool members are unconfirmed, so they are only visible while the
+                // funding transaction is in the node's mempool. An eviction between the
+                // tx-driver's check and this sync leaves nothing to reserve; the duty retries.
                 wallet
                     .reserve_utxo_with_value(
                         cfg.claim_funding_utxo_value,
                         predicate::never::<UtxoInfo>,
                     )
                     .0
-                    .expect("funding utxos must be available after refill")
+                    .ok_or_else(|| {
+                        ExecutorError::WalletErr(
+                            "no claim-funding utxo available after refill".to_string(),
+                        )
+                    })?
             }
         }
     };
@@ -773,6 +780,10 @@ mod tests {
 
         fn list_utxos(&self) -> Vec<UtxoInfo> {
             self.live_utxos.clone()
+        }
+
+        fn unspent_outpoints(&self) -> Vec<OutPoint> {
+            self.live_utxos.iter().map(|utxo| utxo.outpoint).collect()
         }
 
         async fn fund_v3_transaction(

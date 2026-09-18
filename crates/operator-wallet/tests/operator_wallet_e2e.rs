@@ -29,21 +29,28 @@
 //! the empty-merkle-root tap-tweak).
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     num::NonZeroU32,
     path::Path,
     sync::Arc,
+    time::Duration,
 };
 
-use bdk_bitcoind_rpc::bitcoincore_rpc::RpcApi;
+use bdk_bitcoind_rpc::bitcoincore_rpc::{
+    json::CreateRawTransactionInput, jsonrpc::serde_json::Value, RpcApi,
+};
 use bdk_wallet::{
     bitcoin::{
+        absolute::LockTime,
+        consensus::encode::serialize_hex,
         hashes::Hash,
         key::{Keypair, Secp256k1, TapTweak},
         secp256k1::{Message, SecretKey},
         sighash::{Prevouts, SighashCache},
-        taproot, Address, Amount, BlockHash, FeeRate, Network, OutPoint, Psbt, TapSighashType,
-        Transaction, Witness, XOnlyPublicKey,
+        taproot,
+        transaction::Version,
+        Address, Amount, BlockHash, FeeRate, Network, OutPoint, Psbt, ScriptBuf, Sequence,
+        TapSighashType, Transaction, TxIn, TxOut, Txid, Witness, XOnlyPublicKey,
     },
     chain::{BlockId, Merge},
     descriptor, ChangeSet,
@@ -51,8 +58,8 @@ use bdk_wallet::{
 use corepc_node::{Conf, Node};
 use operator_wallet::{
     load_or_create, sync::Backend, test_utils::MemoryStore, Error as OperatorWalletError,
-    GeneralUtxoPolicy, GeneralWallet, NativeGeneralWallet, OperatorWallet, OperatorWalletConfig,
-    SqliteStore, WalletKind, DEFAULT_PERSIST_EVERY_BLOCKS,
+    GeneralUtxoPolicy, GeneralWallet, InitError, NativeGeneralWallet, OperatorWallet,
+    OperatorWalletConfig, SqliteStore, WalletKind, DEFAULT_PERSIST_EVERY_BLOCKS,
 };
 use serial_test::serial;
 
@@ -78,7 +85,9 @@ const SENTINEL_ANCHOR_VALUE: Amount = Amount::from_sat(330);
 
 /// Boots a fresh regtest `bitcoind`, mines coinbase maturity, and returns the node.
 fn setup_bitcoind() -> Node {
-    let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind must start");
+    let mut conf = Conf::default();
+    conf.args.push("-txindex=1");
+    let bitcoind = Node::with_conf("bitcoind", &conf).expect("bitcoind must start");
     let mining_address = bitcoind.client.new_address().expect("mining address");
     bitcoind
         .client
@@ -114,13 +123,33 @@ async fn open_wallet(
     bootstrap_checkpoint: Option<BlockId>,
     persist_every_blocks: NonZeroU32,
 ) -> TestWallet {
+    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest)
+        .with_persist_every_blocks(persist_every_blocks);
+    open_wallet_with_config(
+        bitcoind,
+        general_seed,
+        reserved_seed,
+        stores,
+        bootstrap_checkpoint,
+        config,
+    )
+    .await
+}
+
+/// [`open_wallet`] with the whole config under the test's control.
+async fn open_wallet_with_config(
+    bitcoind: &Node,
+    general_seed: u8,
+    reserved_seed: u8,
+    stores: &Stores,
+    bootstrap_checkpoint: Option<BlockId>,
+    config: OperatorWalletConfig,
+) -> TestWallet {
     let (_, general_pubkey) = keypair_from_seed(general_seed);
     let (_, reserved_pubkey) = keypair_from_seed(reserved_seed);
 
     let general_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
     let reserved_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
-    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest)
-        .with_persist_every_blocks(persist_every_blocks);
     let general = NativeGeneralWallet::load_or_create(
         general_pubkey,
         &config,
@@ -192,9 +221,15 @@ async fn build_operator_wallet(
 /// (BIP-341 tap-tweak with empty merkle root). Used by the tests to finalize PSBTs that
 /// the descriptor-only `NativeGeneralWallet` returns unsigned. Returns the extracted
 /// signed transaction.
-fn sign_and_finalize(mut psbt: Psbt, keypair: Keypair) -> Transaction {
+fn sign_and_finalize(psbt: Psbt, keypair: Keypair) -> Transaction {
+    let keys = vec![keypair; psbt.inputs.len()];
+    sign_and_finalize_with(psbt, &keys)
+}
+
+/// [`sign_and_finalize`] with one keypair per input, in input order.
+fn sign_and_finalize_with(mut psbt: Psbt, keys: &[Keypair]) -> Transaction {
+    assert_eq!(keys.len(), psbt.inputs.len(), "one key per input");
     let secp = Secp256k1::new();
-    let tweaked = keypair.tap_tweak(&secp, None).to_keypair();
     let prevouts: Vec<_> = psbt
         .inputs
         .iter()
@@ -202,7 +237,8 @@ fn sign_and_finalize(mut psbt: Psbt, keypair: Keypair) -> Transaction {
         .collect();
     let unsigned = psbt.unsigned_tx.clone();
     let mut cache = SighashCache::new(&unsigned);
-    for i in 0..psbt.inputs.len() {
+    for (i, keypair) in keys.iter().enumerate() {
+        let tweaked = keypair.tap_tweak(&secp, None).to_keypair();
         let sighash = cache
             .taproot_key_spend_signature_hash(i, &Prevouts::All(&prevouts), TapSighashType::Default)
             .expect("sighash");
@@ -739,6 +775,22 @@ fn mine(bitcoind: &Node, n: usize) {
         .expect("mine blocks");
 }
 
+/// Mines one block holding its coinbase and `txs`, taking nothing from the mempool.
+fn mine_block_with(bitcoind: &Node, txs: &[&Transaction]) {
+    let addr = bitcoind.client.new_address().expect("miner address");
+    let txs = txs
+        .iter()
+        .map(|tx| Value::String(serialize_hex(*tx)))
+        .collect();
+    bitcoind
+        .client
+        .call::<Value>(
+            "generateblock",
+            &[Value::String(addr.to_string()), Value::Array(txs)],
+        )
+        .expect("mine a block");
+}
+
 #[tokio::test]
 #[serial]
 async fn restart_loads_persisted_state_and_applies_only_the_chain_delta() {
@@ -993,6 +1045,601 @@ async fn reorg_rolls_back_the_persisted_chain_and_reanchors_reserved_utxos() {
     assert_eq!(wallet.local_chain_tip_height(), 102);
     assert_eq!(wallet.reserved_tip_hash(), new_102);
     assert_eq!(wallet.reserved_utxos_with_value(value).len(), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn an_unconfirmed_payment_is_not_spendable_after_a_restart() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        33,
+        34,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet.sync().await.expect("initial sync");
+
+    // A payment to the reserved script that later leaves the mempool cannot be evicted from the
+    // wallet with this BDK version, so its mempool timestamp is kept in memory only.
+    let value = Amount::from_btc(0.01).unwrap();
+    let reserved_addr = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    bitcoind
+        .client
+        .send_to_address(&reserved_addr, value)
+        .expect("send to reserved script");
+    wallet
+        .sync()
+        .await
+        .expect("sync with the payment in the mempool");
+
+    let pool = wallet.reserved_utxos_with_value(value);
+    assert_eq!(pool.len(), 1, "unconfirmed payment visible in memory");
+    assert_eq!(pool[0].confirmations, 0);
+    let txid = pool[0].outpoint.txid;
+
+    // Nothing about it reaches the store, so repeated payments that never confirm cannot grow it.
+    let aggregate = stores.reserved.aggregate();
+    assert!(
+        !aggregate
+            .tx_graph
+            .txs
+            .iter()
+            .any(|tx| tx.compute_txid() == txid),
+        "an unconfirmed transaction must not be persisted"
+    );
+    assert!(
+        aggregate.tx_graph.last_seen.is_empty(),
+        "mempool timestamps must not be persisted"
+    );
+
+    // So a restart cannot hand the payment out as a pool member.
+    drop(wallet);
+    let wallet = open_wallet(
+        &bitcoind,
+        33,
+        34,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    assert!(
+        wallet.reserved_utxos_with_value(value).is_empty(),
+        "an unconfirmed payment must not be spendable after a restart"
+    );
+    assert!(
+        stores.reserved.aggregate().tx_graph.txs.is_empty(),
+        "the store holds no unanchored transactions"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn a_payment_seen_in_the_mempool_survives_confirmation_and_restart() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        35,
+        36,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet.sync().await.expect("initial sync");
+
+    let value = Amount::from_btc(0.02).unwrap();
+    let reserved_addr = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    bitcoind
+        .client
+        .send_to_address(&reserved_addr, value)
+        .expect("send to reserved script");
+
+    // Seen unconfirmed first, then confirmed: applying the block stages only the anchor, because
+    // the transaction is already in the wallet's graph.
+    wallet
+        .sync()
+        .await
+        .expect("sync with the payment in the mempool");
+    mine(&bitcoind, 1);
+    wallet
+        .sync()
+        .await
+        .expect("sync with the payment confirmed");
+    let pool = wallet.reserved_utxos_with_value(value);
+    assert_eq!(pool.len(), 1);
+    assert_eq!(pool[0].confirmations, 1);
+
+    drop(wallet);
+    let wallet = open_wallet(
+        &bitcoind,
+        35,
+        36,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    let pool = wallet.reserved_utxos_with_value(value);
+    assert_eq!(
+        pool.len(),
+        1,
+        "a confirmed payment first seen in the mempool must survive a restart"
+    );
+    assert!(pool[0].confirmations >= 1);
+}
+
+/// Spends `txid`'s first input again, paying the node's own wallet a much higher fee, so `txid` is
+/// replaced and leaves the mempool. `txid` must not be confirmed.
+fn replace(bitcoind: &Node, rpc: &bdk_bitcoind_rpc::bitcoincore_rpc::Client, txid: Txid) {
+    let input = rpc
+        .get_raw_transaction_info(&txid, None)
+        .expect("tx info")
+        .vin[0]
+        .clone();
+    let spent = OutPoint {
+        txid: input.txid.expect("input txid"),
+        vout: input.vout.expect("input vout"),
+    };
+    let value = rpc
+        .get_raw_transaction_info(&spent.txid, None)
+        .expect("input tx info")
+        .vout[spent.vout as usize]
+        .value;
+    let sink = bitcoind.client.new_address().expect("sink address");
+    let outputs = HashMap::from([(
+        sink.to_string(),
+        value - Amount::from_btc(0.001).expect("fee"),
+    )]);
+    let conflicting = rpc
+        .create_raw_transaction(
+            &[CreateRawTransactionInput {
+                txid: spent.txid,
+                vout: spent.vout,
+                sequence: None,
+            }],
+            &outputs,
+            None,
+            None,
+        )
+        .expect("build conflicting tx");
+    let signed = rpc
+        .sign_raw_transaction_with_wallet(&conflicting, None, None)
+        .expect("sign")
+        .transaction()
+        .expect("signed tx");
+    rpc.send_raw_transaction(&signed).expect("replace");
+}
+
+#[tokio::test]
+#[serial]
+async fn a_reorged_out_payment_stops_being_spendable() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        37,
+        38,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    let rpc = sync_rpc_client(&bitcoind);
+    wallet.sync().await.expect("initial sync");
+
+    // Confirm a payment to the reserved script.
+    let value = Amount::from_btc(0.03).unwrap();
+    let reserved_addr = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    bitcoind
+        .client
+        .send_to_address(&reserved_addr, value)
+        .expect("send to reserved script");
+    mine(&bitcoind, 1);
+    wallet
+        .sync()
+        .await
+        .expect("sync with the payment confirmed");
+    let pool = wallet.reserved_utxos_with_value(value);
+    assert_eq!(pool.len(), 1, "payment confirmed and visible");
+
+    // Take the block back out and double-spend the payment's input, so it ends up neither in the
+    // chain nor in the mempool.
+    let height = rpc.get_block_count().expect("block count");
+    rpc.invalidate_block(&rpc.get_block_hash(height).expect("block hash"))
+        .expect("invalidate");
+    replace(&bitcoind, &rpc, pool[0].outpoint.txid);
+    mine(&bitcoind, 2);
+
+    wallet.sync().await.expect("sync after the reorg");
+    assert!(
+        wallet.reserved_utxos_with_value(value).is_empty(),
+        "a reorged-out payment must not stay spendable"
+    );
+
+    drop(wallet);
+    let wallet = open_wallet(
+        &bitcoind,
+        37,
+        38,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    assert!(
+        wallet.reserved_utxos_with_value(value).is_empty(),
+        "and must not come back after a restart"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn a_store_ahead_of_the_node_is_refused() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        39,
+        40,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet.sync().await.expect("sync");
+    let tip = wallet.local_chain_tip_height();
+    assert!(tip > 0);
+    drop(wallet);
+
+    // Roll the node back below the persisted tip, as restoring an older data directory would.
+    let rpc = sync_rpc_client(&bitcoind);
+    rpc.invalidate_block(&rpc.get_block_hash(u64::from(tip) - 2).expect("block hash"))
+        .expect("invalidate");
+    assert!(rpc.get_block_count().expect("count") < u64::from(tip));
+
+    let (_, general_pubkey) = keypair_from_seed(39);
+    let err = NativeGeneralWallet::load_or_create(
+        general_pubkey,
+        &OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest),
+        Backend::BitcoinCore(Arc::new(sync_rpc_client(&bitcoind))),
+        stores.general.clone(),
+        None,
+    )
+    .await
+    .expect_err("a store ahead of the node must be refused");
+    assert!(
+        matches!(err, InitError::BackendBehindTip { tip: stored, .. } if stored == tip),
+        "got {err:?}"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn a_lease_survives_its_funding_leaving_the_mempool() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        43,
+        44,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    let rpc = sync_rpc_client(&bitcoind);
+    wallet.sync().await.expect("initial sync");
+
+    // An unconfirmed payment to the reserved script, leased as the claim-funding path would.
+    let value = Amount::from_btc(0.04).unwrap();
+    let reserved_addr = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    bitcoind
+        .client
+        .send_to_address(&reserved_addr, value)
+        .expect("send to reserved script");
+    wallet.sync().await.expect("sync with the payment pending");
+    let leased = wallet
+        .reserve_utxo_with_value(value, |_| false)
+        .0
+        .expect("an unconfirmed pool member is reservable");
+    assert!(wallet.leased_outpoints().contains(&leased));
+
+    // The payment leaves the mempool, so it is no longer spendable, but nothing has spent it.
+    replace(&bitcoind, &rpc, leased.txid);
+    wallet.sync().await.expect("sync with the payment gone");
+    assert!(
+        wallet.reserved_utxos_with_value(value).is_empty(),
+        "gone from the mempool, so not offered for spending"
+    );
+    assert!(
+        wallet.leased_outpoints().contains(&leased),
+        "but the lease must hold: another graph must not be handed the same outpoint"
+    );
+}
+
+/// Callers carry on after a failed sync, so a failed sync leaves the spendable set as the last
+/// successful one saw it. Unconfirmed outputs depend on this: they are spendable only through the
+/// mempool snapshot.
+#[tokio::test]
+#[serial]
+async fn unconfirmed_outputs_stay_spendable_across_a_failed_sync() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let (general_kp, general_pubkey) = keypair_from_seed(45);
+    // No retries: the injected failure fires once, and a retry would succeed.
+    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest)
+        .with_sync_policy(0, 1, Duration::ZERO);
+    let mut wallet = open_wallet_with_config(&bitcoind, 45, 46, &stores, None, config).await;
+
+    let general_addr = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
+    bitcoind
+        .client
+        .send_to_address(&general_addr, Amount::from_btc(0.5).unwrap())
+        .expect("fund the general wallet");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("initial sync");
+
+    // Fund the pool and leave the funding transaction in the mempool.
+    let value = Amount::from_btc(0.01).unwrap();
+    let quantity = 3;
+    let funded = wallet
+        .create_reserved_utxos(
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            value,
+            quantity,
+            GeneralUtxoPolicy::ConfirmedOnly,
+        )
+        .await
+        .expect("fund the pool");
+    let signed = sign_and_finalize(funded.psbt, general_kp);
+    bitcoind
+        .client
+        .send_raw_transaction(&signed)
+        .expect("broadcast");
+    wallet
+        .sync()
+        .await
+        .expect("sync with the funding in the mempool");
+    let unconfirmed_general = |wallet: &TestWallet| {
+        wallet
+            .general()
+            .list_utxos()
+            .into_iter()
+            .filter(|u| u.confirmations == 0)
+            .count()
+    };
+    assert_eq!(wallet.reserved_utxos_with_value(value).len(), quantity);
+    assert_eq!(
+        unconfirmed_general(&wallet),
+        1,
+        "the change output is unconfirmed"
+    );
+
+    // Fail the next commit of each store. An empty block gives both wallets something to commit
+    // while the funding transaction stays unconfirmed.
+    stores
+        .general
+        .fail_on_persist_call(stores.general.persist_calls() + 1);
+    stores
+        .reserved
+        .fail_on_persist_call(stores.reserved.persist_calls() + 1);
+    mine_block_with(&bitcoind, &[]);
+    wallet.sync().await.expect_err("injected persist failure");
+
+    // Both wallets still show what the last successful sync saw.
+    assert_eq!(
+        wallet.reserved_utxos_with_value(value).len(),
+        quantity,
+        "pool members still spendable"
+    );
+    assert!(
+        wallet.reserve_utxo_with_value(value, |_| false).0.is_some(),
+        "and reservable"
+    );
+    assert_eq!(
+        unconfirmed_general(&wallet),
+        1,
+        "general change still spendable"
+    );
+
+    // A clean attempt refreshes the snapshot; the funding is still in the mempool.
+    wallet.sync().await.expect("retry");
+    assert_eq!(wallet.reserved_utxos_with_value(value).len(), quantity);
+    assert_eq!(unconfirmed_general(&wallet), 1);
+}
+
+#[tokio::test]
+#[serial]
+async fn a_reorg_across_a_restart_reconciles() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        41,
+        42,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet.sync().await.expect("sync");
+    let tip = wallet.local_chain_tip_height();
+    let tip_hash = wallet.reserved_tip_hash();
+    drop(wallet);
+
+    // While stopped, the stored tip is reorged away and the node builds past it.
+    let rpc = sync_rpc_client(&bitcoind);
+    rpc.invalidate_block(&rpc.get_block_hash(u64::from(tip)).expect("block hash"))
+        .expect("invalidate");
+    mine(&bitcoind, 2);
+    assert_ne!(
+        rpc.get_block_hash(u64::from(tip)).expect("new hash"),
+        tip_hash,
+        "the stored tip's block is gone"
+    );
+
+    // The node is no shorter than the store, so the emitter can reconcile and startup proceeds.
+    let mut wallet = open_wallet(
+        &bitcoind,
+        41,
+        42,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet.sync().await.expect("sync after the reorg");
+    assert_eq!(wallet.local_chain_tip_height(), tip + 1);
+    assert_ne!(wallet.reserved_tip_hash(), tip_hash);
+}
+
+/// A spend reorged out behind a conflict the wallet never sees is on neither the chain nor the
+/// mempool. BDK keeps it canonical in memory, so its inputs stay hidden until a restart.
+#[tokio::test]
+#[serial]
+async fn inputs_of_a_reorged_out_spend_return_after_a_restart() {
+    let bitcoind = setup_bitcoind();
+    let rpc = sync_rpc_client(&bitcoind);
+    let stores = Stores::default();
+    let (general_kp, general_pubkey) = keypair_from_seed(47);
+    let mut wallet = open_wallet(
+        &bitcoind,
+        47,
+        48,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+
+    // One coin in the general wallet and one under an unrelated key, confirmed together.
+    let secp = Secp256k1::new();
+    let general_addr = Address::p2tr(&secp, general_pubkey, None, Network::Regtest);
+    let (other_kp, other_pubkey) = keypair_from_seed(49);
+    let other_addr = Address::p2tr(&secp, other_pubkey, None, Network::Regtest);
+    let value = Amount::from_btc(0.5).unwrap();
+    rpc.send_to_address(&general_addr, value, None, None, None, None, None, None)
+        .expect("fund the general wallet");
+    let other_txid = rpc
+        .send_to_address(&other_addr, value, None, None, None, None, None, None)
+        .expect("fund the other key");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("sync");
+    let coin = wallet
+        .general()
+        .list_utxos()
+        .pop()
+        .expect("the general coin");
+    let other_tx = rpc
+        .get_raw_transaction(&other_txid, None)
+        .expect("other funding tx");
+    let other_vout = other_tx
+        .output
+        .iter()
+        .position(|o| o.script_pubkey == other_addr.script_pubkey())
+        .expect("output to the other key");
+    let other = OutPoint {
+        txid: other_txid,
+        vout: other_vout as u32,
+    };
+    let other_txout = other_tx.output[other_vout].clone();
+
+    // A spend of both coins, confirmed.
+    let sink = bitcoind
+        .client
+        .new_address()
+        .expect("sink address")
+        .script_pubkey();
+    let fee = Amount::from_sat(2_000);
+    let input = |outpoint| TxIn {
+        previous_output: outpoint,
+        script_sig: ScriptBuf::new(),
+        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+        witness: Witness::new(),
+    };
+    let spend = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![input(coin.outpoint), input(other)],
+        output: vec![TxOut {
+            value: coin.amount + other_txout.value - fee,
+            script_pubkey: sink.clone(),
+        }],
+    };
+    let mut psbt = Psbt::from_unsigned_tx(spend).expect("psbt");
+    psbt.inputs[0].witness_utxo = Some(TxOut::from(&coin));
+    psbt.inputs[1].witness_utxo = Some(other_txout.clone());
+    let spend = sign_and_finalize_with(psbt, &[general_kp, other_kp]);
+    let spend_txid = rpc
+        .send_raw_transaction(&spend)
+        .expect("broadcast the spend");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("sync with the spend confirmed");
+    assert!(
+        wallet.general().list_utxos().is_empty(),
+        "the coin is spent"
+    );
+
+    // Reorg the spend out behind a block spending the other coin elsewhere: the spend is invalid
+    // there, so the node drops it, and the conflict touches no wallet script.
+    let height = rpc.get_block_count().expect("height");
+    rpc.invalidate_block(&rpc.get_block_hash(height).expect("block hash"))
+        .expect("invalidate");
+    let conflict = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![input(other)],
+        output: vec![TxOut {
+            value: other_txout.value - fee,
+            script_pubkey: sink,
+        }],
+    };
+    let mut psbt = Psbt::from_unsigned_tx(conflict).expect("psbt");
+    psbt.inputs[0].witness_utxo = Some(other_txout);
+    let conflict = sign_and_finalize_with(psbt, &[other_kp]);
+    mine_block_with(&bitcoind, &[&conflict]);
+    assert!(
+        rpc.get_mempool_entry(&spend_txid).is_err(),
+        "the spend is gone from the mempool"
+    );
+    wallet.sync().await.expect("sync after the reorg");
+    assert!(
+        wallet.general().list_utxos().is_empty(),
+        "hidden until a restart"
+    );
+
+    // Nothing about the spend survives a load.
+    drop(wallet);
+    let mut wallet = open_wallet(
+        &bitcoind,
+        47,
+        48,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    let outpoints = |wallet: &TestWallet| -> Vec<OutPoint> {
+        wallet
+            .general()
+            .list_utxos()
+            .into_iter()
+            .map(|u| u.outpoint)
+            .collect()
+    };
+    assert_eq!(outpoints(&wallet), vec![coin.outpoint], "the coin is back");
+    wallet.sync().await.expect("sync after the restart");
+    assert_eq!(outpoints(&wallet), vec![coin.outpoint], "and stays back");
 }
 
 #[tokio::test]

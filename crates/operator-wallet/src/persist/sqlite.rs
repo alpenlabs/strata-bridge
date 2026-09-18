@@ -6,6 +6,7 @@
 //! - WAL journaling with full synchronous commits, so a persist that returned `Ok` survives a
 //!   crash;
 //! - `quick_check` at open, so a damaged file fails before anything reads or writes it;
+//! - dropping anchors to reorged-out blocks at load, see `prune_stale_anchors`;
 //! - a sync-to-async bridge that commits inline, since a batch commits in milliseconds.
 
 use std::{
@@ -22,6 +23,8 @@ use bdk_wallet::{
     AsyncWalletPersister, ChangeSet, WalletPersister,
 };
 use thiserror::Error;
+
+use super::prune_stale_anchors;
 
 /// Lock wait before a busy connection errors. A safety net: only one process holds a store.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -190,7 +193,10 @@ impl AsyncWalletPersister for SqliteStore {
     {
         Box::pin(async move {
             let mut conn = persister.conn();
-            WalletPersister::initialize(&mut *conn).map_err(|e| persister.sqlite_error(e))
+            let mut changeset =
+                WalletPersister::initialize(&mut *conn).map_err(|e| persister.sqlite_error(e))?;
+            prune_stale_anchors(&mut changeset);
+            Ok(changeset)
         })
     }
 
