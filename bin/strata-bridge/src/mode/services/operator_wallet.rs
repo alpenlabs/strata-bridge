@@ -163,14 +163,26 @@ fn bootstrap_setting(
     })
 }
 
-/// Resolves the bootstrap settings into the checkpoint that stores created on this start begin
-/// scanning from.
+/// The block a fresh store is seeded with so that its first sync begins at `first_scanned`.
+///
+/// A sync only fetches blocks above the seed, so the seed is the parent. The parent of height 1
+/// is genesis, which every fresh store already holds.
+fn seed_below(first_scanned: u32, parent: BlockHash) -> Option<BlockId> {
+    let height = first_scanned.checked_sub(1)?;
+    (height > 0).then_some(BlockId {
+        height,
+        hash: parent,
+    })
+}
+
+/// Resolves the bootstrap settings into the block that stores created on this start are seeded
+/// with: the parent of the configured block, so the configured block is the first one scanned.
 ///
 /// A configured hash is checked against the connected node, so a node following another chain
 /// aborts startup instead of seeding wallets from the wrong history. Without a hash the node's
 /// own block is taken on trust. Either way a height the node has no block for aborts startup:
-/// falling back to genesis would silently cost a full rescan. Existing stores resume from their
-/// own tip and never consult this.
+/// falling back to genesis would silently cost a full rescan. The settings are checked on every
+/// start, but existing stores resume from their own tip and are never reseeded.
 async fn resolve_bootstrap_checkpoint(
     client: &BitcoinClient,
     config: &Config,
@@ -211,7 +223,6 @@ async fn resolve_bootstrap_checkpoint(
                 checkpoint.hash
             );
             info!(height, hash = %reported, "verified bootstrap checkpoint against the connected node");
-            Ok(Some(checkpoint))
         }
         _ => {
             warn!(
@@ -220,12 +231,16 @@ async fn resolve_bootstrap_checkpoint(
                 "operator_wallet.bootstrap_height has no bootstrap_block_hash, so this block is \
                  taken from the connected node on trust"
             );
-            Ok(Some(BlockId {
-                height,
-                hash: reported,
-            }))
         }
     }
+
+    // The verified block's own header names its parent, so the seed needs no trust of its own.
+    let parent = client
+        .get_block_header(&reported)
+        .await
+        .map_err(|e| anyhow!("could not fetch the header of bootstrap block {reported}: {e:?}"))?
+        .prev_blockhash;
+    Ok(seed_below(height, parent))
 }
 
 /// Performs a one-shot sync of the operator wallet against its backend.
@@ -346,6 +361,22 @@ mod tests {
                 "{err}"
             );
         }
+    }
+
+    #[test]
+    fn the_seed_is_the_parent_of_the_first_scanned_block() {
+        assert_eq!(
+            seed_below(101, hash(7)),
+            Some(BlockId {
+                height: 100,
+                hash: hash(7)
+            })
+        );
+    }
+
+    #[test]
+    fn a_first_scanned_block_right_above_genesis_needs_no_seed() {
+        assert_eq!(seed_below(1, hash(7)), None);
     }
 
     #[test]

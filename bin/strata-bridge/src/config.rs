@@ -280,17 +280,18 @@ pub(crate) struct OperatorWalletConfig {
     #[serde(default)]
     pub persist_every_blocks: Option<NonZeroU32>,
 
-    /// Block height at which wallet stores created on this start begin scanning. Unset or `0`
+    /// Height of the first block that wallet stores created on this start scan. Unset or `0`
     /// means Bitcoin genesis. Set it at or below the oldest unspent output either wallet owns;
     /// anything below it is invisible. Stores that already exist resume from their own tip and
-    /// ignore this value.
+    /// are not rescanned from this value.
     #[serde(default)]
     pub bootstrap_height: Option<u64>,
 
     /// Hash the block at [`Self::bootstrap_height`] must have. Startup fails when the connected
-    /// node reports a different hash, which is what catches a node following another chain. A
-    /// height on its own identifies no chain, so leaving this unset trusts whichever block the
-    /// node happens to have there.
+    /// node reports a different hash, which is what catches a node following another chain. This
+    /// is checked on every start, whether or not the stores already exist. A height on its own
+    /// identifies no chain, so leaving this unset trusts whichever block the node happens to
+    /// have there.
     #[serde(default)]
     pub bootstrap_block_hash: Option<BlockHash>,
 }
