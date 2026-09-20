@@ -13,7 +13,8 @@ Test flow:
 1. Configure height 101 with a hash the node does not have there. The node must exit non-zero
    and create no stores.
 2. Configure height 101 with the hash the node reports. The node must start and both fresh
-   stores must hold that block as their lowest above genesis.
+   stores must hold that block's parent as their lowest above genesis, so block 101 itself is
+   scanned.
 3. Configure the height alone. The node resolves the hash itself and starts the same way.
 """
 
@@ -37,6 +38,8 @@ from utils.wallet_store import (
 )
 
 CHECKPOINT_HEIGHT = 101
+# A store is seeded with the parent of the configured block, which is then the first one scanned.
+SEED_HEIGHT = CHECKPOINT_HEIGHT - 1
 WRONG_HASH = "00000000000000000000000000000000000000000000000000000000deadbeef"
 
 
@@ -90,7 +93,7 @@ class WalletBootstrapCheckpointTest(StrataTestBase):
 
         self.logger.info(
             "BOOTSTRAP CHECKPOINT VERIFIED: a mismatched hash stops the node, and a verified "
-            f"pair or a bare height seeds both stores at block {CHECKPOINT_HEIGHT}"
+            f"pair or a bare height starts both stores' scan at block {CHECKPOINT_HEIGHT}"
         )
         return True
 
@@ -117,8 +120,8 @@ class WalletBootstrapCheckpointTest(StrataTestBase):
         wait_until_bridge_ready(rpc)
         for path in stores:
             first = first_synced_height(path)
-            assert first == CHECKPOINT_HEIGHT, (
-                f"{path.name} starts at block {first}, expected {CHECKPOINT_HEIGHT} ({label})"
+            assert first == SEED_HEIGHT, (
+                f"{path.name} starts at block {first}, expected {SEED_HEIGHT} ({label})"
             )
             assert read_store(path).tip_height >= CHECKPOINT_HEIGHT
             self.logger.info(f"{label}: {path.name} starts at {first}")

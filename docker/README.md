@@ -133,9 +133,10 @@ Startup fails if the node reports a different hash at that height, which is what
 following another chain. A height with no hash is accepted but taken on trust and logged as such,
 and a height the node has no block for fails rather than falling back to genesis.
 
-Stores that already exist resume from their own tip and ignore the setting, so changing or
-removing it affects only stores created afterwards. To roll a checkpoint back, edit the pair and
-move the stores aside as below; the next start rebuilds from the new value.
+The pair is checked against the node on every start, so it must stay valid while it is configured.
+Stores that already exist resume from their own tip and are not rescanned, so changing or removing
+the setting moves the scan start only for stores created afterwards. To roll a checkpoint back,
+edit the pair and move the stores aside as below; the next start rebuilds from the new value.
 
 A node that cannot open a store (damaged file, or one written for another network or key) stops
 at startup naming the file. To rebuild, move the stores aside and restart:
