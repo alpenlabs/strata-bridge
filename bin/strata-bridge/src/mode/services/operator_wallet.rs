@@ -85,6 +85,10 @@ pub(in crate::mode) async fn init_operator_wallet(
     let reserved_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
     debug!(?general_sync_backend, "operator wallet sync backend");
 
+    // Resolved before the stores are opened: opening creates the files, and a rejected checkpoint
+    // must leave none behind.
+    let bootstrap_checkpoint = resolve_bootstrap_checkpoint(btc_rpc_client, config, params).await?;
+
     let data_dir = &config.operator_wallet.data_dir;
     info!(data_dir = %data_dir.display(), "opening operator wallet stores");
     let open_store = |kind| {
@@ -94,7 +98,6 @@ pub(in crate::mode) async fn init_operator_wallet(
     let general_store = open_store(WalletKind::General)?;
     let reserved_store = open_store(WalletKind::Reserved)?;
 
-    let bootstrap_checkpoint = resolve_bootstrap_checkpoint(btc_rpc_client, config, params).await?;
     let general_wallet = NativeGeneralWallet::load_or_create(
         general_key,
         &operator_wallet_config,
