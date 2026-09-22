@@ -7,3 +7,5 @@ pub mod kv;
 pub mod safe_harbour;
 pub mod signatures;
 pub mod stakes;
+
+pub mod operator_set;
