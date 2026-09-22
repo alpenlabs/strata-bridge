@@ -1,90 +1,90 @@
 name: Setup SP1 toolchain
-description: Installs a pinned SP1 release (cargo-prove plus the succinct Rust toolchain), optionally cached across runs
+description: Installs a pinned SP1 release (cargo-prove plus the succinct Rust toolchain), caching the release archives across runs and checking them against recorded digests
 
+# These are the two archives `sp1up --version <tag>` installs: the cargo-prove archive from the
+# succinctlabs/sp1 release, then the toolchain archive from the succinctlabs/rust release whose tag
+# is compiled into that cargo-prove (`LATEST_SUPPORTED_TOOLCHAIN_VERSION_TAG` in
+# crates/cli/src/lib.rs at the sp1 tag). Update all four values together; the digests are the
+# `digest` field of each release asset in the GitHub API.
 inputs:
   version:
-    description: "SP1 release tag to install (for example v6.2.0)"
-    required: true
-  sp1up-sha256:
-    description: "SHA-256 of `sp1up/sp1up` at the `version` tag; update both together"
-    required: true
-  cache:
-    description: "Restore and save ~/.sp1 in the Actions cache; disable for workflows that publish artifacts"
+    description: "SP1 release tag to install; keep in sync with `sp1-sdk` / `sp1-verifier` in the workspace `Cargo.toml`"
     required: false
-    default: "true"
-  github-token:
-    description: "Token for the GitHub API calls sp1up makes; raises the shared unauthenticated rate limit"
+    default: "v6.2.0"
+  cargo-prove-sha256:
+    description: "SHA-256 of `cargo_prove_<version>_linux_amd64.tar.gz` from the succinctlabs/sp1 release"
     required: false
-    default: ""
+    default: "92ac1a533f9200ffa7543827f5ab1511823d387f03c9fe37750c2d22411632aa"
+  toolchain-tag:
+    description: "succinctlabs/rust release tag that `cargo prove install-toolchain` fetches for `version`"
+    required: false
+    default: "succinct-1.93.0-64bit"
+  toolchain-sha256:
+    description: "SHA-256 of `rust-toolchain-x86_64-unknown-linux-gnu.tar.gz` from that succinctlabs/rust release"
+    required: false
+    default: "99e68dd864dd7ee9688333346b428452c705d82a11098e51146389417e0c82c6"
 
 runs:
   using: composite
   steps:
-    - name: Restore cached SP1 toolchain
-      if: inputs.cache == 'true'
+    - name: Restore cached SP1 release archives
       id: cache
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
-        path: ~/.sp1
-        # The installer digest is part of the key so a re-pinned installer takes the verified
-        # install path instead of a cache built by the previous one.
-        key: sp1-${{ inputs.version }}-${{ inputs.sp1up-sha256 }}-${{ runner.os }}-${{ runner.arch }}
+        path: ${{ runner.temp }}/sp1
+        # The digests are part of the key so a re-pin takes the download path instead of an
+        # entry written under the previous pins.
+        key: sp1-${{ inputs.version }}-${{ inputs.cargo-prove-sha256 }}-${{ inputs.toolchain-sha256 }}-${{ runner.os }}-${{ runner.arch }}
 
-    - name: Install SP1 toolchain
+    - name: Download SP1 release archives
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         SP1_VERSION: ${{ inputs.version }}
-        SP1UP_SHA256: ${{ inputs.sp1up-sha256 }}
-        GITHUB_TOKEN: ${{ inputs.github-token }}
+        SP1_TOOLCHAIN_TAG: ${{ inputs.toolchain-tag }}
+        SP1_DIR: ${{ runner.temp }}/sp1
       run: |
-        # This is what `curl https://sp1.succinct.xyz | bash` does, minus the shell-profile edits,
-        # with retries on the download, the installer taken from the release tag rather than
-        # `main`, and its digest checked before it runs.
-        mkdir -p "$HOME/.sp1/bin"
-        curl -fsSL --proto "=https" --tlsv1.2 \
+        mkdir -p "${SP1_DIR}"
+        cd "${SP1_DIR}"
+        # GitHub's release CDN returns transient 5xx; retry instead of failing the job.
+        curl -fsSLO --proto "=https" --tlsv1.2 \
           --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
-          -o "$HOME/.sp1/bin/sp1up" \
-          "https://raw.githubusercontent.com/succinctlabs/sp1/refs/tags/${SP1_VERSION}/sp1up/sp1up"
-        echo "${SP1UP_SHA256}  $HOME/.sp1/bin/sp1up" | sha256sum -c -
-        chmod +x "$HOME/.sp1/bin/sp1up"
+          "https://github.com/succinctlabs/sp1/releases/download/${SP1_VERSION}/cargo_prove_${SP1_VERSION}_linux_amd64.tar.gz"
+        curl -fsSLO --proto "=https" --tlsv1.2 \
+          --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 600 \
+          "https://github.com/succinctlabs/rust/releases/download/${SP1_TOOLCHAIN_TAG}/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz"
 
-        args=(--version "$SP1_VERSION")
-        if [ -n "$GITHUB_TOKEN" ]; then
-          args+=(--token "$GITHUB_TOKEN")
-        fi
-        # sp1up fetches cargo-prove and the toolchain from GitHub releases without retrying.
-        for attempt in 1 2 3 4 5; do
-          if "$HOME/.sp1/bin/sp1up" "${args[@]}"; then
-            break
-          fi
-          if [ "$attempt" -eq 5 ]; then
-            echo "::error::sp1up failed after ${attempt} attempts"
-            exit 1
-          fi
-          echo "sp1up attempt ${attempt} failed; retrying in $((attempt * 10))s"
-          sleep $((attempt * 10))
-        done
-
-    - name: Save SP1 toolchain to cache
-      if: inputs.cache == 'true' && steps.cache.outputs.cache-hit != 'true'
+    - name: Save SP1 release archives to cache
+      if: steps.cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
-        path: ~/.sp1
-        key: sp1-${{ inputs.version }}-${{ inputs.sp1up-sha256 }}-${{ runner.os }}-${{ runner.arch }}
+        path: ${{ runner.temp }}/sp1
+        key: sp1-${{ inputs.version }}-${{ inputs.cargo-prove-sha256 }}-${{ inputs.toolchain-sha256 }}-${{ runner.os }}-${{ runner.arch }}
 
-    - name: Link cached succinct toolchain into rustup
-      if: steps.cache.outputs.cache-hit == 'true'
+    - name: Install SP1 toolchain
       shell: bash
+      env:
+        SP1_VERSION: ${{ inputs.version }}
+        SP1_CARGO_PROVE_SHA256: ${{ inputs.cargo-prove-sha256 }}
+        SP1_TOOLCHAIN_TAG: ${{ inputs.toolchain-tag }}
+        SP1_TOOLCHAIN_SHA256: ${{ inputs.toolchain-sha256 }}
+        SP1_DIR: ${{ runner.temp }}/sp1
       run: |
-        # sp1up links ~/.sp1/toolchains/<random> into rustup as `succinct`; the cache only
-        # holds ~/.sp1, so recreate the link.
-        toolchain_dir="$(find "$HOME/.sp1/toolchains" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-        if [ -z "$toolchain_dir" ]; then
-          echo "::error::no succinct toolchain found under ~/.sp1/toolchains"
-          exit 1
-        fi
-        rustup toolchain link succinct "$toolchain_dir"
+        cd "${SP1_DIR}"
+        # Checked on every run, cache hit or not: the cache key only records which pins were
+        # in force when the entry was written, not what was written.
+        sha256sum -c - <<SUMS
+        ${SP1_CARGO_PROVE_SHA256}  cargo_prove_${SP1_VERSION}_linux_amd64.tar.gz
+        ${SP1_TOOLCHAIN_SHA256}  rust-toolchain-x86_64-unknown-linux-gnu.tar.gz
+        SUMS
+        # Same layout sp1up leaves behind: cargo-prove in ~/.sp1/bin, the toolchain under
+        # ~/.sp1/toolchains and linked into rustup as `succinct`.
+        toolchain_dir="$HOME/.sp1/toolchains/${SP1_TOOLCHAIN_TAG}"
+        mkdir -p "$HOME/.sp1/bin" "${toolchain_dir}"
+        tar -xzf "cargo_prove_${SP1_VERSION}_linux_amd64.tar.gz" -C "$HOME/.sp1/bin"
+        tar -xzf rust-toolchain-x86_64-unknown-linux-gnu.tar.gz -C "${toolchain_dir}"
+        chmod 0755 "${toolchain_dir}"/bin/* "${toolchain_dir}"/lib/rustlib/x86_64-unknown-linux-gnu/bin/*
+        rustup toolchain link succinct "${toolchain_dir}"
 
     - name: Add SP1 to PATH
       shell: bash
