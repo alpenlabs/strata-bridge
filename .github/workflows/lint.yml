@@ -104,6 +104,8 @@ jobs:
     timeout-minutes: 10
     env:
       TAPLO_VERSION: "0.10.0"
+      # SHA-256 of the decompressed taplo-linux-x86_64 binary for that version; update both together.
+      TAPLO_SHA256: "dad2faf6377d2daa4f4fabf459fe7ccfb98a5448f0d4bca8270ca9acb0409bfe"
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -137,6 +139,8 @@ jobs:
 
       - name: Install taplo
         run: |
+          # Checked on every run so a cached binary is held to the same digest as a fresh one.
+          echo "$TAPLO_SHA256  $RUNNER_TEMP/taplo/taplo" | sha256sum -c -
           sudo install -m 0755 "$RUNNER_TEMP/taplo/taplo" /usr/local/bin/taplo
           taplo --version
 
