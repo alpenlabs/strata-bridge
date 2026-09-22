@@ -98,8 +98,6 @@ async fn read_or_create_stake_funding(
     output_handles: &OutputHandles,
     stake_key: StakeKey,
 ) -> Result<StakeFundingReservation, ExecutorError> {
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4043>
-    // Key funding reservations by the full stake key before preparing multiple covenants.
     let operator_idx = stake_key.operator;
     let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
 
@@ -115,7 +113,7 @@ async fn read_or_create_stake_funding(
 
     if let Some(reservation) = output_handles
         .db
-        .get_stake_funding_reservation(operator_idx)
+        .get_stake_funding_reservation(stake_key)
         .await?
     {
         info!(%operator_idx, "reusing persisted stake funding reservation");
@@ -162,7 +160,7 @@ async fn read_or_create_stake_funding(
     info!(%operator_idx, "persisting stake funding reservation");
     let assignment = output_handles
         .db
-        .get_or_set_stake_funding_reservation(operator_idx, reservation.clone())
+        .get_or_set_stake_funding_reservation(stake_key, reservation.clone())
         .await;
 
     match assignment {

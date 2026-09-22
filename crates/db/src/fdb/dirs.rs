@@ -59,7 +59,8 @@ pub struct Directories {
     /// Subspace for storing claim-funding outpoints, keyed by `(DepositIdx, OperatorIdx)`.
     pub claim_funds: DirectorySubspace,
 
-    /// Subspace for storing stake-funding reservations, keyed by `OperatorIdx`.
+    /// Subspace for storing stake-funding reservations, keyed by covenant-qualified stake
+    /// identity.
     pub stake_funding_reservations: DirectorySubspace,
 
     /// Subspace for storing withdrawal-funding outpoints, keyed by `DepositIdx`.
@@ -143,7 +144,8 @@ pub enum SubSpaceId {
     Stakes,
     /// Subspace for storing claim-funding outpoints.
     ClaimFunds,
-    /// Subspace for storing stake-funding reservations, keyed by `OperatorIdx`.
+    /// Subspace for storing stake-funding reservations, keyed by covenant-qualified stake
+    /// identity.
     StakeFundingReservations,
     /// Subspace for storing withdrawal-funding outpoints.
     FulfillmentFunds,

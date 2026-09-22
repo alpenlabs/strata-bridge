@@ -8,9 +8,15 @@ use bitcoin::{
     hashes::Hash,
 };
 use foundationdb::tuple::PackError;
-use strata_bridge_primitives::types::{DepositIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, OperatorIdx},
+};
 
-use super::kv::{KVRowSpec, PackableKey, SerializableValue};
+use super::{
+    kv::{KVRowSpec, PackableKey, SerializableValue},
+    stakes::decode_stake_key,
+};
 use crate::{fdb::dirs::Directories, types::StakeFundingReservation};
 
 const SERIALIZED_TXID_SIZE: usize = 32;
@@ -128,11 +134,11 @@ impl KVRowSpec for ClaimFundingRowSpec {
     type Value = ClaimFundingValue;
 }
 
-/// Key for stake-funding reservation rows: `OperatorIdx`.
+/// Key for stake-funding reservation rows: covenant-qualified `StakeKey`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StakeFundingReservationKey {
-    /// Operator index.
-    pub operator_idx: OperatorIdx,
+    /// Covenant and permanent stake owner.
+    pub stake_key: StakeKey,
 }
 
 impl PackableKey for StakeFundingReservationKey {
@@ -143,12 +149,16 @@ impl PackableKey for StakeFundingReservationKey {
     fn pack(&self, dirs: &Directories) -> Result<Self::Packed, Self::PackingError> {
         Ok(dirs
             .stake_funding_reservations
-            .pack::<(u32,)>(&(self.operator_idx,)))
+            .pack(&(self.stake_key.to_bytes().as_slice(),)))
     }
 
     fn unpack(dirs: &Directories, bytes: &[u8]) -> Result<Self, Self::UnpackingError> {
-        let (operator_idx,) = dirs.stake_funding_reservations.unpack::<(u32,)>(bytes)?;
-        Ok(Self { operator_idx })
+        let (key,) = dirs
+            .stake_funding_reservations
+            .unpack::<(Vec<u8>,)>(bytes)?;
+        Ok(Self {
+            stake_key: decode_stake_key(key)?,
+        })
     }
 }
 
