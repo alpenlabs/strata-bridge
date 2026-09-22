@@ -57,7 +57,7 @@ pub struct WriteBatch {
     deposits: Vec<DepositSM>,
     /// Graph state machines to persist, keyed by graph index.
     graphs: Vec<GraphSM>,
-    /// Stake state machines to persist, keyed by operator index.
+    /// Stake state machines to persist, keyed by covenant and operator index.
     stakes: Vec<StakeSM>,
 }
 
