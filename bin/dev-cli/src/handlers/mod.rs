@@ -9,3 +9,4 @@ mod graph;
 mod rpc;
 pub(crate) mod unstaking_intent;
 mod wallet;
+pub(crate) mod wallet_birthday;

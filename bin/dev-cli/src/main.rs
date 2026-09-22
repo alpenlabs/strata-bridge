@@ -8,7 +8,7 @@ use handlers::derive_keys;
 use strata_bridge_common::logging;
 
 use crate::handlers::{
-    bridge_in, bridge_proof, checkpoint, claim, contest, defcon, unstaking_intent,
+    bridge_in, bridge_proof, checkpoint, claim, contest, defcon, unstaking_intent, wallet_birthday,
 };
 
 mod cli;
@@ -31,6 +31,7 @@ async fn main() -> Result<(), Error> {
         cli::Commands::UnstakingIntent(args) => {
             unstaking_intent::handle_unstaking_intent(args).await
         }
+        cli::Commands::WalletBirthday(args) => wallet_birthday::handle_wallet_birthday(args).await,
     };
 
     result
