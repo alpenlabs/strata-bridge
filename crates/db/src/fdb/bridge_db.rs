@@ -259,24 +259,22 @@ impl BridgeDb for FdbClient {
 
     async fn get_stake_funding_reservation(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> Result<Option<StakeFundingReservation>, Self::Error> {
         let result = self
-            .basic_get::<StakeFundingReservationRowSpec>(StakeFundingReservationKey {
-                operator_idx,
-            })
+            .basic_get::<StakeFundingReservationRowSpec>(StakeFundingReservationKey { stake_key })
             .await?;
         Ok(result.map(|v| v.0))
     }
 
     async fn get_or_set_stake_funding_reservation(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         reservation: StakeFundingReservation,
     ) -> Result<FundingAssignment<StakeFundingReservation>, Self::Error> {
         let assignment = self
             .basic_get_or_set_assignment::<StakeFundingReservationRowSpec>(
-                StakeFundingReservationKey { operator_idx },
+                StakeFundingReservationKey { stake_key },
                 StakeFundingReservationValue(reservation),
             )
             .await?;
@@ -289,10 +287,10 @@ impl BridgeDb for FdbClient {
 
     async fn delete_stake_funding_reservation(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> Result<(), Self::Error> {
         self.basic_delete::<StakeFundingReservationRowSpec>(StakeFundingReservationKey {
-            operator_idx,
+            stake_key,
         })
         .await
     }
@@ -619,6 +617,79 @@ mod tests {
             assert_eq!(
                 client.get_stake_state(historical_key).await.unwrap(),
                 Some(historical)
+            );
+        });
+    }
+
+    #[test]
+    fn covenant_reservations_preserve_funding_identity_on_retry() {
+        let table = test_operator_table(3, 0);
+        let first_key = StakeSMCtx::new(0, table.clone(), 100).stake_key();
+        let second_key = StakeSMCtx::new(0, table, 200).stake_key();
+        let first = make_reservation(1, 0);
+        let second = make_reservation(2, 0);
+        block_on(async {
+            let client = get_client();
+            assert_eq!(
+                client
+                    .get_or_set_stake_funding_reservation(first_key, first.clone())
+                    .await
+                    .unwrap(),
+                FundingAssignment::Created(first.clone())
+            );
+            assert_eq!(
+                client
+                    .get_or_set_stake_funding_reservation(second_key, second.clone())
+                    .await
+                    .unwrap(),
+                FundingAssignment::Created(second.clone())
+            );
+            assert_eq!(
+                client
+                    .get_or_set_stake_funding_reservation(first_key, second.clone())
+                    .await
+                    .unwrap(),
+                FundingAssignment::Existing(first.clone())
+            );
+            assert_eq!(
+                client
+                    .get_stake_funding_reservation(first_key)
+                    .await
+                    .unwrap(),
+                Some(first.clone())
+            );
+            assert_eq!(
+                client
+                    .get_stake_funding_reservation(second_key)
+                    .await
+                    .unwrap(),
+                Some(second)
+            );
+            let reserved = client.get_all_funds().await.unwrap();
+            assert!(
+                first
+                    .unsigned_tx
+                    .input
+                    .iter()
+                    .all(|input| reserved.contains(&input.previous_output))
+            );
+            client
+                .delete_stake_funding_reservation(second_key)
+                .await
+                .unwrap();
+            assert_eq!(
+                client
+                    .get_stake_funding_reservation(second_key)
+                    .await
+                    .unwrap(),
+                None
+            );
+            assert_eq!(
+                client
+                    .get_stake_funding_reservation(first_key)
+                    .await
+                    .unwrap(),
+                Some(first)
             );
         });
     }
@@ -1255,21 +1326,25 @@ mod tests {
         ) {
             let reservation = make_reservation(num_inputs, vout);
 
+            let stake_key = StakeKey {
+                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
+                operator: operator_idx,
+            };
             block_on(async {
                 let client = get_client();
 
                 client
-                    .delete_stake_funding_reservation(operator_idx)
+                    .delete_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
                 let assignment = client
-                    .get_or_set_stake_funding_reservation(operator_idx, reservation.clone())
+                    .get_or_set_stake_funding_reservation(stake_key, reservation.clone())
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_stake_funding_reservation(operator_idx)
+                    .get_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
@@ -1293,27 +1368,31 @@ mod tests {
             let second_reservation = make_reservation(second_num_inputs, second_vout);
             prop_assume!(first_reservation != second_reservation);
 
+            let stake_key = StakeKey {
+                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
+                operator: operator_idx,
+            };
             block_on(async {
                 let client = get_client();
 
                 client
-                    .delete_stake_funding_reservation(operator_idx)
+                    .delete_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
                 let first = client
                     .get_or_set_stake_funding_reservation(
-                        operator_idx,
+                        stake_key,
                         first_reservation.clone(),
                     )
                     .await
                     .unwrap();
                 let second = client
-                    .get_or_set_stake_funding_reservation(operator_idx, second_reservation)
+                    .get_or_set_stake_funding_reservation(stake_key, second_reservation)
                     .await
                     .unwrap();
                 let retrieved = client
-                    .get_stake_funding_reservation(operator_idx)
+                    .get_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
@@ -1343,16 +1422,20 @@ mod tests {
                 vout: reservation.stake_output_vout,
             };
 
+            let stake_key = StakeKey {
+                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
+                operator: operator_idx,
+            };
             block_on(async {
                 let client = get_client();
 
                 client
-                    .delete_stake_funding_reservation(operator_idx)
+                    .delete_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
                 let assignment = client
-                    .get_or_set_stake_funding_reservation(operator_idx, reservation)
+                    .get_or_set_stake_funding_reservation(stake_key, reservation)
                     .await
                     .unwrap();
 
@@ -1382,28 +1465,32 @@ mod tests {
         ) {
             let reservation = make_reservation(num_inputs, 0);
 
+            let stake_key = StakeKey {
+                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
+                operator: operator_idx,
+            };
             block_on(async {
                 let client = get_client();
 
                 client
-                    .delete_stake_funding_reservation(operator_idx)
+                    .delete_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
                 let assignment = client
-                    .get_or_set_stake_funding_reservation(operator_idx, reservation)
+                    .get_or_set_stake_funding_reservation(stake_key, reservation)
                     .await
                     .unwrap();
 
                 prop_assert!(matches!(assignment, FundingAssignment::Created(_)));
 
                 client
-                    .delete_stake_funding_reservation(operator_idx)
+                    .delete_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_stake_funding_reservation(operator_idx)
+                    .get_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
                 prop_assert_eq!(None, retrieved);
