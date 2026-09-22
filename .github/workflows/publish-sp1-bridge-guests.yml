@@ -46,9 +46,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  SP1_VERSION: v6.2.0
-  # SHA-256 of sp1up/sp1up at that tag; update both together.
-  SP1UP_SHA256: 55d4f6ef8e79e04a7ccd064f75c6a6b44a1694b21cd41aa8e7d0d53eb880a71d
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   S3_BUCKET: alpen-mosaic-artifacts
   S3_PREFIX: elfs
@@ -117,11 +114,6 @@ jobs:
 
       - name: Install SP1 toolchain
         uses: $/.github/actions/setup-sp1
-        with:
-          version: ${{ env.SP1_VERSION }}
-          sp1up-sha256: ${{ env.SP1UP_SHA256 }}
-          github-token: ${{ github.token }}
-          cache: "false" # this workflow publishes what it builds
 
       - name: Install protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
