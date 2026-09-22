@@ -102,16 +102,43 @@ jobs:
     name: Lint and check formatting of TOML files
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      TAPLO_VERSION: "0.10.0"
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
+      - name: Restore cached taplo
+        id: cache-taplo
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/taplo/taplo
+          key: taplo-${{ env.TAPLO_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Download taplo
+        if: steps.cache-taplo.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/taplo"
+          curl -fsSL --proto "=https" --tlsv1.2 \
+            --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
+            "https://github.com/tamasfe/taplo/releases/download/$TAPLO_VERSION/taplo-linux-x86_64.gz" \
+            | gzip -d > "$RUNNER_TEMP/taplo/taplo"
+          chmod +x "$RUNNER_TEMP/taplo/taplo"
+
+      - name: Save taplo to cache
+        if: steps.cache-taplo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/taplo/taplo
+          key: taplo-${{ env.TAPLO_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install taplo
         run: |
-          curl -fsSL https://github.com/tamasfe/taplo/releases/latest/download/taplo-full-linux-x86_64.gz \
-            | gzip -d - | install -m 755 /dev/stdin /usr/local/bin/taplo
+          sudo install -m 0755 "$RUNNER_TEMP/taplo/taplo" /usr/local/bin/taplo
+          taplo --version
 
       - name: Run taplo lint
         run: |
