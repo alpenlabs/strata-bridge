@@ -11670,6 +11670,7 @@ dependencies = [
  "bitcoin",
  "bitcoin-bosd",
  "foundationdb",
+ "libp2p-identity",
  "postcard",
  "proptest",
  "secp256k1 0.29.1",
