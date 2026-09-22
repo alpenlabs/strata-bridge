@@ -177,44 +177,32 @@ impl Persister {
     /// Also recovers the safe-harbour latch: if a frozen address was persisted before the
     /// restart, the registry is re-latched from it so the node stays in safe-harbour mode.
     pub async fn recover_registry(&self, config: SMConfig) -> Result<SMRegistry, PersistError> {
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-4458>
+        // Migrate existing stakes, graphs, and reservations before recovery, preserving funding
+        // identity so the upgrade never requires replacement stake.
+        let persisted = self
+            .db
+            .get_persisted_state()
+            .await
+            .map_err(PersistError::DbErr)?;
         let mut registry = SMRegistry::new(config);
 
-        for (deposit_idx, deposit_sm) in self
-            .db
-            .get_all_deposit_states()
-            .await
-            .map_err(PersistError::DbErr)?
-        {
+        for (deposit_idx, deposit_sm) in persisted.deposits {
             registry.insert_deposit(deposit_idx, deposit_sm)?;
         }
-
-        for (graph_idx, graph_sm) in self
-            .db
-            .get_all_graph_states()
-            .await
-            .map_err(PersistError::DbErr)?
-        {
+        for (graph_idx, graph_sm) in persisted.graphs {
             registry.insert_graph(graph_idx, graph_sm)?;
         }
-
-        for (stake_key, stake_sm) in self
-            .db
-            .get_all_stake_states()
-            .await
-            .map_err(PersistError::DbErr)?
-        {
+        for (stake_key, stake_sm) in persisted.stakes {
             if stake_key != stake_sm.context().stake_key() {
                 return Err(PersistError::StakeIdentityMismatch);
             }
             registry.insert_stake(stake_sm)?;
         }
-
-        if let Some(address) = self
-            .db
-            .get_safe_harbour()
-            .await
-            .map_err(PersistError::DbErr)?
-        {
+        if let Some(operator_set) = persisted.operator_set {
+            registry.insert_operator_set(operator_set)?;
+        }
+        if let Some(address) = persisted.safe_harbour {
             registry.activate_safe_harbour(address);
         }
 
@@ -236,11 +224,6 @@ pub enum PersistError {
     /// The stored row key conflicts with its stake context.
     #[error("stored stake key does not match its context")]
     StakeIdentityMismatch,
-    /// The membership row and atomic storage integration are not installed.
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4043>
-    // Add the membership component to ordinary storage batches.
-    #[error("operator set storage integration is required")]
-    OperatorSetStorageRequired,
     /// A tracked state machine was absent when its atomic write batch was constructed.
     #[error("state machine {0} is missing from the registry during persistence")]
     MissingStateMachine(SMId),
@@ -254,7 +237,12 @@ fn build_write_batch(
 
     for sm_id in batch {
         match sm_id {
-            SMId::OperatorSet => return Err(PersistError::OperatorSetStorageRequired),
+            SMId::OperatorSet => {
+                let operator_set = sm_registry
+                    .get_operator_set()
+                    .ok_or(PersistError::MissingStateMachine(sm_id))?;
+                write_batch.set_operator_set(operator_set.clone());
+            }
             SMId::Deposit(deposit_idx) => {
                 let deposit_sm = sm_registry
                     .get_deposit(&deposit_idx)
@@ -457,12 +445,15 @@ mod tests {
 
 #[cfg(test)]
 mod covenant_storage_tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use strata_bridge_db::fdb::cfg::Config;
     use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 
     use super::*;
     use crate::testing::{
         N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_set_sm,
-        test_operator_table,
+        test_operator_table, test_populated_registry, test_safe_harbour_address,
     };
 
     #[test]
@@ -493,9 +484,91 @@ mod covenant_storage_tests {
         registry
             .insert_operator_set(test_operator_set_sm())
             .unwrap();
+        let batch = build_write_batch(BTreeSet::from([SMId::OperatorSet]), &registry).unwrap();
+        assert_eq!(batch.operator_set(), registry.get_operator_set());
         assert!(matches!(
-            build_write_batch(BTreeSet::from([SMId::OperatorSet]), &registry),
-            Err(PersistError::OperatorSetStorageRequired)
+            build_write_batch(BTreeSet::from([SMId::OperatorSet]), &test_empty_registry()),
+            Err(PersistError::MissingStateMachine(SMId::OperatorSet))
         ));
+    }
+
+    #[tokio::test]
+    async fn persisted_groups_restore_membership_and_historical_stakes() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-persister-{suffix}"),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let mut registry = test_populated_registry(1);
+        registry
+            .insert_operator_set(test_operator_set_sm())
+            .unwrap();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        for height in [100, 200] {
+            let (sm, _) =
+                StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), height), height);
+            registry.insert_stake(sm).unwrap();
+        }
+        let address = test_safe_harbour_address();
+        persister.persist_safe_harbour(&address).await.unwrap();
+        registry.activate_safe_harbour(address);
+        persister
+            .persist_batch(registry.get_all_ids().into_iter().collect(), &registry)
+            .await
+            .unwrap();
+        drop(persister);
+        let restarted = Persister::new(db.clone());
+        let restored = restarted
+            .recover_registry(registry.cfg().clone())
+            .await
+            .unwrap();
+        assert_eq!(restored.get_operator_set(), registry.get_operator_set());
+        assert_eq!(restored.get_stake_ids(), registry.get_stake_ids());
+        for key in registry.get_stake_ids() {
+            assert_eq!(restored.get_stake(&key), registry.get_stake(&key));
+        }
+        for id in registry.get_deposit_ids() {
+            assert_eq!(restored.get_deposit(&id), registry.get_deposit(&id));
+        }
+        for id in registry.get_graph_ids() {
+            assert_eq!(restored.get_graph(&id), registry.get_graph(&id));
+        }
+        assert_eq!(
+            restored.safe_harbour_address(),
+            registry.safe_harbour_address()
+        );
+
+        let before = db.get_persisted_state().await.unwrap();
+        assert!(matches!(
+            restarted
+                .persist_batch(
+                    BTreeSet::from([SMId::OperatorSet, SMId::Deposit(99)]),
+                    &registry
+                )
+                .await,
+            Err(PersistError::MissingStateMachine(_))
+        ));
+        assert_eq!(db.get_persisted_state().await.unwrap(), before);
+
+        let key = registry.get_stake_ids()[0];
+        let wrong_sm = registry
+            .get_stake(&registry.get_stake_ids()[1])
+            .unwrap()
+            .clone();
+        db.set_stake_state(key, wrong_sm).await.unwrap();
+        assert!(matches!(
+            restarted.recover_registry(registry.cfg().clone()).await,
+            Err(PersistError::StakeIdentityMismatch)
+        ));
+        drop(restarted);
+        drop(db);
+        drop(guard);
     }
 }
