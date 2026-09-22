@@ -64,11 +64,8 @@ pub struct SMRegistry {
     /// Independent stake instances, indexed by covenant and permanent operator index.
     stakes: BTreeMap<StakeKey, StakeSM>,
     /// Public membership, installed once by bootstrap or restored from storage.
-    ///
-    /// `Option` is temporary until startup reconciliation
-    /// ([STR-3621](https://alpenlabs.atlassian.net/browse/STR-3621)) and storage recovery
-    /// ([STR-4043](https://alpenlabs.atlassian.net/browse/STR-4043)) are integrated. Once both
-    /// are complete, this field must become a required `OperatorSetSM`.
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-3621>
+    // Initialize membership during startup reconciliation and make this field required.
     operator_set: Option<OperatorSetSM>,
     /// The latched safe-harbour destination address, set once when the ASM reports the safe
     /// harbour as activated. This is sticky and monotonic: the first write wins and it is never
@@ -235,10 +232,6 @@ impl SMRegistry {
     }
 
     /// Installs the singleton membership component without replacing an existing history.
-    ///
-    /// Runtime bootstrap and durable storage integration are supplied by
-    /// [STR-3621](https://alpenlabs.atlassian.net/browse/STR-3621) and
-    /// [STR-4043](https://alpenlabs.atlassian.net/browse/STR-4043).
     pub fn insert_operator_set(&mut self, sm: OperatorSetSM) -> Result<(), RegistryInsertError> {
         if self.operator_set.is_some() {
             return Err(RegistryInsertError::OperatorSetAlreadyExists);

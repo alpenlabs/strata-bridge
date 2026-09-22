@@ -346,7 +346,6 @@ pub(crate) const fn persist_error_class(error: &PersistError) -> &'static str {
         PersistError::RegistryInvariant(_) | PersistError::StakeIdentityMismatch => {
             "registry_invariant"
         }
-        PersistError::OperatorSetStorageRequired => "unsupported_membership_storage",
         PersistError::MissingStateMachine(_) => "state_machine_not_found",
     }
 }
