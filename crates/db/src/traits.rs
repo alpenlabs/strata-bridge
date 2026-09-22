@@ -13,7 +13,7 @@ use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
 };
 
-use crate::types::{FundingAssignment, StakeFundingReservation, WriteBatch};
+use crate::types::{FundingAssignment, PersistedState, StakeFundingReservation, WriteBatch};
 
 /// Standard persistence interface for a bridge node.
 pub trait BridgeDb {
@@ -204,6 +204,14 @@ pub trait BridgeDb {
         &self,
         address: SafeHarborAddress,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Reads registry state in bounded transactions.
+    ///
+    /// Reads are eventually consistent when registry state is being written concurrently.
+    /// For coherent restart recovery, prevent registry writes and deletes throughout the load.
+    fn get_persisted_state(
+        &self,
+    ) -> impl Future<Output = Result<PersistedState, Self::Error>> + Send;
 
     // ── Batch Persistence ─────────────────────────────────────────────
 
