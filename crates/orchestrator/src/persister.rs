@@ -197,13 +197,13 @@ impl Persister {
             registry.insert_graph(graph_idx, graph_sm)?;
         }
 
-        for (operator_idx, stake_sm) in self
+        for (stake_key, stake_sm) in self
             .db
             .get_all_stake_states()
             .await
             .map_err(PersistError::DbErr)?
         {
-            if operator_idx != stake_sm.context().operator_idx() {
+            if stake_key != stake_sm.context().stake_key() {
                 return Err(PersistError::StakeIdentityMismatch);
             }
             registry.insert_stake(stake_sm)?;
@@ -233,12 +233,9 @@ pub enum PersistError {
     #[error("registry invariant violation: {0}")]
     RegistryInvariant(#[from] RegistryInsertError),
 
-    /// The legacy row key conflicts with its stake context.
-    #[error("stored stake owner does not match its context")]
+    /// The stored row key conflicts with its stake context.
+    #[error("stored stake key does not match its context")]
     StakeIdentityMismatch,
-    /// Multiple runtime covenants cannot be written to an operator-only legacy row.
-    #[error("legacy stake storage cannot represent multiple covenants")]
-    CovenantStorageRequired,
     /// The membership row and atomic storage integration are not installed.
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-4043>
     // Add the membership component to ordinary storage batches.
@@ -271,10 +268,6 @@ fn build_write_batch(
                 write_batch.add_graph(graph_sm.clone());
             }
             SMId::Stake(operator_idx) => {
-                if sm_registry.resolve_legacy_stake_key(operator_idx.operator) != Some(operator_idx)
-                {
-                    return Err(PersistError::CovenantStorageRequired);
-                }
                 let stake_sm = sm_registry
                     .get_stake(&operator_idx)
                     .ok_or(PersistError::MissingStateMachine(sm_id))?;
@@ -473,7 +466,7 @@ mod covenant_storage_tests {
     };
 
     #[test]
-    fn legacy_write_batch_rejects_multiple_covenants_before_writing() {
+    fn write_batch_preserves_multiple_covenants_for_one_operator() {
         let mut registry = test_empty_registry();
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut keys = BTreeSet::new();
@@ -482,16 +475,16 @@ mod covenant_storage_tests {
             keys.insert(SMId::Stake(sm.context().stake_key()));
             registry.insert_stake(sm).unwrap();
         }
-        for key in &keys {
-            assert!(matches!(
-                build_write_batch(BTreeSet::from([*key]), &registry),
-                Err(PersistError::CovenantStorageRequired)
-            ));
-        }
-        assert!(matches!(
-            build_write_batch(keys, &registry),
-            Err(PersistError::CovenantStorageRequired)
-        ));
+        let batch = build_write_batch(keys.clone(), &registry).unwrap();
+        assert_eq!(batch.stakes().len(), 2);
+        assert_eq!(
+            batch
+                .stakes()
+                .iter()
+                .map(|sm| SMId::Stake(sm.context().stake_key()))
+                .collect::<BTreeSet<_>>(),
+            keys,
+        );
     }
 
     #[test]

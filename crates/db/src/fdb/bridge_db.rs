@@ -4,7 +4,10 @@ use bitcoin::{OutPoint, Txid};
 use foundationdb::{FdbBindingError, options::TransactionOption};
 use secp256k1::schnorr::Signature;
 use strata_asm_bridge_types::SafeHarbourAddress;
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, GraphIdx, OperatorIdx},
+};
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
 };
@@ -128,35 +131,29 @@ impl BridgeDb for FdbClient {
 
     // ── Stake States ─────────────────────────────────────────────────
 
-    async fn get_stake_state(
-        &self,
-        operator_idx: OperatorIdx,
-    ) -> Result<Option<StakeSM>, Self::Error> {
-        self.basic_get::<StakeStateRowSpec>(StakeStateKey { operator_idx })
+    async fn get_stake_state(&self, stake_key: StakeKey) -> Result<Option<StakeSM>, Self::Error> {
+        self.basic_get::<StakeStateRowSpec>(StakeStateKey { stake_key })
             .await
     }
 
     async fn set_stake_state(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         state: StakeSM,
     ) -> Result<(), Self::Error> {
-        self.basic_set::<StakeStateRowSpec>(StakeStateKey { operator_idx }, state)
+        self.basic_set::<StakeStateRowSpec>(StakeStateKey { stake_key }, state)
             .await
     }
 
-    async fn get_all_stake_states(&self) -> Result<Vec<(OperatorIdx, StakeSM)>, Self::Error> {
+    async fn get_all_stake_states(&self) -> Result<Vec<(StakeKey, StakeSM)>, Self::Error> {
         let pairs = self
             .basic_get_all::<StakeStateRowSpec>(|dirs| &dirs.stakes)
             .await?;
-        Ok(pairs
-            .into_iter()
-            .map(|(k, v)| (k.operator_idx, v))
-            .collect())
+        Ok(pairs.into_iter().map(|(k, v)| (k.stake_key, v)).collect())
     }
 
-    async fn delete_stake_state(&self, operator_idx: OperatorIdx) -> Result<(), Self::Error> {
-        self.basic_delete::<StakeStateRowSpec>(StakeStateKey { operator_idx })
+    async fn delete_stake_state(&self, stake_key: StakeKey) -> Result<(), Self::Error> {
+        self.basic_delete::<StakeStateRowSpec>(StakeStateKey { stake_key })
             .await
     }
 
@@ -373,7 +370,7 @@ impl BridgeDb for FdbClient {
                 self.basic_set_in::<StakeStateRowSpec>(
                     &trx,
                     StakeStateKey {
-                        operator_idx: sm.context.operator_idx(),
+                        stake_key: sm.context.stake_key(),
                     },
                     sm.clone(),
                 )
@@ -433,16 +430,23 @@ mod tests {
             context::GraphSMCtx,
             state::{AbortReason, GraphState},
         },
-        stake::{context::StakeSMCtx, machine::StakeSM, state::StakeState},
+        stake::{
+            context::{MinimumStakeData, StakeSMCtx},
+            machine::StakeSM,
+            state::StakeState,
+        },
     };
     use strata_bridge_test_utils::{
         arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid},
         bitcoin::{generate_tx, generate_xonly_pubkey},
-        bridge_fixtures::{TEST_DEPOSIT_AMOUNT, TEST_SWEEP_FEE_RATE, random_p2tr_desc},
+        bridge_fixtures::{
+            TEST_DEPOSIT_AMOUNT, TEST_SWEEP_FEE_RATE, random_p2tr_desc, test_operator_table,
+        },
         prelude::generate_txid,
     };
     use strata_bridge_tx_graph::{
         game_graph::{CounterproofGraphSummary, DepositParams, GameGraphSummary},
+        stake_graph::StakeGraphSummary,
         transactions::sweep::{SweepData, SweepTx},
     };
 
@@ -541,6 +545,82 @@ mod tests {
             context: StakeSMCtx::new(operator_idx, operator_table, 101),
             state,
         }
+    }
+
+    #[test]
+    fn covenant_stakes_preserve_independent_lifecycles_and_deletion() {
+        let table = test_operator_table(3, 0);
+        let make = |activation_height, preimage: [u8; 32]| {
+            let summary = StakeGraphSummary {
+                stake: generate_txid(),
+                unstaking_intent: generate_txid(),
+                unstaking: generate_txid(),
+            };
+            StakeSM {
+                context: StakeSMCtx::new(0, table.clone(), activation_height),
+                state: StakeState::PreimageRevealed {
+                    last_block_height: 300,
+                    stake_data: MinimumStakeData {
+                        stake_funds: OutPoint::new(generate_txid(), 0),
+                        unstaking_image: sha256::Hash::hash(&preimage),
+                        unstaking_operator_desc: random_p2tr_desc(),
+                    },
+                    summary,
+                    preimage,
+                    unstaking_intent_block_height: 299,
+                    signatures: Box::new(None),
+                },
+            }
+        };
+        let mut historical = make(100, [1; 32]);
+        let current = make(200, [2; 32]);
+        let historical_key = historical.context().stake_key();
+        let current_key = current.context().stake_key();
+        block_on(async {
+            let client = get_client();
+            let mut batch = WriteBatch::new();
+            batch.add_stake(historical.clone());
+            batch.add_stake(current.clone());
+            client.persist_batch(&batch).await.unwrap();
+            assert_eq!(
+                client.get_stake_state(historical_key).await.unwrap(),
+                Some(historical.clone())
+            );
+            assert_eq!(
+                client.get_stake_state(current_key).await.unwrap(),
+                Some(current.clone())
+            );
+            let all = client.get_all_stake_states().await.unwrap();
+            assert!(all.contains(&(historical_key, historical.clone())));
+            assert!(all.contains(&(current_key, current.clone())));
+
+            let StakeState::PreimageRevealed { summary, .. } = &historical.state else {
+                unreachable!("historical stake fixture has revealed its preimage");
+            };
+            historical.state = StakeState::Slashed {
+                summary: *summary,
+                slash_txid: generate_txid(),
+                preimage: Some([1; 32]),
+            };
+            client
+                .set_stake_state(historical_key, historical.clone())
+                .await
+                .unwrap();
+            assert_eq!(
+                client.get_stake_state(historical_key).await.unwrap(),
+                Some(historical.clone())
+            );
+            assert_eq!(
+                client.get_stake_state(current_key).await.unwrap(),
+                Some(current)
+            );
+            client.delete_stake_state(current_key).await.unwrap();
+            assert_eq!(client.get_stake_state(current_key).await.unwrap(), None);
+            assert_eq!(
+                client.get_stake_state(historical_key).await.unwrap(),
+                Some(historical)
+            );
+        });
     }
 
     /// Builds a [`StakeFundingReservation`] around an arbitrary unsigned transaction with
@@ -888,12 +968,13 @@ mod tests {
                 StakeState::Created { last_block_height },
             );
 
+            let stake_key = stake_sm.context().stake_key();
             block_on(async {
                 let client = get_client();
 
-                client.set_stake_state(operator_idx, stake_sm.clone()).await.unwrap();
+                client.set_stake_state(stake_sm.context().stake_key(), stake_sm.clone()).await.unwrap();
 
-                let retrieved = client.get_stake_state(operator_idx).await.unwrap();
+                let retrieved = client.get_stake_state(stake_key).await.unwrap();
                 prop_assert_eq!(Some(stake_sm), retrieved);
 
                 Ok(())
@@ -927,13 +1008,13 @@ mod tests {
             block_on(async {
                 let client = get_client();
 
-                client.set_stake_state(op_a, sm_a.clone()).await.unwrap();
-                client.set_stake_state(op_b, sm_b.clone()).await.unwrap();
+                client.set_stake_state(sm_a.context().stake_key(), sm_a.clone()).await.unwrap();
+                client.set_stake_state(sm_b.context().stake_key(), sm_b.clone()).await.unwrap();
 
                 let all = client.get_all_stake_states().await.unwrap();
 
-                let found_a = all.iter().any(|(idx, sm)| *idx == op_a && *sm == sm_a);
-                let found_b = all.iter().any(|(idx, sm)| *idx == op_b && *sm == sm_b);
+                let found_a = all.iter().any(|(idx, sm)| *idx == sm_a.context().stake_key() && *sm == sm_a);
+                let found_b = all.iter().any(|(idx, sm)| *idx == sm_b.context().stake_key() && *sm == sm_b);
 
                 prop_assert!(found_a, "op_a not found in get_all_stake_states");
                 prop_assert!(found_b, "op_b not found in get_all_stake_states");
@@ -955,14 +1036,15 @@ mod tests {
                 StakeState::Created { last_block_height },
             );
 
+            let stake_key = stake_sm.context().stake_key();
             block_on(async {
                 let client = get_client();
 
-                client.set_stake_state(operator_idx, stake_sm).await.unwrap();
+                client.set_stake_state(stake_key, stake_sm).await.unwrap();
 
-                client.delete_stake_state(operator_idx).await.unwrap();
+                client.delete_stake_state(stake_key).await.unwrap();
 
-                let retrieved = client.get_stake_state(operator_idx).await.unwrap();
+                let retrieved = client.get_stake_state(stake_key).await.unwrap();
                 prop_assert_eq!(None, retrieved);
 
                 Ok(())
@@ -1603,7 +1685,7 @@ mod tests {
                     .unwrap();
                 prop_assert_eq!(Some(graph_sm), retrieved_graph);
 
-                let retrieved_stake = client.get_stake_state(stake_op_idx).await.unwrap();
+                let retrieved_stake = client.get_stake_state(stake_sm.context().stake_key()).await.unwrap();
                 prop_assert_eq!(Some(stake_sm), retrieved_stake);
 
                 Ok(())

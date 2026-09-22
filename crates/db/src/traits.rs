@@ -5,7 +5,10 @@ use std::fmt::Debug;
 use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
 use strata_asm_bridge_types::SafeHarbourAddress;
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, GraphIdx, OperatorIdx},
+};
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
 };
@@ -91,28 +94,28 @@ pub trait BridgeDb {
 
     // ── Stake States ─────────────────────────────────────────────────
 
-    /// Gets, if present, the [`StakeSM`] for the given [`OperatorIdx`].
+    /// Gets, if present, the [`StakeSM`] for the given [`StakeKey`].
     fn get_stake_state(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> impl Future<Output = Result<Option<StakeSM>, Self::Error>> + Send;
 
-    /// Sets the [`StakeSM`] for the given [`OperatorIdx`].
+    /// Sets the [`StakeSM`] for the given [`StakeKey`].
     fn set_stake_state(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         state: StakeSM,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// Returns all stored stake states as `(OperatorIdx, StakeSM)` pairs.
+    /// Returns all stored stake states as `(StakeKey, StakeSM)` pairs.
     fn get_all_stake_states(
         &self,
-    ) -> impl Future<Output = Result<Vec<(OperatorIdx, StakeSM)>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<(StakeKey, StakeSM)>, Self::Error>> + Send;
 
-    /// Deletes the [`StakeSM`] for the given [`OperatorIdx`].
+    /// Deletes the [`StakeSM`] for the given [`StakeKey`].
     fn delete_stake_state(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     // ── Funds ─────────────────────────────────────────────────────────

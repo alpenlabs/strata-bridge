@@ -53,7 +53,7 @@ pub struct Directories {
     /// Subspace for storing Graph SM states, keyed by (`DepositIdx`, `OperatorIdx`).
     pub graphs: DirectorySubspace,
 
-    /// Subspace for storing Stake SM states, keyed by `OperatorIdx`.
+    /// Subspace for storing Stake SM states, keyed by covenant-qualified stake identity.
     pub stakes: DirectorySubspace,
 
     /// Subspace for storing claim-funding outpoints, keyed by `(DepositIdx, OperatorIdx)`.
@@ -139,7 +139,7 @@ pub enum SubSpaceId {
     Deposits,
     /// Subspace for storing Graph SM states, keyed by (`DepositIdx`, `OperatorIdx`).
     Graphs,
-    /// Subspace for storing Stake SM states, keyed by `OperatorIdx`.
+    /// Subspace for storing Stake SM states, keyed by covenant-qualified stake identity.
     Stakes,
     /// Subspace for storing claim-funding outpoints.
     ClaimFunds,
