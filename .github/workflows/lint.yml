@@ -54,7 +54,10 @@ jobs:
         uses: $/.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        timeout-minutes: 10
+        run: |
+          sudo apt-get -o Acquire::Retries=5 update
+          sudo apt-get -o Acquire::Retries=5 install -y protobuf-compiler
 
       - run: cargo clippy --workspace --lib --bins --locked --examples --tests --benches --all-features --all-targets
         env:
