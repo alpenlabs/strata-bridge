@@ -1,0 +1,60 @@
+name: Setup bitcoind
+description: Installs a pinned Bitcoin Core release, caching the release tarball across runs
+
+inputs:
+  version:
+    description: "Bitcoin Core version to install"
+    required: false
+    default: "30.2"
+  arch:
+    description: "Bitcoin Core release architecture"
+    required: false
+    default: "x86_64-linux-gnu"
+
+runs:
+  using: composite
+  steps:
+    - name: Restore cached Bitcoin Core release
+      id: cache
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ runner.temp }}/bitcoind
+        key: bitcoind-${{ inputs.version }}-${{ inputs.arch }}
+
+    - name: Download Bitcoin Core release
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        BITCOIND_VERSION: ${{ inputs.version }}
+        BITCOIND_ARCH: ${{ inputs.arch }}
+        BITCOIND_DIR: ${{ runner.temp }}/bitcoind
+      run: |
+        mkdir -p "${BITCOIND_DIR}"
+        cd "${BITCOIND_DIR}"
+        curl -fsSLO --proto "=https" --tlsv1.2 \
+          --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
+          "https://bitcoincore.org/bin/bitcoin-core-${BITCOIND_VERSION}/bitcoin-${BITCOIND_VERSION}-${BITCOIND_ARCH}.tar.gz"
+        curl -fsSLO --proto "=https" --tlsv1.2 \
+          --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
+          "https://bitcoincore.org/bin/bitcoin-core-${BITCOIND_VERSION}/SHA256SUMS"
+
+    - name: Save Bitcoin Core release to cache
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ runner.temp }}/bitcoind
+        key: bitcoind-${{ inputs.version }}-${{ inputs.arch }}
+
+    - name: Install bitcoind
+      shell: bash
+      env:
+        BITCOIND_VERSION: ${{ inputs.version }}
+        BITCOIND_ARCH: ${{ inputs.arch }}
+        BITCOIND_DIR: ${{ runner.temp }}/bitcoind
+      run: |
+        cd "${BITCOIND_DIR}"
+        sha256sum --ignore-missing --check SHA256SUMS
+        tar xzf "bitcoin-${BITCOIND_VERSION}-${BITCOIND_ARCH}.tar.gz"
+        sudo install -m 0755 -t /usr/local/bin "bitcoin-${BITCOIND_VERSION}"/bin/*
+        rm -rf "bitcoin-${BITCOIND_VERSION}"
+        bitcoind --version

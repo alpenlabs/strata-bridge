@@ -9,26 +9,54 @@ inputs:
     description: "FoundationDB version to install"
     required: false
     default: "7.3.43"
+  sha256:
+    description: "SHA-256 of the server .deb for `version`; update both together"
+    required: false
+    default: "78c5b69142a4c2b2e81232caab304c800acc7ba27b9ca225a95f8af01fc058f2"
 
 runs:
   using: composite
   steps:
+    - name: Restore cached FoundationDB server package
+      id: cache
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ runner.temp }}/fdb-server/foundationdb-server_${{ inputs.version }}-1_amd64.deb
+        key: fdb-server-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
     - name: Download FoundationDB server package
+      if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         FDB_VERSION: ${{ inputs.version }}
+        FDB_DIR: ${{ runner.temp }}/fdb-server
       run: |
         echo "::group::Downloading FoundationDB server ${FDB_VERSION}"
-        curl -fsSLO --proto "=https" --tlsv1.2 \
+        mkdir -p "${FDB_DIR}"
+        # GitHub's release CDN returns transient 5xx; retry instead of failing the job.
+        curl -fsSL --proto "=https" --tlsv1.2 \
+          --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
+          -o "${FDB_DIR}/foundationdb-server_${FDB_VERSION}-1_amd64.deb" \
           "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb"
         echo "::endgroup::"
+
+    - name: Save FoundationDB server package to cache
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ runner.temp }}/fdb-server/foundationdb-server_${{ inputs.version }}-1_amd64.deb
+        key: fdb-server-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
     - name: Install FoundationDB server package
       shell: bash
       env:
         FDB_VERSION: ${{ inputs.version }}
+        FDB_SHA256: ${{ inputs.sha256 }}
+        FDB_DIR: ${{ runner.temp }}/fdb-server
       run: |
         echo "::group::Installing FoundationDB server ${FDB_VERSION}"
+        cd "${FDB_DIR}"
+        echo "${FDB_SHA256}  foundationdb-server_${FDB_VERSION}-1_amd64.deb" | sha256sum -c -
         # The server package has a dependency on foundationdb-clients.
         # If the client is not installed, this will fail with a dependency error.
         sudo dpkg -i "foundationdb-server_${FDB_VERSION}-1_amd64.deb"
@@ -56,13 +84,6 @@ runs:
           exit 1
         fi
         echo "::endgroup::"
-
-    - name: Cleanup downloaded package
-      shell: bash
-      env:
-        FDB_VERSION: ${{ inputs.version }}
-      run: |
-        rm -f "foundationdb-server_${FDB_VERSION}-1_amd64.deb"
 
     - name: Verify installation
       shell: bash

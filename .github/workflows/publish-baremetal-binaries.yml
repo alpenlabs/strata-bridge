@@ -105,6 +105,7 @@ jobs:
           set -euo pipefail
           deb="foundationdb-clients_7.3.43-1_amd64.deb"
           curl -fsSLO --proto "=https" --proto-redir "=https" --tlsv1.2 \
+            --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
             "https://github.com/apple/foundationdb/releases/download/7.3.43/${deb}"
           echo "c3fa0a59c7355b914a1455dac909238d5ea3b6c6bc7b530af8597e6487c1651a  ${deb}" | sha256sum -c -
           sudo dpkg -i "${deb}"
