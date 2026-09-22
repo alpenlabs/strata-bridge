@@ -1,5 +1,5 @@
 name: Setup bitcoind
-description: Installs a pinned Bitcoin Core release, caching the release tarball across runs
+description: Installs a pinned Bitcoin Core release, caching the release tarball across runs and checking it against a recorded digest
 
 inputs:
   version:
@@ -10,6 +10,10 @@ inputs:
     description: "Bitcoin Core release architecture"
     required: false
     default: "x86_64-linux-gnu"
+  sha256:
+    description: "SHA-256 of the release tarball for `version` and `arch` (from the signed SHA256SUMS); update all three together"
+    required: false
+    default: "6aa7bb4feb699c4c6262dd23e4004191f6df7f373b5d5978b5bcdd4bb72f75d8"
 
 runs:
   using: composite
@@ -34,9 +38,6 @@ runs:
         curl -fsSLO --proto "=https" --tlsv1.2 \
           --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
           "https://bitcoincore.org/bin/bitcoin-core-${BITCOIND_VERSION}/bitcoin-${BITCOIND_VERSION}-${BITCOIND_ARCH}.tar.gz"
-        curl -fsSLO --proto "=https" --tlsv1.2 \
-          --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
-          "https://bitcoincore.org/bin/bitcoin-core-${BITCOIND_VERSION}/SHA256SUMS"
 
     - name: Save Bitcoin Core release to cache
       if: steps.cache.outputs.cache-hit != 'true'
@@ -50,10 +51,13 @@ runs:
       env:
         BITCOIND_VERSION: ${{ inputs.version }}
         BITCOIND_ARCH: ${{ inputs.arch }}
+        BITCOIND_SHA256: ${{ inputs.sha256 }}
         BITCOIND_DIR: ${{ runner.temp }}/bitcoind
       run: |
         cd "${BITCOIND_DIR}"
-        sha256sum --ignore-missing --check SHA256SUMS
+        # Checked on every run, cache hit or not: a cached sums file would only prove the
+        # cache is self-consistent.
+        echo "${BITCOIND_SHA256}  bitcoin-${BITCOIND_VERSION}-${BITCOIND_ARCH}.tar.gz" | sha256sum -c -
         tar xzf "bitcoin-${BITCOIND_VERSION}-${BITCOIND_ARCH}.tar.gz"
         sudo install -m 0755 -t /usr/local/bin "bitcoin-${BITCOIND_VERSION}"/bin/*
         rm -rf "bitcoin-${BITCOIND_VERSION}"

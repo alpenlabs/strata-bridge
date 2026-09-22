@@ -11,6 +11,8 @@ env:
   CARGO_TERM_COLOR: always
   # Keep in sync with `sp1-sdk` / `sp1-verifier` versions in workspace `Cargo.toml`.
   SP1_VERSION: v6.2.0
+  # SHA-256 of sp1up/sp1up at that tag; update both together.
+  SP1UP_SHA256: 55d4f6ef8e79e04a7ccd064f75c6a6b44a1694b21cd41aa8e7d0d53eb880a71d
 
 permissions: {}
 
@@ -57,6 +59,7 @@ jobs:
         uses: $/.github/actions/setup-sp1
         with:
           version: ${{ env.SP1_VERSION }}
+          sp1up-sha256: ${{ env.SP1UP_SHA256 }}
           github-token: ${{ github.token }}
 
       - name: Install protoc

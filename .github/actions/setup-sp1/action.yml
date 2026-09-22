@@ -5,6 +5,9 @@ inputs:
   version:
     description: "SP1 release tag to install (for example v6.2.0)"
     required: true
+  sp1up-sha256:
+    description: "SHA-256 of `sp1up/sp1up` at the `version` tag; update both together"
+    required: true
   cache:
     description: "Restore and save ~/.sp1 in the Actions cache; disable for workflows that publish artifacts"
     required: false
@@ -23,22 +26,27 @@ runs:
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         path: ~/.sp1
-        key: sp1-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+        # The installer digest is part of the key so a re-pinned installer takes the verified
+        # install path instead of a cache built by the previous one.
+        key: sp1-${{ inputs.version }}-${{ inputs.sp1up-sha256 }}-${{ runner.os }}-${{ runner.arch }}
 
     - name: Install SP1 toolchain
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         SP1_VERSION: ${{ inputs.version }}
+        SP1UP_SHA256: ${{ inputs.sp1up-sha256 }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         # This is what `curl https://sp1.succinct.xyz | bash` does, minus the shell-profile edits,
-        # with retries on the download.
+        # with retries on the download, the installer taken from the release tag rather than
+        # `main`, and its digest checked before it runs.
         mkdir -p "$HOME/.sp1/bin"
         curl -fsSL --proto "=https" --tlsv1.2 \
           --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
           -o "$HOME/.sp1/bin/sp1up" \
-          "https://raw.githubusercontent.com/succinctlabs/sp1/main/sp1up/sp1up"
+          "https://raw.githubusercontent.com/succinctlabs/sp1/refs/tags/${SP1_VERSION}/sp1up/sp1up"
+        echo "${SP1UP_SHA256}  $HOME/.sp1/bin/sp1up" | sha256sum -c -
         chmod +x "$HOME/.sp1/bin/sp1up"
 
         args=(--version "$SP1_VERSION")
@@ -63,7 +71,7 @@ runs:
       uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         path: ~/.sp1
-        key: sp1-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+        key: sp1-${{ inputs.version }}-${{ inputs.sp1up-sha256 }}-${{ runner.os }}-${{ runner.arch }}
 
     - name: Link cached succinct toolchain into rustup
       if: steps.cache.outputs.cache-hit == 'true'
