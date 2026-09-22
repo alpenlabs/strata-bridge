@@ -66,6 +66,9 @@ pub struct Directories {
     /// Subspace for storing withdrawal-funding outpoints, keyed by `DepositIdx`.
     pub fulfillment_funds: DirectorySubspace,
 
+    /// Subspace for the singleton membership state.
+    pub operator_set: DirectorySubspace,
+
     /// Subspace for the singleton safe-harbour latch (frozen destination address).
     pub safe_harbour: DirectorySubspace,
 }
@@ -92,6 +95,7 @@ impl Directories {
             open_subdir(&root, txn, SubSpaceId::StakeFundingReservations).await?;
         let withdrawal_funding_outpoints =
             open_subdir(&root, txn, SubSpaceId::FulfillmentFunds).await?;
+        let operator_set = open_subdir(&root, txn, SubSpaceId::OperatorSet).await?;
         let safe_harbour = open_subdir(&root, txn, SubSpaceId::SafeHarbour).await?;
 
         Ok(Self {
@@ -104,6 +108,7 @@ impl Directories {
             stake_funding_reservations,
             fulfillment_funds: withdrawal_funding_outpoints,
             safe_harbour,
+            operator_set,
         })
     }
 
@@ -149,6 +154,8 @@ pub enum SubSpaceId {
     StakeFundingReservations,
     /// Subspace for storing withdrawal-funding outpoints.
     FulfillmentFunds,
+    /// Subspace for the singleton membership state.
+    OperatorSet,
     /// Subspace for the singleton safe-harbour latch.
     SafeHarbour,
 }
@@ -163,6 +170,7 @@ impl From<SubSpaceId> for &'static str {
             SubSpaceId::ClaimFunds => "claim_funds",
             SubSpaceId::StakeFundingReservations => "stake_funding_reservations",
             SubSpaceId::FulfillmentFunds => "fulfillment_funds",
+            SubSpaceId::OperatorSet => "operator_set",
             SubSpaceId::SafeHarbour => "safe_harbour",
         }
     }

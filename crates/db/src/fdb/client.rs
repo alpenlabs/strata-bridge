@@ -3,7 +3,7 @@
 use std::pin::Pin;
 
 use foundationdb::{
-    Database, FdbBindingError, FdbError, RangeOption, TransactOption, Transaction,
+    Database, FdbBindingError, FdbError, KeySelector, RangeOption, TransactOption, Transaction,
     api::{FdbApiBuilder, NetworkAutoStop},
     directory::{DirectoryError, DirectorySubspace},
     options::{NetworkOption, StreamingMode},
@@ -23,6 +23,8 @@ use crate::{
     },
     types::FundingAssignment,
 };
+
+type DecodedRows<RS> = Vec<(<RS as KVRowSpec>::Key, <RS as KVRowSpec>::Value)>;
 
 /// The main entity for interacting with the FoundationDB database.
 pub struct FdbClient {
@@ -164,7 +166,7 @@ impl FdbClient {
     ///     })
     /// }).await?;
     /// ```
-    async fn transact<D, T>(
+    pub(super) async fn transact<D, T>(
         &self,
         data: D,
         txn: impl for<'a> FnMut(
@@ -398,6 +400,56 @@ impl FdbClient {
         Ok(Some(value))
     }
 
+    /// Reads and decodes one bounded page per transaction at independent read versions.
+    pub(super) async fn read_rows_paged<RS: KVRowSpec>(
+        &self,
+        subspace_fn: impl Fn(&Directories) -> &DirectorySubspace,
+    ) -> Result<DecodedRows<RS>, OneOf<(FdbBindingError, LayerError)>> {
+        let (begin, end) = subspace_fn(&self.dirs).range();
+        let mut options = RangeOption::from((begin, end));
+        options.limit = Some(64);
+        options.target_bytes = 1_000_000;
+        options.mode = StreamingMode::WantAll;
+        let mut rows = Vec::new();
+        loop {
+            let page = self
+                .transact(options.clone(), |trx, options| {
+                    Box::pin(async move {
+                        let result = trx.get_range(options, 1, true).await?;
+                        Ok(result
+                            .iter()
+                            .map(|kv| (kv.key().to_vec(), kv.value().to_vec()))
+                            .collect::<Vec<_>>())
+                    })
+                })
+                .await?;
+            let Some((last_key, _)) = page.last() else {
+                break;
+            };
+            // Resume strictly after the last returned key, including when FDB returns fewer
+            // rows than requested. Each page has its own retry and read-version lifetime.
+            options.begin = KeySelector::first_greater_than(last_key.clone());
+            rows.extend(self.decode_rows::<RS>(page).map_err(OneOf::new)?);
+        }
+        Ok(rows)
+    }
+
+    /// Decodes rows outside the transaction's read-version lifetime.
+    fn decode_rows<RS: KVRowSpec>(
+        &self,
+        rows: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<DecodedRows<RS>, LayerError> {
+        rows.into_iter()
+            .map(|(key, value)| {
+                let key =
+                    RS::Key::unpack(&self.dirs, &key).map_err(LayerError::failed_to_unpack_key)?;
+                let value = RS::Value::deserialize(&value)
+                    .map_err(LayerError::failed_to_deserialize_value)?;
+                Ok((key, value))
+            })
+            .collect()
+    }
+
     /// Deletes a key within an existing transaction.
     ///
     /// This is synchronous because FDB `clear` is a void buffered operation.
@@ -486,5 +538,82 @@ impl FdbClient {
             })
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    use super::*;
+    use crate::traits::BridgeDb;
+
+    #[tokio::test]
+    async fn range_reads_retry_expired_versions_and_respect_retry_budgets() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (mut client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-range-retry-{suffix}"),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        for (retry_limit, time_out, expected_attempts) in [
+            (Some(5), Some(Duration::from_secs(5)), 2),
+            (Some(1), Some(Duration::from_secs(5)), 1),
+            (Some(5), Some(Duration::ZERO), 1),
+        ] {
+            client.transact_options.retry_limit = retry_limit;
+            client.transact_options.time_out = time_out;
+            let attempts = AtomicUsize::new(0);
+            let result = client
+                .transact((&client, &attempts), |trx, (client, attempts)| {
+                    Box::pin(async move {
+                        if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                            // An actual FDB range read at an expired version must retry at a fresh
+                            // version; retaining the old version would fail every attempt.
+                            trx.set_read_version(1);
+                        }
+                        let options = RangeOption::from(client.dirs.deposits.range());
+                        let result = trx.get_range(&options, 1, true).await?;
+                        Ok(result.len())
+                    })
+                })
+                .await;
+            assert_eq!(attempts.load(Ordering::SeqCst), expected_attempts);
+            assert_eq!(result.is_ok(), expected_attempts == 2);
+        }
+        client.clear().await.unwrap().unwrap();
+        drop(client);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn recovery_reports_malformed_rows_instead_of_returning_partial_state() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-snapshot-malformed-{suffix}"),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let trx = client.create_transaction().unwrap();
+        let key = DepositStateKey { deposit_idx: 0 }
+            .pack(&client.dirs)
+            .unwrap();
+        trx.set(&key, &[255]);
+        trx.commit().await.unwrap();
+        assert!(client.get_persisted_state().await.is_err());
+        client.clear().await.unwrap().unwrap();
+        drop(client);
+        drop(guard);
     }
 }

@@ -1,7 +1,7 @@
 //! Implementation of the [`BridgeDb`] trait for FdbClient.
 
 use bitcoin::{OutPoint, Txid};
-use foundationdb::{FdbBindingError, options::TransactionOption};
+use foundationdb::{FdbBindingError, Transaction, options::TransactionOption};
 use secp256k1::schnorr::Signature;
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::{
@@ -26,13 +26,14 @@ use crate::{
                 WithdrawalFundingValue,
             },
             graphs::GraphStateRowSpec,
+            operator_set::{OperatorSetKey, OperatorSetRowSpec},
             safe_harbour::{SafeHarbourKey, SafeHarbourRowSpec},
             signatures::{SignatureKey, SignatureRowSpec},
             stakes::{StakeStateKey, StakeStateRowSpec},
         },
     },
     traits::BridgeDb,
-    types::{FundingAssignment, StakeFundingReservation, WriteBatch},
+    types::{FundingAssignment, PersistedState, StakeFundingReservation, WriteBatch},
 };
 
 impl BridgeDb for FdbClient {
@@ -324,6 +325,36 @@ impl BridgeDb for FdbClient {
             .await
     }
 
+    async fn get_persisted_state(&self) -> Result<PersistedState, Self::Error> {
+        // Different pages may use different read versions. This recovers a reliable registry
+        // only while no task writes or deletes membership, stakes, deposits, graphs or the
+        // safe-harbour latch for the entire load. The bridge node owns these subspaces and
+        // startup completes recovery before its registry writers begin. Live RPC refreshes
+        // accept eventual consistency and may combine rows from different versions.
+        Ok(PersistedState {
+            deposits: self
+                .read_rows_paged::<DepositStateRowSpec>(|dirs| &dirs.deposits)
+                .await?
+                .into_iter()
+                .map(|(key, sm)| (key.deposit_idx, sm))
+                .collect(),
+            graphs: self
+                .read_rows_paged::<GraphStateRowSpec>(|dirs| &dirs.graphs)
+                .await?
+                .into_iter()
+                .map(|(key, sm)| (key.into(), sm))
+                .collect(),
+            stakes: self
+                .read_rows_paged::<StakeStateRowSpec>(|dirs| &dirs.stakes)
+                .await?
+                .into_iter()
+                .map(|(key, sm)| (key.stake_key, sm))
+                .collect(),
+            operator_set: self.basic_get::<OperatorSetRowSpec>(OperatorSetKey).await?,
+            safe_harbour: self.basic_get::<SafeHarbourRowSpec>(SafeHarbourKey).await?,
+        })
+    }
+
     // ── Batch Persistence ─────────────────────────────────────────
 
     async fn persist_batch(&self, batch: &WriteBatch) -> Result<(), Self::Error> {
@@ -342,38 +373,7 @@ impl BridgeDb for FdbClient {
         }
 
         loop {
-            for sm in batch.deposits() {
-                self.basic_set_in::<DepositStateRowSpec>(
-                    &trx,
-                    DepositStateKey {
-                        deposit_idx: sm.context.deposit_idx,
-                    },
-                    sm.clone(),
-                )
-                .map_err(OneOf::new)?;
-            }
-            for sm in batch.graphs() {
-                self.basic_set_in::<GraphStateRowSpec>(
-                    &trx,
-                    GraphIdx {
-                        deposit: sm.context.graph_idx.deposit,
-                        operator: sm.context.graph_idx.operator,
-                    }
-                    .into(),
-                    sm.clone(),
-                )
-                .map_err(OneOf::new)?;
-            }
-            for sm in batch.stakes() {
-                self.basic_set_in::<StakeStateRowSpec>(
-                    &trx,
-                    StakeStateKey {
-                        stake_key: sm.context.stake_key(),
-                    },
-                    sm.clone(),
-                )
-                .map_err(OneOf::new)?;
-            }
+            self.persist_batch_in(&trx, batch).map_err(OneOf::new)?;
 
             match trx.commit().await {
                 Ok(_committed) => return Ok(()),
@@ -402,15 +402,58 @@ impl BridgeDb for FdbClient {
     }
 }
 
+impl FdbClient {
+    /// Stages a complete batch in the caller's transaction without committing it.
+    /// Dropping or cancelling the transaction discards every mutation.
+    fn persist_batch_in(&self, trx: &Transaction, batch: &WriteBatch) -> Result<(), LayerError> {
+        for sm in batch.deposits() {
+            self.basic_set_in::<DepositStateRowSpec>(
+                trx,
+                DepositStateKey {
+                    deposit_idx: sm.context.deposit_idx,
+                },
+                sm.clone(),
+            )?;
+        }
+        for sm in batch.graphs() {
+            self.basic_set_in::<GraphStateRowSpec>(
+                trx,
+                GraphIdx {
+                    deposit: sm.context.graph_idx.deposit,
+                    operator: sm.context.graph_idx.operator,
+                }
+                .into(),
+                sm.clone(),
+            )?;
+        }
+        for sm in batch.stakes() {
+            self.basic_set_in::<StakeStateRowSpec>(
+                trx,
+                StakeStateKey {
+                    stake_key: sm.context.stake_key(),
+                },
+                sm.clone(),
+            )?;
+        }
+
+        if let Some(sm) = batch.operator_set() {
+            self.basic_set_in::<OperatorSetRowSpec>(trx, OperatorSetKey, sm.clone())?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, num::NonZero, sync::OnceLock};
+    use std::{collections::BTreeMap, num::NonZero, sync::OnceLock, time::Instant};
 
     use bitcoin::{
         Network, TapSighashType,
         hashes::{Hash, sha256},
         taproot,
     };
+    use foundationdb::options::ConflictRangeType;
+    use libp2p_identity::Keypair as P2pKeypair;
     use proptest::{prelude::*, strategy::ValueTree};
     use secp256k1::{
         Keypair, Message, SECP256K1,
@@ -419,6 +462,7 @@ mod tests {
     use strata_bridge_connectors::n_of_n::NOfNConnector;
     use strata_bridge_primitives::{
         covenant::CovenantId,
+        operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
         operator_table::{OperatorTable, prop_test_generators::arb_operator_table},
         types::{DepositIdx, OperatorIdx},
     };
@@ -428,11 +472,15 @@ mod tests {
             context::GraphSMCtx,
             state::{AbortReason, GraphState},
         },
+        operator_set::{
+            ConfirmedExit, ExitKind, OperatorSetEvent, OperatorSetSM, OperatorSetSignal,
+        },
         stake::{
             context::{MinimumStakeData, StakeSMCtx},
             machine::StakeSM,
             state::StakeState,
         },
+        state_machine::StateMachine,
     };
     use strata_bridge_test_utils::{
         arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid},
@@ -691,6 +739,322 @@ mod tests {
                     .unwrap(),
                 Some(first)
             );
+        });
+    }
+
+    /// Produces a real membership transition and the stakes requested by its output signals.
+    fn membership_transition_batches() -> (WriteBatch, WriteBatch) {
+        let table = test_operator_table(3, 0);
+        let registrations = table
+            .operator_idxs()
+            .into_iter()
+            .map(|index| {
+                ScheduledOperator::new(
+                    index,
+                    table.idx_to_btc_x_only_key(&index).unwrap(),
+                    P2pKeypair::ed25519_from_bytes([index as u8 + 1; 32])
+                        .unwrap()
+                        .public()
+                        .try_into_ed25519()
+                        .unwrap()
+                        .to_bytes()
+                        .to_vec()
+                        .into(),
+                    random_p2tr_desc(),
+                    100,
+                    None,
+                )
+                .unwrap()
+            })
+            .collect();
+        let mut membership = OperatorSetSM::new(
+            100,
+            OperatorSetSchedule::new(registrations).unwrap(),
+            vec![],
+        )
+        .unwrap();
+        let table = membership
+            .current_operator_table()
+            .unwrap()
+            .with_pov(0)
+            .unwrap();
+        let mut before = WriteBatch::new();
+        before.set_operator_set(membership.clone());
+        before.add_stake(StakeSM::new(StakeSMCtx::new(0, table.clone(), 100), 100).0);
+        let output = membership
+            .process_event(
+                (),
+                OperatorSetEvent::NewBlock {
+                    block_height: 101,
+                    exits: vec![ConfirmedExit {
+                        operator_idx: 2,
+                        txid: generate_txid(),
+                        tx_index: 1,
+                        kind: ExitKind::UnstakingIntent,
+                    }],
+                },
+            )
+            .unwrap();
+        let mut after = WriteBatch::new();
+        for signal in output.signals {
+            let OperatorSetSignal::InitializeStake {
+                stake_key,
+                operator_table,
+            } = signal;
+            let context = StakeSMCtx::new(
+                stake_key.operator,
+                operator_table.with_pov(0).unwrap(),
+                stake_key.covenant.activation_height,
+            );
+            assert_eq!(context.stake_key(), stake_key);
+            after.add_stake(StakeSM::new(context, 101).0);
+        }
+        assert_eq!(after.stakes().len(), 2);
+        after.set_operator_set(membership);
+        let outpoint = OutPoint::new(generate_txid(), 0);
+        after.add_deposit(make_deposit_sm(
+            0,
+            outpoint,
+            table.clone(),
+            DepositState::Deposited {
+                last_block_height: 101,
+            },
+        ));
+        after.add_graph(make_graph_sm(
+            GraphIdx {
+                deposit: 0,
+                operator: 0,
+            },
+            outpoint,
+            table,
+            GraphState::Created {
+                last_block_height: 101,
+            },
+        ));
+        (before, after)
+    }
+
+    #[test]
+    fn membership_stakes_commit_and_recover_atomically() {
+        block_on(async {
+            let client = get_client();
+            assert_eq!(
+                client.get_persisted_state().await.unwrap(),
+                PersistedState::default()
+            );
+            let (before, after) = membership_transition_batches();
+            client.persist_batch(&before).await.unwrap();
+            let old_read = client.create_transaction().unwrap();
+            old_read.get_read_version().await.unwrap();
+            client.persist_batch(&after).await.unwrap();
+            let recovered = client.get_persisted_state().await.unwrap();
+            assert_eq!(recovered.operator_set.as_ref(), after.operator_set());
+            assert_eq!(recovered.stakes.len(), 3);
+            for stake in before.stakes().iter().chain(after.stakes()) {
+                assert!(
+                    recovered
+                        .stakes
+                        .contains(&(stake.context().stake_key(), stake.clone()))
+                );
+            }
+            assert_eq!(recovered.deposits, vec![(0, after.deposits()[0].clone())]);
+            assert_eq!(
+                recovered.graphs,
+                vec![(
+                    GraphIdx {
+                        deposit: 0,
+                        operator: 0
+                    },
+                    after.graphs()[0].clone()
+                )]
+            );
+            assert_eq!(
+                client
+                    .basic_get_in::<OperatorSetRowSpec>(&old_read, OperatorSetKey)
+                    .await
+                    .unwrap()
+                    .as_ref(),
+                before.operator_set()
+            );
+            client.persist_batch(&after).await.unwrap();
+            assert_eq!(client.get_persisted_state().await.unwrap(), recovered);
+        });
+    }
+
+    #[test]
+    fn interrupted_membership_batch_leaves_source_stakes_unchanged() {
+        block_on(async {
+            let client = get_client();
+            let (before, after) = membership_transition_batches();
+            client.persist_batch(&before).await.unwrap();
+            let original = client.get_persisted_state().await.unwrap();
+            {
+                let interrupted = client.create_transaction().unwrap();
+                client.persist_batch_in(&interrupted, &after).unwrap();
+                // Simulate a crash after staging all writes and before commit.
+            }
+            assert_eq!(client.get_persisted_state().await.unwrap(), original);
+            client.persist_batch(&after).await.unwrap();
+            let recovered = client.get_persisted_state().await.unwrap();
+            assert_eq!(recovered.operator_set.as_ref(), after.operator_set());
+            assert_eq!(recovered.stakes.len(), 3);
+        });
+    }
+
+    #[test]
+    fn failed_membership_commit_exposes_no_partial_state_and_retry_restores_batch() {
+        block_on(async {
+            let client = get_client();
+            let (before, after) = membership_transition_batches();
+            client.persist_batch(&before).await.unwrap();
+            let original = client.get_persisted_state().await.unwrap();
+            let conflicting = client.create_transaction().unwrap();
+            conflicting.get_read_version().await.unwrap();
+            conflicting
+                .add_conflict_range(b"", b"\xff", ConflictRangeType::Read)
+                .unwrap();
+            client.persist_batch_in(&conflicting, &after).unwrap();
+            // Commit a competing write after the first transaction's read version.
+            client.persist_batch(&before).await.unwrap();
+            assert!(conflicting.commit().await.is_err());
+            assert_eq!(client.get_persisted_state().await.unwrap(), original);
+            client.persist_batch(&after).await.unwrap();
+            let recovered = client.get_persisted_state().await.unwrap();
+            assert_eq!(recovered.operator_set.as_ref(), after.operator_set());
+            assert_eq!(recovered.stakes.len(), 3);
+        });
+    }
+
+    #[test]
+    fn registry_recovery_spans_pages_without_losing_rows() {
+        block_on(async {
+            let client = get_client();
+            assert_eq!(
+                client.get_persisted_state().await.unwrap(),
+                PersistedState::default()
+            );
+            let (before, after) = membership_transition_batches();
+            client.persist_batch(&before).await.unwrap();
+            client.persist_batch(&after).await.unwrap();
+            let address = SafeHarborAddress::try_from(random_p2tr_desc()).unwrap();
+            client.set_safe_harbour(address.clone()).await.unwrap();
+            let table = test_operator_table(3, 0);
+            let outpoint = OutPoint::new(generate_txid(), 0);
+            let mut expected_deposits = Vec::new();
+            let mut expected_graphs = Vec::new();
+            for deposit in 0..257 {
+                let mut batch = WriteBatch::new();
+                batch.add_deposit(make_deposit_sm(
+                    deposit,
+                    outpoint,
+                    table.clone(),
+                    DepositState::Deposited {
+                        last_block_height: u64::from(deposit) + 1,
+                    },
+                ));
+                batch.add_graph(make_graph_sm(
+                    GraphIdx {
+                        deposit,
+                        operator: 0,
+                    },
+                    outpoint,
+                    table.clone(),
+                    GraphState::Created {
+                        last_block_height: u64::from(deposit) + 1,
+                    },
+                ));
+                expected_deposits.push((deposit, batch.deposits()[0].clone()));
+                expected_graphs.push((
+                    GraphIdx {
+                        deposit,
+                        operator: 0,
+                    },
+                    batch.graphs()[0].clone(),
+                ));
+                client.persist_batch(&batch).await.unwrap();
+            }
+            let recovered = client.get_persisted_state().await.unwrap();
+            assert_eq!(recovered.deposits, expected_deposits);
+            assert_eq!(recovered.graphs, expected_graphs);
+            assert_eq!(recovered.operator_set.as_ref(), after.operator_set());
+            assert_eq!(recovered.stakes.len(), 3);
+            for stake in before.stakes().iter().chain(after.stakes()) {
+                assert!(
+                    recovered
+                        .stakes
+                        .contains(&(stake.context().stake_key(), stake.clone()))
+                );
+            }
+            assert_eq!(recovered.safe_harbour, Some(address));
+            client.clear().await.unwrap().unwrap();
+        });
+    }
+
+    /// Manual scale check: 1,000 deposits and 15 signed graphs per deposit.
+    #[test]
+    #[ignore = "writes a large FDB fixture; run explicitly for recovery scale checks"]
+    fn recovery_large_registry() {
+        let table = test_operator_table(15, 0);
+        let outpoint = OutPoint::new(generate_txid(), 0);
+        let key = generate_xonly_pubkey();
+        let txid = generate_txid();
+        let state = GraphState::GraphSigned {
+            last_block_height: 100,
+            graph_data: DepositParams {
+                game_index: NonZero::new(1).unwrap(),
+                claim_funds: outpoint,
+                deposit_outpoint: outpoint,
+                adaptor_pubkeys: vec![key; 14],
+                fault_pubkeys: vec![key; 14],
+            },
+            graph_summary: GameGraphSummary {
+                claim: txid,
+                contest: txid,
+                bridge_proof_timeout: txid,
+                counterproofs: vec![
+                    CounterproofGraphSummary {
+                        counterproof: txid,
+                        counterproof_ack: txid,
+                    };
+                    14
+                ],
+                slash: txid,
+                uncontested_payout: txid,
+                contested_payout: txid,
+            },
+            agg_nonces: None,
+            signatures: vec![Signature::from_slice(&[1; 64]).unwrap(); 32],
+            stake_spent: None,
+        };
+        block_on(async {
+            let client = get_client();
+            for deposit in 0..1_000 {
+                let mut batch = WriteBatch::new();
+                batch.add_deposit(make_deposit_sm(
+                    deposit,
+                    outpoint,
+                    table.clone(),
+                    DepositState::Deposited {
+                        last_block_height: 100,
+                    },
+                ));
+                for operator in 0..15 {
+                    batch.add_graph(make_graph_sm(
+                        GraphIdx { deposit, operator },
+                        outpoint,
+                        table.clone(),
+                        state.clone(),
+                    ));
+                }
+                client.persist_batch(&batch).await.unwrap();
+            }
+            let started = Instant::now();
+            let recovered = client.get_persisted_state().await.unwrap();
+            let elapsed = started.elapsed();
+            assert_eq!(recovered.deposits.len(), 1_000);
+            assert_eq!(recovered.graphs.len(), 15_000);
+            println!("Recovered 1,000 deposits and 15,000 signed graphs in {elapsed:?}");
+            client.clear().await.unwrap().unwrap();
         });
     }
 
