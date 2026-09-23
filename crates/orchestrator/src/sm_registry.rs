@@ -16,7 +16,7 @@ use strata_asm_bridge_types::SafeHarbourAddress;
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
-    types::{DepositIdx, GraphIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{
     cross_sm_context::CrossSmContext,
@@ -229,6 +229,33 @@ impl SMRegistry {
             .chain(self.stakes.keys().map(|op_idx| SMId::Stake(*op_idx)))
             .chain(self.operator_set.as_ref().map(|_| SMId::OperatorSet))
             .collect()
+    }
+
+    /// The earliest progress among all state machines that still process blocks.
+    ///
+    /// Recovery replays this height inclusively: all existing cursors may have committed while
+    /// a deposit created in that block is still absent. Terminal machines have no cursor and
+    /// are ignored.
+    pub fn earliest_processed_block_height(&self) -> Option<BitcoinBlockHeight> {
+        self.deposits
+            .values()
+            .filter_map(|sm| sm.state().last_processed_block_height().copied())
+            .chain(
+                self.graphs
+                    .values()
+                    .filter_map(|sm| sm.state().last_processed_block_height().copied()),
+            )
+            .chain(
+                self.stakes
+                    .values()
+                    .filter_map(|sm| sm.state().last_processed_block_height()),
+            )
+            .chain(
+                self.operator_set
+                    .as_ref()
+                    .map(OperatorSetSM::last_block_height),
+            )
+            .min()
     }
 
     /// Installs the singleton membership component without replacing an existing history.
@@ -553,7 +580,7 @@ impl SMRegistry {
                     Err(OperatorSetError::NonconsecutiveBlock {
                         processed,
                         received,
-                    }) if processed == received => Ok(ProcessOutcome::Ignored {
+                    }) if received <= processed => Ok(ProcessOutcome::Ignored {
                         id: *id,
                         event: original,
                         reason: IgnoredEventReason::Duplicate,
@@ -1909,5 +1936,144 @@ mod operator_set_tests {
             Some(&sm),
             "Rejecting a last-member exit must roll back the earlier exit in the same block"
         );
+    }
+}
+
+#[cfg(test)]
+mod recovery_height_tests {
+    use bitcoin::{Txid, hashes::Hash};
+    use strata_bridge_sm::{
+        deposit::state::DepositState,
+        graph::state::GraphState,
+        operator_set::OperatorSetEvent,
+        stake::{context::StakeSMCtx, machine::StakeSM, state::StakeState},
+    };
+
+    use crate::{
+        sm_types::SMId,
+        testing::{
+            N_TEST_OPERATORS, TEST_POV_IDX, make_confirmed_stake_sm, test_empty_registry,
+            test_operator_set_sm, test_operator_table, test_populated_registry,
+        },
+    };
+
+    #[test]
+    fn recovery_height_is_absent_without_live_state_machines() {
+        assert_eq!(
+            test_empty_registry().earliest_processed_block_height(),
+            None
+        );
+        let mut registry = test_populated_registry(1);
+        registry.deposits.get_mut(&0).unwrap().state = DepositState::Aborted;
+        for sm in registry.graphs.values_mut() {
+            sm.state = GraphState::Slashed {
+                claim_txid: Txid::all_zeros(),
+                slash_txid: Txid::all_zeros(),
+            };
+        }
+        let mut stake = make_confirmed_stake_sm(
+            TEST_POV_IDX,
+            test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+            Txid::all_zeros(),
+        );
+        let StakeState::Confirmed { summary, .. } = &stake.state else {
+            unreachable!("stake fixture is confirmed");
+        };
+        stake.state = StakeState::Slashed {
+            summary: *summary,
+            slash_txid: Txid::all_zeros(),
+            preimage: None,
+        };
+        registry.insert_stake(stake).unwrap();
+        assert_eq!(registry.earliest_processed_block_height(), None);
+        registry
+            .insert_operator_set(test_operator_set_sm())
+            .unwrap();
+        assert_eq!(registry.earliest_processed_block_height(), Some(100));
+    }
+
+    #[test]
+    fn each_state_machine_can_limit_recovery_height() {
+        let mut baseline = test_populated_registry(1);
+        baseline
+            .insert_operator_set(test_operator_set_sm())
+            .unwrap();
+        let (stake, _) = StakeSM::new(
+            StakeSMCtx::new(
+                TEST_POV_IDX,
+                test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+                100,
+            ),
+            100,
+        );
+        baseline.insert_stake(stake).unwrap();
+        for lagging in baseline.get_all_ids() {
+            let mut registry = baseline.clone();
+            for (id, sm) in &mut registry.deposits {
+                if SMId::Deposit(*id) != lagging {
+                    let DepositState::Created {
+                        last_block_height, ..
+                    } = &mut sm.state
+                    else {
+                        unreachable!();
+                    };
+                    *last_block_height = 102;
+                }
+            }
+            for (id, sm) in &mut registry.graphs {
+                if SMId::Graph(*id) != lagging {
+                    sm.state = GraphState::Created {
+                        last_block_height: 102,
+                    };
+                }
+            }
+            for (id, sm) in &mut registry.stakes {
+                if SMId::Stake(*id) != lagging {
+                    sm.state = StakeState::Created {
+                        last_block_height: 102,
+                    };
+                }
+            }
+            if lagging != SMId::OperatorSet {
+                for block_height in 101..=102 {
+                    registry
+                        .process_event(
+                            &SMId::OperatorSet,
+                            OperatorSetEvent::NewBlock {
+                                block_height,
+                                exits: vec![],
+                            }
+                            .into(),
+                        )
+                        .unwrap();
+                }
+            }
+            assert_eq!(
+                registry.earliest_processed_block_height(),
+                Some(100),
+                "{lagging:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn historical_stakes_limit_recovery_without_deposits() {
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        for height in [100, 200] {
+            let (stake, _) =
+                StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), height), height);
+            registry.insert_stake(stake).unwrap();
+        }
+        assert_eq!(registry.earliest_processed_block_height(), Some(100));
+    }
+
+    #[test]
+    fn membership_limits_recovery_without_deposits_or_stakes() {
+        let mut registry = test_empty_registry();
+        registry
+            .insert_operator_set(test_operator_set_sm())
+            .unwrap();
+        assert_eq!(registry.earliest_processed_block_height(), Some(100));
     }
 }

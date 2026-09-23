@@ -111,7 +111,10 @@ impl<'a> Applicator<'a> {
         Ok(())
     }
 
-    /// Inserts a new graph state machine into the registry and records it for persistence.
+    /// Inserts a graph state machine and groups its persistence with its parent deposit.
+    ///
+    /// DRT replay skips deposits already in the registry, so their graphs must be committed in
+    /// the same batch to prevent recovery from leaving a partially registered deposit.
     ///
     /// See [`insert_deposit`](Self::insert_deposit) for why the applicator owns this insertion.
     pub fn insert_graph(
@@ -120,7 +123,8 @@ impl<'a> Applicator<'a> {
         sm: GraphSM,
     ) -> Result<(), RegistryInsertError> {
         self.registry.insert_graph(graph_idx, sm)?;
-        self.tracker.record(SMId::Graph(graph_idx));
+        self.tracker
+            .link(SMId::Deposit(graph_idx.deposit), SMId::Graph(graph_idx));
         Ok(())
     }
 
@@ -243,11 +247,10 @@ mod tests {
     }
 
     #[test]
-    fn insert_graph_marks_sm_for_persistence_without_any_event() {
-        // Same invariant as for deposits: a freshly inserted GraphSM does not classify the DRT
-        // transaction, so it must be tracked at insertion time or it will be lost.
+    fn insert_graph_persists_with_parent_deposit_without_any_event() {
         let mut registry = test_empty_registry();
         let mut applicator = Applicator::new(&mut registry);
+        applicator.insert_deposit(0, test_deposit_sm(0)).unwrap();
 
         let graph_idx = GraphIdx {
             deposit: 0,
@@ -261,10 +264,9 @@ mod tests {
 
         let (_, tracker) = applicator.finish();
         let batches = tracker.into_batches();
-        let flat: BTreeSet<SMId> = batches.into_iter().flatten().collect();
-        assert!(
-            flat.contains(&SMId::Graph(graph_idx)),
-            "insert_graph must add the SM to the persistence batch even with no STF events"
+        assert_eq!(
+            batches,
+            vec![BTreeSet::from([SMId::Deposit(0), SMId::Graph(graph_idx)])]
         );
     }
 
