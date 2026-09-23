@@ -102,7 +102,7 @@ impl PersistenceTracker {
         }
     }
 
-    /// Consume the tracker and return persistence batches.
+    /// Consume the tracker and return independent persistence batches in unspecified order.
     pub fn into_batches(self) -> Vec<BTreeSet<SMId>> {
         self.groups.into_values().collect()
     }
@@ -448,12 +448,18 @@ mod covenant_storage_tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use strata_bridge_db::fdb::cfg::Config;
-    use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
+    use strata_bridge_sm::{
+        operator_set::OperatorSetEvent,
+        stake::{context::StakeSMCtx, machine::StakeSM},
+    };
 
     use super::*;
-    use crate::testing::{
-        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_set_sm,
-        test_operator_table, test_populated_registry, test_safe_harbour_address,
+    use crate::{
+        sm_registry::{IgnoredEventReason, ProcessOutcome},
+        testing::{
+            N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_set_sm,
+            test_operator_table, test_populated_registry, test_safe_harbour_address,
+        },
     };
 
     #[test]
@@ -519,10 +525,12 @@ mod covenant_storage_tests {
         let address = test_safe_harbour_address();
         persister.persist_safe_harbour(&address).await.unwrap();
         registry.activate_safe_harbour(address);
-        persister
-            .persist_batch(registry.get_all_ids().into_iter().collect(), &registry)
-            .await
-            .unwrap();
+        for id in registry.get_all_ids() {
+            persister
+                .persist_batch(BTreeSet::from([id]), &registry)
+                .await
+                .unwrap();
+        }
         drop(persister);
         let restarted = Persister::new(db.clone());
         let restored = restarted
@@ -556,6 +564,53 @@ mod covenant_storage_tests {
             Err(PersistError::MissingStateMachine(_))
         ));
         assert_eq!(db.get_persisted_state().await.unwrap(), before);
+
+        // Only the membership group commits before a simulated interruption. Recovery must
+        // replay from the lagging machines, even when membership is several blocks ahead.
+        for block_height in 101..=103 {
+            registry
+                .process_event(
+                    &SMId::OperatorSet,
+                    OperatorSetEvent::NewBlock {
+                        block_height,
+                        exits: vec![],
+                    }
+                    .into(),
+                )
+                .unwrap();
+        }
+        restarted
+            .persist_batch(BTreeSet::from([SMId::OperatorSet]), &registry)
+            .await
+            .unwrap();
+        let mut recovered = restarted
+            .recover_registry(registry.cfg().clone())
+            .await
+            .unwrap();
+        assert_eq!(recovered.earliest_processed_block_height(), Some(100));
+        assert_eq!(
+            recovered.get_operator_set().unwrap().last_block_height(),
+            103
+        );
+        for block_height in 101..=103 {
+            assert!(matches!(
+                recovered
+                    .process_event(
+                        &SMId::OperatorSet,
+                        OperatorSetEvent::NewBlock {
+                            block_height,
+                            exits: vec![]
+                        }
+                        .into(),
+                    )
+                    .unwrap(),
+                ProcessOutcome::Ignored {
+                    reason: IgnoredEventReason::Duplicate,
+                    ..
+                }
+            ));
+        }
+        assert_eq!(recovered.get_operator_set(), registry.get_operator_set());
 
         let key = registry.get_stake_ids()[0];
         let wrong_sm = registry
