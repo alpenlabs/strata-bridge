@@ -22,7 +22,8 @@ runs:
       id: cache
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
-        path: ${{ runner.temp }}/bitcoind
+        # The tarball alone, so nothing the digest check below does not cover can ride along.
+        path: ${{ runner.temp }}/bitcoind/bitcoin-${{ inputs.version }}-${{ inputs.arch }}.tar.gz
         key: bitcoind-${{ inputs.version }}-${{ inputs.arch }}
 
     - name: Download Bitcoin Core release
@@ -39,14 +40,7 @@ runs:
           --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
           "https://bitcoincore.org/bin/bitcoin-core-${BITCOIND_VERSION}/bitcoin-${BITCOIND_VERSION}-${BITCOIND_ARCH}.tar.gz"
 
-    - name: Save Bitcoin Core release to cache
-      if: steps.cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-      with:
-        path: ${{ runner.temp }}/bitcoind
-        key: bitcoind-${{ inputs.version }}-${{ inputs.arch }}
-
-    - name: Install bitcoind
+    - name: Verify Bitcoin Core release digest
       shell: bash
       env:
         BITCOIND_VERSION: ${{ inputs.version }}
@@ -55,10 +49,30 @@ runs:
         BITCOIND_DIR: ${{ runner.temp }}/bitcoind
       run: |
         cd "${BITCOIND_DIR}"
-        # Checked on every run, cache hit or not: a cached sums file would only prove the
-        # cache is self-consistent.
+        # Runs before the tarball can reach the cache, so a corrupt download is never saved,
+        # and on every hit, so the cache is never trusted.
         echo "${BITCOIND_SHA256}  bitcoin-${BITCOIND_VERSION}-${BITCOIND_ARCH}.tar.gz" | sha256sum -c -
-        tar xzf "bitcoin-${BITCOIND_VERSION}-${BITCOIND_ARCH}.tar.gz"
-        sudo install -m 0755 -t /usr/local/bin "bitcoin-${BITCOIND_VERSION}"/bin/*
-        rm -rf "bitcoin-${BITCOIND_VERSION}"
+
+    - name: Save Bitcoin Core release to cache
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ runner.temp }}/bitcoind/bitcoin-${{ inputs.version }}-${{ inputs.arch }}.tar.gz
+        key: bitcoind-${{ inputs.version }}-${{ inputs.arch }}
+
+    - name: Install bitcoind
+      shell: bash
+      env:
+        BITCOIND_VERSION: ${{ inputs.version }}
+        BITCOIND_ARCH: ${{ inputs.arch }}
+        BITCOIND_DIR: ${{ runner.temp }}/bitcoind
+        BITCOIND_EXTRACT_DIR: ${{ runner.temp }}/bitcoind-extract
+      run: |
+        # A fresh directory outside the cached path, so only the verified tarball's contents
+        # can reach /usr/local/bin.
+        rm -rf "${BITCOIND_EXTRACT_DIR}"
+        mkdir -p "${BITCOIND_EXTRACT_DIR}"
+        tar xzf "${BITCOIND_DIR}/bitcoin-${BITCOIND_VERSION}-${BITCOIND_ARCH}.tar.gz" -C "${BITCOIND_EXTRACT_DIR}"
+        sudo install -m 0755 -t /usr/local/bin "${BITCOIND_EXTRACT_DIR}/bitcoin-${BITCOIND_VERSION}"/bin/*
+        rm -rf "${BITCOIND_EXTRACT_DIR}"
         bitcoind --version

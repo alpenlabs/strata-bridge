@@ -130,6 +130,12 @@ jobs:
             | gzip -d > "$RUNNER_TEMP/taplo/taplo"
           chmod +x "$RUNNER_TEMP/taplo/taplo"
 
+      - name: Verify taplo digest
+        run: |
+          # Runs before the binary can reach the cache, so a corrupt download is never saved,
+          # and on every hit, so the cache is never trusted.
+          echo "$TAPLO_SHA256  $RUNNER_TEMP/taplo/taplo" | sha256sum -c -
+
       - name: Save taplo to cache
         if: steps.cache-taplo.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -139,8 +145,6 @@ jobs:
 
       - name: Install taplo
         run: |
-          # Checked on every run so a cached binary is held to the same digest as a fresh one.
-          echo "$TAPLO_SHA256  $RUNNER_TEMP/taplo/taplo" | sha256sum -c -
           sudo install -m 0755 "$RUNNER_TEMP/taplo/taplo" /usr/local/bin/taplo
           taplo --version
 

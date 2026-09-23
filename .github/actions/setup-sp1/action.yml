@@ -54,6 +54,23 @@ runs:
           --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 600 \
           "https://github.com/succinctlabs/rust/releases/download/${SP1_TOOLCHAIN_TAG}/rust-toolchain-x86_64-unknown-linux-gnu.tar.gz"
 
+    - name: Verify SP1 release archive digests
+      shell: bash
+      env:
+        SP1_VERSION: ${{ inputs.version }}
+        SP1_CARGO_PROVE_SHA256: ${{ inputs.cargo-prove-sha256 }}
+        SP1_TOOLCHAIN_SHA256: ${{ inputs.toolchain-sha256 }}
+        SP1_DIR: ${{ runner.temp }}/sp1
+      run: |
+        cd "${SP1_DIR}"
+        # Runs before the archives can reach the cache, so a corrupt download is never saved,
+        # and on every hit: the key only records which pins were in force when the entry was
+        # written, not what was written.
+        sha256sum -c - <<SUMS
+        ${SP1_CARGO_PROVE_SHA256}  cargo_prove_${SP1_VERSION}_linux_amd64.tar.gz
+        ${SP1_TOOLCHAIN_SHA256}  rust-toolchain-x86_64-unknown-linux-gnu.tar.gz
+        SUMS
+
     - name: Save SP1 release archives to cache
       if: steps.cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -65,18 +82,10 @@ runs:
       shell: bash
       env:
         SP1_VERSION: ${{ inputs.version }}
-        SP1_CARGO_PROVE_SHA256: ${{ inputs.cargo-prove-sha256 }}
         SP1_TOOLCHAIN_TAG: ${{ inputs.toolchain-tag }}
-        SP1_TOOLCHAIN_SHA256: ${{ inputs.toolchain-sha256 }}
         SP1_DIR: ${{ runner.temp }}/sp1
       run: |
         cd "${SP1_DIR}"
-        # Checked on every run, cache hit or not: the cache key only records which pins were
-        # in force when the entry was written, not what was written.
-        sha256sum -c - <<SUMS
-        ${SP1_CARGO_PROVE_SHA256}  cargo_prove_${SP1_VERSION}_linux_amd64.tar.gz
-        ${SP1_TOOLCHAIN_SHA256}  rust-toolchain-x86_64-unknown-linux-gnu.tar.gz
-        SUMS
         # Same layout sp1up leaves behind: cargo-prove in ~/.sp1/bin, the toolchain under
         # ~/.sp1/toolchains and linked into rustup as `succinct`.
         toolchain_dir="$HOME/.sp1/toolchains/${SP1_TOOLCHAIN_TAG}"
