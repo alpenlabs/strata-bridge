@@ -21,20 +21,17 @@ use tracing::{info, warn};
 
 use crate::{cli::WalletBirthdayArgs, handlers::rpc};
 
-/// A full UTXO-set scan runs for minutes on mainnet; the transport's 15 s default would give up
-/// while the node keeps scanning.
-const SCAN_TIMEOUT: Duration = Duration::from_secs(60 * 60);
-
 const EXPLORER_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Prints the `[operator_wallet]` checkpoint for the two wallet addresses, or checks a configured
 /// one.
 pub(crate) async fn handle_wallet_birthday(args: WalletBirthdayArgs) -> anyhow::Result<()> {
+    // A full UTXO-set scan runs for minutes on mainnet, longer than the transport's 15 s default.
     let btc_client = rpc::get_btc_client_with_timeout(
         &args.btc_args.url,
         args.btc_args.user,
         args.btc_args.pass,
-        SCAN_TIMEOUT,
+        Duration::from_secs(args.rpc_timeout),
     )?;
 
     let info = btc_client.get_blockchain_info().map_err(|e| {
@@ -70,6 +67,7 @@ pub(crate) async fn handle_wallet_birthday(args: WalletBirthdayArgs) -> anyhow::
         tip = info.blocks,
         %general,
         %reserved,
+        rpc_timeout_secs = args.rpc_timeout,
         "scanning the UTXO set for both wallet addresses; this takes minutes on mainnet"
     );
     let scan = btc_client
