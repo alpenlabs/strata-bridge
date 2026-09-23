@@ -37,6 +37,17 @@ runs:
           "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
         echo "::endgroup::"
 
+    - name: Verify FoundationDB client package digest
+      shell: bash
+      env:
+        FDB_VERSION: ${{ inputs.version }}
+        FDB_SHA256: ${{ inputs.sha256 }}
+        FDB_DIR: ${{ runner.temp }}/fdb-clients
+      run: |
+        # Runs before the package can reach the cache, so a corrupt download is never saved,
+        # and on every hit, so the cache is never trusted.
+        echo "${FDB_SHA256}  ${FDB_DIR}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb" | sha256sum -c -
+
     - name: Save FoundationDB client package to cache
       if: steps.cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -48,12 +59,10 @@ runs:
       shell: bash
       env:
         FDB_VERSION: ${{ inputs.version }}
-        FDB_SHA256: ${{ inputs.sha256 }}
         FDB_DIR: ${{ runner.temp }}/fdb-clients
       run: |
         echo "::group::Installing FoundationDB client ${FDB_VERSION}"
         cd "${FDB_DIR}"
-        echo "${FDB_SHA256}  foundationdb-clients_${FDB_VERSION}-1_amd64.deb" | sha256sum -c -
         sudo dpkg -i "foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
         echo "::endgroup::"
 
