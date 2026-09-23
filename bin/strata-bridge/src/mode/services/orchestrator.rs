@@ -83,17 +83,24 @@ where
         .await
         .map_err(|e| anyhow!("failed to recover state machine registry from database: {e:?}"))?;
 
+    // Replay the minimum persisted height itself: existing cursors may have committed that
+    // block before a newly created deposit/graph group, which cannot contribute to the minimum
+    // while absent. DRT outpoint deduplication preserves deposits that already committed.
+    //
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-3622>
+    // This persistence change deliberately leaves block processing single-pass until the
+    // OSM/SSM first pass and DSM/GSM second pass are integrated. Consequently, uninterrupted
+    // processing can skip a DRT before a same-block stake confirmation, while replay admits
+    // it using recovered readiness. This temporary discrepancy is not the protocol rule:
+    // both paths must use the source block's finalized membership and stake readiness.
+    // Two-pass integration must also persist the gate before dependent deposit/graph groups,
+    // finish those groups before advancing the gate, and never admit older-block requests
+    // using a later block's readiness. The minimum cursor alone cannot enforce that boundary.
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
+    // Verify identical admission across uninterrupted processing and partial-persistence
+    // recovery, including when recovered stake updates make a formerly usable stake unavailable.
     let start_height = registry
-        .get_deposit_ids()
-        .iter()
-        .filter_map(|dep_idx| {
-            registry
-                .get_deposit(dep_idx)?
-                .state()
-                .last_processed_block_height()
-                .map(|height| height + 1)
-        })
-        .min()
+        .earliest_processed_block_height()
         .unwrap_or(params.genesis_height);
     let zmq_health_registry = health_registry.clone();
     let zmq_client = init_zmq_client(
