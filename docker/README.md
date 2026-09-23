@@ -130,7 +130,7 @@ Paste its output into the config. To do the same by hand, scan both addresses, t
 a second node or a block explorer:
 
 ```sh
-bitcoin-cli scantxoutset start '["addr(<general wallet address>)", "addr(<reserved wallet address>)"]'
+bitcoin-cli -rpcclienttimeout=0 scantxoutset start '["addr(<general wallet address>)", "addr(<reserved wallet address>)"]'
 bitcoin-cli getblockhash <height>
 ```
 

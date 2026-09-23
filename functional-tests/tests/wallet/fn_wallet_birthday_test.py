@@ -11,7 +11,7 @@ real ones.
 Test flow:
 1. Pay the reserved stand-in and mine a block (B), then pay the general stand-in and mine a block
    (A = B + 1). The tool must report B and its hash: reporting A would mean the reserved address
-   was skipped.
+   was skipped. `--rpc-timeout` takes a positive number of seconds.
 2. Verify mode accepts (B, hash of B) and rejects A on its own and B with a foreign hash.
 3. With an explorer stub answering from the same node the tool reports B again; with one answering
    a foreign hash it exits non-zero.
@@ -105,6 +105,13 @@ class WalletBirthdayTest(StrataTestBase):
             "bootstrap_height": reserved_height,
             "bootstrap_block_hash": reserved_hash,
         }, f"expected block {reserved_height}, got {checkpoint}"
+        assert dev_cli.wallet_birthday(general, reserved, rpc_timeout=86400) == checkpoint
+        try:
+            dev_cli.wallet_birthday(general, reserved, rpc_timeout=0)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("--rpc-timeout 0 was accepted")
         self.logger.info(f"birthday is block {reserved_height} ({reserved_hash})")
 
         # --- 2. Verify mode ---

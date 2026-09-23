@@ -355,6 +355,7 @@ class DevCli:
         explorer_url: str | None = None,
         expect_height: int | None = None,
         expect_block_hash: str | None = None,
+        rpc_timeout: int | None = None,
     ) -> list[str]:
         rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
         wallet = self.bitcoind_props.get("walletname", "testwallet")
@@ -362,6 +363,7 @@ class DevCli:
             "--explorer-url": explorer_url,
             "--expect-height": expect_height,
             "--expect-block-hash": expect_block_hash,
+            "--rpc-timeout": rpc_timeout,
         }
 
         args = [
@@ -383,14 +385,19 @@ class DevCli:
         return args
 
     def wallet_birthday(
-        self, general_address: str, reserved_address: str, explorer_url: str | None = None
+        self,
+        general_address: str,
+        reserved_address: str,
+        explorer_url: str | None = None,
+        rpc_timeout: int | None = None,
     ) -> dict:
         """Compute the `[operator_wallet]` bootstrap checkpoint for the two wallet addresses.
 
         Returns the printed table: `bootstrap_height` and `bootstrap_block_hash`.
+        `rpc_timeout` is `--rpc-timeout` in seconds; the tool's default when omitted.
         """
         args = self._wallet_birthday_args(
-            general_address, reserved_address, explorer_url=explorer_url
+            general_address, reserved_address, explorer_url=explorer_url, rpc_timeout=rpc_timeout
         )
         res = self._run_command(args)
         # Tracing shares stdout with the printed table, which is the last thing printed.

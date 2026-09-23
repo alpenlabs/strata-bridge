@@ -261,6 +261,14 @@ pub(crate) struct WalletBirthdayArgs {
     )]
     pub(crate) expect_block_hash: Option<BlockHash>,
 
+    #[arg(
+        long,
+        default_value_t = 3600,
+        value_parser = clap::value_parser!(u64).range(1..),
+        help = "seconds to wait for each node RPC; a mainnet scantxoutset runs for minutes"
+    )]
+    pub(crate) rpc_timeout: u64,
+
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,
 }
