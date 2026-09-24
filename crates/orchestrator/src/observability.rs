@@ -358,6 +358,7 @@ pub(crate) const fn executor_error_class(error: &ExecutorError) -> &'static str 
         ExecutorError::BitcoinRpcErr(_) => "bitcoin_rpc",
         ExecutorError::ClaimTxAlreadyOnChain(_) => "claim_already_on_chain",
         ExecutorError::StakeOutPointAlreadySpent(_) => "stake_already_spent",
+        ExecutorError::ClaimFundingOutPointMissing(_) => "claim_funding_missing",
         ExecutorError::DatabaseErr(_) => "database",
         ExecutorError::MosaicErr(_) => "mosaic",
         ExecutorError::AsmRpcErr(_) => "asm_rpc",

@@ -39,6 +39,10 @@ pub struct ExecutionConfig {
     /// When the pool is exhausted, the duty dispatcher tops it back up to this size.
     pub funding_uxto_pool_size: usize,
 
+    /// The number of blocks built on top of a transaction's block before it counts as
+    /// [`TxStatus::Buried`](btc_tracker::event::TxStatus).
+    pub bury_depth: u32,
+
     /// The graph state-machine configuration, shared with the GSM to keep protocol parameters
     /// and static keys consistent across graph construction paths.
     pub graph_sm_cfg: Arc<GraphSMCfg>,

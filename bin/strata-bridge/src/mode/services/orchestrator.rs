@@ -329,6 +329,7 @@ fn build_exec_config(
         stake_amount: params.protocol.stake_amount,
         claim_funding_utxo_value,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
+        bury_depth: u32::try_from(params.protocol.bury_depth).expect("bury depth fits in u32"),
         graph_sm_cfg: sm_config.graph.clone(),
     }
 }
