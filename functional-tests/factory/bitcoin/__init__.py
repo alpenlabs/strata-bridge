@@ -8,7 +8,7 @@ import flexitest
 from bitcoinlib.services.authproxy import AuthServiceProxy
 from bitcoinlib.services.bitcoind import BitcoindClient
 
-from constants import BITCOIND_RPC_TIMEOUT_SECS
+from constants import BITCOIND_RPC_SERVER_TIMEOUT_SECS, BITCOIND_RPC_TIMEOUT_SECS
 from factory.common.ports import PortProbingFactory
 
 BD_USERNAME = "user"
@@ -179,6 +179,8 @@ class BitcoinFactory(PortProbingFactory):
         # transactions must pay at least the minimum relay fee (1 sat/vB) and respect the
         # dust threshold. This catches regressions where any tx-graph transaction is
         # broadcast with zero fee or with a dust output.
+        # `-debug=rpc,http` records every RPC call and HTTP request in service.log so a
+        # client-side stall can be lined up against what bitcoind actually received.
         cmd = [
             "bitcoind",
             "-regtest",
@@ -186,6 +188,9 @@ class BitcoinFactory(PortProbingFactory):
             f"-port={p2p_port}",
             "-printtoconsole",
             "-debug=zmq",
+            "-debug=rpc",
+            "-debug=http",
+            f"-rpcservertimeout={BITCOIND_RPC_SERVER_TIMEOUT_SECS}",
             "-server=1",
             "-txindex=1",
             "-acceptnonstdtxn=0",

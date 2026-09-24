@@ -57,6 +57,11 @@ def wait_until(
     """
     Generic wait function that polls a condition until it's met or timeout occurs.
 
+    Exceptions raised by `condition` are swallowed and the poll retried. The first occurrence
+    of each distinct exception, and any poll slower than its own `step` (at least
+    `SLOW_POLL_WARN_SECS`), is logged at WARNING so an RPC stall shows up in the INFO-level
+    test log; repeats are logged at DEBUG.
+
     Args:
         condition: A callable that returns True when the condition is met.
         timeout: Timeout in seconds (default: 120).
@@ -64,20 +69,39 @@ def wait_until(
         error_msg: Custom error message for timeout.
     """
     end_time = time.time() + timeout
+    slow_secs = max(step, SLOW_POLL_WARN_SECS)
     last_exc: Exception | None = None
+    last_exc_key: tuple[type, str] | None = None
+    polls = 0
+    raised = 0
 
     while time.time() < end_time:
         time.sleep(step)  # sleep first
 
+        polls += 1
+        started = time.monotonic()
         try:
-            if condition():
-                return
+            satisfied = condition()
         except Exception as e:
-            last_exc = e
-            logging.debug(f"caught exception {type(e)}, will still wait for timeout: {e}")
+            raised += 1
+            elapsed = time.monotonic() - started
+            exc_key = (type(e), str(e))
+            is_new = exc_key != last_exc_key
+            level = logging.WARNING if is_new or elapsed >= slow_secs else logging.DEBUG
+            logging.log(
+                level, f"[{error_msg}] poll raised {type(e).__name__} after {elapsed:.1f}s: {e}"
+            )
+            last_exc, last_exc_key = e, exc_key
+            continue
+
+        elapsed = time.monotonic() - started
+        if elapsed >= slow_secs:
+            logging.warning(f"[{error_msg}] poll took {elapsed:.1f}s")
+        if satisfied:
+            return
 
     detail = f"; last error: {type(last_exc).__name__}: {last_exc}" if last_exc else ""
-    raise TimeoutError(f"{error_msg} (timeout: {timeout}s{detail})")
+    raise TimeoutError(f"{error_msg} (timeout: {timeout}s; {polls} polls, {raised} raised{detail})")
 
 
 def snapshot_log_offsets(log_paths: list[str]) -> dict[str, int]:
