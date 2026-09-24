@@ -69,6 +69,8 @@ def generate_blocks(
     mine_on_demand: bool = False,
     trailing_blocks: int = 0,
 ) -> MinerThread:
+    """Start a background miner on `bitcoin_rpc`. Sharing the client with the caller is safe:
+    `make_bitcoind_client` gives each thread its own connection."""
     stop_event = Event()
     if mine_on_demand:
         thr = Thread(
@@ -141,7 +143,8 @@ def generate_blocks_excluding(
     addr: str,
     exclude_txids: set[str],
 ) -> MinerThread:
-    """Interval miner that keeps `exclude_txids` (and their descendants) out of every block."""
+    """Interval miner that keeps `exclude_txids` (and their descendants) out of every block.
+    Sharing `bitcoin_rpc` with the caller is safe (one connection per thread)."""
     excluded = set(exclude_txids)  # snapshot so caller-side mutation can't race the miner thread
     stop_event = Event()
     thr = Thread(

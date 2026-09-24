@@ -101,6 +101,9 @@ uv run python entry.py
 
 # Force-run an otherwise-skipped group by selecting it explicitly:
 ./run_test.sh -g proofs
+
+# Unit-test the harness itself (no bitcoind needed; also runs in the CI lint job)
+uv run python -m unittest discover -s unit -t .
 ```
 
 > A few groups are deliberately skipped by the no-arg run because they're
