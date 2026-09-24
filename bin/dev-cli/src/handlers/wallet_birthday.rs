@@ -119,7 +119,13 @@ pub(crate) async fn handle_wallet_birthday(args: WalletBirthdayArgs) -> anyhow::
     );
 
     let checked_height = args.expect_height.unwrap_or(birthday);
-    ensure_blocks_retained(info.prune_height, checked_height)?;
+    // An automatically pruned node keeps deleting blocks while the scan runs, so the retained
+    // range is read now rather than taken from before the scan.
+    let prune_height = btc_client
+        .get_blockchain_info()
+        .context("re-reading the node's prune height after the scan")?
+        .prune_height;
+    ensure_blocks_retained(prune_height, checked_height)?;
     let node_hash = btc_client
         .get_block_hash(checked_height)
         .with_context(|| format!("the node has no block at height {checked_height}"))?;
