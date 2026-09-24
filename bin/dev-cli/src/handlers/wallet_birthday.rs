@@ -212,13 +212,15 @@ fn check_expectation(
 
 /// The UTXO set survives pruning, so the scan still finds outputs whose blocks a pruned node has
 /// deleted; the bridge would then fail to fetch them. `prune_height` is the lowest complete block
-/// the node stores, so scanning from it is fine.
+/// the node stores, and a fresh store is seeded at the checkpoint's parent, whose block the first
+/// sync fetches; below height 2 that parent is genesis.
 fn ensure_blocks_retained(prune_height: Option<u64>, height: u64) -> anyhow::Result<()> {
     if let Some(prune_height) = prune_height {
+        let seed = height.saturating_sub(1);
         ensure!(
-            height >= prune_height,
-            "the node is pruned below block {prune_height}, so the bridge could not scan from block \
-             {height}; run this against an archival node"
+            seed >= prune_height,
+            "the node is pruned below block {prune_height}, so the bridge could not fetch block \
+             {seed} to start scanning from block {height}; run this against an archival node"
         );
     }
     Ok(())
@@ -300,12 +302,12 @@ mod tests {
         assert!(check_expectation(0, Some(node_hash), 100, node_hash).is_err());
     }
 
-    /// An unpruned node retains everything; a pruned one serves its prune height and above.
+    /// An unpruned node retains everything; a pruned one must still hold the checkpoint's parent.
     #[test]
     fn checkpoint_must_be_within_a_pruned_nodes_retained_blocks() {
         assert!(ensure_blocks_retained(None, 1).is_ok());
-        assert!(ensure_blocks_retained(Some(100), 100).is_ok());
-        assert!(ensure_blocks_retained(Some(100), 99).is_err());
+        assert!(ensure_blocks_retained(Some(100), 101).is_ok());
+        assert!(ensure_blocks_retained(Some(100), 100).is_err());
     }
 
     /// The printed block is pasted into the node config verbatim.
