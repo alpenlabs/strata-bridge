@@ -55,6 +55,10 @@ pub enum ExecutorError {
     #[error("stake outpoint {0} already spent on chain")]
     StakeOutPointAlreadySpent(OutPoint),
 
+    /// The claim funding outpoint is not among the reserved wallet's unspent outputs.
+    #[error("claim funding outpoint {0} not found in wallet")]
+    ClaimFundingOutPointMissing(OutPoint),
+
     /// Error interacting with the database.
     #[error("database error: {0:?}")]
     DatabaseErr(OneOf<(FdbBindingError, LayerError)>),

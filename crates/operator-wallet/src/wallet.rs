@@ -16,7 +16,9 @@
 use std::collections::BTreeSet;
 
 use bdk_wallet::{
-    bitcoin::{Address, Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey},
+    bitcoin::{
+        Address, Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    },
     chain::BlockId,
     descriptor, KeychainKind,
 };
@@ -52,6 +54,7 @@ pub struct OperatorWallet<G, P> {
     reserved_script_pubkey: ScriptBuf,
     config: OperatorWalletConfig,
     leased_outpoints: BTreeSet<OutPoint>,
+    funding_txids: BTreeSet<Txid>,
 }
 
 impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
@@ -88,6 +91,7 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
             reserved_script_pubkey: reserved_addr.script_pubkey(),
             config,
             leased_outpoints: initial_leases,
+            funding_txids: BTreeSet::new(),
         })
     }
 
@@ -196,6 +200,17 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
             self.leased_outpoints.insert(utxo.outpoint);
         }
         (selected.map(|u| u.outpoint), remaining)
+    }
+
+    /// Returns a predicate that accepts a reserved-wallet UTXO once it has more than
+    /// `bury_depth` confirmations, or immediately when its transaction was composed by
+    /// [`Self::create_reserved_utxos`] under [`GeneralUtxoPolicy::ConfirmedOnly`].
+    ///
+    /// The set of such transactions is captured when the predicate is built; rebuild it after a
+    /// refill whose outputs should qualify.
+    pub fn settled(&self, bury_depth: u32) -> impl Fn(&UtxoInfo) -> bool {
+        let funding_txids = self.funding_txids.clone();
+        move |utxo| utxo.confirmations > bury_depth || funding_txids.contains(&utxo.outpoint.txid)
     }
 
     // ── General-wallet pass-throughs with lease bookkeeping ────────────────
@@ -308,7 +323,8 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
     /// missing; existing reserved-wallet UTXOs of the same `utxo_value` are
     /// automatically excluded from input selection so the composer doesn't re-spend pool
     /// members back to themselves. `general_utxo_policy` controls whether unconfirmed
-    /// general-wallet UTXOs may be selected.
+    /// general-wallet UTXOs may be selected; a transaction funded under
+    /// [`GeneralUtxoPolicy::ConfirmedOnly`] is recorded for [`Self::settled`].
     pub async fn create_reserved_utxos(
         &mut self,
         fee_rate: FeeRate,
@@ -366,6 +382,10 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
             .await
             .map_err(Error::from_general)?;
         self.lease(&funded.spent());
+        if general_utxo_policy == GeneralUtxoPolicy::ConfirmedOnly {
+            self.funding_txids
+                .insert(funded.psbt.unsigned_tx.compute_txid());
+        }
         Ok(funded)
     }
 
