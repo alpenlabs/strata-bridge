@@ -194,7 +194,9 @@ async fn ensure_claim_funding_outpoint(
                         fee::FEE_RATE,
                         cfg.claim_funding_utxo_value,
                         batch_size,
-                        GeneralUtxoPolicy::ConfirmedOnly,
+                        GeneralUtxoPolicy::BuriedOnly {
+                            bury_depth: cfg.bury_depth,
+                        },
                     )
                     .await
                     .map_err(|e| ExecutorError::WalletErr(format!("refill failed: {e}")))?;
