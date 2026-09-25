@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use algebra::predicate;
 use bitcoin::{
-    OutPoint, TapSighashType, TxOut, Txid, XOnlyPublicKey,
+    Amount, OutPoint, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     hashes::sha256,
     sighash::{Prevouts, SighashCache},
 };
@@ -132,6 +132,23 @@ fn invalid_mosaic_key(err: bitcoin::secp256k1::Error) -> ExecutorError {
     ExecutorError::MosaicErr(format!("invalid mosaic pubkey: {err:?}"))
 }
 
+// Selection must not use cached confirmations when either wallet fails to sync.
+async fn reserve_synced_claim_funding<G: GeneralWallet, P: WalletStore>(
+    wallet: &mut OperatorWallet<G, P>,
+    value: Amount,
+    bury_depth: u32,
+) -> Result<Option<OutPoint>, ExecutorError> {
+    wallet.sync().await.map_err(|e| {
+        ExecutorError::WalletErr(format!(
+            "wallet sync failed before selecting claim funding: {e:?}"
+        ))
+    })?;
+    let settled = wallet.settled(bury_depth);
+    Ok(wallet
+        .reserve_utxo_with_value(value, predicate::not(settled))
+        .0)
+}
+
 /// Returns the claim-funding outpoint for `graph_idx`, fetching it from the wallet (refilling
 /// if necessary) and caching to disk when not already saved.
 async fn ensure_claim_funding_outpoint(
@@ -156,18 +173,12 @@ async fn ensure_claim_funding_outpoint(
     let funding_outpoint = {
         let mut wallet = output_handles.wallet.write().await;
 
-        match wallet.sync().await {
-            Ok(()) => info!("synced wallet successfully"),
-            Err(e) => error!(
-                ?e,
-                "could not sync wallet before fetching claim funding utxo"
-            ),
-        }
-
-        let settled = wallet.settled(cfg.bury_depth);
-        match wallet
-            .reserve_utxo_with_value(cfg.claim_funding_utxo_value, predicate::not(&settled))
-            .0
+        match reserve_synced_claim_funding(
+            &mut *wallet,
+            cfg.claim_funding_utxo_value,
+            cfg.bury_depth,
+        )
+        .await?
         {
             Some(outpoint) => outpoint,
             None => {
@@ -181,6 +192,7 @@ async fn ensure_claim_funding_outpoint(
                 // understate the deficit and could yield a zero-size batch, after which the
                 // post-refill `reserve_utxo_with_value` below would panic with nothing to
                 // hand out.
+                let settled = wallet.settled(cfg.bury_depth);
                 let current_pool_size = {
                     let pool = wallet.reserved_utxos_with_value(cfg.claim_funding_utxo_value);
                     let leased = wallet.leased_outpoints();
@@ -760,7 +772,10 @@ mod tests {
     };
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
 
-    use super::{reconcile_claim_funding_leases_after_driver_failure, watchtower_idxs};
+    use super::{
+        ExecutorError, reconcile_claim_funding_leases_after_driver_failure,
+        reserve_synced_claim_funding, watchtower_idxs,
+    };
 
     #[derive(Debug)]
     struct ReconciliationGeneralWallet {
@@ -853,6 +868,41 @@ mod tests {
             confirmations: 1,
             script_pubkey: ScriptBuf::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn claim_funding_rejects_cached_utxo_after_sync_failure() {
+        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
+        let mut wallet = reconciliation_wallet(&bitcoind, vec![], false, BTreeSet::new()).await;
+        let miner = bitcoind.client.new_address().expect("miner");
+        bitcoind
+            .client
+            .generate_to_address(101, &miner)
+            .expect("mature funds");
+        let address =
+            bitcoin::Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+                .expect("reserved address");
+        let value = Amount::from_sat(100_000);
+        bitcoind
+            .client
+            .send_to_address(&address, value)
+            .expect("fund reserved wallet");
+        bitcoind
+            .client
+            .generate_to_address(3, &miner)
+            .expect("bury funding");
+        wallet.sync().await.expect("cache buried output");
+        let pool = wallet.reserved_utxos_with_value(value);
+        assert_eq!(pool.len(), 1);
+        assert!(wallet.settled(2)(&pool[0]));
+
+        drop(bitcoind);
+        let result = reserve_synced_claim_funding(&mut wallet, value, 2).await;
+        assert!(matches!(result, Err(ExecutorError::WalletErr(_))));
+        assert!(
+            wallet.leased_outpoints().is_empty(),
+            "stale funding must not be reserved"
+        );
     }
 
     #[test]
