@@ -1,10 +1,13 @@
 //! Implementation of the [`BridgeDb`] trait for FdbClient.
 
 use bitcoin::{OutPoint, Txid};
-use foundationdb::{FdbBindingError, options::TransactionOption};
+use foundationdb::{FdbBindingError, Transaction, options::TransactionOption};
 use secp256k1::schnorr::Signature;
 use strata_asm_bridge_types::SafeHarbourAddress;
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, GraphIdx, OperatorIdx},
+};
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
 };
@@ -23,13 +26,15 @@ use crate::{
                 WithdrawalFundingValue,
             },
             graphs::GraphStateRowSpec,
+            kv::SerializableValue,
+            operator_set::{OperatorSetKey, OperatorSetRowSpec},
             safe_harbour::{SafeHarbourKey, SafeHarbourRowSpec},
             signatures::{SignatureKey, SignatureRowSpec},
             stakes::{StakeStateKey, StakeStateRowSpec},
         },
     },
     traits::BridgeDb,
-    types::{FundingAssignment, StakeFundingReservation, WriteBatch},
+    types::{FundingAssignment, PersistedState, StakeFundingReservation, WriteBatch},
 };
 
 impl BridgeDb for FdbClient {
@@ -128,35 +133,29 @@ impl BridgeDb for FdbClient {
 
     // ── Stake States ─────────────────────────────────────────────────
 
-    async fn get_stake_state(
-        &self,
-        operator_idx: OperatorIdx,
-    ) -> Result<Option<StakeSM>, Self::Error> {
-        self.basic_get::<StakeStateRowSpec>(StakeStateKey { operator_idx })
+    async fn get_stake_state(&self, stake_key: StakeKey) -> Result<Option<StakeSM>, Self::Error> {
+        self.basic_get::<StakeStateRowSpec>(StakeStateKey { stake_key })
             .await
     }
 
     async fn set_stake_state(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         state: StakeSM,
     ) -> Result<(), Self::Error> {
-        self.basic_set::<StakeStateRowSpec>(StakeStateKey { operator_idx }, state)
+        self.basic_set::<StakeStateRowSpec>(StakeStateKey { stake_key }, state)
             .await
     }
 
-    async fn get_all_stake_states(&self) -> Result<Vec<(OperatorIdx, StakeSM)>, Self::Error> {
+    async fn get_all_stake_states(&self) -> Result<Vec<(StakeKey, StakeSM)>, Self::Error> {
         let pairs = self
             .basic_get_all::<StakeStateRowSpec>(|dirs| &dirs.stakes)
             .await?;
-        Ok(pairs
-            .into_iter()
-            .map(|(k, v)| (k.operator_idx, v))
-            .collect())
+        Ok(pairs.into_iter().map(|(k, v)| (k.stake_key, v)).collect())
     }
 
-    async fn delete_stake_state(&self, operator_idx: OperatorIdx) -> Result<(), Self::Error> {
-        self.basic_delete::<StakeStateRowSpec>(StakeStateKey { operator_idx })
+    async fn delete_stake_state(&self, stake_key: StakeKey) -> Result<(), Self::Error> {
+        self.basic_delete::<StakeStateRowSpec>(StakeStateKey { stake_key })
             .await
     }
 
@@ -262,24 +261,22 @@ impl BridgeDb for FdbClient {
 
     async fn get_stake_funding_reservation(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> Result<Option<StakeFundingReservation>, Self::Error> {
         let result = self
-            .basic_get::<StakeFundingReservationRowSpec>(StakeFundingReservationKey {
-                operator_idx,
-            })
+            .basic_get::<StakeFundingReservationRowSpec>(StakeFundingReservationKey { stake_key })
             .await?;
         Ok(result.map(|v| v.0))
     }
 
     async fn get_or_set_stake_funding_reservation(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         reservation: StakeFundingReservation,
     ) -> Result<FundingAssignment<StakeFundingReservation>, Self::Error> {
         let assignment = self
             .basic_get_or_set_assignment::<StakeFundingReservationRowSpec>(
-                StakeFundingReservationKey { operator_idx },
+                StakeFundingReservationKey { stake_key },
                 StakeFundingReservationValue(reservation),
             )
             .await?;
@@ -292,10 +289,10 @@ impl BridgeDb for FdbClient {
 
     async fn delete_stake_funding_reservation(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> Result<(), Self::Error> {
         self.basic_delete::<StakeFundingReservationRowSpec>(StakeFundingReservationKey {
-            operator_idx,
+            stake_key,
         })
         .await
     }
@@ -329,6 +326,61 @@ impl BridgeDb for FdbClient {
             .await
     }
 
+    async fn get_persisted_state(&self) -> Result<PersistedState, Self::Error> {
+        let (deposits, graphs, stakes, operator_set, safe_harbour) = self
+            .transact(self, |trx, client| {
+                Box::pin(async move {
+                    // A retry must discard every range and restart the entire snapshot.
+                    // Decode only after all reads finish, keeping CPU work outside the
+                    // transaction's read-version lifetime.
+                    Ok((
+                        client.read_range_in(trx, |dirs| &dirs.deposits).await?,
+                        client.read_range_in(trx, |dirs| &dirs.graphs).await?,
+                        client.read_range_in(trx, |dirs| &dirs.stakes).await?,
+                        client
+                            .read_value_in::<OperatorSetRowSpec>(trx, OperatorSetKey)
+                            .await?,
+                        client
+                            .read_value_in::<SafeHarbourRowSpec>(trx, SafeHarbourKey)
+                            .await?,
+                    ))
+                })
+            })
+            .await?;
+        Ok(PersistedState {
+            deposits: self
+                .decode_rows::<DepositStateRowSpec>(deposits)
+                .map_err(OneOf::new)?
+                .into_iter()
+                .map(|(key, sm)| (key.deposit_idx, sm))
+                .collect(),
+            graphs: self
+                .decode_rows::<GraphStateRowSpec>(graphs)
+                .map_err(OneOf::new)?
+                .into_iter()
+                .map(|(key, sm)| (key.into(), sm))
+                .collect(),
+            stakes: self
+                .decode_rows::<StakeStateRowSpec>(stakes)
+                .map_err(OneOf::new)?
+                .into_iter()
+                .map(|(key, sm)| (key.stake_key, sm))
+                .collect(),
+            operator_set: operator_set
+                .as_deref()
+                .map(SerializableValue::deserialize)
+                .transpose()
+                .map_err(LayerError::failed_to_deserialize_value)
+                .map_err(OneOf::new)?,
+            safe_harbour: safe_harbour
+                .as_deref()
+                .map(SerializableValue::deserialize)
+                .transpose()
+                .map_err(LayerError::failed_to_deserialize_value)
+                .map_err(OneOf::new)?,
+        })
+    }
+
     // ── Batch Persistence ─────────────────────────────────────────
 
     async fn persist_batch(&self, batch: &WriteBatch) -> Result<(), Self::Error> {
@@ -347,38 +399,7 @@ impl BridgeDb for FdbClient {
         }
 
         loop {
-            for sm in batch.deposits() {
-                self.basic_set_in::<DepositStateRowSpec>(
-                    &trx,
-                    DepositStateKey {
-                        deposit_idx: sm.context.deposit_idx,
-                    },
-                    sm.clone(),
-                )
-                .map_err(OneOf::new)?;
-            }
-            for sm in batch.graphs() {
-                self.basic_set_in::<GraphStateRowSpec>(
-                    &trx,
-                    GraphIdx {
-                        deposit: sm.context.graph_idx.deposit,
-                        operator: sm.context.graph_idx.operator,
-                    }
-                    .into(),
-                    sm.clone(),
-                )
-                .map_err(OneOf::new)?;
-            }
-            for sm in batch.stakes() {
-                self.basic_set_in::<StakeStateRowSpec>(
-                    &trx,
-                    StakeStateKey {
-                        operator_idx: sm.context.operator_idx(),
-                    },
-                    sm.clone(),
-                )
-                .map_err(OneOf::new)?;
-            }
+            self.persist_batch_in(&trx, batch).map_err(OneOf::new)?;
 
             match trx.commit().await {
                 Ok(_committed) => return Ok(()),
@@ -407,15 +428,58 @@ impl BridgeDb for FdbClient {
     }
 }
 
+impl FdbClient {
+    /// Stages a complete batch in the caller's transaction without committing it.
+    /// Dropping or cancelling the transaction discards every mutation.
+    fn persist_batch_in(&self, trx: &Transaction, batch: &WriteBatch) -> Result<(), LayerError> {
+        for sm in batch.deposits() {
+            self.basic_set_in::<DepositStateRowSpec>(
+                trx,
+                DepositStateKey {
+                    deposit_idx: sm.context.deposit_idx,
+                },
+                sm.clone(),
+            )?;
+        }
+        for sm in batch.graphs() {
+            self.basic_set_in::<GraphStateRowSpec>(
+                trx,
+                GraphIdx {
+                    deposit: sm.context.graph_idx.deposit,
+                    operator: sm.context.graph_idx.operator,
+                }
+                .into(),
+                sm.clone(),
+            )?;
+        }
+        for sm in batch.stakes() {
+            self.basic_set_in::<StakeStateRowSpec>(
+                trx,
+                StakeStateKey {
+                    stake_key: sm.context.stake_key(),
+                },
+                sm.clone(),
+            )?;
+        }
+
+        if let Some(sm) = batch.operator_set() {
+            self.basic_set_in::<OperatorSetRowSpec>(trx, OperatorSetKey, sm.clone())?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, num::NonZero, sync::OnceLock};
+    use std::{collections::BTreeMap, num::NonZero, sync::OnceLock, time::Instant};
 
     use bitcoin::{
         Network, TapSighashType,
         hashes::{Hash, sha256},
         taproot,
     };
+    use foundationdb::options::ConflictRangeType;
+    use libp2p_identity::Keypair as P2pKeypair;
     use proptest::{prelude::*, strategy::ValueTree};
     use secp256k1::{
         Keypair, Message, SECP256K1,
@@ -424,6 +488,7 @@ mod tests {
     use strata_bridge_connectors::n_of_n::NOfNConnector;
     use strata_bridge_primitives::{
         covenant::CovenantId,
+        operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
         operator_table::{OperatorTable, prop_test_generators::arb_operator_table},
         types::{DepositIdx, OperatorIdx},
     };
@@ -433,16 +498,27 @@ mod tests {
             context::GraphSMCtx,
             state::{AbortReason, GraphState},
         },
-        stake::{context::StakeSMCtx, machine::StakeSM, state::StakeState},
+        operator_set::{
+            ConfirmedExit, ExitKind, OperatorSetEvent, OperatorSetSM, OperatorSetSignal,
+        },
+        stake::{
+            context::{MinimumStakeData, StakeSMCtx},
+            machine::StakeSM,
+            state::StakeState,
+        },
+        state_machine::StateMachine,
     };
     use strata_bridge_test_utils::{
         arbitrary_generator::{arb_outpoint, arb_outpoints, arb_txid},
         bitcoin::{generate_tx, generate_xonly_pubkey},
-        bridge_fixtures::{TEST_DEPOSIT_AMOUNT, TEST_SWEEP_FEE_RATE, random_p2tr_desc},
+        bridge_fixtures::{
+            TEST_DEPOSIT_AMOUNT, TEST_SWEEP_FEE_RATE, random_p2tr_desc, test_operator_table,
+        },
         prelude::generate_txid,
     };
     use strata_bridge_tx_graph::{
         game_graph::{CounterproofGraphSummary, DepositParams, GameGraphSummary},
+        stake_graph::StakeGraphSummary,
         transactions::sweep::{SweepData, SweepTx},
     };
 
@@ -541,6 +617,406 @@ mod tests {
             context: StakeSMCtx::new(operator_idx, operator_table, 101),
             state,
         }
+    }
+
+    #[test]
+    fn covenant_stakes_preserve_independent_lifecycles_and_deletion() {
+        let table = test_operator_table(3, 0);
+        let make = |activation_height, preimage: [u8; 32]| {
+            let summary = StakeGraphSummary {
+                stake: generate_txid(),
+                unstaking_intent: generate_txid(),
+                unstaking: generate_txid(),
+            };
+            StakeSM {
+                context: StakeSMCtx::new(0, table.clone(), activation_height),
+                state: StakeState::PreimageRevealed {
+                    last_block_height: 300,
+                    stake_data: MinimumStakeData {
+                        stake_funds: OutPoint::new(generate_txid(), 0),
+                        unstaking_image: sha256::Hash::hash(&preimage),
+                        unstaking_operator_desc: random_p2tr_desc(),
+                    },
+                    summary,
+                    preimage,
+                    unstaking_intent_block_height: 299,
+                    signatures: Box::new(None),
+                },
+            }
+        };
+        let mut historical = make(100, [1; 32]);
+        let current = make(200, [2; 32]);
+        let historical_key = historical.context().stake_key();
+        let current_key = current.context().stake_key();
+        block_on(async {
+            let client = get_client();
+            let mut batch = WriteBatch::new();
+            batch.add_stake(historical.clone());
+            batch.add_stake(current.clone());
+            client.persist_batch(&batch).await.unwrap();
+            assert_eq!(
+                client.get_stake_state(historical_key).await.unwrap(),
+                Some(historical.clone())
+            );
+            assert_eq!(
+                client.get_stake_state(current_key).await.unwrap(),
+                Some(current.clone())
+            );
+            let all = client.get_all_stake_states().await.unwrap();
+            assert!(all.contains(&(historical_key, historical.clone())));
+            assert!(all.contains(&(current_key, current.clone())));
+
+            let StakeState::PreimageRevealed { summary, .. } = &historical.state else {
+                unreachable!("historical stake fixture has revealed its preimage");
+            };
+            historical.state = StakeState::Slashed {
+                summary: *summary,
+                slash_txid: generate_txid(),
+                preimage: Some([1; 32]),
+            };
+            client
+                .set_stake_state(historical_key, historical.clone())
+                .await
+                .unwrap();
+            assert_eq!(
+                client.get_stake_state(historical_key).await.unwrap(),
+                Some(historical.clone())
+            );
+            assert_eq!(
+                client.get_stake_state(current_key).await.unwrap(),
+                Some(current)
+            );
+            client.delete_stake_state(current_key).await.unwrap();
+            assert_eq!(client.get_stake_state(current_key).await.unwrap(), None);
+            assert_eq!(
+                client.get_stake_state(historical_key).await.unwrap(),
+                Some(historical)
+            );
+        });
+    }
+
+    #[test]
+    fn covenant_reservations_preserve_funding_identity_on_retry() {
+        let table = test_operator_table(3, 0);
+        let first_key = StakeSMCtx::new(0, table.clone(), 100).stake_key();
+        let second_key = StakeSMCtx::new(0, table, 200).stake_key();
+        let first = make_reservation(1, 0);
+        let second = make_reservation(2, 0);
+        block_on(async {
+            let client = get_client();
+            assert_eq!(
+                client
+                    .get_or_set_stake_funding_reservation(first_key, first.clone())
+                    .await
+                    .unwrap(),
+                FundingAssignment::Created(first.clone())
+            );
+            assert_eq!(
+                client
+                    .get_or_set_stake_funding_reservation(second_key, second.clone())
+                    .await
+                    .unwrap(),
+                FundingAssignment::Created(second.clone())
+            );
+            assert_eq!(
+                client
+                    .get_or_set_stake_funding_reservation(first_key, second.clone())
+                    .await
+                    .unwrap(),
+                FundingAssignment::Existing(first.clone())
+            );
+            assert_eq!(
+                client
+                    .get_stake_funding_reservation(first_key)
+                    .await
+                    .unwrap(),
+                Some(first.clone())
+            );
+            assert_eq!(
+                client
+                    .get_stake_funding_reservation(second_key)
+                    .await
+                    .unwrap(),
+                Some(second)
+            );
+            let reserved = client.get_all_funds().await.unwrap();
+            assert!(
+                first
+                    .unsigned_tx
+                    .input
+                    .iter()
+                    .all(|input| reserved.contains(&input.previous_output))
+            );
+            client
+                .delete_stake_funding_reservation(second_key)
+                .await
+                .unwrap();
+            assert_eq!(
+                client
+                    .get_stake_funding_reservation(second_key)
+                    .await
+                    .unwrap(),
+                None
+            );
+            assert_eq!(
+                client
+                    .get_stake_funding_reservation(first_key)
+                    .await
+                    .unwrap(),
+                Some(first)
+            );
+        });
+    }
+
+    /// Produces a real membership transition and the stakes requested by its output signals.
+    fn membership_transition_batches() -> (WriteBatch, WriteBatch) {
+        let table = test_operator_table(3, 0);
+        let registrations = table
+            .operator_idxs()
+            .into_iter()
+            .map(|index| {
+                ScheduledOperator::new(
+                    index,
+                    table.idx_to_btc_x_only_key(&index).unwrap(),
+                    P2pKeypair::ed25519_from_bytes([index as u8 + 1; 32])
+                        .unwrap()
+                        .public()
+                        .try_into_ed25519()
+                        .unwrap()
+                        .to_bytes()
+                        .to_vec()
+                        .into(),
+                    random_p2tr_desc(),
+                    100,
+                    None,
+                )
+                .unwrap()
+            })
+            .collect();
+        let mut membership = OperatorSetSM::new(
+            100,
+            OperatorSetSchedule::new(registrations).unwrap(),
+            vec![],
+        )
+        .unwrap();
+        let table = membership
+            .current_operator_table()
+            .unwrap()
+            .with_pov(0)
+            .unwrap();
+        let mut before = WriteBatch::new();
+        before.set_operator_set(membership.clone());
+        before.add_stake(StakeSM::new(StakeSMCtx::new(0, table.clone(), 100), 100).0);
+        let output = membership
+            .process_event(
+                (),
+                OperatorSetEvent::NewBlock {
+                    block_height: 101,
+                    exits: vec![ConfirmedExit {
+                        operator_idx: 2,
+                        txid: generate_txid(),
+                        tx_index: 1,
+                        kind: ExitKind::UnstakingIntent,
+                    }],
+                },
+            )
+            .unwrap();
+        let mut after = WriteBatch::new();
+        for signal in output.signals {
+            let OperatorSetSignal::InitializeStake {
+                stake_key,
+                operator_table,
+            } = signal;
+            let context = StakeSMCtx::new(
+                stake_key.operator,
+                operator_table.with_pov(0).unwrap(),
+                stake_key.covenant.activation_height,
+            );
+            assert_eq!(context.stake_key(), stake_key);
+            after.add_stake(StakeSM::new(context, 101).0);
+        }
+        assert_eq!(after.stakes().len(), 2);
+        after.set_operator_set(membership);
+        let outpoint = OutPoint::new(generate_txid(), 0);
+        after.add_deposit(make_deposit_sm(
+            0,
+            outpoint,
+            table.clone(),
+            DepositState::Deposited {
+                last_block_height: 101,
+            },
+        ));
+        after.add_graph(make_graph_sm(
+            GraphIdx {
+                deposit: 0,
+                operator: 0,
+            },
+            outpoint,
+            table,
+            GraphState::Created {
+                last_block_height: 101,
+            },
+        ));
+        (before, after)
+    }
+
+    #[test]
+    fn membership_stakes_commit_and_recover_atomically() {
+        block_on(async {
+            let client = get_client();
+            assert_eq!(
+                client.get_persisted_state().await.unwrap(),
+                PersistedState::default()
+            );
+            let (before, after) = membership_transition_batches();
+            client.persist_batch(&before).await.unwrap();
+            let old_read = client.create_transaction().unwrap();
+            old_read.get_read_version().await.unwrap();
+            client.persist_batch(&after).await.unwrap();
+            let recovered = client.get_persisted_state().await.unwrap();
+            assert_eq!(recovered.operator_set.as_ref(), after.operator_set());
+            assert_eq!(recovered.stakes.len(), 3);
+            for stake in before.stakes().iter().chain(after.stakes()) {
+                assert!(
+                    recovered
+                        .stakes
+                        .contains(&(stake.context().stake_key(), stake.clone()))
+                );
+            }
+            assert_eq!(recovered.deposits, vec![(0, after.deposits()[0].clone())]);
+            assert_eq!(
+                recovered.graphs,
+                vec![(
+                    GraphIdx {
+                        deposit: 0,
+                        operator: 0
+                    },
+                    after.graphs()[0].clone()
+                )]
+            );
+            assert_eq!(
+                client
+                    .basic_get_in::<OperatorSetRowSpec>(&old_read, OperatorSetKey)
+                    .await
+                    .unwrap()
+                    .as_ref(),
+                before.operator_set()
+            );
+            client.persist_batch(&after).await.unwrap();
+            assert_eq!(client.get_persisted_state().await.unwrap(), recovered);
+        });
+    }
+
+    #[test]
+    fn interrupted_membership_batch_leaves_source_stakes_unchanged() {
+        block_on(async {
+            let client = get_client();
+            let (before, after) = membership_transition_batches();
+            client.persist_batch(&before).await.unwrap();
+            let original = client.get_persisted_state().await.unwrap();
+            {
+                let interrupted = client.create_transaction().unwrap();
+                client.persist_batch_in(&interrupted, &after).unwrap();
+                // Simulate a crash after staging all writes and before commit.
+            }
+            assert_eq!(client.get_persisted_state().await.unwrap(), original);
+            client.persist_batch(&after).await.unwrap();
+            let recovered = client.get_persisted_state().await.unwrap();
+            assert_eq!(recovered.operator_set.as_ref(), after.operator_set());
+            assert_eq!(recovered.stakes.len(), 3);
+        });
+    }
+
+    #[test]
+    fn failed_membership_commit_exposes_no_partial_state_and_retry_restores_batch() {
+        block_on(async {
+            let client = get_client();
+            let (before, after) = membership_transition_batches();
+            client.persist_batch(&before).await.unwrap();
+            let original = client.get_persisted_state().await.unwrap();
+            let conflicting = client.create_transaction().unwrap();
+            conflicting.get_read_version().await.unwrap();
+            conflicting
+                .add_conflict_range(b"", b"\xff", ConflictRangeType::Read)
+                .unwrap();
+            client.persist_batch_in(&conflicting, &after).unwrap();
+            // Commit a competing write after the first transaction's read version.
+            client.persist_batch(&before).await.unwrap();
+            assert!(conflicting.commit().await.is_err());
+            assert_eq!(client.get_persisted_state().await.unwrap(), original);
+            client.persist_batch(&after).await.unwrap();
+            let recovered = client.get_persisted_state().await.unwrap();
+            assert_eq!(recovered.operator_set.as_ref(), after.operator_set());
+            assert_eq!(recovered.stakes.len(), 3);
+        });
+    }
+
+    /// Manual scale check: 1,000 deposits and 15 signed graphs per deposit.
+    #[test]
+    #[ignore = "writes a large FDB fixture; run explicitly for recovery scale checks"]
+    fn recovery_large_registry() {
+        let table = test_operator_table(15, 0);
+        let outpoint = OutPoint::new(generate_txid(), 0);
+        let key = generate_xonly_pubkey();
+        let txid = generate_txid();
+        let state = GraphState::GraphSigned {
+            last_block_height: 100,
+            graph_data: DepositParams {
+                game_index: NonZero::new(1).unwrap(),
+                claim_funds: outpoint,
+                deposit_outpoint: outpoint,
+                adaptor_pubkeys: vec![key; 14],
+                fault_pubkeys: vec![key; 14],
+            },
+            graph_summary: GameGraphSummary {
+                claim: txid,
+                contest: txid,
+                bridge_proof_timeout: txid,
+                counterproofs: vec![
+                    CounterproofGraphSummary {
+                        counterproof: txid,
+                        counterproof_ack: txid,
+                    };
+                    14
+                ],
+                slash: txid,
+                uncontested_payout: txid,
+                contested_payout: txid,
+            },
+            agg_nonces: None,
+            signatures: vec![Signature::from_slice(&[1; 64]).unwrap(); 32],
+            stake_spent: None,
+        };
+        block_on(async {
+            let client = get_client();
+            for deposit in 0..1_000 {
+                let mut batch = WriteBatch::new();
+                batch.add_deposit(make_deposit_sm(
+                    deposit,
+                    outpoint,
+                    table.clone(),
+                    DepositState::Deposited {
+                        last_block_height: 100,
+                    },
+                ));
+                for operator in 0..15 {
+                    batch.add_graph(make_graph_sm(
+                        GraphIdx { deposit, operator },
+                        outpoint,
+                        table.clone(),
+                        state.clone(),
+                    ));
+                }
+                client.persist_batch(&batch).await.unwrap();
+            }
+            let started = Instant::now();
+            let recovered = client.get_persisted_state().await.unwrap();
+            let elapsed = started.elapsed();
+            assert_eq!(recovered.deposits.len(), 1_000);
+            assert_eq!(recovered.graphs.len(), 15_000);
+            println!("Recovered 1,000 deposits and 15,000 signed graphs in {elapsed:?}");
+            client.clear().await.unwrap().unwrap();
+        });
     }
 
     /// Builds a [`StakeFundingReservation`] around an arbitrary unsigned transaction with
@@ -888,12 +1364,13 @@ mod tests {
                 StakeState::Created { last_block_height },
             );
 
+            let stake_key = stake_sm.context().stake_key();
             block_on(async {
                 let client = get_client();
 
-                client.set_stake_state(operator_idx, stake_sm.clone()).await.unwrap();
+                client.set_stake_state(stake_sm.context().stake_key(), stake_sm.clone()).await.unwrap();
 
-                let retrieved = client.get_stake_state(operator_idx).await.unwrap();
+                let retrieved = client.get_stake_state(stake_key).await.unwrap();
                 prop_assert_eq!(Some(stake_sm), retrieved);
 
                 Ok(())
@@ -927,13 +1404,13 @@ mod tests {
             block_on(async {
                 let client = get_client();
 
-                client.set_stake_state(op_a, sm_a.clone()).await.unwrap();
-                client.set_stake_state(op_b, sm_b.clone()).await.unwrap();
+                client.set_stake_state(sm_a.context().stake_key(), sm_a.clone()).await.unwrap();
+                client.set_stake_state(sm_b.context().stake_key(), sm_b.clone()).await.unwrap();
 
                 let all = client.get_all_stake_states().await.unwrap();
 
-                let found_a = all.iter().any(|(idx, sm)| *idx == op_a && *sm == sm_a);
-                let found_b = all.iter().any(|(idx, sm)| *idx == op_b && *sm == sm_b);
+                let found_a = all.iter().any(|(idx, sm)| *idx == sm_a.context().stake_key() && *sm == sm_a);
+                let found_b = all.iter().any(|(idx, sm)| *idx == sm_b.context().stake_key() && *sm == sm_b);
 
                 prop_assert!(found_a, "op_a not found in get_all_stake_states");
                 prop_assert!(found_b, "op_b not found in get_all_stake_states");
@@ -955,14 +1432,15 @@ mod tests {
                 StakeState::Created { last_block_height },
             );
 
+            let stake_key = stake_sm.context().stake_key();
             block_on(async {
                 let client = get_client();
 
-                client.set_stake_state(operator_idx, stake_sm).await.unwrap();
+                client.set_stake_state(stake_key, stake_sm).await.unwrap();
 
-                client.delete_stake_state(operator_idx).await.unwrap();
+                client.delete_stake_state(stake_key).await.unwrap();
 
-                let retrieved = client.get_stake_state(operator_idx).await.unwrap();
+                let retrieved = client.get_stake_state(stake_key).await.unwrap();
                 prop_assert_eq!(None, retrieved);
 
                 Ok(())
@@ -1173,21 +1651,25 @@ mod tests {
         ) {
             let reservation = make_reservation(num_inputs, vout);
 
+            let stake_key = StakeKey {
+                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
+                operator: operator_idx,
+            };
             block_on(async {
                 let client = get_client();
 
                 client
-                    .delete_stake_funding_reservation(operator_idx)
+                    .delete_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
                 let assignment = client
-                    .get_or_set_stake_funding_reservation(operator_idx, reservation.clone())
+                    .get_or_set_stake_funding_reservation(stake_key, reservation.clone())
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_stake_funding_reservation(operator_idx)
+                    .get_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
@@ -1211,27 +1693,31 @@ mod tests {
             let second_reservation = make_reservation(second_num_inputs, second_vout);
             prop_assume!(first_reservation != second_reservation);
 
+            let stake_key = StakeKey {
+                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
+                operator: operator_idx,
+            };
             block_on(async {
                 let client = get_client();
 
                 client
-                    .delete_stake_funding_reservation(operator_idx)
+                    .delete_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
                 let first = client
                     .get_or_set_stake_funding_reservation(
-                        operator_idx,
+                        stake_key,
                         first_reservation.clone(),
                     )
                     .await
                     .unwrap();
                 let second = client
-                    .get_or_set_stake_funding_reservation(operator_idx, second_reservation)
+                    .get_or_set_stake_funding_reservation(stake_key, second_reservation)
                     .await
                     .unwrap();
                 let retrieved = client
-                    .get_stake_funding_reservation(operator_idx)
+                    .get_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
@@ -1261,16 +1747,20 @@ mod tests {
                 vout: reservation.stake_output_vout,
             };
 
+            let stake_key = StakeKey {
+                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
+                operator: operator_idx,
+            };
             block_on(async {
                 let client = get_client();
 
                 client
-                    .delete_stake_funding_reservation(operator_idx)
+                    .delete_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
                 let assignment = client
-                    .get_or_set_stake_funding_reservation(operator_idx, reservation)
+                    .get_or_set_stake_funding_reservation(stake_key, reservation)
                     .await
                     .unwrap();
 
@@ -1300,28 +1790,32 @@ mod tests {
         ) {
             let reservation = make_reservation(num_inputs, 0);
 
+            let stake_key = StakeKey {
+                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
+                operator: operator_idx,
+            };
             block_on(async {
                 let client = get_client();
 
                 client
-                    .delete_stake_funding_reservation(operator_idx)
+                    .delete_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
                 let assignment = client
-                    .get_or_set_stake_funding_reservation(operator_idx, reservation)
+                    .get_or_set_stake_funding_reservation(stake_key, reservation)
                     .await
                     .unwrap();
 
                 prop_assert!(matches!(assignment, FundingAssignment::Created(_)));
 
                 client
-                    .delete_stake_funding_reservation(operator_idx)
+                    .delete_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_stake_funding_reservation(operator_idx)
+                    .get_stake_funding_reservation(stake_key)
                     .await
                     .unwrap();
                 prop_assert_eq!(None, retrieved);
@@ -1603,7 +2097,7 @@ mod tests {
                     .unwrap();
                 prop_assert_eq!(Some(graph_sm), retrieved_graph);
 
-                let retrieved_stake = client.get_stake_state(stake_op_idx).await.unwrap();
+                let retrieved_stake = client.get_stake_state(stake_sm.context().stake_key()).await.unwrap();
                 prop_assert_eq!(Some(stake_sm), retrieved_stake);
 
                 Ok(())

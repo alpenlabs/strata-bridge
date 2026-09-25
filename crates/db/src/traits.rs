@@ -5,12 +5,15 @@ use std::fmt::Debug;
 use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
 use strata_asm_bridge_types::SafeHarbourAddress;
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, GraphIdx, OperatorIdx},
+};
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
 };
 
-use crate::types::{FundingAssignment, StakeFundingReservation, WriteBatch};
+use crate::types::{FundingAssignment, PersistedState, StakeFundingReservation, WriteBatch};
 
 /// Standard persistence interface for a bridge node.
 pub trait BridgeDb {
@@ -91,28 +94,28 @@ pub trait BridgeDb {
 
     // ── Stake States ─────────────────────────────────────────────────
 
-    /// Gets, if present, the [`StakeSM`] for the given [`OperatorIdx`].
+    /// Gets, if present, the [`StakeSM`] for the given [`StakeKey`].
     fn get_stake_state(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> impl Future<Output = Result<Option<StakeSM>, Self::Error>> + Send;
 
-    /// Sets the [`StakeSM`] for the given [`OperatorIdx`].
+    /// Sets the [`StakeSM`] for the given [`StakeKey`].
     fn set_stake_state(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         state: StakeSM,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    /// Returns all stored stake states as `(OperatorIdx, StakeSM)` pairs.
+    /// Returns all stored stake states as `(StakeKey, StakeSM)` pairs.
     fn get_all_stake_states(
         &self,
-    ) -> impl Future<Output = Result<Vec<(OperatorIdx, StakeSM)>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<(StakeKey, StakeSM)>, Self::Error>> + Send;
 
-    /// Deletes the [`StakeSM`] for the given [`OperatorIdx`].
+    /// Deletes the [`StakeSM`] for the given [`StakeKey`].
     fn delete_stake_state(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     // ── Funds ─────────────────────────────────────────────────────────
@@ -132,24 +135,24 @@ pub trait BridgeDb {
         outpoint: OutPoint,
     ) -> impl Future<Output = Result<FundingAssignment<OutPoint>, Self::Error>> + Send;
 
-    /// Gets, if present, the [`StakeFundingReservation`] persisted for the given operator.
+    /// Gets, if present, the [`StakeFundingReservation`] persisted for the given stake.
     fn get_stake_funding_reservation(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> impl Future<Output = Result<Option<StakeFundingReservation>, Self::Error>> + Send;
 
-    /// Returns the existing stake-funding reservation for `operator_idx`, or stores and returns
+    /// Returns the existing stake-funding reservation for `stake_key`, or stores and returns
     /// `reservation` when no assignment exists.
     fn get_or_set_stake_funding_reservation(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         reservation: StakeFundingReservation,
     ) -> impl Future<Output = Result<FundingAssignment<StakeFundingReservation>, Self::Error>> + Send;
 
-    /// Deletes the [`StakeFundingReservation`] for the given operator.
+    /// Deletes the [`StakeFundingReservation`] for the given stake.
     fn delete_stake_funding_reservation(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// Gets, if present, the reserved [`OutPoint`]s for fulfilling withdrawals requests.
@@ -201,6 +204,11 @@ pub trait BridgeDb {
         &self,
         address: SafeHarbourAddress,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    /// Reads all registry state at one database version.
+    fn get_persisted_state(
+        &self,
+    ) -> impl Future<Output = Result<PersistedState, Self::Error>> + Send;
 
     // ── Batch Persistence ─────────────────────────────────────────────
 

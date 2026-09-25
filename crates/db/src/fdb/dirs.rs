@@ -53,17 +53,21 @@ pub struct Directories {
     /// Subspace for storing Graph SM states, keyed by (`DepositIdx`, `OperatorIdx`).
     pub graphs: DirectorySubspace,
 
-    /// Subspace for storing Stake SM states, keyed by `OperatorIdx`.
+    /// Subspace for storing Stake SM states, keyed by covenant-qualified stake identity.
     pub stakes: DirectorySubspace,
 
     /// Subspace for storing claim-funding outpoints, keyed by `(DepositIdx, OperatorIdx)`.
     pub claim_funds: DirectorySubspace,
 
-    /// Subspace for storing stake-funding reservations, keyed by `OperatorIdx`.
+    /// Subspace for storing stake-funding reservations, keyed by covenant-qualified stake
+    /// identity.
     pub stake_funding_reservations: DirectorySubspace,
 
     /// Subspace for storing withdrawal-funding outpoints, keyed by `DepositIdx`.
     pub fulfillment_funds: DirectorySubspace,
+
+    /// Subspace for the singleton membership state.
+    pub operator_set: DirectorySubspace,
 
     /// Subspace for the singleton safe-harbour latch (frozen destination address).
     pub safe_harbour: DirectorySubspace,
@@ -91,6 +95,7 @@ impl Directories {
             open_subdir(&root, txn, SubSpaceId::StakeFundingReservations).await?;
         let withdrawal_funding_outpoints =
             open_subdir(&root, txn, SubSpaceId::FulfillmentFunds).await?;
+        let operator_set = open_subdir(&root, txn, SubSpaceId::OperatorSet).await?;
         let safe_harbour = open_subdir(&root, txn, SubSpaceId::SafeHarbour).await?;
 
         Ok(Self {
@@ -103,6 +108,7 @@ impl Directories {
             stake_funding_reservations,
             fulfillment_funds: withdrawal_funding_outpoints,
             safe_harbour,
+            operator_set,
         })
     }
 
@@ -139,14 +145,17 @@ pub enum SubSpaceId {
     Deposits,
     /// Subspace for storing Graph SM states, keyed by (`DepositIdx`, `OperatorIdx`).
     Graphs,
-    /// Subspace for storing Stake SM states, keyed by `OperatorIdx`.
+    /// Subspace for storing Stake SM states, keyed by covenant-qualified stake identity.
     Stakes,
     /// Subspace for storing claim-funding outpoints.
     ClaimFunds,
-    /// Subspace for storing stake-funding reservations, keyed by `OperatorIdx`.
+    /// Subspace for storing stake-funding reservations, keyed by covenant-qualified stake
+    /// identity.
     StakeFundingReservations,
     /// Subspace for storing withdrawal-funding outpoints.
     FulfillmentFunds,
+    /// Subspace for the singleton membership state.
+    OperatorSet,
     /// Subspace for the singleton safe-harbour latch.
     SafeHarbour,
 }
@@ -161,6 +170,7 @@ impl From<SubSpaceId> for &'static str {
             SubSpaceId::ClaimFunds => "claim_funds",
             SubSpaceId::StakeFundingReservations => "stake_funding_reservations",
             SubSpaceId::FulfillmentFunds => "fulfillment_funds",
+            SubSpaceId::OperatorSet => "operator_set",
             SubSpaceId::SafeHarbour => "safe_harbour",
         }
     }

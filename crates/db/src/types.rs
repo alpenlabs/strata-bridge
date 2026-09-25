@@ -1,8 +1,14 @@
 //! Database types that are agnostic to the underlying database implementation.
 
 use bitcoin::{Transaction, TxOut};
+use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, GraphIdx},
+};
 use strata_bridge_sm::{
-    deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
+    deposit::machine::DepositSM, graph::machine::GraphSM, operator_set::OperatorSetSM,
+    stake::machine::StakeSM,
 };
 
 /// A persisted plan for an operator's stake funding transaction.
@@ -46,6 +52,21 @@ impl<T> FundingAssignment<T> {
     }
 }
 
+/// State read at a single database version for registry recovery.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct PersistedState {
+    /// Deposit rows, including their durable identities.
+    pub deposits: Vec<(DepositIdx, DepositSM)>,
+    /// Graph rows, including their durable identities.
+    pub graphs: Vec<(GraphIdx, GraphSM)>,
+    /// Historical and current stake rows, including their durable identities.
+    pub stakes: Vec<(StakeKey, StakeSM)>,
+    /// Public membership and its complete transition history.
+    pub operator_set: Option<OperatorSetSM>,
+    /// The frozen safe-harbour destination, if latched.
+    pub safe_harbour: Option<SafeHarbourAddress>,
+}
+
 /// A batch of state machine writes to persist atomically.
 ///
 /// This can be used to persist causally-linked state machine updates in a single transaction,
@@ -57,8 +78,9 @@ pub struct WriteBatch {
     deposits: Vec<DepositSM>,
     /// Graph state machines to persist, keyed by graph index.
     graphs: Vec<GraphSM>,
-    /// Stake state machines to persist, keyed by operator index.
+    /// Stake state machines to persist, keyed by covenant and operator index.
     stakes: Vec<StakeSM>,
+    operator_set: Option<OperatorSetSM>,
 }
 
 impl WriteBatch {
@@ -68,6 +90,7 @@ impl WriteBatch {
             deposits: Vec::new(),
             graphs: Vec::new(),
             stakes: Vec::new(),
+            operator_set: None,
         }
     }
 
@@ -84,6 +107,16 @@ impl WriteBatch {
     /// Returns the stake state machines in the batch.
     pub fn stakes(&self) -> &[StakeSM] {
         &self.stakes
+    }
+
+    /// Returns the membership state included in this transaction.
+    pub const fn operator_set(&self) -> Option<&OperatorSetSM> {
+        self.operator_set.as_ref()
+    }
+
+    /// Includes the membership state in this transaction.
+    pub fn set_operator_set(&mut self, operator_set: OperatorSetSM) {
+        self.operator_set = Some(operator_set);
     }
 
     /// Adds a deposit state machine to the batch.

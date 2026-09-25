@@ -24,6 +24,8 @@ use crate::{
     types::FundingAssignment,
 };
 
+type DecodedRows<RS> = Vec<(<RS as KVRowSpec>::Key, <RS as KVRowSpec>::Value)>;
+
 /// The main entity for interacting with the FoundationDB database.
 pub struct FdbClient {
     db: Database,
@@ -164,7 +166,7 @@ impl FdbClient {
     ///     })
     /// }).await?;
     /// ```
-    async fn transact<D, T>(
+    pub(super) async fn transact<D, T>(
         &self,
         data: D,
         txn: impl for<'a> FnMut(
@@ -398,6 +400,62 @@ impl FdbClient {
         Ok(Some(value))
     }
 
+    /// Reads raw rows at the caller's read version; decode them after the transaction ends.
+    pub(super) async fn read_range_in(
+        &self,
+        trx: &Transaction,
+        subspace_fn: impl Fn(&Directories) -> &DirectorySubspace,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, FdbError> {
+        let mut options = RangeOption::from(subspace_fn(&self.dirs).range());
+        options.mode = StreamingMode::WantAll;
+        let mut rows = Vec::new();
+        loop {
+            let result = trx.get_range(&options, 1, true).await?;
+            rows.extend(
+                result
+                    .iter()
+                    .map(|kv| (kv.key().to_vec(), kv.value().to_vec())),
+            );
+            match options.next_range(&result) {
+                Some(next) => options = next,
+                None => break,
+            }
+        }
+        Ok(rows)
+    }
+
+    /// Decodes rows outside the transaction's read-version lifetime.
+    pub(super) fn decode_rows<RS: KVRowSpec>(
+        &self,
+        rows: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<DecodedRows<RS>, LayerError> {
+        rows.into_iter()
+            .map(|(key, value)| {
+                let key =
+                    RS::Key::unpack(&self.dirs, &key).map_err(LayerError::failed_to_unpack_key)?;
+                let value = RS::Value::deserialize(&value)
+                    .map_err(LayerError::failed_to_deserialize_value)?;
+                Ok((key, value))
+            })
+            .collect()
+    }
+
+    /// Reads an encoded value for decoding after the transaction ends.
+    pub(super) async fn read_value_in<RS: KVRowSpec>(
+        &self,
+        trx: &Transaction,
+        key: RS::Key,
+    ) -> Result<Option<Vec<u8>>, TransactionError> {
+        let packed = key
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)
+            .map_err(TransactionError::Layer)?;
+        Ok(trx
+            .get(packed.as_ref(), true)
+            .await?
+            .map(|bytes| bytes.to_vec()))
+    }
+
     /// Deletes a key within an existing transaction.
     ///
     /// This is synchronous because FDB `clear` is a void buffered operation.
@@ -486,5 +544,82 @@ impl FdbClient {
             })
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    use super::*;
+    use crate::traits::BridgeDb;
+
+    #[tokio::test]
+    async fn snapshot_reads_retry_expired_versions_and_respect_retry_budgets() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (mut client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-snapshot-retry-{suffix}"),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        for (retry_limit, time_out, expected_attempts) in [
+            (Some(5), Some(Duration::from_secs(5)), 2),
+            (Some(1), Some(Duration::from_secs(5)), 1),
+            (Some(5), Some(Duration::ZERO), 1),
+        ] {
+            client.transact_options.retry_limit = retry_limit;
+            client.transact_options.time_out = time_out;
+            let attempts = AtomicUsize::new(0);
+            let result = client
+                .transact((&client, &attempts), |trx, (client, attempts)| {
+                    Box::pin(async move {
+                        if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                            // An actual FDB range read at an expired version must retry at a fresh
+                            // version; retaining the old version would fail every attempt.
+                            trx.set_read_version(1);
+                        }
+                        let deposits = client.read_range_in(trx, |dirs| &dirs.deposits).await?;
+                        let graphs = client.read_range_in(trx, |dirs| &dirs.graphs).await?;
+                        Ok((deposits, graphs))
+                    })
+                })
+                .await;
+            assert_eq!(attempts.load(Ordering::SeqCst), expected_attempts);
+            assert_eq!(result.is_ok(), expected_attempts == 2);
+        }
+        client.clear().await.unwrap().unwrap();
+        drop(client);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn recovery_reports_malformed_rows_instead_of_returning_partial_state() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-snapshot-malformed-{suffix}"),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let trx = client.create_transaction().unwrap();
+        let key = DepositStateKey { deposit_idx: 0 }
+            .pack(&client.dirs)
+            .unwrap();
+        trx.set(&key, &[255]);
+        trx.commit().await.unwrap();
+        assert!(client.get_persisted_state().await.is_err());
+        client.clear().await.unwrap().unwrap();
+        drop(client);
+        drop(guard);
     }
 }
