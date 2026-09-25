@@ -18,6 +18,8 @@ pub use sqlite::{SqliteStore, SqliteStoreError, WalletKind};
 use thiserror::Error;
 use tracing::info;
 
+use crate::sync::Backend;
+
 /// [`AsyncWalletPersister`] whose errors can be boxed and which can live behind an
 /// `Arc<RwLock<_>>` across tasks. Blanket-implemented; implement the BDK trait and this follows.
 pub trait WalletStore:
@@ -45,6 +47,17 @@ pub enum InitError<E: std::error::Error + 'static> {
     /// The store reported no data straight after acknowledging the initial write.
     #[error("wallet store reported no data after the initial write was acknowledged")]
     StoreDroppedWrite,
+    /// The backend's chain is shorter than the persisted tip.
+    #[error("node is at height {height}, behind the persisted wallet tip {tip}")]
+    BackendBehindTip {
+        /// Height of the persisted tip.
+        tip: u32,
+        /// Height of the backend's best chain.
+        height: u32,
+    },
+    /// The backend could not be asked for its height.
+    #[error("checking the persisted tip against the node: {0:?}")]
+    Backend(crate::sync::SyncError),
     /// The bootstrap checkpoint is not above genesis.
     #[error("bootstrap checkpoint at height {0} must be above genesis")]
     BootstrapHeight(u32),
@@ -64,10 +77,10 @@ impl<E: std::error::Error + 'static> From<LoadWithPersistError<E>> for InitError
 
 /// Loads the wallet for `descriptor` from `store`, or creates it when the store is empty.
 ///
-/// Loading verifies network, genesis hash, and descriptor identity; a mismatch fails without
-/// touching the store. Creating persists the descriptor, network, and genesis block, then seeds
-/// the local chain with `bootstrap_checkpoint` if given, so the first sync starts above it. The
-/// checkpoint is ignored on load: persisted state wins.
+/// Loading verifies network, genesis hash, and both keychains' descriptor identity; a mismatch
+/// fails without touching the store. Creating persists the descriptor, network, and genesis
+/// block, then seeds the local chain with `bootstrap_checkpoint` if given, so the first sync
+/// starts above it. The checkpoint is ignored on load: persisted state wins.
 pub async fn load_or_create<P: WalletStore>(
     store: &mut P,
     descriptor: ExtendedDescriptor,
@@ -77,6 +90,7 @@ pub async fn load_or_create<P: WalletStore>(
     let load_params = || {
         Wallet::load()
             .descriptor(KeychainKind::External, Some(descriptor.clone()))
+            .descriptor(KeychainKind::Internal, Option::<ExtendedDescriptor>::None)
             .check_network(network)
             .check_genesis_hash(genesis_block(network).block_hash())
     };
@@ -126,6 +140,43 @@ pub async fn load_or_create<P: WalletStore>(
     PersistedWallet::load_async(store, load_params())
         .await?
         .ok_or(InitError::StoreDroppedWrite)
+}
+
+/// Fails when the backend's chain is shorter than the wallet's tip.
+///
+/// A reorg is not a problem on its own: the emitter walks back to a block the backend still has
+/// and re-emits from there. It can only do that while the backend has blocks above that one, so a
+/// backend shorter than the stored tip, as after restoring an older node data directory, leaves
+/// the wallet's extra blocks in place with their transactions still looking confirmed.
+pub async fn ensure_backend_not_behind<P: WalletStore>(
+    backend: &Backend,
+    wallet: &PersistedWallet<P>,
+) -> Result<(), InitError<P::Error>> {
+    let tip = wallet.latest_checkpoint().height();
+    let height = backend.height().await.map_err(InitError::Backend)?;
+    if height >= tip {
+        return Ok(());
+    }
+    Err(InitError::BackendBehindTip { tip, height })
+}
+
+/// Drops anchors to blocks the persisted chain has since replaced or removed. Stores apply it to
+/// the changeset they hand to BDK at load.
+///
+/// BDK never deletes an anchor and canonicalizes a transaction whose anchors all point off the
+/// chain, so a spend confirmed in a reorged-out block keeps its inputs spent for as long as the
+/// anchor is loaded. Without it, and with mempool sightings never persisted, the transaction is
+/// unknown to canonicalization until the chain or the mempool shows it again. Anchors to heights
+/// the chain has no entry for are kept; the chain has nothing to say about them.
+pub(crate) fn prune_stale_anchors(changeset: &mut ChangeSet) {
+    let blocks = &changeset.local_chain.blocks;
+    changeset
+        .tx_graph
+        .anchors
+        .retain(|(anchor, _)| match blocks.get(&anchor.block_id.height) {
+            Some(hash) => *hash == Some(anchor.block_id.hash),
+            None => true,
+        });
 }
 
 #[cfg(test)]
@@ -220,6 +271,41 @@ mod tests {
             "got {err:?}"
         );
         assert_eq!(store.persist_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_unexpected_change_descriptor_is_rejected() {
+        let mut store = MemoryStore::new();
+        open(&mut store, 1, Network::Regtest, None)
+            .await
+            .expect("create");
+
+        // A store carrying the expected external descriptor plus a change keychain must fail:
+        // these wallets never write one, and change would otherwise be derived from it.
+        let with_change_keychain = ChangeSet {
+            change_descriptor: Some(tr_descriptor(2)),
+            ..ChangeSet::default()
+        };
+        MemoryStore::persist(&mut store, &with_change_keychain)
+            .await
+            .unwrap();
+
+        let err = open(&mut store, 1, Network::Regtest, None)
+            .await
+            .expect_err("unexpected change keychain");
+        assert!(
+            matches!(
+                &err,
+                InitError::InvalidState(e) if matches!(
+                    **e,
+                    LoadError::Mismatch(LoadMismatch::Descriptor {
+                        keychain: KeychainKind::Internal,
+                        ..
+                    })
+                )
+            ),
+            "got {err:?}"
+        );
     }
 
     #[tokio::test]
