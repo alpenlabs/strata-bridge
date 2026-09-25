@@ -17,7 +17,7 @@
 //! - **Persistence**: a restart from the same stores resumes at the persisted tip and applies only
 //!   the chain delta; staged state is committed in bounded batches; a failed commit is retried
 //!   without gaps or duplicates; a reorg rolls the persisted chain back; a bootstrap checkpoint
-//!   skips history below it.
+//!   skips history below it; a pruned node must still hold the seed block or the sync fails.
 //!
 //! Tests are `#[serial]` because `bitcoind` binds a fixed RPC port — parallel runs would
 //! collide. Each test spins up a fresh `bitcoind` so state doesn't leak between cases.
@@ -85,6 +85,14 @@ fn setup_bitcoind() -> Node {
         .generate_to_address(101, &mining_address)
         .expect("mine coinbase maturity");
     bitcoind
+}
+
+/// Boots a manually prunable regtest `bitcoind`. `-fastprune` shrinks block files to 64 KiB so a
+/// few hundred empty blocks span several files and `pruneblockchain` has whole files to delete.
+fn setup_pruned_bitcoind() -> Node {
+    let mut conf = Conf::default();
+    conf.args.extend(["-prune=1", "-fastprune"]);
+    Node::with_conf("bitcoind", &conf).expect("pruned bitcoind must start")
 }
 
 /// Spins up a sync `bitcoincore_rpc::Client` against the running node — needed by
@@ -1038,6 +1046,64 @@ async fn bootstrap_checkpoint_skips_history_below_it() {
         (1..90).all(|h| !live.contains_key(&h)),
         "history below the checkpoint is never persisted"
     );
+}
+
+#[tokio::test]
+#[serial]
+async fn sync_fails_when_the_seed_block_is_pruned() {
+    let bitcoind = setup_pruned_bitcoind();
+    let rpc = sync_rpc_client(&bitcoind);
+    // Core keeps the last 288 blocks and deletes whole files, so mine well past both limits.
+    mine(&bitcoind, 700);
+    let _: u64 = rpc.call("pruneblockchain", &[400.into()]).expect("prune");
+    let prune_height = rpc
+        .get_blockchain_info()
+        .expect("blockchain info")
+        .prune_height
+        .expect("a pruned node reports its prune height") as u32;
+    assert!(prune_height > 1, "nothing was pruned: {prune_height}");
+    let seed = |height: u32| BlockId {
+        height,
+        hash: rpc.get_block_hash(height.into()).expect("block hash"),
+    };
+
+    // A store is seeded at the bootstrap block's parent and the emitter fetches that parent
+    // first, so a bootstrap height equal to the prune height points the first fetch at a block
+    // the node has deleted.
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        31,
+        32,
+        &stores,
+        Some(seed(prune_height - 1)),
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    let err = wallet.sync().await.expect_err("the seed block is pruned");
+    assert!(format!("{err:?}").contains("pruned"), "{err:?}");
+    assert_eq!(
+        wallet.local_chain_tip_height(),
+        prune_height - 1,
+        "a failed sync leaves the chain at the seed"
+    );
+
+    // One block higher the seed itself is retained and the sync runs to the tip.
+    let stores = Stores::default();
+    let mut wallet = open_wallet(
+        &bitcoind,
+        33,
+        34,
+        &stores,
+        Some(seed(prune_height)),
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    wallet
+        .sync()
+        .await
+        .expect("sync from the lowest retained block");
+    assert_eq!(wallet.local_chain_tip_height(), 700);
 }
 
 /// Opens (loads or creates) a [`SqliteWallet`] whose two stores live in `data_dir`.

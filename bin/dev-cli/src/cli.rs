@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use bitcoin::Network;
+use bitcoin::{address::NetworkUnchecked, Address, BlockHash, Network};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -37,6 +37,9 @@ pub(crate) enum Commands {
 
     /// Post an unstaking intent transaction.
     UnstakingIntent(UnstakingIntentArgs),
+
+    /// Compute or verify the operator wallet bootstrap checkpoint from the node's UTXO set.
+    WalletBirthday(WalletBirthdayArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -216,6 +219,55 @@ pub(crate) struct UnstakingIntentArgs {
 
     #[arg(long, help = "the path to the params file")]
     pub(crate) params: PathBuf,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(
+    about = "Compute or verify the operator_wallet bootstrap checkpoint from the node's UTXO set",
+    version
+)]
+pub(crate) struct WalletBirthdayArgs {
+    #[arg(
+        long,
+        help = "general wallet address (`general_wallet_address` from derive-keys)"
+    )]
+    pub(crate) general_address: Address<NetworkUnchecked>,
+
+    #[arg(
+        long,
+        help = "reserved wallet address (`reserved_wallet_address` from derive-keys)"
+    )]
+    pub(crate) reserved_address: Address<NetworkUnchecked>,
+
+    #[arg(
+        long,
+        help = "base URL of a mempool/esplora API whose block hash must match the node's, e.g. https://mempool.space/api"
+    )]
+    pub(crate) explorer_url: Option<String>,
+
+    #[arg(
+        long,
+        help = "verify mode: the configured bootstrap_height, which must be at or below the birthday"
+    )]
+    pub(crate) expect_height: Option<u64>,
+
+    #[arg(
+        long,
+        requires = "expect_height",
+        help = "verify mode: the configured bootstrap_block_hash, which must be the node's block at --expect-height"
+    )]
+    pub(crate) expect_block_hash: Option<BlockHash>,
+
+    #[arg(
+        long,
+        default_value_t = 3600,
+        value_parser = clap::value_parser!(u64).range(1..),
+        help = "seconds to wait for each node RPC; a mainnet scantxoutset runs for minutes"
+    )]
+    pub(crate) rpc_timeout: u64,
 
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,

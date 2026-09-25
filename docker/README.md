@@ -111,17 +111,28 @@ on the host. The directory is gitignored, survives `just docker`, and is removed
 
 A store created on a start begins scanning at the configured bootstrap checkpoint, or at bitcoin
 genesis when none is set. The wallet never sees blocks below it, so the checkpoint must be at or
-below the oldest unspent output either wallet holds. Obtain it from your own node: the lowest
-`height` under `unspents` is the earliest block you must cover, and `getblockhash` names that
-block.
+below the oldest unspent output of either wallet, the general wallet and the reserved
+(claim-funding) wallet alike: a checkpoint above the reserved wallet's outputs makes the node treat
+the claim-funding pool as spent and fund it again from the general wallet. `dev-cli wallet-birthday`
+finds that block in your own node's UTXO set and, with `--explorer-url`, checks its hash against a
+second source:
 
 ```sh
-bitcoin-cli scantxoutset start '["addr(<general wallet address>)"]'
-bitcoin-cli getblockhash <height>
+dev-cli wallet-birthday \
+  --general-address <general wallet address> \
+  --reserved-address <reserved wallet address> \
+  --explorer-url https://mempool.space/api \
+  --btc-url http://127.0.0.1:18443 --btc-user <user> --btc-pass <password>
 ```
 
-Verify that hash against a source other than the node you just asked, a second node or a block
-explorer, then configure the pair:
+Paste its output into the config. To do the same by hand, scan both addresses, take the lowest
+`height` under `unspents`, and verify the hash against a source other than the node you just asked,
+a second node or a block explorer:
+
+```sh
+bitcoin-cli -rpcclienttimeout=0 scantxoutset start '["addr(<general wallet address>)", "addr(<reserved wallet address>)"]'
+bitcoin-cli getblockhash <height>
+```
 
 ```toml
 [operator_wallet]
@@ -133,7 +144,9 @@ Startup fails if the node reports a different hash at that height, which is what
 following another chain. A height with no hash is accepted but taken on trust and logged as such,
 and a height the node has no block for fails rather than falling back to genesis.
 
-The pair is checked against the node on every start, so it must stay valid while it is configured.
+The pair is checked against the node on every start, so it must stay valid while it is configured;
+`dev-cli wallet-birthday --expect-height <height> --expect-block-hash <hash> ...` re-checks it at any
+time and exits non-zero if it would skip an unspent output or names another block.
 Stores that already exist resume from their own tip and are not rescanned, so changing or removing
 the setting moves the scan start only for stores created afterwards. To roll a checkpoint back,
 edit the pair and move the stores aside as below; the next start rebuilds from the new value.

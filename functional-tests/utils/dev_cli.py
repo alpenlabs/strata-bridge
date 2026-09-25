@@ -26,14 +26,22 @@ class DevCli:
     def __init__(
         self,
         bitcoind_props: dict,
-        operator_key_infos: list[OperatorKeyInfo],
+        operator_key_infos: list[OperatorKeyInfo] | None = None,
         bridge_protocol_params=None,
     ):
         self.bitcoind_props = bitcoind_props
-        self.operator_key_infos = operator_key_infos
+        self.operator_key_infos = operator_key_infos or []
         self.bridge_protocol_params = bridge_protocol_params
         self.temp_dir = tempfile.mkdtemp()
-        self.params_path = self._create_params_file()
+        # Without operators there is nothing to put in a params file; only the commands that do
+        # not read one (`wallet-birthday`) work on such a wrapper.
+        self._params_path = self._create_params_file() if self.operator_key_infos else None
+
+    @property
+    def params_path(self) -> str:
+        if self._params_path is None:
+            raise RuntimeError("DevCli was created without operator keys, so it has no params file")
+        return self._params_path
 
     def _create_params_file(self) -> str:
         p = self.bridge_protocol_params or BridgeProtocolParams()
@@ -338,6 +346,82 @@ class DevCli:
         # HACK: (@Rajil1213) parse raw stdout to extract txid
         txid = res.splitlines()[-1].split("=")[-1].strip()
         return txid
+
+    def _wallet_birthday_args(
+        self,
+        general_address: str,
+        reserved_address: str,
+        *,
+        explorer_url: str | None = None,
+        expect_height: int | None = None,
+        expect_block_hash: str | None = None,
+        rpc_timeout: int | None = None,
+    ) -> list[str]:
+        rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
+        wallet = self.bitcoind_props.get("walletname", "testwallet")
+        optional = {
+            "--explorer-url": explorer_url,
+            "--expect-height": expect_height,
+            "--expect-block-hash": expect_block_hash,
+            "--rpc-timeout": rpc_timeout,
+        }
+
+        args = [
+            "wallet-birthday",
+            "--btc-url",
+            f"http://127.0.0.1:{rpc_port}/wallet/{wallet}",
+            "--btc-user",
+            self.bitcoind_props.get("rpc_user", "user"),
+            "--btc-pass",
+            self.bitcoind_props.get("rpc_password", "password"),
+            "--general-address",
+            general_address,
+            "--reserved-address",
+            reserved_address,
+        ]
+        for flag, value in optional.items():
+            if value is not None:
+                args += [flag, str(value)]
+        return args
+
+    def wallet_birthday(
+        self,
+        general_address: str,
+        reserved_address: str,
+        explorer_url: str | None = None,
+        rpc_timeout: int | None = None,
+    ) -> dict:
+        """Compute the `[operator_wallet]` bootstrap checkpoint for the two wallet addresses.
+
+        Returns the printed table: `bootstrap_height` and `bootstrap_block_hash`.
+        `rpc_timeout` is `--rpc-timeout` in seconds; the tool's default when omitted.
+        """
+        args = self._wallet_birthday_args(
+            general_address, reserved_address, explorer_url=explorer_url, rpc_timeout=rpc_timeout
+        )
+        res = self._run_command(args)
+        # Tracing shares stdout with the printed table, which is the last thing printed.
+        table = res[res.index("[operator_wallet]") :]
+        return toml.loads(table)["operator_wallet"]
+
+    def verify_wallet_birthday(
+        self,
+        general_address: str,
+        reserved_address: str,
+        expect_height: int,
+        expect_block_hash: str | None = None,
+        explorer_url: str | None = None,
+    ) -> bool:
+        """Whether a configured pair passes `wallet-birthday`'s verify mode, i.e. its exit code."""
+        args = self._wallet_birthday_args(
+            general_address,
+            reserved_address,
+            explorer_url=explorer_url,
+            expect_height=expect_height,
+            expect_block_hash=expect_block_hash,
+        )
+        proc = subprocess.run([BINARY_PATH, *args], capture_output=True, text=True, check=False)
+        return proc.returncode == 0
 
 
 def _strip_nones(value):
