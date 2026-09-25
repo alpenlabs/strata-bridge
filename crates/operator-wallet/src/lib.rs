@@ -64,6 +64,12 @@ pub enum Error {
         /// Total value of unconfirmed candidate UTXOs after normal exclusions.
         unconfirmed_amount: bdk_wallet::bitcoin::Amount,
     },
+    /// No eligible general-wallet inputs have reached the required burial depth.
+    #[error("no general-wallet UTXOs buried beyond depth {bury_depth} available for reserved-wallet funding")]
+    NoBuriedGeneralUtxos {
+        /// Required number of blocks on top of each input transaction.
+        bury_depth: u32,
+    },
     /// The wallet receive script cannot be represented as a Bitcoin address.
     #[error("wallet receive script is not addressable: {0}")]
     Address(#[from] bdk_wallet::bitcoin::address::FromScriptError),

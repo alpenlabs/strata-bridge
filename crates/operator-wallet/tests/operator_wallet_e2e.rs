@@ -561,6 +561,114 @@ async fn reserve_utxo_with_value_filters_by_value() {
 
 #[tokio::test]
 #[serial]
+async fn settled_accepts_unconfirmed_outputs_only_from_own_refills() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, general_kp, _) =
+        build_operator_wallet(&bitcoind, 19, 20, 2, Amount::from_btc(0.5).unwrap()).await;
+    let utxo_value = Amount::from_btc(0.01).unwrap();
+    let bury_depth = 2;
+
+    let miner_addr = bitcoind.client.new_address().expect("miner");
+    bitcoind
+        .client
+        .generate_to_address(bury_depth as usize, &miner_addr)
+        .expect("bury inputs");
+    wallet.sync().await.expect("sync buried inputs");
+
+    // Two pool-sized outputs, both unconfirmed: one paid in by bitcoind's wallet, one from our
+    // own refill.
+    let reserved_address = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    bitcoind
+        .client
+        .send_to_address(&reserved_address, utxo_value)
+        .expect("send external output");
+    let funded = wallet
+        .create_reserved_utxos(
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            utxo_value,
+            1,
+            GeneralUtxoPolicy::BuriedOnly { bury_depth },
+        )
+        .await
+        .expect("refill");
+    let refill_txid = funded.psbt.unsigned_tx.compute_txid();
+    let signed = sign_and_finalize(funded.psbt, general_kp);
+    bitcoind
+        .client
+        .send_raw_transaction(&signed)
+        .expect("broadcast refill");
+    wallet.sync().await.expect("sync mempool");
+
+    let pool = wallet.reserved_utxos_with_value(utxo_value);
+    assert!(
+        pool.iter().all(|u| !wallet.settled(bury_depth + 1)(u)),
+        "refill trust must not exceed its input burial policy"
+    );
+    assert_eq!(pool.len(), 2, "both unconfirmed outputs are in the pool");
+    let settled = wallet.settled(bury_depth);
+    let settled_txids: Vec<_> = pool
+        .iter()
+        .filter(|u| settled(u))
+        .map(|u| u.outpoint.txid)
+        .collect();
+    assert_eq!(
+        settled_txids,
+        vec![refill_txid],
+        "only the refill output is settled while unconfirmed"
+    );
+
+    let (picked, remaining) = wallet.reserve_utxo_with_value(utxo_value, |u| !settled(u));
+    assert_eq!(
+        picked.map(|outpoint| outpoint.txid),
+        Some(refill_txid),
+        "reservation skips the external output"
+    );
+    assert_eq!(remaining, 0, "nothing else is settled");
+
+    let settled_at_zero = wallet.settled(0);
+    assert!(
+        pool.iter()
+            .filter(|u| settled_at_zero(u))
+            .all(|u| u.outpoint.txid == refill_txid),
+        "depth zero must still reject external mempool outputs"
+    );
+
+    // Confirmations include the transaction's own block, so burial needs one more.
+    let miner_addr = bitcoind.client.new_address().expect("miner");
+    bitcoind
+        .client
+        .generate_to_address(bury_depth as usize, &miner_addr)
+        .expect("mine");
+    wallet.sync().await.expect("sync confirmations");
+    let settled = wallet.settled(bury_depth);
+    let pool = wallet.reserved_utxos_with_value(utxo_value);
+    assert!(
+        pool.iter()
+            .filter(|u| u.outpoint.txid != refill_txid)
+            .all(|u| u.confirmations == bury_depth && !settled(u)),
+        "external outputs at exactly bury_depth confirmations are not buried"
+    );
+    assert!(
+        pool.iter().all(wallet.settled(0)),
+        "depth zero accepts mined outputs"
+    );
+
+    bitcoind
+        .client
+        .generate_to_address(1, &miner_addr)
+        .expect("mine burial block");
+    wallet.sync().await.expect("sync burial");
+    let settled = wallet.settled(bury_depth);
+    let pool = wallet.reserved_utxos_with_value(utxo_value);
+    assert!(
+        pool.iter().all(settled),
+        "buried outputs are settled regardless of origin"
+    );
+}
+
+#[tokio::test]
+#[serial]
 async fn sync_prunes_leases_whose_outpoints_have_been_spent() {
     let bitcoind = setup_bitcoind();
     let (mut wallet, general_kp, general_pk) =
@@ -1127,4 +1235,45 @@ async fn sqlite_store_survives_a_restart_and_resumes_at_the_persisted_tip() {
 
     wallet.sync().await.expect("post-restart sync");
     assert_eq!(wallet.local_chain_tip_height(), tip_before + 5);
+}
+
+#[tokio::test]
+#[serial]
+async fn refill_requires_buried_inputs() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, _, _) =
+        build_operator_wallet(&bitcoind, 21, 22, 1, Amount::from_btc(0.5).unwrap()).await;
+    let bury_depth = 2;
+    let miner_addr = bitcoind.client.new_address().expect("miner");
+    let value = Amount::from_btc(0.01).unwrap();
+    let policy = GeneralUtxoPolicy::BuriedOnly { bury_depth };
+    let fee_rate = FeeRate::from_sat_per_vb(5).unwrap();
+
+    for confirmations in 1..=bury_depth {
+        wallet.sync().await.expect("sync input confirmations");
+        assert_eq!(
+            wallet.general().list_utxos()[0].confirmations,
+            confirmations
+        );
+        let err = wallet
+            .create_reserved_utxos(fee_rate, value, 1, policy)
+            .await
+            .expect_err("shallow inputs must be rejected");
+        assert!(matches!(
+            err,
+            OperatorWalletError::NoBuriedGeneralUtxos { bury_depth: 2 }
+        ));
+        assert!(wallet.leased_outpoints().is_empty());
+        bitcoind
+            .client
+            .generate_to_address(1, &miner_addr)
+            .expect("mine");
+    }
+
+    wallet.sync().await.expect("sync buried input");
+    let funded = wallet
+        .create_reserved_utxos(fee_rate, value, 1, policy)
+        .await
+        .expect("buried input must be accepted");
+    assert_eq!(funded.spent().len(), 1);
 }
