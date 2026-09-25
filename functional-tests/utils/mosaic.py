@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -6,6 +7,13 @@ from pathlib import Path
 MOSAIC_PORT_BASE = 11900
 
 MOSAIC_KEYS_PATH = Path(__file__).parent.parent / "artifacts" / "mosaic.json"
+
+# Mosaic setup scales with N_CIRCUITS (5 under reduced cut-and-choose, 181 under full).
+# Measured under full against the real circuit: ~48 min verifying the 174 opened circuits,
+# then ~85 min transferring the 7 retained tables, so the 2h stake wait sized for reduced
+# mode times out mid-transfer. Tests scale only their mosaic-bound waits by this, so a
+# genuine hang still fails fast.
+MOSAIC_WAIT_SCALE = 3 if os.environ.get("MOSAIC_CUT_AND_CHOOSE") == "full" else 1
 
 
 @dataclass
@@ -58,6 +66,25 @@ def get_peer_ids(num_operators: int) -> list[str]:
 
 
 def get_circuit_path() -> str:
+    # Full-circuit mode: run_test.sh generates the real g16 circuit for this run and
+    # exports its location before entry.py starts (see g16-setup.bash). The existence
+    # check turns a broken export into a loud failure at env-init time instead of a
+    # mosaic crash on a missing file.
+    override = os.environ.get("MOSAIC_CIRCUIT_PATH")
+    if override:
+        path = Path(override).resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"MOSAIC_CIRCUIT_PATH is set but missing: {path}")
+        return str(path)
+
+    # Full mode must fail loudly here rather than silently fall back to the
+    # toy circuit and fake the coverage the full run exists to provide.
+    if os.environ.get("MOSAIC_CIRCUIT_MODE") == "full":
+        raise RuntimeError(
+            "MOSAIC_CIRCUIT_MODE=full but MOSAIC_CIRCUIT_PATH is unset; "
+            "run via run_test.sh so g16-setup.bash generates and exports the circuit"
+        )
+
     # Same circuit as mosaic's artifact; regenerate from g16 (branch
     # test/simple_circuit_postaudit_smallest) and re-copy from mosaic on any ckt bump.
     abs_path = (Path(__file__).parent.parent / "artifacts" / "mosaic_depositidx_ckt.v5c").resolve()

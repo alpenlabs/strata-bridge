@@ -39,7 +39,7 @@ jobs:
         id: list
         run: |
           # Keep in sync with SKIP_GROUPS_BY_DEFAULT in functional-tests/entry.py
-          groups=$(find functional-tests/tests -mindepth 1 -maxdepth 1 -type d -not -name proofs -printf '%f\n' \
+          groups=$(find functional-tests/tests -mindepth 1 -maxdepth 1 -type d -not -name proofs -not -name full_mosaic -printf '%f\n' \
             | sort \
             | jq -R . \
             | jq -sc .)
