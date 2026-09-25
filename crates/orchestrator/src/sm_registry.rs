@@ -23,6 +23,7 @@ use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, events::DepositEvent, machine::DepositSM},
     errors::BridgeSMError,
     graph::{config::GraphSMCfg, events::GraphEvent, machine::GraphSM},
+    operator_set::{OperatorSetError, OperatorSetEvent, OperatorSetSM},
     signals,
     stake::{config::StakeSMCfg, events::StakeEvent, machine::StakeSM, state::StakeState},
     state_machine::{SMOutput, StateMachine},
@@ -62,6 +63,13 @@ pub struct SMRegistry {
     graphs: BTreeMap<GraphIdx, GraphSM>,
     /// Independent stake instances, indexed by covenant and permanent operator index.
     stakes: BTreeMap<StakeKey, StakeSM>,
+    /// Public membership, installed once by bootstrap or restored from storage.
+    ///
+    /// `Option` is temporary until startup reconciliation
+    /// ([STR-3621](https://alpenlabs.atlassian.net/browse/STR-3621)) and storage recovery
+    /// ([STR-4043](https://alpenlabs.atlassian.net/browse/STR-4043)) are integrated. Once both
+    /// are complete, this field must become a required `OperatorSetSM`.
+    operator_set: Option<OperatorSetSM>,
     /// The latched safe-harbour destination address, set once when the ASM reports the safe
     /// harbour as activated. This is sticky and monotonic: the first write wins and it is never
     /// cleared, so it survives a tip reorg that flips the ASM flag back to inactive. `None` means
@@ -87,6 +95,9 @@ pub enum RegistryInsertError {
     /// The maximum deposit index has been reached.
     #[error("deposit index exhausted at {0}; cannot allocate a new deposit index")]
     DepositIdxExhausted(DepositIdx),
+    /// Public membership was already installed; existing history must not be overwritten.
+    #[error("operator set state machine already exists")]
+    OperatorSetAlreadyExists,
 }
 
 /// Confirmed stake inputs for the full, exact membership of a requested covenant.
@@ -149,6 +160,7 @@ impl SMRegistry {
             deposits: BTreeMap::new(),
             graphs: BTreeMap::new(),
             stakes: BTreeMap::new(),
+            operator_set: None,
             safe_harbour: None,
         }
     }
@@ -218,7 +230,26 @@ impl SMRegistry {
             .map(|deposit_idx| SMId::Deposit(*deposit_idx))
             .chain(self.graphs.keys().map(|graph_idx| SMId::Graph(*graph_idx)))
             .chain(self.stakes.keys().map(|op_idx| SMId::Stake(*op_idx)))
+            .chain(self.operator_set.as_ref().map(|_| SMId::OperatorSet))
             .collect()
+    }
+
+    /// Installs the singleton membership component without replacing an existing history.
+    ///
+    /// Runtime bootstrap and durable storage integration are supplied by
+    /// [STR-3621](https://alpenlabs.atlassian.net/browse/STR-3621) and
+    /// [STR-4043](https://alpenlabs.atlassian.net/browse/STR-4043).
+    pub fn insert_operator_set(&mut self, sm: OperatorSetSM) -> Result<(), RegistryInsertError> {
+        if self.operator_set.is_some() {
+            return Err(RegistryInsertError::OperatorSetAlreadyExists);
+        }
+        self.operator_set = Some(sm);
+        Ok(())
+    }
+
+    /// The finalized public membership view, independent of local StakeSM availability.
+    pub const fn get_operator_set(&self) -> Option<&OperatorSetSM> {
+        self.operator_set.as_ref()
     }
 
     /// Gets a reference to the deposit state machine identified by `id`, if it exists in the
@@ -280,6 +311,7 @@ impl SMRegistry {
     /// Checks if an ID is present in the registry.
     pub fn contains_id(&self, id: &SMId) -> bool {
         match id {
+            SMId::OperatorSet => self.operator_set.is_some(),
             SMId::Deposit(deposit_idx) => self.deposits.contains_key(deposit_idx),
             SMId::Graph(graph_idx) => self.graphs.contains_key(graph_idx),
             SMId::Stake(operator_idx) => self.stakes.contains_key(operator_idx),
@@ -433,6 +465,8 @@ impl SMRegistry {
     /// Returns `None` if the SM is not in the registry or the operator key cannot be resolved.
     pub fn lookup_operator(&self, id: &SMId, key: &OperatorKey<'_>) -> Option<OperatorIdx> {
         let table = match id {
+            // Public membership has no local signing role or peer-message protocol.
+            SMId::OperatorSet => return None,
             SMId::Deposit(idx) => self.deposits.get(idx)?.context().operator_table(),
             SMId::Graph(idx) => self.graphs.get(idx)?.context().operator_table(),
             SMId::Stake(idx) => self.stakes.get(idx)?.context().operator_table(),
@@ -515,6 +549,25 @@ impl SMRegistry {
         let cross_sm_context = self.resolve_cross_sm_context(id);
 
         match (id, event) {
+            (SMId::OperatorSet, SMEvent::OperatorSet(event)) => {
+                let sm = self
+                    .operator_set
+                    .as_mut()
+                    .ok_or(ProcessError::SMNotFound(*id))?;
+                let original = SMEvent::OperatorSet(event.clone());
+                match sm.process_event((), *event) {
+                    Ok(output) => Ok(applied_process_outcome(output, |duty| match duty {})),
+                    Err(OperatorSetError::NonconsecutiveBlock {
+                        processed,
+                        received,
+                    }) if processed == received => Ok(ProcessOutcome::Ignored {
+                        id: *id,
+                        event: original,
+                        reason: IgnoredEventReason::Duplicate,
+                    }),
+                    Err(error) => Err(error.into()),
+                }
+            }
             (SMId::Deposit(idx), SMEvent::Deposit(deposit_event)) => {
                 let sm = self
                     .deposits
@@ -572,6 +625,7 @@ impl SMRegistry {
 
     fn state_kind(&self, id: &SMId) -> Option<&'static str> {
         match id {
+            SMId::OperatorSet => self.operator_set.as_ref().map(|_| "tracking"),
             SMId::Deposit(idx) => self
                 .deposits
                 .get(idx)
@@ -594,7 +648,7 @@ impl SMRegistry {
     fn resolve_cross_sm_context(&self, id: &SMId) -> CrossSmContext {
         match id {
             SMId::Graph(graph_idx) => self.resolve_graph_cross_sm_context(graph_idx),
-            SMId::Deposit(_) | SMId::Stake(_) => CrossSmContext::default(),
+            SMId::Deposit(_) | SMId::Stake(_) | SMId::OperatorSet => CrossSmContext::default(),
         }
     }
 
@@ -642,6 +696,7 @@ const fn transition_result(outcome: &Result<ProcessOutcome, ProcessError>) -> &'
 
 fn is_periodic_event(event: &SMEvent) -> bool {
     match event {
+        SMEvent::OperatorSet(event) => matches!(event.as_ref(), OperatorSetEvent::NewBlock { .. }),
         SMEvent::Deposit(event) => matches!(
             event.as_ref(),
             DepositEvent::NewBlock(_) | DepositEvent::RetryTick(_) | DepositEvent::NagTick(_)
@@ -1643,5 +1698,223 @@ mod covenant_tests {
             registry.insert_stake(other),
             Err(RegistryInsertError::CovenantMembershipMismatch(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod operator_set_tests {
+    use std::collections::BTreeSet;
+
+    use bitcoin::{Txid, hashes::Hash};
+    use strata_bridge_sm::{
+        operator_set::{
+            ConfirmedExit, ExitKind, OperatorSetError, OperatorSetEvent, OperatorSetSM,
+        },
+        stake::{context::StakeSMCtx, machine::StakeSM},
+    };
+
+    use super::{IgnoredEventReason, ProcessOutcome, RegistryInsertError};
+    use crate::{
+        applicator::Applicator,
+        errors::ProcessError,
+        events_mux::UnifiedEvent,
+        events_router,
+        sm_types::SMId,
+        testing::{test_empty_registry, test_operator_set_sm},
+    };
+
+    fn exit_block(operator_idx: u32) -> OperatorSetEvent {
+        OperatorSetEvent::NewBlock {
+            block_height: 101,
+            exits: vec![ConfirmedExit {
+                operator_idx,
+                txid: Txid::from_byte_array([7; 32]),
+                tx_index: 3,
+                kind: ExitKind::Slash,
+            }],
+        }
+    }
+
+    #[test]
+    fn singleton_registration_is_addressable_and_cannot_overwrite_existing_history() {
+        let mut registry = test_empty_registry();
+        let sm = test_operator_set_sm();
+        registry.insert_operator_set(sm.clone()).unwrap();
+        assert_eq!(
+            registry.get_all_ids(),
+            vec![SMId::OperatorSet],
+            "The singleton membership machine must appear in registry-wide enumeration"
+        );
+        assert!(registry.contains_id(&SMId::OperatorSet));
+        assert_eq!(
+            registry.insert_operator_set(sm.clone()),
+            Err(RegistryInsertError::OperatorSetAlreadyExists),
+            "A second insertion must be rejected instead of overwriting membership history"
+        );
+        assert_eq!(
+            registry.get_operator_set(),
+            Some(&sm),
+            "Rejecting a duplicate insertion must preserve the original membership machine"
+        );
+        assert!(events_router::route(&UnifiedEvent::NagTick, &registry).is_empty());
+        assert!(events_router::route(&UnifiedEvent::RetryTick, &registry).is_empty());
+    }
+
+    #[test]
+    fn observer_and_participant_derive_identical_membership_and_initialization_intent() {
+        let mut observer = test_empty_registry();
+        let mut participant = test_empty_registry();
+        let membership = test_operator_set_sm();
+        let table = membership
+            .current_operator_table()
+            .unwrap()
+            .with_pov(0)
+            .unwrap();
+        for operator_idx in table.operator_idxs() {
+            let (stake, _) = StakeSM::new(StakeSMCtx::new(operator_idx, table.clone(), 100), 100);
+            participant.insert_stake(stake).unwrap();
+        }
+        observer.insert_operator_set(membership.clone()).unwrap();
+        participant.insert_operator_set(membership).unwrap();
+        let mut outputs = Vec::new();
+        for registry in [&mut observer, &mut participant] {
+            let ProcessOutcome::Applied(output) = registry
+                .process_event(&SMId::OperatorSet, exit_block(1).into())
+                .unwrap()
+            else {
+                panic!("membership transition must apply")
+            };
+            assert!(output.duties.is_empty());
+            outputs.push(output.signals);
+            let sm = registry.get_operator_set().unwrap();
+            assert_eq!(
+                sm.current_covenant().activation_height,
+                100,
+                "Automatic exits must preserve the admin boundary regardless of local stake availability"
+            );
+            assert_eq!(
+                sm.current_operator_table().unwrap().operator_idxs(),
+                BTreeSet::from([0]),
+                "Observers and participants must both remove the exited index from public membership"
+            );
+        }
+        assert_eq!(
+            outputs[0], outputs[1],
+            "Local stake availability must not change membership initialization intent"
+        );
+        assert_eq!(
+            observer.get_operator_set(),
+            participant.get_operator_set(),
+            "Observers and participants must derive identical complete membership state"
+        );
+        assert_eq!(
+            observer.num_stakes(),
+            0,
+            "An observer must track membership without any local stake machines"
+        );
+        assert_eq!(
+            participant.num_stakes(),
+            2,
+            "Membership processing must not remove or create participant stake machines"
+        );
+    }
+
+    #[test]
+    fn restored_membership_rejects_duplicate_block_without_another_signal() {
+        let mut registry = test_empty_registry();
+        registry
+            .insert_operator_set(test_operator_set_sm())
+            .unwrap();
+        registry
+            .process_event(&SMId::OperatorSet, exit_block(1).into())
+            .unwrap();
+        let sm = registry.get_operator_set().unwrap();
+        let restored: OperatorSetSM =
+            postcard::from_bytes(&postcard::to_allocvec(sm).unwrap()).unwrap();
+        let signals = restored.initialization_signals().unwrap();
+        let mut recovered_registry = test_empty_registry();
+        recovered_registry.insert_operator_set(restored).unwrap();
+        assert!(matches!(
+            recovered_registry
+                .process_event(&SMId::OperatorSet, exit_block(1).into())
+                .unwrap(),
+            ProcessOutcome::Ignored {
+                reason: IgnoredEventReason::Duplicate,
+                ..
+            }
+        ));
+        assert_eq!(
+            recovered_registry.get_operator_set(),
+            registry.get_operator_set(),
+            "Ignoring a duplicate block must preserve the restored membership state"
+        );
+        assert_eq!(
+            recovered_registry
+                .get_operator_set()
+                .unwrap()
+                .initialization_signals()
+                .unwrap(),
+            signals,
+            "Ignoring a duplicate block must preserve the finalized covenant initialization intent"
+        );
+    }
+
+    #[test]
+    fn ordinary_block_is_tracked_for_persistence_without_staking_duties() {
+        let mut registry = test_empty_registry();
+        registry
+            .insert_operator_set(test_operator_set_sm())
+            .unwrap();
+        let mut applicator = Applicator::new(&mut registry);
+        applicator
+            .apply_batch([(
+                SMId::OperatorSet,
+                OperatorSetEvent::NewBlock {
+                    block_height: 101,
+                    exits: vec![],
+                }
+                .into(),
+            )])
+            .unwrap();
+        let (duties, tracker) = applicator.finish();
+        assert!(duties.is_empty());
+        assert_eq!(
+            tracker.into_batches(),
+            vec![BTreeSet::from([SMId::OperatorSet])],
+            "Advancing the membership processing height must mark the singleton for persistence"
+        );
+    }
+
+    #[test]
+    fn impossible_exit_sequence_is_fatal_and_leaves_registry_membership_unchanged() {
+        let mut registry = test_empty_registry();
+        let sm = test_operator_set_sm();
+        registry.insert_operator_set(sm.clone()).unwrap();
+        let OperatorSetEvent::NewBlock {
+            block_height,
+            mut exits,
+        } = exit_block(1)
+        else {
+            unreachable!()
+        };
+        exits.push(ConfirmedExit {
+            operator_idx: 0,
+            txid: Txid::from_byte_array([8; 32]),
+            tx_index: 4,
+            ..exits[0].clone()
+        });
+        let event = OperatorSetEvent::NewBlock {
+            block_height,
+            exits,
+        };
+        assert!(matches!(
+            registry.process_event(&SMId::OperatorSet, event.into()),
+            Err(ProcessError::OperatorSet(OperatorSetError::EmptyMembership))
+        ));
+        assert_eq!(
+            registry.get_operator_set(),
+            Some(&sm),
+            "Rejecting a last-member exit must roll back the earlier exit in the same block"
+        );
     }
 }

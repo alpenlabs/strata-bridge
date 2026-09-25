@@ -150,7 +150,7 @@ impl<'a> Applicator<'a> {
 
                 for signal in output.signals {
                     for (target_id, target_event) in
-                        signals_router::route_signal(self.registry, signal)
+                        signals_router::route_signal(self.registry, signal)?
                     {
                         if mutated {
                             self.tracker.link(sm_id, target_id);
