@@ -174,7 +174,7 @@ pub(crate) struct BtcZmqConfig {
     pub sequence_connection_string: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct P2PConfig {
     /// Idle connection timeout.
     pub idle_connection_timeout: Option<Duration>,
@@ -248,6 +248,34 @@ pub(crate) struct P2PConfig {
     /// If [`None`], defaults to
     /// [`DEFAULT_PEER_RECONNECT_INTERVAL`](strata_bridge_p2p_service::constants::DEFAULT_PEER_RECONNECT_INTERVAL).
     pub peer_reconnect_interval: Option<Duration>,
+
+    /// Rate-limit score charged per accepted peer message; see
+    /// [`OperatorValidator::message_cost`](strata_bridge_p2p_service::validator::OperatorValidator::message_cost).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_MESSAGE_COST`](strata_bridge_p2p_service::validator::DEFAULT_MESSAGE_COST).
+    pub rate_limit_message_cost: Option<f64>,
+
+    /// Rate-limit score below which a peer is muted. Must be negative. See
+    /// [`OperatorValidator::mute_threshold`](strata_bridge_p2p_service::validator::OperatorValidator::mute_threshold).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_MUTE_THRESHOLD`](strata_bridge_p2p_service::validator::DEFAULT_MUTE_THRESHOLD).
+    pub rate_limit_mute_threshold: Option<f64>,
+
+    /// Rate-limit score a peer recovers per second; see
+    /// [`OperatorValidator::recovery_per_sec`](strata_bridge_p2p_service::validator::OperatorValidator::recovery_per_sec).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_RECOVERY_PER_SEC`](strata_bridge_p2p_service::validator::DEFAULT_RECOVERY_PER_SEC).
+    pub rate_limit_recovery_per_sec: Option<f64>,
+
+    /// How long a peer that crosses the mute threshold stays muted; see
+    /// [`OperatorValidator::mute_duration`](strata_bridge_p2p_service::validator::OperatorValidator::mute_duration).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_MUTE_DURATION`](strata_bridge_p2p_service::validator::DEFAULT_MUTE_DURATION).
+    pub rate_limit_mute_duration: Option<Duration>,
 }
 
 /// RPC server configuration.
@@ -374,6 +402,8 @@ pub(crate) fn test_config() -> Config {
             general_timeout = { secs = 0, nanos = 250_000_000 }
             connection_check_interval = { secs = 0, nanos = 500_000_000 }
             gossipsub_scoring_preset = "permissive"
+            rate_limit_mute_threshold = -50_000
+            rate_limit_mute_duration = { secs = 5, nanos = 0 }
 
             [rpc]
             rpc_addr = "localhost:5678"
@@ -443,6 +473,15 @@ mod tests {
 
     // Operator startup logs the whole config, so no debug rendering of it may carry the Bitcoin
     // RPC credentials, neither the leaf struct nor the parent that holds it.
+    #[test]
+    fn p2p_rate_limit_fields_are_optional_and_accept_integers() {
+        let p2p = test_config().p2p;
+        assert_eq!(p2p.rate_limit_mute_threshold, Some(-50_000.0));
+        assert_eq!(p2p.rate_limit_mute_duration, Some(Duration::from_secs(5)));
+        assert_eq!(p2p.rate_limit_message_cost, None);
+        assert_eq!(p2p.rate_limit_recovery_per_sec, None);
+    }
+
     #[test]
     fn debug_redacts_btc_rpc_credentials() {
         let config = test_config();

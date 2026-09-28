@@ -6,6 +6,7 @@ pub mod constants;
 pub mod message_handler;
 mod observability;
 pub mod reconnect;
+pub mod validator;
 
 pub use bootstrap::bootstrap;
 pub use config::{Configuration, GossipsubScoringPreset};
