@@ -11838,6 +11838,7 @@ dependencies = [
  "futures",
  "libp2p",
  "libp2p-identity",
+ "metrics",
  "musig2",
  "rkyv",
  "secp256k1 0.29.1",

@@ -628,6 +628,43 @@ pub enum UnsignedGossipsubMsg {
 }
 
 impl UnsignedGossipsubMsg {
+    /// Returns a stable, bounded name for this message's kind, for metric labels and logs.
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::PayoutDescriptorExchange { .. } => "payout_descriptor",
+            Self::GraphDataExchange { .. } => "graph_data",
+            Self::UnstakingDataExchange { .. } => "unstaking_data",
+            Self::Musig2NoncesExchange(nonce) => match nonce {
+                MuSig2Nonce::Deposit { .. } => "deposit_nonce",
+                MuSig2Nonce::Payout { .. } => "payout_nonce",
+                MuSig2Nonce::Graph { .. } => "graph_nonces",
+                MuSig2Nonce::Unstake { .. } => "unstaking_nonces",
+                MuSig2Nonce::Sweep { .. } => "sweep_nonce",
+            },
+            Self::Musig2SignaturesExchange(partial) => match partial {
+                MuSig2Partial::Deposit { .. } => "deposit_partial",
+                MuSig2Partial::Payout { .. } => "payout_partial",
+                MuSig2Partial::Graph { .. } => "graph_partials",
+                MuSig2Partial::Unstake { .. } => "unstaking_partials",
+                MuSig2Partial::Sweep { .. } => "sweep_partial",
+            },
+            Self::NagRequestExchange(nag) => match nag.payload {
+                NagRequestPayload::DepositNonce { .. } => "nag_deposit_nonce",
+                NagRequestPayload::DepositPartial { .. } => "nag_deposit_partial",
+                NagRequestPayload::PayoutNonce { .. } => "nag_payout_nonce",
+                NagRequestPayload::PayoutPartial { .. } => "nag_payout_partial",
+                NagRequestPayload::GraphData { .. } => "nag_graph_data",
+                NagRequestPayload::GraphNonces { .. } => "nag_graph_nonces",
+                NagRequestPayload::GraphPartials { .. } => "nag_graph_partials",
+                NagRequestPayload::UnstakingData { .. } => "nag_unstaking_data",
+                NagRequestPayload::UnstakingNonces { .. } => "nag_unstaking_nonces",
+                NagRequestPayload::UnstakingPartials { .. } => "nag_unstaking_partials",
+                NagRequestPayload::SweepNonce { .. } => "nag_sweep_nonce",
+                NagRequestPayload::SweepPartial { .. } => "nag_sweep_partial",
+            },
+        }
+    }
+
     /// Returns the canonical byte representation for signing.
     ///
     /// Includes a single-byte discriminator to cryptographically bind the signature

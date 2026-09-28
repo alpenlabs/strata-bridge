@@ -4,6 +4,7 @@ pub mod bootstrap;
 pub mod config;
 pub mod constants;
 pub mod message_handler;
+mod observability;
 pub mod reconnect;
 
 pub use bootstrap::bootstrap;
