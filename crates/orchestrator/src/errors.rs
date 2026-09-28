@@ -1,6 +1,5 @@
 //! Error types for the orchestrator crate.
 
-use strata_bridge_primitives::covenant::StakeKey;
 use strata_bridge_sm::{operator_set::OperatorSetError, signals::Signal, state_machine::SMOutput};
 use thiserror::Error;
 
@@ -47,12 +46,6 @@ pub enum PipelineError {
     /// A fatal error occurred while persisting state to disk.
     #[error("persist error: {0}")]
     Persist(#[from] PersistError),
-
-    /// Stake creation must be applied before a membership signal can be consumed.
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4040>
-    // Handle initialization synchronously in the applicator.
-    #[error("stake initialization is not integrated for {0}")]
-    StakeInitializationRequired(StakeKey),
 }
 
 /// Unified output from processing an event through any state machine.

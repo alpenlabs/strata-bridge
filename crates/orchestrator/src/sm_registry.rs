@@ -716,6 +716,7 @@ const fn transition_result(outcome: &Result<ProcessOutcome, ProcessError>) -> &'
 
 fn is_periodic_event(event: &SMEvent) -> bool {
     match event {
+        SMEvent::InitializeStake { .. } => false,
         SMEvent::OperatorSet(event) => matches!(event.as_ref(), OperatorSetEvent::NewBlock { .. }),
         SMEvent::Deposit(event) => matches!(
             event.as_ref(),

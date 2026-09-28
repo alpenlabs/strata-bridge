@@ -70,10 +70,20 @@ pub(crate) fn process_block(
         .expect("must have a valid block height");
 
     // Snapshot pre-existing SM IDs: newly created SMs already know the current block height,
-    // so only pre-existing ones need a NewBlock cursor event.
+    // so only pre-existing ones need a NewBlock cursor event. Stakes initialized by membership
+    // at this height, or restored ahead of replay, have already advanced their cursor.
     let existing_deposits = applicator.registry().get_deposit_ids();
     let existing_graphs = applicator.registry().get_graph_ids();
-    let existing_stakes = applicator.registry().get_stake_ids();
+    let existing_stakes: Vec<_> = applicator
+        .registry()
+        .stakes()
+        .filter(|(_, sm)| {
+            sm.state()
+                .last_processed_block_height()
+                .is_some_and(|processed| processed < height)
+        })
+        .map(|(&key, _)| key)
+        .collect();
 
     for tx in &block_event.block.txdata {
         // Readiness is checked after earlier transactions have settled. An unavailable
@@ -459,6 +469,9 @@ mod tests {
 
         for (_id, event) in events {
             match event {
+                SMEvent::InitializeStake { .. } => {
+                    panic!("block advancement must not initialize stakes")
+                }
                 SMEvent::OperatorSet(_) => panic!("membership must be finalized by the pre-pass"),
                 SMEvent::Deposit(boxed) => match *boxed {
                     DepositEvent::NewBlock(ref nb) => assert_eq!(nb.block_height, TEST_HEIGHT),
