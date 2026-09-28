@@ -27,9 +27,16 @@ from utils.stake import (
 from utils.utils import (
     find_utxo_spender_txid,
     read_operator_key,
+    snapshot_log_offsets,
     wait_for_tx_confirmation,
+    wait_until_logs_match,
 )
 from utils.withdrawal import wait_until_counterproof_ack
+
+# Logged by op-0 when the circuit accepts the counterproof: first by mosaic-client's
+# `evaluate_and_sign` ("evaluation failed to extract fault secret"), then by the NACK duty it
+# fails ("evaluator failed to extract fault secret from counterproof").
+NO_FAULT_SECRET_LOG_MARKER = "failed to extract fault secret"
 
 
 @flexitest.register
@@ -50,7 +57,9 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
     test has to stop the operator to keep it from NACKing, because under the toy circuit
     NACK-ability is decided by game-index parity rather than by the counterproof. Here the
     circuit itself is what denies the NACK, so leaving op-0 up and watching it fail to
-    produce one is the actual assertion.
+    produce one is the actual assertion. That failure is observed in op-0's log BEFORE the
+    ACK is allowed to mature: the evaluation takes minutes, and an ACK that takes the
+    counterproof output first would make the missing NACK a race rather than a verdict.
 
     Pairs with fn_invalid_counterproof_nackd.py, which runs the same flow at the same
     deposit index with a forged counterproof and must reach the opposite outcome. Deposit
@@ -62,7 +71,8 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
     3. Wait for an honest watchtower to auto-contest.
     4. Post a faulty bridge proof from op-0 via dev-cli.
     5. Every watchtower auto-publishes a genuine counterproof.
-    6. Assert no NACK appears, then that the ACK does, then that op-0 is slashed.
+    6. Wait for op-0's circuit evaluation to report that no fault secret was extractable.
+    7. Only then mine; assert no NACK appears, that the ACK does, then that op-0 is slashed.
     """
 
     BURY_DEPTH = 1
@@ -94,12 +104,16 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
             # unreachable so it never preempts the game.
             proof_timelock=10_000,
             # The ACK becomes spendable this many blocks after the counterproof confirms.
-            # Small, because the ACK is the outcome under test.
-            nack_timelock=5,
+            # The test does not mine until op-0's evaluation has returned its verdict, so
+            # this only has to absorb the odd on-demand block in the meantime.
+            nack_timelock=20,
             # The slash becomes spendable this many blocks after the contest. Must be
             # BELOW ack_timelock so `slash` wins the race for the contest slash output
-            # against `contested_payout` — the inverse of the NACK test's ordering.
-            contested_payout_timelock=25,
+            # against `contested_payout` — the inverse of the NACK test's ordering — and
+            # ABOVE nack_timelock plus the couple of blocks between contest and
+            # counterproof: in CounterProofPosted the watchtower's slash check runs before
+            # its ACK check, so a slash that matures first would skip the ACK entirely.
+            contested_payout_timelock=40,
             # op-0 publishes contested_payout at contest + ack_timelock. Keep it well
             # above contested_payout_timelock so the slash lands first; otherwise op-0
             # ends the game before the ACK and the test proves nothing.
@@ -181,7 +195,9 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
         wait_for_tx_confirmation(bitcoin_rpc, contest_txid, timeout=3600)
         self.logger.info(f"Watchtower contested: contest tx {contest_txid}")
 
-        # 4. Faulty bridge proof from op-0.
+        # 4. Faulty bridge proof from op-0. Snapshot its log first: the NACK duty, and with it
+        # the circuit evaluation, can only start once the counterproof this provokes lands.
+        dishonest_log_offsets = snapshot_log_offsets([dishonest_node.props["logfile"]])
         bridge_proof_txid = dev_cli.send_bridge_proof(
             deposit_idx=self.CONTESTED_DEPOSIT_IDX,
             operator_idx=dishonest_idx,
@@ -206,13 +222,30 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
             counterproof_txids.append(counterproof_txid)
             self.logger.info(f"Watchtower slot {slot} counterproof: {counterproof_txid}")
 
-        # 6. Run the tip forward so the endgame timelocks mature. Capture every txid we
+        # 6. The verdict. op-0 runs the counterproof through the real circuit; a valid one
+        # yields no fault secret, `evaluate_and_sign` returns None and the NACK duty fails.
+        # Observe that BEFORE mining. Nothing is in the mempool here, so the on-demand
+        # miner leaves the tip frozen and the ACK cannot mature while the evaluation
+        # (minutes) is still running; letting it would turn the "no NACK" below into a race
+        # the ACK wins by construction.
+        wait_until_logs_match(
+            dishonest_log_offsets,
+            lambda line: NO_FAULT_SECRET_LOG_MARKER in line,
+            timeout=1800,
+            error_msg=(
+                f"op-{dishonest_idx} never reported a failed fault-secret extraction; the "
+                "circuit did not reject a NACK on this valid counterproof"
+            ),
+        )
+        self.logger.info(f"op-{dishonest_idx} evaluated the counterproof: no fault secret, no NACK")
+
+        # 7. Run the tip forward so the endgame timelocks mature. Capture every txid we
         # still need first — find_utxo_spender_txid only scans 50 blocks back.
         mining_addr = bitcoin_rpc.proxy.getnewaddress()
         miner = generate_blocks(bitcoin_rpc, self.GAME_MINE_INTERVAL_SECS, mining_addr)
         try:
-            # This wait IS the assertion: op-0 is up and still emitting NACK duties, so
-            # only the circuit's acceptance of the counterproof lets the ACK win.
+            # With the verdict in, the ACK wins on the merits: the counterproof output is
+            # unspent because op-0 could not sign a NACK, not because the ACK beat it there.
             ack_txid = wait_until_counterproof_ack(bitcoin_rpc, contest_txid, timeout=3600)
             wait_for_tx_confirmation(bitcoin_rpc, ack_txid, timeout=3600)
             self.logger.info(f"Counterproof ACK confirmed: {ack_txid}")
