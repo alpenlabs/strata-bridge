@@ -1,22 +1,20 @@
 //! The main event loop that wires all pipeline stages together:
 //! `EventsMux` → classify → `Applicator::apply_batch` → persist → dispatch.
 
-use std::{
-    collections::BTreeSet,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use strata_bridge_p2p_types::{NagRequestPayload, UnsignedGossipsubMsg};
 use strata_bridge_primitives::{
-    covenant::CovenantId, operator_table::OperatorTable, types::BitcoinBlockHeight,
+    covenant::{CovenantId, StakeKey},
+    operator_table::OperatorTable,
+    types::BitcoinBlockHeight,
 };
-use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 use tracing::{Instrument, debug, error, info, info_span, trace, warn};
 
 use crate::{
     applicator::Applicator,
     duty_dispatcher::DutyDispatcher,
-    errors::{PipelineError, ProcessError},
+    errors::PipelineError,
     events_classifier::{offchain, onchain},
     events_mux::{EventsMux, SafeHarbourEvent, UnifiedEvent},
     events_router,
@@ -24,8 +22,8 @@ use crate::{
     observability,
     persister::{PersistenceTracker, Persister},
     safe_harbour_scan::safe_harbour_scan,
-    sm_registry::{RegistryInsertError, SMRegistry},
-    sm_types::{SMId, UnifiedDuty},
+    sm_registry::SMRegistry,
+    sm_types::UnifiedDuty,
 };
 
 /// The main pipeline that drives the orchestrator.
@@ -73,7 +71,8 @@ impl Pipeline {
     /// truth for now. Eventually, this will be queried from the Operator State Machine in the
     /// registry.
     ///
-    /// Before entering the main event loop, this method bootstraps one [`StakeSM`] per operator in
+    /// Before entering the main event loop, this method bootstraps one
+    /// [`StakeSM`](strata_bridge_sm::stake::machine::StakeSM) per operator in
     /// the `initial_operator_table`. Any stake SMs already recovered from the database are
     /// preserved; only missing ones are created. The `start_height` is used as the initial block
     /// height for newly created stake SMs (typically the chain tip or the persisted cursor).
@@ -123,7 +122,8 @@ impl Pipeline {
         // guaranteed to arrive to retry: seed sweeps and aborts once before the loop.
         if self.registry.safe_harbour_active() {
             info!("recovered an active safe-harbour latch; seeding the sweep/abort scan");
-            let mut applicator = Applicator::new(&mut self.registry);
+            let mut applicator =
+                Applicator::new(&mut self.registry, Some(initial_operator_table.pov_idx()));
             apply_safe_harbour_scan(&mut applicator)?;
             let (duties, tracker) = applicator.finish();
             self.persist_batches(tracker).await?;
@@ -167,7 +167,8 @@ impl Pipeline {
                 }
 
                 // Stage 2+3: Classify and process through Applicator.
-                let mut applicator = Applicator::new(&mut self.registry);
+                let mut applicator =
+                    Applicator::new(&mut self.registry, Some(initial_operator_table.pov_idx()));
                 let mut nag_reply = None;
 
                 match &event {
@@ -378,46 +379,19 @@ impl Pipeline {
         start_height: BitcoinBlockHeight,
         activation_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
-        let mut touched: BTreeSet<SMId> = BTreeSet::new();
-        let mut duties: Vec<UnifiedDuty> = Vec::new();
-
-        for op_idx in operator_table.operator_idxs() {
-            let ctx = StakeSMCtx::new(op_idx, operator_table.clone(), activation_height);
-            let stake_key = ctx.stake_key();
-            if let Some(existing) = self.registry.get_stake(&stake_key) {
-                if !existing
-                    .context()
-                    .operator_table()
-                    .has_same_membership(operator_table)
-                {
-                    return Err(ProcessError::from(
-                        RegistryInsertError::CovenantMembershipMismatch(stake_key),
-                    )
-                    .into());
-                }
-                continue;
-            }
-
-            let (ssm, initial_duty) = StakeSM::new(ctx, start_height);
-            self.registry
-                .insert_stake(ssm)
-                .map_err(ProcessError::from)?;
-            touched.insert(SMId::Stake(stake_key));
-            info!(%op_idx, %start_height, "bootstrapped stake state machine");
-
-            if let Some(duty) = initial_duty {
-                duties.push(UnifiedDuty::Stake { stake_key, duty });
-            }
+        let covenant = CovenantId::from_operator_table(operator_table, activation_height)
+            .expect("validated initial operator table");
+        let mut applicator = Applicator::new(&mut self.registry, Some(operator_table.pov_idx()));
+        for operator in operator_table.operator_idxs() {
+            applicator.initialize_stake(
+                StakeKey { covenant, operator },
+                operator_table.clone().into_public(),
+                start_height,
+            )?;
         }
-
-        if !touched.is_empty() {
-            self.persister
-                .persist_batch(touched, &self.registry)
-                .await?;
-        }
-        for duty in duties {
-            self.dispatcher.dispatch(duty);
-        }
+        let (duties, tracker) = applicator.finish();
+        self.persist_batches(tracker).await?;
+        self.dispatch_duties(duties, None);
 
         Ok(())
     }
@@ -511,7 +485,7 @@ mod tests {
     #[test]
     fn scan_helper_is_a_noop_while_not_latched() {
         let mut registry = test_populated_registry(1);
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         apply_safe_harbour_scan(&mut applicator).unwrap();
 
@@ -524,7 +498,7 @@ mod tests {
     fn scan_helper_applies_transitions_on_a_latched_registry() {
         let mut registry = test_populated_registry(1);
         registry.activate_safe_harbour(test_safe_harbour_address());
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         apply_safe_harbour_scan(&mut applicator).unwrap();
 

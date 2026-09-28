@@ -10,12 +10,20 @@
 
 use std::collections::VecDeque;
 
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
-use strata_bridge_sm::{deposit::machine::DepositSM, graph::machine::GraphSM};
-use tracing::{debug, warn};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    operator_table::PublicOperatorTable,
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
+};
+use strata_bridge_sm::{
+    deposit::machine::DepositSM,
+    graph::machine::GraphSM,
+    stake::{context::StakeSMCtx, machine::StakeSM},
+};
+use tracing::{debug, info, warn};
 
 use crate::{
-    errors::PipelineError,
+    errors::{PipelineError, ProcessError},
     persister::PersistenceTracker,
     signals_router,
     sm_registry::{IgnoredEventReason, ProcessOutcome, RegistryInsertError, SMRegistry},
@@ -30,16 +38,21 @@ use crate::{
 #[expect(missing_debug_implementations)]
 pub struct Applicator<'a> {
     registry: &'a mut SMRegistry,
+    local_operator: Option<OperatorIdx>,
     tracker: PersistenceTracker,
     duties: Vec<UnifiedDuty>,
     signal_queue: VecDeque<(SMId, SMEvent)>,
 }
 
 impl<'a> Applicator<'a> {
-    /// Creates a new `Applicator` bound to the given registry.
-    pub fn new(registry: &'a mut SMRegistry) -> Self {
+    /// Creates an applicator with this node's optional signing registration.
+    ///
+    /// A node absent from a requested covenant observes public membership without creating
+    /// participant StakeSMs. Historical instances remain in the registry.
+    pub fn new(registry: &'a mut SMRegistry, local_operator: Option<OperatorIdx>) -> Self {
         Self {
             registry,
+            local_operator,
             tracker: PersistenceTracker::new(),
             duties: Vec::new(),
             signal_queue: VecDeque::new(),
@@ -128,6 +141,61 @@ impl<'a> Applicator<'a> {
         Ok(())
     }
 
+    /// Initializes a participant stake, preserving matching immutable context and all progress.
+    ///
+    /// The constructor clock is the current processing position, not the activation boundary.
+    /// Records newly created stakes for persistence and accumulates any constructor duty.
+    /// Returns `true` if a stake was created, or `false` if it already existed or this node
+    /// is not a participant in the requested covenant.
+    pub fn initialize_stake(
+        &mut self,
+        stake_key: StakeKey,
+        operator_table: PublicOperatorTable,
+        block_height: BitcoinBlockHeight,
+    ) -> Result<bool, ProcessError> {
+        if let Some(existing) = self.registry.get_stake(&stake_key) {
+            if !existing
+                .context()
+                .operator_table()
+                .has_same_membership(&operator_table)
+            {
+                return Err(RegistryInsertError::CovenantMembershipMismatch(stake_key).into());
+            }
+            return Ok(false);
+        }
+
+        let Some(table) = self
+            .local_operator
+            .and_then(|idx| operator_table.with_pov(idx))
+        else {
+            warn!(
+                "skipping creation of stake {stake_key:?} because local operator is not in the requested covenant"
+            );
+            return Ok(false);
+        };
+
+        info!(
+            ?stake_key,
+            ?table,
+            "initializing stake state machine for local operator"
+        );
+        let context = StakeSMCtx::new(
+            stake_key.operator,
+            table,
+            stake_key.covenant.activation_height,
+        );
+        let (sm, initial_duty) = StakeSM::new(context, block_height);
+
+        self.registry.insert_stake(sm)?;
+        self.tracker.record(SMId::Stake(stake_key));
+
+        if let Some(duty) = initial_duty {
+            self.duties.push(UnifiedDuty::Stake { stake_key, duty });
+        }
+
+        Ok(true)
+    }
+
     /// Consumes the applicator and returns the accumulated duties and persistence tracker.
     pub fn finish(self) -> (Vec<UnifiedDuty>, PersistenceTracker) {
         (self.duties, self.tracker)
@@ -185,7 +253,10 @@ impl<'a> Applicator<'a> {
 mod tests {
     use std::collections::BTreeSet;
 
-    use bitcoin::{Amount, OutPoint, hashes::sha256};
+    use bitcoin::{
+        Amount, OutPoint,
+        hashes::{Hash, sha256},
+    };
     use strata_bridge_primitives::{covenant::CovenantId, types::GraphIdx};
     use strata_bridge_sm::{
         deposit::{
@@ -197,14 +268,19 @@ mod tests {
             events::{GraphEvent, NewBlockEvent as GraphNewBlock},
             state::{AbortReason, GraphState},
         },
+        stake::{
+            duties::StakeDuty,
+            events::{NewBlockEvent, StakeDataReceivedEvent, StakeEvent},
+            state::StakeState,
+        },
     };
     use strata_bridge_test_utils::bitcoin::generate_spending_tx;
     use strata_bridge_tx_graph::transactions::prelude::DepositData;
 
     use super::*;
     use crate::testing::{
-        INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, test_deposit_sm_cfg,
-        test_empty_registry, test_operator_table, test_populated_registry,
+        INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, random_p2tr_desc,
+        test_deposit_sm_cfg, test_empty_registry, test_operator_table, test_populated_registry,
     };
 
     // ===== apply_batch basic tests =====
@@ -212,7 +288,7 @@ mod tests {
     #[test]
     fn empty_batch_yields_no_duties_and_no_touched_sms() {
         let mut registry = test_populated_registry(1);
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         applicator.apply_batch(vec![]).unwrap();
 
@@ -229,7 +305,7 @@ mod tests {
         // against a durability gap where a new DSM could be lost on crash before its first
         // transition.
         let mut registry = test_empty_registry();
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         let dsm = test_deposit_sm(0);
         applicator
@@ -249,7 +325,7 @@ mod tests {
     #[test]
     fn insert_graph_persists_with_parent_deposit_without_any_event() {
         let mut registry = test_empty_registry();
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         applicator.insert_deposit(0, test_deposit_sm(0)).unwrap();
 
         let graph_idx = GraphIdx {
@@ -275,7 +351,7 @@ mod tests {
         // Propagating the insertion error without recording avoids tracking an SM that was not
         // actually inserted; the original entry remains the source of truth.
         let mut registry = test_empty_registry();
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         applicator.insert_deposit(0, test_deposit_sm(0)).unwrap();
 
@@ -331,7 +407,7 @@ mod tests {
         let mut registry = test_populated_registry(1);
         let height = INITIAL_BLOCK_HEIGHT + 1;
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         let seed_events = vec![(
             SMId::Deposit(0),
@@ -357,7 +433,7 @@ mod tests {
             operator: 0,
         };
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         let seed_events = vec![(
             SMId::Graph(graph_idx),
@@ -381,7 +457,7 @@ mod tests {
             generate_spending_tx(OutPoint::default(), &[vec![0u8; 64], vec![1u8; 32]]);
         let takeback_txid = takeback_tx.compute_txid();
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         applicator
             .apply_batch(vec![(
                 SMId::Deposit(deposit_idx),
@@ -480,7 +556,7 @@ mod tests {
         let mut registry = test_populated_registry(2);
         let height = INITIAL_BLOCK_HEIGHT + 1;
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         applicator
             .apply_batch(vec![(
@@ -511,7 +587,7 @@ mod tests {
     #[test]
     fn unknown_sm_id_is_fatal() {
         let mut registry = test_empty_registry();
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         let seed_events = vec![(
             SMId::Deposit(99),
@@ -527,7 +603,7 @@ mod tests {
     #[test]
     fn duplicate_event_is_ignored_non_fatally() {
         let mut registry = test_populated_registry(1);
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         let event = || {
             (
@@ -551,7 +627,7 @@ mod tests {
     #[test]
     fn registry_reflects_settled_state_between_batches() {
         let mut registry = test_populated_registry(1);
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         assert_eq!(applicator.registry().num_deposits(), 1);
         assert_eq!(
@@ -570,5 +646,168 @@ mod tests {
 
         // Registry still accessible and consistent after batch
         assert_eq!(applicator.registry().num_deposits(), 1);
+    }
+
+    #[test]
+    fn initialization_tracks_requested_stakes_and_only_emits_owner_duty() {
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(3, 0);
+        let covenant = CovenantId::from_operator_table(&table, 200).unwrap();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        let keys: Vec<_> = table
+            .operator_idxs()
+            .into_iter()
+            .map(|operator| StakeKey { covenant, operator })
+            .collect();
+        for key in &keys {
+            assert!(
+                applicator
+                    .initialize_stake(*key, table.clone().into_public(), 100)
+                    .unwrap()
+            );
+        }
+        let (duties, tracker) = applicator.finish();
+        assert_eq!(registry.get_stake_ids(), keys);
+        for (_, sm) in registry.stakes() {
+            assert_eq!(
+                sm.state(),
+                &StakeState::Created {
+                    last_block_height: 100
+                }
+            );
+        }
+        assert_eq!(duties.len(), 1);
+        assert!(
+            matches!(&duties[0], UnifiedDuty::Stake { stake_key, duty: StakeDuty::PublishStakeData { operator_idx: 0 } } if *stake_key == keys[0])
+        );
+        assert_eq!(
+            tracker
+                .into_batches()
+                .into_iter()
+                .flatten()
+                .collect::<BTreeSet<_>>(),
+            keys.into_iter().map(SMId::Stake).collect()
+        );
+    }
+
+    #[test]
+    fn matching_initialization_preserves_progress_and_processing_cursor() {
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(3, 0);
+        let key = StakeKey {
+            covenant: CovenantId::from_operator_table(&table, 200).unwrap(),
+            operator: 0,
+        };
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        assert!(
+            applicator
+                .initialize_stake(key, table.clone().into_public(), 100)
+                .unwrap()
+        );
+        applicator
+            .apply_batch([
+                (
+                    SMId::Stake(key),
+                    StakeEvent::NewBlock(NewBlockEvent { block_height: 105 }).into(),
+                ),
+                (
+                    SMId::Stake(key),
+                    StakeEvent::StakeDataReceived(StakeDataReceivedEvent {
+                        stake_funds: OutPoint::null(),
+                        unstaking_image: sha256::Hash::hash(&[7; 32]),
+                        unstaking_output_desc: random_p2tr_desc(),
+                    })
+                    .into(),
+                ),
+            ])
+            .unwrap();
+        applicator.finish();
+        let before = registry.get_stake(&key).unwrap().clone();
+        assert!(matches!(
+            before.state(),
+            StakeState::StakeGraphGenerated { .. }
+        ));
+        assert_eq!(before.state().last_processed_block_height(), Some(105));
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        for _ in 0..2 {
+            assert!(
+                !applicator
+                    .initialize_stake(key, table.clone().into_public(), 150)
+                    .unwrap()
+            );
+        }
+        let (duties, tracker) = applicator.finish();
+        assert!(duties.is_empty());
+        assert!(tracker.into_batches().is_empty());
+        assert_eq!(registry.get_stake(&key), Some(&before));
+    }
+
+    #[test]
+    fn conflicting_initialization_reports_exact_stake_without_overwriting_it() {
+        let mut registry = test_empty_registry();
+        let table = test_operator_table(3, 0);
+        let key = StakeKey {
+            covenant: CovenantId::from_operator_table(&table, 200).unwrap(),
+            operator: 0,
+        };
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        assert!(
+            applicator
+                .initialize_stake(key, table.clone().into_public(), 100)
+                .unwrap()
+        );
+        applicator.finish();
+        let before = registry.get_stake(&key).unwrap().clone();
+        let conflicting = PublicOperatorTable::from_entries(
+            table
+                .operator_idxs()
+                .into_iter()
+                .map(|idx| {
+                    (
+                        idx,
+                        vec![idx as u8 + 10; 32].into(),
+                        table.idx_to_btc_key(&idx).unwrap(),
+                    )
+                })
+                .collect(),
+        )
+        .unwrap();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        let error = applicator
+            .initialize_stake(key, conflicting, 150)
+            .unwrap_err();
+        assert!(
+            matches!(error, ProcessError::RegistryInsert(RegistryInsertError::CovenantMembershipMismatch(actual)) if actual == key)
+        );
+        assert!(error.to_string().contains(&key.to_string()));
+        let (duties, tracker) = applicator.finish();
+        assert!(duties.is_empty());
+        assert!(tracker.into_batches().is_empty());
+        assert_eq!(registry.get_stake(&key), Some(&before));
+    }
+
+    #[test]
+    fn initialization_without_local_membership_creates_no_participant_stakes() {
+        for local_operator in [None, Some(99)] {
+            let mut registry = test_empty_registry();
+            let table = test_operator_table(3, 0);
+            let covenant = CovenantId::from_operator_table(&table, 200).unwrap();
+            let mut applicator = Applicator::new(&mut registry, local_operator);
+            for operator in table.operator_idxs() {
+                assert!(
+                    !applicator
+                        .initialize_stake(
+                            StakeKey { covenant, operator },
+                            table.clone().into_public(),
+                            100,
+                        )
+                        .unwrap()
+                );
+            }
+            let (duties, tracker) = applicator.finish();
+            assert!(duties.is_empty());
+            assert!(tracker.into_batches().is_empty());
+            assert_eq!(registry.num_stakes(), 0);
+        }
     }
 }

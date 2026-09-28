@@ -515,7 +515,7 @@ mod tests {
         cfg: &Arc<DepositSMCfg>,
         drt: &Transaction,
     ) -> Vec<UnifiedDuty> {
-        let mut applicator = Applicator::new(registry);
+        let mut applicator = Applicator::new(registry, None);
         let duties = try_register_deposit(
             cfg,
             operator_table,
@@ -546,7 +546,7 @@ mod tests {
             block,
             status: BlockStatus::Buried,
         };
-        let mut applicator = Applicator::new(registry);
+        let mut applicator = Applicator::new(registry, None);
         process_block(
             &mut applicator,
             operator_table,
@@ -579,7 +579,7 @@ mod tests {
             "the first DRT takes the only slot"
         );
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
             &operator_table,
@@ -682,7 +682,7 @@ mod tests {
         assert!(register_drt(&mut registry, &operator_table, &cfg, &drt_b).is_empty());
 
         // The user takes A back: its slot is free again, but B stays skipped for good.
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         applicator
             .apply_batch(vec![(
                 SMId::Deposit(0),
@@ -839,7 +839,7 @@ mod tests {
 
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
             &operator_table,
@@ -915,7 +915,7 @@ mod tests {
                 }
                 registry.insert_stake(stake).unwrap();
             }
-            let mut applicator = Applicator::new(&mut registry);
+            let mut applicator = Applicator::new(&mut registry, None);
             let duties = try_register_deposit(
                 &cfg,
                 &operator_table,
@@ -965,7 +965,7 @@ mod tests {
             output: vec![],
         };
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
             &operator_table,
@@ -999,7 +999,7 @@ mod tests {
         // An otherwise-admissible DRT: without the latch it would register a DSM.
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
             &operator_table,
@@ -1035,7 +1035,7 @@ mod tests {
         let tx = DrtBuilder::aligned(&table, &cfg).build();
         let mut registry = test_populated_registry(0);
         confirm_all_stakes(&mut registry, &table);
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         assert_eq!(
             try_register_deposit(&cfg, &table, covenant, &mut applicator, &tx, TEST_HEIGHT)
                 .unwrap()
@@ -1054,7 +1054,7 @@ mod tests {
                 restored.insert_graph(*id, graph.clone()).unwrap();
             }
             let ids = restored.get_all_ids();
-            let mut applicator = Applicator::new(&mut restored);
+            let mut applicator = Applicator::new(&mut restored, None);
             let duties =
                 try_register_deposit(&cfg, &table, covenant, &mut applicator, &tx, TEST_HEIGHT)
                     .unwrap();
@@ -1083,7 +1083,7 @@ mod tests {
             block,
             status: BlockStatus::Buried,
         };
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
         let (_, tracker) = applicator.finish();
         let batches = tracker.into_batches();
@@ -1161,7 +1161,7 @@ mod tests {
                         status: BlockStatus::Buried,
                     }
                 };
-                let mut applicator = Applicator::new(&mut restored);
+                let mut applicator = Applicator::new(&mut restored, None);
                 process_block(&mut applicator, &table, covenant, &replay).unwrap();
                 let (duties, tracker) = applicator.finish();
                 emitted_duties.extend(duties);
@@ -1266,7 +1266,7 @@ mod tests {
             block,
             status: BlockStatus::Buried,
         };
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
         let (duties, tracker) = applicator.finish();
         assert_eq!(duties.len(), 1);
@@ -1307,7 +1307,7 @@ mod tests {
         assert_eq!(restored.get_deposit(&0), registry.get_deposit(&0));
         assert!(restored.active_operator_snapshot(covenant, &table).is_ok());
         let original = restored.get_deposit(&0).unwrap().clone();
-        let mut applicator = Applicator::new(&mut restored);
+        let mut applicator = Applicator::new(&mut restored, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
         let (duties, tracker) = applicator.finish();
         assert_eq!(
@@ -1333,7 +1333,7 @@ mod tests {
             .await
             .unwrap();
         let ids = recovered.get_all_ids();
-        let mut applicator = Applicator::new(&mut recovered);
+        let mut applicator = Applicator::new(&mut recovered, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
         let (duties, tracker) = applicator.finish();
         assert!(duties.is_empty());
@@ -1353,7 +1353,7 @@ mod tests {
 
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
             &operator_table,
