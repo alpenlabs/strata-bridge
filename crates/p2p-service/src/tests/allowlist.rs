@@ -42,6 +42,8 @@ fn build_config(keypair: EdKeypair, allowlist: Vec<PeerId>) -> Configuration {
         rate_limit_mute_threshold: None,
         rate_limit_recovery_per_sec: None,
         rate_limit_mute_duration: None,
+        gossip_event_buffer_size: None,
+        gossip_command_buffer_size: None,
     }
 }
 

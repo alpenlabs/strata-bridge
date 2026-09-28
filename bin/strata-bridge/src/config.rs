@@ -2,7 +2,13 @@
 //!
 //! These do not affect consensus between bridge nodes and can be set to different values by
 //! different operators.
-use std::{fmt, net::SocketAddr, num::NonZeroU32, path::PathBuf, time::Duration};
+use std::{
+    fmt,
+    net::SocketAddr,
+    num::{NonZeroU32, NonZeroUsize},
+    path::PathBuf,
+    time::Duration,
+};
 
 use bitcoin::BlockHash;
 use libp2p::Multiaddr;
@@ -276,6 +282,20 @@ pub(crate) struct P2PConfig {
     /// If [`None`], defaults to
     /// [`DEFAULT_MUTE_DURATION`](strata_bridge_p2p_service::validator::DEFAULT_MUTE_DURATION).
     pub rate_limit_mute_duration: Option<Duration>,
+
+    /// Size of the inbound gossip event buffer; see
+    /// [`Configuration::gossip_event_buffer_size`](strata_bridge_p2p_service::Configuration::gossip_event_buffer_size).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_GOSSIP_EVENT_BUFFER_SIZE`](strata_bridge_p2p_service::constants::DEFAULT_GOSSIP_EVENT_BUFFER_SIZE).
+    pub gossip_event_buffer_size: Option<NonZeroUsize>,
+
+    /// Size of the outbound gossip command queue; see
+    /// [`Configuration::gossip_command_buffer_size`](strata_bridge_p2p_service::Configuration::gossip_command_buffer_size).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE`](strata_bridge_p2p_service::constants::DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE).
+    pub gossip_command_buffer_size: Option<NonZeroUsize>,
 }
 
 /// RPC server configuration.
@@ -404,6 +424,7 @@ pub(crate) fn test_config() -> Config {
             gossipsub_scoring_preset = "permissive"
             rate_limit_mute_threshold = -50_000
             rate_limit_mute_duration = { secs = 5, nanos = 0 }
+            gossip_event_buffer_size = 8192
 
             [rpc]
             rpc_addr = "localhost:5678"
@@ -480,6 +501,20 @@ mod tests {
         assert_eq!(p2p.rate_limit_mute_duration, Some(Duration::from_secs(5)));
         assert_eq!(p2p.rate_limit_message_cost, None);
         assert_eq!(p2p.rate_limit_recovery_per_sec, None);
+    }
+
+    #[test]
+    fn p2p_gossip_buffer_sizes_are_optional_and_nonzero() {
+        let p2p = test_config().p2p;
+        assert_eq!(p2p.gossip_event_buffer_size, NonZeroUsize::new(8192));
+        assert_eq!(p2p.gossip_command_buffer_size, None);
+
+        let zero = r#"
+            listening_addr = "/ip4/127.0.0.1/tcp/1234"
+            connect_to = []
+            gossip_command_buffer_size = 0
+        "#;
+        assert!(toml::from_str::<P2PConfig>(zero).is_err());
     }
 
     #[test]

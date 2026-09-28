@@ -16,3 +16,9 @@ pub const DEFAULT_IDLE_CONNECTION_TIMEOUT: u64 = 30;
 
 /// Default interval between peer-reconnection attempts.
 pub const DEFAULT_PEER_RECONNECT_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Default size of the inbound gossip event buffer.
+pub const DEFAULT_GOSSIP_EVENT_BUFFER_SIZE: usize = 4096;
+
+/// Default size of the outbound gossip command queue.
+pub const DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE: usize = 4096;
