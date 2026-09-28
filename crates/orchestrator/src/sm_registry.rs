@@ -1885,7 +1885,7 @@ mod operator_set_tests {
         registry
             .insert_operator_set(test_operator_set_sm())
             .unwrap();
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         applicator
             .apply_batch([(
                 SMId::OperatorSet,
