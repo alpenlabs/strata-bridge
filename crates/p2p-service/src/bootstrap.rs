@@ -1,6 +1,6 @@
 //! Module to bootstrap the p2p node by hooking up all the required services.
 
-use std::time::Duration;
+use std::{num::NonZeroUsize, time::Duration};
 
 use libp2p::gossipsub::{PeerScoreParams, PeerScoreThresholds, Sha256Topic, TopicScoreParams};
 use strata_p2p::{
@@ -18,7 +18,10 @@ use tracing::{debug, info};
 
 use crate::{
     config::{Configuration, GossipsubScoringPreset},
-    constants::{DEFAULT_IDLE_CONNECTION_TIMEOUT, DEFAULT_PEER_RECONNECT_INTERVAL},
+    constants::{
+        DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE, DEFAULT_GOSSIP_EVENT_BUFFER_SIZE,
+        DEFAULT_IDLE_CONNECTION_TIMEOUT, DEFAULT_PEER_RECONNECT_INTERVAL,
+    },
     observability::{self, InstrumentedValidator},
     reconnect::maintain_connections,
     validator::OperatorValidator,
@@ -27,11 +30,11 @@ use crate::{
 /// The default gossipsub topic name (must match strata-p2p's default).
 const DEFAULT_GOSSIPSUB_TOPIC: &str = "strata";
 
-/// Maximum transmit size for gossipsub messages (8 MB).
+/// Maximum transmit size for gossipsub messages (64 KiB, libp2p's default).
 ///
-/// Bridge protocol messages (especially deposit setup with WOTS signatures)
-/// can exceed the default 512 KB limit, so we increase this significantly.
-const GOSSIPSUB_MAX_TRANSMIT_SIZE: usize = 8 * 1024 * 1024;
+/// The largest bridge message, a graph's nonces, is about `660 + 264N` bytes for `N` operators.
+/// The limit also caps what a peer can make us buffer per inbound event slot.
+const GOSSIPSUB_MAX_TRANSMIT_SIZE: usize = 64 * 1024;
 
 /// Creates permissive peer score parameters that don't penalize peers.
 ///
@@ -207,7 +210,11 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
         gossipsub_heartbeat_initial_delay: config.gossipsub_heartbeat_initial_delay,
         gossipsub_publish_queue_duration: config.gossipsub_publish_queue_duration,
         gossipsub_forward_queue_duration: config.gossipsub_forward_queue_duration,
-        gossip_event_buffer_size: None,
+        gossip_event_buffer_size: Some(
+            config
+                .gossip_event_buffer_size
+                .map_or(DEFAULT_GOSSIP_EVENT_BUFFER_SIZE, NonZeroUsize::get),
+        ),
         commands_event_buffer_size: None,
         command_buffer_size: None,
         handle_default_timeout: None,
@@ -215,7 +222,11 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
         req_resp_command_buffer_size: None,
         request_max_bytes: None,
         response_max_bytes: None,
-        gossip_command_buffer_size: None,
+        gossip_command_buffer_size: Some(
+            config
+                .gossip_command_buffer_size
+                .map_or(DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE, NonZeroUsize::get),
+        ),
         envelope_max_age: None,
         max_clock_skew: None,
         conn_limits: Default::default(),

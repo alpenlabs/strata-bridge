@@ -98,6 +98,8 @@ pub(in crate::mode) async fn init_p2p_handles(
         rate_limit_mute_threshold,
         rate_limit_recovery_per_sec,
         rate_limit_mute_duration,
+        gossip_event_buffer_size,
+        gossip_command_buffer_size,
     } = config.p2p.clone();
 
     let config = P2PConfiguration::new_with_secret_key(
@@ -123,6 +125,8 @@ pub(in crate::mode) async fn init_p2p_handles(
         rate_limit_mute_threshold,
         rate_limit_recovery_per_sec,
         rate_limit_mute_duration,
+        gossip_event_buffer_size,
+        gossip_command_buffer_size,
     );
     let handles = p2p_bootstrap(&config).await?;
 
