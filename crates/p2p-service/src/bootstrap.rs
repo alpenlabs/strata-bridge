@@ -10,7 +10,7 @@ use strata_p2p::{
         P2PConfig, DEFAULT_CONNECTION_CHECK_INTERVAL, DEFAULT_DIAL_TIMEOUT,
         DEFAULT_GENERAL_TIMEOUT, P2P,
     },
-    validator::{DefaultP2PValidator, Validator, DEFAULT_MUTE_THRESHOLD},
+    validator::Validator,
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -21,6 +21,7 @@ use crate::{
     constants::{DEFAULT_IDLE_CONNECTION_TIMEOUT, DEFAULT_PEER_RECONNECT_INTERVAL},
     observability::{self, InstrumentedValidator},
     reconnect::maintain_connections,
+    validator::OperatorValidator,
 };
 
 /// The default gossipsub topic name (must match strata-p2p's default).
@@ -122,11 +123,40 @@ pub struct BootstrapHandles {
 }
 
 /// Rate limiter applied to every inbound peer message, instrumented so its effect is measurable.
-fn rate_limiter() -> Box<dyn Validator> {
-    Box::new(InstrumentedValidator::new(
-        DefaultP2PValidator,
-        DEFAULT_MUTE_THRESHOLD,
-    ))
+fn rate_limiter(config: &Configuration) -> anyhow::Result<Box<dyn Validator>> {
+    let defaults = OperatorValidator::default();
+    let limiter = OperatorValidator {
+        message_cost: config
+            .rate_limit_message_cost
+            .unwrap_or(defaults.message_cost),
+        mute_threshold: config
+            .rate_limit_mute_threshold
+            .unwrap_or(defaults.mute_threshold),
+        recovery_per_sec: config
+            .rate_limit_recovery_per_sec
+            .unwrap_or(defaults.recovery_per_sec),
+        mute_duration: config
+            .rate_limit_mute_duration
+            .unwrap_or(defaults.mute_duration),
+    };
+    // A non-negative threshold would mute every peer on its first message.
+    anyhow::ensure!(
+        limiter.mute_threshold < 0.0,
+        "p2p rate-limit mute threshold must be negative, got {}",
+        limiter.mute_threshold
+    );
+    anyhow::ensure!(
+        limiter.message_cost >= 0.0 && limiter.recovery_per_sec >= 0.0,
+        "p2p rate-limit message cost and recovery must not be negative, got {} and {}",
+        limiter.message_cost,
+        limiter.recovery_per_sec
+    );
+    info!(?limiter, "p2p rate limiter configured");
+
+    Ok(Box::new(InstrumentedValidator::new(
+        limiter,
+        limiter.mute_threshold,
+    )))
 }
 
 /// Bootstrap the p2p node by hooking up all the required services.
@@ -202,7 +232,7 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
         cancel.clone(),
         swarm,
         None,
-        Some(rate_limiter()),
+        Some(rate_limiter(config)?),
     )?;
     let command_handle = p2p.new_command_handle();
     let gossip_handle = p2p.new_gossip_handle();
