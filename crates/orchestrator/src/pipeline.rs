@@ -515,3 +515,344 @@ mod tests {
         assert_eq!(routing_result(2, 0, 1), "no_classification");
     }
 }
+
+#[cfg(test)]
+mod stake_initialization_tests {
+    //! Initialization through membership signals, persistence, and routed retry events.
+
+    use std::collections::BTreeSet;
+
+    use bitcoin::{
+        OutPoint,
+        hashes::{Hash, sha256},
+    };
+    use btc_tracker::event::{BlockEvent, BlockStatus};
+    use libp2p_identity::Keypair;
+    use strata_bridge_primitives::{
+        covenant::StakeKey,
+        operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
+        operator_table::PublicOperatorTable,
+    };
+    use strata_bridge_sm::{
+        operator_set::{MembershipUpdate, OperatorSetEvent, OperatorSetSM, OperatorSetSignal},
+        stake::{
+            duties::StakeDuty,
+            events::{StakeDataReceivedEvent, StakeEvent},
+            state::StakeState,
+        },
+    };
+    use strata_bridge_test_utils::bitcoin::generate_block_with_height;
+
+    use crate::{
+        applicator::Applicator,
+        errors::{PipelineError, ProcessError},
+        events_classifier::{offchain, onchain},
+        events_mux::UnifiedEvent,
+        events_router,
+        persister::PersistenceTracker,
+        signals_router,
+        sm_registry::{RegistryInsertError, SMRegistry},
+        sm_types::{SMId, UnifiedDuty},
+        testing::{random_p2tr_desc, test_empty_registry, test_operator_table},
+    };
+
+    fn registry() -> SMRegistry {
+        let table = test_operator_table(3, 0);
+        let registrations = table
+            .operator_idxs()
+            .into_iter()
+            .map(|index| {
+                ScheduledOperator::new(
+                    index,
+                    table.idx_to_btc_key(&index).unwrap().x_only_public_key().0,
+                    Keypair::generate_ed25519()
+                        .public()
+                        .try_into_ed25519()
+                        .unwrap()
+                        .to_bytes()
+                        .to_vec()
+                        .into(),
+                    random_p2tr_desc(),
+                    100,
+                    None,
+                )
+                .unwrap()
+            })
+            .collect();
+        let membership = OperatorSetSM::new(
+            100,
+            OperatorSetSchedule::new(registrations).unwrap(),
+            vec![MembershipUpdate {
+                activation_height: 102,
+                additions: BTreeSet::new(),
+                removals: BTreeSet::from([1]),
+            }],
+        )
+        .unwrap();
+        let mut registry = test_empty_registry();
+        registry.insert_operator_set(membership).unwrap();
+        registry
+    }
+
+    fn apply_signals(
+        applicator: &mut Applicator<'_>,
+        signals: Vec<OperatorSetSignal>,
+    ) -> Result<(), PipelineError> {
+        for signal in signals {
+            let events = signals_router::route_signal(applicator.registry(), signal.into())?;
+            applicator.apply_batch(events)?;
+        }
+        Ok(())
+    }
+
+    fn advance_membership(applicator: &mut Applicator<'_>, height: u64) {
+        applicator
+            .apply_batch([(
+                SMId::OperatorSet,
+                OperatorSetEvent::NewBlock {
+                    block_height: height,
+                    exits: vec![],
+                }
+                .into(),
+            )])
+            .unwrap();
+    }
+
+    fn prepare(registry: &mut SMRegistry) -> (Vec<UnifiedDuty>, PersistenceTracker) {
+        let signals = registry
+            .get_operator_set()
+            .unwrap()
+            .prepare_covenant(102)
+            .unwrap()
+            .signals;
+        let mut applicator = Applicator::new(registry, Some(0));
+        apply_signals(&mut applicator, signals).unwrap();
+        applicator.finish()
+    }
+
+    fn publication_key(duties: &[UnifiedDuty]) -> StakeKey {
+        assert_eq!(duties.len(), 1, "only the local owner publishes stake data");
+        match &duties[0] {
+            UnifiedDuty::Stake {
+                stake_key,
+                duty: StakeDuty::PublishStakeData { operator_idx },
+            } => {
+                assert_eq!(*operator_idx, 0);
+                assert_eq!(stake_key.operator, *operator_idx);
+                *stake_key
+            }
+            other => panic!("expected constructor duty, got {other:?}"),
+        }
+    }
+
+    fn retry(registry: &mut SMRegistry) -> (Vec<UnifiedDuty>, PersistenceTracker) {
+        let event = UnifiedEvent::RetryTick;
+        let events = events_router::route(&event, registry)
+            .into_iter()
+            .map(
+                |id| match offchain::classify_routed(&id, &event, registry) {
+                    offchain::ClassificationOutcome::Classified(event) => (id, event),
+                    other => panic!("retry must classify: {other:?}"),
+                },
+            )
+            .collect::<Vec<_>>();
+        let mut applicator = Applicator::new(registry, Some(0));
+        applicator.apply_batch(events).unwrap();
+        applicator.finish()
+    }
+
+    #[test]
+    fn membership_transition_initializes_exact_members_at_processing_height() {
+        let mut registry = registry();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        advance_membership(&mut applicator, 101);
+        advance_membership(&mut applicator, 102);
+        let (duties, tracker) = applicator.finish();
+        let key = publication_key(&duties);
+        assert_eq!(
+            registry.get_stake_ids(),
+            vec![key, StakeKey { operator: 2, ..key }]
+        );
+        assert_eq!(
+            tracker.into_batches(),
+            vec![BTreeSet::from([
+                SMId::OperatorSet,
+                SMId::Stake(key),
+                SMId::Stake(StakeKey { operator: 2, ..key }),
+            ])]
+        );
+        for (_, sm) in registry.stakes() {
+            assert_eq!(
+                sm.state(),
+                &StakeState::Created {
+                    last_block_height: 102
+                }
+            );
+        }
+
+        // Constructor advancement already accounts for 102; the ordinary block path must not
+        // deliver another current-height event or persist it again. The next block advances once.
+        let table = registry
+            .get_operator_set()
+            .unwrap()
+            .current_operator_table()
+            .unwrap()
+            .with_pov(0)
+            .unwrap();
+        for (height, advances) in [(102, false), (103, true), (103, false)] {
+            let mut applicator = Applicator::new(&mut registry, Some(0));
+            onchain::process_block(
+                &mut applicator,
+                &table,
+                key.covenant,
+                &BlockEvent {
+                    block: generate_block_with_height(height),
+                    status: BlockStatus::Buried,
+                },
+            )
+            .unwrap();
+            let (duties, tracker) = applicator.finish();
+            assert!(duties.is_empty());
+            let batches = tracker.into_batches();
+            assert_eq!(
+                batches.is_empty(),
+                !advances,
+                "advance each stake only once at {height}"
+            );
+            for (_, sm) in registry.stakes() {
+                assert_eq!(sm.state().last_processed_block_height(), Some(height));
+            }
+        }
+    }
+
+    #[test]
+    fn preparation_and_duplicate_signals_preserve_staking_progress() {
+        let mut registry = registry();
+        let membership = registry.get_operator_set().unwrap().clone();
+        let signals = membership.prepare_covenant(102).unwrap().signals;
+        let (duties, tracker) = prepare(&mut registry);
+        let key = publication_key(&duties);
+        assert_eq!(key.covenant.activation_height, 102);
+        assert_eq!(
+            registry
+                .get_stake(&key)
+                .unwrap()
+                .state()
+                .last_processed_block_height(),
+            Some(100)
+        );
+        assert_eq!(registry.get_operator_set(), Some(&membership));
+        assert!(tracker.into_batches()[0].contains(&SMId::OperatorSet));
+
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        applicator
+            .apply_batch([(
+                SMId::Stake(key),
+                StakeEvent::StakeDataReceived(StakeDataReceivedEvent {
+                    stake_funds: OutPoint::null(),
+                    unstaking_image: sha256::Hash::hash(&[7; 32]),
+                    unstaking_output_desc: random_p2tr_desc(),
+                })
+                .into(),
+            )])
+            .unwrap();
+        applicator.finish();
+        let before = registry.get_stake(&key).unwrap().clone();
+        assert!(matches!(
+            before.state(),
+            StakeState::StakeGraphGenerated { .. }
+        ));
+
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        apply_signals(&mut applicator, signals.clone()).unwrap();
+        apply_signals(&mut applicator, signals).unwrap();
+        let (duties, tracker) = applicator.finish();
+        assert!(duties.is_empty());
+        assert!(tracker.into_batches().is_empty());
+        assert_eq!(registry.get_stake(&key), Some(&before));
+
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        advance_membership(&mut applicator, 101);
+        advance_membership(&mut applicator, 102);
+        advance_membership(&mut applicator, 102);
+        let (duties, _) = applicator.finish();
+        assert!(
+            duties.is_empty(),
+            "activation must reuse the prepared instances"
+        );
+        assert_eq!(registry.num_stakes(), 2);
+        assert_eq!(registry.get_stake(&key), Some(&before));
+        let (duties, _) = retry(&mut registry);
+        assert!(
+            duties.is_empty(),
+            "publication recovery stops after stake data arrives"
+        );
+    }
+
+    #[test]
+    fn conflicting_recreation_identifies_exact_stake_and_preserves_progress() {
+        let mut registry = registry();
+        let (duties, _) = prepare(&mut registry);
+        let key = publication_key(&duties);
+        let before = registry.get_stake(&key).unwrap().clone();
+        let table = before.context().operator_table();
+        // Same aggregate and activation height, but conflicting immutable P2P membership.
+        let conflicting = PublicOperatorTable::from_entries(
+            table
+                .operator_idxs()
+                .into_iter()
+                .map(|idx| {
+                    (
+                        idx,
+                        vec![idx as u8 + 10; 32].into(),
+                        table.idx_to_btc_key(&idx).unwrap(),
+                    )
+                })
+                .collect(),
+        )
+        .unwrap();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        let error = apply_signals(
+            &mut applicator,
+            vec![OperatorSetSignal::InitializeStake {
+                stake_key: key,
+                operator_table: conflicting,
+            }],
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, PipelineError::Process(ProcessError::RegistryInsert(RegistryInsertError::CovenantMembershipMismatch(actual))) if actual == key)
+        );
+        assert!(error.to_string().contains(&key.to_string()));
+        let (duties, tracker) = applicator.finish();
+        assert!(duties.is_empty());
+        assert!(tracker.into_batches().is_empty());
+        assert_eq!(registry.get_stake(&key), Some(&before));
+    }
+
+    #[test]
+    fn observers_and_removed_or_unrelated_operators_emit_no_constructor_duties() {
+        for local_operator in [None, Some(1), Some(99)] {
+            let mut registry = registry();
+            let mut applicator = Applicator::new(&mut registry, local_operator);
+            advance_membership(&mut applicator, 101);
+            advance_membership(&mut applicator, 102);
+            let (duties, tracker) = applicator.finish();
+            assert!(duties.is_empty());
+            assert_eq!(registry.num_stakes(), 0);
+            assert_eq!(
+                tracker.into_batches(),
+                vec![BTreeSet::from([SMId::OperatorSet])]
+            );
+            assert_eq!(
+                registry
+                    .get_operator_set()
+                    .unwrap()
+                    .current_operator_table()
+                    .unwrap()
+                    .operator_idxs(),
+                BTreeSet::from([0, 2])
+            );
+        }
+    }
+}

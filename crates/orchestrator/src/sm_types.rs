@@ -4,7 +4,8 @@ use std::fmt::Display;
 
 use strata_bridge_primitives::{
     covenant::StakeKey,
-    types::{DepositIdx, GraphIdx, P2POperatorPubKey},
+    operator_table::PublicOperatorTable,
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, P2POperatorPubKey},
 };
 use strata_bridge_sm::{
     deposit::{duties::DepositDuty, events::DepositEvent},
@@ -65,6 +66,13 @@ pub enum OperatorKey<'a> {
 /// Wrapper for state-machine-specific events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SMEvent {
+    /// Creates a missing stake through the applicator, before ordinary stake events can run.
+    InitializeStake {
+        /// Exact immutable membership requested by OperatorSetSM.
+        operator_table: Box<PublicOperatorTable>,
+        /// Current processing position, independent of the covenant activation height.
+        block_height: BitcoinBlockHeight,
+    },
     /// An event related to the deposit state machine.
     Deposit(Box<DepositEvent>),
     /// An event related to the graph state machine.
@@ -78,6 +86,9 @@ pub enum SMEvent {
 impl Display for SMEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SMEvent::InitializeStake { block_height, .. } => {
+                write!(f, "InitializeStake at height {block_height}")
+            }
             SMEvent::OperatorSet(event) => write!(f, "OperatorSetEvent({event})"),
             SMEvent::Deposit(event) => write!(f, "DepositEvent({event})"),
             SMEvent::Graph(event) => write!(f, "GraphEvent({event})"),
