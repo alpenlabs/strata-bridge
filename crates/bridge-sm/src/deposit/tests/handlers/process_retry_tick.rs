@@ -150,6 +150,28 @@ mod tests {
     }
 
     #[test]
+    fn test_retry_tick_noop_in_fulfilled_when_timeout_is_zero() {
+        let state = DepositState::Fulfilled {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_POV_IDX,
+            fulfillment_txid: generate_txid(),
+            fulfillment_height: INITIAL_BLOCK_HEIGHT,
+            cooperative_payout_deadline: LATER_BLOCK_HEIGHT,
+        };
+
+        test_deposit_transition_with_cfg(
+            test_deposit_sm_cfg_with_timeout(0),
+            DepositTransition {
+                from_state: state.clone(),
+                event: DepositEvent::RetryTick(RetryTickEvent),
+                expected_state: state,
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
     fn test_retry_tick_noop_in_payout_descriptor_received_when_pov_is_not_assignee() {
         let operator_desc = random_p2tr_desc();
         let cooperative_payout_tx = test_cooperative_payout_txn(operator_desc);
