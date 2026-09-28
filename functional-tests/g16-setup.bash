@@ -12,12 +12,41 @@
 #   G16_DIR          existing g16 checkout (CI pre-clones it for rust-cache);
 #                    else cloned into functional-tests/.g16-src
 #   G16_RUNS_DIR     pipeline output dir (default functional-tests/_dd/.g16-runs)
-#   G16_MIN_FREE_GB  disk preflight threshold (default 600)
+#   G16_MIN_FREE_GB  disk preflight threshold (default 800 under MOSAIC_CUT_AND_CHOOSE=full,
+#                    else 600)
 
 G16_GEN_PID=""
 G16_GEN_LOG=""
 G16_GEN_START=0
 G16_VKEY=""
+
+# Resolve G16_RUNS_DIR to an absolute path once: the pipeline runs from inside the g16
+# checkout, so a relative value would land the circuit there while the preflight and the
+# v5c.ckt lookup in g16_wait_for_circuit resolve it against the repo root.
+g16_resolve_runs_dir() {
+    G16_RUNS_DIR="${G16_RUNS_DIR:-$(realpath functional-tests)/_dd/.g16-runs}"
+    mkdir -p "$G16_RUNS_DIR"
+    G16_RUNS_DIR="$(realpath "$G16_RUNS_DIR")"
+}
+
+# Disk preflight, cheap enough to run before the guest builds as well. Generation alone
+# peaks near 400 GB before the prune in g16_wait_for_circuit, and the test phase then keeps
+# the 134 GB circuit while the garbled tables and FoundationDB land on the same mount:
+# ~310 GB total under reduced cut-and-choose, ~760 GB measured under full (README.md).
+g16_disk_preflight() {
+    g16_resolve_runs_dir
+    local default_min_free_gb=600
+    if [ "${MOSAIC_CUT_AND_CHOOSE:-reduced}" = "full" ]; then
+        default_min_free_gb=800
+    fi
+    local min_free_gb="${G16_MIN_FREE_GB:-$default_min_free_gb}"
+    local free_gb
+    free_gb=$(df -Pk "$G16_RUNS_DIR" | awk 'NR==2 { print int($4 / 1048576) }')
+    if [ -z "$free_gb" ] || [ "$free_gb" -lt "$min_free_gb" ]; then
+        echo "ERROR: ${free_gb:-?} GB free on the $G16_RUNS_DIR mount; need >= ${min_free_gb} GB for MOSAIC_CUT_AND_CHOOSE=${MOSAIC_CUT_AND_CHOOSE:-reduced} (tune with G16_MIN_FREE_GB)" >&2
+        exit 1
+    fi
+}
 
 g16_start_generation() {
     # The circuit embeds this run's counterproof vkey, emitted by the SP1 guest
@@ -38,21 +67,8 @@ g16_start_generation() {
         exit 1
     fi
 
-    G16_RUNS_DIR="${G16_RUNS_DIR:-$(realpath functional-tests)/_dd/.g16-runs}"
-    mkdir -p "$G16_RUNS_DIR"
+    g16_disk_preflight
     G16_GEN_LOG="$G16_RUNS_DIR/g16-gen.log"
-
-    # Disk preflight. Generation alone peaks near 400 GB before the prune below, and the
-    # test phase then shares this mount with the garbled tables and FoundationDB (numbers
-    # in README.md). 600, not 320: a 320 GB threshold passes preflight and then runs the
-    # mount dry mid-generation.
-    local min_free_gb="${G16_MIN_FREE_GB:-600}"
-    local free_gb
-    free_gb=$(df -Pk "$G16_RUNS_DIR" | awk 'NR==2 { print int($4 / 1048576) }')
-    if [ "$free_gb" -lt "$min_free_gb" ]; then
-        echo "ERROR: ${free_gb} GB free on the $G16_RUNS_DIR mount; need >= ${min_free_gb} GB (tune with G16_MIN_FREE_GB)" >&2
-        exit 1
-    fi
 
     # CI pre-clones g16 (G16_DIR) so Swatinem/rust-cache covers its build; local
     # runs clone into functional-tests/.g16-src (same pattern as .asm-src in
@@ -64,9 +80,15 @@ g16_start_generation() {
         fi
     else
         G16_DIR="$(realpath functional-tests)/.g16-src"
-        local current_commit target_commit
-        current_commit="$(git -C "$G16_DIR" rev-parse HEAD 2>/dev/null || true)"
-        target_commit="$(git -C "$G16_DIR" rev-parse "$G16_REF^{commit}" 2>/dev/null || true)"
+        local current_commit="" target_commit=""
+        if [ -d "$G16_DIR" ]; then
+            current_commit="$(git -C "$G16_DIR" rev-parse HEAD 2>/dev/null || true)"
+            # Resolve the ref on the remote, so a branch that moved upstream is not compared
+            # against its stale local copy (tags and SHAs resolve the same either way).
+            if git -C "$G16_DIR" fetch -q origin "$G16_REF" 2>/dev/null; then
+                target_commit="$(git -C "$G16_DIR" rev-parse 'FETCH_HEAD^{commit}' 2>/dev/null || true)"
+            fi
+        fi
         if [ -z "$target_commit" ] || [ "$current_commit" != "$target_commit" ]; then
             rm -rf "$G16_DIR"
             git clone https://github.com/alpenlabs/g16 "$G16_DIR"

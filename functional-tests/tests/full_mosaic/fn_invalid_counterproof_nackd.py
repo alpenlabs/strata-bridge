@@ -115,8 +115,13 @@ class FullMosaicInvalidCounterproofNackdTest(StrataTestBase):
             Path(self.stale_counterproof_elf).with_suffix(".predicate").read_text().strip()
         )
 
-        asm_params_path = Path(os.environ["BRIDGE_PROOF_ASM_PARAMS_DIR"]) / "asm-params.json"
-        self.asm_params = AsmParams.load(asm_params_path)
+        asm_params_dir = os.environ.get("BRIDGE_PROOF_ASM_PARAMS_DIR")
+        if not asm_params_dir:
+            raise RuntimeError(
+                "tests/full_mosaic needs the external-bitcoin SP1 env (BRIDGE_EXTERNAL_BITCOIN=1), "
+                "which exports BRIDGE_PROOF_ASM_PARAMS_DIR; see tests/full_mosaic/README.md"
+            )
+        self.asm_params = AsmParams.load(Path(asm_params_dir) / "asm-params.json")
         self.num_operators = len(self.asm_params.bridge.operators)
 
         self.bridge_protocol_params = BridgeProtocolParams(

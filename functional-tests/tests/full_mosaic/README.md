@@ -58,7 +58,10 @@ cp sp1-env.bash.sample sp1-env.bash   # then fill in NETWORK_PRIVATE_KEY and set
 ./run_test.sh -t tests/full_mosaic/fn_valid_counterproof_acked.py
 ```
 
-`-t` or `-g full_mosaic` is required to bypass the default skip.
+`-t` is required to bypass the default skip, and only one test per invocation: every test
+here needs deposit index 0, and all tests of one invocation share the asm-params anchor
+`run_test.sh` bakes from the external chain, so the second test would find the first one's
+deposit at index 0. `entry.py` refuses `-g full_mosaic` (or two `-t`s) for that reason.
 
 The g16 circuit generation runs in the background overlapping the cargo builds; its log is
 at `_dd/.g16-runs/g16-gen.log`. Cost and disk requirements are in the main README's "Full

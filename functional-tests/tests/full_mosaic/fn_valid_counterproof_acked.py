@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 import flexitest
@@ -28,15 +29,17 @@ from utils.utils import (
     find_utxo_spender_txid,
     read_operator_key,
     snapshot_log_offsets,
+    wait_for_log_capture,
     wait_for_tx_confirmation,
-    wait_until_logs_match,
 )
-from utils.withdrawal import wait_until_counterproof_ack
+from utils.withdrawal import tx_inputs, wait_until_counterproof_ack
 
 # Logged by op-0 when the circuit accepts the counterproof: first by mosaic-client's
 # `evaluate_and_sign` ("evaluation failed to extract fault secret"), then by the NACK duty it
 # fails ("evaluator failed to extract fault secret from counterproof").
 NO_FAULT_SECRET_LOG_MARKER = "failed to extract fault secret"
+# Logged instead when the evaluation errored out before reaching a verdict.
+EVALUATION_ERROR_LOG_MARKER = "evaluate_and_sign failed"
 
 
 @flexitest.register
@@ -61,6 +64,11 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
     ACK is allowed to mature: the evaluation takes minutes, and an ACK that takes the
     counterproof output first would make the missing NACK a race rather than a verdict.
 
+    A running op-0 also reacts to the dev-cli claim with a bridge-proof duty of its own; it
+    cannot beat dev-cli to the contest proof output because that needs a Moho proof and
+    minutes of SP1 proving while dev-cli broadcasts at once, and a lost race would surface
+    as `send_bridge_proof` failing on a spent input rather than as a wrong verdict.
+
     Pairs with fn_invalid_counterproof_nackd.py, which runs the same flow at the same
     deposit index with a forged counterproof and must reach the opposite outcome. Deposit
     index 0 (game index 1, odd) is the index at which the toy circuit can never yield a
@@ -71,7 +79,7 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
     3. Wait for an honest watchtower to auto-contest.
     4. Post a faulty bridge proof from op-0 via dev-cli.
     5. Every watchtower auto-publishes a genuine counterproof.
-    6. Wait for op-0's circuit evaluation to report that no fault secret was extractable.
+    6. Wait for op-0's evaluation of EACH counterproof to report no extractable fault secret.
     7. Only then mine; assert no NACK appears, that the ACK does, then that op-0 is slashed.
     """
 
@@ -93,8 +101,13 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
         # Single source of truth: the asm-params baked by gen_asm_params_external.py
         # determines how many operator key sets the bridge subprotocol covers, so the
         # test must launch exactly that many operator nodes or N/N signing breaks.
-        asm_params_path = Path(os.environ["BRIDGE_PROOF_ASM_PARAMS_DIR"]) / "asm-params.json"
-        self.asm_params = AsmParams.load(asm_params_path)
+        asm_params_dir = os.environ.get("BRIDGE_PROOF_ASM_PARAMS_DIR")
+        if not asm_params_dir:
+            raise RuntimeError(
+                "tests/full_mosaic needs the external-bitcoin SP1 env (BRIDGE_EXTERNAL_BITCOIN=1), "
+                "which exports BRIDGE_PROOF_ASM_PARAMS_DIR; see tests/full_mosaic/README.md"
+            )
+        self.asm_params = AsmParams.load(Path(asm_params_dir) / "asm-params.json")
         self.num_operators = len(self.asm_params.bridge.operators)
 
         self.bridge_protocol_params = BridgeProtocolParams(
@@ -157,7 +170,7 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
         dishonest_node = bridge_nodes[dishonest_idx]
         dishonest_rpc_url = f"http://127.0.0.1:{dishonest_node.props['rpc_port']}"
         dishonest_seed = read_operator_key(dishonest_idx).SEED
-        num_watchtowers = self.num_operators - 1
+        watchtower_idxs = [i for i in range(self.num_operators) if i != dishonest_idx]
 
         # 1. Complete a deposit.
         drt_txid = dev_cli.send_deposit_request()
@@ -209,7 +222,7 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
 
         # 5. Every watchtower publishes a genuine counterproof.
         counterproof_txids = []
-        for slot in range(num_watchtowers):
+        for slot in range(len(watchtower_idxs)):
             watchtower_vout = CONTEST_WATCHTOWER_0_VOUT + slot
             wait_until_utxo_spent(
                 bitcoin_rpc,
@@ -222,22 +235,35 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
             counterproof_txids.append(counterproof_txid)
             self.logger.info(f"Watchtower slot {slot} counterproof: {counterproof_txid}")
 
-        # 6. The verdict. op-0 runs the counterproof through the real circuit; a valid one
-        # yields no fault secret, `evaluate_and_sign` returns None and the NACK duty fails.
-        # Observe that BEFORE mining. Nothing is in the mempool here, so the on-demand
-        # miner leaves the tip frozen and the ACK cannot mature while the evaluation
-        # (minutes) is still running; letting it would turn the "no NACK" below into a race
-        # the ACK wins by construction.
-        wait_until_logs_match(
-            dishonest_log_offsets,
-            lambda line: NO_FAULT_SECRET_LOG_MARKER in line,
-            timeout=1800,
-            error_msg=(
-                f"op-{dishonest_idx} never reported a failed fault-secret extraction; the "
-                "circuit did not reject a NACK on this valid counterproof"
-            ),
-        )
-        self.logger.info(f"op-{dishonest_idx} evaluated the counterproof: no fault secret, no NACK")
+        # 6. The verdict, once per counterproof: op-0 runs each through the real circuit; a
+        # valid one yields no fault secret, `evaluate_and_sign` returns None and the NACK
+        # duty fails. Observe that BEFORE mining. Nothing is in the mempool here, so the
+        # on-demand miner leaves the tip frozen and the ACK cannot mature while the
+        # evaluations (minutes each) are still running; letting it would turn the "no NACK"
+        # below into a race the ACK wins by construction. An evaluation that errors out
+        # instead is caught here too, so a mosaic RPC failure fails fast and by name rather
+        # than as a verdict timeout.
+        for idx in watchtower_idxs:
+            verdict = wait_for_log_capture(
+                dishonest_node.props["logfile"],
+                re.compile(
+                    rf"({NO_FAULT_SECRET_LOG_MARKER}|{EVALUATION_ERROR_LOG_MARKER})"
+                    rf".*\b(?:operator_idx|counterprover_idx)={idx}\b"
+                ),
+                log_offsets=dishonest_log_offsets,
+                timeout=1800,
+                error_msg=(
+                    f"op-{dishonest_idx} never reported a verdict on op-{idx}'s counterproof; "
+                    "the circuit neither rejected a NACK nor errored"
+                ),
+            )
+            assert verdict.group(1) == NO_FAULT_SECRET_LOG_MARKER, (
+                f"op-{dishonest_idx}'s evaluation of op-{idx}'s counterproof errored instead of "
+                f"reaching a verdict: {verdict.string.strip()[:240]}"
+            )
+            self.logger.info(
+                f"op-{dishonest_idx} evaluated op-{idx}'s counterproof: no fault secret, no NACK"
+            )
 
         # 7. Run the tip forward so the endgame timelocks mature. Capture every txid we
         # still need first — find_utxo_spender_txid only scans 50 blocks back.
@@ -259,8 +285,7 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
                 spender = find_utxo_spender_txid(
                     bitcoin_rpc, counterproof_txid, COUNTERPROOF_ACK_NACK_VOUT
                 )
-                spender_tx = bitcoin_rpc.proxy.getrawtransaction(spender, True)
-                assert len(spender_tx.get("vin", [])) == 2, (
+                assert len(tx_inputs(bitcoin_rpc, spender)) == 2, (
                     f"counterproof {counterproof_txid} was spent by 1-input tx {spender}: "
                     "that is a NACK, but the counterproof was valid and must not be NACKable"
                 )

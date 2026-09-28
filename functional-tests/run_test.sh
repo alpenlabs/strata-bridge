@@ -31,6 +31,14 @@ case "$MOSAIC_CUT_AND_CHOOSE" in
         ;;
 esac
 
+# The full circuit is generated from this run's counterproof vkey, so the bridge startup
+# checks pass on their merits and must stay on; skipping them would silently drop the
+# coverage the mode exists for (see BRIDGE_DEV_MODE in sp1-env.bash.sample).
+if [ "$MOSAIC_CIRCUIT_MODE" = "full" ] && [ "${BRIDGE_DEV_MODE:-}" = "1" ]; then
+    echo "ERROR: MOSAIC_CIRCUIT_MODE=full requires BRIDGE_DEV_MODE=0; set it in sp1-env.bash" >&2
+    exit 1
+fi
+
 # Set an explicit finite limit so bitcoind (and other
 # subprocesses) inherit a sane value.
 ulimit -n 10240
@@ -87,17 +95,34 @@ if [ "$BRIDGE_EXTERNAL_BITCOIN" = "1" ]; then
     echo "External bitcoin mode: $BITCOIN_RPC_URL (zmq $BITCOIN_ZMQ_HOST), use env 'network-extbtc'"
 fi
 
-source functional-tests/sp1-setup.bash
-
-# Full circuit mode: kick off the g16 circuit generation in the background right
-# after the guest build (the circuit embeds this run's counterproof vkey), so it
-# overlaps the remaining builds and installs; the wait sits just before entry.py.
+# Full circuit mode prerequisites, checked before the slow guest builds. A caller-provided
+# MOSAIC_CIRCUIT_PATH skips generation; that is only valid while the counterproof vkey it
+# was generated from is unchanged, which the bridge startup check enforces under
+# BRIDGE_DEV_MODE=0. Otherwise the disk preflight runs here and again before generation.
 source functional-tests/g16-setup.bash
 if [ "$MOSAIC_CIRCUIT_MODE" = "full" ]; then
     if [ "$BRIDGE_PROOF_SP1" != "1" ]; then
         echo "ERROR: MOSAIC_CIRCUIT_MODE=full requires BRIDGE_PROOF_SP1=1 (the circuit embeds this run's counterproof vkey)" >&2
         exit 1
     fi
+    if [ -n "${MOSAIC_CIRCUIT_PATH:-}" ]; then
+        if [ ! -f "$MOSAIC_CIRCUIT_PATH" ]; then
+            echo "ERROR: MOSAIC_CIRCUIT_PATH=$MOSAIC_CIRCUIT_PATH does not exist" >&2
+            exit 1
+        fi
+        export MOSAIC_CIRCUIT_PATH="$(realpath "$MOSAIC_CIRCUIT_PATH")"
+        echo "using pre-generated circuit $MOSAIC_CIRCUIT_PATH (skipping g16 generation)"
+    else
+        g16_disk_preflight
+    fi
+fi
+
+source functional-tests/sp1-setup.bash
+
+# Full circuit mode: kick off the g16 circuit generation in the background right
+# after the guest build (the circuit embeds this run's counterproof vkey), so it
+# overlaps the remaining builds and installs; the wait sits just before entry.py.
+if [ "$MOSAIC_CIRCUIT_MODE" = "full" ] && [ -z "${MOSAIC_CIRCUIT_PATH:-}" ]; then
     trap g16_cleanup_on_exit EXIT
     g16_start_generation
 fi
@@ -146,7 +171,7 @@ popd > /dev/null
 # Block on the backgrounded circuit generation; exports MOSAIC_CIRCUIT_PATH for
 # the mosaic node configs, or exits non-zero so entry.py never starts against a
 # missing circuit.
-if [ "$MOSAIC_CIRCUIT_MODE" = "full" ]; then
+if [ "$MOSAIC_CIRCUIT_MODE" = "full" ] && [ -n "${G16_GEN_PID:-}" ]; then
     g16_wait_for_circuit
 fi
 uv run python entry.py "$@"
