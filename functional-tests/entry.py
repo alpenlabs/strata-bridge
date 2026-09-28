@@ -23,6 +23,10 @@ from utils.service_diagnostics import install_service_exit_logging
 # regression run. They still run when you ask for them — either by
 # file (`-t tests/proofs/fn_bridge_proof.py`) or by group (`-g proofs`).
 SKIP_GROUPS_BY_DEFAULT = frozenset({"proofs", "full_mosaic"})
+# Groups whose tests cannot share one entry.py process: every tests/full_mosaic test needs
+# deposit index 0, and all tests of one invocation share the asm-params anchor baked by
+# run_test.sh, so the second test would find the first one's deposit at index 0.
+ONE_PER_INVOCATION_GROUPS = frozenset({"full_mosaic"})
 
 parser = argparse.ArgumentParser(prog="entry.py")
 parser.add_argument("-g", "--groups", nargs="*", help="Test groups (subdirectory names) to run")
@@ -89,6 +93,13 @@ def main(argv):
     # Probe and filter tests.
     modules = flexitest.runtime.scan_dir_for_modules(test_dir)
     modules = filter_tests(parsed_args, modules)
+    for group in ONE_PER_INVOCATION_GROUPS:
+        selected = sorted(test for test, path in modules.items() if group in groups_for_test(path))
+        if len(selected) > 1:
+            parser.error(
+                f"tests/{group} tests run one per invocation (each needs deposit index 0 on "
+                f"this run's asm-params anchor); selected {selected}, pick one with -t"
+            )
     if parsed_args.groups or parsed_args.tests:
         logging.info("Filtered tests: %s", list(modules.keys()))
     tests = flexitest.runtime.load_candidate_modules(modules)

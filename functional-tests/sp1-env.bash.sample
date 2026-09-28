@@ -22,7 +22,7 @@ export BRIDGE_PROOF_SP1_ASM=${BRIDGE_PROOF_SP1_ASM:-1}
 # circuit's zero vkey, so the bridge startup checks have to be skipped (see
 # _dev_mode_from_env, STR-3889). MOSAIC_CIRCUIT_MODE=full generates the circuit FROM this
 # run's counterproof vkey, so the check passes on its merits — set this to 0 there and get
-# the startup checks as free coverage.
+# the startup checks as free coverage; run_test.sh refuses full mode with this at 1.
 export BRIDGE_DEV_MODE=${BRIDGE_DEV_MODE:-1}
 
 # --- Mosaic circuit ---
@@ -52,9 +52,14 @@ export MOSAIC_CUT_AND_CHOOSE=${MOSAIC_CUT_AND_CHOOSE:-reduced}
 export G16_REF=${G16_REF:-}
 export G16_DIR=${G16_DIR:-}
 export G16_RUNS_DIR=${G16_RUNS_DIR:-}
-# Disk preflight in GB, checked before generation starts. Covers the circuit itself plus
-# the garbled tables and FoundationDB that share the mount during the test phase.
-export G16_MIN_FREE_GB=${G16_MIN_FREE_GB:-600}
+# Disk preflight in GB, checked before the guest builds and again before generation. Must
+# cover the circuit plus the garbled tables and FoundationDB that share the mount during the
+# test phase; empty picks the default for the cut-and-choose axis (600 reduced, 800 full).
+export G16_MIN_FREE_GB=${G16_MIN_FREE_GB:-}
+# Reuse an already generated v5c.ckt instead of generating one (full mode only; refused in
+# mock mode). Only valid while the counterproof vkey it was generated from is unchanged,
+# which the bridge startup check enforces under BRIDGE_DEV_MODE=0.
+export MOSAIC_CIRCUIT_PATH=${MOSAIC_CIRCUIT_PATH:-}
 
 # Build a SECOND, deliberately stale guest ELF pair from the bundled stub params, so a
 # watchtower can be made to emit a counterproof that does not verify under the canonical
