@@ -71,6 +71,14 @@ def get_circuit_path() -> str:
     # check turns a broken export into a loud failure at env-init time instead of a
     # mosaic crash on a missing file.
     override = os.environ.get("MOSAIC_CIRCUIT_PATH")
+    full_mode = os.environ.get("MOSAIC_CIRCUIT_MODE") == "full"
+    if override and not full_mode:
+        # A path left exported from an earlier full run must not silently put the whole
+        # default suite, and its parity-based NACK expectations, on the real circuit.
+        raise RuntimeError(
+            f"MOSAIC_CIRCUIT_PATH={override} is set but MOSAIC_CIRCUIT_MODE is not 'full'; "
+            "unset one of them"
+        )
     if override:
         path = Path(override).resolve()
         if not path.is_file():
@@ -79,7 +87,7 @@ def get_circuit_path() -> str:
 
     # Full mode must fail loudly here rather than silently fall back to the
     # toy circuit and fake the coverage the full run exists to provide.
-    if os.environ.get("MOSAIC_CIRCUIT_MODE") == "full":
+    if full_mode:
         raise RuntimeError(
             "MOSAIC_CIRCUIT_MODE=full but MOSAIC_CIRCUIT_PATH is unset; "
             "run via run_test.sh so g16-setup.bash generates and exports the circuit"

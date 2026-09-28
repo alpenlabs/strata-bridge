@@ -14,6 +14,18 @@ from utils.deposit import wait_until_utxo_spent
 from utils.utils import find_utxo_spender_txid, wait_until
 
 
+def tx_inputs(bitcoin_rpc, txid: str) -> list[tuple[str, int]]:
+    """The (txid, vout) outpoints a confirmed or mempool tx spends."""
+    tx = bitcoin_rpc.proxy.getrawtransaction(txid, True)
+    return [(vin["txid"], vin["vout"]) for vin in tx.get("vin", [])]
+
+
+def _spender_inputs(bitcoin_rpc, txid: str, vout: int) -> tuple[str, list[tuple[str, int]]]:
+    """The tx spending `txid:vout`, and the outpoints it spends."""
+    spender_txid = find_utxo_spender_txid(bitcoin_rpc, txid, vout)
+    return spender_txid, tx_inputs(bitcoin_rpc, spender_txid)
+
+
 @dataclass
 class PendingWithdrawalClaim:
     """The active claim currently associated with the assigned operator."""
@@ -147,10 +159,7 @@ def wait_until_counterproof_ack(bitcoin_rpc, contest_txid: str, timeout=600) -> 
     payout output.
     """
     wait_until_utxo_spent(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT, timeout=timeout)
-    ack_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT)
-
-    ack_tx = bitcoin_rpc.proxy.getrawtransaction(ack_txid, True)
-    ack_inputs = [(vin["txid"], vin["vout"]) for vin in ack_tx.get("vin", [])]
+    ack_txid, ack_inputs = _spender_inputs(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT)
     assert len(ack_inputs) == 2, (
         f"ACK candidate {ack_txid} must have 2 inputs, got {len(ack_inputs)}: {ack_inputs}"
     )
@@ -164,13 +173,11 @@ def wait_until_counterproof_ack(bitcoin_rpc, contest_txid: str, timeout=600) -> 
         f"expected vout {COUNTERPROOF_ACK_NACK_VOUT}"
     )
 
-    counterproof_tx = bitcoin_rpc.proxy.getrawtransaction(counterproof_txid, True)
-    cp_inputs = counterproof_tx.get("vin", [])
+    cp_inputs = tx_inputs(bitcoin_rpc, counterproof_txid)
     assert len(cp_inputs) == 1, (
         f"counterproof candidate {counterproof_txid} must have 1 input, got {len(cp_inputs)}"
     )
-    cp_in_txid = cp_inputs[0].get("txid")
-    cp_in_vout = cp_inputs[0].get("vout")
+    cp_in_txid, cp_in_vout = cp_inputs[0]
     assert cp_in_txid == contest_txid and cp_in_vout >= CONTEST_WATCHTOWER_0_VOUT, (
         f"counterproof candidate {counterproof_txid} spends {cp_in_txid}:{cp_in_vout}, "
         f"expected contest:{CONTEST_WATCHTOWER_0_VOUT}+"
@@ -201,10 +208,9 @@ def wait_until_counterproof_nack(bitcoin_rpc, counterproof_txid: str, timeout=60
     wait_until_utxo_spent(
         bitcoin_rpc, counterproof_txid, COUNTERPROOF_ACK_NACK_VOUT, timeout=timeout
     )
-    nack_txid = find_utxo_spender_txid(bitcoin_rpc, counterproof_txid, COUNTERPROOF_ACK_NACK_VOUT)
-
-    nack_tx = bitcoin_rpc.proxy.getrawtransaction(nack_txid, True)
-    nack_inputs = [(vin["txid"], vin["vout"]) for vin in nack_tx.get("vin", [])]
+    nack_txid, nack_inputs = _spender_inputs(
+        bitcoin_rpc, counterproof_txid, COUNTERPROOF_ACK_NACK_VOUT
+    )
     assert len(nack_inputs) == 1, (
         f"NACK candidate {nack_txid} must have exactly 1 input, got {len(nack_inputs)}: "
         f"{nack_inputs}. Two inputs means the counterproof was ACKed, not NACKed"
@@ -236,8 +242,7 @@ def assert_contested_payout_shape(
     payout output: a `counterproof_ack` (2 inputs) and a `slash` (which would take the
     contest slash output instead).
     """
-    tx = bitcoin_rpc.proxy.getrawtransaction(contested_payout_txid, True)
-    inputs = [(vin["txid"], vin["vout"]) for vin in tx.get("vin", [])]
+    inputs = tx_inputs(bitcoin_rpc, contested_payout_txid)
     expected = {
         (deposit_txid, DT_DEPOSIT_VOUT),
         (claim_txid, CLAIM_PAYOUT_VOUT),
