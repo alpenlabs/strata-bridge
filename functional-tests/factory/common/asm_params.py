@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from bitcoinlib.keys import Key
+
 from constants import ASM_MAGIC_BYTES
 
 # Bitcoin's difficulty adjustment interval, in blocks. Identical across all networks
@@ -17,6 +19,11 @@ DIFFICULTY_ADJUSTMENT_INTERVAL = 2016
 # bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf, encoded as type tag
 # 0x04 (P2A/P2TR) followed by the 32-byte x-only pubkey.
 DEFAULT_SAFE_HARBOUR_ADDRESS = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
+
+# X-only pubkey of `MOCK_SEQUENCER_KEY` in bin/dev-cli/src/handlers/checkpoint/constants.rs. ASM
+# only accepts checkpoint envelopes committing to the configured sequencer key, and dev-cli signs
+# its mock checkpoint envelopes with that key.
+MOCK_SEQUENCER_KEY = "29e5b5ad2a50b343407817f231ade1e6349bf6bc42ff457468f6eb774600bf64"
 
 # A callable that returns the verbose ``getblockheader`` response (a dict with at least
 # ``hash``, ``bits``, and ``time`` fields) for the block at a given height.
@@ -39,7 +46,7 @@ class L1Anchor:
 
 @dataclass
 class ThresholdConfig:
-    keys: list[str]
+    signers: list[str]
     threshold: int
 
 
@@ -55,7 +62,7 @@ class ConfirmationDepths:
     asm_stf_vk_update: int
     ee_stf_vk_update: int
     defcon3: int
-    safe_harbour_address_update: int
+    safe_harbor_address_update: int
 
 
 @dataclass
@@ -70,7 +77,7 @@ class AdminSubprotocol:
 
 @dataclass
 class CheckpointSubprotocol:
-    sequencer_predicate: str
+    sequencer_key: str
     checkpoint_predicate: str
     genesis_l1_height: int
     genesis_ol_blkid: str
@@ -83,7 +90,7 @@ class BridgeSubprotocol:
     assignment_duration: int
     operator_fee: int
     recovery_delay: int
-    safe_harbour_address: str
+    safe_harbor_address: str
 
 
 @dataclass
@@ -153,6 +160,15 @@ def parse_bits_to_target(bits: int | str) -> int:
     return int(bits)
 
 
+def p2wpkh_address(compressed_key: str, network: str) -> str:
+    """P2WPKH address of a compressed public key on ``network``, which is how ASM names admin
+    signers. The runner rejects a signer whose address prefix disagrees with the anchor's network.
+    """
+    return Key(import_key=compressed_key, network=network, is_private=False).address(
+        encoding="bech32"
+    )
+
+
 def build_l1_anchor(
     genesis_height: int,
     get_block_header: BlockHeaderFetcher,
@@ -192,11 +208,13 @@ def build_asm_params(
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
 ) -> AsmParams:
     compressed_keys = [f"02{key}" for key in musig2_keys]
+    anchor = build_l1_anchor(genesis_height, get_block_header)
+    signers = [p2wpkh_address(key, anchor.network) for key in compressed_keys]
     admin = AdminSubprotocol(
-        strata_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
-        strata_sequencer_manager=ThresholdConfig(keys=compressed_keys, threshold=1),
-        alpen_administrator=ThresholdConfig(keys=compressed_keys, threshold=1),
-        strata_security_council=ThresholdConfig(keys=compressed_keys, threshold=1),
+        strata_administrator=ThresholdConfig(signers=signers, threshold=1),
+        strata_sequencer_manager=ThresholdConfig(signers=signers, threshold=1),
+        alpen_administrator=ThresholdConfig(signers=signers, threshold=1),
+        strata_security_council=ThresholdConfig(signers=signers, threshold=1),
         confirmation_depths=ConfirmationDepths(
             strata_admin_multisig_update=144,
             strata_seq_manager_multisig_update=144,
@@ -208,12 +226,12 @@ def build_asm_params(
             asm_stf_vk_update=144,
             ee_stf_vk_update=144,
             defcon3=144,
-            safe_harbour_address_update=144,
+            safe_harbor_address_update=144,
         ),
         max_seqno_gap=10,
     )
     checkpoint = CheckpointSubprotocol(
-        sequencer_predicate="AlwaysAccept",
+        sequencer_key=MOCK_SEQUENCER_KEY,
         checkpoint_predicate="AlwaysAccept",
         genesis_l1_height=genesis_height,
         genesis_ol_blkid="0" * 64,
@@ -224,11 +242,11 @@ def build_asm_params(
         assignment_duration=assignment_duration,
         operator_fee=operator_fee,
         recovery_delay=recovery_delay,
-        safe_harbour_address=safe_harbour_address,
+        safe_harbor_address=safe_harbour_address,
     )
     return AsmParams(
         magic=magic,
-        anchor=build_l1_anchor(genesis_height, get_block_header),
+        anchor=anchor,
         admin=admin,
         checkpoint=checkpoint,
         bridge=bridge,
