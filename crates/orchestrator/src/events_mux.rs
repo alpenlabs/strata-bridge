@@ -98,10 +98,8 @@ pub struct EventsMux {
 impl EventsMux {
     /// Get the next available event, respecting the priority ordering.
     pub async fn next(&mut self) -> UnifiedEvent {
-        // A failed gossip receive idles that branch until another branch fires.
-        // FIXME: idling on `Lagged` deliberately preserves a known throughput issue so the p2p
-        // benchmarks have a baseline.
-        // Only `Closed` needs the idle, to keep the loop from spinning.
+        // A closed gossip channel idles that branch until another branch fires, so the loop doesn't
+        // spin on it.
         let mut gossip_idle = false;
         loop {
             let gossip_armed = !std::mem::take(&mut gossip_idle);
@@ -157,11 +155,13 @@ impl EventsMux {
                         observability::record_gossip_received(msg.unsigned.kind());
                         return UnifiedEvent::GossipMessage(msg);
                     }
-                    Err(err) => {
-                        if let tokio::sync::broadcast::error::RecvError::Lagged(skipped) = err {
-                            observability::record_gossip_lagged(skipped);
-                            warn!(skipped, "gossip receiver lagged, oldest messages were dropped");
-                        }
+                    // The next receive resumes at the oldest message still buffered.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        observability::record_gossip_lagged(skipped);
+                        warn!(skipped, "gossip receiver lagged, oldest messages were dropped");
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         gossip_idle = true;
                         continue;
                     }
