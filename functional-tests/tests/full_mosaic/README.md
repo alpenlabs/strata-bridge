@@ -32,6 +32,11 @@ counterproof validity and nothing else.
 
 Run one and not the other and you learn little; the pair is the experiment.
 
+The control test only starts mining once op-0 has logged that no fault secret could be
+extracted. The evaluation takes minutes while the ACK needs only `nack_timelock` blocks, so
+without that wait the ACK takes the counterproof output first and the absent NACK is a race,
+not the circuit's verdict.
+
 ## Scope caveat
 
 Cut-and-choose parameters are a **separate axis** from which circuit runs, selected by
