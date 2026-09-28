@@ -209,8 +209,26 @@ impl<'a> Applicator<'a> {
     ///
     /// Persistence tracking follows the state machine's own report: a transition that leaves state
     /// unchanged (e.g. a nag or retry tick) still has its duties accumulated and its signals
-    /// enqueued, but the source SM is neither recorded for persistence nor linked into a batch.
+    /// enqueued, but the source SM is not otherwise recorded. Stake initialization groups
+    /// created stakes with the membership transition that requested them.
     fn apply_one(&mut self, sm_id: SMId, sm_event: SMEvent) -> Result<(), PipelineError> {
+        if let (
+            SMId::Stake(stake_key),
+            SMEvent::InitializeStake {
+                operator_table,
+                block_height,
+            },
+        ) = (&sm_id, &sm_event)
+        {
+            let created =
+                self.initialize_stake(*stake_key, operator_table.as_ref().clone(), *block_height)?;
+            if created {
+                // Persist the membership transition and the stakes it creates atomically.
+                self.tracker.link(SMId::OperatorSet, sm_id);
+            }
+            return Ok(());
+        }
+
         match self.registry.process_event(&sm_id, sm_event) {
             Ok(ProcessOutcome::Applied(output)) => {
                 let mutated = output.did_mutate();
@@ -224,15 +242,23 @@ impl<'a> Applicator<'a> {
                     for (target_id, target_event) in
                         signals_router::route_signal(self.registry, signal)?
                     {
-                        if mutated {
+                        // Initialization links its source when the queued event creates a stake.
+                        // Linking here could add a nonexistent target to persistence if this node
+                        // is not a participant and initialization is skipped.
+                        let is_target_stake_init =
+                            matches!(&target_event, SMEvent::InitializeStake { .. });
+
+                        if mutated && !is_target_stake_init {
                             self.tracker.link(sm_id, target_id);
                         }
+
                         self.signal_queue.push_back((target_id, target_event));
                     }
                 }
 
                 Ok(())
             }
+
             Ok(ProcessOutcome::Ignored { id, event, reason }) => {
                 match reason {
                     IgnoredEventReason::Duplicate => {
