@@ -372,6 +372,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        applicator::BatchOutput,
         persister::Persister,
         sm_registry::SMRegistry,
         testing::{
@@ -517,7 +518,7 @@ mod tests {
             TEST_HEIGHT,
         )
         .unwrap();
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
 
         assert!(
             duties.is_empty(),
@@ -593,7 +594,10 @@ mod tests {
                 TEST_HEIGHT,
             )
             .unwrap();
-            let (applied_duties, tracker) = applicator.finish();
+            let BatchOutput {
+                duties: applied_duties,
+                tracker,
+            } = applicator.finish();
             assert!(
                 duties.is_empty(),
                 "A member in {state} must prevent initial duties"
@@ -677,7 +681,7 @@ mod tests {
             TEST_HEIGHT,
         )
         .unwrap();
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
 
         assert!(duties.is_empty(), "halt gate must not emit duties");
         assert_eq!(
@@ -726,7 +730,7 @@ mod tests {
             let duties =
                 try_register_deposit(&cfg, &table, covenant, &mut applicator, &tx, TEST_HEIGHT)
                     .unwrap();
-            let (_, tracker) = applicator.finish();
+            let BatchOutput { tracker, .. } = applicator.finish();
             assert!(duties.is_empty(), "replay must not emit constructor duties");
             assert!(tracker.into_batches().is_empty());
             assert_eq!(restored.get_all_ids(), ids);
@@ -753,7 +757,7 @@ mod tests {
         };
         let mut applicator = Applicator::new(&mut registry, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         let batches = tracker.into_batches();
         for deposit in 0..2 {
             let group = batches
@@ -831,7 +835,7 @@ mod tests {
                 };
                 let mut applicator = Applicator::new(&mut restored, None);
                 process_block(&mut applicator, &table, covenant, &replay).unwrap();
-                let (duties, tracker) = applicator.finish();
+                let BatchOutput { duties, tracker } = applicator.finish();
                 emitted_duties.extend(duties);
                 for batch in tracker.into_batches() {
                     persister.persist_batch(batch, &restored).await.unwrap();
@@ -936,7 +940,7 @@ mod tests {
         };
         let mut applicator = Applicator::new(&mut registry, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert_eq!(duties.len(), 1);
         assert_eq!(registry.num_deposits(), 1);
         assert_eq!(
@@ -977,7 +981,7 @@ mod tests {
         let original = restored.get_deposit(&0).unwrap().clone();
         let mut applicator = Applicator::new(&mut restored, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert_eq!(
             duties.len(),
             1,
@@ -1003,7 +1007,7 @@ mod tests {
         let ids = recovered.get_all_ids();
         let mut applicator = Applicator::new(&mut recovered, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert!(duties.is_empty());
         assert!(tracker.into_batches().is_empty());
         assert_eq!(recovered.get_all_ids(), ids);
