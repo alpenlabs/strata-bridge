@@ -2,7 +2,7 @@
 //!
 //! These parameters while configurable cannot be changed after genesis as any such change will
 //! result in a consensus failure among the bridge nodes.
-use std::{fs, path::Path, str::FromStr};
+use std::{fs, num::NonZeroU16, path::Path, str::FromStr};
 
 use bitcoin::{hex::DisplayHex, Amount, FeeRate, Network};
 use bitcoin_bosd::Descriptor;
@@ -86,28 +86,35 @@ pub struct ProtocolParams {
 
     /// The number of blocks after the deposit request after which the user can take back their
     /// deposit request.
+    #[serde(deserialize_with = "deserialize_timelock")]
     pub recovery_delay: u16,
 
     /// The number blocks after claim until which a contest is allowed.
+    #[serde(deserialize_with = "deserialize_timelock")]
     pub contest_timelock: u16,
 
     /// The number of blocks within which an operator must publish the proof after a contest is
     /// initiated.
+    #[serde(deserialize_with = "deserialize_timelock")]
     pub proof_timelock: u16,
 
     /// The number of blocks within which watchtower must ACK their counterproof to prevent a
     /// payout.
+    #[serde(deserialize_with = "deserialize_timelock")]
     pub ack_timelock: u16,
 
     /// The number of blocks within which the operator must NACK the counterproof or be slashed.
+    #[serde(deserialize_with = "deserialize_timelock")]
     pub nack_timelock: u16,
 
     /// The number of blocks after the contest timelock until which the payout after which slashing
     /// becomes viable.
+    #[serde(deserialize_with = "deserialize_timelock")]
     pub contested_payout_timelock: u16,
 
     /// The number of blocks after the unstaking intent transaction until which the operator cannot
     /// post the unstaking transaction.
+    #[serde(deserialize_with = "deserialize_timelock")]
     pub unstaking_timelock: u16,
 
     /// Predicate key used to verify bridge proof.
@@ -312,6 +319,15 @@ where
         .ok_or_else(|| serde::de::Error::custom("fee rate in sat/vb overflows"))
 }
 
+/// Deserialize a timelock in blocks, rejecting zero since it leaves the timelocked leaf
+/// unspendable.
+fn deserialize_timelock<'de, D>(deserializer: D) -> Result<u16, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    NonZeroU16::deserialize(deserializer).map(NonZeroU16::get)
+}
+
 fn serialize_magic_bytes<S>(magic_bytes: &MagicBytes, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -459,6 +475,32 @@ mod tests {
             "#,
             "failed to create admin xonly pk at index 0",
         );
+    }
+
+    #[test]
+    fn params_reject_zero_timelock() {
+        let valid = params_toml(&valid_admin_section());
+        let timelocks = [
+            ("recovery_delay", "1_008"),
+            ("contest_timelock", "144"),
+            ("proof_timelock", "144"),
+            ("ack_timelock", "144"),
+            ("nack_timelock", "144"),
+            ("contested_payout_timelock", "1_008"),
+            ("unstaking_timelock", "2_016"),
+        ];
+
+        for (field, value) in timelocks {
+            // The leading space keeps `ack_timelock` from matching inside `nack_timelock`.
+            let params =
+                valid.replacen(&format!(" {field} = {value}"), &format!(" {field} = 0"), 1);
+            let err = toml::from_str::<Params>(&params).unwrap_err().to_string();
+
+            assert!(
+                err.contains("expected a nonzero u16"),
+                "expected {field} = 0 to be rejected, got {err:?}"
+            );
+        }
     }
 
     fn valid_admin_section() -> String {
