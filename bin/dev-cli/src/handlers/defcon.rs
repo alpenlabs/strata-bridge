@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use bitcoin::bip32::Xpriv;
 use bitcoincore_rpc::{Auth, Client};
+use secp256k1::{rand::rngs::OsRng, Keypair, SECP256K1};
 use ssz::Encode;
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 use strata_asm_proto_admin_txs::{
@@ -46,8 +47,10 @@ pub(crate) fn handle_defcon1(args: Defcon1Args) -> Result<()> {
     let payload = SignedPayload::new(args.seqno, action, signatures);
 
     let magic: MagicBytes = BRIDGE_TAG.parse().expect("valid magic bytes");
+    let envelope_keypair = Keypair::new(SECP256K1, &mut OsRng);
     let txid = build_and_broadcast_envelope_tx(
         &client,
+        &envelope_keypair,
         magic,
         ADMINISTRATION_SUBPROTOCOL_ID,
         AdminTxType::Update(UpdateTxType::Defcon1).into(),

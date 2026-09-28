@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use secp256k1::{rand::rngs::OsRng, Keypair, SECP256K1};
 use ssz::Encode;
 use strata_asm_checkpoint_types::CheckpointPayload;
 use strata_bridge_common::params::Params;
@@ -75,8 +76,10 @@ pub(crate) async fn handle_create_and_publish_mock_checkpoint(
         "broadcasting mock checkpoint"
     );
 
+    let envelope_keypair = Keypair::new(SECP256K1, &mut OsRng);
     let reveal_txid = envelope::build_and_broadcast_envelope_tx(
         &btc_client,
+        &envelope_keypair,
         params.protocol.magic_bytes,
         CHECKPOINT_SUBPROTOCOL_ID,
         OL_STF_CHECKPOINT_TX_TYPE,

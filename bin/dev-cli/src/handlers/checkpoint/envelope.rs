@@ -10,7 +10,7 @@ use bitcoin::{
     Transaction, TxIn, TxOut, Witness,
 };
 use bitcoincore_rpc::{Client, RpcApi};
-use secp256k1::{rand::rngs::OsRng, Message};
+use secp256k1::Message;
 use strata_l1_envelope_fmt::builder::EnvelopeScriptBuilder;
 use strata_l1_txfmt::{MagicBytes, ParseConfig, SubprotocolId, TagDataRef, TxType};
 use tracing::info;
@@ -18,8 +18,11 @@ use tracing::info;
 use super::constants::{ENVELOPE_CHANGE_SATS, ENVELOPE_FEE_SATS};
 
 /// Build and broadcast an SPS-50 taproot envelope transaction embedding arbitrary payload.
+///
+/// `keypair` is the key the reveal script commits to and signs the reveal with.
 pub(crate) fn build_and_broadcast_envelope_tx(
     client: &Client,
+    keypair: &Keypair,
     magic: MagicBytes,
     subprotocol_id: SubprotocolId,
     tx_type: TxType,
@@ -28,9 +31,7 @@ pub(crate) fn build_and_broadcast_envelope_tx(
 ) -> Result<bitcoin::Txid> {
     let secp = Secp256k1::new();
 
-    // Generate ephemeral keypair
-    let keypair = Keypair::new(&secp, &mut OsRng);
-    let (internal_key, _) = XOnlyPublicKey::from_keypair(&keypair);
+    let (internal_key, _) = XOnlyPublicKey::from_keypair(keypair);
 
     // Build reveal script with embedded payload
     let reveal_script = EnvelopeScriptBuilder::with_pubkey(&internal_key.serialize())
@@ -142,7 +143,7 @@ pub(crate) fn build_and_broadcast_envelope_tx(
         .context("failed to compute sighash")?;
 
     let msg = Message::from_digest(sighash.to_byte_array());
-    let sig = secp.sign_schnorr(&msg, &keypair);
+    let sig = secp.sign_schnorr(&msg, keypair);
 
     let mut witness = Witness::new();
     witness.push(sig.as_ref());
