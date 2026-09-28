@@ -589,14 +589,23 @@ mod tests {
 mod stake_initialization_tests {
     //! Initialization through membership signals, persistence, and routed retry events.
 
-    use std::collections::BTreeSet;
+    use std::{
+        collections::BTreeSet,
+        sync::Arc,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use bitcoin::{
-        OutPoint,
+        Amount, OutPoint, TxOut,
         hashes::{Hash, sha256},
     };
     use btc_tracker::event::{BlockEvent, BlockStatus};
     use libp2p_identity::Keypair;
+    use strata_bridge_db::{
+        fdb::{cfg::Config, client::FdbClient},
+        traits::BridgeDb,
+        types::{FundingAssignment, StakeFundingReservation},
+    };
     use strata_bridge_primitives::{
         covenant::StakeKey,
         operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
@@ -610,14 +619,16 @@ mod stake_initialization_tests {
             state::StakeState,
         },
     };
-    use strata_bridge_test_utils::bitcoin::generate_block_with_height;
+    use strata_bridge_test_utils::bitcoin::{generate_block_with_height, generate_spending_tx};
 
     use crate::{
         applicator::{Applicator, BatchOutput},
         errors::{PipelineError, ProcessError},
         events_classifier::{offchain, onchain},
         events_mux::UnifiedEvent,
-        events_router, signals_router,
+        events_router,
+        persister::{PersistError, Persister},
+        signals_router,
         sm_registry::{RegistryInsertError, SMRegistry},
         sm_types::{SMId, UnifiedDuty},
         testing::{random_p2tr_desc, test_empty_registry, test_operator_table},
@@ -921,5 +932,123 @@ mod stake_initialization_tests {
                 BTreeSet::from([0, 2])
             );
         }
+    }
+
+    #[tokio::test]
+    async fn initialization_failure_and_post_commit_recovery_preserve_funding_identity() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-stake-initialization-{suffix}"),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let mut registry = registry();
+        let cfg = registry.cfg().clone();
+        persister
+            .persist_batch(BTreeSet::from([SMId::OperatorSet]), &registry)
+            .await
+            .unwrap();
+        let original_membership = registry.get_operator_set().unwrap().clone();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        advance_membership(&mut applicator, 101);
+        advance_membership(&mut applicator, 102);
+        let mut batch = applicator.finish();
+        let key = publication_key(&batch.duties);
+        // A missing causal dependency fails real batch construction before committing any stake.
+        batch.tracker.link(SMId::OperatorSet, SMId::Deposit(999));
+        let result = persister.persist_batches(batch.tracker, &registry).await;
+        assert!(matches!(
+            result,
+            Err(PersistError::MissingStateMachine(SMId::Deposit(999)))
+        ));
+        assert!(db.get_persisted_state().await.unwrap().stakes.is_empty());
+        assert_eq!(
+            db.get_persisted_state().await.unwrap().operator_set,
+            Some(original_membership)
+        );
+
+        // Recover from the last durable state, as the pipeline does after its fatal error.
+        registry = persister.recover_registry(cfg.clone()).await.unwrap();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        advance_membership(&mut applicator, 101);
+        advance_membership(&mut applicator, 102);
+        let batch = applicator.finish();
+        assert_eq!(publication_key(&batch.duties), key);
+        // Simulate losing the process after commit but before constructor dispatch.
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        drop(batch.duties);
+        let mut recovered = persister.recover_registry(cfg.clone()).await.unwrap();
+        assert_eq!(recovered.get_operator_set(), registry.get_operator_set());
+        assert_eq!(recovered.get_stake_ids(), registry.get_stake_ids());
+        let mut applicator = Applicator::new(&mut recovered, Some(0));
+        advance_membership(&mut applicator, 102);
+        let signals = applicator
+            .registry()
+            .get_operator_set()
+            .unwrap()
+            .initialization_signals()
+            .unwrap();
+        apply_signals(&mut applicator, signals).unwrap();
+        let BatchOutput { duties, tracker } = applicator.finish();
+        assert!(
+            duties.is_empty(),
+            "duplicate initialization does not fund again"
+        );
+        assert!(tracker.into_batches().is_empty());
+        let BatchOutput { duties, tracker } = retry(&mut recovered);
+        assert_eq!(publication_key(&duties), key);
+        assert!(
+            tracker.into_batches().is_empty(),
+            "recover the duty without resetting progress"
+        );
+
+        // The executor's covenant-qualified reservation path keeps the original funding on retry,
+        // including a crash after reservation but before stake data is delivered back to the SM.
+        let mut tx = generate_spending_tx(OutPoint::null(), &[]);
+        tx.output.push(TxOut::NULL);
+        let reservation = StakeFundingReservation {
+            unsigned_tx: tx,
+            prevouts: vec![TxOut::NULL],
+            stake_output_vout: 0,
+        };
+        assert_eq!(
+            db.get_or_set_stake_funding_reservation(key, reservation.clone())
+                .await
+                .unwrap(),
+            FundingAssignment::Created(reservation.clone())
+        );
+        let mut recovered = persister.recover_registry(cfg).await.unwrap();
+        let batch = retry(&mut recovered);
+        persister
+            .persist_batches(batch.tracker, &recovered)
+            .await
+            .unwrap();
+        let resumed_key = publication_key(&batch.duties);
+        assert_eq!(resumed_key, key);
+        let mut replacement = reservation.clone();
+        replacement.unsigned_tx.output[0].value = Amount::from_sat(42);
+        assert_eq!(
+            db.get_or_set_stake_funding_reservation(resumed_key, replacement)
+                .await
+                .unwrap(),
+            FundingAssignment::Existing(reservation.clone())
+        );
+        assert_eq!(
+            db.get_stake_funding_reservation(key).await.unwrap(),
+            Some(reservation)
+        );
+        assert_eq!(recovered.num_stakes(), 2);
+        drop(persister);
+        drop(db);
+        drop(guard);
     }
 }
