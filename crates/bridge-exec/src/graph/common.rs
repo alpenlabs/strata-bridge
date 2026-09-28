@@ -213,18 +213,23 @@ async fn ensure_claim_funding_outpoint(
                 })?;
                 // The refilled pool members are unconfirmed, so they are only visible while the
                 // funding transaction is in the node's mempool. An eviction between the
-                // tx-driver's check and this sync leaves nothing to reserve; the duty retries.
-                wallet
+                // tx-driver's check and this sync leaves nothing to reserve; the inputs go back
+                // to the wallet and the duty retries.
+                match wallet
                     .reserve_utxo_with_value(
                         cfg.claim_funding_utxo_value,
                         predicate::never::<UtxoInfo>,
                     )
                     .0
-                    .ok_or_else(|| {
-                        ExecutorError::WalletErr(
+                {
+                    Some(outpoint) => outpoint,
+                    None => {
+                        release_unspent_claim_funding_inputs(&mut wallet, &spent);
+                        return Err(ExecutorError::WalletErr(
                             "no claim-funding utxo available after refill".to_string(),
-                        )
-                    })?
+                        ));
+                    }
+                }
             }
         }
     };
@@ -273,7 +278,15 @@ async fn reconcile_claim_funding_leases_after_driver_failure<G: GeneralWallet, P
         );
         return;
     }
+    release_unspent_claim_funding_inputs(wallet, spent);
+}
 
+/// Releases the leases on those of `spent` the general wallet still holds; the rest were spent
+/// and the last sync pruned their leases.
+fn release_unspent_claim_funding_inputs<G: GeneralWallet, P: WalletStore>(
+    wallet: &mut OperatorWallet<G, P>,
+    spent: &[OutPoint],
+) {
     let live_general_outpoints: BTreeSet<_> = wallet
         .general()
         .list_utxos()
