@@ -12,6 +12,8 @@ use strata_p2p::{commands::GossipCommand, swarm::handle::GossipHandle};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, trace};
 
+use crate::observability::record_gossip_published;
+
 /// Message intended for oneself via ouroboros channel.
 #[derive(Debug)]
 pub struct OuroborosMessage {
@@ -275,6 +277,7 @@ impl MessageHandler {
         description: &str,
     ) {
         trace!(%description, ?msg, "sending message via combined dispatch");
+        let kind = msg.kind();
 
         // 1. Sign message (borrows msg)
         let signed = msg.sign_ed25519(&self.keypair);
@@ -304,7 +307,10 @@ impl MessageHandler {
             }
             None => {
                 // Broadcast to all peers via gossip
-                if let Err(e) = self.gossip_handle.send(GossipCommand { data }).await {
+                let result = self.gossip_handle.send(GossipCommand { data }).await;
+                record_gossip_published(kind, result.is_ok());
+                if let Err(e) = result {
+                    // `try_send` underneath: "channel closed" here is almost always a full queue.
                     error!(%description, %e, "failed to send message to gossip");
                     return;
                 }

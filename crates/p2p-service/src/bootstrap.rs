@@ -3,11 +3,14 @@
 use std::time::Duration;
 
 use libp2p::gossipsub::{PeerScoreParams, PeerScoreThresholds, Sha256Topic, TopicScoreParams};
-use strata_p2p::swarm::{
-    self,
-    handle::{CommandHandle, GossipHandle, ReqRespHandle},
-    P2PConfig, DEFAULT_CONNECTION_CHECK_INTERVAL, DEFAULT_DIAL_TIMEOUT, DEFAULT_GENERAL_TIMEOUT,
-    P2P,
+use strata_p2p::{
+    swarm::{
+        self,
+        handle::{CommandHandle, GossipHandle, ReqRespHandle},
+        P2PConfig, DEFAULT_CONNECTION_CHECK_INTERVAL, DEFAULT_DIAL_TIMEOUT,
+        DEFAULT_GENERAL_TIMEOUT, P2P,
+    },
+    validator::{DefaultP2PValidator, Validator, DEFAULT_MUTE_THRESHOLD},
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -16,6 +19,7 @@ use tracing::{debug, info};
 use crate::{
     config::{Configuration, GossipsubScoringPreset},
     constants::{DEFAULT_IDLE_CONNECTION_TIMEOUT, DEFAULT_PEER_RECONNECT_INTERVAL},
+    observability::{self, InstrumentedValidator},
     reconnect::maintain_connections,
 };
 
@@ -117,8 +121,18 @@ pub struct BootstrapHandles {
     pub listen_task: JoinHandle<()>,
 }
 
+/// Rate limiter applied to every inbound peer message, instrumented so its effect is measurable.
+fn rate_limiter() -> Box<dyn Validator> {
+    Box::new(InstrumentedValidator::new(
+        DefaultP2PValidator,
+        DEFAULT_MUTE_THRESHOLD,
+    ))
+}
+
 /// Bootstrap the p2p node by hooking up all the required services.
 pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandles> {
+    observability::describe_metrics();
+
     // Determine scoring parameters based on preset
     let preset = config.gossipsub_scoring_preset.unwrap_or_default();
     let (gossipsub_score_params, gossipsub_score_thresholds) = match preset {
@@ -183,8 +197,13 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
     debug!("swarm initialized");
 
     info!("initializing p2p node");
-    let (mut p2p, req_resp_handle) =
-        P2P::from_config(p2p_config, cancel.clone(), swarm, None, None)?;
+    let (mut p2p, req_resp_handle) = P2P::from_config(
+        p2p_config,
+        cancel.clone(),
+        swarm,
+        None,
+        Some(rate_limiter()),
+    )?;
     let command_handle = p2p.new_command_handle();
     let gossip_handle = p2p.new_gossip_handle();
     debug!("p2p node initialized");

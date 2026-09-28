@@ -19,6 +19,8 @@ use strata_p2p::{
 };
 use tracing::warn;
 
+use crate::observability;
+
 // NOTE: (@Rajil1213) the following use full `tokio` paths for disambiguation with `std` types.
 
 /// All possible events that the orchestrator can receive.
@@ -96,7 +98,13 @@ pub struct EventsMux {
 impl EventsMux {
     /// Get the next available event, respecting the priority ordering.
     pub async fn next(&mut self) -> UnifiedEvent {
+        // A failed gossip receive idles that branch until another branch fires.
+        // FIXME: idling on `Lagged` deliberately preserves a known throughput issue so the p2p
+        // benchmarks have a baseline.
+        // Only `Closed` needs the idle, to keep the loop from spinning.
+        let mut gossip_idle = false;
         loop {
+            let gossip_armed = !std::mem::take(&mut gossip_idle);
             tokio::select! {
                 biased; // follow the same order as written below.
 
@@ -140,12 +148,23 @@ impl EventsMux {
                 }
 
                 // Then, we handle gossip messages received from peers.
-                Ok(GossipEvent::ReceivedMessage(raw_msg)) = self.gossip_handle.next_event() => {
-                    let Some(msg) = decode_gossip_message(&raw_msg) else {
-                        continue;
-                    };
+                event = self.gossip_handle.next_event(), if gossip_armed => match event {
+                    Ok(GossipEvent::ReceivedMessage(raw_msg)) => {
+                        let Some(msg) = decode_gossip_message(&raw_msg) else {
+                            continue;
+                        };
 
-                    return UnifiedEvent::GossipMessage(msg);
+                        observability::record_gossip_received(msg.unsigned.kind());
+                        return UnifiedEvent::GossipMessage(msg);
+                    }
+                    Err(err) => {
+                        if let tokio::sync::broadcast::error::RecvError::Lagged(skipped) = err {
+                            observability::record_gossip_lagged(skipped);
+                            warn!(skipped, "gossip receiver lagged, oldest messages were dropped");
+                        }
+                        gossip_idle = true;
+                        continue;
+                    }
                 },
 
                 Some(evt) = self.mosaic_event_sub.next() => return UnifiedEvent::MosaicEvent(evt),
@@ -153,11 +172,17 @@ impl EventsMux {
                 // Then, we handle the periodic nag tick for nagging peers about missing messages.
                 // We do this toward the last because it's less urgent and prevents flooding the network
                 // with requests that might be fulfilled by simply waiting some more.
-                _nag_instant = self.nag_tick.tick() => return UnifiedEvent::NagTick,
+                nag_instant = self.nag_tick.tick() => {
+                    observability::record_tick_lateness("nag", nag_instant.elapsed());
+                    return UnifiedEvent::NagTick;
+                }
 
                 // Lastly, we retry failed duties as most duties have enough timeouts and very loose
                 // deadlines (in the order of days).
-                _retry_instant = self.retry_tick.tick() => return UnifiedEvent::RetryTick,
+                retry_instant = self.retry_tick.tick() => {
+                    observability::record_tick_lateness("retry", retry_instant.elapsed());
+                    return UnifiedEvent::RetryTick;
+                }
             }
         }
     }
