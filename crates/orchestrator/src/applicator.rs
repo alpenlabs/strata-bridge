@@ -30,6 +30,15 @@ use crate::{
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
+/// Accumulated duties and the state-machine dependencies that must be persisted before dispatch.
+#[derive(Debug)]
+pub struct BatchOutput {
+    /// Duties emitted while applying events and initializing state machines.
+    pub duties: Vec<UnifiedDuty>,
+    /// Causal groups containing the state needed to recover these duties.
+    pub tracker: PersistenceTracker,
+}
+
 /// A fixed-point batch processor that drives state machine transitions and signal cascades.
 ///
 /// Created once per top-level event (off-chain) or once per block (on-chain), the `Applicator`
@@ -197,8 +206,11 @@ impl<'a> Applicator<'a> {
     }
 
     /// Consumes the applicator and returns the accumulated duties and persistence tracker.
-    pub fn finish(self) -> (Vec<UnifiedDuty>, PersistenceTracker) {
-        (self.duties, self.tracker)
+    pub fn finish(self) -> BatchOutput {
+        BatchOutput {
+            duties: self.duties,
+            tracker: self.tracker,
+        }
     }
 
     /// Processes a single event through the registry's STF.
@@ -318,7 +330,7 @@ mod tests {
 
         applicator.apply_batch(vec![]).unwrap();
 
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert!(duties.is_empty());
         assert!(tracker.into_batches().is_empty());
     }
@@ -339,7 +351,7 @@ mod tests {
             .expect("insertion should succeed");
         applicator.apply_batch(vec![]).unwrap();
 
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         let batches = tracker.into_batches();
         let flat: BTreeSet<SMId> = batches.into_iter().flatten().collect();
         assert!(
@@ -364,7 +376,7 @@ mod tests {
             .expect("insertion should succeed");
         applicator.apply_batch(vec![]).unwrap();
 
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         let batches = tracker.into_batches();
         assert_eq!(
             batches,
@@ -389,7 +401,7 @@ mod tests {
             crate::sm_registry::RegistryInsertError::DepositAlreadyExists(0)
         ));
 
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         let flat: Vec<SMId> = tracker.into_batches().into_iter().flatten().collect();
         assert_eq!(flat, vec![SMId::Deposit(0)]);
     }
@@ -444,7 +456,7 @@ mod tests {
 
         applicator.apply_batch(seed_events).unwrap();
 
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         let batches = tracker.into_batches();
         assert!(!batches.is_empty(), "applied event must mark SM as touched");
     }
@@ -470,7 +482,7 @@ mod tests {
 
         applicator.apply_batch(seed_events).unwrap();
 
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         let batches = tracker.into_batches();
         assert!(!batches.is_empty());
     }
@@ -542,7 +554,7 @@ mod tests {
             );
         }
 
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         let batches = tracker.into_batches();
         assert_eq!(
             batches.len(),
@@ -602,7 +614,7 @@ mod tests {
             )])
             .unwrap();
 
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         let all_ids: BTreeSet<_> = tracker.into_batches().into_iter().flatten().collect();
         assert!(all_ids.contains(&SMId::Deposit(0)));
         assert!(all_ids.contains(&SMId::Deposit(1)));
@@ -644,7 +656,7 @@ mod tests {
         // Same height again — duplicate, should not fail
         applicator.apply_batch(vec![event()]).unwrap();
 
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         assert!(!tracker.into_batches().is_empty());
     }
 
@@ -692,7 +704,7 @@ mod tests {
                     .unwrap()
             );
         }
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert_eq!(registry.get_stake_ids(), keys);
         for (_, sm) in registry.stakes() {
             assert_eq!(
@@ -762,7 +774,7 @@ mod tests {
                     .unwrap()
             );
         }
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert!(duties.is_empty());
         assert!(tracker.into_batches().is_empty());
         assert_eq!(registry.get_stake(&key), Some(&before));
@@ -806,7 +818,7 @@ mod tests {
             matches!(error, ProcessError::RegistryInsert(RegistryInsertError::CovenantMembershipMismatch(actual)) if actual == key)
         );
         assert!(error.to_string().contains(&key.to_string()));
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert!(duties.is_empty());
         assert!(tracker.into_batches().is_empty());
         assert_eq!(registry.get_stake(&key), Some(&before));
@@ -830,7 +842,7 @@ mod tests {
                         .unwrap()
                 );
             }
-            let (duties, tracker) = applicator.finish();
+            let BatchOutput { duties, tracker } = applicator.finish();
             assert!(duties.is_empty());
             assert!(tracker.into_batches().is_empty());
             assert_eq!(registry.num_stakes(), 0);
