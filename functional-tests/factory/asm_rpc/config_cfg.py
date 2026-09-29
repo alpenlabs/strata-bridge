@@ -49,29 +49,31 @@ class ParamsConfig:
 
 
 @dataclass
-class NativeBackend:
-    """Native (in-process) proof backend configuration.
+class NativeSource:
+    """Native (in-process) proof host that signs BIP-340 Schnorr attestations (no real proving)."""
 
-    Produces BIP-340 Schnorr-signed ASM-STF / Moho attestations (no real proving).
-    """
-
-    asm_schnorr_signing_key: str
-    moho_schnorr_signing_key: str
+    signing_key: str
     kind: str = "native"
 
 
 @dataclass
-class Sp1Backend:
-    """SP1 proof backend configuration.
+class Sp1Source:
+    """SP1 proof host built from a guest ELF.
 
-    Produces real SP1 Groth16 ASM-STF / Moho proofs from the given guest ELFs. Requires
-    the asm-runner to be built with the `sp1` cargo feature. Mirrors the Rust
-    `BackendConfig::Sp1` variant (serde tag `kind = "sp1"`).
+    Requires the asm-runner to be built with the `sp1` cargo feature. Mirrors the Rust
+    `ArtifactSource::Sp1` variant (serde tag `kind = "sp1"`).
     """
 
-    asm_elf_path: str
-    moho_elf_path: str
+    elf_path: str
     kind: str = "sp1"
+
+
+@dataclass
+class AsmArtifactConfig:
+    """An ASM program the prover can prove; its host must resolve to `predicate`."""
+
+    predicate: str
+    source: NativeSource | Sp1Source
 
 
 @dataclass
@@ -86,7 +88,29 @@ class OrchestratorConfig:
     tick_interval: Duration
     max_concurrent_proofs: int
     proof_db_path: str
-    backend: NativeBackend | Sp1Backend
+    moho: NativeSource | Sp1Source
+    asm_artifacts: list[AsmArtifactConfig]
+
+
+@dataclass
+class ExecutionTargetConfig:
+    """Binds an ASM program predicate to the spec it implements."""
+
+    predicate: str
+    spec_id: int
+
+
+@dataclass
+class ExecutionConfig:
+    """Genesis ASM predicate and the programs this runner can execute."""
+
+    genesis_predicate: str
+    targets: list[ExecutionTargetConfig]
+
+    @classmethod
+    def single(cls, predicate: str) -> "ExecutionConfig":
+        """A chain that starts on, and only runs, `predicate` as spec 0."""
+        return cls(predicate, [ExecutionTargetConfig(predicate, spec_id=0)])
 
 
 @dataclass
@@ -96,4 +120,5 @@ class AsmRpcConfig:
     rpc: RpcConfig
     database: DatabaseConfig
     bitcoin: BitcoinConfig
+    execution: ExecutionConfig
     orchestrator: OrchestratorConfig | None = None

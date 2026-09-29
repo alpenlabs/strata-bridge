@@ -19,6 +19,7 @@ from .config_cfg import (
     BitcoinConfig,
     DatabaseConfig,
     Duration,
+    ExecutionConfig,
     OrchestratorConfig,
     RpcConfig,
 )
@@ -40,6 +41,7 @@ class AsmRpcFactory(PortProbingFactory):
         self,
         bitcoind_props: dict,
         params_file_path: str,
+        asm_predicate: str,
         ctx: flexitest.EnvContext,
         orchestrator_config: OrchestratorConfig | None = None,
     ) -> flexitest.Service:
@@ -48,6 +50,7 @@ class AsmRpcFactory(PortProbingFactory):
         Args:
             bitcoind_props: Properties from the Bitcoin service (includes zmq ports, rpc details)
             params_file_path: Path to the params.json file for ASM parameters
+            asm_predicate: Predicate of the ASM program the chain starts on
             ctx: Environment context from flexitest
             orchestrator_config: Optional proof orchestrator config. When set, the asm-runner
                 also opens its `MohoStateDb` and `ExportEntriesDb`, which are required for
@@ -76,6 +79,7 @@ class AsmRpcFactory(PortProbingFactory):
             db_path=db_path,
             moho_db_path=moho_db_path,
             output_path=config_toml_path,
+            execution=ExecutionConfig.single(asm_predicate),
             orchestrator_config=orchestrator_config,
         )
 
@@ -134,6 +138,7 @@ def generate_asm_rpc_config(
     db_path: str,
     moho_db_path: str,
     output_path: str,
+    execution: ExecutionConfig,
     orchestrator_config: OrchestratorConfig | None = None,
 ):
     """Generate ASM RPC configuration TOML file.
@@ -144,6 +149,7 @@ def generate_asm_rpc_config(
         db_path: Path to the ASM stores database directory
         moho_db_path: Path to the Moho stores database directory
         output_path: Path to write the config.toml file
+        execution: Genesis ASM predicate and the programs the runner can execute
         orchestrator_config: Optional proof orchestrator config; emitted as the
             `[orchestrator]` table when provided.
     """
@@ -173,6 +179,7 @@ def generate_asm_rpc_config(
                 bitcoind_props["zmq_hashblock"], zmq_host
             ),
         ),
+        execution=execution,
         orchestrator=orchestrator_config,
     )
 
