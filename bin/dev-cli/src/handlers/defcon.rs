@@ -7,7 +7,6 @@ use anyhow::{Context, Result};
 use bitcoin::bip32::Xpriv;
 use bitcoincore_rpc::{Auth, Client};
 use secp256k1::{rand::rngs::OsRng, Keypair, SECP256K1};
-use ssz::Encode;
 use strata_asm_admin_types::{AdminTxType, UpdateTxType};
 use strata_asm_proto_admin_txs::{
     actions::{updates::Defcon1Update, MultisigAction, UpdateAction},
@@ -43,7 +42,7 @@ pub(crate) fn handle_defcon1(args: Defcon1Args) -> Result<()> {
     let council_sk = musig2.keypair.secret_key();
 
     let action = MultisigAction::Update(UpdateAction::Defcon1(Defcon1Update));
-    let signatures = create_signature_set(&[council_sk], &[0], &action, args.seqno);
+    let signatures = create_signature_set(&[council_sk], &[0], &action, args.seqno, args.network);
     let payload = SignedPayload::new(args.seqno, action, signatures);
 
     let magic: MagicBytes = BRIDGE_TAG.parse().expect("valid magic bytes");
@@ -54,7 +53,7 @@ pub(crate) fn handle_defcon1(args: Defcon1Args) -> Result<()> {
         magic,
         ADMINISTRATION_SUBPROTOCOL_ID,
         AdminTxType::Update(UpdateTxType::Defcon1).into(),
-        &payload.as_ssz_bytes(),
+        &payload.into_envelope_bytes(),
         args.network,
     )
     .context("failed to broadcast defcon1 envelope tx")?;
@@ -69,9 +68,9 @@ pub(crate) fn handle_defcon1(args: Defcon1Args) -> Result<()> {
 mod tests {
     use std::num::NonZero;
 
-    use strata_crypto::{
-        keys::compressed::CompressedPublicKey,
-        threshold_signature::{verify_threshold_signatures, ThresholdConfig},
+    use bitcoin::{Network, PublicKey};
+    use strata_asm_admin_threshold_sig::{
+        verify_threshold_signatures, P2wpkhAddress, ThresholdConfig,
     };
 
     use super::*;
@@ -89,18 +88,26 @@ mod tests {
         let mut compressed = [0u8; 33];
         compressed[0] = 0x02;
         compressed[1..].copy_from_slice(&musig2.pubkey().serialize());
-        let council_key = CompressedPublicKey::from_slice(&compressed).unwrap();
-        let config = ThresholdConfig::try_new(vec![council_key], NonZero::new(1).unwrap()).unwrap();
+        let council_key = PublicKey::from_slice(&compressed).unwrap().inner;
+        let config = ThresholdConfig::try_new(
+            vec![P2wpkhAddress::from_pubkey(&council_key)],
+            NonZero::new(1).unwrap(),
+        )
+        .unwrap();
 
         let seqno = 1;
         let action = MultisigAction::Update(UpdateAction::Defcon1(Defcon1Update));
-        let signatures = create_signature_set(&[council_sk], &[0], &action, seqno);
+        let signatures =
+            create_signature_set(&[council_sk], &[0], &action, seqno, Network::Regtest);
 
-        let message_hash =
-            strata_asm_proto_admin_txs::signing_message::SigningMessage::for_action(&action, seqno)
-                .compute_sighash();
+        let message_hash = strata_asm_proto_admin_txs::signing_message::SigningMessage::for_action(
+            &action,
+            seqno,
+            Network::Regtest,
+        )
+        .compute_sighash();
 
-        verify_threshold_signatures(&config, signatures.signatures(), &message_hash.into())
+        verify_threshold_signatures(&config, signatures.signatures(), &message_hash.0)
             .expect("defcon1 signature must verify against the derived council key");
     }
 
@@ -123,18 +130,26 @@ mod tests {
         let compressed =
             hex::decode("02ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2")
                 .unwrap();
-        let council_key = CompressedPublicKey::from_slice(&compressed).unwrap();
-        let config = ThresholdConfig::try_new(vec![council_key], NonZero::new(1).unwrap()).unwrap();
+        let council_key = PublicKey::from_slice(&compressed).unwrap().inner;
+        let config = ThresholdConfig::try_new(
+            vec![P2wpkhAddress::from_pubkey(&council_key)],
+            NonZero::new(1).unwrap(),
+        )
+        .unwrap();
 
         let seqno = 1;
         let action = MultisigAction::Update(UpdateAction::Defcon1(Defcon1Update));
-        let signatures = create_signature_set(&[council_sk], &[0], &action, seqno);
+        let signatures =
+            create_signature_set(&[council_sk], &[0], &action, seqno, Network::Regtest);
 
-        let message_hash =
-            strata_asm_proto_admin_txs::signing_message::SigningMessage::for_action(&action, seqno)
-                .compute_sighash();
+        let message_hash = strata_asm_proto_admin_txs::signing_message::SigningMessage::for_action(
+            &action,
+            seqno,
+            Network::Regtest,
+        )
+        .compute_sighash();
 
-        verify_threshold_signatures(&config, signatures.signatures(), &message_hash.into())
+        verify_threshold_signatures(&config, signatures.signatures(), &message_hash.0)
             .expect("defcon1 signature must verify for fixture operator 0");
     }
 }

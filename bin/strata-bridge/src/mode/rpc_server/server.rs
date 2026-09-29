@@ -16,7 +16,7 @@ use libp2p::{
     identity::{PublicKey as LibP2pPublicKey, ed25519::PublicKey as LibP2pEdPublicKey},
 };
 use serde::Serialize;
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_orchestrator::{
@@ -500,7 +500,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             .collect())
     }
 
-    async fn get_safe_harbour_address(&self) -> RpcResult<Option<SafeHarbourAddress>> {
+    async fn get_safe_harbour_address(&self) -> RpcResult<Option<SafeHarborAddress>> {
         Ok(self
             .cached_registry
             .read()

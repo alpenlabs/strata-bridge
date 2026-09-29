@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
 use thiserror::Error;
 use tracing::error;
@@ -164,7 +164,7 @@ impl Persister {
     /// restart without re-consulting the (non-final) ASM tip.
     pub async fn persist_safe_harbour(
         &self,
-        address: &SafeHarbourAddress,
+        address: &SafeHarborAddress,
     ) -> Result<(), PersistError> {
         self.db
             .set_safe_harbour(address.clone())

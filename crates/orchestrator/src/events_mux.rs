@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
 use rkyv::rancor;
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 use strata_asm_proto_bridge::AssignmentEntry;
 use strata_bridge_asm_events::event::AsmState;
 use strata_bridge_p2p_service::message_handler::OuroborosMessage;
@@ -54,7 +54,7 @@ pub struct SafeHarbourEvent {
     /// Whether the ASM reports the safe harbour as activated.
     pub activated: bool,
     /// The frozen destination address; `Some` iff `activated`.
-    pub address: Option<SafeHarbourAddress>,
+    pub address: Option<SafeHarborAddress>,
 }
 
 /// A wrapper for holding all the input pins of the bridge and multiplexing them into a single
@@ -199,7 +199,7 @@ mod tests {
     use bitcoin::hashes::Hash;
     use libp2p_identity::ed25519::Keypair;
     use rkyv::{rancor::Error, to_bytes};
-    use strata_asm_bridge_types::{SafeHarbour, SafeHarbourAddress};
+    use strata_asm_bridge_types::{SafeHarbor, SafeHarborAddress};
     use strata_bridge_p2p_types::{PayoutDescriptor, UnsignedGossipsubMsg};
 
     use super::{
@@ -225,15 +225,15 @@ mod tests {
         );
     }
 
-    fn safe_harbour_address() -> SafeHarbourAddress {
+    fn safe_harbour_address() -> SafeHarborAddress {
         let descriptor = bitcoin_bosd::Descriptor::new_p2tr(&[2u8; 32]).expect("valid x-only key");
-        SafeHarbourAddress::try_from(descriptor).expect("p2tr accepted")
+        SafeHarborAddress::try_from(descriptor).expect("p2tr accepted")
     }
 
     #[test]
     fn asm_state_events_orders_active_safe_harbour_before_assignment() {
         let address = safe_harbour_address();
-        let mut safe_harbour = SafeHarbour::new(address.clone());
+        let mut safe_harbour = SafeHarbor::new(address.clone());
         safe_harbour.set_activated(true);
 
         let events = asm_state_events(AsmState {
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn asm_state_events_inactive_safe_harbour_carries_no_address() {
-        let safe_harbour = SafeHarbour::new(safe_harbour_address()); // deactivated by default
+        let safe_harbour = SafeHarbor::new(safe_harbour_address()); // deactivated by default
 
         let events = asm_state_events(AsmState {
             block_hash: bitcoin::BlockHash::all_zeros(),

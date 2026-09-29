@@ -3,7 +3,7 @@
 use bitcoin::{OutPoint, Txid};
 use foundationdb::{FdbBindingError, options::TransactionOption};
 use secp256k1::schnorr::Signature;
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
@@ -320,11 +320,11 @@ impl BridgeDb for FdbClient {
 
     // ── Safe Harbour ──────────────────────────────────────────────
 
-    async fn get_safe_harbour(&self) -> Result<Option<SafeHarbourAddress>, Self::Error> {
+    async fn get_safe_harbour(&self) -> Result<Option<SafeHarborAddress>, Self::Error> {
         self.basic_get::<SafeHarbourRowSpec>(SafeHarbourKey).await
     }
 
-    async fn set_safe_harbour(&self, address: SafeHarbourAddress) -> Result<(), Self::Error> {
+    async fn set_safe_harbour(&self, address: SafeHarborAddress) -> Result<(), Self::Error> {
         self.basic_set::<SafeHarbourRowSpec>(SafeHarbourKey, address)
             .await
     }
@@ -1983,7 +1983,7 @@ mod tests {
         use bitcoin_bosd::Descriptor;
 
         let descriptor = Descriptor::new_p2tr(&[2u8; 32]).expect("valid x-only public key");
-        let address = SafeHarbourAddress::try_from(descriptor).expect("p2tr accepted");
+        let address = SafeHarborAddress::try_from(descriptor).expect("p2tr accepted");
 
         block_on(async {
             let client = get_client();

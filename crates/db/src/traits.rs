@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
@@ -191,7 +191,7 @@ pub trait BridgeDb {
     /// first observation of an activated safe harbour, and never cleared.
     fn get_safe_harbour(
         &self,
-    ) -> impl Future<Output = Result<Option<SafeHarbourAddress>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Option<SafeHarborAddress>, Self::Error>> + Send;
 
     /// Latches the frozen safe-harbour `address`.
     ///
@@ -199,7 +199,7 @@ pub trait BridgeDb {
     /// only invoked once per node lifetime with a single frozen address.
     fn set_safe_harbour(
         &self,
-        address: SafeHarbourAddress,
+        address: SafeHarborAddress,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     // ── Batch Persistence ─────────────────────────────────────────────

@@ -12,7 +12,7 @@ use bitcoin::{
     OutPoint,
     hashes::{Hash, sha256},
 };
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
@@ -74,7 +74,7 @@ pub struct SMRegistry {
     /// harbour as activated. This is sticky and monotonic: the first write wins and it is never
     /// cleared, so it survives a tip reorg that flips the ASM flag back to inactive. `None` means
     /// safe harbour has not been observed as activated on this node.
-    safe_harbour: Option<SafeHarbourAddress>,
+    safe_harbour: Option<SafeHarborAddress>,
 }
 
 /// Invariant errors when inserting state machines into the registry.
@@ -180,7 +180,7 @@ impl SMRegistry {
     ///
     /// Returns `true` if this call latched the address (i.e. it was the first activation), and
     /// `false` if the safe harbour was already latched.
-    pub fn activate_safe_harbour(&mut self, address: SafeHarbourAddress) -> bool {
+    pub fn activate_safe_harbour(&mut self, address: SafeHarborAddress) -> bool {
         if self.safe_harbour.is_some() {
             return false;
         }
@@ -189,7 +189,7 @@ impl SMRegistry {
     }
 
     /// Returns the latched safe-harbour address, or `None` if safe harbour is not active.
-    pub const fn safe_harbour_address(&self) -> Option<&SafeHarbourAddress> {
+    pub const fn safe_harbour_address(&self) -> Option<&SafeHarborAddress> {
         self.safe_harbour.as_ref()
     }
 
@@ -802,21 +802,21 @@ mod tests {
 
     // ===== Safe-harbour latch tests =====
 
-    /// Builds a P2TR [`SafeHarbourAddress`] from a 32-byte x-only pubkey payload.
+    /// Builds a P2TR [`SafeHarborAddress`] from a 32-byte x-only pubkey payload.
     ///
     /// `new_p2tr` rejects payloads that are not valid on-curve x-coordinates (only ~half of all
     /// 32-byte values are), so `a`/`b` below use fills known to be valid; e.g. `[3u8; 32]` is not.
-    fn safe_harbour_address(payload: [u8; 32]) -> SafeHarbourAddress {
+    fn safe_harbour_address(payload: [u8; 32]) -> SafeHarborAddress {
         let descriptor =
             bitcoin_bosd::Descriptor::new_p2tr(&payload).expect("valid x-only public key");
-        SafeHarbourAddress::try_from(descriptor).expect("p2tr descriptor accepted")
+        SafeHarborAddress::try_from(descriptor).expect("p2tr descriptor accepted")
     }
 
-    fn safe_harbour_address_a() -> SafeHarbourAddress {
+    fn safe_harbour_address_a() -> SafeHarborAddress {
         safe_harbour_address([2u8; 32])
     }
 
-    fn safe_harbour_address_b() -> SafeHarbourAddress {
+    fn safe_harbour_address_b() -> SafeHarborAddress {
         safe_harbour_address([7u8; 32])
     }
 

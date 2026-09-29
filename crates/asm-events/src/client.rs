@@ -21,7 +21,7 @@ use bitcoin::BlockHash;
 use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::StreamExt;
 use jsonrpsee::http_client::HttpClient;
-use strata_asm_bridge_types::SafeHarbour;
+use strata_asm_bridge_types::SafeHarbor;
 use strata_asm_proto_bridge::AssignmentEntry;
 use strata_asm_rpc::traits::{AsmControlApiClient, AsmStateApiClient};
 use strata_bridge_primitives::subscription::Subscription;
@@ -291,7 +291,7 @@ async fn run_asm_state_fetcher(
         info!(
             %block_hash,
             num_assignments = assignments.len(),
-            safe_harbour_active = safe_harbour.as_ref().is_some_and(SafeHarbour::is_activated),
+            safe_harbour_active = safe_harbour.as_ref().is_some_and(SafeHarbor::is_activated),
             "received ASM state"
         );
 
@@ -337,7 +337,7 @@ async fn fetch_assignments_with_retry(
 async fn fetch_safe_harbour_with_retry(
     cfg: &AsmRpcConfig,
     client: &HttpClient,
-) -> Result<Option<SafeHarbour>, FetchError> {
+) -> Result<Option<SafeHarbor>, FetchError> {
     let timeout = cfg.request_timeout;
     let strategy = cfg.retry_strategy();
     let client = client.clone();
@@ -373,7 +373,7 @@ async fn fetch_assignments(
 async fn fetch_safe_harbour(
     client: &HttpClient,
     timeout: time::Duration,
-) -> Result<Option<SafeHarbour>, FetchError> {
+) -> Result<Option<SafeHarbor>, FetchError> {
     let status = match time::timeout(timeout, client.get_status()).await {
         Ok(Ok(status)) => status,
         Ok(Err(err)) => return Err(FetchError::Rpc(err)),
@@ -386,7 +386,7 @@ async fn fetch_safe_harbour(
     };
     let tip_hash = cur_block.blkid().to_block_hash();
 
-    match time::timeout(timeout, client.get_safe_harbour(tip_hash)).await {
+    match time::timeout(timeout, client.get_safe_harbor(tip_hash)).await {
         Ok(Ok(safe_harbour)) => Ok(safe_harbour),
         Ok(Err(err)) => Err(FetchError::Rpc(err)),
         Err(_) => Err(FetchError::Timeout),
@@ -411,7 +411,7 @@ mod tests {
         server::{ServerBuilder, ServerHandle},
         types::ErrorObjectOwned,
     };
-    use strata_asm_bridge_types::SafeHarbourAddress;
+    use strata_asm_bridge_types::SafeHarborAddress;
     use strata_asm_checkpoint_types::CheckpointTip;
     use strata_asm_common::{AnchorState, AsmManifest};
     use strata_asm_params::AsmParams;
@@ -429,7 +429,7 @@ mod tests {
     #[derive(Clone)]
     struct MockAsm {
         tip: L1BlockCommitment,
-        safe_harbour: Option<SafeHarbour>,
+        safe_harbour: Option<SafeHarbor>,
         fail_assignments: Arc<AtomicBool>,
         fail_safe_harbour: Arc<AtomicBool>,
     }
@@ -470,7 +470,7 @@ mod tests {
             Err(mock_err())
         }
 
-        async fn get_safe_harbour(&self, _block_hash: BlockHash) -> RpcResult<Option<SafeHarbour>> {
+        async fn get_safe_harbor(&self, _block_hash: BlockHash) -> RpcResult<Option<SafeHarbor>> {
             if self.fail_safe_harbour.load(Ordering::Relaxed) {
                 return Err(mock_err());
             }
@@ -579,11 +579,11 @@ mod tests {
         }
     }
 
-    fn activated_safe_harbour() -> SafeHarbour {
+    fn activated_safe_harbour() -> SafeHarbor {
         // `[2u8; 32]` is a valid x-only pubkey; see the bitcoin-bosd `new_p2tr` doctest.
         let descriptor = bitcoin_bosd::Descriptor::new_p2tr(&[2u8; 32]).expect("valid x-only key");
-        let address = SafeHarbourAddress::try_from(descriptor).expect("p2tr descriptor accepted");
-        let mut safe_harbour = SafeHarbour::new(address);
+        let address = SafeHarborAddress::try_from(descriptor).expect("p2tr descriptor accepted");
+        let mut safe_harbour = SafeHarbor::new(address);
         safe_harbour.set_activated(true);
         safe_harbour
     }
@@ -616,7 +616,7 @@ mod tests {
             state
                 .safe_harbour
                 .as_ref()
-                .is_some_and(SafeHarbour::is_activated)
+                .is_some_and(SafeHarbor::is_activated)
         );
         assert!(harness.saw_health(|e| matches!(e, AsmFeedHealthEvent::AssignmentsFetchFailed)));
         assert!(harness.saw_health(|e| matches!(e, AsmFeedHealthEvent::SafeHarbourFetched)));
@@ -665,7 +665,7 @@ mod tests {
             state
                 .safe_harbour
                 .as_ref()
-                .is_some_and(SafeHarbour::is_activated)
+                .is_some_and(SafeHarbor::is_activated)
         );
     }
 }

@@ -6,7 +6,7 @@
 //! observation of an activated safe harbour, and never clears it.
 
 use foundationdb::tuple::PackError;
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 
 use super::kv::{KVRowSpec, PackableKey, SerializableValue};
 use crate::fdb::dirs::Directories;
@@ -30,7 +30,7 @@ impl PackableKey for SafeHarbourKey {
     }
 }
 
-impl SerializableValue for SafeHarbourAddress {
+impl SerializableValue for SafeHarborAddress {
     type SerializeError = postcard::Error;
     type DeserializeError = postcard::Error;
     type Serialized = Vec<u8>;
@@ -40,7 +40,7 @@ impl SerializableValue for SafeHarbourAddress {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Self::DeserializeError> {
-        // Deserialization enforces the P2TR invariant via `SafeHarbourAddress`'s
+        // Deserialization enforces the P2TR invariant via `SafeHarborAddress`'s
         // custom `Deserialize` impl, so persisted bytes cannot smuggle in a
         // non-taproot descriptor.
         postcard::from_bytes(bytes)
@@ -53,7 +53,7 @@ pub struct SafeHarbourRowSpec;
 
 impl KVRowSpec for SafeHarbourRowSpec {
     type Key = SafeHarbourKey;
-    type Value = SafeHarbourAddress;
+    type Value = SafeHarborAddress;
 }
 
 #[cfg(test)]
@@ -62,17 +62,17 @@ mod tests {
 
     use super::*;
 
-    fn p2tr_address() -> SafeHarbourAddress {
+    fn p2tr_address() -> SafeHarborAddress {
         // `[2u8; 32]` is a valid x-only pubkey on secp256k1.
         let descriptor = Descriptor::new_p2tr(&[2u8; 32]).expect("valid x-only public key");
-        SafeHarbourAddress::try_from(descriptor).expect("p2tr accepted")
+        SafeHarborAddress::try_from(descriptor).expect("p2tr accepted")
     }
 
     #[test]
     fn safe_harbour_address_value_roundtrips_through_postcard() {
         let address = p2tr_address();
         let bytes = address.serialize().expect("serialize");
-        let decoded = SafeHarbourAddress::deserialize(&bytes).expect("deserialize");
+        let decoded = SafeHarborAddress::deserialize(&bytes).expect("deserialize");
         assert_eq!(address, decoded);
     }
 }

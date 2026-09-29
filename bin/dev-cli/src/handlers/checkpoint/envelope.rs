@@ -11,7 +11,7 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{Client, RpcApi};
 use secp256k1::Message;
-use strata_l1_envelope_fmt::builder::EnvelopeScriptBuilder;
+use strata_l1_envelope_fmt::EnvelopeScriptBuilder;
 use strata_l1_txfmt::{MagicBytes, ParseConfig, SubprotocolId, TagDataRef, TxType};
 use tracing::info;
 

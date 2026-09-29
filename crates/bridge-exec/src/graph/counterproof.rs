@@ -395,15 +395,13 @@ async fn detect_heavier_chain(
         MerkleProofB32::new_zero()
     } else {
         let inclusion_proof =
-            fetch_canonical_inclusion_proof(output_handles, anchor_hash, &claim_unlock)
-                .await?
-                .filter(|proof| proof.index() == operator_commitment.mmr_idx);
-        let Some(inclusion_proof) = inclusion_proof else {
+            fetch_canonical_inclusion_proof(output_handles, anchor_hash, &claim_unlock).await?;
+        if inclusion_proof.index() != operator_commitment.mmr_idx {
             return Err(ExecutorError::AsmRpcErr(format!(
                 "canonical MMR entry unavailable at index {} (deposit {deposit_idx}, operator {operator_idx})",
                 operator_commitment.mmr_idx
             )));
-        };
+        }
 
         // The canonical chain agrees with the operator's commitment; nothing to challenge.
         if claim_unlock.compute_hash() == hash::raw(&operator_commitment.claim_unlock).0 {
@@ -449,23 +447,19 @@ async fn fetch_canonical_inclusion_proof(
     output_handles: &OutputHandles,
     anchor_hash: bitcoin::BlockHash,
     claim_unlock: &OperatorClaimUnlock,
-) -> Result<Option<MerkleProofB32>, ExecutorError> {
+) -> Result<MerkleProofB32, ExecutorError> {
     let inclusion_bytes = output_handles
         .asm_rpc_client
         .get_export_entry_mmr_proof(
             anchor_hash,
             BRIDGE_SUBPROTOCOL_ID,
-            claim_unlock.compute_hash().to_vec(),
+            claim_unlock.compute_hash(),
         )
         .await
         .map_err(|e| ExecutorError::AsmRpcErr(format!("get_export_entry_mmr_proof: {e}")))?;
-    let Some(inclusion_bytes) = inclusion_bytes else {
-        return Ok(None);
-    };
 
-    let inclusion_proof = MerkleProofB32::from_ssz_bytes(&inclusion_bytes)
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("decode mmr proof ssz: {e:?}")))?;
-    Ok(Some(inclusion_proof))
+    MerkleProofB32::from_ssz_bytes(&inclusion_bytes)
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("decode mmr proof ssz: {e:?}")))
 }
 
 /// Fetches the recursive Moho proof for `block_hash` from the ASM and rebuilds the
