@@ -36,6 +36,15 @@ pub(crate) struct Config {
     /// The interval at which to nag peers for required MuSig2 information.
     pub nag_interval: Duration,
 
+    /// How long a nag reply suppresses repeat nags for the same data. Defaults to half of
+    /// `nag_interval` so a peer's retry after a lost reply is still served; zero disables it.
+    pub nag_dedup_window: Option<Duration>,
+
+    /// How long an unsettled nag reply suppresses repeat nags, bounding the cost of a reply that
+    /// hangs. Defaults to `nag_interval`, so a hung reply costs peers one nag round. Zero turns
+    /// this off, so only a sent reply suppresses repeats.
+    pub nag_dedup_in_flight_timeout: Option<Duration>,
+
     /// The interval at which to retry duties.
     pub retry_interval: Duration,
 

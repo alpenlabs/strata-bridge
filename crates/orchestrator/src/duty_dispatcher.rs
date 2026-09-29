@@ -40,6 +40,12 @@ impl DutyDispatcher {
     /// this property falls upon the implementers of the duty executors, and it is crucial for
     /// ensuring the robustness and reliability of the overall system.
     pub fn dispatch(&self, duty: UnifiedDuty) {
+        self.dispatch_then(duty, |_| {});
+    }
+
+    /// Dispatches a duty like [`Self::dispatch`], then calls `on_settled` from the duty task with
+    /// whether the execution succeeded.
+    pub fn dispatch_then(&self, duty: UnifiedDuty, on_settled: impl FnOnce(bool) + Send + 'static) {
         let duty_kind = observability::duty_kind(&duty);
         observability::record_duty(duty_kind, "dispatched", "none");
 
@@ -56,12 +62,13 @@ impl DutyDispatcher {
             observability::record_duty_started(duty_kind);
             let execution = execute_duty(cfg, handles, &duty);
 
-            match AssertUnwindSafe(execution).catch_unwind().await {
+            let succeeded = match AssertUnwindSafe(execution).catch_unwind().await {
                 Ok(Ok(())) => {
                     observability::record_duty(duty_kind, "success", "none");
                     observability::record_duty_duration(duty_kind, "success", started.elapsed());
                     tracing::Span::current().record("result", "success");
                     debug!(duty_kind, "duty execution completed");
+                    true
                 }
                 Ok(Err(execution_error)) => {
                     let error_class = observability::executor_error_class(&execution_error);
@@ -74,6 +81,7 @@ impl DutyDispatcher {
                         duty_kind,
                         "duty execution failed"
                     );
+                    false
                 }
                 Err(panic_payload) => {
                     observability::record_duty(duty_kind, "panic", "panic");
@@ -83,10 +91,12 @@ impl DutyDispatcher {
                         panic = panic_payload_message(panic_payload.as_ref()),
                         duty_kind, "duty execution panicked"
                     );
+                    false
                 }
-            }
+            };
 
             observability::record_duty_settled(duty_kind);
+            on_settled(succeeded);
         }
         .instrument(span);
 

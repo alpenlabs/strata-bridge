@@ -38,7 +38,7 @@ use tokio::{
     select,
     sync::{RwLock, mpsc, oneshot},
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     config::Config,
@@ -185,7 +185,25 @@ where
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());
 
-    let orchestrator_pipeline = Pipeline::new(events_mux, registry, persister, duty_dispatcher);
+    let nag_dedup_window = config.nag_dedup_window.unwrap_or(config.nag_interval / 2);
+    if !nag_dedup_window.is_zero() && nag_dedup_window >= config.nag_interval {
+        warn!(
+            ?nag_dedup_window,
+            nag_interval = ?config.nag_interval,
+            "nag dedup window is not shorter than the nag interval; a peer's retry after a lost reply is dropped"
+        );
+    }
+    let nag_dedup_in_flight_timeout = config
+        .nag_dedup_in_flight_timeout
+        .unwrap_or(config.nag_interval);
+    let orchestrator_pipeline = Pipeline::new(
+        events_mux,
+        registry,
+        persister,
+        duty_dispatcher,
+        nag_dedup_window,
+        nag_dedup_in_flight_timeout,
+    );
 
     debug!("starting orchestrator pipeline");
     health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "pipeline_spawned");
