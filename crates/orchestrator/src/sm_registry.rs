@@ -258,6 +258,23 @@ impl SMRegistry {
             .min()
     }
 
+    /// Returns the greatest processed height among membership and nonterminal stake states.
+    ///
+    /// Returns `None` if neither membership nor a nonterminal stake is present.
+    pub fn latest_gate_height(&self) -> Option<BitcoinBlockHeight> {
+        self.stakes
+            .values()
+            .filter_map(|sm| sm.state().last_processed_block_height())
+            .chain(
+                self.operator_set
+                    .as_ref()
+                    .map(OperatorSetSM::last_block_height),
+            )
+            // Partial commits can leave these states at different heights. Using the maximum
+            // prevents replay from admitting older deposits with later membership or readiness.
+            .max()
+    }
+
     /// Installs the singleton membership component without replacing an existing history.
     pub fn insert_operator_set(&mut self, sm: OperatorSetSM) -> Result<(), RegistryInsertError> {
         if self.operator_set.is_some() {

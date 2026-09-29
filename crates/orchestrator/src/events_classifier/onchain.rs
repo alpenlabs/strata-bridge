@@ -8,7 +8,7 @@
 //!
 //! [`TxClassifier::classify_tx()`]: strata_bridge_sm::tx_classifier::TxClassifier::classify_tx
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use bitcoin::{OutPoint, Transaction};
 use btc_tracker::event::BlockEvent;
@@ -47,34 +47,33 @@ use crate::{
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
-/// Processes a buried block by iterating its transactions in chain order.
-///
-/// For each transaction, seed events are classified and applied as a fixed-point batch via the
-/// [`Applicator`]. This ensures that state changes from earlier transactions (e.g., stake
-/// confirmations) are visible when classifying later transactions (e.g., DRTs) in the same block.
-///
-/// After all transactions are processed, `NewBlock` cursor events are emitted for all SMs that
-/// existed before the block was processed.
-pub(crate) fn process_block(
+/// Applies a block's stake transitions and advances unfinished stake states.
+pub(crate) fn process_stake_pass(
     applicator: &mut Applicator<'_>,
-    initial_operator_table: &OperatorTable,
-    covenant: CovenantId,
     block_event: &BlockEvent,
 ) -> Result<(), PipelineError> {
-    let deposit_cfg = applicator.registry().cfg().deposit.clone();
-    let graph_cfg = applicator.registry().cfg().graph.clone();
-    let stake_cfg = applicator.registry().cfg().stake.clone();
     let height = block_event
         .block
         .bip34_block_height()
         .expect("must have a valid block height");
-
-    // Snapshot pre-existing SM IDs: newly created SMs already know the current block height,
-    // so only pre-existing ones need a NewBlock cursor event. Stakes initialized by membership
-    // at this height, or restored ahead of replay, have already advanced their cursor.
-    let existing_deposits = applicator.registry().get_deposit_ids();
-    let existing_graphs = applicator.registry().get_graph_ids();
-    let existing_stakes: Vec<_> = applicator
+    let stake_cfg = applicator.registry().cfg().stake.clone();
+    let eligible: BTreeSet<_> = applicator
+        .registry()
+        .stakes()
+        .filter(|(_, sm)| {
+            sm.state()
+                .last_processed_block_height()
+                .is_some_and(|processed| processed < height)
+        })
+        .map(|(&key, _)| SMId::Stake(key))
+        .collect();
+    for tx in &block_event.block.txdata {
+        let events = classify_stake_tx(&stake_cfg, applicator.registry(), tx, height)
+            .into_iter()
+            .filter(|(id, _)| eligible.contains(id));
+        applicator.apply_batch(events)?;
+    }
+    let stakes: Vec<_> = applicator
         .registry()
         .stakes()
         .filter(|(_, sm)| {
@@ -84,52 +83,87 @@ pub(crate) fn process_block(
         })
         .map(|(&key, _)| key)
         .collect();
+    applicator.apply_batch(new_block_events(&[], &[], &stakes, height))?;
+    Ok(())
+}
 
+/// Applies a block's deposit and graph transitions.
+///
+/// The block's membership and stake state must be finalized before calling this function.
+/// When `admit_deposits` is false, new deposit requests are ignored.
+pub(crate) fn process_deposit_graph_pass(
+    applicator: &mut Applicator<'_>,
+    operator_table: &OperatorTable,
+    covenant: CovenantId,
+    admit_deposits: bool,
+    block_event: &BlockEvent,
+) -> Result<(), PipelineError> {
+    let height = block_event
+        .block
+        .bip34_block_height()
+        .expect("valid block height");
+    let deposit_cfg = applicator.registry().cfg().deposit.clone();
+    let graph_cfg = applicator.registry().cfg().graph.clone();
+    let completed: BTreeSet<_> = applicator
+        .registry()
+        .deposits()
+        .filter(|(_, sm)| {
+            sm.state()
+                .last_processed_block_height()
+                .is_none_or(|h| *h >= height)
+        })
+        .map(|(&id, _)| SMId::Deposit(id))
+        .chain(
+            applicator
+                .registry()
+                .graphs()
+                .filter(|(_, sm)| {
+                    sm.state()
+                        .last_processed_block_height()
+                        .is_none_or(|h| *h >= height)
+                })
+                .map(|(&id, _)| SMId::Graph(id)),
+        )
+        .collect();
     for tx in &block_event.block.txdata {
-        // Readiness is checked after earlier transactions have settled. An unavailable
-        // covenant member closes admission for later DRTs in the same block.
-        let initial_duties = try_register_deposit(
-            &deposit_cfg,
-            initial_operator_table,
-            covenant,
-            applicator,
-            tx,
-            height,
-        )?;
-
-        // Classify this tx against every active SM via TxClassifier
-        // PERF: (Rajil1213) this needs benchmarking to make sure that classifying every tx
-        // against every SM is not too expensive. If it is, we can optimize by maintaining a
-        // cache of all relevant txids/outpoints per SM and only running TxClassifier if the tx
-        // contains a relevant txid/outpoint and do it only on the relevant SM. It is too
-        // expensive if for a saturated bitcoin block (~3000 txs) and ~1000*15 SMs (45M
-        // lookups), we are unable to classify the block within ~5 minutes (half the average
-        // block time) on a reasonably powerful machine.
-        let seed_events = classify_tx_for_all_sms(
-            &deposit_cfg,
-            &graph_cfg,
-            &stake_cfg,
-            applicator.registry(),
-            tx,
-            height,
-        );
-
-        // Apply seed events as one fixed-point batch per transaction
-        applicator.apply_batch(seed_events)?;
-
-        // Add initial duties from newly created SMs (produced by SM constructors, not the STF)
-        applicator.add_duties(initial_duties);
+        if admit_deposits {
+            let duties = try_register_deposit(
+                &deposit_cfg,
+                operator_table,
+                covenant,
+                applicator,
+                tx,
+                height,
+            )?;
+            applicator.add_duties(duties);
+        }
+        let events =
+            classify_deposit_graph_tx(&deposit_cfg, &graph_cfg, applicator.registry(), tx, height)
+                .into_iter()
+                .filter(|(id, _)| !completed.contains(id));
+        applicator.apply_batch(events)?;
     }
-
-    // Append NewBlock cursor events for pre-existing SMs as the final batch
-    let new_block = new_block_events(
-        &existing_deposits,
-        &existing_graphs,
-        &existing_stakes,
-        height,
-    );
-    applicator.apply_batch(new_block)?;
-
+    let deposits: Vec<_> = applicator
+        .registry()
+        .deposits()
+        .filter(|(_, sm)| {
+            sm.state()
+                .last_processed_block_height()
+                .is_some_and(|h| *h < height)
+        })
+        .map(|(&id, _)| id)
+        .collect();
+    let graphs: Vec<_> = applicator
+        .registry()
+        .graphs()
+        .filter(|(_, sm)| {
+            sm.state()
+                .last_processed_block_height()
+                .is_some_and(|h| *h < height)
+        })
+        .map(|(&id, _)| id)
+        .collect();
+    applicator.apply_batch(new_block_events(&deposits, &graphs, &[], height))?;
     Ok(())
 }
 
@@ -266,22 +300,6 @@ fn try_register_deposit(
     Ok(duties)
 }
 
-/// Runs [`TxClassifier::classify_tx()`] on every active SM for a single transaction.
-///
-/// Returns ([`SMId`], [`SMEvent`]) pairs for each SM that recognized the transaction.
-fn classify_tx_for_all_sms(
-    deposit_cfg: &Arc<DepositSMCfg>,
-    graph_cfg: &Arc<GraphSMCfg>,
-    stake_cfg: &Arc<StakeSMCfg>,
-    registry: &SMRegistry,
-    tx: &Transaction,
-    height: BitcoinBlockHeight,
-) -> Vec<(SMId, SMEvent)> {
-    let mut events = classify_deposit_graph_tx(deposit_cfg, graph_cfg, registry, tx, height);
-    events.extend(classify_stake_tx(stake_cfg, registry, tx, height));
-    events
-}
-
 /// Returns the deposit and graph events recognized in a transaction.
 fn classify_deposit_graph_tx(
     deposit_cfg: &Arc<DepositSMCfg>,
@@ -397,10 +415,11 @@ mod tests {
     use crate::{
         applicator::BatchOutput,
         persister::Persister,
+        pipeline::process_block,
         sm_registry::SMRegistry,
         testing::{
             DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX,
-            insert_confirmed_stake, make_confirmed_stake_sm, test_deposit_sm_cfg,
+            insert_confirmed_stake, make_confirmed_stake_sm, test_deposit_sm_cfg, test_fdb_config,
             test_operator_table, test_populated_registry, test_safe_harbour_address,
             test_stake_key,
         },
@@ -779,7 +798,7 @@ mod tests {
             status: BlockStatus::Buried,
         };
         let mut applicator = Applicator::new(&mut registry, None);
-        process_block(&mut applicator, &table, covenant, &event).unwrap();
+        process_deposit_graph_pass(&mut applicator, &table, covenant, true, &event).unwrap();
         let BatchOutput { tracker, .. } = applicator.finish();
         let batches = tracker.into_batches();
         for deposit in 0..2 {
@@ -806,7 +825,7 @@ mod tests {
             .as_nanos();
         let (client, guard) = FdbClient::setup(Config {
             root_directory: format!("test-drt-boundary-{suffix}"),
-            ..Default::default()
+            ..test_fdb_config()
         })
         .await
         .unwrap();
@@ -856,13 +875,13 @@ mod tests {
                         status: BlockStatus::Buried,
                     }
                 };
-                let mut applicator = Applicator::new(&mut restored, None);
-                process_block(&mut applicator, &table, covenant, &replay).unwrap();
-                let BatchOutput { duties, tracker } = applicator.finish();
+                let batch = process_block(&mut restored, &table, covenant, &replay).unwrap();
+                persister
+                    .persist_batches(batch.tracker, &restored)
+                    .await
+                    .unwrap();
+                let duties = batch.duties;
                 emitted_duties.extend(duties);
-                for batch in tracker.into_batches() {
-                    persister.persist_batch(batch, &restored).await.unwrap();
-                }
             }
             assert_eq!(emitted_duties.len(), 2 - committed_deposits.len());
             let recovered = persister
@@ -911,15 +930,10 @@ mod tests {
         drop(guard);
     }
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-3622>
-    // This fixture deliberately records the single-pass admission discrepancy: only DRT2 is
-    // admitted initially, but replay also admits DRT1 using recovered stake readiness. With
-    // the OSM/SSM first pass, both must be admitted on the initial run, regardless of their
-    // positions relative to stake confirmation; replay must create neither deposit again.
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
-    // Extend this to assert admission equivalence across the two-pass persistence boundaries.
+    // Extend this single-covenant fixture to canonical ledger/admission integration.
     #[tokio::test]
-    async fn boundary_replay_admits_pre_confirmation_drt_without_duplicating_existing_deposit() {
+    async fn block_final_stake_confirmation_admits_both_drts_without_replay_duplicates() {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
         let mut registry = test_populated_registry(0);
@@ -961,35 +975,43 @@ mod tests {
             block,
             status: BlockStatus::Buried,
         };
-        let mut applicator = Applicator::new(&mut registry, None);
-        process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let BatchOutput { duties, tracker } = applicator.finish();
-        assert_eq!(duties.len(), 1);
-        assert_eq!(registry.num_deposits(), 1);
-        assert_eq!(
-            registry
-                .get_deposit(&0)
-                .unwrap()
-                .context()
-                .deposit_request_outpoint(),
-            admitted_outpoint
-        );
-
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let (client, guard) = FdbClient::setup(Config {
             root_directory: format!("test-drt-readiness-{suffix}"),
-            ..Default::default()
+            ..test_fdb_config()
         })
         .await
         .unwrap();
         let db = Arc::new(client);
         let persister = Persister::new(db.clone());
-        for batch in tracker.into_batches() {
-            persister.persist_batch(batch, &registry).await.unwrap();
-        }
+        let batch = process_block(&mut registry, &table, covenant, &event).unwrap();
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        let duties = batch.duties;
+        assert_eq!(duties.len(), 2);
+        assert_eq!(registry.num_deposits(), 2);
+        assert_eq!(
+            registry
+                .get_deposit(&0)
+                .unwrap()
+                .context()
+                .deposit_request_outpoint(),
+            skipped_outpoint
+        );
+        assert_eq!(
+            registry
+                .get_deposit(&1)
+                .unwrap()
+                .context()
+                .deposit_request_outpoint(),
+            admitted_outpoint
+        );
+
         let mut restored = persister
             .recover_registry(registry.cfg().clone())
             .await
@@ -998,41 +1020,38 @@ mod tests {
             restored.earliest_processed_block_height(),
             Some(INITIAL_BLOCK_HEIGHT + 1)
         );
-        assert_eq!(restored.num_deposits(), 1);
+        assert_eq!(restored.num_deposits(), 2);
         assert_eq!(restored.get_deposit(&0), registry.get_deposit(&0));
         assert!(restored.active_operator_snapshot(covenant, &table).is_ok());
         let original = restored.get_deposit(&0).unwrap().clone();
-        let mut applicator = Applicator::new(&mut restored, None);
-        process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let BatchOutput { duties, tracker } = applicator.finish();
-        assert_eq!(
-            duties.len(),
-            1,
-            "only the formerly unready request is admitted"
-        );
+        let batch = process_block(&mut restored, &table, covenant, &event).unwrap();
+        persister
+            .persist_batches(batch.tracker, &restored)
+            .await
+            .unwrap();
+        let duties = batch.duties;
+        assert!(duties.is_empty());
         assert_eq!(restored.num_deposits(), 2);
         assert_eq!(restored.get_deposit(&0), Some(&original));
-        assert_eq!(
-            restored
-                .get_deposit(&1)
-                .unwrap()
-                .context()
-                .deposit_request_outpoint(),
-            skipped_outpoint
-        );
-        for batch in tracker.into_batches() {
-            persister.persist_batch(batch, &restored).await.unwrap();
-        }
         let mut recovered = persister
             .recover_registry(registry.cfg().clone())
             .await
             .unwrap();
         let ids = recovered.get_all_ids();
-        let mut applicator = Applicator::new(&mut recovered, None);
-        process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let BatchOutput { duties, tracker } = applicator.finish();
+        let before = recovered.clone();
+        let batch = process_block(&mut recovered, &table, covenant, &event).unwrap();
+        persister
+            .persist_batches(batch.tracker, &recovered)
+            .await
+            .unwrap();
+        let duties = batch.duties;
         assert!(duties.is_empty());
-        assert!(tracker.into_batches().is_empty());
+        for id in before.get_deposit_ids() {
+            assert_eq!(recovered.get_deposit(&id), before.get_deposit(&id));
+        }
+        for id in before.get_graph_ids() {
+            assert_eq!(recovered.get_graph(&id), before.get_graph(&id));
+        }
         assert_eq!(recovered.get_all_ids(), ids);
         drop(persister);
         drop(db);
@@ -1124,8 +1143,7 @@ mod covenant_routing_tests {
         assert_eq!(registry.resolve_stake_outpoint(&source), Some(old_key));
         let tx = generate_spending_tx(source, &[]);
         let cfg = registry.cfg().clone();
-        let events =
-            classify_tx_for_all_sms(&cfg.deposit, &cfg.graph, &cfg.stake, &registry, &tx, 201);
+        let events = classify_stake_tx(&cfg.stake, &registry, &tx, 201);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].0, SMId::Stake(old_key));
         for (key, event) in events {
@@ -1150,9 +1168,6 @@ mod covenant_routing_tests {
         assert!(registry.resolve_stake_outpoint(&source).is_none());
         let tx = generate_spending_tx(source, &[]);
         let cfg = registry.cfg();
-        assert!(
-            classify_tx_for_all_sms(&cfg.deposit, &cfg.graph, &cfg.stake, &registry, &tx, 201)
-                .is_empty()
-        );
+        assert!(classify_stake_tx(&cfg.stake, &registry, &tx, 201).is_empty());
     }
 }
