@@ -30,6 +30,7 @@ use strata_bridge_sm::{
         events::{GraphEvent, NewBlockEvent as GraphNewBlockEvent},
         machine::GraphSM,
     },
+    operator_set::{ConfirmedExit, OperatorSetEvent},
     stake::{
         config::StakeSMCfg,
         events::{NewBlockEvent as StakeNewBlockEvent, StakeEvent},
@@ -39,7 +40,7 @@ use strata_bridge_sm::{
 use strata_bridge_tx_graph::transactions::{prelude::DepositData, stake::StakeTx};
 use tracing::{Level, debug, info, warn};
 
-use super::drt;
+use super::{drt, exits::parse_exit};
 use crate::{
     applicator::Applicator,
     errors::{PipelineError, ProcessError},
@@ -47,7 +48,9 @@ use crate::{
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
-/// Applies a block's stake transitions and advances unfinished stake states.
+/// Applies stake transitions and finalizes the block's operator membership.
+///
+/// States that have already processed the block are left unchanged.
 pub(crate) fn process_stake_pass(
     applicator: &mut Applicator<'_>,
     block_event: &BlockEvent,
@@ -56,7 +59,7 @@ pub(crate) fn process_stake_pass(
         .block
         .bip34_block_height()
         .expect("must have a valid block height");
-    let stake_cfg = applicator.registry().cfg().stake.clone();
+
     let eligible: BTreeSet<_> = applicator
         .registry()
         .stakes()
@@ -67,12 +70,33 @@ pub(crate) fn process_stake_pass(
         })
         .map(|(&key, _)| SMId::Stake(key))
         .collect();
-    for tx in &block_event.block.txdata {
+
+    let magic = applicator.registry().cfg().deposit.magic_bytes;
+    let stake_cfg = applicator.registry().cfg().stake.clone();
+
+    let mut exits = Vec::new();
+    for (tx_index, tx) in block_event.block.txdata.iter().enumerate() {
+        let parsed = parse_exit(magic, tx);
+        if let Some(exit) = &parsed
+            && applicator
+                .registry()
+                .get_operator_set()
+                .is_some_and(|membership| membership.registrations().get(exit.operator).is_some())
+        {
+            exits.push(ConfirmedExit {
+                operator_idx: exit.operator,
+                txid: tx.compute_txid(),
+                tx_index: u32::try_from(tx_index)
+                    .expect("Bitcoin block transaction count fits u32"),
+                kind: exit.kind,
+            });
+        }
         let events = classify_stake_tx(&stake_cfg, applicator.registry(), tx, height)
             .into_iter()
             .filter(|(id, _)| eligible.contains(id));
         applicator.apply_batch(events)?;
     }
+
     let stakes: Vec<_> = applicator
         .registry()
         .stakes()
@@ -83,27 +107,58 @@ pub(crate) fn process_stake_pass(
         })
         .map(|(&key, _)| key)
         .collect();
+
     applicator.apply_batch(new_block_events(&[], &[], &stakes, height))?;
+
+    if applicator
+        .registry()
+        .get_operator_set()
+        .is_some_and(|membership| membership.last_block_height() < height)
+    {
+        applicator.apply_batch([(
+            SMId::OperatorSet,
+            OperatorSetEvent::NewBlock {
+                block_height: height,
+                exits,
+            }
+            .into(),
+        )])?;
+    }
+
     Ok(())
 }
 
 /// Applies a block's deposit and graph transitions.
 ///
 /// The block's membership and stake state must be finalized before calling this function.
-/// When `admit_deposits` is false, new deposit requests are ignored.
+/// Set `block_reaches_gate` to false for blocks older than the retained membership/stake state;
+/// those blocks only advance existing deposits and graphs.
 pub(crate) fn process_deposit_graph_pass(
     applicator: &mut Applicator<'_>,
     operator_table: &OperatorTable,
     covenant: CovenantId,
-    admit_deposits: bool,
+    block_reaches_gate: bool,
     block_event: &BlockEvent,
 ) -> Result<(), PipelineError> {
     let height = block_event
         .block
         .bip34_block_height()
         .expect("valid block height");
-    let deposit_cfg = applicator.registry().cfg().deposit.clone();
-    let graph_cfg = applicator.registry().cfg().graph.clone();
+
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
+    // Registration validates against the supplied covenant/table, which must match this
+    // block's final membership to prevent admission under a different covenant.
+    // Resolve this context by source block height through STR-3670's membership history API.
+    // Keep readiness and replay checks independent of covenant/address validation.
+    let admit_deposits = block_reaches_gate
+        && applicator
+            .registry()
+            .get_operator_set()
+            .is_none_or(|membership| {
+                membership.last_block_height() == height
+                    && membership.current_covenant() == covenant
+            });
+
     let completed: BTreeSet<_> = applicator
         .registry()
         .deposits()
@@ -125,6 +180,9 @@ pub(crate) fn process_deposit_graph_pass(
                 .map(|(&id, _)| SMId::Graph(id)),
         )
         .collect();
+
+    let deposit_cfg = applicator.registry().cfg().deposit.clone();
+    let graph_cfg = applicator.registry().cfg().graph.clone();
     for tx in &block_event.block.txdata {
         if admit_deposits {
             let duties = try_register_deposit(
@@ -137,12 +195,15 @@ pub(crate) fn process_deposit_graph_pass(
             )?;
             applicator.add_duties(duties);
         }
+
         let events =
             classify_deposit_graph_tx(&deposit_cfg, &graph_cfg, applicator.registry(), tx, height)
                 .into_iter()
                 .filter(|(id, _)| !completed.contains(id));
+
         applicator.apply_batch(events)?;
     }
+
     let deposits: Vec<_> = applicator
         .registry()
         .deposits()
@@ -153,6 +214,7 @@ pub(crate) fn process_deposit_graph_pass(
         })
         .map(|(&id, _)| id)
         .collect();
+
     let graphs: Vec<_> = applicator
         .registry()
         .graphs()
@@ -163,7 +225,9 @@ pub(crate) fn process_deposit_graph_pass(
         })
         .map(|(&id, _)| id)
         .collect();
+
     applicator.apply_batch(new_block_events(&deposits, &graphs, &[], height))?;
+
     Ok(())
 }
 
