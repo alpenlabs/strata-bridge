@@ -56,6 +56,7 @@ class SP1BridgeProofTest(StrataTestBase):
             ExternalBtcBridgeNetworkEnv(
                 bridge_protocol_params=self.bridge_protocol_params,
                 bridge_config_params=BridgeConfigParams(
+                    allow_unsafe_timelocks=True,
                     cooperative_payout_timeout=0,
                     min_withdrawal_fulfillment_window=0,
                     retry_interval_secs=120,
