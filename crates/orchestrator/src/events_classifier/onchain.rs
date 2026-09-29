@@ -277,6 +277,19 @@ fn classify_tx_for_all_sms(
     tx: &Transaction,
     height: BitcoinBlockHeight,
 ) -> Vec<(SMId, SMEvent)> {
+    let mut events = classify_deposit_graph_tx(deposit_cfg, graph_cfg, registry, tx, height);
+    events.extend(classify_stake_tx(stake_cfg, registry, tx, height));
+    events
+}
+
+/// Returns the deposit and graph events recognized in a transaction.
+fn classify_deposit_graph_tx(
+    deposit_cfg: &Arc<DepositSMCfg>,
+    graph_cfg: &Arc<GraphSMCfg>,
+    registry: &SMRegistry,
+    tx: &Transaction,
+    height: BitcoinBlockHeight,
+) -> Vec<(SMId, SMEvent)> {
     registry
         .deposits()
         .filter_map(|(&deposit_idx, sm)| {
@@ -287,7 +300,17 @@ fn classify_tx_for_all_sms(
             sm.classify_tx(graph_cfg, tx, height)
                 .map(|ev| (graph_idx.into(), ev.into()))
         }))
-        .chain(registry.stakes().filter_map(|(&stake_key, sm)| {
+        .collect()
+}
+
+/// Returns stake lifecycle events whose source identifies a unique tracked stake.
+fn classify_stake_tx(
+    stake_cfg: &Arc<StakeSMCfg>,
+    registry: &SMRegistry,
+    tx: &Transaction,
+    height: BitcoinBlockHeight,
+) -> Vec<(SMId, SMEvent)> {
+    registry.stakes().filter_map(|(&stake_key, sm)| {
             sm.classify_tx(stake_cfg, tx, height).and_then(|ev| {
                 let stake_txid = sm.state().stake_txid()?;
                 let source = OutPoint::new(stake_txid, StakeTx::STAKE_VOUT);
@@ -309,7 +332,7 @@ fn classify_tx_for_all_sms(
                 );
                 Some((SMId::Stake(stake_key), ev.into()))
             })
-        }))
+        })
         .collect()
 }
 
