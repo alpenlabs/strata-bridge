@@ -1,3 +1,10 @@
+[execution]
+genesis_predicate = "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+
+[[execution.targets]]
+predicate = "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+spec_id = 0
+
 [rpc]
 host = "0.0.0.0"
 port = 9010
@@ -20,7 +27,13 @@ max_concurrent_proofs = 4
 proof_db_path = "/app/proof_db"
 tick_interval = { secs = 1, nanos = 0 }
 
-[orchestrator.backend]
+[orchestrator.moho]
 kind = "native"
-asm_schnorr_signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
-moho_schnorr_signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
+signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
+
+[[orchestrator.asm_artifacts]]
+predicate = "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+
+[orchestrator.asm_artifacts.source]
+kind = "native"
+signing_key = "0101010101010101010101010101010101010101010101010101010101010101"
