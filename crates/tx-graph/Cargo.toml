@@ -7,7 +7,7 @@ version = "0.1.0"
 workspace = true
 
 [features]
-test_utils = []
+test_utils = ["strata-bridge-connectors/test_utils"]
 
 [dependencies]
 strata-asm-proto-bridge-txs.workspace = true

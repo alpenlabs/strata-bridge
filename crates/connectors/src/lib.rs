@@ -188,6 +188,37 @@ pub trait Connector {
         SigningInfo { sighash, tweak }
     }
 
+    /// Like [`get_signing_info`] but with a custom `sighash_type`, for testing purposes.
+    #[cfg(feature = "test_utils")]
+    fn get_signing_info_with_sighash_type(
+        &self,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        spend_path: Self::SpendPath,
+        input_index: usize,
+        sighash_type: TapSighashType,
+    ) -> SigningInfo {
+        let leaf_index = self.to_leaf_index(spend_path);
+        let sighash = match leaf_index {
+            None => create_key_spend_hash(cache, prevouts, sighash_type, input_index),
+            Some(leaf_index) => {
+                let leaf_script = &self.leaf_scripts()[leaf_index];
+                create_script_spend_hash(cache, leaf_script, prevouts, sighash_type, input_index)
+            }
+        }
+        .expect("should be able to compute the sighash");
+
+        let tweak = if leaf_index.is_none() {
+            TaprootTweak::Key {
+                tweak: self.tweak(),
+            }
+        } else {
+            TaprootTweak::Script
+        };
+
+        SigningInfo { sighash, tweak }
+    }
+
     /// Returns an iterator over the sighashes for each code separator position.
     ///
     /// The signing key doesn't need to be tweaked, since this is a script-path spend.
