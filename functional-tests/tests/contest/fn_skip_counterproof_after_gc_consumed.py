@@ -53,6 +53,7 @@ class CounterproofSkippedAfterGcConsumedTest(StrataTestBase):
             BridgeNetworkEnv(
                 bridge_protocol_params=self.bridge_protocol_params,
                 bridge_config_params=BridgeConfigParams(
+                    allow_unsafe_timelocks=True,
                     cooperative_payout_timeout=0,
                     retry_interval_secs=1,
                     prometheus_metrics=True,

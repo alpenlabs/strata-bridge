@@ -113,6 +113,7 @@ class BridgeConfigParams:
     retry_interval_secs: int = 10
     prometheus_metrics: bool = False
     dev: bool = False
+    allow_unsafe_timelocks: bool = False
 
 
 @dataclass
@@ -133,6 +134,7 @@ class BridgeOperatorConfig:
     cooperative_payout_timeout: int
     max_fee_rate: int
     dev: bool
+    allow_unsafe_timelocks: bool
     secret_service_client: SecretServiceClientConfig
     btc_client: BtcClientConfig
     db: DbConfig

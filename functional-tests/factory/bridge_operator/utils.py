@@ -81,6 +81,7 @@ def generate_config_toml(
         cooperative_payout_timeout=bridge_config_params.cooperative_payout_timeout,
         max_fee_rate=bridge_config_params.max_fee_rate,
         dev=bridge_config_params.dev or _dev_mode_from_env(),
+        allow_unsafe_timelocks=bridge_config_params.allow_unsafe_timelocks,
         secret_service_client=SecretServiceClientConfig(
             server_addr=f"127.0.0.1:{s2_props.get('s2_port')}",
             server_hostname="secret-service",
