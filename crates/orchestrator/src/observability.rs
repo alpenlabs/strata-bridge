@@ -341,6 +341,8 @@ const fn process_error_class(error: &ProcessError) -> &'static str {
 
 pub(crate) const fn persist_error_class(error: &PersistError) -> &'static str {
     match error {
+        #[cfg(test)]
+        PersistError::InjectedFailure => "injected_failure",
         PersistError::DbErr(_) => "database",
         PersistError::RegistryInvariant(_) | PersistError::StakeIdentityMismatch => {
             "registry_invariant"

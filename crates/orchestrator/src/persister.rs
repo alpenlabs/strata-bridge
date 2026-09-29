@@ -1,5 +1,7 @@
 //! Contains functionality related to persisting data to disk for crash recovery.
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
@@ -126,12 +128,24 @@ impl PersistenceTracker {
 #[derive(Debug, Clone)]
 pub struct Persister {
     db: Arc<FdbClient>,
+    #[cfg(test)]
+    remaining_batches: Option<Arc<AtomicUsize>>,
 }
 
 impl Persister {
     /// Creates a new persister with the given database instance.
     pub const fn new(db: Arc<FdbClient>) -> Self {
-        Self { db }
+        Self {
+            db,
+            #[cfg(test)]
+            remaining_batches: None,
+        }
+    }
+
+    /// Allows `count` batch-write attempts before injecting a persistence error.
+    #[cfg(test)]
+    pub(crate) fn fail_after_batches(&mut self, count: usize) {
+        self.remaining_batches = Some(Arc::new(AtomicUsize::new(count)));
     }
 
     /// Persists each tracked causal group, stopping if any group fails to commit.
@@ -154,6 +168,14 @@ impl Persister {
         batch: BTreeSet<SMId>,
         sm_registry: &SMRegistry,
     ) -> Result<(), PersistError> {
+        #[cfg(test)]
+        if let Some(remaining) = &self.remaining_batches
+            && remaining
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
+                .is_err()
+        {
+            return Err(PersistError::InjectedFailure);
+        }
         let started = Instant::now();
         let batch_size = batch.len();
         let write_batch = match build_write_batch(batch, sm_registry) {
@@ -240,6 +262,11 @@ impl Persister {
 /// Error type for problems arising during persistence operations.
 #[derive(Debug, Error)]
 pub enum PersistError {
+    /// An injected persistence failure.
+    #[cfg(test)]
+    #[error("injected persistence failure")]
+    InjectedFailure,
+
     /// Error indicating a failure to persist a batch of state machines to disk.
     #[error("persistence error: {0:?}")]
     DbErr(<FdbClient as BridgeDb>::Error),

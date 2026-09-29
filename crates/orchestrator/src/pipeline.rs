@@ -560,12 +560,16 @@ mod stake_initialization_tests {
         traits::BridgeDb,
         types::{FundingAssignment, StakeFundingReservation},
     };
+    use strata_bridge_p2p_types::{
+        GossipsubMsg, NagRequest, NagRequestPayload, UnsignedGossipsubMsg,
+    };
     use strata_bridge_primitives::{
         covenant::StakeKey,
         operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
         operator_table::PublicOperatorTable,
     };
     use strata_bridge_sm::{
+        graph::duties::{GraphDuty, NagDuty},
         operator_set::{
             MembershipCause, MembershipUpdate, OperatorSetEvent, OperatorSetSM, OperatorSetSignal,
         },
@@ -685,13 +689,16 @@ mod stake_initialization_tests {
     }
 
     fn retry(registry: &mut SMRegistry) -> BatchOutput {
-        let event = UnifiedEvent::RetryTick;
+        apply_routed(registry, UnifiedEvent::RetryTick)
+    }
+
+    fn apply_routed(registry: &mut SMRegistry, event: UnifiedEvent) -> BatchOutput {
         let events = events_router::route(&event, registry)
             .into_iter()
             .map(
                 |id| match offchain::classify_routed(&id, &event, registry) {
                     offchain::ClassificationOutcome::Classified(event) => (id, event),
-                    other => panic!("retry must classify: {other:?}"),
+                    other => panic!("event must classify: {other:?}"),
                 },
             )
             .collect::<Vec<_>>();
@@ -1111,6 +1118,330 @@ mod stake_initialization_tests {
                 BTreeSet::from([0, 2])
             );
         }
+    }
+
+    #[tokio::test]
+    async fn partial_deposit_registration_preserves_indices_and_peer_nag_recovery() {
+        let table = test_operator_table(3, 0);
+        let mut initial = registry();
+        let covenant = initial.get_operator_set().unwrap().current_covenant();
+        for operator in table.operator_idxs() {
+            initial
+                .insert_stake(make_confirmed_stake_sm(
+                    operator,
+                    table.clone(),
+                    generate_txid(),
+                ))
+                .unwrap();
+        }
+        let mut block = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        for _ in 0..4 {
+            let mut request = DrtBuilder::aligned(&table, &initial.cfg().deposit).build();
+            request.input[0].previous_output = OutPoint::new(generate_txid(), 0);
+            block.block.txdata.push(request);
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-registration-crash-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let mut expected = initial.clone();
+        let batch = super::process_block(&mut expected, &table, covenant, &block).unwrap();
+        persister
+            .persist_batches(batch.tracker, &expected)
+            .await
+            .unwrap();
+        let duties = batch.duties;
+        assert_eq!(duties.len(), 4);
+        for committed_deposits in 0..=4 {
+            for id in expected.get_deposit_ids() {
+                db.delete_deposit(id).await.unwrap();
+            }
+            persister
+                .persist_batch(initial.get_all_ids().into_iter().collect(), &initial)
+                .await
+                .unwrap();
+            let mut working = initial.clone();
+            let mut failing = persister.clone();
+            // Three stake cursors and membership must all precede every registration.
+            failing.fail_after_batches(4 + committed_deposits);
+            let batch = super::process_block(&mut working, &table, covenant, &block).unwrap();
+            let result = failing.persist_batches(batch.tracker, &working).await;
+            if committed_deposits < 4 {
+                assert!(matches!(result, Err(PersistError::InjectedFailure)));
+            } else {
+                result.unwrap();
+                assert_eq!(batch.duties.len(), 4);
+            }
+            let mut restored = persister
+                .recover_registry(initial.cfg().clone())
+                .await
+                .unwrap();
+            assert_eq!(
+                restored.get_deposit_ids(),
+                (0..committed_deposits as u32).collect::<Vec<_>>(),
+                "partial registration must persist a prefix in transaction order"
+            );
+            for id in restored.get_deposit_ids() {
+                assert_eq!(
+                    restored
+                        .graphs()
+                        .filter(|(idx, _)| idx.deposit == id)
+                        .count(),
+                    3,
+                    "a deposit and all its graphs must recover atomically"
+                );
+            }
+            let batch = super::process_block(&mut restored, &table, covenant, &block).unwrap();
+            persister
+                .persist_batches(batch.tracker, &restored)
+                .await
+                .unwrap();
+            let duties = batch.duties;
+            assert_eq!(
+                duties.len(),
+                4 - committed_deposits,
+                "replay constructs only registrations whose commit was lost"
+            );
+            assert_eq!(
+                restored.deposits().collect::<Vec<_>>(),
+                expected.deposits().collect::<Vec<_>>()
+            );
+            assert_eq!(
+                restored.graphs().collect::<Vec<_>>(),
+                expected.graphs().collect::<Vec<_>>()
+            );
+            let batch = super::process_block(&mut restored, &table, covenant, &block).unwrap();
+            assert!(batch.duties.is_empty());
+            persister
+                .persist_batches(batch.tracker, &restored)
+                .await
+                .unwrap();
+            assert!(!retry(&mut restored).duties.iter().any(|duty| matches!(
+                duty,
+                UnifiedDuty::Graph(GraphDuty::GenerateGraphData { .. })
+            )));
+            // A watchtower missing the owner's graph data requests it through the normal nag
+            // path, including when the owner's constructor dispatch was lost in the crash.
+            let mut peer = test_empty_registry();
+            for (&id, graph) in restored.graphs().filter(|(id, _)| id.operator == 0) {
+                let mut graph = graph.clone();
+                graph.context.operator_table = graph
+                    .context
+                    .operator_table
+                    .clone()
+                    .into_public()
+                    .with_pov(1)
+                    .unwrap();
+                peer.insert_graph(id, graph).unwrap();
+            }
+            let nags = apply_routed(&mut peer, UnifiedEvent::NagTick).duties;
+            assert_eq!(
+                nags.len(),
+                4,
+                "each recovered graph must request its missing data"
+            );
+            for duty in nags {
+                let UnifiedDuty::Graph(GraphDuty::Nag {
+                    duty:
+                        NagDuty::NagGraphData {
+                            graph_idx,
+                            operator_idx,
+                            operator_pubkey,
+                        },
+                }) = duty
+                else {
+                    panic!("expected a graph data nag, got {duty:?}");
+                };
+                assert_eq!(operator_idx, 0);
+                let request = UnifiedEvent::GossipMessage(GossipsubMsg {
+                    signature: vec![],
+                    key: table.idx_to_p2p_key(&1).unwrap().clone(),
+                    unsigned: UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+                        recipient: operator_pubkey,
+                        payload: NagRequestPayload::GraphData { graph_idx },
+                    }),
+                });
+                let response = apply_routed(&mut restored, request);
+                assert!(
+                    matches!(response.duties.as_slice(),
+                    [UnifiedDuty::Graph(GraphDuty::GenerateGraphData { graph_idx: target, covenant: actual, .. })]
+                        if *target == graph_idx && *actual == covenant),
+                    "peer nag must recover graph construction from its persisted context"
+                );
+                assert!(response.tracker.into_batches().is_empty());
+            }
+        }
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn every_block_write_boundary_recovers() {
+        let table = test_operator_table(3, 0);
+        let mut initial = registry();
+        let covenant = initial.get_operator_set().unwrap().current_covenant();
+        for operator in table.operator_idxs() {
+            initial
+                .insert_stake(make_confirmed_stake_sm(
+                    operator,
+                    table.clone(),
+                    generate_txid(),
+                ))
+                .unwrap();
+        }
+        let mut preceding = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        for _ in 0..2 {
+            let mut request = DrtBuilder::aligned(&table, &initial.cfg().deposit).build();
+            request.input[0].previous_output = OutPoint::new(generate_txid(), 0);
+            preceding.block.txdata.push(request);
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-block-crash-matrix-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let batch = super::process_block(&mut initial, &table, covenant, &preceding).unwrap();
+        persister
+            .persist_batches(batch.tracker, &initial)
+            .await
+            .unwrap();
+        let duties = batch.duties;
+        assert_eq!(duties.len(), 2);
+        let block = BlockEvent {
+            block: generate_block_with_height(102),
+            status: BlockStatus::Buried,
+        };
+        let mut expected = initial.clone();
+        let mut applicator = Applicator::new(&mut expected, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block).unwrap();
+        let first = applicator.finish();
+        let successor = publication_key(&first.duties);
+        let first_writes = first.tracker.into_batches().len();
+        assert_eq!(
+            first_writes, 4,
+            "three historical stakes and the atomic successor group"
+        );
+        let mut applicator = Applicator::new(&mut expected, Some(0));
+        onchain::process_deposit_graph_pass(&mut applicator, &table, covenant, true, &block)
+            .unwrap();
+        let second = applicator.finish();
+        assert!(second.duties.is_empty());
+        let second_writes = second.tracker.into_batches().len();
+        assert_eq!(second_writes, 8, "two deposits and six historical graphs");
+        let total_writes = first_writes + second_writes;
+        // Includes before pass one, every partial first/second pass, and after all commits
+        // before dispatch. Group order is deliberately unspecified.
+        for writes in 0..=total_writes {
+            for key in expected.get_stake_ids() {
+                if initial.get_stake(&key).is_none() {
+                    db.delete_stake_state(key).await.unwrap();
+                }
+            }
+            persister
+                .persist_batch(initial.get_all_ids().into_iter().collect(), &initial)
+                .await
+                .unwrap();
+            let mut working = initial.clone();
+            let mut failing = persister.clone();
+            failing.fail_after_batches(writes);
+            let batch = super::process_block(&mut working, &table, covenant, &block).unwrap();
+            let result = failing.persist_batches(batch.tracker, &working).await;
+            if writes < total_writes {
+                assert!(
+                    matches!(result, Err(PersistError::InjectedFailure)),
+                    "boundary {writes} must fail persistence: {result:?}"
+                );
+            } else {
+                result.unwrap();
+                assert_eq!(publication_key(&batch.duties), successor);
+            }
+            let mut restored = persister
+                .recover_registry(initial.cfg().clone())
+                .await
+                .unwrap();
+            if writes < first_writes {
+                for (id, sm) in restored.deposits() {
+                    assert_eq!(
+                        Some(sm),
+                        initial.get_deposit(id),
+                        "second-pass state committed before first-pass persistence completed"
+                    );
+                }
+                for (id, sm) in restored.graphs() {
+                    assert_eq!(Some(sm), initial.get_graph(id));
+                }
+            } else {
+                assert_eq!(restored.get_operator_set(), expected.get_operator_set());
+                assert_eq!(
+                    restored.stakes().collect::<Vec<_>>(),
+                    expected.stakes().collect::<Vec<_>>()
+                );
+            }
+            // The production recovery start can include H-1 when only part of H committed.
+            let batch = super::process_block(&mut restored, &table, covenant, &preceding).unwrap();
+            persister
+                .persist_batches(batch.tracker, &restored)
+                .await
+                .unwrap();
+            let batch = super::process_block(&mut restored, &table, covenant, &block).unwrap();
+            persister
+                .persist_batches(batch.tracker, &restored)
+                .await
+                .unwrap();
+            assert_eq!(
+                restored.get_operator_set(),
+                expected.get_operator_set(),
+                "boundary {writes}"
+            );
+            assert_eq!(
+                restored.stakes().collect::<Vec<_>>(),
+                expected.stakes().collect::<Vec<_>>()
+            );
+            assert_eq!(
+                restored.deposits().collect::<Vec<_>>(),
+                expected.deposits().collect::<Vec<_>>()
+            );
+            assert_eq!(
+                restored.graphs().collect::<Vec<_>>(),
+                expected.graphs().collect::<Vec<_>>()
+            );
+            let batch = super::process_block(&mut restored, &table, covenant, &block).unwrap();
+            assert!(batch.duties.is_empty());
+            persister
+                .persist_batches(batch.tracker, &restored)
+                .await
+                .unwrap();
+            // If the crash lost constructor dispatch, ordinary retry recovers publication.
+            let retried = retry(&mut restored);
+            assert!(retried.duties.iter().any(|duty| matches!(duty,
+                UnifiedDuty::Stake { stake_key, duty: StakeDuty::PublishStakeData { .. } }
+                    if *stake_key == successor)));
+        }
+        drop(persister);
+        drop(db);
+        drop(guard);
     }
 
     #[tokio::test]
