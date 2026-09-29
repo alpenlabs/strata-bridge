@@ -19,6 +19,7 @@ use strata_asm_proto_bridge_txs::{
     BRIDGE_SUBPROTOCOL_ID, constants::BridgeTxType,
     deposit_request::create_deposit_request_locking_script,
 };
+use strata_bridge_db::fdb::cfg::Config as FdbConfig;
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
@@ -390,4 +391,13 @@ pub(crate) fn test_operator_set_sm() -> OperatorSetSM {
         vec![],
     )
     .unwrap()
+}
+
+/// Returns test database configuration using `STRATA_TEST_FDB_CLUSTER_FILE`, when set.
+pub(crate) fn test_fdb_config() -> FdbConfig {
+    let mut config = FdbConfig::default();
+    if let Some(path) = std::env::var_os("STRATA_TEST_FDB_CLUSTER_FILE") {
+        config.cluster_file_path = path.into();
+    }
+    config
 }
