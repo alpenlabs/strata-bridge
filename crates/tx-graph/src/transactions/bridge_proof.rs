@@ -95,6 +95,12 @@ impl BridgeProofTx {
         self.tx.output.push(output);
     }
 
+    /// Clears all transaction outputs, for testing purposes.
+    #[cfg(feature = "test_utils")]
+    pub fn clear_output(&mut self) {
+        self.tx.output.clear();
+    }
+
     /// Returns the signing info for the first transaction input.
     ///
     /// The signing operator key must be tweaked with the scalar
@@ -109,6 +115,25 @@ impl BridgeProofTx {
             TimelockedSpendPath::Normal,
             0,
         )
+    }
+
+    /// Like [`signing_info_partial`] but with a custom `sighash_type`, for testing purposes.
+    #[cfg(feature = "test_utils")]
+    pub fn signing_info_partial_with_sighash_type(
+        &self,
+        sighash_type: bitcoin::TapSighashType,
+    ) -> SigningInfo {
+        let mut cache = SighashCache::new(&self.tx);
+        let prevouts = Prevouts::All(&self.prevouts);
+
+        self.contest_proof_connector
+            .get_signing_info_with_sighash_type(
+                &mut cache,
+                prevouts,
+                TimelockedSpendPath::Normal,
+                0,
+                sighash_type,
+            )
     }
 
     /// Returns the scalar that the operator key must be tweaked with.
