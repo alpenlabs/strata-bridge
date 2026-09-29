@@ -86,19 +86,7 @@ where
     // Replay the minimum persisted height itself: existing cursors may have committed that
     // block before a newly created deposit/graph group, which cannot contribute to the minimum
     // while absent. DRT outpoint deduplication preserves deposits that already committed.
-    //
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-3622>
-    // This persistence change deliberately leaves block processing single-pass until the
-    // OSM/SSM first pass and DSM/GSM second pass are integrated. Consequently, uninterrupted
-    // processing can skip a DRT before a same-block stake confirmation, while replay admits
-    // it using recovered readiness. This temporary discrepancy is not the protocol rule:
-    // both paths must use the source block's finalized membership and stake readiness.
-    // Two-pass integration must also persist the gate before dependent deposit/graph groups,
-    // finish those groups before advancing the gate, and never admit older-block requests
-    // using a later block's readiness. The minimum cursor alone cannot enforce that boundary.
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
-    // Verify identical admission across uninterrupted processing and partial-persistence
-    // recovery, including when recovered stake updates make a formerly usable stake unavailable.
+    // First-pass cursors prevent older replay from admitting DRTs with later stake state.
     let start_height = registry
         .earliest_processed_block_height()
         .unwrap_or(params.genesis_height);
@@ -216,12 +204,9 @@ where
     health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "pipeline_spawned");
     spawn_orchestrator_stale_monitor(orchestrator_stale_after(config), health_registry.clone());
     let pipeline_health_registry = health_registry.clone();
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-3621>
-    // Replace this single-covenant bootstrap assumption with the initial covenant and its
-    // effective admin activation height from reconciled params/persisted membership.
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4046>
-    // Bootstrap only the initial covenant here. Pre-staking must derive each future target's
-    // covenant identity from the params schedule and its effective admin activation heights.
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
+    // Retain the original admission identity until canonical ledger/readiness integration.
+    let registrations = params.keys.operators.clone();
     let activation_height = params.genesis_height;
     executor.spawn_critical_async_with_shutdown("orchestrator", |shutdown_guard| async move {
         let pipeline = orchestrator_pipeline;
@@ -240,7 +225,7 @@ where
             // Handle pipeline completion (this should indicate an error as this is supposed to run indefinitely)
             pipeline_complete = tokio::task::spawn(async move {
                 pipeline
-                    .run_with_observer(operator_table, start_height, activation_height, move || {
+                    .run_with_observer(operator_table, registrations, start_height, activation_height, move || {
                         pipeline_health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "event_processed");
                     })
                     .await

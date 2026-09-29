@@ -401,3 +401,29 @@ pub(crate) fn test_fdb_config() -> FdbConfig {
     }
     config
 }
+
+/// Constructs a slash transaction declaring the supplied operator index.
+pub(crate) fn test_slash(operator: OperatorIdx) -> Transaction {
+    let tag = TagData::new(
+        BRIDGE_SUBPROTOCOL_ID,
+        BridgeTxType::Slash as u8,
+        operator.to_be_bytes().to_vec(),
+    )
+    .unwrap();
+    Transaction {
+        version: transaction::Version::TWO,
+        lock_time: absolute::LockTime::ZERO,
+        input: (0..2)
+            .map(|_| TxIn {
+                previous_output: OutPoint::new(generate_txid(), 0),
+                ..TxIn::default()
+            })
+            .collect(),
+        output: vec![TxOut {
+            value: Amount::ZERO,
+            script_pubkey: ParseConfig::new(TEST_MAGIC_BYTES.into())
+                .encode_script_buf(&tag.as_ref())
+                .unwrap(),
+        }],
+    }
+}
