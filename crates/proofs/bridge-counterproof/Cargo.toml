@@ -34,6 +34,7 @@ anyhow.workspace = true
 strata-bridge-proof.workspace = true
 strata-bridge-test-utils.workspace = true
 strata-bridge-tx-graph = { workspace = true, features = ["test_utils"] }
+strata-bridge-connectors = { workspace = true, features = ["test_utils"] }
 strata-codec.workspace = true
 zkaleido-native-adapter.workspace = true
 
