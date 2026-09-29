@@ -342,7 +342,7 @@ impl fmt::Debug for MuSig2Partial {
 }
 
 /// Nag request payload for describing type of data requested.
-#[derive(Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Arbitrary)]
+#[derive(Clone, PartialEq, Eq, Hash, Archive, Serialize, Deserialize, Arbitrary)]
 pub enum NagRequestPayload {
     /// Request missing deposit nonce.
     DepositNonce {

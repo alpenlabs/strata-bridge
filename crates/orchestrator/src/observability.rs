@@ -41,6 +41,7 @@ const DUTY_DURATION_SECONDS: &str = "strata_bridge_duty_duration_seconds";
 const PERSISTENCE_DURATION_SECONDS: &str = "strata_bridge_persistence_duration_seconds";
 const GOSSIP_RECEIVED_TOTAL: &str = "strata_bridge_gossip_received_total";
 const GOSSIP_LAGGED_MESSAGES_TOTAL: &str = "strata_bridge_gossip_lagged_messages_total";
+const NAG_DEDUPED_TOTAL: &str = "strata_bridge_nag_deduped_total";
 const TICK_LATENESS_SECONDS: &str = "strata_bridge_tick_lateness_seconds";
 
 pub(crate) fn describe_metrics() {
@@ -81,6 +82,10 @@ pub(crate) fn describe_metrics() {
     describe_counter!(
         GOSSIP_LAGGED_MESSAGES_TOTAL,
         "Peer gossip messages lost because the orchestrator fell behind the inbound buffer"
+    );
+    describe_counter!(
+        NAG_DEDUPED_TOTAL,
+        "Peer nags dropped because a reply to the same request was recently sent or is in flight"
     );
     describe_histogram!(
         TICK_LATENESS_SECONDS,
@@ -194,6 +199,10 @@ pub(crate) fn record_gossip_received(kind: &'static str) {
 
 pub(crate) fn record_gossip_lagged(skipped: u64) {
     counter!(GOSSIP_LAGGED_MESSAGES_TOTAL).increment(skipped);
+}
+
+pub(crate) fn record_nag_deduped(kind: &'static str) {
+    counter!(NAG_DEDUPED_TOTAL, "kind" => kind).increment(1);
 }
 
 pub(crate) fn record_tick_lateness(tick: &'static str, lateness: Duration) {

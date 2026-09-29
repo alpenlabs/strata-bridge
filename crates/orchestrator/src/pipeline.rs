@@ -1,9 +1,12 @@
 //! The main event loop that wires all pipeline stages together:
 //! `EventsMux` → classify → `Applicator::apply_batch` → persist → dispatch.
 
-use std::{collections::BTreeSet, time::Instant};
+use std::{
+    collections::BTreeSet,
+    time::{Duration, Instant},
+};
 
-use strata_bridge_p2p_types::UnsignedGossipsubMsg;
+use strata_bridge_p2p_types::{NagRequestPayload, UnsignedGossipsubMsg};
 use strata_bridge_primitives::{
     covenant::CovenantId, operator_table::OperatorTable, types::BitcoinBlockHeight,
 };
@@ -16,7 +19,9 @@ use crate::{
     errors::{PipelineError, ProcessError},
     events_classifier::{offchain, onchain},
     events_mux::{EventsMux, SafeHarbourEvent, UnifiedEvent},
-    events_router, observability,
+    events_router,
+    nag_dedup::NagDedup,
+    observability,
     persister::{PersistenceTracker, Persister},
     safe_harbour_scan::safe_harbour_scan,
     sm_registry::{RegistryInsertError, SMRegistry},
@@ -34,21 +39,29 @@ pub struct Pipeline {
     registry: SMRegistry,
     persister: Persister,
     dispatcher: DutyDispatcher,
+    nag_dedup: NagDedup,
 }
 
 impl Pipeline {
     /// Creates a new pipeline with all required components.
-    pub const fn new(
+    ///
+    /// A peer nag is dropped if a reply to the same request was sent within `nag_dedup_window`, or
+    /// was dispatched within `nag_dedup_in_flight_timeout` and has not settled; a zero window
+    /// disables this.
+    pub fn new(
         event_mux: EventsMux,
         registry: SMRegistry,
         persister: Persister,
         dispatcher: DutyDispatcher,
+        nag_dedup_window: Duration,
+        nag_dedup_in_flight_timeout: Duration,
     ) -> Self {
         Self {
             event_mux,
             registry,
             persister,
             dispatcher,
+            nag_dedup: NagDedup::new(nag_dedup_window, nag_dedup_in_flight_timeout),
         }
     }
 
@@ -114,7 +127,7 @@ impl Pipeline {
             apply_safe_harbour_scan(&mut applicator)?;
             let (duties, tracker) = applicator.finish();
             self.persist_batches(tracker).await?;
-            self.dispatch_duties(duties);
+            self.dispatch_duties(duties, None);
         }
 
         loop {
@@ -155,6 +168,7 @@ impl Pipeline {
 
                 // Stage 2+3: Classify and process through Applicator.
                 let mut applicator = Applicator::new(&mut self.registry);
+                let mut nag_reply = None;
 
                 match &event {
                     // On first latch: sweep and abort immediately rather than waiting for the next
@@ -221,7 +235,21 @@ impl Pipeline {
                             );
                         }
 
-                        applicator.apply_batch(seed_events)?;
+                        match peer_nag(&event).filter(|_| !seed_events.is_empty()) {
+                            Some((kind, payload))
+                                if self.nag_dedup.should_drop(payload, Instant::now()) =>
+                            {
+                                observability::record_nag_deduped(kind);
+                                debug!(
+                                    ?payload,
+                                    "dropping nag: a reply was recently sent or is in flight"
+                                );
+                            }
+                            nag => {
+                                nag_reply = nag.map(|(_, payload)| payload.clone());
+                                applicator.apply_batch(seed_events)?;
+                            }
+                        }
                     }
                 }
 
@@ -232,7 +260,7 @@ impl Pipeline {
 
                 // Stage 5: Dispatch duties after persistence, suppressing withdrawal-path duties
                 // while safe harbour is active.
-                self.dispatch_duties(all_duties);
+                self.dispatch_duties(all_duties, nag_reply.as_ref());
 
                 Ok::<(), PipelineError>(())
             }
@@ -310,8 +338,9 @@ impl Pipeline {
         Ok(())
     }
 
-    /// Dispatches duties, dropping the suppressed ones while safe harbour is active.
-    fn dispatch_duties(&self, duties: Vec<UnifiedDuty>) {
+    /// Dispatches duties, dropping the suppressed ones while safe harbour is active. Duties that
+    /// reply to `nag_reply` are tracked so that repeat nags for it can be dropped.
+    fn dispatch_duties(&self, duties: Vec<UnifiedDuty>, nag_reply: Option<&NagRequestPayload>) {
         let safe_harbour_active = self.registry.safe_harbour_active();
         for duty in duties {
             // While safe harbour is active no withdrawal advances:
@@ -325,7 +354,18 @@ impl Pipeline {
                 );
                 continue;
             }
-            self.dispatcher.dispatch(duty);
+            match nag_reply {
+                Some(payload) => {
+                    let dispatched_at = Instant::now();
+                    self.nag_dedup
+                        .reply_dispatched(payload.clone(), dispatched_at);
+                    let (nag_dedup, payload) = (self.nag_dedup.clone(), payload.clone());
+                    self.dispatcher.dispatch_then(duty, move |succeeded| {
+                        nag_dedup.reply_settled(payload, dispatched_at, succeeded, Instant::now());
+                    });
+                }
+                None => self.dispatcher.dispatch(duty),
+            }
         }
     }
 
@@ -420,6 +460,20 @@ const fn should_warn_on_unclassified_event(
     classified_count: usize,
 ) -> bool {
     target_count > 0 && classified_count == 0 && !is_nag_request(event)
+}
+
+/// Returns the kind and payload of a nag received from a peer. Our own nags come back as ouroboros
+/// messages and never target this node.
+const fn peer_nag(event: &UnifiedEvent) -> Option<(&'static str, &NagRequestPayload)> {
+    match event {
+        UnifiedEvent::GossipMessage(message) => match &message.unsigned {
+            UnsignedGossipsubMsg::NagRequestExchange(nag) => {
+                Some((message.unsigned.kind(), &nag.payload))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 const fn is_nag_request(event: &UnifiedEvent) -> bool {
@@ -527,6 +581,28 @@ mod tests {
 
         assert!(!should_warn_on_unclassified_event(&event, 1, 1));
         assert!(!should_warn_on_unclassified_event(&event, 0, 0));
+    }
+
+    #[test]
+    fn only_peer_nags_are_deduplicated() {
+        let peer = UnifiedEvent::GossipMessage(GossipsubMsg {
+            signature: Vec::new(),
+            key: vec![1; 32].into(),
+            unsigned: nag_request(),
+        });
+        let own = UnifiedEvent::OuroborosMessage(OuroborosMessage {
+            publish: nag_request(),
+        });
+
+        assert_eq!(
+            peer_nag(&peer),
+            Some((
+                "nag_deposit_nonce",
+                &NagRequestPayload::DepositNonce { deposit_idx: 0 }
+            ))
+        );
+        assert_eq!(peer_nag(&own), None);
+        assert_eq!(peer_nag(&UnifiedEvent::NagTick), None);
     }
 
     #[test]
