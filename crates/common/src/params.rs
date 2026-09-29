@@ -119,6 +119,91 @@ pub struct ProtocolParams {
     pub counterproof_predicate: PredicateKey,
 }
 
+impl ProtocolParams {
+    /// Checks the timelock orderings that the game graph relies on.
+    pub fn validate_timelock_ordering(&self) -> Result<(), TimelockOrderingError> {
+        let &Self {
+            proof_timelock: proof,
+            ack_timelock: ack,
+            nack_timelock: nack,
+            contested_payout_timelock: contested_payout,
+            unstaking_timelock: unstaking,
+            ..
+        } = self;
+
+        if contested_payout >= unstaking {
+            return Err(TimelockOrderingError::SlashAfterUnstaking {
+                contested_payout,
+                unstaking,
+            });
+        }
+        if proof >= ack {
+            return Err(TimelockOrderingError::ProofTimeoutAfterPayout { proof, ack });
+        }
+        let proof_plus_nack = u32::from(proof) + u32::from(nack);
+        if proof_plus_nack >= u32::from(ack) {
+            return Err(TimelockOrderingError::AckAfterPayout {
+                proof_plus_nack,
+                ack,
+            });
+        }
+        if ack >= contested_payout {
+            return Err(TimelockOrderingError::PayoutAfterSlash {
+                ack,
+                contested_payout,
+            });
+        }
+
+        Ok(())
+    }
+}
+
+/// Violations of the timelock orderings that the game graph relies on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum TimelockOrderingError {
+    /// The slash would not become spendable before the operator can unstake.
+    #[error(
+        "contested_payout_timelock ({contested_payout}) must be less than unstaking_timelock \
+         ({unstaking})"
+    )]
+    SlashAfterUnstaking {
+        /// The configured contested payout timelock.
+        contested_payout: u16,
+        /// The configured unstaking timelock.
+        unstaking: u16,
+    },
+    /// The bridge proof timeout would not become spendable before a contested payout without a
+    /// proof.
+    #[error("proof_timelock ({proof}) must be less than ack_timelock ({ack})")]
+    ProofTimeoutAfterPayout {
+        /// The configured proof timelock.
+        proof: u16,
+        /// The configured ack timelock.
+        ack: u16,
+    },
+    /// A counterproof to a bridge proof posted in its last block could not be ACKed before the
+    /// contested payout.
+    #[error(
+        "proof_timelock + nack_timelock ({proof_plus_nack}) must be less than ack_timelock ({ack})"
+    )]
+    AckAfterPayout {
+        /// The sum of the configured proof and nack timelocks.
+        proof_plus_nack: u32,
+        /// The configured ack timelock.
+        ack: u16,
+    },
+    /// An honest contested payout would not become spendable before the slash.
+    #[error(
+        "ack_timelock ({ack}) must be less than contested_payout_timelock ({contested_payout})"
+    )]
+    PayoutAfterSlash {
+        /// The configured ack timelock.
+        ack: u16,
+        /// The configured contested payout timelock.
+        contested_payout: u16,
+    },
+}
+
 /// The keys used by the operators.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyParams {
@@ -390,6 +475,68 @@ mod tests {
     }
 
     #[test]
+    fn params_reject_misordered_timelocks() {
+        let cases = [
+            (
+                "contested_payout_timelock = 1_008",
+                "contested_payout_timelock = 2_016",
+                TimelockOrderingError::SlashAfterUnstaking {
+                    contested_payout: 2_016,
+                    unstaking: 2_016,
+                },
+            ),
+            (
+                "proof_timelock = 144",
+                "proof_timelock = 432",
+                TimelockOrderingError::ProofTimeoutAfterPayout {
+                    proof: 432,
+                    ack: 432,
+                },
+            ),
+            (
+                "nack_timelock = 144",
+                "nack_timelock = 288",
+                TimelockOrderingError::AckAfterPayout {
+                    proof_plus_nack: 432,
+                    ack: 432,
+                },
+            ),
+            (
+                "contested_payout_timelock = 1_008",
+                "contested_payout_timelock = 432",
+                TimelockOrderingError::PayoutAfterSlash {
+                    ack: 432,
+                    contested_payout: 432,
+                },
+            ),
+        ];
+
+        for (valid, invalid, expected) in cases {
+            let params = params_toml(&valid_admin_section()).replacen(valid, invalid, 1);
+            let params = toml::from_str::<Params>(&params).unwrap();
+
+            assert_eq!(
+                params.protocol.validate_timelock_ordering(),
+                Err(expected),
+                "unexpected result for {invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn params_accept_proof_and_nack_timelocks_just_below_ack_timelock() {
+        let params = params_toml(&valid_admin_section()).replacen(
+            "nack_timelock = 144",
+            "nack_timelock = 287",
+            1,
+        );
+
+        let params = toml::from_str::<Params>(&params).unwrap();
+
+        assert_eq!(params.protocol.validate_timelock_ordering(), Ok(()));
+    }
+
+    #[test]
     fn params_reject_empty_admin_pubkeys() {
         assert_admin_section_deserialize_error(
             r#"
@@ -520,7 +667,7 @@ mod tests {
             recovery_delay = 1_008
             contest_timelock = 144
             proof_timelock = 144
-            ack_timelock = 144
+            ack_timelock = 432
             nack_timelock = 144
             contested_payout_timelock = 1_008
             unstaking_timelock = 2_016
