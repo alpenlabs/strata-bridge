@@ -6,9 +6,10 @@ use std::time::{Duration, Instant};
 use btc_tracker::event::BlockEvent;
 use strata_bridge_p2p_types::{NagRequestPayload, UnsignedGossipsubMsg};
 use strata_bridge_primitives::{
-    covenant::{CovenantId, StakeKey},
+    covenant::CovenantId,
+    operator_set_schedule::OperatorSetSchedule,
     operator_table::OperatorTable,
-    types::BitcoinBlockHeight,
+    types::{BitcoinBlockHeight, OperatorIdx},
 };
 use tracing::{Instrument, debug, error, info, info_span, trace, warn};
 
@@ -84,11 +85,13 @@ impl Pipeline {
     pub async fn run(
         self,
         initial_operator_table: OperatorTable,
+        registrations: OperatorSetSchedule,
         start_height: BitcoinBlockHeight,
         activation_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
         self.run_with_observer(
             initial_operator_table,
+            registrations,
             start_height,
             activation_height,
             || {},
@@ -100,18 +103,23 @@ impl Pipeline {
     pub async fn run_with_observer(
         mut self,
         initial_operator_table: OperatorTable,
+        registrations: OperatorSetSchedule,
         start_height: BitcoinBlockHeight,
         activation_height: BitcoinBlockHeight,
         mut on_event: impl FnMut(),
     ) -> Result<(), PipelineError> {
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-3622>
-        // Resolve the finalized covenant and operator table from the membership pre-pass for
-        // each block. This fixed identity supports only the initial covenant until integration.
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
+        // Resolve each block's covenant/table through STR-3670's local history lookup and
+        // integrate that context with registration, canonical indexing, and readiness.
         let covenant = CovenantId::from_operator_table(&initial_operator_table, activation_height)
             .expect("validated initial operator table");
         observability::describe_metrics();
         if let Err(error) = self
-            .bootstrap_stake_sms(&initial_operator_table, start_height, activation_height)
+            .bootstrap_membership(
+                registrations,
+                initial_operator_table.pov_idx(),
+                start_height,
+            )
             .instrument(info_span!("bridge_stake_bootstrap"))
             .await
         {
@@ -367,29 +375,18 @@ impl Pipeline {
         }
     }
 
-    /// Creates one stake state machine per operator in `operator_table` that does not yet exist in
-    /// the registry. Persists the newly created machines and dispatches any constructor duties
-    /// (only the POV operator's SSM emits `PublishStakeData`).
-    async fn bootstrap_stake_sms(
+    /// Initializes and persists membership and missing stakes before dispatching their duties.
+    async fn bootstrap_membership(
         &mut self,
-        operator_table: &OperatorTable,
+        registrations: OperatorSetSchedule,
+        local_operator: OperatorIdx,
         start_height: BitcoinBlockHeight,
-        activation_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
-        let covenant = CovenantId::from_operator_table(operator_table, activation_height)
-            .expect("validated initial operator table");
-        let mut applicator = Applicator::new(&mut self.registry, Some(operator_table.pov_idx()));
-        for operator in operator_table.operator_idxs() {
-            applicator.initialize_stake(
-                StakeKey { covenant, operator },
-                operator_table.clone().into_public(),
-                start_height,
-            )?;
-        }
+        let height = self.registry.latest_gate_height().unwrap_or(start_height);
+        let mut applicator = Applicator::new(&mut self.registry, Some(local_operator));
+        applicator.initialize_operator_set(registrations, height)?;
         let batch = applicator.finish();
-        self.commit_batch(batch, None).await?;
-
-        Ok(())
+        self.commit_batch(batch, None).await
     }
 }
 
@@ -404,18 +401,26 @@ pub(super) fn process_block(
         .block
         .bip34_block_height()
         .expect("valid block height");
+
     let gate_height = registry.latest_gate_height();
-    let admit_deposits = gate_height.is_none_or(|gate| height >= gate);
+
+    // Older replayed blocks must not register deposits using later membership/stake state.
+    // Reaching the gate permits admission checks; it does not establish deposit readiness.
+    let block_reaches_gate = gate_height.is_none_or(|gate| height >= gate);
+
     let mut applicator = Applicator::new(registry, Some(operator_table.pov_idx()));
+
     onchain::process_stake_pass(&mut applicator, block_event)?;
     onchain::process_deposit_graph_pass(
         &mut applicator,
         operator_table,
         covenant,
-        admit_deposits,
+        block_reaches_gate,
         block_event,
     )?;
+
     apply_safe_harbour_scan(&mut applicator)?;
+
     Ok(applicator.finish())
 }
 
@@ -638,14 +643,18 @@ mod stake_initialization_tests {
         operator_table::PublicOperatorTable,
     };
     use strata_bridge_sm::{
-        operator_set::{MembershipUpdate, OperatorSetEvent, OperatorSetSM, OperatorSetSignal},
+        operator_set::{
+            MembershipCause, MembershipUpdate, OperatorSetEvent, OperatorSetSM, OperatorSetSignal,
+        },
         stake::{
             duties::StakeDuty,
             events::{StakeDataReceivedEvent, StakeEvent},
             state::StakeState,
         },
     };
-    use strata_bridge_test_utils::bitcoin::{generate_block_with_height, generate_spending_tx};
+    use strata_bridge_test_utils::bitcoin::{
+        generate_block_with_height, generate_spending_tx, generate_txid,
+    };
 
     use crate::{
         applicator::{Applicator, BatchOutput},
@@ -657,7 +666,10 @@ mod stake_initialization_tests {
         signals_router,
         sm_registry::{RegistryInsertError, SMRegistry},
         sm_types::{SMId, UnifiedDuty},
-        testing::{random_p2tr_desc, test_empty_registry, test_fdb_config, test_operator_table},
+        testing::{
+            DrtBuilder, make_confirmed_stake_sm, random_p2tr_desc, test_empty_registry,
+            test_fdb_config, test_operator_table, test_slash,
+        },
     };
 
     fn registry() -> SMRegistry {
@@ -763,6 +775,233 @@ mod stake_initialization_tests {
         let mut applicator = Applicator::new(registry, Some(0));
         applicator.apply_batch(events).unwrap();
         applicator.finish()
+    }
+
+    #[test]
+    fn block_exits_precede_admin_and_initialize_only_the_final_membership() {
+        let mut registry = registry();
+        // No local StakeSM exists for either the known exit or the unknown registration.
+        let mut block = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block).unwrap();
+        assert!(applicator.finish().duties.is_empty());
+        block.block = generate_block_with_height(102);
+        block
+            .block
+            .txdata
+            .extend([test_slash(99), test_slash(1), test_slash(1), test_slash(2)]);
+        let exit_index = block.block.txdata.len() as u32 - 3;
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block).unwrap();
+        let batch = applicator.finish();
+        let final_key = publication_key(&batch.duties);
+        assert_eq!(registry.get_stake_ids(), vec![final_key]);
+        let membership = registry.get_operator_set().unwrap();
+        let history = membership.membership_history();
+        assert_eq!(history.len(), 4, "initial, two unique exits, admin no-op");
+        assert!(matches!(
+            &history[1].cause,
+            MembershipCause::Exit(exit) if exit.operator_idx == 1 && exit.tx_index == exit_index
+        ));
+        assert!(matches!(&history[2].cause, MembershipCause::Exit(exit) if exit.operator_idx == 2));
+        assert!(matches!(
+            &history[3].cause,
+            MembershipCause::Admin {
+                effective: false,
+                ..
+            }
+        ));
+        assert_eq!(membership.current_covenant().activation_height, 100);
+        assert_eq!(
+            &membership.membership_history().last().unwrap().members,
+            &BTreeSet::from([0])
+        );
+        assert_eq!(
+            batch.tracker.into_batches(),
+            vec![BTreeSet::from([SMId::OperatorSet, SMId::Stake(final_key),])]
+        );
+        let before = membership.clone();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block).unwrap();
+        let replay = applicator.finish();
+        assert!(replay.duties.is_empty());
+        assert!(replay.tracker.into_batches().is_empty());
+        assert_eq!(registry.get_operator_set(), Some(&before));
+    }
+
+    #[test]
+    fn observer_tracks_exits_and_admin_without_creating_participant_stakes() {
+        let mut registry = registry();
+        for height in [101, 102] {
+            let mut block = BlockEvent {
+                block: generate_block_with_height(height),
+                status: BlockStatus::Buried,
+            };
+            if height == 101 {
+                block.block.txdata.push(test_slash(0));
+            }
+            let mut applicator = Applicator::new(&mut registry, Some(0));
+            onchain::process_stake_pass(&mut applicator, &block).unwrap();
+            assert!(applicator.finish().duties.is_empty());
+        }
+        assert_eq!(registry.num_stakes(), 0);
+        let membership = registry.get_operator_set().unwrap();
+        assert_eq!(
+            &membership.membership_history().last().unwrap().members,
+            &BTreeSet::from([2])
+        );
+        assert_eq!(membership.current_covenant().activation_height, 102);
+    }
+
+    #[tokio::test]
+    async fn successor_membership_closes_admission_but_keeps_historical_work_running() {
+        let source = registry();
+        let mut registry = test_empty_registry();
+        registry
+            .insert_operator_set(source.get_operator_set().unwrap().clone())
+            .unwrap();
+        let table = test_operator_table(3, 0);
+        let covenant = registry.get_operator_set().unwrap().current_covenant();
+        for operator in table.operator_idxs() {
+            registry
+                .insert_stake(make_confirmed_stake_sm(
+                    operator,
+                    table.clone(),
+                    generate_txid(),
+                ))
+                .unwrap();
+        }
+        let mut initial_block = BlockEvent {
+            block: generate_block_with_height(100),
+            status: BlockStatus::Buried,
+        };
+        initial_block
+            .block
+            .txdata
+            .push(DrtBuilder::aligned(&table, &registry.cfg().deposit).build());
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-successor-admission-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let batch = super::process_block(&mut registry, &table, covenant, &initial_block).unwrap();
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        let duties = batch.duties;
+        assert_eq!(duties.len(), 1);
+        let mut request = DrtBuilder::aligned(&table, &registry.cfg().deposit).build();
+        request.input[0].previous_output = OutPoint::new(generate_txid(), 0);
+        let mut block = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        block.block.txdata.extend([request, test_slash(1)]);
+        let batch = super::process_block(&mut registry, &table, covenant, &block).unwrap();
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        let duties = batch.duties;
+        assert_eq!(
+            registry.num_deposits(),
+            1,
+            "old-covenant DRT must not enter after membership changes"
+        );
+        assert_ne!(
+            registry.get_operator_set().unwrap().current_covenant(),
+            covenant
+        );
+        assert_eq!(
+            registry.num_stakes(),
+            5,
+            "three historical and two successor stakes"
+        );
+        publication_key(&duties);
+        assert_eq!(
+            registry
+                .get_deposit(&0)
+                .unwrap()
+                .state()
+                .last_processed_block_height(),
+            Some(&101)
+        );
+        for (_, graph) in registry.graphs() {
+            assert_eq!(graph.state().last_processed_block_height(), Some(&101));
+        }
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[test]
+    fn params_bootstrap_schedules_boundaries_and_preserves_existing_stakes() {
+        let source = registry();
+        let registrations = OperatorSetSchedule::new(
+            source
+                .get_operator_set()
+                .unwrap()
+                .registrations()
+                .iter()
+                .map(|op| {
+                    ScheduledOperator::new(
+                        op.index(),
+                        op.covenant_key(),
+                        op.p2p_key().clone(),
+                        op.payout_descriptor().clone(),
+                        op.activation_height(),
+                        (op.index() == 1).then_some(102),
+                    )
+                    .unwrap()
+                })
+                .collect(),
+        )
+        .unwrap();
+        let mut registry = test_empty_registry();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        applicator
+            .initialize_operator_set(registrations.clone(), 100)
+            .unwrap();
+        let initial = applicator.finish();
+        publication_key(&initial.duties);
+        assert_eq!(registry.num_stakes(), 3);
+        assert_eq!(
+            registry.get_operator_set().unwrap().pending_updates(),
+            &[MembershipUpdate {
+                activation_height: 102,
+                additions: BTreeSet::new(),
+                removals: BTreeSet::from([1]),
+            }]
+        );
+        let stakes = registry
+            .stakes()
+            .map(|(key, sm)| (*key, sm.clone()))
+            .collect::<Vec<_>>();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        applicator
+            .initialize_operator_set(registrations, 999)
+            .unwrap();
+        let replay = applicator.finish();
+        assert!(replay.duties.is_empty());
+        assert!(replay.tracker.into_batches().is_empty());
+        assert_eq!(
+            registry
+                .stakes()
+                .map(|(key, sm)| (*key, sm.clone()))
+                .collect::<Vec<_>>(),
+            stakes
+        );
     }
 
     #[test]
