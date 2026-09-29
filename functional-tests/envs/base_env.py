@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from pathlib import Path
@@ -10,10 +11,11 @@ from constants import (
     NATIVE_TEST_MOHO_SIGNING_KEY,
 )
 from factory.asm_rpc.config_cfg import (
+    AsmArtifactConfig,
     Duration,
-    NativeBackend,
+    NativeSource,
     OrchestratorConfig,
-    Sp1Backend,
+    Sp1Source,
 )
 from factory.bridge_operator.asm_cfg import copy_asm_params, write_asm_params
 from factory.bridge_operator.config_cfg import BridgeConfigParams
@@ -55,6 +57,7 @@ class BaseEnv(flexitest.EnvConfig):
         self._prebuilt_params_dir = os.environ.get("BRIDGE_PROOF_ASM_PARAMS_DIR")
         self._asm_params_path: str | None = None
         self._asm_params: AsmParams | None = None
+        self._asm_predicate: str | None = None
         self._bridge_protocol_params = bridge_protocol_params
         self._bridge_config_params = bridge_config_params
         self._enable_asm_proof = enable_asm_proof
@@ -148,20 +151,21 @@ class BaseEnv(flexitest.EnvConfig):
         # backend; otherwise sign native Schnorr attestations.
         asm_elf = os.environ.get("BRIDGE_PROOF_ASM_ELF_PATH")
         moho_elf = os.environ.get("BRIDGE_PROOF_MOHO_ELF_PATH")
-        backend: NativeBackend | Sp1Backend
+        asm_source: NativeSource | Sp1Source
+        moho_source: NativeSource | Sp1Source
         if asm_elf and moho_elf:
-            backend = Sp1Backend(asm_elf_path=asm_elf, moho_elf_path=moho_elf)
+            asm_source = Sp1Source(elf_path=asm_elf)
+            moho_source = Sp1Source(elf_path=moho_elf)
         else:
-            backend = NativeBackend(
-                asm_schnorr_signing_key=NATIVE_TEST_ASM_SIGNING_KEY,
-                moho_schnorr_signing_key=NATIVE_TEST_MOHO_SIGNING_KEY,
-            )
+            asm_source = NativeSource(signing_key=NATIVE_TEST_ASM_SIGNING_KEY)
+            moho_source = NativeSource(signing_key=NATIVE_TEST_MOHO_SIGNING_KEY)
 
         return OrchestratorConfig(
             tick_interval=Duration(secs=1, nanos=0),
             max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
-            backend=backend,
+            moho=moho_source,
+            asm_artifacts=[AsmArtifactConfig(predicate=self.asm_predicate, source=asm_source)],
         )
 
     @property
@@ -184,9 +188,11 @@ class BaseEnv(flexitest.EnvConfig):
         # was built against; otherwise derive fresh params from the live L1. The VK files
         # are written into generated_dir either way and read by the operator factory.
         if self._prebuilt_params_dir:
-            params_file_path, _, _ = copy_asm_params(self._prebuilt_params_dir, generated_dir)
+            params_file_path, asm_vk_path, _ = copy_asm_params(
+                self._prebuilt_params_dir, generated_dir
+            )
         else:
-            params_file_path, _, _ = write_asm_params(
+            params_file_path, asm_vk_path, _ = write_asm_params(
                 bitcoind_rpc,
                 self.operator_key_infos,
                 int(self.initial_blocks),
@@ -195,6 +201,7 @@ class BaseEnv(flexitest.EnvConfig):
             )
         self._asm_params_path = params_file_path
         self._asm_params = AsmParams.load(params_file_path)
+        self._asm_predicate = json.loads(Path(asm_vk_path).read_text())
 
     def create_operator(
         self,
@@ -232,6 +239,7 @@ class BaseEnv(flexitest.EnvConfig):
             self._asm_rpc_service = asm_fac.create_asm_rpc_service(
                 bitcoind_props,
                 self.asm_params_path,
+                self.asm_predicate,
                 orchestrator_config=orchestrator_config,
             )
         asm_props = self._asm_rpc_service.props
@@ -282,3 +290,10 @@ class BaseEnv(flexitest.EnvConfig):
         if self._asm_params_path is None:
             raise RuntimeError("asm params not initialized; call ensure_asm_params first")
         return self._asm_params_path
+
+    @property
+    def asm_predicate(self) -> str:
+        """Predicate of the ASM program the chain starts on, from `asm-vk.json`."""
+        if self._asm_predicate is None:
+            raise RuntimeError("asm params not initialized; call ensure_asm_params first")
+        return self._asm_predicate
