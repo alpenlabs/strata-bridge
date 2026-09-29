@@ -3,6 +3,7 @@
 
 use std::time::{Duration, Instant};
 
+use btc_tracker::event::BlockEvent;
 use strata_bridge_p2p_types::{NagRequestPayload, UnsignedGossipsubMsg};
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
@@ -165,6 +166,17 @@ impl Pipeline {
                     return Ok::<(), PipelineError>(());
                 }
 
+                if let UnifiedEvent::Block(block_event) = &event {
+                    let batch = process_block(
+                        &mut self.registry,
+                        &initial_operator_table,
+                        covenant,
+                        block_event,
+                    )?;
+                    self.commit_batch(batch, None).await?;
+                    return Ok(());
+                }
+
                 // Stage 2+3: Classify and process through Applicator.
                 let mut applicator =
                     Applicator::new(&mut self.registry, Some(initial_operator_table.pov_idx()));
@@ -175,18 +187,6 @@ impl Pipeline {
                     // buried block.
                     UnifiedEvent::SafeHarbour(_) => apply_safe_harbour_scan(&mut applicator)?,
 
-                    UnifiedEvent::Block(block_event) => {
-                        onchain::process_block(
-                            &mut applicator,
-                            &initial_operator_table,
-                            covenant,
-                            block_event,
-                        )?;
-
-                        // While safe harbour is active, drive sweeps and aborts from the post-block
-                        // deposit states; the per-block replay is the retry mechanism.
-                        apply_safe_harbour_scan(&mut applicator)?;
-                    }
                     _ => {
                         trace!(
                             ?event,
@@ -391,6 +391,32 @@ impl Pipeline {
 
         Ok(())
     }
+}
+
+/// Applies both block passes and returns their accumulated changes and duties.
+pub(super) fn process_block(
+    registry: &mut SMRegistry,
+    operator_table: &OperatorTable,
+    covenant: CovenantId,
+    block_event: &BlockEvent,
+) -> Result<BatchOutput, PipelineError> {
+    let height = block_event
+        .block
+        .bip34_block_height()
+        .expect("valid block height");
+    let gate_height = registry.latest_gate_height();
+    let admit_deposits = gate_height.is_none_or(|gate| height >= gate);
+    let mut applicator = Applicator::new(registry, Some(operator_table.pov_idx()));
+    onchain::process_stake_pass(&mut applicator, block_event)?;
+    onchain::process_deposit_graph_pass(
+        &mut applicator,
+        operator_table,
+        covenant,
+        admit_deposits,
+        block_event,
+    )?;
+    apply_safe_harbour_scan(&mut applicator)?;
+    Ok(applicator.finish())
 }
 
 /// Seeds the safe-harbour sweep/abort scan through the applicator; a no-op while the latch is
@@ -631,7 +657,7 @@ mod stake_initialization_tests {
         signals_router,
         sm_registry::{RegistryInsertError, SMRegistry},
         sm_types::{SMId, UnifiedDuty},
-        testing::{random_p2tr_desc, test_empty_registry, test_operator_table},
+        testing::{random_p2tr_desc, test_empty_registry, test_fdb_config, test_operator_table},
     };
 
     fn registry() -> SMRegistry {
@@ -770,19 +796,10 @@ mod stake_initialization_tests {
 
         // Constructor advancement already accounts for 102; the ordinary block path must not
         // deliver another current-height event or persist it again. The next block advances once.
-        let table = registry
-            .get_operator_set()
-            .unwrap()
-            .current_operator_table()
-            .unwrap()
-            .with_pov(0)
-            .unwrap();
         for (height, advances) in [(102, false), (103, true), (103, false)] {
             let mut applicator = Applicator::new(&mut registry, Some(0));
-            onchain::process_block(
+            onchain::process_stake_pass(
                 &mut applicator,
-                &table,
-                key.covenant,
                 &BlockEvent {
                     block: generate_block_with_height(height),
                     status: BlockStatus::Buried,
@@ -942,7 +959,7 @@ mod stake_initialization_tests {
             .as_nanos();
         let (client, guard) = FdbClient::setup(Config {
             root_directory: format!("test-stake-initialization-{suffix}"),
-            ..Default::default()
+            ..test_fdb_config()
         })
         .await
         .unwrap();
@@ -1047,6 +1064,133 @@ mod stake_initialization_tests {
             Some(reservation)
         );
         assert_eq!(recovered.num_stakes(), 2);
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+}
+
+#[cfg(test)]
+mod block_persistence_tests {
+    use std::{
+        sync::Arc,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use bitcoin::OutPoint;
+    use btc_tracker::event::BlockStatus;
+    use strata_bridge_db::fdb::{cfg::Config, client::FdbClient};
+    use strata_bridge_sm::stake::state::StakeState;
+    use strata_bridge_test_utils::{
+        bitcoin::{
+            generate_block_with_height, generate_signature, generate_spending_tx, generate_txid,
+        },
+        musig2::generate_agg_nonce,
+    };
+    use strata_bridge_tx_graph::musig_functor::StakeFunctor;
+
+    use super::*;
+    use crate::testing::{
+        DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, make_confirmed_stake_sm,
+        test_fdb_config, test_operator_table, test_populated_registry,
+    };
+
+    #[tokio::test]
+    async fn durable_block_replay_cannot_admit_an_older_unready_request() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
+        let mut registry = test_populated_registry(0);
+        let stake_tx = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
+        for operator in table.operator_idxs() {
+            let mut stake = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
+            if operator == TEST_POV_IDX {
+                let StakeState::Confirmed {
+                    last_block_height,
+                    stake_data,
+                    mut summary,
+                    ..
+                } = stake.state
+                else {
+                    unreachable!()
+                };
+                summary.stake = stake_tx.compute_txid();
+                let fields = StakeFunctor {
+                    unstaking_intent: [()],
+                    unstaking: [(), ()],
+                };
+                stake.state = StakeState::UnstakingSigned {
+                    last_block_height,
+                    stake_data,
+                    summary,
+                    agg_nonces: fields.map(|_| generate_agg_nonce()).boxed(),
+                    signatures: fields.map(|_| generate_signature()).boxed(),
+                };
+            }
+            registry.insert_stake(stake).unwrap();
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-block-gate-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let mut old = BlockEvent {
+            block: generate_block_with_height(INITIAL_BLOCK_HEIGHT + 1),
+            status: BlockStatus::Buried,
+        };
+        old.block
+            .txdata
+            .push(DrtBuilder::aligned(&table, &registry.cfg().deposit).build());
+        let batch = process_block(&mut registry, &table, covenant, &old).unwrap();
+        assert!(batch.duties.is_empty());
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        assert_eq!(registry.num_deposits(), 0);
+        let mut next = BlockEvent {
+            block: generate_block_with_height(INITIAL_BLOCK_HEIGHT + 2),
+            status: BlockStatus::Buried,
+        };
+        next.block.txdata.push(stake_tx);
+        next.block
+            .txdata
+            .push(DrtBuilder::aligned(&table, &registry.cfg().deposit).build());
+        let batch = process_block(&mut registry, &table, covenant, &next).unwrap();
+        assert_eq!(batch.duties.len(), 1);
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        let mut restored = persister
+            .recover_registry(registry.cfg().clone())
+            .await
+            .unwrap();
+        let deposit = restored.get_deposit(&0).unwrap().clone();
+        let batch = process_block(&mut restored, &table, covenant, &old).unwrap();
+        assert!(batch.duties.is_empty());
+        persister
+            .persist_batches(batch.tracker, &restored)
+            .await
+            .unwrap();
+        let batch = process_block(&mut restored, &table, covenant, &next).unwrap();
+        assert!(batch.duties.is_empty());
+        persister
+            .persist_batches(batch.tracker, &restored)
+            .await
+            .unwrap();
+        assert_eq!(restored.num_deposits(), 1);
+        assert_eq!(restored.get_deposit(&0), Some(&deposit));
+        assert_eq!(
+            restored.latest_gate_height(),
+            Some(INITIAL_BLOCK_HEIGHT + 2)
+        );
         drop(persister);
         drop(db);
         drop(guard);
