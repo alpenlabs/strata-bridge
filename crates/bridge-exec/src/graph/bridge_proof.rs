@@ -180,12 +180,11 @@ async fn fetch_bridge_proof_input(
             ExecutorError::AsmRpcErr(format!("moho proof unavailable at {recent_block_hash}"))
         })?;
     let mmr_proof_bytes = asm
-        .get_export_entry_mmr_proof(recent_block_hash, BRIDGE_SUBPROTOCOL_ID, leaf_hash.to_vec())
+        .get_export_entry_mmr_proof(recent_block_hash, BRIDGE_SUBPROTOCOL_ID, leaf_hash)
         .await
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_export_entry_mmr_proof: {e}")))?
-        .ok_or_else(|| {
+        .map_err(|e| {
             ExecutorError::AsmRpcErr(format!(
-                "mmr proof unavailable for leaf {leaf_hash:?} at {recent_block_hash}"
+                "get_export_entry_mmr_proof for leaf {leaf_hash:?} at {recent_block_hash}: {e}"
             ))
         })?;
     info!(

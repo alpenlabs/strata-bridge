@@ -3,10 +3,9 @@
 
 use std::path::Path;
 
-use moho_runtime_interface::MohoProgram;
 use moho_types::{ExportState, MohoState, StateRefAttestation, StateReference};
 use strata_asm_params::AsmParams;
-use strata_asm_proof_impl::moho_program::program::AsmStfProgram;
+use strata_asm_proof_impl::moho_program::program::compute_anchor_state_commitment;
 use strata_asm_spec::construct_genesis_state;
 use strata_predicate::PredicateKey;
 
@@ -56,7 +55,7 @@ fn derive_anchor_attestation(bytes: &[u8], asm_predicate: PredicateKey) -> State
         serde_json::from_slice(bytes).expect("asm-params.json must deserialize into AsmParams");
 
     let anchor_state = construct_genesis_state(&asm_params);
-    let inner_state = <AsmStfProgram as MohoProgram>::compute_state_commitment(&anchor_state);
+    let inner_state = compute_anchor_state_commitment(&anchor_state);
     let export_state = ExportState::new(vec![]).expect("empty export state is always valid");
     let genesis_moho_state = MohoState::new(inner_state, asm_predicate, export_state);
 

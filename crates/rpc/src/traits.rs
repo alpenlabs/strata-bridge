@@ -2,7 +2,7 @@
 
 use bitcoin::PublicKey;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
-use strata_asm_bridge_types::SafeHarbourAddress;
+use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 
 use crate::types::{
@@ -91,7 +91,7 @@ pub trait StrataBridgeMonitoringApi {
     /// Get the latched safe-harbour address (serialized as a hex-encoded BOSD descriptor), or
     /// `None` if this node has not observed a safe-harbour activation.
     #[method(name = "safeHarbourAddress")]
-    async fn get_safe_harbour_address(&self) -> RpcResult<Option<SafeHarbourAddress>>;
+    async fn get_safe_harbour_address(&self) -> RpcResult<Option<SafeHarborAddress>>;
 }
 
 /// RPCs required for data availability.
