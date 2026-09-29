@@ -1,78 +1,136 @@
 # `full_mosaic` tests
 
-Tests that run against the **real g16 SP1-Groth16 verifier circuit** instead of the
-bundled toy circuit. Manual-only: excluded from the default sweep via
-`SKIP_GROUPS_BY_DEFAULT` in [`entry.py`](../../entry.py) and from the default CI matrix
-in `.github/workflows/functional.yml`. There is no workflow for this group.
-
-## Why the group exists
-
-Nothing in Rust or in Bitcoin script ever verifies a counterproof against
-`counterproof_predicate` — it appears only in the node's startup checks. Adjudication
-happens entirely inside Mosaic's garbled circuit
-(`crates/bridge-exec/src/graph/counterproof_nack.rs`: `evaluate_and_sign` returning
-`None` means the fault secret was not extractable, so no NACK is possible).
-
-Every other fn-test points Mosaic at `artifacts/mosaic_depositidx_ckt.v5c`, a 768 KB toy
-circuit whose output is the least significant bit of the deposit-input wire — which the
-bridge sets to the game index. So elsewhere in the suite the NACK fires iff the game index
-is **even**, completely blind to the counterproof's contents. That is why
-`tests/contested_payout/fn_publish_counterproof_nack.py` contests deposit index 1 and
-`tests/slashing/fn_counterproof_ack.py` uses index 0.
-
-Under the real circuit the verdict is the actual Groth16 check. Both tests here therefore
-run at **deposit index 0** (game index 1, odd) — the index at which the toy circuit can
-*never* produce a NACK — so the two opposite outcomes below are attributable to
-counterproof validity and nothing else.
+Two tests that run the counterproof game against the **real g16 SP1-Groth16 verifier
+circuit** instead of the 768 KB toy circuit every other test uses. The toy circuit NACKs by
+game-index parity and never looks at the counterproof; here the verdict is the actual
+Groth16 check. Both tests use deposit index 0, where the toy circuit can never NACK, so the
+opposite outcomes can only come from the real circuit.
 
 | Test | Counterproof | Expected outcome |
 |---|---|---|
-| `fn_valid_counterproof_acked.py` | genuine (operator posted a faulty bridge proof) | circuit accepts, no NACK possible, ACK after `nack_timelock`, operator slashed |
-| `fn_invalid_counterproof_nackd.py` | forged (stale guest ELF) | circuit rejects, operator NACKs, `all_nackd`, contested payout, no slash |
+| `fn_valid_counterproof_acked.py` | genuine | circuit refuses the NACK, ACK, operator slashed |
+| `fn_invalid_counterproof_nackd.py` | forged (stale guest ELF) | circuit allows the NACK, contested payout, no slash |
 
-Run one and not the other and you learn little; the pair is the experiment.
+Manual only: skipped by the default sweep and by CI.
 
-The control test only starts mining once op-0 has logged that no fault secret could be
-extracted. The evaluation takes minutes while the ACK needs only `nack_timelock` blocks, so
-without that wait the ACK takes the counterproof output first and the absent NACK is a race,
-not the circuit's verdict.
+## What you need
 
-## Scope caveat
+- Tools: `bitcoind` (tested with Core v30.2), `fdbserver`, `uv`, the Rust toolchain and the
+  SP1 `succinct` toolchain (`sp1up`); see the main [README](../../README.md#prerequisites).
+- A Succinct prover network key (`NETWORK_PRIVATE_KEY`). Bridge proofs, counterproofs and
+  ASM/Moho proofs are real SP1 proofs; `SP1_PROVER=mock` does not work here.
+- **~800 GB free disk** and **48 GB+ RAM** (64 GB tested; numbers below).
+- An externally started regtest `bitcoind`, **fresh for every test** (step 2).
 
-Cut-and-choose parameters are a **separate axis** from which circuit runs, selected by
-`MOSAIC_CUT_AND_CHOOSE`: `reduced` builds mosaic with `--features=reduced-circuits`
-(`N_CIRCUITS`/`N_OPEN_CIRCUITS` = 5/3, roughly 3-bit soundness), `full` uses 181/174 for
-the 40-bit target.
+## Run, step by step
 
-Under `reduced`, these tests validate functional correctness of the counterproof verdict
-only and must not be described as a security-parameter validation.
+All commands run from `functional-tests/`.
 
-## Running
-
-Needs `sp1-env.bash` (SP1 proving + external regtest bitcoind), with
-`MOSAIC_CIRCUIT_MODE=full` and — for the invalid-counterproof test —
-`BRIDGE_PROOF_SP1_STALE_ARTIFACTS=1`:
+**1. Configure once.** Copy the sample and set these values in `sp1-env.bash`:
 
 ```bash
-cp sp1-env.bash.sample sp1-env.bash   # then fill in NETWORK_PRIVATE_KEY and set the two vars
-./run_test.sh -t tests/full_mosaic/fn_valid_counterproof_acked.py
+cp sp1-env.bash.sample sp1-env.bash
 ```
 
-`-t` is required to bypass the default skip, and only one test per invocation: every test
-here needs deposit index 0, and all tests of one invocation share the asm-params anchor
-`run_test.sh` bakes from the external chain, so the second test would find the first one's
-deposit at index 0. `entry.py` refuses `-g full_mosaic` (or two `-t`s) for that reason.
+```bash
+export NETWORK_PRIVATE_KEY=<your-succinct-key>
+export MOSAIC_CIRCUIT_MODE=full                  # the real circuit
+export MOSAIC_CUT_AND_CHOOSE=full                # 181/174; `reduced` (5/3) is cheaper, see below
+export BRIDGE_DEV_MODE=0                         # required: run_test.sh refuses full mode with 1
+export BRIDGE_PROOF_SP1_STALE_ARTIFACTS=1        # required by the invalid test, harmless for the other
+```
 
-The g16 circuit generation runs in the background overlapping the cargo builds; its log is
-at `_dd/.g16-runs/g16-gen.log`. Cost and disk requirements are in the main README's "Full
-mosaic circuit mode" section. Delete `_dd/.g16-runs` afterwards to reclaim the space the
-circuit retains.
+`sp1-env.bash` is gitignored. While it exists, every `./run_test.sh` uses these settings,
+including runs of other groups; move it aside for normal runs.
 
-Note the circuit is regenerated every run: it is bound at generation time to the
-counterproof guest ELF's vkey, and that ELF is rebuilt from asm-params derived from the
-live regtest chain. Pinning the ASM anchor across runs would make it cacheable and take
-68 min off each run, but nothing does that today.
+**2. Start a fresh regtest bitcoind** in a separate terminal. Yes, it must be external:
+this mode uses the `network-extbtc` env, and the ports must match `sp1-env.bash`.
 
-`SP1_PROVER=mock` does not work here: mock Groth16 proofs serialize to an empty byte
-vector, so `verify_bridge_proof` returns false regardless of predicate and
-`Sp1Groth16Proof::parse(...).expect(...)` panics in the counterproof duty.
+```bash
+BTC_DIR=$(mktemp -d)
+```
+
+```bash
+bitcoind -regtest -server=1 -txindex=1 -listen=0 -datadir="$BTC_DIR" \
+  -rpcbind=127.0.0.1 -rpcallowip=127.0.0.1 -rpcport=18443 \
+  -rpcuser=user -rpcpassword=password -fallbackfee=0.00001 -acceptnonstdtxn=0 \
+  -zmqpubhashblock=tcp://127.0.0.1:28332 -zmqpubhashtx=tcp://127.0.0.1:28333 \
+  -zmqpubrawblock=tcp://127.0.0.1:28334 -zmqpubrawtx=tcp://127.0.0.1:28335 \
+  -zmqpubsequence=tcp://127.0.0.1:28336
+```
+
+**3. Run ONE test.** On a laptop, keep it awake with `caffeinate`:
+
+```bash
+caffeinate -ims ./run_test.sh -t tests/full_mosaic/fn_valid_counterproof_acked.py
+```
+
+`run_test.sh` mines and funds the chain, builds the guest ELFs, generates the circuit in
+the background (`_dd/.g16-runs/g16-gen.log`), then starts the test. Follow progress in
+`_dd/<run-id>/logs/<test>.log`; the result is in `_dd/<run-id>/results.json`.
+
+**4. Stop bitcoind and throw its chain away.**
+
+```bash
+bitcoin-cli -regtest -rpcuser=user -rpcpassword=password stop
+```
+
+```bash
+rm -rf "$BTC_DIR"
+```
+
+**5. Run the other test** by repeating steps 2 to 4 with
+`tests/full_mosaic/fn_invalid_counterproof_nackd.py`. One test per invocation and a fresh
+chain each time: both tests need deposit index 0, so `entry.py` refuses `-g full_mosaic`
+or two `-t`s.
+
+**6. Reclaim the disk** (~755 GB per run). To keep the logs (~150 MB), copy them out first:
+
+```bash
+rsync -a --exclude garbling-tables --exclude /_shared_fdb/data _dd/<run-id>/ _dd/<run-id>-archive/
+```
+
+```bash
+rm -rf _dd/<run-id> _dd/.g16-runs
+```
+
+## Time and space
+
+Measured on an Apple M4 Max (16 cores, 64 GB RAM) with `MOSAIC_CUT_AND_CHOOSE=full`, four
+runs between 2026-09-27 and 2026-09-29.
+
+| Phase | Time |
+|---|---|
+| Guest ELF builds + mosaic/asm-runner installs | ~15 min first run, ~1 min cached (overlaps circuit generation) |
+| Circuit generation (g16, background) | 43-49 min |
+| Setup before the test starts | 44-55 min |
+| Mosaic setup + staking | ~2h00m |
+| Game, valid test (includes ~4m45s circuit evaluation) | ~7 min |
+| Game, invalid test (includes ~17 min SP1 bridge proof) | ~23 min |
+| **Total, valid test** | **~3h05m** |
+| **Total, invalid test** | **~3h15m to 3h25m** |
+
+| Resource | Peak |
+|---|---|
+| Circuit generation RSS | 13-42 GiB (varies run to run) |
+| Mosaic node RSS | ~10-11 GiB each |
+| Test FoundationDB RSS | ~4 GiB |
+| Disk, during a run | **~760 GB**: 134 GB circuit + 2 x 308 GB garbling tables + 4 GB FDB; circuit generation alone peaks near 400 GB before pruning |
+| Disk, left after a run | ~755 GB until step 6 |
+
+`MOSAIC_CUT_AND_CHOOSE=reduced` retains 2 tables per operator instead of 7, so disk drops
+to roughly 310 GB. Its timings have not been measured here, and it validates the verdict
+only, not the 40-bit security parameters.
+
+The circuit is regenerated on every run because it embeds the counterproof vkey, which is
+rebuilt from asm-params anchored to the fresh chain. `MOSAIC_CIRCUIT_PATH` can reuse a
+circuit only while that vkey is unchanged.
+
+## If something goes wrong
+
+- **Preflight refuses to start:** free disk is under `G16_MIN_FREE_GB` (800 by default
+  under `full`, 600 under `reduced`).
+- **`gen_asm_params_external.py` times out after 30 s:** bitcoind from step 2 is not running.
+- **The valid test times out waiting for a verdict:** look for `evaluate_and_sign` in
+  `_dd/<run-id>/_fn_valid_counterproof_acked/operator-0/bridge_node/service.log`.
+- For error triage across the service logs, see the main README's Debugging section.

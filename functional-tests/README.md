@@ -154,52 +154,45 @@ regtest `bitcoind` (the `network-extbtc` environment).
 
 ### Full mosaic circuit mode
 
-By default the mosaic nodes run the bundled 768 KB toy circuit
-([`artifacts/mosaic_depositidx_ckt.v5c`](artifacts/mosaic_depositidx_ckt.v5c)), whose
-output is just the least significant bit of the deposit-input wire — it never inspects
-the counterproof at all. `MOSAIC_CIRCUIT_MODE=full` instead generates the REAL g16
-SP1-Groth16 verifier circuit (134 GB `v5c.ckt`) from this run's counterproof vkey
-with [alpenlabs/g16](https://github.com/alpenlabs/g16)'s `g16-pipeline` and points mosaic
-at it (see [`g16-setup.bash`](g16-setup.bash)). The circuit must be regenerated every run
-because the counterproof vkey bakes in per-run asm-params from the live regtest chain; the
-generation runs in the background, overlapping the remaining builds.
+Builds on SP1 proving mode above. `MOSAIC_CIRCUIT_MODE=full` replaces the bundled 768 KB
+toy circuit, whose output is just the game index's parity, with the real g16
+SP1-Groth16 verifier circuit, generated every run from that run's counterproof vkey (see
+[`g16-setup.bash`](g16-setup.bash)). Only [`tests/full_mosaic/`](tests/full_mosaic/)
+needs it.
 
-**This selects the circuit artifact only.** Cut-and-choose parameters are an independent
-axis, chosen with `MOSAIC_CUT_AND_CHOOSE`: `reduced` (default) builds mosaic with
-`--features=reduced-circuits` for `N_CIRCUITS`/`N_OPEN_CIRCUITS` = 5/3, `full` uses
-181/174 and the 40-bit soundness target. Disk scales with `N_EVAL_CIRCUITS = N - K` — the
-tables the evaluator retains, 2 reduced vs 7 full — not with N, since the K opened
-circuits are verified from their revealed seeds rather than stored. Against the real
-circuit that is roughly 86 GB versus ~300 GB.
+1. In `sp1-env.bash`, on top of the SP1 settings, set:
 
-Requirements: SP1 proving mode set up as above (`sp1-env.bash`, external bitcoind,
-`BRIDGE_PROOF_SP1=1`) and a large free mount (`G16_MIN_FREE_GB`, default 600).
+   ```bash
+   export MOSAIC_CIRCUIT_MODE=full
+   export MOSAIC_CUT_AND_CHOOSE=full           # 181/174; `reduced` (5/3) needs ~310 GB instead
+   export BRIDGE_DEV_MODE=0                    # required under full
+   export BRIDGE_PROOF_SP1_STALE_ARTIFACTS=1   # required by the invalid-counterproof test
+   ```
 
-Measured on a 16-core M-series Mac (g16 `v0.3.0-rc.2`, three runs 2026-08-19 to
-2026-09-28): generation takes **43-68 min** wall clock — `g16gen-generate` 12-17 min,
-`verify` 2 min, `ckt-lvl-prealloc` 30-48 min — and peaks at **30-42 GiB RSS** (30 s
-sampling, so true peaks may be higher; g16's README quotes ~44 GB). Disk is the binding
-constraint: generation's **high-water mark is ~400 GB** (`g16.ckt` 175 GB + `fanout.cache`
-44 GB + `v5c.ckt` 134 GB), pruned back to the 134 GB `v5c.ckt` once it finishes, and the
-test phase then keeps that circuit while the garbled tables land on the same mount, for a
-run total of **~760 GB under `MOSAIC_CUT_AND_CHOOSE=full`** (~310 GB under `reduced`).
-Budget for the run total, not the artifact.
+2. Start a fresh regtest `bitcoind` exactly as in step 1 of SP1 proving mode.
 
-Run locally:
+3. Run ONE test (keep a laptop awake with `caffeinate`):
 
-```bash
-MOSAIC_CIRCUIT_MODE=full ./run_test.sh -t tests/full_mosaic/fn_valid_counterproof_acked.py
-```
+   ```bash
+   caffeinate -ims ./run_test.sh -t tests/full_mosaic/fn_valid_counterproof_acked.py
+   ```
 
-(or set `MOSAIC_CIRCUIT_MODE=full` in your `sp1-env.bash` to make it sticky). One test per
-invocation: every `full_mosaic` test needs deposit index 0 and all tests of an invocation
-share the asm-params anchor, so `entry.py` refuses `-g full_mosaic`. g16 is cloned
-into `.g16-src/`, the circuit lands in `_dd/.g16-runs/` (gen log at
-`_dd/.g16-runs/g16-gen.log`); delete `_dd/.g16-runs` afterwards to reclaim the space.
+4. Stop `bitcoind`, delete its datadir, and repeat steps 2 and 3 for
+   `tests/full_mosaic/fn_invalid_counterproof_nackd.py`. Each test needs its own fresh
+   chain; `entry.py` refuses `-g full_mosaic`.
 
-The tests that need this mode live in [`tests/full_mosaic/`](tests/full_mosaic/) — see
-that directory's README. They are excluded from the default sweep and have no CI
-workflow; run them by hand.
+5. Reclaim the disk: `rm -rf _dd/<run-id> _dd/.g16-runs`.
+
+Measured on an Apple M4 Max (16 cores, 64 GB RAM), full cut-and-choose:
+
+| | Valid test | Invalid test |
+|---|---|---|
+| Wall clock | ~3h05m | ~3h15m to 3h25m |
+| Peak disk | ~760 GB | ~760 GB |
+| Peak RSS | 13-42 GiB (circuit generation) | 13-42 GiB |
+
+The phase breakdown, the log-archive command, and troubleshooting are in the
+[group README](tests/full_mosaic/README.md).
 
 ### SP1 env vars
 
