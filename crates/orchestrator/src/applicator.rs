@@ -8,16 +8,18 @@
 //! Both on-chain (per-transaction) and off-chain (per-event) paths use the same `Applicator`,
 //! ensuring uniform batch semantics across the pipeline.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use strata_bridge_primitives::{
     covenant::StakeKey,
+    operator_set_schedule::OperatorSetSchedule,
     operator_table::PublicOperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{
     deposit::machine::DepositSM,
     graph::machine::GraphSM,
+    operator_set::{MembershipUpdate, OperatorSetEvent, OperatorSetSM},
     stake::{context::StakeSMCtx, machine::StakeSM},
 };
 use tracing::{debug, info, warn};
@@ -147,6 +149,82 @@ impl<'a> Applicator<'a> {
         self.registry.insert_graph(graph_idx, sm)?;
         self.tracker
             .link(SMId::Deposit(graph_idx.deposit), SMId::Graph(graph_idx));
+        Ok(())
+    }
+
+    /// Applies a registration schedule and initializes missing stakes for the current covenant.
+    ///
+    /// Uses `block_height` only when membership has not yet been initialized.
+    /// Existing membership history and stake progress are preserved.
+    pub fn initialize_operator_set(
+        &mut self,
+        registrations: OperatorSetSchedule,
+        block_height: BitcoinBlockHeight,
+    ) -> Result<(), PipelineError> {
+        let height = self
+            .registry
+            .get_operator_set()
+            .map_or(block_height, OperatorSetSM::last_block_height);
+
+        // Params encode one additions-before-removals operation at each interval boundary.
+        let mut updates = BTreeMap::new();
+        for registration in &registrations {
+            let activation_height = registration.activation_height();
+            if activation_height > height {
+                let update = updates
+                    .entry(activation_height)
+                    .or_insert(MembershipUpdate {
+                        activation_height,
+                        additions: BTreeSet::new(),
+                        removals: BTreeSet::new(),
+                    });
+                update.additions.insert(registration.index());
+            }
+
+            if let Some(deactivation_height) = registration.deactivation_height()
+                && deactivation_height > height
+            {
+                let update = updates
+                    .entry(deactivation_height)
+                    .or_insert(MembershipUpdate {
+                        activation_height: deactivation_height,
+                        additions: BTreeSet::new(),
+                        removals: BTreeSet::new(),
+                    });
+                update.removals.insert(registration.index());
+            }
+        }
+
+        let pending_updates = updates.into_values().collect();
+        if self.registry.get_operator_set().is_some() {
+            self.apply_batch([(
+                SMId::OperatorSet,
+                OperatorSetEvent::UpdateOperatorTable {
+                    registrations,
+                    pending_updates,
+                }
+                .into(),
+            )])?;
+        } else {
+            let membership = OperatorSetSM::new(height, registrations, pending_updates)
+                .map_err(ProcessError::from)?;
+            self.registry
+                .insert_operator_set(membership)
+                .map_err(ProcessError::from)?;
+            self.tracker.record(SMId::OperatorSet);
+        }
+
+        let signals = self
+            .registry
+            .get_operator_set()
+            .expect("membership installed")
+            .initialization_signals()
+            .map_err(ProcessError::from)?;
+        for signal in signals {
+            let events = signals_router::route_signal(self.registry, signal.into())?;
+            self.apply_batch(events)?;
+        }
+
         Ok(())
     }
 
