@@ -44,6 +44,20 @@ pub(in crate::mode) async fn verify(
     Ok(())
 }
 
+/// The params' timelocks satisfy the orderings the game graph relies on, unless the config opts
+/// out.
+pub(in crate::mode) fn verify_timelock_ordering(params: &Params, config: &Config) -> Result<()> {
+    if config.allow_unsafe_timelocks {
+        warn!("skipping timelock ordering checks");
+        return Ok(());
+    }
+
+    params
+        .protocol
+        .validate_timelock_ordering()
+        .context("unsafe params timelocks")
+}
+
 async fn fetch_asm_params(client: &HttpClient, config: &AsmRpcConfig) -> Result<AsmParams> {
     let timeout = config.request_timeout;
     let client = client.clone();
@@ -217,6 +231,7 @@ mod tests {
     use bitcoin_bosd::Descriptor;
     use mosaic_rpc_types::{RpcByte32, RpcCircuitInfo};
     use strata_asm_params::{BridgeInitConfig, SubprotocolInstance};
+    use strata_bridge_common::params::TimelockOrderingError;
     use strata_bridge_test_utils::arbitrary_generator::ArbitraryGenerator;
     use strata_l1_txfmt::MagicBytes;
 
@@ -269,7 +284,7 @@ mod tests {
             recovery_delay = 1_008
             contest_timelock = 144
             proof_timelock = 144
-            ack_timelock = 144
+            ack_timelock = 432
             nack_timelock = 144
             contested_payout_timelock = 1_008
             unstaking_timelock = 2_016
@@ -332,6 +347,27 @@ mod tests {
         let params = test_params();
         verify_asm_params(&params, &test_config(), &matching_asm(&params))
             .expect("matching params must verify");
+    }
+
+    #[test]
+    fn misordered_timelocks_fail_unless_allowed() {
+        let mut params = test_params();
+        let mut config = test_config();
+        verify_timelock_ordering(&params, &config).expect("ordered timelocks must verify");
+
+        params.protocol.ack_timelock = params.protocol.proof_timelock;
+        let err =
+            verify_timelock_ordering(&params, &config).expect_err("misordered timelocks must fail");
+        assert!(
+            matches!(
+                err.downcast_ref(),
+                Some(TimelockOrderingError::ProofTimeoutAfterPayout { .. })
+            ),
+            "unexpected error: {err:?}"
+        );
+
+        config.allow_unsafe_timelocks = true;
+        verify_timelock_ordering(&params, &config).expect("opt-out must skip the check");
     }
 
     #[test]

@@ -103,6 +103,11 @@ pub(crate) struct Config {
     #[serde(default)]
     pub dev: bool,
 
+    /// Skips the timelock ordering checks on the params; only for tests that need out-of-order
+    /// timelocks.
+    #[serde(default)]
+    pub allow_unsafe_timelocks: bool,
+
     /// Configuration for process-level metrics exporters.
     #[serde(default)]
     pub metrics: MetricsConfig,

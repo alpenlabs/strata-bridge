@@ -54,6 +54,8 @@ pub(crate) async fn bootstrap(
 
     // Run the startup consistency checks before starting any services so that a
     // misconfigured node fails fast
+    startup_checks::verify_timelock_ordering(&params, &config)?;
+
     debug!("initializing asm rpc client");
     let asm_rpc_client = init_asm_rpc_client(&config.asm_rpc);
     info!("asm rpc client initialized");
