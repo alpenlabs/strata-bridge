@@ -1,6 +1,9 @@
 //! Reusable mock [`GraphState`] constructors for graph SM tests.
 
-use std::{collections::BTreeMap, sync::LazyLock};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, LazyLock},
+};
 
 use bitcoin::OutPoint;
 use musig2::secp256k1::schnorr::Signature;
@@ -24,6 +27,7 @@ use super::{
     utils::{NonceContext, build_nonce_context},
 };
 use crate::graph::{
+    config::GraphSMCfg,
     machine::generate_game_graph,
     state::{AbortReason, CounterproofData, GraphState},
     watchtower::watchtower_slot_for_operator,
@@ -39,8 +43,14 @@ pub(super) static TEST_BRIDGE_PROOF_TX: LazyLock<bitcoin::Transaction> =
 
 /// Generates a test [`NonceContext`] for use with state builders.
 pub(super) fn test_nonce_context() -> (DepositParams, GameGraphSummary, NonceContext) {
-    let cfg = test_graph_sm_cfg();
-    let (deposit_params, graph) = test_graph_data(&cfg);
+    test_nonce_context_with(&test_graph_sm_cfg())
+}
+
+/// Generates a test [`NonceContext`] under `cfg`, whose keys the sighashes depend on.
+pub(super) fn test_nonce_context_with(
+    cfg: &Arc<GraphSMCfg>,
+) -> (DepositParams, GameGraphSummary, NonceContext) {
+    let (deposit_params, graph) = test_graph_data(cfg);
     let nonce_ctx = build_nonce_context(graph.musig_signing_info().pack());
     (deposit_params, graph.summarize(), nonce_ctx)
 }
