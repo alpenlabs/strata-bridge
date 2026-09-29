@@ -11810,6 +11810,7 @@ dependencies = [
  "postcard",
  "rkyv",
  "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?tag=v0.5.0-rc.1)",
+ "strata-asm-common",
  "strata-asm-proto-bridge",
  "strata-asm-proto-bridge-txs",
  "strata-bridge-asm-events",
