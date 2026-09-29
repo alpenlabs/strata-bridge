@@ -44,7 +44,7 @@ class BridgeProtocolParams:
     recovery_delay: int = 1_008
     contest_timelock: int = 45
     proof_timelock: int = 15
-    ack_timelock: int = 35
+    ack_timelock: int = 46
     nack_timelock: int = 30
     contested_payout_timelock: int = 60
     unstaking_timelock: int = 75
