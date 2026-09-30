@@ -14,8 +14,7 @@ use strata_asm_rpc::traits::{AsmMohoApiClient, AsmProofApiClient};
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
     BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
-    HeavierChainProof, RawBitcoinTx,
-    statements::{commits_to_different_claim, leq_little_endian},
+    HeavierChainProof, RawBitcoinTx, statements::leq_little_endian,
 };
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -65,13 +64,24 @@ pub(super) async fn evaluate_and_publish_counterproof(
             .serialize(),
     );
 
-    let mode = if commits_to_different_claim(&proof, game_index, operator_pubkey) {
-        info!(%deposit_idx, %operator_idx, %game_index, "bridge proof commits to a different game; publishing counterproof");
-        CounterproofMode::InvalidBridgeProof
-    } else if !verify_bridge_proof(&cfg.graph_sm_cfg.bridge_proof_predicate, &proof) {
-        info!(%deposit_idx, %operator_idx, %game_index, "bridge proof failed verification; publishing counterproof");
-        CounterproofMode::InvalidBridgeProof
-    } else {
+    let mode = 'select_mode: {
+        let Ok(output) = BridgeProofOutput::from_ssz_bytes(proof.public_values().as_bytes()) else {
+            info!(%deposit_idx, %operator_idx, %game_index, "bridge proof output doesn't parse; publishing counterproof");
+            break 'select_mode CounterproofMode::InvalidBridgeProof;
+        };
+
+        if (output.claim_unlock.deposit_idx != game_index.get() - 1)
+            || (output.claim_unlock.operator_pubkey != operator_pubkey)
+        {
+            info!(%deposit_idx, %operator_idx, %game_index, "bridge proof commits to a different game; publishing counterproof");
+            break 'select_mode CounterproofMode::InvalidBridgeProof;
+        }
+
+        if !verify_bridge_proof(&cfg.graph_sm_cfg.bridge_proof_predicate, &proof) {
+            info!(%deposit_idx, %operator_idx, %game_index, "bridge proof failed verification; publishing counterproof");
+            break 'select_mode CounterproofMode::InvalidBridgeProof;
+        }
+
         let Some(heavier_chain_proof) = detect_heavier_chain(
             output_handles,
             deposit_idx,
@@ -90,6 +100,7 @@ pub(super) async fn evaluate_and_publish_counterproof(
             );
             return Ok(());
         };
+
         info!(%deposit_idx, %operator_idx, %game_index, "heavier contradicting chain detected; publishing counterproof");
         CounterproofMode::HeavierChain(heavier_chain_proof)
     };
