@@ -14,8 +14,7 @@ use strata_asm_rpc::traits::{AsmMohoApiClient, AsmProofApiClient};
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
 use strata_bridge_counterproof::{
     BitcoinTxOut, BridgeCounterproofHost, CounterproofInput, CounterproofMode, CounterproofProgram,
-    HeavierChainProof, RawBitcoinTx,
-    statements::{commits_to_different_claim, leq_little_endian},
+    HeavierChainProof, RawBitcoinTx, statements::leq_little_endian,
 };
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -27,6 +26,7 @@ use strata_bridge_proof::{
 };
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
+use strata_codec::decode_buf_exact;
 use strata_crypto::hash;
 use strata_identifiers::Buf32;
 use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Role};
@@ -66,7 +66,17 @@ pub(super) async fn evaluate_and_publish_counterproof(
             .serialize(),
     );
 
-    let mode = if commits_to_different_claim(&proof, game_index, operator_pubkey) {
+    let output =
+        BridgeProofOutput::from_ssz_bytes(proof.public_values().as_bytes()).map_err(|e| {
+            ExecutorError::InvalidTxStructure(format!("decode bridge proof output ssz: {e:?}"))
+        })?;
+    let unlock = decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock).map_err(|e| {
+        ExecutorError::InvalidTxStructure(format!("decode bridge proof claim unlock: {e:?}"))
+    })?;
+
+    let mode = if (unlock.deposit_idx != game_index.get() - 1)
+        || (unlock.operator_pubkey != operator_pubkey)
+    {
         info!(%deposit_idx, %operator_idx, %game_index, "bridge proof commits to a different game; publishing counterproof");
         CounterproofMode::InvalidBridgeProof
     } else if !verify_bridge_proof(&cfg.graph_sm_cfg.bridge_proof_predicate, &proof) {
