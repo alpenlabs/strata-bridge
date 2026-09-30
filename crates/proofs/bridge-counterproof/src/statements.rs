@@ -10,12 +10,10 @@ use bitcoin::{
 };
 use secp256k1::{Message, SECP256K1};
 use ssz::Decode;
-use strata_asm_proto_bridge::OperatorClaimUnlockV1;
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_bridge_proof::BridgeProofOutput;
 use strata_bridge_proof_common::{verify_claim_unlock_inclusion, verify_moho_proof};
-use strata_identifiers::Buf32;
 use zkaleido::{ProofReceipt, ZkVmEnv, ZkVmEnvSsz};
 
 #[cfg(not(target_os = "zkvm"))]
@@ -144,18 +142,36 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
         });
         return;
     };
+    // Immediately succeed if bridge proof output doesn't parse
+    let Ok(BridgeProofOutput {
+        total_pow,
+        claim_unlock: unlock,
+        mmr_idx,
+    }) = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
+    else {
+        zkvm.commit_ssz(&CounterproofOutput {
+            operator_pubkey: operator_pubkey_raw,
+            game_idx: game_idx_raw,
+        });
+        return;
+    };
+
+    // ┌───────────────────────────────────────────────────────────────────────┐
+    // │                          Verify claim unlock                          │
+    // └───────────────────────────────────────────────────────────────────────┘
+    // Immediately succeed if unlock is for a different game
+    if (game_idx_raw - 1 != unlock.deposit_idx)
+        || (operator_pubkey_raw.inner() != &unlock.operator_pubkey)
+    {
+        zkvm.commit_ssz(&CounterproofOutput {
+            operator_pubkey: operator_pubkey_raw,
+            game_idx: game_idx_raw,
+        });
+        return;
+    }
 
     match mode {
-        CounterproofMode::InvalidBridgeProof => 'invalid_bridge_proof: {
-            // Immediately succeed if the bridge proof commits to a different game
-            if commits_to_different_claim(
-                &bridge_proof_receipt,
-                game_idx,
-                *operator_pubkey_raw.inner(),
-            ) {
-                break 'invalid_bridge_proof;
-            }
-
+        CounterproofMode::InvalidBridgeProof => {
             assert!(
                 genesis
                     .bridge_proof_vk
@@ -174,13 +190,6 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 claim_unlock: heavier_claim_unlock,
                 claim_unlock_inclusion_proof: heavier_inclusion_proof,
             } = heavier_chain_proof;
-
-            let BridgeProofOutput {
-                total_pow,
-                claim_unlock: bridge_proof_claim_unlock,
-                mmr_idx,
-            } = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
-                .expect("if public values of bridge proof are invalid, then the bridge proof is invalid (use CounterproofMode::InvalidBridgeProof)");
 
             // Fail if `heavier_moho_proof` is invalid.
             verify_moho_proof(
@@ -228,12 +237,12 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 "invalid heavier chain: invalid inclusion proof for heavier claim unlock",
             );
 
-            // Fail if `heavier_claim_unlock` is equal to `bridge_proof_claim_unlock`.
+            // Fail if `heavier_claim_unlock` is equal to `unlock`.
             //
             // If the heavier chain is an extension of the operator chain,
             // i.e. the watchtower just waited a few blocks after the operator
             // posted the bridge proof, then this equality is triggered.
-            if heavier_claim_unlock == bridge_proof_claim_unlock {
+            if heavier_claim_unlock == unlock {
                 panic!("invalid heavier chain: claim unlock must be different from bridge proof")
             }
         }
@@ -272,18 +281,6 @@ pub fn leq_little_endian(lhs: &[u8; 32], rhs: &[u8; 32]) -> bool {
     lhs.iter().rev().cmp(rhs.iter().rev()).is_le()
 }
 
-/// Returns `true` if the bridge proof commits to a claim other than the one
-/// expected for the game identified by `(operator_pubkey, game_idx)`.
-pub fn commits_to_different_claim(
-    bridge_proof_receipt: &ProofReceipt,
-    game_idx: NonZero<u32>,
-    operator_pubkey: Buf32,
-) -> bool {
-    let expected = OperatorClaimUnlockV1::new(game_idx.get() - 1, operator_pubkey);
-    BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
-        .is_ok_and(|output| output.claim_unlock != expected)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -296,10 +293,12 @@ mod tests {
     };
     use secp256k1::{Keypair, XOnlyPublicKey};
     use ssz::{Decode, Encode};
+    use strata_asm_proto_bridge::OperatorClaimUnlockV1;
     use strata_bridge_connectors::Connector;
     use strata_bridge_proof_common::{MOHO_GENESIS_ATTESTATION, generate_moho_state};
     use strata_bridge_test_utils::bitcoin::generate_keypair;
     use strata_bridge_tx_graph::transactions::prelude::{BridgeProofData, BridgeProofTx};
+    use strata_identifiers::Buf32;
     use strata_predicate::PredicateKey;
     use zkaleido::{Proof, PublicValues};
     use zkaleido_native_adapter::NativeMachine;
@@ -309,7 +308,6 @@ mod tests {
 
     const GAME_IDX: NonZero<u32> = NonZero::new(7).unwrap();
     const CONTESTED_DEPOSIT_IDX: u32 = GAME_IDX.get() - 1;
-    const DIFFERENT_GAME_DEPOSIT_IDX: u32 = CONTESTED_DEPOSIT_IDX + 1;
     const PROOF_TIMELOCK: relative::Height = relative::Height::from_height(100);
     const TXIN_IDX: u32 = 0;
 
@@ -384,32 +382,6 @@ mod tests {
         LazyLock::new(|| bridge_proof_tx(&BRIDGE_PROOF_CLAIM_UNLOCK));
     static BRIDGE_PROOF_TX_SIGNED: LazyLock<Transaction> =
         LazyLock::new(|| sign_bridge_proof_tx(BRIDGE_PROOF_TX_UNSIGNED.clone()));
-    static BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_FORMAT: LazyLock<Transaction> = LazyLock::new(|| {
-        let mut tx = BRIDGE_PROOF_TX_UNSIGNED.clone();
-        tx.as_mut().output[0].script_pubkey = ScriptBuf::new();
-        sign_bridge_proof_tx(tx)
-    });
-    static BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_PROOF: LazyLock<Transaction> = LazyLock::new(|| {
-        let receipt = ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]));
-        let data = BridgeProofData {
-            contest_txid: Txid::all_zeros(),
-            proof_bytes: borsh::to_vec(&receipt).unwrap(),
-            game_index: GAME_IDX,
-        };
-        sign_bridge_proof_tx(BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR))
-    });
-    static BRIDGE_PROOF_TX_SIGNED_DIFFERENT_GAME: LazyLock<Transaction> = LazyLock::new(|| {
-        sign_bridge_proof_tx(bridge_proof_tx(&OperatorClaimUnlockV1::new(
-            DIFFERENT_GAME_DEPOSIT_IDX,
-            *OPERATOR_PUBKEY_BUF,
-        )))
-    });
-    static BRIDGE_PROOF_TX_SIGNED_DIFFERENT_OPERATOR: LazyLock<Transaction> = LazyLock::new(|| {
-        sign_bridge_proof_tx(bridge_proof_tx(&OperatorClaimUnlockV1::new(
-            CONTESTED_DEPOSIT_IDX,
-            operator_key(0),
-        )))
-    });
 
     fn op_return_script(data: Vec<u8>) -> ScriptBuf {
         let payload = PushBytesBuf::try_from(data).unwrap();
@@ -455,67 +427,6 @@ mod tests {
             "low-order byte does not dominate"
         );
         assert!(!leq_little_endian(&big, &one), "high-order byte dominates");
-    }
-
-    #[test]
-    fn commits_to_different_claim_flags_mismatched_deposit() {
-        let receipt = |deposit_idx: u32| {
-            bridge_proof_receipt(&OperatorClaimUnlockV1::new(deposit_idx, operator_key(0)))
-        };
-
-        // deposit_idx + 1 == game_idx and matching operator: the proof backs the contested game.
-        assert!(!commits_to_different_claim(
-            &receipt(CONTESTED_DEPOSIT_IDX),
-            GAME_IDX,
-            operator_key(0),
-        ));
-        // deposit_idx + 1 != game_idx: the proof commits to a different game.
-        assert!(commits_to_different_claim(
-            &receipt(DIFFERENT_GAME_DEPOSIT_IDX),
-            GAME_IDX,
-            operator_key(0),
-        ));
-    }
-
-    #[test]
-    fn commits_to_different_claim_flags_mismatched_operator() {
-        // Contested deposit but a different operator than expected: still a different claim.
-        let receipt = bridge_proof_receipt(&OperatorClaimUnlockV1::new(
-            CONTESTED_DEPOSIT_IDX,
-            operator_key(0),
-        ));
-
-        assert!(commits_to_different_claim(
-            &receipt,
-            GAME_IDX,
-            operator_key(1)
-        ));
-    }
-
-    #[test]
-    fn commits_to_different_claim_does_not_overflow_on_max_deposit_idx() {
-        // A `u32::MAX` deposit index is operator-controlled and must not overflow
-        // (`deposit_idx + 1` would panic in overflow-checked builds before verification).
-        let receipt = bridge_proof_receipt(&OperatorClaimUnlockV1::new(u32::MAX, operator_key(0)));
-
-        // `u32::MAX != GAME_IDX - 1`, so this is a different game.
-        assert!(commits_to_different_claim(
-            &receipt,
-            GAME_IDX,
-            operator_key(0)
-        ));
-    }
-
-    #[test]
-    fn commits_to_different_claim_is_false_for_undecodable_output() {
-        // An output that cannot be decoded is left to the normal verification path, not treated
-        // as a different-game commitment.
-        let receipt = ProofReceipt::new(Proof::new(vec![]), PublicValues::new(vec![]));
-        assert!(!commits_to_different_claim(
-            &receipt,
-            GAME_IDX,
-            operator_key(0)
-        ));
     }
 
     #[test]
@@ -755,58 +666,66 @@ mod tests {
                 moho_vk: PredicateKey::never_accept(),
             });
         }
+
+        #[test]
+        fn counterproof_valid_if_bridge_proof_output_doesnt_parse() {
+            let malformed_bridge_proof_output = vec![0x00];
+            let receipt = ProofReceipt::new(
+                Proof::new(vec![]),
+                PublicValues::new(malformed_bridge_proof_output),
+            );
+            let data = BridgeProofData {
+                contest_txid: Txid::all_zeros(),
+                proof_bytes: borsh::to_vec(&receipt).unwrap(),
+                game_index: GAME_IDX,
+            };
+            let tx = sign_bridge_proof_tx(BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR));
+
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.bridge_proof_tx = tx.into();
+
+            run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::never_accept(),
+            });
+        }
+
+        #[test]
+        fn counterproof_valid_if_unlock_has_wrong_deposit_idx() {
+            let unlock =
+                OperatorClaimUnlockV1::new(CONTESTED_DEPOSIT_IDX + 1, *OPERATOR_PUBKEY_BUF);
+            let tx = sign_bridge_proof_tx(bridge_proof_tx(&unlock));
+
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.bridge_proof_tx = tx.into();
+
+            run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::never_accept(),
+            });
+        }
+
+        #[test]
+        fn counterproof_valid_if_unlock_has_wrong_operator_pubkey() {
+            let unlock = OperatorClaimUnlockV1::new(CONTESTED_DEPOSIT_IDX, operator_key(0));
+            let tx = sign_bridge_proof_tx(bridge_proof_tx(&unlock));
+
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.bridge_proof_tx = tx.into();
+
+            run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::never_accept(),
+            });
+        }
     }
 
     /// Unit tests for `CounterproofMode::InvalidBridgeProof`.
     mod invalid_bridge_proof {
         use super::*;
-
-        #[test]
-        fn counterproof_valid_if_bridge_proof_commits_to_different_game() {
-            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
-            input.bridge_proof_tx =
-                RawBitcoinTx::from(BRIDGE_PROOF_TX_SIGNED_DIFFERENT_GAME.clone());
-            // // Guard: the tx is well-formed, so a valid output can only come from the
-            // // different-game short-circuit, not from an unparsable bridge proof receipt.
-            // assert!(
-            //     extract_bridge_proof(&BRIDGE_PROOF_TX_SIGNED_DIFFERENT_GAME, TXIN_IDX).is_some()
-            // );
-
-            // `always_accept` would otherwise trigger the "bridge proof is valid" panic;
-            // the counterproof still succeeds because the bridge proof commits to a
-            // different game.
-            let output = run_counterproof(RuntimeArgs {
-                input,
-                bridge_proof_vk: PredicateKey::always_accept(),
-                moho_vk: PredicateKey::never_accept(),
-            });
-            assert_eq!(output.game_idx, GAME_IDX.get());
-            assert_eq!(output.operator_pubkey, (*OPERATOR_PUBKEY).into());
-        }
-
-        #[test]
-        fn counterproof_valid_if_bridge_proof_commits_to_different_operator() {
-            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
-            input.bridge_proof_tx =
-                RawBitcoinTx::from(BRIDGE_PROOF_TX_SIGNED_DIFFERENT_OPERATOR.clone());
-            // // Guard: the tx is well-formed, so a valid output can only come from the
-            // // different-game short-circuit, not from an unparsable bridge proof receipt.
-            // assert!(
-            //     extract_bridge_proof(&BRIDGE_PROOF_TX_SIGNED_DIFFERENT_OPERATOR, TXIN_IDX)
-            //         .is_some()
-            // );
-
-            // `always_accept` would otherwise trigger the "bridge proof is valid" panic;
-            // the counterproof still succeeds because the bridge proof commits to a
-            // different operator.
-            let output = run_counterproof(RuntimeArgs {
-                input,
-                bridge_proof_vk: PredicateKey::always_accept(),
-                moho_vk: PredicateKey::never_accept(),
-            });
-            assert_eq!(output.game_idx, GAME_IDX.get());
-            assert_eq!(output.operator_pubkey, (*OPERATOR_PUBKEY).into());
-        }
 
         #[test]
         #[should_panic(expected = "invalid counterproof: bridge proof is valid")]
@@ -879,36 +798,6 @@ mod tests {
                 RecursiveMohoAttestation::new(genesis_state, *moho_proof.attestation().proven()),
                 moho_proof.proof().to_vec(),
             )
-        }
-
-        #[test]
-        fn counterproof_valid_if_bridge_proof_tx_malformed() {
-            let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
-            input.bridge_proof_tx =
-                RawBitcoinTx::from(BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_FORMAT.clone());
-
-            let output = run_counterproof(RuntimeArgs {
-                input,
-                bridge_proof_vk: PredicateKey::always_accept(),
-                moho_vk: PredicateKey::always_accept(),
-            });
-            assert_eq!(output.game_idx, GAME_IDX.get());
-        }
-
-        #[test]
-        #[should_panic(
-            expected = "if public values of bridge proof are invalid, then the bridge proof is invalid (use CounterproofMode::InvalidBridgeProof)"
-        )]
-        fn counterproof_invalid_if_bridge_proof_malformed() {
-            let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
-            input.bridge_proof_tx =
-                RawBitcoinTx::from(BRIDGE_PROOF_TX_SIGNED_BUT_INVALID_PROOF.clone());
-
-            let _ = run_counterproof(RuntimeArgs {
-                input,
-                bridge_proof_vk: PredicateKey::always_accept(),
-                moho_vk: PredicateKey::always_accept(),
-            });
         }
 
         #[test]
